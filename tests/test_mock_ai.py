@@ -3,6 +3,8 @@
 Тест Mock AI провайдера для демонстрации системы AI коучинга
 """
 
+import sys
+sys.path.append('..')
 from models.ai_providers import AIProviderFactory
 from models.ai_coach_universal import UniversalAICoach
 

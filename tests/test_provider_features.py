@@ -5,6 +5,8 @@
 - get_available_models() - получение списка моделей
 """
 
+import sys
+sys.path.append('..')
 from models.ai_providers import AIProviderFactory
 
 def test_provider_features():

@@ -4,6 +4,8 @@
 """
 
 import os
+import sys
+sys.path.append('..')
 from dotenv import load_dotenv
 from models.ai_providers import AIProviderFactory
 from models.ai_coach_universal import UniversalAICoach

@@ -4,6 +4,8 @@
 """
 
 import os
+import sys
+sys.path.append('..')
 from dotenv import load_dotenv
 
 # Загружаем .env

@@ -3,6 +3,8 @@
 Тест реального Ollama AI коучинга с gemma3:4b
 """
 
+import sys
+sys.path.append('..')
 from models.ai_providers import AIProviderFactory
 from models.ai_coach_universal import UniversalAICoach
 
