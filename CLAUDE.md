@@ -173,19 +173,16 @@ Required variables in `.env`:
 # Install missing AI libraries
 pip install anthropic google-generativeai ollama
 
-# Fix Google Gemini protobuf conflicts (choose one method):
-# Method 1: Downgrade protobuf
-pip uninstall protobuf && pip install protobuf==4.24.0
+# Fix Google Gemini protobuf conflicts:
+# Quick fix - use the launch script
+./run.sh
 
-# Method 2: Use Python implementation (temporary)
+# Or set environment variable before running
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+streamlit run app.py
 
-# Method 3: Permanent fix (automatic setup)
+# For permanent fix
 ./setup_env.sh
-
-# Method 4: Manual permanent fix
-echo 'export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python' >> ~/.zshrc
-source ~/.zshrc
 
 # Reset environment if needed
 rm -rf ai_trainer_env && python -m venv ai_trainer_env

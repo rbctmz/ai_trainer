@@ -15,7 +15,7 @@ class Settings:
     ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
     
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-    GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "gemini-pro")
+    GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "models/gemini-1.5-flash-latest")
     
     OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")

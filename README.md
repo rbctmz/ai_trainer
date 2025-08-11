@@ -32,7 +32,24 @@ cp .env.example .env
 
 ### 3. Запуск приложения
 
+#### Быстрый запуск (рекомендуется)
 ```bash
+./run.sh
+```
+
+#### Альтернативный запуск
+```bash
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+streamlit run app.py
+```
+
+#### Если возникает ошибка с Google Gemini
+```bash
+# Запустите один раз для постоянного исправления
+./setup_env.sh
+
+# Или используйте временное решение перед запуском
+export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 streamlit run app.py
 ```
 

@@ -222,9 +222,9 @@ class AnthropicProvider(AIProvider):
 
 
 class GoogleGeminiProvider(AIProvider):
-    """Провайдер Google Gemini"""
+    """Провайдер Google Gemini с поддержкой новых моделей"""
     
-    def __init__(self, api_key: str = None, model: str = "gemini-pro"):
+    def __init__(self, api_key: str = None, model: str = "models/gemini-2.5-flash"):
         self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
         self.model_name = model
         self.model = None
@@ -297,12 +297,15 @@ class GoogleGeminiProvider(AIProvider):
     
     def get_available_models(self) -> List[str]:
         """Получить список доступных моделей Google"""
-        # Google AI Studio API не предоставляет список моделей, возвращаем известные
+        # Актуальные модели Gemini по состоянию на 2024-2025
         return [
-            "gemini-pro",
-            "gemini-pro-vision",
-            "gemini-1.5-pro",
-            "gemini-1.5-flash"
+            "gemini-2.0-flash-exp",      # Экспериментальная версия 2.0
+            "gemini-1.5-pro-latest",     # Последняя версия 1.5 Pro
+            "gemini-1.5-flash-latest",   # Последняя версия 1.5 Flash 
+            "gemini-1.5-pro",            # Стабильная 1.5 Pro
+            "gemini-1.5-flash",          # Стабильная 1.5 Flash
+            "gemini-pro",                # Legacy модель
+            "gemini-pro-vision"          # Legacy модель с поддержкой изображений
         ]
 
 

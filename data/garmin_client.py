@@ -60,6 +60,30 @@ class GarminClient:
             # HRV данные часто недоступны, это не критичная ошибка
             return None
     
+    def get_stress_data(self, date):
+        """Получение данных о стрессе за день"""
+        if not self.is_authenticated:
+            return None
+        
+        try:
+            return self.client.get_stress_data(date.strftime("%Y-%m-%d"))
+        except Exception as e:
+            # Стресс данные могут быть недоступны
+            return None
+    
+    def get_body_battery_data(self, date):
+        """Получение данных Body Battery (восстановление) за день"""
+        if not self.is_authenticated:
+            return None
+        
+        try:
+            # Body Battery возвращает данные за период
+            date_str = date.strftime("%Y-%m-%d")
+            return self.client.get_body_battery(date_str, date_str)
+        except Exception as e:
+            # Body Battery данные могут быть недоступны
+            return None
+    
     def get_user_profile(self):
         """Получение профиля пользователя"""
         if not self.is_authenticated:

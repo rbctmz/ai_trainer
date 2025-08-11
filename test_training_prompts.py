@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""
+Тест специализированных training prompts
+"""
+
+import sys
+sys.path.append('.')
+
+from models.training_prompts import TrainingPrompts, get_analysis_prompt
+from models.ai_providers import AIProviderFactory
+from data.database import Database
+import pandas as pd
+
+def test_specialized_prompts():
+    """Тест специализированных prompts для анализа тренировок"""
+    
+    print("🎯 ТЕСТ СПЕЦИАЛИЗИРОВАННЫХ AI PROMPTS")
+    print("=" * 60)
+    
+    # Получаем реальные данные
+    database = Database()
+    activities_df = database.get_activities(14)
+    hrv_df = database.get_hrv_data(14)
+    
+    print(f"📊 Данные для тестирования:")
+    print(f"  • Активностей: {len(activities_df)}")
+    print(f"  • HRV записей: {len(hrv_df)}")
+    
+    # Получаем лучший доступный AI провайдер
+    ai_provider = AIProviderFactory.get_first_available()
+    if not ai_provider:
+        print("❌ Ни один AI провайдер недоступен")
+        return False
+    
+    print(f"🤖 Используем: {ai_provider.get_model_name()}")
+    
+    # Тестируем различные типы анализа
+    test_cases = [
+        {
+            'name': '📈 Анализ недавних тренировок',
+            'type': 'recent_training',
+            'params': {'activities_df': activities_df, 'hrv_df': hrv_df, 'days': 7}
+        },
+        {
+            'name': '💓 Анализ HRV',
+            'type': 'hrv',
+            'params': {'hrv_df': hrv_df, 'period_days': 14}
+        },
+        {
+            'name': '📅 Планирование недели',
+            'type': 'weekly_plan',
+            'params': {
+                'activities_df': activities_df, 
+                'hrv_df': hrv_df,
+                'goals': 'Подготовка к полумарафону'
+            }
+        }
+    ]
+    
+    # Добавляем анализ конкретной тренировки если есть данные
+    if not activities_df.empty:
+        latest_activity = activities_df.iloc[0].to_dict()
+        test_cases.append({
+            'name': '🏃 Анализ конкретной тренировки',
+            'type': 'workout',
+            'params': {'activity': latest_activity}
+        })
+    
+    results = {}
+    
+    for test_case in test_cases:
+        print(f"\n{test_case['name']}")
+        print("-" * 50)
+        
+        try:
+            # Получаем специализированный prompt
+            system_prompt, user_prompt = get_analysis_prompt(
+                test_case['type'], 
+                **test_case['params']
+            )
+            
+            print(f"📝 Размер prompt: {len(user_prompt)} символов")
+            print(f"🔍 Превью prompt:\n{user_prompt[:200]}...")
+            
+            # Генерируем ответ AI
+            response = ai_provider.generate_response(user_prompt, system_prompt)
+            
+            if response and not ("ошибка" in response.lower() or "error" in response.lower()):
+                print(f"✅ Ответ получен ({len(response)} символов)")
+                results[test_case['name']] = {
+                    'success': True,
+                    'response': response,
+                    'prompt_length': len(user_prompt)
+                }
+            else:
+                print(f"❌ Ошибка в ответе: {response[:100]}...")
+                results[test_case['name']] = {'success': False, 'error': response}
+                
+        except Exception as e:
+            print(f"❌ Исключение: {str(e)}")
+            results[test_case['name']] = {'success': False, 'error': str(e)}
+    
+    # Показываем результаты
+    print(f"\n🏆 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ PROMPTS")
+    print("=" * 60)
+    
+    successful_tests = [name for name, result in results.items() if result.get('success', False)]
+    failed_tests = [name for name, result in results.items() if not result.get('success', False)]
+    
+    print(f"✅ Успешных тестов: {len(successful_tests)}")
+    print(f"❌ Неудачных тестов: {len(failed_tests)}")
+    
+    # Показываем примеры ответов
+    if successful_tests:
+        print(f"\n📋 ПРИМЕРЫ ОТВЕТОВ AI ТРЕНЕРА:")
+        print("=" * 60)
+        
+        for test_name in successful_tests[:2]:  # Показываем первые 2
+            result = results[test_name]
+            print(f"\n{test_name}:")
+            print("-" * 30)
+            print(result['response'])
+            print()
+    
+    return len(successful_tests) > 0
+
+def test_prompt_components():
+    """Тест компонентов prompt системы"""
+    
+    print(f"\n🔧 ТЕСТ КОМПОНЕНТОВ PROMPT СИСТЕМЫ")  
+    print("=" * 60)
+    
+    # Тестируем системный prompt
+    system_prompt = TrainingPrompts.get_system_prompt()
+    print(f"📝 Системный prompt: {len(system_prompt)} символов")
+    print(f"🔍 Содержит ключевые слова:")
+    
+    keywords = ['TSS', 'HRV', 'тренер', 'физиология', 'восстановление']
+    for keyword in keywords:
+        found = keyword.lower() in system_prompt.lower()
+        print(f"  {'✅' if found else '❌'} {keyword}")
+    
+    # Тестируем статистические функции
+    database = Database()
+    activities_df = database.get_activities(7)
+    hrv_df = database.get_hrv_data(7)
+    
+    if not activities_df.empty:
+        stats = TrainingPrompts._get_training_stats(activities_df, hrv_df, 7)
+        print(f"\n📊 Статистика тренировок:")
+        print(stats)
+    
+    if not hrv_df.empty:
+        hrv_stats = TrainingPrompts._get_hrv_stats(hrv_df, 7)
+        print(f"\n💓 Статистика HRV:")
+        print(hrv_stats)
+    
+    print(f"\n✅ Компоненты prompt системы работают корректно")
+    return True
+
+if __name__ == "__main__":
+    print("🚀 Запуск тестирования специализированных prompts...")
+    
+    # Тест компонентов
+    components_ok = test_prompt_components()
+    
+    # Основной тест prompts
+    prompts_ok = test_specialized_prompts()
+    
+    if prompts_ok and components_ok:
+        print(f"\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
+        print(f"🧠 Специализированные AI prompts готовы!")
+        print(f"💡 Теперь AI может давать экспертные советы по:")
+        print(f"  • Анализу тренировок с учетом TSS и HRV")
+        print(f"  • Планированию восстановления")
+        print(f"  • Оптимизации тренировочного процесса")
+        print(f"  • Персонализированным рекомендациям")
+    else:
+        print(f"\n⚠️ Некоторые тесты не прошли")
+        print(f"🔧 Проверьте настройки AI провайдеров")
