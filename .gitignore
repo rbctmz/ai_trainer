@@ -179,3 +179,15 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# Project specific
+ai_trainer_env/
+*.db
+*.db-journal
+
+# Test files in root (должны быть в папке tests/)
+/test_*.py
+/debug_*.py
+/demo_*.py
+/add_*.py
+/clean_*.py

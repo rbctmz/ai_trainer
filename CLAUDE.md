@@ -160,6 +160,16 @@ Required variables in `.env`:
 - Provider factory pattern enables easy addition of new AI services
 - All user data is stored locally in SQLite database
 
+## Testing Guidelines
+
+⚠️ **IMPORTANT: All test files MUST be created in the `tests/` directory!**
+
+- **NEVER** create test files in the project root
+- Use naming convention: `test_<component>.py` for tests
+- Debug scripts should be named: `debug_<feature>.py`
+- Utility scripts: `add_*.py`, `clean_*.py`, etc.
+- Always add `sys.path.append('..')` in test files to import project modules
+
 ## Troubleshooting
 
 ### AI Provider Issues
