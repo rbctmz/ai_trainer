@@ -119,10 +119,12 @@ class Database:
         
         cutoff_date = (datetime.now() - pd.Timedelta(days=days)).date()
         
+        # Изменяем сортировку на ASC, чтобы последние записи были в конце DataFrame
+        # Это позволит корректно использовать tail() для получения последних дней
         query = f'''
             SELECT * FROM hrv_data 
             WHERE date >= '{cutoff_date}'
-            ORDER BY date DESC
+            ORDER BY date ASC
         '''
         df = pd.read_sql_query(query, conn)
         conn.close()
@@ -131,6 +133,11 @@ class Database:
         if not df.empty and 'date' in df.columns:
             # Обрабатываем смешанные форматы дат
             df['date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
+        
+        # Сортируем по убыванию после преобразования для отображения в UI
+        # (самые новые данные первыми)
+        if not df.empty:
+            df = df.sort_values('date', ascending=False).reset_index(drop=True)
         
         return df
     

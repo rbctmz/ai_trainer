@@ -532,8 +532,8 @@ def show_hrv_analysis():
     """Страница анализа HRV"""
     st.header("💓 Анализ вариабельности сердечного ритма (HRV)")
     
-    # Получаем HRV данные
-    hrv_df = st.session_state.database.get_hrv_data(30)  # За последние 30 дней
+    # Получаем HRV данные за максимальный период для корректной фильтрации
+    hrv_df = st.session_state.database.get_hrv_data(90)  # Получаем больше данных для фильтрации
     
     if hrv_df.empty:
         st.warning("📭 Нет данных HRV за последние 30 дней. Синхронизируйте данные с Garmin Connect.")
@@ -577,8 +577,11 @@ def show_hrv_analysis():
             index=1
         )
     
-    # Фильтруем данные по периоду
-    hrv_df = hrv_df.tail(period_days)
+    # Правильная фильтрация данных по периоду
+    # Так как данные отсортированы по убыванию (DESC), используем head() вместо tail()
+    # или фильтруем по дате
+    if len(hrv_df) > period_days:
+        hrv_df = hrv_df.head(period_days)
     hrv_df['date'] = pd.to_datetime(hrv_df['date'])
     
     # Текущие показатели
@@ -763,26 +766,84 @@ def show_hrv_analysis():
             
             st.plotly_chart(fig_correlation, use_container_width=True)
             
-            # Анализ корреляции
-            if len(combined_df) > 3:
-                correlation = combined_df[['rmssd', 'tss']].corr().iloc[0, 1]
-                if not pd.isna(correlation):
-                    st.write(f"**Корреляция HRV и нагрузки:** {correlation:.3f}")
+            # Улучшенный анализ корреляции с запаздыванием
+            if len(combined_df) > 5:
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    st.write("**📊 Анализ корреляции HRV и нагрузки:**")
                     
-                    if abs(correlation) > 0.3:
-                        if correlation < 0:
-                            st.success("✅ Нормальная обратная связь: высокая нагрузка → снижение HRV")
+                    # Корреляция в тот же день
+                    correlation_same_day = combined_df[['rmssd', 'tss']].corr().iloc[0, 1]
+                    
+                    # Корреляция с запаздыванием (HRV следующего дня vs TSS предыдущего)
+                    combined_shifted = combined_df.copy()
+                    combined_shifted['tss_prev'] = combined_shifted['tss'].shift(1)  # TSS предыдущего дня
+                    correlation_lag1 = combined_shifted[['rmssd', 'tss_prev']].corr().iloc[0, 1]
+                    
+                    # Кумулятивная нагрузка за последние 3 дня
+                    combined_shifted['tss_3day'] = combined_shifted['tss'].rolling(window=3, min_periods=1).sum()
+                    correlation_cumulative = combined_shifted[['rmssd', 'tss_3day']].corr().iloc[0, 1]
+                    
+                    if not pd.isna(correlation_same_day):
+                        st.metric("Тот же день", f"{correlation_same_day:.3f}")
+                    
+                    if not pd.isna(correlation_lag1):
+                        st.metric("С запаздыванием (1 день)", f"{correlation_lag1:.3f}")
+                    
+                    if not pd.isna(correlation_cumulative):
+                        st.metric("Кумулятивная (3 дня)", f"{correlation_cumulative:.3f}")
+                
+                with col2:
+                    st.write("**🎯 Интерпретация:**")
+                    
+                    # Находим наиболее значимую корреляцию
+                    correlations = {
+                        'same_day': correlation_same_day,
+                        'lag1': correlation_lag1, 
+                        'cumulative': correlation_cumulative
+                    }
+                    
+                    # Убираем NaN значения
+                    valid_correlations = {k: v for k, v in correlations.items() if not pd.isna(v)}
+                    
+                    if valid_correlations:
+                        max_corr_key = max(valid_correlations, key=lambda k: abs(valid_correlations[k]))
+                        max_corr_value = valid_correlations[max_corr_key]
+                        
+                        if abs(max_corr_value) > 0.4:
+                            if max_corr_value < 0:
+                                st.success(f"✅ **Сильная обратная связь** ({max_corr_key.replace('_', ' ')})")
+                                st.write("Высокая нагрузка приводит к снижению HRV")
+                            else:
+                                st.warning("⚠️ **Неожиданная прямая связь**")
+                                st.write("Возможно недовосстановление или особенности тренировок")
+                        elif abs(max_corr_value) > 0.2:
+                            if max_corr_value < 0:
+                                st.info(f"📈 **Умеренная обратная связь** ({max_corr_key.replace('_', ' ')})")
+                                st.write("Заметное влияние нагрузки на HRV")
+                            else:
+                                st.info("📊 Умеренная прямая связь")
                         else:
-                            st.warning("⚠️ Неожиданная прямая связь: возможно, недовосстановление")
+                            st.info("ℹ️ **Слабая корреляция**")
+                            training_days = len(combined_df[combined_df['tss'] > 0])
+                            st.write(f"Дней с тренировками: {training_days}")
+                            if training_days < 20:
+                                st.write("💡 Для лучшего анализа нужно больше тренировочных данных")
                     else:
-                        st.info("ℹ️ Слабая корреляция - нужно больше данных для анализа")
+                        st.warning("⚠️ Недостаточно данных для анализа корреляции")
     
     # Таблица данных
     if not hrv_df.empty:
         st.subheader("📋 Таблица данных")
         
-        # Форматируем данные
+        # Форматируем данные ПОСЛЕ сортировки для корректного отображения дат
         display_df = hrv_df.copy()
+        
+        # Сначала сортируем по datetime (данные уже отсортированы, но для безопасности)
+        display_df = display_df.sort_values('date', ascending=False)
+        
+        # Потом форматируем дату в строку
         display_df['date'] = display_df['date'].dt.strftime('%d.%m.%Y')
         display_df['rmssd'] = display_df['rmssd'].round(1)
         
@@ -797,8 +858,9 @@ def show_hrv_analysis():
         columns_to_show = [col for col in display_columns.keys() if col in display_df.columns]
         table_df = display_df[columns_to_show].rename(columns=display_columns)
         
+        # Убираем сортировку строковых дат, так как уже отсортированы правильно
         st.dataframe(
-            table_df.sort_values('Дата', ascending=False),
+            table_df,
             use_container_width=True,
             hide_index=True
         )
@@ -1266,12 +1328,13 @@ def show_ai_coaching():
     }
     
     # Табы для разных функций AI коуча
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab_chat = st.tabs([
         "📊 Анализ состояния",
         "📅 Недельный план", 
         "🏃 Анализ тренировки",
         "❓ Вопрос коучу",
-        "📚 Объяснение метрик"
+        "📚 Объяснение метрик",
+        "💬 AI Чат"
     ])
     
     with tab1:
@@ -1376,6 +1439,792 @@ def show_ai_coaching():
                 explanation = st.session_state.ai_coach.explain_metrics(selected_metric_name)
                 st.markdown("### 📘 Объяснение:")
                 st.markdown(explanation)
+    
+    with tab_chat:
+        show_ai_chat()
+
+def show_ai_chat():
+    """Современный интерфейс AI чата с сохранением и управлением"""
+    # Проверяем подключение к AI
+    if st.session_state.ai_coach is None:
+        st.warning("👆 Настройте AI провайдера для использования чата")
+        return
+    
+    # Инициализация менеджера чатов
+    if "chat_manager" not in st.session_state:
+        from models.chat_manager import ChatManager
+        st.session_state.chat_manager = ChatManager()
+    
+    # Инициализация AI инструментов
+    if "ai_tools" not in st.session_state:
+        from models.ai_tools import AITools
+        st.session_state.ai_tools = AITools(st.session_state.database)
+    
+    # Инициализация контекста данных
+    if "data_context" not in st.session_state:
+        st.session_state.data_context = None
+        st.session_state.context_loaded = False
+    
+    # Текущий чат
+    if "current_chat_id" not in st.session_state:
+        st.session_state.current_chat_id = None
+    
+    # CSS для улучшения интерфейса чата
+    st.markdown("""
+    <style>
+    .main > div {
+        max-width: 1200px;
+        padding: 0 2rem;
+    }
+    
+    .chat-container {
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    /* Настройки ширины чата - мягкие стили без поломки форматирования */
+    .stChatMessage {
+        max-width: 800px !important;
+    }
+    
+    .stChatMessage > div {
+        max-width: 100% !important;
+    }
+    
+    /* Контейнеры markdown используют полную ширину */
+    .stChatMessage [data-testid="stMarkdownContainer"] {
+        max-width: 100% !important;
+    }
+    
+    .chat-input-fixed {
+        position: sticky;
+        bottom: 0;
+        background: white;
+        padding: 15px 0;
+        border-top: 1px solid #ddd;
+        z-index: 999;
+        max-width: 800px;
+        margin: 0 auto;
+    }
+    
+    .quick-buttons {
+        margin-bottom: 10px;
+        max-width: 800px;
+        margin: 0 auto 10px auto;
+    }
+    
+    .sidebar-chat-list {
+        max-height: 400px;
+        overflow-y: auto;
+    }
+    
+    .chat-title {
+        font-size: 0.9rem;
+        font-weight: 500;
+        margin-bottom: 2px;
+    }
+    
+    .chat-meta {
+        font-size: 0.75rem;
+        color: #666;
+        margin: 0;
+    }
+    
+    /* Улучшенный стиль для сообщений AI */
+    [data-testid="stChatMessage"][data-testid*="assistant"] {
+        background-color: #f8f9fa;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+    }
+    
+    /* Улучшенный стиль для сообщений пользователя */
+    [data-testid="stChatMessage"][data-testid*="user"] {
+        background-color: #e3f2fd;
+        border-radius: 10px;
+        padding: 15px;
+        margin: 10px 0;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Боковая панель с управлением чатами
+    with st.sidebar:
+        st.subheader("💬 Управление чатами")
+        
+        # Кнопка создания нового чата
+        if st.button("➕ Новый чат", use_container_width=True):
+            new_chat_id = st.session_state.chat_manager.create_new_chat()
+            st.session_state.current_chat_id = new_chat_id
+            st.rerun()
+        
+        # Список чатов
+        chats = st.session_state.chat_manager.get_chat_list()
+        
+        if chats:
+            st.markdown('<div class="sidebar-chat-list">', unsafe_allow_html=True)
+            
+            for chat in chats:
+                is_current = chat["id"] == st.session_state.current_chat_id
+                
+                col1, col2 = st.columns([4, 1])
+                
+                with col1:
+                    # Кнопка выбора чата
+                    chat_title = chat['title'][:30] + ("..." if len(chat['title']) > 30 else "")
+                    button_text = f"{'🔵' if is_current else '💬'} {chat_title}"
+                    
+                    if st.button(
+                        button_text,
+                        key=f"chat_{chat['id']}",
+                        use_container_width=True,
+                        help=f"Сообщений: {chat['message_count']} • {chat['updated_at'][:16].replace('T', ' ')}"
+                    ):
+                        st.session_state.current_chat_id = chat["id"]
+                        st.rerun()
+                
+                with col2:
+                    # Кнопка удаления чата
+                    if st.button("🗑️", key=f"delete_{chat['id']}", help="Удалить чат"):
+                        if st.session_state.chat_manager.delete_chat(chat["id"]):
+                            if st.session_state.current_chat_id == chat["id"]:
+                                st.session_state.current_chat_id = None
+                            st.success("Чат удален")
+                            st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.info("Пока нет сохраненных чатов")
+        
+        # Настройки
+        st.divider()
+        st.subheader("⚙️ Настройки")
+        
+        # Выбор периода для анализа данных
+        context_days = st.selectbox(
+            "📅 Период анализа",
+            [30, 60, 90, 180],
+            index=1,
+            help="Количество дней данных для анализа AI"
+        )
+        
+        # Кнопка обновления контекста
+        if st.button("🔄 Обновить данные", help="Загрузить свежие данные"):
+            with st.spinner("Загрузка данных..."):
+                from models.ai_data_context import AIDataContext
+                data_context = AIDataContext(st.session_state.database)
+                st.session_state.data_context = data_context.get_full_context(context_days)
+                st.session_state.context_loaded = True
+                st.success(f"✅ Данные обновлены")
+        
+        # Статус контекста
+        if st.session_state.context_loaded:
+            st.success(f"📊 Данные: {context_days} дней")
+            if st.session_state.data_context:
+                summary = st.session_state.data_context['summary']
+                st.caption(f"Тренировок: {summary.get('total_activities', 0)} • HRV: {summary.get('hrv_data_points', 0)}")
+        else:
+            st.warning("⚠️ Данные не загружены")
+        
+        # Статистика чатов
+        if chats:
+            stats = st.session_state.chat_manager.get_stats()
+            st.divider()
+            st.subheader("📊 Статистика")
+            col1, col2 = st.columns(2)
+            col1.metric("Чатов", stats["total_chats"])
+            col2.metric("Сообщений", stats["total_messages"])
+    
+    # Основная область чата
+    st.title("🤖 AI Тренер")
+    
+    # Загрузка контекста при первом запуске
+    if not st.session_state.context_loaded:
+        with st.spinner("Загрузка данных для AI..."):
+            from models.ai_data_context import AIDataContext
+            data_context = AIDataContext(st.session_state.database)
+            st.session_state.data_context = data_context.get_full_context(context_days)
+            st.session_state.context_loaded = True
+    
+    # Контейнер для чата с улучшенным стилем
+    with st.container():
+        st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+        # Загружаем сообщения текущего чата
+        current_messages = []
+        if st.session_state.current_chat_id:
+            current_messages = st.session_state.chat_manager.get_chat_messages(st.session_state.current_chat_id)
+        
+        # Отображение сообщений
+        if current_messages:
+            for message in current_messages:
+                if message["role"] == "user":
+                    with st.chat_message("user"):
+                        st.write(message["content"])
+                else:
+                    with st.chat_message("assistant"):
+                        st.markdown(message["content"])
+        else:
+            # Приветственное сообщение для нового чата
+            with st.chat_message("assistant"):
+                st.markdown("""
+                👋 **Привет! Я ваш персональный AI тренер.**
+                
+                У меня есть доступ ко всем вашим тренировочным данным и мощные инструменты для анализа:
+                
+                **🎯 Что я могу:**
+                • Анализировать ваши тренировки и прогресс
+                • Давать рекомендации по восстановлению и нагрузкам  
+                • Объяснять метрики и показатели простым языком
+                • Составлять персональные планы тренировок
+                • Отвечать на любые вопросы о ваших данных
+                
+                **💡 Попробуйте спросить:**
+                - "Как мое восстановление сегодня?"
+                - "Сколько тренировок у меня было в июле?"
+                - "Покажи мой прогресс за последний месяц"
+                - "Можно ли мне тренироваться интенсивно?"
+                
+                Начните диалог! 🚀
+                """)
+        
+        st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Фиксированная область ввода внизу
+    st.markdown('<div class="chat-input-fixed">', unsafe_allow_html=True)
+    
+    # Быстрые кнопки (компактные)
+    st.markdown('<div class="quick-buttons">', unsafe_allow_html=True)
+    st.markdown("**⚡ Быстрые вопросы:**")
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        if st.button("💪 Форма", key="form_q", help="Как моя текущая форма?"):
+            process_modern_chat_message("Проанализируй мою текущую форму и готовность к нагрузкам")
+    
+    with col2:
+        if st.button("📅 План", key="plan_q", help="План на неделю"):
+            process_modern_chat_message("Составь план тренировок на следующую неделю")
+    
+    with col3:
+        if st.button("📊 Прогресс", key="progress_q", help="Анализ прогресса"):
+            process_modern_chat_message("Покажи прогресс за последний месяц")
+    
+    with col4:
+        if st.button("💓 HRV", key="hrv_q", help="Анализ восстановления"):
+            process_modern_chat_message("Как мое восстановление по HRV?")
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Поле ввода сообщения
+    user_input = st.chat_input("Задайте вопрос AI тренеру...")
+    
+    if user_input:
+        process_modern_chat_message(user_input)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def process_modern_chat_message(user_input):
+    """Обрабатывает сообщение в современном чате с сохранением"""
+    # Создаем новый чат если его нет
+    if not st.session_state.current_chat_id:
+        st.session_state.current_chat_id = st.session_state.chat_manager.create_new_chat()
+    
+    # Добавляем сообщение пользователя в чат
+    st.session_state.chat_manager.add_message(
+        st.session_state.current_chat_id, 
+        "user", 
+        user_input
+    )
+    
+    # Отображаем сообщение пользователя
+    with st.chat_message("user"):
+        st.write(user_input)
+    
+    # Генерируем ответ AI
+    with st.chat_message("assistant"):
+        # Создаем placeholder для стриминга
+        response_placeholder = st.empty()
+        
+        try:
+            # Создаем системный промпт с инструментами
+            system_prompt = create_chat_system_prompt_with_tools(st.session_state.data_context)
+            
+            # Получаем историю разговора
+            chat_messages = st.session_state.chat_manager.get_chat_messages(st.session_state.current_chat_id)
+            conversation_history = ""
+            for msg in chat_messages[:-1]:  # Исключаем последнее сообщение
+                conversation_history += f"\n{msg['role'].upper()}: {msg['content']}"
+            
+            # Создаем полный промпт
+            full_prompt = f"""
+{system_prompt}
+
+ИСТОРИЯ РАЗГОВОРА:{conversation_history}
+
+НОВЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ: {user_input}
+
+Используй инструменты для получения точных данных. Отвечай персонально, конкретно и полезно. Используй эмодзи.
+"""
+            
+            # Показываем начальное состояние генерации
+            response_placeholder.markdown("🤖 *Генерирую ответ...*")
+            
+            # Получаем ответ от AI (может содержать запросы инструментов)
+            ai_response = st.session_state.ai_coach.provider.generate_response(full_prompt, "")
+            
+            # Показываем состояние обработки инструментов
+            response_placeholder.markdown("🔧 *Обрабатываю данные...*")
+            
+            # Обрабатываем инструменты в ответе
+            final_response = process_tool_calls(ai_response)
+            
+            # Симулируем стриминг финального ответа
+            simulate_streaming_response(response_placeholder, final_response)
+            
+            # Сохраняем ответ в чат
+            st.session_state.chat_manager.add_message(
+                st.session_state.current_chat_id,
+                "assistant", 
+                final_response
+            )
+            
+            # Принуждаем обновление интерфейса
+            st.rerun()
+            
+        except Exception as e:
+            error_msg = f"❌ Ошибка AI: {e}"
+            response_placeholder.markdown(error_msg)
+            # Сохраняем ошибку в чат
+            st.session_state.chat_manager.add_message(
+                st.session_state.current_chat_id,
+                "assistant", 
+                error_msg
+            )
+
+def process_chat_message(user_input):
+    """Обрабатывает сообщение пользователя в чате с поддержкой инструментов"""
+    # Добавляем сообщение пользователя
+    st.session_state.chat_messages.append({"role": "user", "content": user_input})
+    
+    # Отображаем сообщение пользователя
+    with st.chat_message("user"):
+        st.write(user_input)
+    
+    # Генерируем ответ AI
+    with st.chat_message("assistant"):
+        with st.spinner("AI тренер анализирует данные..."):
+            try:
+                # Создаем системный промпт с инструментами
+                system_prompt = create_chat_system_prompt_with_tools(st.session_state.data_context)
+                
+                # Собираем историю разговора
+                conversation_history = ""
+                for msg in st.session_state.chat_messages[:-1]:  # Исключаем последнее сообщение
+                    conversation_history += f"\n{msg['role'].upper()}: {msg['content']}"
+                
+                # Создаем полный промпт
+                full_prompt = f"""
+{system_prompt}
+
+ИСТОРИЯ РАЗГОВОРА:{conversation_history}
+
+НОВЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ: {user_input}
+
+Используй инструменты для получения точных данных. Отвечай персонально, конкретно и полезно. Используй эмодзи.
+"""
+                
+                # Получаем ответ от AI (может содержать запросы инструментов)
+                ai_response = st.session_state.ai_coach.provider.generate_response(full_prompt, "")
+                
+                # Обрабатываем инструменты в ответе
+                final_response = process_tool_calls(ai_response)
+                
+                # Отображаем финальный ответ
+                st.markdown(final_response)
+                
+                # Сохраняем в историю
+                st.session_state.chat_messages.append({"role": "assistant", "content": final_response})
+                
+            except Exception as e:
+                st.error(f"❌ Ошибка AI: {e}")
+
+def create_chat_system_prompt_with_tools(data_context):
+    """Создает системный промпт с инструментами для доступа к данным"""
+    
+    base_prompt = """
+Ты — персональный AI тренер по выносливости с глубокими знаниями спортивной науки. 
+
+У тебя есть доступ к мощным инструментам для анализа данных пользователя. Используй их для получения точной, актуальной информации.
+
+ТВОИ ПРИНЦИПЫ:
+• ВСЕГДА используй инструменты для получения конкретных данных
+• Давай персонализированные, научно обоснованные советы
+• Объясняй сложные концепции простым языком
+• Предупреждай о рисках перетренированности и травм
+• Поощряй постепенное развитие и терпение
+
+ТВОИ ЭКСПЕРТИЗЫ:
+• Анализ тренировочной нагрузки (TSS, CTL, ATL, TSB)
+• Интерпретация HRV и состояния восстановления
+• Планирование тренировок и периодизация
+• Физиология выносливости и адаптации
+• Предотвращение перетренированности
+
+СТИЛЬ ОБЩЕНИЯ:
+• Дружелюбный и мотивирующий
+• Используй эмодзи для лучшего восприятия
+• Структурируй ответы с заголовками и списками
+• Будь конкретным с цифрами и фактами
+"""
+    
+    # Добавляем описание инструментов
+    tools_description = st.session_state.ai_tools.format_tool_descriptions_for_ai()
+    
+    return f"{base_prompt}\n\n{tools_description}"
+
+def create_chat_system_prompt(data_context):
+    """Создает системный промпт с полным контекстом данных пользователя (старая версия)"""
+    from models.ai_data_context import AIDataContext
+    
+    base_prompt = """
+Ты — персональный AI тренер по выносливости с глубокими знаниями спортивной науки. 
+
+У тебя есть полный доступ к данным пользователя и ты должен давать персонализированные, научно обоснованные советы.
+
+ТВОИ ПРИНЦИПЫ:
+• Всегда основывайся на предоставленных данных пользователя
+• Объясняй сложные концепции простым языком
+• Давай конкретные, практические рекомендации
+• Учитывай индивидуальные особенности и текущее состояние
+• Предупреждай о рисках перетренированности и травм
+• Поощряй постепенное развитие и терпение
+
+ТВОИ ЭКСПЕРТИЗЫ:
+• Анализ тренировочной нагрузки (TSS, CTL, ATL, TSB)
+• Интерпретация HRV и состояния восстановления
+• Планирование тренировок и периодизация
+• Физиология выносливости и адаптации
+• Предотвращение перетренированности
+• Техника и тактика в видах спорта на выносливость
+
+СТИЛЬ ОБЩЕНИЯ:
+• Дружелюбный и мотивирующий
+• Используй эмодзи для лучшего восприятия
+• Структурируй ответы с заголовками и списками
+• Будь конкретным, но не перегружай деталями
+• Адаптируй сложность под уровень пользователя
+"""
+    
+    if not data_context or not data_context['summary']['has_data']:
+        return base_prompt + "\n\nВНИМАНИЕ: У пользователя нет данных тренировок. Давай общие рекомендации и объясни, как начать отслеживание тренировок."
+    
+    # Форматируем контекст данных
+    context_formatter = AIDataContext(None)  # Не нужен database, только форматирование
+    formatted_context = context_formatter.format_context_for_ai(data_context)
+    
+    return f"{base_prompt}\n\n{formatted_context}"
+
+def process_tool_calls(ai_response):
+    """Обрабатывает вызовы инструментов в ответе AI"""
+    import re
+    
+    # Ищем паттерны инструментов в формате [TOOL: tool_name, param=value]
+    tool_pattern = r'\[TOOL:\s*([^,\]]+)(?:,\s*([^\]]*))?\]'
+    
+    def replace_tool_call(match):
+        tool_name = match.group(1).strip()
+        params_str = match.group(2).strip() if match.group(2) else ""
+        
+        # Парсим параметры
+        params = {}
+        if params_str:
+            param_pairs = [p.strip() for p in params_str.split(',')]
+            for pair in param_pairs:
+                if '=' in pair:
+                    key, value = pair.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    # Пытаемся преобразовать в правильный тип
+                    if value.isdigit():
+                        params[key] = int(value)
+                    elif value.replace('.', '').isdigit():
+                        params[key] = float(value)
+                    else:
+                        params[key] = value.strip('"\'')
+        
+        # Выполняем инструмент
+        try:
+            result = st.session_state.ai_tools.execute_tool(tool_name, **params)
+            
+            if result.get('success'):
+                # Форматируем результат для отображения
+                data = result['result']
+                formatted_result = format_tool_result(tool_name, data)
+                return formatted_result
+            else:
+                return f"❌ Ошибка инструмента: {result.get('error', 'Неизвестная ошибка')}"
+                
+        except Exception as e:
+            return f"❌ Ошибка выполнения {tool_name}: {str(e)}"
+    
+    # Заменяем все вызовы инструментов их результатами
+    processed_response = re.sub(tool_pattern, replace_tool_call, ai_response)
+    
+    return processed_response
+
+def simulate_streaming_response(placeholder, text):
+    """Симулирует стриминг вывода текста для лучшего UX"""
+    import time
+    import re
+    
+    # Разбиваем текст на "chunks" для имитации стриминга
+    # Учитываем markdown разметку, чтобы не ломать форматирование
+    
+    # Сначала проверяем, нужно ли стримить (для коротких ответов можно сразу показать)
+    if len(text) <= 100:
+        placeholder.markdown(text)
+        return
+    
+    # Разделяем на предложения и абзацы для более естественного стриминга
+    # Улучшенный паттерн для сохранения markdown структуры
+    sentences = re.split(r'(?<=[.!?])\s+|(?<=\n)(?=\n)|(?<=:)\n', text)
+    current_text = ""
+    
+    for i, sentence in enumerate(sentences):
+        current_text += sentence
+        
+        # Показываем текущий прогресс с курсором
+        if i < len(sentences) - 1:
+            display_text = current_text + " ▋"
+        else:
+            display_text = current_text
+        
+        # Используем обычный markdown для сохранения форматирования
+        placeholder.markdown(display_text)
+        
+        # Добавляем небольшую задержку для эффекта печатания
+        # Варьируем скорость в зависимости от длины предложения
+        if len(sentence) > 50:
+            time.sleep(0.25)  # Длинные предложения - больше пауза
+        elif len(sentence) > 20:
+            time.sleep(0.12) # Средние предложения
+        else:
+            time.sleep(0.04) # Короткие фразы
+    
+    # Финальное отображение без курсора
+    placeholder.markdown(current_text)
+
+def format_tool_result(tool_name, data):
+    """Форматирует результат инструмента для красивого отображения"""
+    
+    if tool_name == "get_performance_metrics":
+        # Определяем эмодзи для TSB
+        tsb_emoji = "🟢" if data['tsb'] > 5 else "🟡" if data['tsb'] > -10 else "🟠" if data['tsb'] > -25 else "🔴"
+        
+        return f"""
+## 📊 Текущие метрики производительности
+
+### 🎯 Модель Банистера:
+• **CTL** (хроническая нагрузка): **{data['ctl']:.1f}** 📈
+• **ATL** (острая нагрузка): **{data['atl']:.1f}** ⚡  
+• **TSB** (баланс стресса): **{data['tsb']:+.1f}** {tsb_emoji}
+
+### 🏃‍♂️ Анализ формы:
+• **Текущая форма:** {data['form_state']}
+• **Тренд фитнеса:** {data['fitness_trend']}
+"""
+    
+    elif tool_name == "get_recent_activities":
+        if data['count'] == 0:
+            return "📭 **Нет недавних активностей**"
+        
+        # Эмодзи для спортов
+        sport_emojis = {
+            'cycling': '🚴', 'running': '🏃', 'swimming': '🏊', 
+            'open_water_swimming': '🏊‍♂️', 'walking': '🚶'
+        }
+        
+        activities_text = f"## 🏃‍♂️ Последние {min(5, data['count'])} тренировок:\n\n"
+        for i, activity in enumerate(data['activities'][:5], 1):
+            sport = activity.get('sport', 'unknown')
+            emoji = sport_emojis.get(sport, '⚡')
+            description = activity.get('description', f"{sport} - {activity.get('duration_minutes', 0):.0f}мин")
+            activities_text += f"{i}. **{activity['date']}** {emoji} {description}\n"
+        
+        return activities_text
+    
+    elif tool_name == "analyze_hrv_trends":
+        recovery_emoji = {"отличное": "🟢", "хорошее": "🟡", "удовлетворительное": "🟠", "плохое": "🔴"}
+        trend_emoji = {"improving": "📈", "declining": "📉"}
+        
+        return f"""
+**💓 Анализ HRV:**
+• Текущий RMSSD: {data['current_rmssd']:.1f} мс
+• Среднее за 7 дней: {data['recent_avg_7days']:.1f} мс
+• Базовый уровень: {data['baseline_median']:.1f} мс
+• Тренд: {trend_emoji.get(data['trend_direction'], '')} {data['trend_direction']}
+• Восстановление: {recovery_emoji.get(data['recovery_state'], '')} {data['recovery_state']}
+"""
+    
+    elif tool_name == "get_activity_stats":
+        return f"""
+**📈 Статистика тренировок за {data['period_days']} дней:**
+• Всего тренировок: {data['total_activities']}
+• Общее время: {data['total_duration_hours']:.1f} ч
+• Общий TSS: {data['total_tss']:.0f}
+• Частота: {data['activities_per_week']:.1f} раз в неделю
+• Средний TSS: {data['avg_tss_per_session']:.1f}
+"""
+    
+    elif tool_name == "analyze_training_load":
+        return f"""
+**⚡ Анализ нагрузки:**
+• Тренд нагрузки: {data['load_trend']}
+• Распределение интенсивности:
+  - Низкая: {data['intensity_distribution']['low_intensity_percent']:.1f}%
+  - Умеренная: {data['intensity_distribution']['moderate_intensity_percent']:.1f}%
+  - Высокая: {data['intensity_distribution']['high_intensity_percent']:.1f}%
+"""
+    
+    elif tool_name == "analyze_recovery_state":
+        factors = data.get("factors", [])
+        hrv_data = data.get("hrv", {})
+        training_load = data.get("training_load", {})
+        
+        # Анализ HRV
+        hrv_section = ""
+        if hrv_data:
+            current_rmssd = hrv_data.get("current_rmssd", 0)
+            baseline_rmssd = hrv_data.get("baseline_rmssd", 0)
+            deviation = hrv_data.get("deviation_percent", 0)
+            
+            if deviation > 10:
+                hrv_emoji = "🟢"
+                hrv_status = "отличное"
+            elif deviation > -5:
+                hrv_emoji = "🟡"
+                hrv_status = "хорошее"
+            elif deviation > -15:
+                hrv_emoji = "🟠"
+                hrv_status = "удовлетворительное"
+            else:
+                hrv_emoji = "🔴"
+                hrv_status = "требует внимания"
+            
+            hrv_section = f"""
+### 💓 HRV Анализ:
+• **Текущий RMSSD:** {current_rmssd:.1f} мс {hrv_emoji}
+• **Базовый уровень:** {baseline_rmssd:.1f} мс
+• **Отклонение:** {deviation:+.1f}% ({hrv_status})"""
+        
+        # Анализ нагрузки
+        load_section = ""
+        if training_load:
+            week_tss = training_load.get("week_tss", 0)
+            session_count = training_load.get("session_count", 0)
+            avg_tss = training_load.get("avg_tss_per_session", 0)
+            
+            if week_tss > 400:
+                load_emoji = "🔴"
+                load_status = "высокая"
+            elif week_tss > 250:
+                load_emoji = "🟡"
+                load_status = "умеренная"
+            else:
+                load_emoji = "🟢"
+                load_status = "низкая"
+            
+            load_section = f"""
+### ⚡ Недельная нагрузка:
+• **TSS за неделю:** {week_tss:.0f} {load_emoji} ({load_status})
+• **Тренировок:** {session_count}
+• **Средний TSS:** {avg_tss:.1f}"""
+        
+        # Рекомендации и факторы
+        factors_section = ""
+        if factors:
+            factors_section = f"""
+### 🎯 Анализ и рекомендации:
+{chr(10).join([f"• {factor}" for factor in factors[:5]])}"""
+        
+        return f"""
+## 🔋 Анализ состояния восстановления
+{hrv_section}
+{load_section}
+{factors_section}"""
+    
+    elif tool_name == "get_activities_by_date_range":
+        if data['count'] == 0:
+            return f"📭 **Нет тренировок в период {data['period']}**"
+        
+        stats = data['statistics']
+        
+        # Форматируем виды спорта с эмодзи
+        sport_emojis = {
+            'cycling': '🚴', 'running': '🏃', 'swimming': '🏊', 
+            'open_water_swimming': '🏊‍♂️', 'walking': '🚶',
+            'strength': '💪', 'yoga': '🧘', 'other': '⚡'
+        }
+        
+        sports_text = []
+        for sport, count in stats['sports_distribution'].items():
+            emoji = sport_emojis.get(sport, '⚡')
+            sports_text.append(f"{emoji} {sport}: {count}")
+        
+        # Топ-5 тренировок с хорошим форматированием
+        activities_preview = ""
+        if 'activities' in data and data['activities']:
+            activities_preview = "\n\n**📋 Некоторые тренировки:**"
+            for i, activity in enumerate(data['activities'][:5], 1):
+                sport_emoji = sport_emojis.get(activity['sport'], '⚡')
+                date_formatted = activity['date']
+                activities_preview += f"\n{i}. **{date_formatted}** {sport_emoji} {activity['sport']} - {activity['duration_minutes']:.0f}мин (TSS: {activity['tss']:.0f})"
+        
+        return f"""
+## 📊 Тренировки за период {data['period']}
+
+### 📈 Основная статистика:
+• **🏃‍♂️ Всего тренировок: {data['count']}**
+• **⏱️ Общее время: {stats['total_duration_hours']:.1f} часов**
+• **📈 Общий TSS: {stats['total_tss']:.0f}**
+• **🎯 Средний TSS: {stats['avg_tss_per_session']:.1f}**
+• **🏃 Дистанция: {stats['total_distance_km']:.1f} км**
+
+### 🏆 Виды активности:
+{chr(10).join([f"• {sport}" for sport in sports_text])}
+{activities_preview}"""
+    
+    else:
+        # Общий формат для остальных инструментов
+        if isinstance(data, dict):
+            # Если есть ошибка или сообщение
+            if 'message' in data:
+                return f"ℹ️ **{data['message']}**"
+            elif 'error' in data:
+                return f"❌ **Ошибка:** {data['error']}"
+            
+            # Общий формат для сложных данных
+            result_text = f"## 📊 Результат: {tool_name.replace('_', ' ').title()}\n\n"
+            
+            # Сортируем ключи для лучшего отображения  
+            important_keys = ['count', 'total_tss', 'period_days', 'current_rmssd']
+            other_keys = [k for k in data.keys() if k not in important_keys and not k.startswith('_')]
+            
+            for key in important_keys:
+                if key in data:
+                    result_text += f"• **{key.replace('_', ' ').title()}:** {data[key]}\n"
+            
+            for key in other_keys[:10]:  # Ограничиваем количество
+                value = data[key]
+                if isinstance(value, (dict, list)) and len(str(value)) > 100:
+                    result_text += f"• **{key.replace('_', ' ').title()}:** [данные доступны]\n"
+                else:
+                    result_text += f"• **{key.replace('_', ' ').title()}:** {value}\n"
+                    
+            return result_text
+        else:
+            return f"**📊 {tool_name.replace('_', ' ').title()}:** {str(data)}"
 
 if __name__ == "__main__":
     main()
