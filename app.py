@@ -45,9 +45,33 @@ def main():
             "🤖 AI Коучинг"
         ])
         
-        # Кнопка синхронизации
+        # Управление данными
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("🗄️ Управление данными")
+        
+        # Выбор периода синхронизации
+        sync_days = st.sidebar.selectbox(
+            "Период загрузки:",
+            options=[7, 14, 30, 60, 90],
+            index=2,  # По умолчанию 30 дней
+            format_func=lambda x: f"{x} дней"
+        )
+        
+        # Кнопка синхронизации с выбранным периодом
         if st.sidebar.button("🔄 Синхронизировать данные"):
-            sync_data()
+            sync_data(days=sync_days)
+        
+        # Статистика БД
+        if hasattr(st.session_state, 'database'):
+            stats = st.session_state.database.get_database_stats()
+            st.sidebar.markdown(f"""
+            📊 **Данные в БД:**
+            - Активности: {stats['activities']}
+            - HRV записи: {stats['hrv_data']}
+            """)
+        
+        # Очистка БД
+        clear_database()
         
         # Основной контент
         if page == "📊 Дашборд":
@@ -97,49 +121,80 @@ def show_garmin_connection():
                 st.session_state.garmin_client.disconnect()
                 st.rerun()
 
-def sync_data():
+def sync_data(days=30):
     """Синхронизация данных с Garmin Connect"""
     if not st.session_state.garmin_client.is_authenticated:
         st.error("Не подключен к Garmin Connect")
         return
     
-    with st.spinner("Синхронизация данных..."):
-        try:
-            # Получение активностей за последние 30 дней
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=30)
+    # Прогресс-бар
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        # Получение активностей
+        status_text.text(f"Загрузка активностей за {days} дней...")
+        progress_bar.progress(10)
+        
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+        
+        activities = st.session_state.garmin_client.get_activities(start_date, end_date)
+        activities_synced = False
+        
+        progress_bar.progress(30)
+        
+        if activities:
+            status_text.text(f"Обработка {len(activities)} активностей...")
+            # Обработка и сохранение данных
+            df = ActivityProcessor.process_activities(activities)
             
-            activities = st.session_state.garmin_client.get_activities(start_date, end_date)
-            activities_synced = False
+            # Расчёт TSS для активностей - оптимизированно
+            status_text.text("Расчёт Training Stress Score...")
+            progress_bar.progress(50)
             
-            if activities:
-                # Обработка и сохранение данных
-                df = ActivityProcessor.process_activities(activities)
-                
-                # Расчёт TSS для активностей
-                for idx, row in df.iterrows():
-                    activity_dict = row.to_dict()
-                    tss = ActivityProcessor.calculate_tss(activity_dict, 
-                                                        ftp=Settings.USER_FTP, 
-                                                        lthr=Settings.USER_LTHR)
-                    df.at[idx, 'tss'] = tss
-                
-                # Конвертируем DataFrame в список словарей для умной синхронизации
-                activities_list = df.to_dict('records')
-                sync_result = st.session_state.database.sync_activities(activities_list)
-                activities_synced = True
-            else:
-                sync_result = {'new': 0, 'updated': 0, 'skipped': 0}
-                
-            # Синхронизация HRV данных
-            hrv_data = {}
-            current_date = start_date
+            tss_values = []
+            for idx, row in df.iterrows():
+                activity_dict = row.to_dict()
+                tss = ActivityProcessor.calculate_tss(activity_dict, 
+                                                    ftp=Settings.USER_FTP, 
+                                                    lthr=Settings.USER_LTHR)
+                tss_values.append(tss)
             
-            while current_date <= end_date:
-                date_str = current_date.strftime('%Y-%m-%d')
+            df['tss'] = tss_values
+            
+            # Конвертируем DataFrame в список словарей для умной синхронизации
+            activities_list = df.to_dict('records')
+            sync_result = st.session_state.database.sync_activities(activities_list)
+            activities_synced = True
+        else:
+            sync_result = {'new': 0, 'updated': 0, 'skipped': 0}
+            
+        progress_bar.progress(70)
+        
+        # Синхронизация HRV данных - оптимизированно батчами
+        status_text.text("Загрузка HRV и данных восстановления...")
+        hrv_data = {}
+        
+        # Создаём список дат для пакетной обработки
+        date_list = []
+        current_date = start_date
+        while current_date <= end_date:
+            date_list.append(current_date)
+            current_date += timedelta(days=1)
+        
+        # Обрабатываем по 5 дней за раз для ускорения
+        batch_size = 5
+        total_batches = len(date_list) // batch_size + (1 if len(date_list) % batch_size else 0)
+        
+        for batch_idx in range(0, len(date_list), batch_size):
+            batch_dates = date_list[batch_idx:batch_idx + batch_size]
+            
+            for date in batch_dates:
+                date_str = date.strftime('%Y-%m-%d')
                 
                 # Получаем HRV данные
-                hrv_day_data = st.session_state.garmin_client.get_hrv_data(current_date)
+                hrv_day_data = st.session_state.garmin_client.get_hrv_data(date)
                 rmssd_value = None
                 if hrv_day_data and 'hrvSummary' in hrv_day_data:
                     hrv_summary = hrv_day_data['hrvSummary']
@@ -147,23 +202,18 @@ def sync_data():
                 
                 # Получаем данные о стрессе
                 stress_score = None
-                stress_data = st.session_state.garmin_client.get_stress_data(current_date)
+                stress_data = st.session_state.garmin_client.get_stress_data(date)
                 if stress_data:
-                    # Используем средний уровень стресса
                     stress_score = stress_data.get('avgStressLevel') or stress_data.get('overallStressLevel')
                 
                 # Получаем данные Body Battery (восстановление)
                 recovery_score = None
-                body_battery_data = st.session_state.garmin_client.get_body_battery_data(current_date)
+                body_battery_data = st.session_state.garmin_client.get_body_battery_data(date)
                 if body_battery_data and isinstance(body_battery_data, list) and len(body_battery_data) > 0:
-                    entry = body_battery_data[0]  # Первая (и обычно единственная) запись за день
-                    
-                    # Проверяем наличие массива значений Body Battery
+                    entry = body_battery_data[0]
                     if 'bodyBatteryValuesArray' in entry and entry['bodyBatteryValuesArray']:
-                        # Берем последнее значение за день (конец дня)
                         battery_values = entry['bodyBatteryValuesArray']
                         if battery_values:
-                            # Последнее значение: [timestamp, battery_level]
                             recovery_score = battery_values[-1][1]
                 
                 # Сохраняем данные если есть хотя бы один показатель
@@ -173,58 +223,72 @@ def sync_data():
                         'stress_score': stress_score,
                         'recovery_score': recovery_score
                     }
-                
-                current_date += timedelta(days=1)
             
-            # Сохранение HRV данных
-            hrv_result = {'new': 0, 'updated': 0}
-            if hrv_data:
-                hrv_result = st.session_state.database.sync_hrv_data(hrv_data)
+            # Обновляем прогресс после каждого батча
+            progress = 70 + (batch_idx // batch_size + 1) / total_batches * 20
+            progress_bar.progress(min(int(progress), 95))
+        
+        # Сохранение HRV данных
+        status_text.text("Сохранение данных...")
+        progress_bar.progress(95)
+        
+        hrv_result = {'new': 0, 'updated': 0}
+        if hrv_data:
+            hrv_result = st.session_state.database.sync_hrv_data(hrv_data)
+        
+        progress_bar.progress(100)
+        status_text.text("Синхронизация завершена!")
+        
+        # Показываем результат
+        success_msgs = []
+        if sync_result['new'] > 0:
+            success_msgs.append(f"🆕 {sync_result['new']} новых активностей")
+        if sync_result['updated'] > 0:
+            success_msgs.append(f"🔄 {sync_result['updated']} активностей обновлено")
+        if sync_result['skipped'] > 0:
+            success_msgs.append(f"⏭️ {sync_result['skipped']} активностей пропущено")
             
-            # Показываем детальный результат синхронизации
-            success_msgs = []
-            
-            if sync_result['new'] > 0:
-                success_msgs.append(f"🆕 {sync_result['new']} новых активностей")
-            if sync_result['updated'] > 0:
-                success_msgs.append(f"🔄 {sync_result['updated']} активностей обновлено")
-            if sync_result['skipped'] > 0:
-                success_msgs.append(f"⏭️ {sync_result['skipped']} активностей пропущено")
-                
-            if hrv_result['new'] > 0:
-                success_msgs.append(f"💓 {hrv_result['new']} новых HRV записей")
-            if hrv_result['updated'] > 0:
-                success_msgs.append(f"💓 {hrv_result['updated']} HRV записей обновлено")
-            
-            # Показываем детализацию по типам данных
-            if hrv_data:
-                hrv_count = sum(1 for data in hrv_data.values() if data.get('rmssd') is not None)
-                stress_count = sum(1 for data in hrv_data.values() if data.get('stress_score') is not None)
-                recovery_count = sum(1 for data in hrv_data.values() if data.get('recovery_score') is not None)
-                
-                details = []
-                if hrv_count > 0:
-                    details.append(f"RMSSD: {hrv_count}")
-                if stress_count > 0:
-                    details.append(f"стресс: {stress_count}")
-                if recovery_count > 0:
-                    details.append(f"восстановление: {recovery_count}")
-                
-                if details:
-                    st.info(f"📊 Синхронизировано данных: {', '.join(details)}")
-            
-            if success_msgs:
-                st.success(f"✅ Синхронизация завершена: {', '.join(success_msgs)}")
-            else:
-                if not activities:
-                    st.warning("Активности не найдены")
-                else:
-                    st.info("ℹ️ Новых данных для синхронизации не найдено")
-                
-            st.rerun()
-                
-        except Exception as e:
-            st.error(f"Ошибка синхронизации: {e}")
+        if hrv_result['new'] > 0:
+            success_msgs.append(f"💓 {hrv_result['new']} новых HRV записей")
+        if hrv_result['updated'] > 0:
+            success_msgs.append(f"💓 {hrv_result['updated']} HRV записей обновлено")
+        
+        if success_msgs:
+            st.success("✅ " + " | ".join(success_msgs))
+        else:
+            st.info("ℹ️ Новых данных не найдено")
+        
+        # Очищаем прогресс через 2 секунды
+        import time
+        time.sleep(2)
+        progress_bar.empty()
+        status_text.empty()
+        
+    except Exception as e:
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"❌ Ошибка синхронизации: {e}")
+
+def clear_database():
+    """Очистка базы данных с подтверждением"""
+    if st.button("🗑️ Очистить базу данных", type="secondary"):
+        if 'confirm_clear' not in st.session_state:
+            st.session_state.confirm_clear = False
+        
+        if not st.session_state.confirm_clear:
+            st.warning("⚠️ Это действие удалит ВСЕ данные из базы. Подтвердите удаление.")
+            if st.button("✅ Да, удалить все данные", type="primary"):
+                st.session_state.confirm_clear = True
+                st.rerun()
+        else:
+            try:
+                st.session_state.database.clear_all_data()
+                st.success("✅ База данных очищена")
+                st.session_state.confirm_clear = False
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Ошибка очистки БД: {e}")
+                st.session_state.confirm_clear = False
 
 def show_welcome_screen():
     """Экран приветствия для неподключённых пользователей"""
@@ -584,12 +648,15 @@ def show_hrv_analysis():
         hrv_df = hrv_df.head(period_days)
     hrv_df['date'] = pd.to_datetime(hrv_df['date'])
     
-    # Текущие показатели
-    if not hrv_df.empty:
-        latest_data = hrv_df.iloc[-1]
-        baseline_rmssd = hrv_df['rmssd'].mean()
+    # Текущие показатели - всегда берём самые последние данные независимо от периода
+    latest_hrv_df = st.session_state.database.get_hrv_data(7)  # Последние 7 дней для актуальных данных
+    if not latest_hrv_df.empty:
+        latest_data = latest_hrv_df.iloc[0]  # Самая свежая запись (данные сортированы по убыванию)
+        # Базовый уровень рассчитываем от выбранного периода анализа
+        baseline_rmssd = hrv_df['rmssd'].mean() if not hrv_df.empty else latest_data['rmssd']
         
-        st.subheader("📊 Текущее состояние")
+        latest_date = latest_data['date'] if 'date' in latest_data else 'Н/Д'
+        st.subheader(f"📊 Текущее состояние (данные от {latest_date})")
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -638,6 +705,9 @@ def show_hrv_analysis():
                 recommendation = "🔴 Отдых/восстановление"
             
             st.metric("Рекомендация", recommendation)
+    else:
+        st.subheader("📊 Текущее состояние")
+        st.warning("⚠️ Нет актуальных данных HRV. Синхронизируйте данные с Garmin Connect.")
     
     # Графики динамики
     if len(hrv_df) > 1:

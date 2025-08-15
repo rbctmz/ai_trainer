@@ -374,3 +374,39 @@ class Database:
             'new': new_count,
             'updated': updated_count
         }
+    
+    def clear_all_data(self):
+        """Очистка всех данных из базы"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Очищаем все таблицы
+        cursor.execute('DELETE FROM activities')
+        cursor.execute('DELETE FROM hrv_data') 
+        cursor.execute('DELETE FROM user_settings')
+        
+        conn.commit()
+        conn.close()
+    
+    def get_database_stats(self):
+        """Получение статистики по базе данных"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Подсчитываем записи в каждой таблице
+        cursor.execute('SELECT COUNT(*) FROM activities')
+        activities_count = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM hrv_data')
+        hrv_count = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(*) FROM user_settings')
+        settings_count = cursor.fetchone()[0]
+        
+        conn.close()
+        
+        return {
+            'activities': activities_count,
+            'hrv_data': hrv_count,
+            'user_settings': settings_count
+        }
