@@ -185,9 +185,55 @@ ai_trainer_env/
 *.db
 *.db-journal
 
+# Logs and temporary files
+*.log
+logs/
+debug.log
+app.log
+garmin_debug.log
+
+# Garmin auth tokens and credentials
+.garmin_auth
+garmin_session.json
+garth_tokens/
+tokens/
+credentials.json
+
+# CSV exports and data dumps
+exports/
+*.csv
+data_dumps/
+sleep_data_*.csv
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows specific  
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
 # Test files in root (должны быть в папке tests/)
 /test_*.py
 /debug_*.py
 /demo_*.py
 /add_*.py
 /clean_*.py
+
+# Streamlit specific
+.streamlit/secrets.toml
+.streamlit/config.toml
+
+# Prototype and example files in root
+/*_prototype.py
+/*_example.py
+/*_integration_*.py
