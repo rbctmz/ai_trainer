@@ -2,24 +2,70 @@ from garminconnect import Garmin
 from datetime import datetime, timedelta
 import pandas as pd
 import streamlit as st
+import sys
+import os
+
+# Добавляем путь к логгеру
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+try:
+    from utils.logger import garmin_logger
+except ImportError:
+    # Fallback если логгер недоступен
+    class DummyLogger:
+        def info(self, msg): print(f"INFO: {msg}")
+        def debug(self, msg): print(f"DEBUG: {msg}")
+        def warning(self, msg): print(f"WARNING: {msg}")
+        def error(self, msg): print(f"ERROR: {msg}")
+    garmin_logger = DummyLogger()
+
+# Импорт garth клиента
+try:
+    from .garth_client import GarthClient
+    GARTH_AVAILABLE = True
+except ImportError:
+    try:
+        from garth_client import GarthClient
+        GARTH_AVAILABLE = True
+    except ImportError:
+        GARTH_AVAILABLE = False
+        print("WARNING: garth_client не найден, использование только garminconnect")
 
 class GarminClient:
     def __init__(self):
         self.client = None
+        self.garth_client = GarthClient() if GARTH_AVAILABLE else None
         self.is_authenticated = False
         self.auth_error = None
+        self.use_garth = False
     
     def authenticate(self, email, password):
-        """Аутентификация в Garmin Connect"""
+        """Аутентификация в Garmin Connect с поддержкой garth"""
+        # Сначала пробуем garth
+        if self.garth_client and GARTH_AVAILABLE:
+            try:
+                if self.garth_client.authenticate(email, password):
+                    self.is_authenticated = True
+                    self.auth_error = None
+                    self.use_garth = True
+                    print("DEBUG: Авторизация через garth успешна")
+                    return True
+            except Exception as e:
+                print(f"DEBUG: Ошибка авторизации через garth: {e}")
+        
+        # Если garth не сработал, используем garminconnect
         try:
             self.client = Garmin(email, password)
             self.client.login()
             self.is_authenticated = True
             self.auth_error = None
+            self.use_garth = False
+            print("DEBUG: Авторизация через garminconnect успешна")
             return True
         except Exception as e:
             self.auth_error = str(e)
             self.is_authenticated = False
+            self.use_garth = False
+            print(f"DEBUG: Ошибка авторизации через garminconnect: {e}")
             return False
     
     def get_activities(self, start_date, end_date, limit=100):
@@ -27,73 +73,156 @@ class GarminClient:
         if not self.is_authenticated:
             return []
         
-        try:
-            activities = self.client.get_activities_by_date(
-                start_date.strftime("%Y-%m-%d"),
-                end_date.strftime("%Y-%m-%d"),
-                activitytype=None
-            )
-            return activities[:limit] if activities else []
-        except Exception as e:
-            st.error(f"Ошибка получения активностей: {e}")
-            return []
+        # Если используем garth, пробуем его методы
+        if self.use_garth and self.garth_client:
+            try:
+                import garth
+                # Получаем активности через garth
+                activities = garth.connectapi(
+                    "/activitylist-service/activities/search/activities",
+                    params={
+                        "start": 0,
+                        "limit": limit,
+                        "startDate": start_date.strftime("%Y-%m-%d"),
+                        "endDate": end_date.strftime("%Y-%m-%d")
+                    }
+                )
+                if activities and isinstance(activities, list):
+                    print(f"DEBUG: Получено {len(activities)} активностей через garth")
+                    return activities[:limit]
+                else:
+                    print("DEBUG: garth не вернул активности, пробуем альтернативный метод")
+            except Exception as e:
+                print(f"DEBUG: Ошибка получения активностей через garth: {e}")
+        
+        # Используем стандартный garminconnect клиент
+        if self.client:
+            try:
+                activities = self.client.get_activities_by_date(
+                    start_date.strftime("%Y-%m-%d"),
+                    end_date.strftime("%Y-%m-%d"),
+                    activitytype=None
+                )
+                return activities[:limit] if activities else []
+            except Exception as e:
+                st.error(f"Ошибка получения активностей: {e}")
+                return []
+        
+        st.error("Нет доступного клиента для получения активностей")
+        return []
     
     def get_activity_details(self, activity_id):
         """Детальная информация об активности"""
         if not self.is_authenticated:
             return None
         
-        try:
-            return self.client.get_activity_by_id(activity_id)
-        except Exception as e:
-            st.error(f"Ошибка получения деталей активности: {e}")
-            return None
+        # Если используем garth, пробуем его методы
+        if self.use_garth and self.garth_client:
+            try:
+                import garth
+                activity_details = garth.connectapi(f"/activity-service/activity/{activity_id}")
+                if activity_details:
+                    print(f"DEBUG: Детали активности {activity_id} получены через garth")
+                    return activity_details
+            except Exception as e:
+                print(f"DEBUG: Ошибка получения деталей активности через garth: {e}")
+        
+        # Используем стандартный garminconnect клиент
+        if self.client:
+            try:
+                return self.client.get_activity_by_id(activity_id)
+            except Exception as e:
+                st.error(f"Ошибка получения деталей активности: {e}")
+                return None
+        
+        st.error("Нет доступного клиента для получения деталей активности")
+        return None
     
     def get_hrv_data(self, date):
         """Получение HRV данных за день"""
         if not self.is_authenticated:
             return None
         
-        try:
-            return self.client.get_hrv_data(date.strftime("%Y-%m-%d"))
-        except Exception as e:
-            # HRV данные часто недоступны, это не критичная ошибка
-            return None
+        # Если используем garth, пробуем его методы сначала
+        if self.use_garth and self.garth_client:
+            hrv_data = self.garth_client.get_hrv_data_garth(date)
+            if hrv_data:
+                return hrv_data
+        
+        # Используем стандартный garminconnect клиент
+        if self.client:
+            try:
+                return self.client.get_hrv_data(date.strftime("%Y-%m-%d"))
+            except Exception as e:
+                # HRV данные часто недоступны, это не критичная ошибка
+                return None
+        
+        return None
     
     def get_stress_data(self, date):
         """Получение данных о стрессе за день"""
         if not self.is_authenticated:
             return None
         
-        try:
-            return self.client.get_stress_data(date.strftime("%Y-%m-%d"))
-        except Exception as e:
-            # Стресс данные могут быть недоступны
-            return None
+        # Если используем garth, пробуем его методы сначала
+        if self.use_garth and self.garth_client:
+            stress_data = self.garth_client.get_stress_data_garth(date)
+            if stress_data:
+                return stress_data
+        
+        # Используем стандартный garminconnect клиент
+        if self.client:
+            try:
+                return self.client.get_stress_data(date.strftime("%Y-%m-%d"))
+            except Exception as e:
+                # Стресс данные могут быть недоступны
+                return None
+        
+        return None
     
     def get_body_battery_data(self, date):
         """Получение данных Body Battery (восстановление) за день"""
         if not self.is_authenticated:
             return None
         
-        try:
-            # Body Battery возвращает данные за период
-            date_str = date.strftime("%Y-%m-%d")
-            return self.client.get_body_battery(date_str, date_str)
-        except Exception as e:
-            # Body Battery данные могут быть недоступны
-            return None
+        # Если используем garth, пробуем его методы сначала
+        if self.use_garth and self.garth_client:
+            battery_data = self.garth_client.get_body_battery_garth(date)
+            if battery_data:
+                return battery_data
+        
+        # Используем стандартный garminconnect клиент
+        if self.client:
+            try:
+                # Body Battery возвращает данные за период
+                date_str = date.strftime("%Y-%m-%d")
+                return self.client.get_body_battery(date_str, date_str)
+            except Exception as e:
+                # Body Battery данные могут быть недоступны
+                return None
+        
+        return None
     
     def get_user_profile(self):
         """Получение профиля пользователя"""
         if not self.is_authenticated:
             return None
             
-        try:
-            return self.client.get_user_profile()
-        except Exception as e:
-            st.error(f"Ошибка получения профиля: {e}")
-            return None
+        # Если используем garth, пробуем его методы сначала
+        if self.use_garth and self.garth_client:
+            profile = self.garth_client.get_user_profile()
+            if profile:
+                return profile
+        
+        # Используем стандартный garminconnect клиент
+        if self.client:
+            try:
+                return self.client.get_user_profile()
+            except Exception as e:
+                st.error(f"Ошибка получения профиля: {e}")
+                return None
+        
+        return None
     
     def get_device_info(self):
         """Получение информации об устройствах"""
@@ -109,5 +238,191 @@ class GarminClient:
     def disconnect(self):
         """Отключение от Garmin Connect"""
         self.client = None
+        if self.garth_client:
+            self.garth_client.disconnect()
         self.is_authenticated = False
         self.auth_error = None
+        self.use_garth = False
+    
+    # =================== НОВЫЕ МЕТОДЫ ФАЗА 1 ===================
+    
+    def get_sleep_data(self, date):
+        """Получение данных сна за конкретную ночь с поддержкой garth"""
+        if not self.is_authenticated:
+            garmin_logger.warning("🔒 Попытка получения данных сна без авторизации")
+            return None
+        
+        date_str = date.strftime("%Y-%m-%d")
+        garmin_logger.info(f"😴 Получение данных сна для {date_str} (garth: {self.use_garth})")
+        
+        # Если используем garth, пробуем его методы
+        if self.use_garth and self.garth_client:
+            garmin_logger.debug(f"🚀 Использование garth для получения данных сна {date_str}")
+            result = self.garth_client.get_sleep_data_garth(date)
+            if result:
+                garmin_logger.info(f"✅ Данные сна получены через garth для {date_str}")
+                return result
+            else:
+                garmin_logger.warning(f"❌ garth не смог получить данные сна для {date_str}")
+        
+        # Используем стандартные методы garminconnect
+        if self.client:
+            methods_to_try = [
+                ('get_sleep_data', lambda: self.client.get_sleep_data(date_str)),
+                ('get_stats_and_body', lambda: self.client.get_stats_and_body(date_str)),
+            ]
+            
+            for method_name, method_func in methods_to_try:
+                try:
+                    result = method_func()
+                    if result:
+                        print(f"DEBUG: Данные сна получены через {method_name} для {date_str}")
+                        return result
+                except Exception as e:
+                    print(f"DEBUG: {method_name} failed for {date_str}: {e}")
+                    continue
+        
+        # Если ничего не сработало
+        print(f"DEBUG: Все методы получения данных сна не сработали для {date_str}")
+        return None
+    
+    def get_resting_heart_rate(self, date):
+        """Получение пульса покоя за день"""
+        if not self.is_authenticated:
+            return None
+        
+        try:
+            rhr_data = self.client.get_resting_heart_rate(date.strftime("%Y-%m-%d"))
+            return rhr_data
+        except Exception as e:
+            # Пульс покоя может быть недоступен
+            return None
+    
+    def get_daily_steps(self, date):
+        """Получение шагов и общей активности за день"""
+        if not self.is_authenticated:
+            return None
+        
+        try:
+            steps_data = self.client.get_steps_data(date.strftime("%Y-%m-%d"))
+            return steps_data
+        except Exception as e:
+            # Используем альтернативный метод
+            try:
+                return self.client.get_stats(date.strftime("%Y-%m-%d"))
+            except Exception:
+                return None
+    
+    def get_daily_summary(self, date):
+        """Получение общей сводки за день"""
+        if not self.is_authenticated:
+            return None
+        
+        try:
+            summary = self.client.get_stats(date.strftime("%Y-%m-%d"))
+            return summary
+        except Exception as e:
+            return None
+    
+    def get_training_status(self):
+        """Получение текущего статуса тренированности"""
+        if not self.is_authenticated:
+            return None
+        
+        # Пробуем разные методы получения статуса тренированности
+        from datetime import datetime, timedelta
+        methods_to_try = [
+            ('get_training_status', lambda: self.client.get_training_status()),
+            ('get_progress_summary_between_dates', lambda: self.client.get_progress_summary_between_dates(
+                (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"),
+                datetime.now().strftime("%Y-%m-%d")
+            )),
+        ]
+        
+        for method_name, method_func in methods_to_try:
+            try:
+                result = method_func()
+                if result:
+                    print(f"DEBUG: Статус тренированности получен через {method_name}")
+                    return result
+            except Exception as e:
+                print(f"DEBUG: {method_name} failed: {e}")
+                continue
+        
+        print("DEBUG: Все методы получения статуса тренированности не сработали")
+        return None
+    
+    def get_vo2_max(self):
+        """Получение текущего VO2 max"""
+        if not self.is_authenticated:
+            return None
+        
+        try:
+            vo2_data = self.client.get_vo2_max()
+            return vo2_data
+        except Exception as e:
+            return None
+    
+    def get_training_readiness(self):
+        """Получение готовности к тренировке"""
+        if not self.is_authenticated:
+            return None
+        
+        try:
+            readiness = self.client.get_training_readiness()
+            return readiness
+        except Exception as e:
+            return None
+    
+    def get_comprehensive_daily_data(self, date):
+        """Получение всех доступных данных за день одним вызовом"""
+        if not self.is_authenticated:
+            return {}
+        
+        date_str = date.strftime("%Y-%m-%d")
+        comprehensive_data = {
+            'date': date_str,
+            'sleep': None,
+            'resting_hr': None,
+            'daily_summary': None,
+            'steps': None
+        }
+        
+        # Собираем все данные
+        try:
+            comprehensive_data['sleep'] = self.get_sleep_data(date)
+        except Exception:
+            pass
+            
+        try:
+            comprehensive_data['resting_hr'] = self.get_resting_heart_rate(date)
+        except Exception:
+            pass
+            
+        try:
+            comprehensive_data['daily_summary'] = self.get_daily_summary(date)
+        except Exception:
+            pass
+            
+        try:
+            comprehensive_data['steps'] = self.get_daily_steps(date)
+        except Exception:
+            pass
+        
+        return comprehensive_data
+    
+    def test_garth_connection(self):
+        """Тестирование подключения через garth"""
+        if not self.use_garth or not self.garth_client:
+            return {"available": False, "reason": "garth не используется"}
+        
+        return self.garth_client.test_connection()
+    
+    def get_connection_info(self):
+        """Информация о типе подключения"""
+        return {
+            "authenticated": self.is_authenticated,
+            "using_garth": self.use_garth,
+            "garth_available": GARTH_AVAILABLE,
+            "auth_error": self.auth_error
+        }

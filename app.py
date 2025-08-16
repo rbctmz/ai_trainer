@@ -40,9 +40,11 @@ def main():
         page = st.sidebar.selectbox("Выберите раздел:", [
             "📊 Дашборд", 
             "🏃‍♂️ Активности", 
-            "💓 Анализ HRV", 
+            "💓 Анализ HRV",
+            "😴 Анализ сна", 
             "📈 Планирование", 
-            "🤖 AI Коучинг"
+            "🤖 AI Коучинг",
+            "📋 Логи синхронизации"
         ])
         
         # Управление данными
@@ -68,10 +70,19 @@ def main():
             📊 **Данные в БД:**
             - Активности: {stats['activities']}
             - HRV записи: {stats['hrv_data']}
+            - Данные сна: {stats.get('sleep_data', 0)}
+            - Показатели здоровья: {stats.get('daily_health', 0)}
+            - Статус тренированности: {stats.get('training_status', 0)}
             """)
         
         # Очистка БД
         clear_database()
+        
+        # Тестовые данные
+        st.divider()
+        st.subheader("🧪 Тестирование")
+        st.write("Для демонстрации функций Фазы 1:")
+        add_test_phase1_data()
         
         # Основной контент
         if page == "📊 Дашборд":
@@ -80,10 +91,14 @@ def main():
             show_activities()
         elif page == "💓 Анализ HRV":
             show_hrv_analysis()
+        elif page == "😴 Анализ сна":
+            show_sleep_analysis()
         elif page == "📈 Планирование":
             show_planning()
         elif page == "🤖 AI Коучинг":
             show_ai_coaching()
+        elif page == "📋 Логи синхронизации":
+            show_sync_logs()
     else:
         show_welcome_screen()
 
@@ -113,9 +128,30 @@ def show_garmin_connection():
             
         else:
             st.success("✅ Подключено к Garmin Connect")
+            
+            # Информация о типе подключения
+            connection_info = st.session_state.garmin_client.get_connection_info()
+            if connection_info.get('using_garth'):
+                st.info("🚀 Используется garth (улучшенный API)")
+            else:
+                st.info("📡 Используется garminconnect")
+            
             profile = st.session_state.garmin_client.get_user_profile()
             if profile:
                 st.write(f"👤 {profile.get('displayName', 'Пользователь')}")
+            
+            # Дополнительная диагностика garth
+            if connection_info.get('garth_available') and connection_info.get('using_garth'):
+                if st.button("🔍 Тест garth", help="Проверить расширенные возможности garth"):
+                    with st.spinner("Тестирование garth..."):
+                        test_results = st.session_state.garmin_client.test_garth_connection()
+                        if test_results.get('authenticated'):
+                            st.success("✅ Garth работает корректно")
+                            with st.expander("📋 Детали garth тестирования"):
+                                for method, status in test_results.get('test_results', {}).items():
+                                    st.write(f"• **{method}**: {status}")
+                        else:
+                            st.warning(f"⚠️ Проблема с garth: {test_results.get('error', 'Неизвестно')}")
             
             if st.button("🔌 Отключиться"):
                 st.session_state.garmin_client.disconnect()
@@ -225,16 +261,161 @@ def sync_data(days=30):
                     }
             
             # Обновляем прогресс после каждого батча
-            progress = 70 + (batch_idx // batch_size + 1) / total_batches * 20
-            progress_bar.progress(min(int(progress), 95))
+            progress = 70 + (batch_idx // batch_size + 1) / total_batches * 10
+            progress_bar.progress(min(int(progress), 80))
         
-        # Сохранение HRV данных
-        status_text.text("Сохранение данных...")
+        # =================== НОВЫЕ ДАННЫЕ ФАЗА 1 ===================
+        
+        # Синхронизация данных сна
+        progress_bar.progress(80)
+        status_text.text("Загрузка данных сна...")
+        
+        from data.data_processor_phase1 import Phase1DataProcessor
+        
+        sleep_data = {}
+        daily_health_data = {}
+        
+        for date in date_list[:min(len(date_list), days)]:  # Ограничиваем количество запросов
+            date_str = date.strftime('%Y-%m-%d')
+            
+            # Получаем и обрабатываем данные сна
+            try:
+                sleep_raw = st.session_state.garmin_client.get_sleep_data(date)
+                print(f"DEBUG SYNC: Получены данные сна для {date_str}: {type(sleep_raw)}")
+                
+                if sleep_raw:
+                    print(f"DEBUG SYNC: === ДЕТАЛЬНАЯ СТРУКТУРА ДАННЫХ СНА для {date_str} ===")
+                    
+                    # Подробное логирование структуры данных
+                    if isinstance(sleep_raw, dict):
+                        print(f"DEBUG SYNC: Ключи верхнего уровня: {list(sleep_raw.keys())}")
+                        
+                        # Проверяем dailySleepDTO
+                        if 'dailySleepDTO' in sleep_raw:
+                            dto = sleep_raw['dailySleepDTO']
+                            print(f"DEBUG SYNC: dailySleepDTO ключи: {list(dto.keys()) if isinstance(dto, dict) else 'НЕ СЛОВАРЬ'}")
+                            if isinstance(dto, dict):
+                                print(f"DEBUG SYNC: sleepTimeSeconds: {dto.get('sleepTimeSeconds', 'НЕТ')}")
+                                print(f"DEBUG SYNC: deepSleepSeconds: {dto.get('deepSleepSeconds', 'НЕТ')}")
+                                print(f"DEBUG SYNC: lightSleepSeconds: {dto.get('lightSleepSeconds', 'НЕТ')}")
+                                print(f"DEBUG SYNC: remSleepSeconds: {dto.get('remSleepSeconds', 'НЕТ')}")
+                                print(f"DEBUG SYNC: awakeCount: {dto.get('awakeCount', 'НЕТ')}")
+                        
+                        # Проверяем sleepScores
+                        if 'sleepScores' in sleep_raw:
+                            scores = sleep_raw['sleepScores']
+                            print(f"DEBUG SYNC: sleepScores ключи: {list(scores.keys()) if isinstance(scores, dict) else 'НЕ СЛОВАРЬ'}")
+                            if isinstance(scores, dict):
+                                if 'deepPercentage' in scores:
+                                    print(f"DEBUG SYNC: deepPercentage: {scores['deepPercentage']}")
+                                if 'lightPercentage' in scores:
+                                    print(f"DEBUG SYNC: lightPercentage: {scores['lightPercentage']}")
+                                if 'remPercentage' in scores:
+                                    print(f"DEBUG SYNC: remPercentage: {scores['remPercentage']}")
+                                if 'overall' in scores:
+                                    print(f"DEBUG SYNC: overall: {scores['overall']}")
+                        
+                        # Проверяем другие возможные структуры
+                        for key in sleep_raw.keys():
+                            if key not in ['dailySleepDTO', 'sleepScores']:
+                                print(f"DEBUG SYNC: Дополнительный ключ {key}: {type(sleep_raw[key])}")
+                    
+                    print(f"DEBUG SYNC: === ПЕРЕДАЕМ В ПРОЦЕССОР ===")
+                    processed_sleep = Phase1DataProcessor.process_sleep_data(sleep_raw)
+                    print(f"DEBUG SYNC: Обработанные данные сна для {date_str}: {processed_sleep}")
+                    
+                    if processed_sleep:
+                        sleep_data[date_str] = processed_sleep
+                        print(f"DEBUG SYNC: ✅ Данные сна добавлены для {date_str}")
+                        
+                        # Проверяем что именно сохранили
+                        total = processed_sleep.get('total_sleep_minutes', 0)
+                        deep = processed_sleep.get('deep_sleep_minutes', 0)
+                        light = processed_sleep.get('light_sleep_minutes', 0)
+                        rem = processed_sleep.get('rem_sleep_minutes', 0)
+                        score = processed_sleep.get('sleep_score', 0)
+                        
+                        print(f"DEBUG SYNC: 📊 Сохраненные значения: total={total}, deep={deep}, light={light}, rem={rem}, score={score}")
+                        
+                        if deep == 0 and light == 0 and rem == 0:
+                            print(f"DEBUG SYNC: ⚠️ КРИТИЧНО: Все фазы сна равны 0!")
+                    else:
+                        print(f"DEBUG SYNC: ❌ Обработка данных сна вернула None для {date_str}")
+                else:
+                    print(f"DEBUG SYNC: Нет данных сна для {date_str}")
+                    
+            except Exception as e:
+                print(f"DEBUG SYNC: ❌ Ошибка обработки данных сна для {date_str}: {e}")
+                import traceback
+                traceback.print_exc()
+                pass  # Данные сна могут быть недоступны
+            
+            # Получаем и обрабатываем ежедневные показатели здоровья
+            try:
+                # Общие показатели активности
+                daily_summary = st.session_state.garmin_client.get_daily_summary(date)
+                # Пульс покоя
+                resting_hr = st.session_state.garmin_client.get_resting_heart_rate(date)
+                
+                if daily_summary or resting_hr:
+                    processed_health = Phase1DataProcessor.process_daily_health_data(
+                        daily_summary, resting_hr
+                    )
+                    if processed_health:
+                        daily_health_data[date_str] = processed_health
+            except Exception as e:
+                pass  # Данные могут быть недоступны
+        
+        progress_bar.progress(85)
+        
+        # Получаем текущий статус тренированности (один раз)
+        status_text.text("Загрузка статуса тренированности...")
+        training_status_data = {}
+        
+        try:
+            # Статус тренированности
+            training_status = st.session_state.garmin_client.get_training_status()
+            # VO2 max
+            vo2_data = st.session_state.garmin_client.get_vo2_max()
+            # Готовность к тренировке
+            readiness_data = st.session_state.garmin_client.get_training_readiness()
+            
+            if training_status or vo2_data:
+                processed_status = Phase1DataProcessor.process_training_status_data(
+                    training_status, vo2_data, readiness_data
+                )
+                if processed_status:
+                    training_status_data[datetime.now().strftime('%Y-%m-%d')] = processed_status
+        except Exception as e:
+            pass  # Данные могут быть недоступны
+        
+        progress_bar.progress(90)
+        
+        # Сохранение всех данных
+        status_text.text("Сохранение расширенных данных...")
         progress_bar.progress(95)
         
         hrv_result = {'new': 0, 'updated': 0}
         if hrv_data:
             hrv_result = st.session_state.database.sync_hrv_data(hrv_data)
+        
+        # Сохраняем новые типы данных
+        sleep_result = {'new': 0, 'updated': 0}
+        print(f"DEBUG SYNC: Сохранение данных сна в базу: {len(sleep_data)} записей")
+        print(f"DEBUG SYNC: Ключи данных сна: {list(sleep_data.keys()) if sleep_data else 'Нет данных'}")
+        if sleep_data:
+            sleep_result = st.session_state.database.sync_sleep_data(sleep_data)
+            print(f"DEBUG SYNC: Результат сохранения сна: {sleep_result}")
+        else:
+            print("DEBUG SYNC: Нет данных сна для сохранения")
+        
+        health_result = {'new': 0, 'updated': 0}
+        if daily_health_data:
+            health_result = st.session_state.database.sync_daily_health(daily_health_data)
+        
+        status_result = {'new': 0, 'updated': 0}
+        if training_status_data:
+            status_result = st.session_state.database.sync_training_status(training_status_data)
         
         progress_bar.progress(100)
         status_text.text("Синхронизация завершена!")
@@ -252,6 +433,33 @@ def sync_data(days=30):
             success_msgs.append(f"💓 {hrv_result['new']} новых HRV записей")
         if hrv_result['updated'] > 0:
             success_msgs.append(f"💓 {hrv_result['updated']} HRV записей обновлено")
+        
+        # Новые типы данных
+        if sleep_result['new'] > 0:
+            success_msgs.append(f"😴 {sleep_result['new']} новых записей сна")
+        if sleep_result['updated'] > 0:
+            success_msgs.append(f"😴 {sleep_result['updated']} записей сна обновлено")
+        
+        if health_result['new'] > 0:
+            success_msgs.append(f"🏃 {health_result['new']} новых записей здоровья")
+        if health_result['updated'] > 0:
+            success_msgs.append(f"🏃 {health_result['updated']} записей здоровья обновлено")
+        
+        if status_result['new'] > 0 or status_result['updated'] > 0:
+            success_msgs.append(f"🎯 Статус тренированности обновлён")
+        
+        # Детальная информация о том, что было найдено/не найдено
+        details = []
+        if len(sleep_data) == 0:
+            details.append("😴 Данные сна: не найдены (возможно, недоступны в Garmin Connect)")
+        if len(daily_health_data) == 0:
+            details.append("🏃 Данные здоровья: не найдены")
+        if len(training_status_data) == 0:
+            details.append("🎯 Статус тренированности: не найден (возможно, требуется Premium подписка Garmin)")
+        
+        # Показываем детали, если есть проблемы
+        if details:
+            st.info("ℹ️ **Информация о данных:**\n" + "\n".join([f"• {detail}" for detail in details]))
         
         if success_msgs:
             st.success("✅ " + " | ".join(success_msgs))
@@ -271,24 +479,109 @@ def sync_data(days=30):
 
 def clear_database():
     """Очистка базы данных с подтверждением"""
-    if st.button("🗑️ Очистить базу данных", type="secondary"):
+    if st.button("🗑️ Очистить базу данных", type="secondary", key="clear_db_btn"):
         if 'confirm_clear' not in st.session_state:
             st.session_state.confirm_clear = False
         
         if not st.session_state.confirm_clear:
-            st.warning("⚠️ Это действие удалит ВСЕ данные из базы. Подтвердите удаление.")
-            if st.button("✅ Да, удалить все данные", type="primary"):
-                st.session_state.confirm_clear = True
-                st.rerun()
-        else:
-            try:
-                st.session_state.database.clear_all_data()
-                st.success("✅ База данных очищена")
+            st.session_state.confirm_clear = True
+            st.rerun()
+    
+    if st.session_state.get('confirm_clear', False):
+        st.warning("⚠️ Это действие удалит ВСЕ данные из базы. Подтвердите удаление.")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("✅ Да, удалить все данные", type="primary", key="confirm_clear_btn"):
+                try:
+                    result = st.session_state.database.clear_all_data()
+                    st.success("✅ База данных очищена")
+                    st.session_state.confirm_clear = False
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Ошибка очистки БД: {e}")
+                    st.session_state.confirm_clear = False
+        
+        with col2:
+            if st.button("❌ Отмена", type="secondary", key="cancel_clear_btn"):
                 st.session_state.confirm_clear = False
                 st.rerun()
-            except Exception as e:
-                st.error(f"❌ Ошибка очистки БД: {e}")
-                st.session_state.confirm_clear = False
+
+def add_test_phase1_data():
+    """Добавление тестовых данных Фазы 1 для демонстрации"""
+    if st.button("🧪 Добавить тестовые данные Фазы 1", type="primary", key="add_test_data_btn"):
+        try:
+            from datetime import datetime, timedelta
+            from data.data_processor_phase1 import Phase1DataProcessor
+            
+            # Создаем тестовые данные за последние 7 дней
+            sleep_data = {}
+            health_data = {}
+            status_data = {}
+            
+            for i in range(7):
+                date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+                
+                # Тестовые данные сна (варьируем качество)
+                base_quality = 75 + (i % 3) * 5  # 75-85
+                sleep_data[date] = {
+                    'total_sleep_minutes': 420 + (i % 2) * 30,  # 7-7.5 часов
+                    'deep_sleep_minutes': 80 + (i % 3) * 10,
+                    'light_sleep_minutes': 280 + (i % 2) * 20,
+                    'rem_sleep_minutes': 60 + (i % 3) * 10,
+                    'awakenings_count': 1 + (i % 3),
+                    'sleep_score': base_quality + (i % 2) * 5,
+                    'bedtime': f"23:{15 + (i % 3) * 15:02d}",
+                    'wakeup_time': f"0{6 + (i % 2)}:{30 + (i % 2) * 15:02d}",
+                    'sleep_efficiency': 88.0 + (i % 3) * 3
+                }
+                
+                # Тестовые данные здоровья
+                health_data[date] = {
+                    'resting_hr': 48 + (i % 4) * 2,  # 48-54
+                    'steps': 8000 + i * 500,  # 8000-11000
+                    'floors_climbed': 8 + (i % 3) * 2,
+                    'calories_active': 350 + i * 30,
+                    'calories_bmr': 1580,
+                    'distance_meters': 6000 + i * 400,
+                    'active_minutes': 40 + (i % 3) * 10,
+                    'intensity_minutes': 15 + (i % 3) * 5
+                }
+            
+            # Статус тренированности (один на сегодня)
+            today = datetime.now().strftime('%Y-%m-%d')
+            status_data[today] = {
+                'vo2_max': 48.5,
+                'fitness_age': 32,
+                'training_load_7d': 285.0,
+                'training_status': 'PRODUCTIVE',
+                'training_readiness': 75.0,
+                'recovery_time_hours': 14,
+                'load_ratio': 1.05
+            }
+            
+            # Синхронизируем тестовые данные
+            sleep_result = st.session_state.database.sync_sleep_data(sleep_data)
+            health_result = st.session_state.database.sync_daily_health(health_data)
+            status_result = st.session_state.database.sync_training_status(status_data)
+            
+            st.success(f"""✅ Тестовые данные добавлены:
+• 😴 Сон: {sleep_result['new']} новых записей
+• 🏃 Здоровье: {health_result['new']} новых записей  
+• 🎯 Статус: {status_result['new']} новых записей
+
+Теперь вы можете проверить:
+• Страницу "😴 Анализ сна"
+• Индекс готовности на дашборде
+• Комплексный анализ готовности""")
+            
+            # Обновляем страницу через 2 секунды
+            import time
+            time.sleep(2)
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"❌ Ошибка добавления тестовых данных: {e}")
 
 def show_welcome_screen():
     """Экран приветствия для неподключённых пользователей"""
@@ -323,8 +616,8 @@ def show_dashboard():
             sync_data()
         return
     
-    # Основные метрики
-    col1, col2, col3, col4, col5 = st.columns(5)
+    # Основные метрики  
+    col1, col2, col3, col4, col5, col6 = st.columns(6)
     
     with col1:
         total_activities = len(activities_df)
@@ -373,6 +666,48 @@ def show_dashboard():
         
         st.metric("Форма (TSB)", f"{tsb_color} {tsb_value}", help="Training Stress Balance - показатель формы")
     
+    with col6:
+        # Расчет комплексного индекса готовности
+        from data.data_processor_phase1 import Phase1DataProcessor
+        
+        # Получаем последние данные для расчета индекса
+        sleep_df = st.session_state.database.get_sleep_data(7)
+        hrv_df = st.session_state.database.get_hrv_data(7)
+        health_df = st.session_state.database.get_daily_health(7)
+        training_df = st.session_state.database.get_training_status_history(7)
+        
+        readiness_data = None
+        if not sleep_df.empty or not hrv_df.empty or not health_df.empty:
+            # Берем последние данные
+            latest_sleep = sleep_df.iloc[0].to_dict() if not sleep_df.empty else {}
+            latest_hrv = hrv_df.iloc[0].to_dict() if not hrv_df.empty else {}
+            latest_health = health_df.iloc[0].to_dict() if not health_df.empty else {}
+            latest_training = training_df.iloc[0].to_dict() if not training_df.empty else {}
+            
+            readiness_data = Phase1DataProcessor.calculate_comprehensive_readiness(
+                latest_sleep, latest_hrv, latest_health, latest_training
+            )
+        
+        if readiness_data and 'readiness_score' in readiness_data:
+            score = readiness_data['readiness_score']
+            if score >= 80:
+                score_color = "🟢"
+            elif score >= 60:
+                score_color = "🟡"
+            elif score >= 40:
+                score_color = "🟠"
+            else:
+                score_color = "🔴"
+            
+            factors_count = len(readiness_data.get('factors_used', []))
+            st.metric(
+                "Готовность", 
+                f"{score_color} {score:.0f}",
+                help=f"Комплексный индекс готовности (на основе {factors_count} факторов)"
+            )
+        else:
+            st.metric("Готовность", "Н/Д", help="Недостаточно данных для расчета. Выполните синхронизацию.")
+    
     # Графики
     col1, col2 = st.columns(2)
     
@@ -419,6 +754,76 @@ def show_dashboard():
         
         display_df.columns = ['Дата', 'Вид спорта', 'Время (мин)', 'Дистанция (км)', 'Ср. пульс', 'TSS']
         st.dataframe(display_df, use_container_width=True)
+    
+    # Детальный анализ готовности
+    st.subheader("🎯 Комплексный анализ готовности")
+    
+    # Получаем данные снова для детального анализа
+    sleep_df = st.session_state.database.get_sleep_data(7)
+    hrv_df = st.session_state.database.get_hrv_data(7)
+    health_df = st.session_state.database.get_daily_health(7)
+    training_df = st.session_state.database.get_training_status_history(7)
+    
+    if not sleep_df.empty or not hrv_df.empty or not health_df.empty:
+        from data.data_processor_phase1 import Phase1DataProcessor
+        
+        # Берем последние данные
+        latest_sleep = sleep_df.iloc[0].to_dict() if not sleep_df.empty else {}
+        latest_hrv = hrv_df.iloc[0].to_dict() if not hrv_df.empty else {}
+        latest_health = health_df.iloc[0].to_dict() if not health_df.empty else {}
+        latest_training = training_df.iloc[0].to_dict() if not training_df.empty else {}
+        
+        readiness_data = Phase1DataProcessor.calculate_comprehensive_readiness(
+            latest_sleep, latest_hrv, latest_health, latest_training
+        )
+        
+        if readiness_data and 'readiness_score' in readiness_data:
+            col1, col2 = st.columns([1, 2])
+            
+            with col1:
+                score = readiness_data['readiness_score']
+                if score >= 80:
+                    status_text = "🟢 Отлично"
+                    status_desc = "Готовы к интенсивным тренировкам"
+                elif score >= 60:
+                    status_text = "🟡 Хорошо"
+                    status_desc = "Умеренные нагрузки"
+                elif score >= 40:
+                    status_text = "🟠 Средне"
+                    status_desc = "Легкие тренировки"
+                else:
+                    status_text = "🔴 Низко"
+                    status_desc = "Отдых и восстановление"
+                
+                st.metric("Общая готовность", f"{score:.1f}/100")
+                st.write(f"**Статус:** {status_text}")
+                st.write(f"**Рекомендация:** {status_desc}")
+            
+            with col2:
+                st.write("**Факторы влияния:**")
+                
+                factor_scores = readiness_data.get('factor_scores', {})
+                factors_used = readiness_data.get('factors_used', [])
+                
+                # Создаем прогресс-бары для каждого фактора
+                for factor in factors_used:
+                    factor_score = factor_scores.get(factor, 0)
+                    
+                    factor_names = {
+                        'sleep': '😴 Качество сна',
+                        'hrv': '💓 Вариабельность ритма',
+                        'resting_hr': '💗 Пульс покоя',
+                        'training_readiness': '🎯 Готовность Garmin',
+                        'stress': '😌 Уровень стресса'
+                    }
+                    
+                    factor_name = factor_names.get(factor, factor)
+                    st.write(f"{factor_name}: {factor_score:.1f}/100")
+                    st.progress(factor_score / 100)
+        else:
+            st.info("💡 Для расчета индекса готовности нужны данные сна, HRV или пульса покоя. Выполните синхронизацию с Garmin Connect.")
+    else:
+        st.info("💡 Нет данных для анализа готовности. Синхронизируйте данные с Garmin Connect для получения комплексного анализа.")
 
 def show_activities():
     """Страница активностей"""
@@ -986,6 +1391,351 @@ def show_hrv_analysis():
                 file_name=f"hrv_data_{datetime.now().strftime('%Y%m%d')}.csv",
                 mime="text/csv"
             )
+
+def show_sleep_analysis():
+    """Страница анализа сна"""
+    st.header("😴 Анализ качества сна")
+    
+    # Получаем данные сна из БД
+    sleep_df = st.session_state.database.get_sleep_data(90)
+    
+    if sleep_df.empty:
+        st.warning("📊 Данные сна отсутствуют. Выполните синхронизацию с Garmin Connect.")
+        if st.button("🔄 Синхронизировать данные"):
+            st.rerun()
+        return
+    
+    # Селектор периода
+    period_options = {
+        "7 дней": 7,
+        "14 дней": 14, 
+        "30 дней": 30,
+        "60 дней": 60,
+        "90 дней": 90
+    }
+    
+    period_label = st.selectbox(
+        "📅 Период анализа:",
+        options=list(period_options.keys()),
+        index=2,  # По умолчанию 30 дней
+        key="sleep_period_selector"
+    )
+    period_days = period_options[period_label]
+    
+    # Фильтруем данные по выбранному периоду
+    cutoff_date = datetime.now() - timedelta(days=period_days)
+    filtered_df = sleep_df[sleep_df['date'] >= cutoff_date].copy()
+    
+    if filtered_df.empty:
+        st.warning(f"📊 Нет данных сна за последние {period_days} дней.")
+        return
+    
+    # Текущее состояние сна (последние данные)
+    latest_sleep = filtered_df.iloc[0] if not filtered_df.empty else None
+    
+    if latest_sleep is not None:
+        st.subheader(f"🌙 Последний сон ({latest_sleep['date'].strftime('%d.%m.%Y')})")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_minutes = latest_sleep.get('total_sleep_minutes', 0)
+            hours = total_minutes // 60
+            minutes = total_minutes % 60
+            st.metric("Продолжительность", f"{hours}ч {minutes}м")
+        
+        with col2:
+            sleep_score = latest_sleep.get('sleep_score', 0)
+            score_color = "🟢" if sleep_score >= 80 else "🟡" if sleep_score >= 60 else "🔴"
+            st.metric("Качество сна", f"{score_color} {sleep_score:.1f}")
+        
+        with col3:
+            efficiency = latest_sleep.get('sleep_efficiency', 0)
+            st.metric("Эффективность", f"{efficiency:.1f}%")
+        
+        with col4:
+            awakenings = latest_sleep.get('awakenings_count', 0)
+            st.metric("Пробуждения", f"{awakenings:.0f}")
+        
+        # Детали фаз сна
+        st.subheader("🌀 Фазы сна")
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            deep_min = latest_sleep.get('deep_sleep_minutes', 0)
+            deep_pct = (deep_min / total_minutes * 100) if total_minutes > 0 else 0
+            st.metric(
+                "Глубокий сон", 
+                f"{deep_min}мин",
+                f"{deep_pct:.1f}% от сна"
+            )
+        
+        with col2:
+            light_min = latest_sleep.get('light_sleep_minutes', 0)
+            light_pct = (light_min / total_minutes * 100) if total_minutes > 0 else 0
+            st.metric(
+                "Легкий сон", 
+                f"{light_min}мин",
+                f"{light_pct:.1f}% от сна"
+            )
+        
+        with col3:
+            rem_min = latest_sleep.get('rem_sleep_minutes', 0)
+            rem_pct = (rem_min / total_minutes * 100) if total_minutes > 0 else 0
+            st.metric(
+                "REM сон", 
+                f"{rem_min}мин",
+                f"{rem_pct:.1f}% от сна"
+            )
+        
+        # Время сна
+        if latest_sleep.get('bedtime') and latest_sleep.get('wakeup_time'):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("🌙 Время засыпания", latest_sleep['bedtime'])
+            with col2:
+                st.metric("🌅 Время пробуждения", latest_sleep['wakeup_time'])
+    
+    # Тренды и графики
+    st.subheader("📈 Тренды сна")
+    
+    if len(filtered_df) > 1:
+        import plotly.graph_objects as go
+        from plotly.subplots import make_subplots
+        
+        # График качества сна во времени
+        fig = make_subplots(
+            rows=2, cols=2,
+            subplot_titles=[
+                'Качество сна', 'Продолжительность сна',
+                'Эффективность сна', 'Пробуждения'
+            ],
+            vertical_spacing=0.15
+        )
+        
+        dates = filtered_df['date']
+        
+        # Качество сна
+        fig.add_trace(
+            go.Scatter(
+                x=dates, 
+                y=filtered_df['sleep_score'],
+                mode='lines+markers',
+                name='Качество сна',
+                line=dict(color='#1f77b4', width=2),
+                marker=dict(size=6)
+            ),
+            row=1, col=1
+        )
+        
+        # Продолжительность
+        sleep_hours = filtered_df['total_sleep_minutes'] / 60
+        fig.add_trace(
+            go.Scatter(
+                x=dates, 
+                y=sleep_hours,
+                mode='lines+markers',
+                name='Часы сна',
+                line=dict(color='#ff7f0e', width=2),
+                marker=dict(size=6)
+            ),
+            row=1, col=2
+        )
+        
+        # Эффективность
+        fig.add_trace(
+            go.Scatter(
+                x=dates, 
+                y=filtered_df['sleep_efficiency'],
+                mode='lines+markers',
+                name='Эффективность %',
+                line=dict(color='#2ca02c', width=2),
+                marker=dict(size=6)
+            ),
+            row=2, col=1
+        )
+        
+        # Пробуждения
+        fig.add_trace(
+            go.Scatter(
+                x=dates, 
+                y=filtered_df['awakenings_count'],
+                mode='lines+markers',
+                name='Пробуждения',
+                line=dict(color='#d62728', width=2),
+                marker=dict(size=6)
+            ),
+            row=2, col=2
+        )
+        
+        fig.update_layout(
+            height=500,
+            showlegend=False,
+            title_text=f"Тренды сна за {period_label}"
+        )
+        
+        # Добавляем средние линии
+        avg_score = filtered_df['sleep_score'].mean()
+        avg_hours = filtered_df['total_sleep_minutes'].mean() / 60
+        avg_efficiency = filtered_df['sleep_efficiency'].mean()
+        avg_awakenings = filtered_df['awakenings_count'].mean()
+        
+        # Горизонтальные линии средних значений
+        for row, col, avg_val, color in [
+            (1, 1, avg_score, '#1f77b4'),
+            (1, 2, avg_hours, '#ff7f0e'),
+            (2, 1, avg_efficiency, '#2ca02c'),
+            (2, 2, avg_awakenings, '#d62728')
+        ]:
+            fig.add_hline(
+                y=avg_val, 
+                line_dash="dash", 
+                line_color=color,
+                opacity=0.5,
+                row=row, col=col
+            )
+        
+        st.plotly_chart(fig, use_container_width=True)
+        
+        # Статистика за период
+        st.subheader("📊 Статистика за период")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            avg_quality = filtered_df['sleep_score'].mean()
+            # Проверяем на NaN значения
+            if pd.isna(avg_quality):
+                avg_quality = 0
+            quality_trend = "📈" if len(filtered_df) > 0 and not pd.isna(filtered_df['sleep_score'].iloc[0]) and filtered_df['sleep_score'].iloc[0] > avg_quality else "📉"
+            st.metric(
+                "Среднее качество", 
+                f"{avg_quality:.1f}",
+                f"{quality_trend} тренд"
+            )
+        
+        with col2:
+            avg_duration = filtered_df['total_sleep_minutes'].mean() / 60
+            st.metric(
+                "Средняя длительность", 
+                f"{avg_duration:.1f}ч"
+            )
+        
+        with col3:
+            avg_eff = filtered_df['sleep_efficiency'].mean()
+            st.metric(
+                "Средняя эффективность", 
+                f"{avg_eff:.1f}%"
+            )
+        
+        with col4:
+            avg_awake = filtered_df['awakenings_count'].mean()
+            st.metric(
+                "Среднее пробуждений", 
+                f"{avg_awake:.1f}"
+            )
+    
+    # Распределение фаз сна
+    if len(filtered_df) > 0:
+        st.subheader("🥧 Распределение фаз сна")
+        
+        # Среднее распределение фаз за период
+        avg_deep = filtered_df['deep_sleep_minutes'].mean()
+        avg_light = filtered_df['light_sleep_minutes'].mean()
+        avg_rem = filtered_df['rem_sleep_minutes'].mean()
+        
+        total_avg = avg_deep + avg_light + avg_rem
+        
+        if total_avg > 0:
+            import plotly.express as px
+            
+            phases_data = {
+                'Фаза': ['Глубокий сон', 'Легкий сон', 'REM сон'],
+                'Минуты': [avg_deep, avg_light, avg_rem],
+                'Процент': [
+                    avg_deep / total_avg * 100,
+                    avg_light / total_avg * 100,
+                    avg_rem / total_avg * 100
+                ]
+            }
+            
+            fig_pie = px.pie(
+                values=phases_data['Минуты'],
+                names=phases_data['Фаза'],
+                title=f"Среднее распределение фаз сна за {period_label}",
+                color_discrete_sequence=['#1f77b4', '#ff7f0e', '#2ca02c']
+            )
+            
+            fig_pie.update_traces(textinfo='percent+label')
+            st.plotly_chart(fig_pie, use_container_width=True)
+        
+        # Таблица с рекомендациями (вынесена из условного блока)
+        st.subheader("💡 Рекомендации по сну")
+        
+        recommendations = []
+        
+        # Получаем переменные для анализа, убеждаемся что они определены
+        avg_quality = filtered_df['sleep_score'].mean()
+        avg_duration = filtered_df['total_sleep_minutes'].mean() / 60
+        avg_deep = filtered_df['deep_sleep_minutes'].mean()
+        avg_rem = filtered_df['rem_sleep_minutes'].mean()
+        total_avg = avg_deep + avg_light + avg_rem
+        avg_awake = filtered_df['awakenings_count'].mean()
+        
+        # Проверяем на NaN значения
+        if pd.isna(avg_quality):
+            avg_quality = 0
+        if pd.isna(avg_duration):
+            avg_duration = 0
+        if pd.isna(total_avg):
+            total_avg = 0
+        if pd.isna(avg_awake):
+            avg_awake = 0
+        
+        # Анализ качества сна
+        if avg_quality < 60:
+            recommendations.append("🔴 Низкое качество сна. Рекомендуется улучшить режим и гигиену сна.")
+        elif avg_quality < 80:
+            recommendations.append("🟡 Удовлетворительное качество сна. Есть возможности для улучшения.")
+        else:
+            recommendations.append("🟢 Отличное качество сна! Продолжайте в том же духе.")
+        
+        # Анализ продолжительности
+        if avg_duration < 7:
+            recommendations.append("🔴 Недостаточная продолжительность сна. Рекомендуется спать 7-9 часов.")
+        elif avg_duration > 9:
+            recommendations.append("🟡 Избыточная продолжительность сна. Проверьте качество восстановления.")
+        else:
+            recommendations.append("🟢 Оптимальная продолжительность сна.")
+        
+        # Анализ фаз (только если есть данные)
+        if total_avg > 0:
+            deep_pct = avg_deep / total_avg * 100
+            rem_pct = avg_rem / total_avg * 100
+            
+            if deep_pct < 15:
+                recommendations.append("🔴 Недостаточно глубокого сна. Избегайте кофеина и стресса перед сном.")
+            if rem_pct < 20:
+                recommendations.append("🔴 Недостаточно REM сна. Регулярный режим сна поможет улучшить REM фазы.")
+        
+        # Анализ пробуждений
+        if avg_awake > 3:
+            recommendations.append("🟡 Частые пробуждения. Проверьте температуру и освещение в спальне.")
+        
+        # Отображаем рекомендации
+        for rec in recommendations:
+            st.write(f"• {rec}")
+    
+    # Экспорт данных
+    st.subheader("📁 Экспорт данных")
+    if st.button("📊 Скачать данные сна"):
+        csv = filtered_df.to_csv(index=False)
+        st.download_button(
+            label="💾 Загрузить CSV файл",
+            data=csv,
+            file_name=f"sleep_data_{datetime.now().strftime('%Y%m%d')}.csv",
+            mime="text/csv"
+        )
 
 def show_planning():
     """Страница планирования с моделью Банистера"""
@@ -2295,6 +3045,130 @@ def format_tool_result(tool_name, data):
             return result_text
         else:
             return f"**📊 {tool_name.replace('_', ' ').title()}:** {str(data)}"
+
+def show_sync_logs():
+    """Показывает логи синхронизации для отладки"""
+    st.title("📋 Логи синхронизации")
+    st.write("Детальные логи процесса синхронизации с Garmin Connect")
+    
+    import os
+    import glob
+    from datetime import datetime
+    
+    # Ищем файлы логов
+    log_dir = "logs"
+    if not os.path.exists(log_dir):
+        st.warning("📁 Папка с логами не найдена. Логи будут создаваться при следующей синхронизации.")
+        return
+    
+    # Получаем список файлов логов
+    log_files = glob.glob(f"{log_dir}/garmin_sync_*.log")
+    log_files.sort(reverse=True)  # Новые файлы сначала
+    
+    if not log_files:
+        st.info("📝 Файлы логов пока не созданы. Выполните синхронизацию для создания логов.")
+        return
+    
+    # Выбор файла лога
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        selected_file = st.selectbox(
+            "Выберите файл лога:",
+            log_files,
+            format_func=lambda x: os.path.basename(x)
+        )
+    
+    with col2:
+        # Кнопка обновления
+        if st.button("🔄 Обновить"):
+            st.rerun()
+    
+    if selected_file:
+        try:
+            # Опции фильтрации
+            st.subheader("🔍 Фильтры")
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                level_filter = st.multiselect(
+                    "Уровень логов:",
+                    ["INFO", "DEBUG", "WARNING", "ERROR"],
+                    default=["INFO", "WARNING", "ERROR"]
+                )
+            
+            with col2:
+                search_term = st.text_input("Поиск по тексту:")
+            
+            with col3:
+                max_lines = st.number_input("Максимум строк:", min_value=10, max_value=1000, value=100)
+            
+            # Читаем файл лога
+            with open(selected_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            # Применяем фильтры
+            filtered_lines = []
+            for line in lines:
+                # Фильтр по уровню
+                if level_filter:
+                    if not any(level in line for level in level_filter):
+                        continue
+                
+                # Фильтр по поиску
+                if search_term and search_term.lower() not in line.lower():
+                    continue
+                
+                filtered_lines.append(line)
+            
+            # Показываем последние строки
+            display_lines = filtered_lines[-max_lines:] if len(filtered_lines) > max_lines else filtered_lines
+            
+            st.subheader(f"📄 Логи ({len(display_lines)} из {len(lines)} строк)")
+            
+            # Группируем по типам для удобства
+            if st.checkbox("Группировать по типам"):
+                errors = [line for line in display_lines if "ERROR" in line]
+                warnings = [line for line in display_lines if "WARNING" in line]
+                infos = [line for line in display_lines if "INFO" in line and "ERROR" not in line and "WARNING" not in line]
+                debugs = [line for line in display_lines if "DEBUG" in line]
+                
+                if errors:
+                    st.error(f"❌ Ошибки ({len(errors)}):")
+                    st.code('\n'.join(errors), language=None)
+                
+                if warnings:
+                    st.warning(f"⚠️ Предупреждения ({len(warnings)}):")
+                    st.code('\n'.join(warnings), language=None)
+                
+                if infos:
+                    st.info(f"ℹ️ Информация ({len(infos)}):")
+                    st.code('\n'.join(infos), language=None)
+                
+                if debugs and "DEBUG" in level_filter:
+                    with st.expander(f"🔍 Отладка ({len(debugs)})"):
+                        st.code('\n'.join(debugs), language=None)
+            else:
+                # Показываем все логи подряд
+                log_text = ''.join(display_lines)
+                st.code(log_text, language=None)
+            
+            # Статистика
+            st.subheader("📊 Статистика логов")
+            col1, col2, col3, col4 = st.columns(4)
+            
+            total_lines = len(lines)
+            errors_count = len([l for l in lines if "ERROR" in l])
+            warnings_count = len([l for l in lines if "WARNING" in l])
+            success_count = len([l for l in lines if "✅" in l])
+            
+            col1.metric("Всего строк", total_lines)
+            col2.metric("Ошибок", errors_count)
+            col3.metric("Предупреждений", warnings_count)
+            col4.metric("Успешных операций", success_count)
+            
+        except Exception as e:
+            st.error(f"Ошибка чтения файла лога: {e}")
 
 if __name__ == "__main__":
     main()

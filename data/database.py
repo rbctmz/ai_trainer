@@ -72,6 +72,54 @@ class Database:
             )
         ''')
         
+        # Таблица данных сна
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS sleep_data (
+                date DATE PRIMARY KEY,
+                total_sleep_minutes INTEGER,
+                deep_sleep_minutes INTEGER,
+                light_sleep_minutes INTEGER,
+                rem_sleep_minutes INTEGER,
+                awakenings_count INTEGER,
+                sleep_score REAL,
+                bedtime TEXT,
+                wakeup_time TEXT,
+                sleep_efficiency REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Таблица ежедневных показателей здоровья
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS daily_health (
+                date DATE PRIMARY KEY,
+                resting_hr INTEGER,
+                steps INTEGER,
+                floors_climbed INTEGER,
+                calories_active INTEGER,
+                calories_bmr INTEGER,
+                distance_meters INTEGER,
+                active_minutes INTEGER,
+                intensity_minutes INTEGER,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
+        # Таблица статуса тренированности
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS training_status (
+                date DATE PRIMARY KEY,
+                vo2_max REAL,
+                fitness_age INTEGER,
+                training_load_7d REAL,
+                training_status TEXT,
+                training_readiness REAL,
+                recovery_time_hours INTEGER,
+                load_ratio REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        
         conn.commit()
         conn.close()
     
@@ -385,6 +433,22 @@ class Database:
         cursor.execute('DELETE FROM hrv_data') 
         cursor.execute('DELETE FROM user_settings')
         
+        # Очищаем новые таблицы
+        try:
+            cursor.execute('DELETE FROM sleep_data')
+        except sqlite3.OperationalError:
+            pass
+            
+        try:
+            cursor.execute('DELETE FROM daily_health')
+        except sqlite3.OperationalError:
+            pass
+            
+        try:
+            cursor.execute('DELETE FROM training_status')
+        except sqlite3.OperationalError:
+            pass
+        
         conn.commit()
         conn.close()
     
@@ -403,10 +467,316 @@ class Database:
         cursor.execute('SELECT COUNT(*) FROM user_settings')
         settings_count = cursor.fetchone()[0]
         
+        # Новые таблицы
+        try:
+            cursor.execute('SELECT COUNT(*) FROM sleep_data')
+            sleep_count = cursor.fetchone()[0]
+        except sqlite3.OperationalError:
+            sleep_count = 0
+            
+        try:
+            cursor.execute('SELECT COUNT(*) FROM daily_health')
+            health_count = cursor.fetchone()[0]
+        except sqlite3.OperationalError:
+            health_count = 0
+            
+        try:
+            cursor.execute('SELECT COUNT(*) FROM training_status')
+            training_count = cursor.fetchone()[0]
+        except sqlite3.OperationalError:
+            training_count = 0
+        
         conn.close()
         
         return {
             'activities': activities_count,
             'hrv_data': hrv_count,
-            'user_settings': settings_count
+            'user_settings': settings_count,
+            'sleep_data': sleep_count,
+            'daily_health': health_count,
+            'training_status': training_count
         }
+    
+    # =================== НОВЫЕ МЕТОДЫ СИНХРОНИЗАЦИИ ФАЗА 1 ===================
+    
+    def sync_sleep_data(self, sleep_data):
+        """Умная синхронизация данных сна без дублей"""
+        if not sleep_data:
+            return {'new': 0, 'updated': 0}
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Получаем существующие даты
+        cursor.execute('SELECT date FROM sleep_data')
+        existing_dates = {row[0] for row in cursor.fetchall()}
+        
+        new_count = 0
+        updated_count = 0
+        
+        for date_str, data in sleep_data.items():
+            clean_date = self.clean_value(date_str)
+            
+            if clean_date in existing_dates:
+                # Обновляем существующую запись
+                cursor.execute('''
+                    UPDATE sleep_data SET 
+                    total_sleep_minutes=?, deep_sleep_minutes=?, light_sleep_minutes=?,
+                    rem_sleep_minutes=?, awakenings_count=?, sleep_score=?,
+                    bedtime=?, wakeup_time=?, sleep_efficiency=?
+                    WHERE date=?
+                ''', (
+                    self.clean_value(data.get('total_sleep_minutes')),
+                    self.clean_value(data.get('deep_sleep_minutes')),
+                    self.clean_value(data.get('light_sleep_minutes')),
+                    self.clean_value(data.get('rem_sleep_minutes')),
+                    self.clean_value(data.get('awakenings_count')),
+                    self.clean_value(data.get('sleep_score')),
+                    self.clean_value(data.get('bedtime')),
+                    self.clean_value(data.get('wakeup_time')),
+                    self.clean_value(data.get('sleep_efficiency')),
+                    clean_date
+                ))
+                updated_count += 1
+            else:
+                # Вставляем новую запись
+                cursor.execute('''
+                    INSERT INTO sleep_data 
+                    (date, total_sleep_minutes, deep_sleep_minutes, light_sleep_minutes,
+                     rem_sleep_minutes, awakenings_count, sleep_score, bedtime, 
+                     wakeup_time, sleep_efficiency)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    clean_date,
+                    self.clean_value(data.get('total_sleep_minutes')),
+                    self.clean_value(data.get('deep_sleep_minutes')),
+                    self.clean_value(data.get('light_sleep_minutes')),
+                    self.clean_value(data.get('rem_sleep_minutes')),
+                    self.clean_value(data.get('awakenings_count')),
+                    self.clean_value(data.get('sleep_score')),
+                    self.clean_value(data.get('bedtime')),
+                    self.clean_value(data.get('wakeup_time')),
+                    self.clean_value(data.get('sleep_efficiency'))
+                ))
+                existing_dates.add(clean_date)
+                new_count += 1
+        
+        conn.commit()
+        conn.close()
+        
+        return {
+            'new': new_count,
+            'updated': updated_count
+        }
+    
+    def sync_daily_health(self, health_data):
+        """Умная синхронизация ежедневных показателей здоровья"""
+        if not health_data:
+            return {'new': 0, 'updated': 0}
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Получаем существующие даты
+        cursor.execute('SELECT date FROM daily_health')
+        existing_dates = {row[0] for row in cursor.fetchall()}
+        
+        new_count = 0
+        updated_count = 0
+        
+        for date_str, data in health_data.items():
+            clean_date = self.clean_value(date_str)
+            
+            if clean_date in existing_dates:
+                # Обновляем существующую запись
+                cursor.execute('''
+                    UPDATE daily_health SET 
+                    resting_hr=?, steps=?, floors_climbed=?,
+                    calories_active=?, calories_bmr=?, distance_meters=?,
+                    active_minutes=?, intensity_minutes=?
+                    WHERE date=?
+                ''', (
+                    self.clean_value(data.get('resting_hr')),
+                    self.clean_value(data.get('steps')),
+                    self.clean_value(data.get('floors_climbed')),
+                    self.clean_value(data.get('calories_active')),
+                    self.clean_value(data.get('calories_bmr')),
+                    self.clean_value(data.get('distance_meters')),
+                    self.clean_value(data.get('active_minutes')),
+                    self.clean_value(data.get('intensity_minutes')),
+                    clean_date
+                ))
+                updated_count += 1
+            else:
+                # Вставляем новую запись
+                cursor.execute('''
+                    INSERT INTO daily_health 
+                    (date, resting_hr, steps, floors_climbed, calories_active,
+                     calories_bmr, distance_meters, active_minutes, intensity_minutes)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    clean_date,
+                    self.clean_value(data.get('resting_hr')),
+                    self.clean_value(data.get('steps')),
+                    self.clean_value(data.get('floors_climbed')),
+                    self.clean_value(data.get('calories_active')),
+                    self.clean_value(data.get('calories_bmr')),
+                    self.clean_value(data.get('distance_meters')),
+                    self.clean_value(data.get('active_minutes')),
+                    self.clean_value(data.get('intensity_minutes'))
+                ))
+                existing_dates.add(clean_date)
+                new_count += 1
+        
+        conn.commit()
+        conn.close()
+        
+        return {
+            'new': new_count,
+            'updated': updated_count
+        }
+    
+    def sync_training_status(self, status_data):
+        """Синхронизация статуса тренированности"""
+        if not status_data:
+            return {'new': 0, 'updated': 0}
+        
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        
+        # Получаем существующие даты
+        cursor.execute('SELECT date FROM training_status')
+        existing_dates = {row[0] for row in cursor.fetchall()}
+        
+        new_count = 0
+        updated_count = 0
+        
+        for date_str, data in status_data.items():
+            clean_date = self.clean_value(date_str)
+            
+            if clean_date in existing_dates:
+                # Обновляем существующую запись
+                cursor.execute('''
+                    UPDATE training_status SET 
+                    vo2_max=?, fitness_age=?, training_load_7d=?,
+                    training_status=?, training_readiness=?, recovery_time_hours=?,
+                    load_ratio=?
+                    WHERE date=?
+                ''', (
+                    self.clean_value(data.get('vo2_max')),
+                    self.clean_value(data.get('fitness_age')),
+                    self.clean_value(data.get('training_load_7d')),
+                    self.clean_value(data.get('training_status')),
+                    self.clean_value(data.get('training_readiness')),
+                    self.clean_value(data.get('recovery_time_hours')),
+                    self.clean_value(data.get('load_ratio')),
+                    clean_date
+                ))
+                updated_count += 1
+            else:
+                # Вставляем новую запись
+                cursor.execute('''
+                    INSERT INTO training_status 
+                    (date, vo2_max, fitness_age, training_load_7d, training_status,
+                     training_readiness, recovery_time_hours, load_ratio)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    clean_date,
+                    self.clean_value(data.get('vo2_max')),
+                    self.clean_value(data.get('fitness_age')),
+                    self.clean_value(data.get('training_load_7d')),
+                    self.clean_value(data.get('training_status')),
+                    self.clean_value(data.get('training_readiness')),
+                    self.clean_value(data.get('recovery_time_hours')),
+                    self.clean_value(data.get('load_ratio'))
+                ))
+                existing_dates.add(clean_date)
+                new_count += 1
+        
+        conn.commit()
+        conn.close()
+        
+        return {
+            'new': new_count,
+            'updated': updated_count
+        }
+    
+    # =================== МЕТОДЫ ПОЛУЧЕНИЯ НОВЫХ ДАННЫХ ===================
+    
+    def get_sleep_data(self, days=30):
+        """Получение данных сна за последние N дней"""
+        conn = sqlite3.connect(self.db_path)
+        
+        cutoff_date = (datetime.now() - pd.Timedelta(days=days)).date()
+        
+        query = f'''
+            SELECT * FROM sleep_data 
+            WHERE date >= '{cutoff_date}'
+            ORDER BY date DESC
+        '''
+        
+        try:
+            df = pd.read_sql_query(query, conn)
+        except pd.io.sql.DatabaseError:
+            # Таблица не существует
+            df = pd.DataFrame()
+        
+        conn.close()
+        
+        # Преобразование даты в datetime если она есть  
+        if not df.empty and 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
+        
+        return df
+    
+    def get_daily_health(self, days=30):
+        """Получение ежедневных показателей здоровья за последние N дней"""
+        conn = sqlite3.connect(self.db_path)
+        
+        cutoff_date = (datetime.now() - pd.Timedelta(days=days)).date()
+        
+        query = f'''
+            SELECT * FROM daily_health 
+            WHERE date >= '{cutoff_date}'
+            ORDER BY date DESC
+        '''
+        
+        try:
+            df = pd.read_sql_query(query, conn)
+        except pd.io.sql.DatabaseError:
+            # Таблица не существует
+            df = pd.DataFrame()
+        
+        conn.close()
+        
+        # Преобразование даты в datetime если она есть  
+        if not df.empty and 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
+        
+        return df
+    
+    def get_training_status_history(self, days=90):
+        """Получение истории статуса тренированности за последние N дней"""
+        conn = sqlite3.connect(self.db_path)
+        
+        cutoff_date = (datetime.now() - pd.Timedelta(days=days)).date()
+        
+        query = f'''
+            SELECT * FROM training_status 
+            WHERE date >= '{cutoff_date}'
+            ORDER BY date DESC
+        '''
+        
+        try:
+            df = pd.read_sql_query(query, conn)
+        except pd.io.sql.DatabaseError:
+            # Таблица не существует
+            df = pd.DataFrame()
+        
+        conn.close()
+        
+        # Преобразование даты в datetime если она есть  
+        if not df.empty and 'date' in df.columns:
+            df['date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
+        
+        return df
