@@ -45,7 +45,7 @@ def responsive_columns(num_items, mobile_cols=1, desktop_cols=None):
 def format_date(date_obj, format_type='display'):
     """
     Стандартизированное форматирование дат
-    format_type: 'display' для UI (дд.мм.гггг), 'db' для БД (гггг-мм-дд)
+    format_type: 'display' для UI (дд.мм.гггг), 'db' для БД (гггг-мм-дд), 'short' для компактного вида (дд.мм)
     """
     if pd.isna(date_obj):
         return ""
@@ -61,6 +61,8 @@ def format_date(date_obj, format_type='display'):
         return date_obj.strftime('%d.%m.%Y')
     elif format_type == 'db':
         return date_obj.strftime('%Y-%m-%d')
+    elif format_type == 'short':
+        return date_obj.strftime('%d.%m')
     else:
         return str(date_obj)
 
@@ -468,6 +470,161 @@ def apply_theme():
         </style>
         """, unsafe_allow_html=True)
 
+def calculate_current_status():
+    """Расчет текущего статуса с приоритизацией проблем"""
+    
+    # Получаем данные за последние 30 дней
+    activities_df = st.session_state.database.get_activities(30)
+    hrv_df = st.session_state.database.get_hrv_data(7)
+    sleep_df = st.session_state.database.get_sleep_data(7)
+    
+    status = {
+        'critical_status': None,
+        'critical_action': None,
+        'recommendations': [],
+        'tsb': 0,
+        'hrv': 0,
+        'readiness': 0,
+        'ctl': 0,
+        'trends': {}
+    }
+    
+    # Расчет TSB через модель Банистера
+    if not activities_df.empty:
+        from models.banister import BanisterModel
+        banister = BanisterModel()
+        
+        # Безопасная подготовка данных
+        tss_data = []
+        dates = []
+        
+        for idx, row in activities_df.iterrows():
+            tss_val = row['tss'] if 'tss' in row and pd.notna(row['tss']) else 0
+            if pd.isna(tss_val) or tss_val is None:
+                tss_val = 0
+            tss_data.append(float(tss_val))
+            dates.append(row['date'])
+        
+        current_metrics = banister.get_current_metrics(tss_data, dates)
+        status['tsb'] = current_metrics.get('tsb', 0)
+        status['ctl'] = current_metrics.get('ctl', 0)
+        
+        # Определение критических состояний и детальных рекомендаций
+        if status['tsb'] < -30:
+            status['critical_status'] = "Критическое переутомление"
+            status['critical_action'] = "Полный отдых 2-3 дня без тренировок"
+            status['recommendations'].extend([
+                {
+                    'title': '🚨 Немедленный отдых',
+                    'description': 'TSB критически низкий (-30+). Организм в состоянии переутомления.',
+                    'priority': 'high'
+                },
+                {
+                    'title': '😴 Качество сна',
+                    'description': 'Увеличьте сон до 8-9 часов, соблюдайте режим.',
+                    'priority': 'high'  
+                },
+                {
+                    'title': '💧 Восстановление',
+                    'description': 'Массаж, баня, легкие прогулки. Никаких интенсивных нагрузок.',
+                    'priority': 'medium'
+                }
+            ])
+        elif status['tsb'] < -20:
+            status['critical_status'] = "Сильная усталость"
+            status['critical_action'] = "Только легкие восстановительные тренировки в Зоне 1"
+            status['recommendations'].extend([
+                {
+                    'title': '🔄 Активное восстановление',
+                    'description': 'TSB -20 до -30. Только тренировки в аэробной зоне 1.',
+                    'priority': 'high'
+                },
+                {
+                    'title': '🍎 Питание',
+                    'description': 'Увеличьте потребление белка и углеводов для восстановления.',
+                    'priority': 'medium'
+                }
+            ])
+        elif status['tsb'] > 5:
+            status['recommendations'].extend([
+                {
+                    'title': '🚀 Пиковая форма!',
+                    'description': 'TSB выше +5. Отличное время для соревнований или тестов.',
+                    'priority': 'low'
+                },
+                {
+                    'title': '🎯 Интенсивные тренировки',
+                    'description': 'Можно проводить FTP-тесты, интервалы, темповые работы.',
+                    'priority': 'low'
+                }
+            ])
+        else:
+            status['recommendations'].append({
+                'title': '💪 Стандартный режим',
+                'description': 'TSB в норме. Поддерживайте текущий объем тренировок.',
+                'priority': 'low'
+            })
+    
+    # HRV анализ
+    if not hrv_df.empty:
+        latest_hrv = hrv_df.iloc[0]['rmssd'] if pd.notna(hrv_df.iloc[0]['rmssd']) else 0
+        baseline_hrv = hrv_df['rmssd'].mean()
+        status['hrv'] = latest_hrv
+        
+        # Тренд HRV за последние 3 дня
+        if len(hrv_df) >= 3:
+            recent_trend = hrv_df.head(3)['rmssd'].pct_change().mean() * 100
+            status['trends']['hrv'] = recent_trend
+        
+        # Дополнительная проверка критического состояния и рекомендации по HRV
+        if latest_hrv < baseline_hrv * 0.8 and status['critical_status'] is None:
+            status['critical_status'] = "Низкий HRV - стресс или недовосстановление"
+            status['critical_action'] = "Проверьте качество сна и уровень стресса"
+            status['recommendations'].append({
+                'title': '💓 Низкий HRV',
+                'description': f'HRV ({latest_hrv:.1f}) ниже базового ({baseline_hrv:.1f}) на 20%+',
+                'priority': 'medium'
+            })
+        
+        # Общие HRV рекомендации
+        if latest_hrv < 30:
+            status['recommendations'].append({
+                'title': '⚠️ HRV требует внимания',
+                'description': 'Низкая вариабельность сердечного ритма. Фокус на восстановлении.',
+                'priority': 'medium'
+            })
+        elif latest_hrv > 50:
+            status['recommendations'].append({
+                'title': '✨ Отличный HRV',
+                'description': 'Высокая вариабельность - организм готов к нагрузкам.',
+                'priority': 'low'
+            })
+    
+    # Комплексный индекс готовности
+    if not sleep_df.empty or not hrv_df.empty:
+        try:
+            from data.data_processor_phase1 import Phase1DataProcessor
+            
+            latest_sleep = sleep_df.iloc[0].to_dict() if not sleep_df.empty else {}
+            latest_hrv = hrv_df.iloc[0].to_dict() if not hrv_df.empty else {}
+            
+            readiness_data = Phase1DataProcessor.calculate_comprehensive_readiness(
+                latest_sleep, latest_hrv, {}, {}
+            )
+            
+            if readiness_data and 'readiness_score' in readiness_data:
+                status['readiness'] = readiness_data['readiness_score']
+        except Exception as e:
+            # Если не получается рассчитать готовность, используем базовый расчёт
+            if status['hrv'] > 40 and status['tsb'] > -10:
+                status['readiness'] = 80
+            elif status['hrv'] > 30 and status['tsb'] > -20:
+                status['readiness'] = 60
+            else:
+                status['readiness'] = 40
+    
+    return status
+
 def main():
     st.title("🏃‍♂️ Персональный AI Тренер")
     
@@ -476,6 +633,10 @@ def main():
         st.session_state.garmin_client = GarminClient()
     if 'database' not in st.session_state:
         st.session_state.database = Database()
+    
+    # Применяем современные стили
+    from utils.modern_ui import ModernUI
+    ModernUI.apply_modern_styles()
     
     # Применяем тему
     apply_theme()
@@ -499,41 +660,68 @@ def main():
     
     # Главное меню (только если подключён)
     if st.session_state.garmin_client.is_authenticated:
-        # Используем радио-кнопки для лучшей навигации на мобильных
-        st.sidebar.markdown("### 📍 Основные разделы")
+        # СОВРЕМЕННАЯ ГОРИЗОНТАЛЬНАЯ НАВИГАЦИЯ
+        def show_horizontal_navigation():
+            """Создает горизонтальную панель навигации с современными кнопками"""
+            st.markdown("### 🧭 Навигация")
+            
+            # Все страницы в одном списке - ВСЕ разделы доступны!
+            nav_items = [
+                ("📊", "Дашборд", "📊 Дашборд"), 
+                ("🤖", "AI Коучинг", "🤖 AI Коучинг"),
+                ("🏃‍♂️", "Активности", "🏃‍♂️ Активности"), 
+                ("📈", "Планирование", "📈 Планирование"),
+                ("💓", "Анализ HRV", "💓 Анализ HRV"),
+                ("😴", "Анализ сна", "😴 Анализ сна"),
+                ("⚙️", "Управление", "⚙️ Управление данными")
+            ]
+            
+            # Создаем горизонтальные кнопки
+            cols = st.columns(len(nav_items))
+            selected_page = st.session_state.get('selected_page', "📊 Дашборд")
+            
+            for i, (icon, short_name, full_name) in enumerate(nav_items):
+                with cols[i]:
+                    # Определяем активна ли кнопка
+                    is_active = selected_page == full_name
+                    button_type = "primary" if is_active else "secondary"
+                    
+                    if st.button(f"{icon}\n{short_name}", 
+                                key=f"nav_{i}",
+                                help=full_name,
+                                use_container_width=True,
+                                type=button_type):
+                        st.session_state.selected_page = full_name
+                        st.rerun()
+            
+            return st.session_state.get('selected_page', "📊 Дашборд")
         
-        # Определяем текущую страницу
-        pages = [
-            "📊 Дашборд", 
-            "🤖 AI Коучинг",
-            "🏃‍♂️ Активности", 
-            "📈 Планирование",
-            "⚙️ Управление данными"
+        # Показываем навигацию и получаем выбранную страницу
+        page = show_horizontal_navigation()
+        
+        # Боковая панель - упрощенная для мобильных
+        all_pages = [
+            "📊 Дашборд", "🤖 AI Коучинг", "🏃‍♂️ Активности", 
+            "📈 Планирование", "💓 Анализ HRV", "😴 Анализ сна", "⚙️ Управление данными"
         ]
         
-        # Если есть выбранная страница из session state, используем её
-        default_index = 0
-        if "selected_page" in st.session_state and st.session_state.selected_page in pages:
-            default_index = pages.index(st.session_state.selected_page)
+        st.sidebar.markdown("### 📱 Мобильное меню")
+        sidebar_page = st.sidebar.selectbox("Выберите раздел:", all_pages, 
+                                           index=all_pages.index(page) if page in all_pages else 0,
+                                           label_visibility="collapsed")
         
-        page = st.sidebar.radio("", pages, 
-                               index=default_index,
-                               label_visibility="collapsed")
+        # Если выбрали из sidebar - обновляем
+        if sidebar_page != page:
+            st.session_state.selected_page = sidebar_page
+            page = sidebar_page
+            st.rerun()
         
-        # Обновляем selected_page в session state
-        st.session_state.selected_page = page
-        
-        # Дополнительные разделы в отдельном экспандере
-        with st.sidebar.expander("📂 Дополнительно"):
-            additional_page = st.selectbox("Анализ данных:", [
-                "Основной раздел",
-                "💓 Анализ HRV",
-                "😴 Анализ сна",
-                "📋 Логи синхронизации"
-            ], label_visibility="collapsed")
-            
-            if additional_page != "Основной раздел":
-                page = additional_page
+        # Дополнительные инструменты
+        with st.sidebar.expander("🔧 Дополнительные инструменты"):
+            if st.button("📋 Логи синхронизации"):
+                st.session_state.selected_page = "📋 Логи синхронизации"
+                page = "📋 Логи синхронизации"
+                st.rerun()
         
         st.sidebar.markdown("---")
         
@@ -1116,8 +1304,11 @@ def show_welcome_screen():
     st.markdown("*Требуется аккаунт Garmin Connect с историей тренировок*")
 
 def show_dashboard():
-    """Дашборд тренировок"""
-    st.header("📊 Дашборд тренировок")
+    """Современный дашборд тренировок"""
+    from utils.modern_ui import ModernUI
+    
+    # Применяем современные стили
+    ModernUI.apply_modern_styles()
     
     # Получение данных из БД
     activities_df = st.session_state.database.get_activities(30)
@@ -1197,238 +1388,301 @@ def show_dashboard():
         st.caption("💡 **Совет:** Начните с синхронизации последних 30 дней тренировок или попробуйте демо-данные")
         return
     
-    # Основные метрики
-    # Используем адаптивную сетку: 2 строки по 3 колонки
-    col1, col2, col3 = st.columns(3)
-    col4, col5, col6 = st.columns(3)
+    # Статус-ориентированный дашборд
+    st.title("🏃‍♂️ Статус тренировок")
+    
+    # Расчет текущего статуса
+    current_status = calculate_current_status()
+    
+    # Критические уведомления
+    if current_status.get('critical_status'):
+        st.error(f"🚨 {current_status['critical_status']}")
+        if current_status.get('critical_action'):
+            st.info(f"💡 Рекомендация: {current_status['critical_action']}")
+        
+        # Дополнительные советы для критических состояний
+        if current_status['tsb'] < -30:
+            st.markdown("""
+            <div class="critical-alert">
+                <h3>🛌 Немедленные действия при переутомлении:</h3>
+                <ul>
+                    <li>• Полный отдых 2-3 дня (никаких тренировок)</li>
+                    <li>• Увеличьте продолжительность сна до 8+ часов</li>
+                    <li>• Легкие прогулки или стретчинг максимум</li>
+                    <li>• Обратите внимание на питание и гидратацию</li>
+                    <li>• Рассмотрите массаж или физиотерапию</li>
+                </ul>
+            </div>
+            """, unsafe_allow_html=True)
+    
+    # Основные статус-карточки
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        total_activities = len(activities_df)
-        st.metric("Активности (30 дней)", total_activities)
+        ModernUI.status_card(
+            "Training Stress Balance",
+            f"{current_status['tsb']:.1f}",
+            "tsb",
+            trend=current_status.get('tsb_trend'),
+            description="Показатель тренировочной формы"
+        )
     
     with col2:
-        total_distance = activities_df['distance_km'].sum()
-        st.metric("Общая дистанция", f"{total_distance:.1f} км")
+        ModernUI.status_card(
+            "HRV (RMSSD)",
+            f"{current_status['hrv']:.1f}" if current_status['hrv'] else "Н/Д",
+            "hrv", 
+            trend=current_status.get('hrv_trend'),
+            description="Вариабельность сердечного ритма"
+        )
     
     with col3:
-        total_time = activities_df['duration_minutes'].sum()
-        st.metric("Общее время", f"{total_time/60:.1f} ч")
+        ModernUI.status_card(
+            "Готовность",
+            f"{current_status['readiness']:.0f}%" if current_status['readiness'] else "Н/Д",
+            "readiness",
+            description="Комплексный индекс готовности"
+        )
     
     with col4:
-        avg_tss = activities_df['tss'].mean() if 'tss' in activities_df.columns and activities_df['tss'].notna().any() else 0
-        st.metric("Средний TSS", f"{avg_tss:.1f}")
+        ModernUI.status_card(
+            "CTL (нагрузка)",
+            f"{current_status['ctl']:.1f}",
+            "ctl",
+            description="Хроническая тренировочная нагрузка"
+        )
     
-    with col5:
-        # Добавляем текущий TSB из модели Банистера
-        banister = BanisterModel()
-        
-        # Безопасная обработка TSS данных
-        tss_data = []
-        dates = []
-        
-        for idx, row in activities_df.iterrows():
-            tss_val = row['tss'] if 'tss' in row and pd.notna(row['tss']) else 0
-            # Обрабатываем NaN и None значения
-            if pd.isna(tss_val) or tss_val is None:
-                tss_val = 0
-            tss_data.append(float(tss_val))
-            dates.append(row['date'])
-        
-        current_metrics = banister.get_current_metrics(tss_data, dates)
-        
-        # Цвет для TSB
-        tsb_value = current_metrics['tsb'] if 'tsb' in current_metrics else 0
-        if tsb_value > 5:
-            tsb_color = "🟢"
-        elif tsb_value > -10:
-            tsb_color = "🟡"
-        elif tsb_value > -30:
-            tsb_color = "🟠"
-        else:
-            tsb_color = "🔴"
-        
-        st.metric("Форма (TSB)", f"{tsb_color} {tsb_value}", help="Training Stress Balance - показатель формы")
+    # AI рекомендации
+    recommendations = current_status.get('recommendations', [])
+    if recommendations:
+        ModernUI.ai_recommendation_panel(recommendations)
     
-    with col6:
-        # Расчет комплексного индекса готовности
-        from data.data_processor_phase1 import Phase1DataProcessor
-        
-        # Получаем последние данные для расчета индекса
-        sleep_df = st.session_state.database.get_sleep_data(7)
-        hrv_df = st.session_state.database.get_hrv_data(7)
-        health_df = st.session_state.database.get_daily_health(7)
-        training_df = st.session_state.database.get_training_status_history(7)
-        
-        readiness_data = None
-        if not sleep_df.empty or not hrv_df.empty or not health_df.empty:
-            # Берем последние данные
-            latest_sleep = sleep_df.iloc[0].to_dict() if not sleep_df.empty else {}
-            latest_hrv = hrv_df.iloc[0].to_dict() if not hrv_df.empty else {}
-            latest_health = health_df.iloc[0].to_dict() if not health_df.empty else {}
-            latest_training = training_df.iloc[0].to_dict() if not training_df.empty else {}
-            
-            readiness_data = Phase1DataProcessor.calculate_comprehensive_readiness(
-                latest_sleep, latest_hrv, latest_health, latest_training
-            )
-        
-        if readiness_data and 'readiness_score' in readiness_data:
-            score = readiness_data['readiness_score']
-            if score >= 80:
-                score_color = "🟢"
-            elif score >= 60:
-                score_color = "🟡"
-            elif score >= 40:
-                score_color = "🟠"
-            else:
-                score_color = "🔴"
-            
-            factors_count = len(readiness_data.get('factors_used', []))
-            st.metric(
-                "Готовность", 
-                f"{score_color} {score:.0f}",
-                help=f"Комплексный индекс готовности (на основе {factors_count} факторов)"
-            )
-        else:
-            st.metric("Готовность", "Н/Д", help="Недостаточно данных для расчета. Выполните синхронизацию.")
+    # Быстрые действия
+    show_quick_actions(current_status)
     
-    # Графики
-    col1, col2 = st.columns(2)
+    # Индикатор интенсивности тренировок
+    show_training_intensity_indicator(current_status)
     
-    with col1:
-        # График активностей по дням
-        if not activities_df.empty:
-            # Убеждаемся что дата в правильном формате для группировки
+    # Компактная аналитика в раскрывающемся блоке
+    show_compact_analytics(activities_df)
+
+def show_quick_actions(current_status):
+    """Быстрые действия на основе текущего статуса"""
+    st.markdown("### ⚡ Быстрые действия")
+    
+    # Определяем действия на основе статуса
+    actions = []
+    
+    try:
+        tsb_val = float(current_status.get('tsb', 0))
+        if tsb_val < -20:
+            actions.append({
+                "icon": "😴",
+                "title": "План восстановления", 
+                "desc": "Составить программу активного отдыха",
+                "action": "recovery_plan"
+            })
+        elif tsb_val > 10:
+            actions.append({
+                "icon": "🔥", 
+                "title": "Интенсивная тренировка",
+                "desc": "Использовать пиковую форму",
+                "action": "intense_workout"
+            })
+    except (ValueError, TypeError):
+        pass
+    
+    try:
+        hrv_val = float(current_status.get('hrv', 0)) if current_status.get('hrv') else 0
+        if hrv_val > 0 and hrv_val < 30:
+            actions.append({
+                "icon": "💓",
+                "title": "HRV-анализ",
+                "desc": "Детальный разбор вариабельности",
+                "action": "hrv_analysis"
+            })
+    except (ValueError, TypeError):
+        pass
+    
+    actions.extend([
+        {"icon": "📊", "title": "Синхронизация", "desc": "Обновить данные", "action": "sync"},
+        {"icon": "🤖", "title": "AI Коуч", "desc": "Персональные рекомендации", "action": "ai_chat"},
+        {"icon": "📈", "title": "Планирование", "desc": "Настроить тренировки", "action": "planning"}
+    ])
+    
+    # Отображение в виде сетки
+    st.markdown('<div class="quick-actions-grid">', unsafe_allow_html=True)
+    
+    cols = st.columns(3)
+    for i, action in enumerate(actions[:6]):  # Максимум 6 действий
+        with cols[i % 3]:
+            if st.button(f"{action['icon']} {action['title']}", 
+                        help=action['desc'], use_container_width=True):
+                handle_quick_action(action['action'])
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+
+def handle_quick_action(action):
+    """Обработка быстрых действий"""
+    if action == "recovery_plan":
+        st.session_state.page = "AI Коуч"
+        st.rerun()
+    elif action == "intense_workout":
+        st.session_state.page = "Планирование"
+        st.rerun()
+    elif action == "hrv_analysis":
+        st.session_state.page = "HRV анализ"
+        st.rerun()
+    elif action == "sync":
+        sync_data(days=7)
+    elif action == "ai_chat":
+        st.session_state.page = "AI Коуч"
+        st.rerun()
+    elif action == "planning":
+        st.session_state.page = "Планирование"
+        st.rerun()
+
+def show_compact_analytics(activities_df):
+    """Компактная аналитика в раскрывающемся блоке"""
+    with st.expander("📊 Подробная аналитика", expanded=False):
+        if activities_df.empty:
+            st.info("Нет данных для анализа")
+            return
+        
+        # Основные метрики в компактном виде
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            total_activities = len(activities_df)
+            st.metric("Активности", total_activities)
+        
+        with col2:
+            total_distance = activities_df['distance_km'].sum()
+            st.metric("Дистанция", f"{total_distance:.0f} км")
+        
+        with col3:
+            total_time = activities_df['duration_minutes'].sum()
+            st.metric("Время", f"{total_time/60:.0f}ч")
+        
+        with col4:
+            avg_tss = activities_df['tss'].mean() if 'tss' in activities_df.columns and activities_df['tss'].notna().any() else 0
+            st.metric("Ср. TSS", f"{avg_tss:.0f}")
+        
+        # Мини-графики
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # График активностей по дням
             activities_df_copy = activities_df.copy()
             if not pd.api.types.is_datetime64_any_dtype(activities_df_copy['date']):
                 activities_df_copy['date'] = pd.to_datetime(activities_df_copy['date'])
             
             daily_stats = activities_df_copy.groupby(activities_df_copy['date'].dt.date).agg({
-                'duration_minutes': 'sum',
-                'distance_km': 'sum'
+                'duration_minutes': 'sum'
             }).reset_index()
             
-            theme = get_plotly_theme()
-            fig = px.bar(daily_stats, x='date', y='duration_minutes', 
-                        title="⏱️ Время тренировок по дням",
-                        labels={'duration_minutes': 'Время (мин)', 'date': 'Дата'},
-                        template=theme['template'])
-            fig.update_layout(
-                paper_bgcolor=theme['paper_bgcolor'],
-                plot_bgcolor=theme['plot_bgcolor'],
-                font_color=theme['font_color']
+            from utils.modern_ui import ModernUI
+            fig = ModernUI.create_mini_trend_chart(
+                daily_stats['duration_minutes'].tolist(),
+                "Время тренировок"
             )
             st.plotly_chart(fig, use_container_width=True)
-    
-    with col2:
-        # Распределение по видам спорта
-        if not activities_df.empty:
+        
+        with col2:
+            # Распределение по видам спорта
             sport_dist = activities_df['sport'].value_counts()
             theme = get_plotly_theme()
             fig = px.pie(values=sport_dist.values, names=sport_dist.index,
-                        title="🏃‍♂️ Распределение по видам спорта",
-                        template=theme['template'])
+                        title="Виды спорта", template=theme['template'])
             fig.update_layout(
+                height=200,
+                margin=dict(l=0, r=0, t=30, b=0),
                 paper_bgcolor=theme['paper_bgcolor'],
                 plot_bgcolor=theme['plot_bgcolor'],
-                font_color=theme['font_color']
+                font_color=theme['font_color'],
+                showlegend=False
             )
             st.plotly_chart(fig, use_container_width=True)
-    
-    # Таблица последних активностей
-    st.subheader("📋 Последние активности")
-    if not activities_df.empty:
-        display_df = activities_df.head(10)[['date', 'sport', 'duration_minutes', 'distance_km', 'avg_hr', 'tss']].copy()
         
-        # Безопасное форматирование даты
+        # Таблица последних активностей (компактная)
+        st.markdown("**Последние тренировки:**")
+        display_df = activities_df.head(5)[['date', 'sport', 'duration_minutes', 'distance_km', 'tss']].copy()
+        
+        # Безопасное форматирование
         if pd.api.types.is_datetime64_any_dtype(display_df['date']):
-            display_df['date'] = display_df['date'].apply(lambda x: format_date(x, 'display'))
+            display_df['date'] = display_df['date'].apply(lambda x: format_date(x, 'short'))
         else:
-            # Если дата не в datetime формате, преобразуем её
-            display_df['date'] = pd.to_datetime(display_df['date']).apply(lambda x: format_date(x, 'display'))
+            display_df['date'] = pd.to_datetime(display_df['date']).apply(lambda x: format_date(x, 'short'))
         
         display_df['duration_minutes'] = display_df['duration_minutes'].round(0).astype(int)
         display_df['distance_km'] = display_df['distance_km'].round(1)
+        display_df.columns = ['Дата', 'Спорт', 'Мин', 'Км', 'TSS']
         
-        display_df.columns = ['Дата', 'Вид спорта', 'Время (мин)', 'Дистанция (км)', 'Ср. пульс', 'TSS']
-        
-        # Отображаем таблицу с учетом темы
-        if st.session_state.get('dark_mode', False):
-            st.markdown(create_dark_table_html(display_df, 400), unsafe_allow_html=True)
-        else:
-            st.dataframe(display_df, use_container_width=True, height=400)
-        
+        st.dataframe(display_df, use_container_width=True, height=200)
+
+def show_training_intensity_indicator(current_status):
+    """Индикатор интенсивности тренировок с рекомендациями"""
+    
+    tsb = current_status.get('tsb', 0)
+    ctl = current_status.get('ctl', 0)
+    
+    # Определяем рекомендуемую интенсивность
+    if tsb < -30:
+        intensity_level = "🔴 Отдых"
+        intensity_desc = "Полный отдых обязателен"
+        intensity_color = "text-red-600"
+        progress = 0
+    elif tsb < -20:
+        intensity_level = "🟡 Очень легко"
+        intensity_desc = "Только Zone 1 (восстановительные)"
+        intensity_color = "text-yellow-600"
+        progress = 20
+    elif tsb < -10:
+        intensity_level = "🟠 Легко"
+        intensity_desc = "Zone 1-2 (аэробные нагрузки)"
+        intensity_color = "text-orange-600"
+        progress = 40
+    elif tsb < 5:
+        intensity_level = "🟢 Средне"
+        intensity_desc = "Zone 1-4 (стандартные тренировки)"
+        intensity_color = "text-green-600"
+        progress = 70
     else:
-        st.info("Нет данных об активностях. Синхронизируйтесь с Garmin Connect.")
+        intensity_level = "🚀 Высоко"
+        intensity_desc = "Zone 1-5 (включая VO2max)"
+        intensity_color = "text-blue-600"
+        progress = 100
     
-    # Детальный анализ готовности
-    st.subheader("🎯 Комплексный анализ готовности")
+    # Отображаем индикатор
+    st.markdown("### ⚡ Рекомендуемая интенсивность")
     
-    # Получаем данные снова для детального анализа
-    sleep_df = st.session_state.database.get_sleep_data(7)
-    hrv_df = st.session_state.database.get_hrv_data(7)
-    health_df = st.session_state.database.get_daily_health(7)
-    training_df = st.session_state.database.get_training_status_history(7)
+    col1, col2 = st.columns([1, 2])
     
-    if not sleep_df.empty or not hrv_df.empty or not health_df.empty:
-        from data.data_processor_phase1 import Phase1DataProcessor
+    with col1:
+        st.markdown(f"""
+        <div class="metric-card text-center">
+            <div class="metric-label">Интенсивность сегодня</div>
+            <div class="metric-value {intensity_color}">{intensity_level}</div>
+            <div class="metric-description">{intensity_desc}</div>
+        </div>
+        """, unsafe_allow_html=True)
+    
+    with col2:
+        st.markdown("**Зоны интенсивности:**")
         
-        # Берем последние данные
-        latest_sleep = sleep_df.iloc[0].to_dict() if not sleep_df.empty else {}
-        latest_hrv = hrv_df.iloc[0].to_dict() if not hrv_df.empty else {}
-        latest_health = health_df.iloc[0].to_dict() if not health_df.empty else {}
-        latest_training = training_df.iloc[0].to_dict() if not training_df.empty else {}
+        zones = [
+            ("Zone 1", "Восстановительная", "50-60%", progress >= 20),
+            ("Zone 2", "Аэробная", "60-70%", progress >= 40), 
+            ("Zone 3", "Темповая", "70-80%", progress >= 60),
+            ("Zone 4", "Лактатный порог", "80-90%", progress >= 70),
+            ("Zone 5", "VO2 Max", "90-100%", progress >= 100)
+        ]
         
-        readiness_data = Phase1DataProcessor.calculate_comprehensive_readiness(
-            latest_sleep, latest_hrv, latest_health, latest_training
-        )
-        
-        if readiness_data and 'readiness_score' in readiness_data:
-            col1, col2 = st.columns([1, 2])
-            
-            with col1:
-                score = readiness_data['readiness_score']
-                if score >= 80:
-                    status_text = "🟢 Отлично"
-                    status_desc = "Готовы к интенсивным тренировкам"
-                elif score >= 60:
-                    status_text = "🟡 Хорошо"
-                    status_desc = "Умеренные нагрузки"
-                elif score >= 40:
-                    status_text = "🟠 Средне"
-                    status_desc = "Легкие тренировки"
-                else:
-                    status_text = "🔴 Низко"
-                    status_desc = "Отдых и восстановление"
-                
-                st.metric("Общая готовность", f"{score:.1f}/100")
-                st.write(f"**Статус:** {status_text}")
-                st.write(f"**Рекомендация:** {status_desc}")
-            
-            with col2:
-                st.write("**Факторы влияния:**")
-                
-                factor_scores = readiness_data.get('factor_scores', {})
-                factors_used = readiness_data.get('factors_used', [])
-                
-                # Создаем прогресс-бары для каждого фактора
-                for factor in factors_used:
-                    factor_score = factor_scores.get(factor, 0)
-                    
-                    factor_names = {
-                        'sleep': '😴 Качество сна',
-                        'hrv': '💓 Вариабельность ритма',
-                        'resting_hr': '💗 Пульс покоя',
-                        'training_readiness': '🎯 Готовность Garmin',
-                        'stress': '😌 Уровень стресса'
-                    }
-                    
-                    factor_name = factor_names.get(factor, factor)
-                    st.write(f"{factor_name}: {factor_score:.1f}/100")
-                    st.progress(factor_score / 100)
-        else:
-            st.info("💡 Для расчета индекса готовности нужны данные сна, HRV или пульса покоя. Выполните синхронизацию с Garmin Connect.")
-    else:
-        st.info("💡 Нет данных для анализа готовности. Синхронизируйте данные с Garmin Connect для получения комплексного анализа.")
+        for zone, name, hr_range, available in zones:
+            color = "text-green-600" if available else "text-gray-400"
+            icon = "✅" if available else "❌"
+            st.markdown(f"{icon} **{zone}** - {name} ({hr_range})", 
+                       help=f"{'Разрешено' if available else 'Не рекомендуется'} при текущем TSB")
 
 def show_activities():
     """Страница активностей"""
@@ -1611,7 +1865,10 @@ def show_activities():
                 st.info("📋 Функция создания отчетов будет добавлена в следующих версиях.")
 
 def show_hrv_analysis():
-    """Страница анализа HRV"""
+    """Современная страница анализа HRV"""
+    from utils.modern_ui import ModernUI
+    ModernUI.apply_modern_styles()
+    
     st.header("💓 Анализ вариабельности сердечного ритма (HRV)")
     
     # Получаем HRV данные за максимальный период для корректной фильтрации
@@ -1669,81 +1926,127 @@ def show_hrv_analysis():
     latest_date = latest_data['date'] if 'date' in latest_data else 'Н/Д'
     st.subheader(f"📊 Текущее состояние (данные от {latest_date})")
     
-    # Адаптивная сетка: 2x2 на мобильных
-    col1, col2 = st.columns(2)
-    col3, col4 = st.columns(2)
+    # Современные карточки состояния
+    col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         current_rmssd = latest_data['rmssd'] if pd.notna(latest_data['rmssd']) else 0
         delta_rmssd = current_rmssd - baseline_rmssd if baseline_rmssd > 0 else 0
-        st.metric(
-            "RMSSD (мс)", 
-            f"{current_rmssd:.1f}",
-            f"{delta_rmssd:+.1f} от среднего"
+        
+        # Определяем цветовой индикатор для RMSSD
+        rmssd_status = "success" if current_rmssd > 40 else "warning" if current_rmssd > 30 else "danger"
+        rmssd_icon = "🟢" if current_rmssd > 40 else "🟡" if current_rmssd > 30 else "🔴"
+        
+        trend_arrow = "↗️" if delta_rmssd > 0 else "↘️" if delta_rmssd < 0 else "➡️"
+        
+        ModernUI.status_card(
+            "💓 RMSSD", 
+            f"{current_rmssd:.1f} мс",
+            rmssd_status,
+            trend=trend_arrow,
+            description=f"{delta_rmssd:+.1f} от среднего"
         )
     
     with col2:
-        # Проверяем стресс-индекс
+        # Стресс-индекс с цветовыми индикаторами
         stress_score = None
         if 'stress_score' in latest_data and latest_data['stress_score'] is not None and not pd.isna(latest_data['stress_score']):
             stress_score = latest_data['stress_score']
-            stress_color = "🟢" if stress_score < 30 else "🟡" if stress_score < 60 else "🔴"
-            st.metric("Стресс-индекс", f"{stress_color} {stress_score:.0f}")
+            stress_status = "success" if stress_score < 30 else "warning" if stress_score < 60 else "danger"
+            stress_icon = "🟢" if stress_score < 30 else "🟡" if stress_score < 60 else "🔴"
+            
+            ModernUI.status_card(
+                "😰 Стресс-индекс", 
+                f"{stress_score:.0f}",
+                stress_status,
+                description="Уровень стресса"
+            )
         else:
-            st.metric("Стресс-индекс", "Н/Д", help="Данные о стрессе недоступны. Синхронизируйте с Garmin Connect.")
+            ModernUI.status_card(
+                "😰 Стресс-индекс", 
+                "Н/Д",
+                "secondary",
+                description="Синхронизируйте с Garmin"
+            )
     
     with col3:
-        # Проверяем индекс восстановления
+        # Восстановление
         recovery_score = None
         if 'recovery_score' in latest_data and latest_data['recovery_score'] is not None and not pd.isna(latest_data['recovery_score']):
             recovery_score = latest_data['recovery_score']
-            recovery_color = "🟢" if recovery_score > 70 else "🟡" if recovery_score > 40 else "🔴"
-            st.metric("Восстановление", f"{recovery_color} {recovery_score:.0f}%")
+            recovery_status = "success" if recovery_score > 70 else "warning" if recovery_score > 40 else "danger"
+            
+            ModernUI.status_card(
+                "🔄 Восстановление", 
+                f"{recovery_score:.0f}%",
+                recovery_status,
+                description="Готовность к нагрузке"
+            )
         else:
-            # Рассчитываем на основе RMSSD если HRV анализатор доступен
+            # Рассчитываем на основе RMSSD
             try:
                 calculated_recovery = hrv_analyzer.recovery_score(current_rmssd, baseline_rmssd) if current_rmssd > 0 else 50
-                recovery_color = "🟢" if calculated_recovery > 70 else "🟡" if calculated_recovery > 40 else "🔴"
-                st.metric("Восстановление", f"{recovery_color} {calculated_recovery:.0f}%", help="Расчет на основе RMSSD")
+                recovery_status = "success" if calculated_recovery > 70 else "warning" if calculated_recovery > 40 else "danger"
+                
+                ModernUI.status_card(
+                    "🔄 Восстановление", 
+                    f"{calculated_recovery:.0f}%",
+                    recovery_status,
+                    description="Расчет на основе RMSSD"
+                )
             except:
-                st.metric("Восстановление", "Н/Д", help="Данные Body Battery недоступны. Синхронизируйте с Garmin Connect.")
+                ModernUI.status_card(
+                    "🔄 Восстановление", 
+                    "Н/Д",
+                    "secondary",
+                    description="Данные недоступны"
+                )
     
     with col4:
-        # Рекомендация на основе последних данных
+        # Тренировочная рекомендация
         if current_rmssd > baseline_rmssd * 1.1:
-            recommendation = "🟢 Интенсивная тренировка"
+            recommendation = "Интенсивная тренировка"
+            rec_status = "success"
+            rec_icon = "🟢"
         elif current_rmssd > baseline_rmssd * 0.9:
-            recommendation = "🟡 Умеренная нагрузка"
+            recommendation = "Умеренная нагрузка"
+            rec_status = "warning"
+            rec_icon = "🟡"
         else:
-            recommendation = "🔴 Отдых/восстановление"
+            recommendation = "Отдых/восстановление"
+            rec_status = "danger"
+            rec_icon = "🔴"
         
-        st.metric("Рекомендация", recommendation)
+        ModernUI.status_card(
+            "🎯 Рекомендация", 
+            rec_icon,
+            rec_status,
+            description=recommendation
+        )
     
     # Графики динамики
     if len(hrv_df) > 1:
         st.subheader("📈 Динамика показателей")
         
-        # График RMSSD
-        fig_rmssd = go.Figure()
+        # Современный график RMSSD с зонами восстановления
+        from utils.visualizations import Visualizations
         
-        # Основная линия RMSSD
-        fig_rmssd.add_trace(go.Scatter(
-            x=hrv_df['date'],
-            y=hrv_df['rmssd'],
-            mode='lines+markers',
-            name='RMSSD',
-            line=dict(color='blue', width=2),
-            marker=dict(size=6)
-        ))
+        # Используем модернизированный график HRV
+        hrv_dates = hrv_df['date'].tolist()
+        hrv_values = hrv_df['rmssd'].tolist()
         
-        # Добавляем среднее и/или тренд
+        fig_rmssd = Visualizations.create_hrv_trend(hrv_values, hrv_dates)
+        
+        # Добавляем среднее и/или тренд поверх современного графика
         if trend_option in ["Среднее", "Среднее + Тренд"]:
             avg_rmssd = hrv_df['rmssd'].mean()
             fig_rmssd.add_hline(
                 y=avg_rmssd, 
                 line_dash="dash", 
-                line_color="red",
-                annotation_text=f"Среднее: {avg_rmssd:.1f} мс"
+                line_color="#EF4444",
+                line_width=2,
+                annotation_text=f"Среднее: {avg_rmssd:.1f} мс",
+                annotation_position="right"
             )
         
         if trend_option in ["Тренд", "Среднее + Тренд"]:
@@ -1767,21 +2070,24 @@ def show_hrv_analysis():
                 trend_direction = "📈" if trend_slope > 0 else "📉" if trend_slope < 0 else "➡️"
                 trend_change = abs(trend_slope) * len(valid_data)  # Изменение за весь период
                 
-                # Добавляем линию тренда
+                # Добавляем линию тренда с современным стилем
                 fig_rmssd.add_trace(go.Scatter(
                     x=valid_data['date'],
                     y=trend_values,
                     mode='lines',
                     name=f'Тренд {trend_direction} ({trend_change:+.1f} мс)',
-                    line=dict(color='green', width=2, dash='dot'),
-                    hovertemplate="Тренд: %{y:.1f} мс<extra></extra>"
+                    line=dict(color='#8B5CF6', width=3, dash='dot'),
+                    hovertemplate="<b>Тренд</b><br>%{y:.1f} мс<br>%{x}<extra></extra>"
                 ))
         
+        # Обновляем заголовок для более подробного описания
         fig_rmssd.update_layout(
-            title="Динамика RMSSD",
-            xaxis_title="Дата",
-            yaxis_title="RMSSD (мс)",
-            height=400
+            title={
+                'text': "💓 Динамика HRV с зонами восстановления",
+                'x': 0.5,
+                'xanchor': 'center',
+                'font': {'size': 18, 'color': '#1F2937'}
+            }
         )
         
         st.plotly_chart(fig_rmssd, use_container_width=True)
@@ -1806,42 +2112,70 @@ def show_hrv_analysis():
             combined_df = pd.merge(hrv_df, daily_training, on='date', how='left')
             combined_df['tss'] = combined_df['tss'].fillna(0)
             
-            # График HRV vs нагрузка
+            # Современный график корреляции HRV vs нагрузка
             fig_correlation = go.Figure()
             
-            # RMSSD
+            # RMSSD с современным стилем
             fig_correlation.add_trace(go.Scatter(
                 x=combined_df['date'],
                 y=combined_df['rmssd'],
                 mode='lines+markers',
-                name='RMSSD',
+                name='RMSSD (восстановление)',
                 yaxis='y',
-                line=dict(color='blue')
+                line=dict(color='#10B981', width=3),
+                marker=dict(size=8, color='#10B981', line=dict(width=2, color='white')),
+                fill='tonexty',
+                fillcolor='rgba(16, 185, 129, 0.1)',
+                hovertemplate='<b>RMSSD</b><br>%{y:.1f} мс<br>%{x}<extra></extra>'
             ))
             
-            # TSS (инвертированная шкала для лучшей визуализации)
+            # TSS с современным стилем
             fig_correlation.add_trace(go.Scatter(
                 x=combined_df['date'],
                 y=combined_df['tss'],
                 mode='lines+markers',
                 name='TSS (нагрузка)',
                 yaxis='y2',
-                line=dict(color='orange')
+                line=dict(color='#EF4444', width=3),
+                marker=dict(size=8, color='#EF4444', line=dict(width=2, color='white')),
+                fill='tonexty',
+                fillcolor='rgba(239, 68, 68, 0.1)',
+                hovertemplate='<b>TSS</b><br>%{y:.0f}<br>%{x}<extra></extra>'
             ))
             
             fig_correlation.update_layout(
-                title="Взаимосвязь HRV и тренировочной нагрузки",
+                title={
+                    'text': "🔍 Взаимосвязь HRV и тренировочной нагрузки",
+                    'x': 0.5,
+                    'xanchor': 'center',
+                    'font': {'size': 18, 'color': '#1F2937'}
+                },
                 xaxis_title="Дата",
                 yaxis=dict(
                     title="RMSSD (мс)",
-                    side="left"
+                    side="left",
+                    showgrid=True,
+                    gridwidth=1,
+                    gridcolor='rgba(156, 163, 175, 0.2)'
                 ),
                 yaxis2=dict(
                     title="TSS (нагрузка)",
                     side="right",
-                    overlaying="y"
+                    overlaying="y",
+                    showgrid=False
                 ),
-                height=400
+                height=450,
+                font=dict(family="Inter, -apple-system, sans-serif", size=12),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=1.02,
+                    xanchor="right",
+                    x=1
+                ),
+                hovermode='x unified'
             )
             
             st.plotly_chart(fig_correlation, use_container_width=True)
@@ -1865,14 +2199,18 @@ def show_hrv_analysis():
                     combined_shifted['tss_3day'] = combined_shifted['tss'].rolling(window=3, min_periods=1).sum()
                     correlation_cumulative = combined_shifted[['rmssd', 'tss_3day']].corr().iloc[0, 1]
                     
+                    # Современные карточки корреляции
                     if not pd.isna(correlation_same_day):
-                        st.metric("Тот же день", f"{correlation_same_day:.3f}")
+                        corr_status = "success" if abs(correlation_same_day) > 0.4 else "warning" if abs(correlation_same_day) > 0.2 else "secondary"
+                        ModernUI.status_card("📅 Тот же день", f"{correlation_same_day:.3f}", corr_status)
                     
                     if not pd.isna(correlation_lag1):
-                        st.metric("С запаздыванием (1 день)", f"{correlation_lag1:.3f}")
+                        lag_status = "success" if abs(correlation_lag1) > 0.4 else "warning" if abs(correlation_lag1) > 0.2 else "secondary"
+                        ModernUI.status_card("⏭️ Запаздывание (1 день)", f"{correlation_lag1:.3f}", lag_status)
                     
                     if not pd.isna(correlation_cumulative):
-                        st.metric("Кумулятивная (3 дня)", f"{correlation_cumulative:.3f}")
+                        cum_status = "success" if abs(correlation_cumulative) > 0.4 else "warning" if abs(correlation_cumulative) > 0.2 else "secondary"
+                        ModernUI.status_card("📈 Кумулятивная (3 дня)", f"{correlation_cumulative:.3f}", cum_status)
                 
                 with col2:
                     st.write("**🎯 Интерпретация:**")
@@ -1997,7 +2335,10 @@ def show_hrv_analysis():
             )
 
 def show_sleep_analysis():
-    """Страница анализа сна"""
+    """Современная страница анализа сна"""
+    from utils.modern_ui import ModernUI
+    ModernUI.apply_modern_styles()
+    
     st.header("😴 Анализ качества сна")
     
     # Получаем данные сна из БД
@@ -2040,58 +2381,101 @@ def show_sleep_analysis():
     if latest_sleep is not None:
         st.subheader(f"🌙 Последний сон ({format_date(latest_sleep['date'], 'display')})")
         
-        # Адаптивная сетка: 2x2 на мобильных
-        col1, col2 = st.columns(2)
-        col3, col4 = st.columns(2)
+        # Современные карточки метрик сна
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             total_minutes = latest_sleep.get('total_sleep_minutes', 0)
             hours = total_minutes // 60
             minutes = total_minutes % 60
-            st.metric("Продолжительность", f"{hours}ч {minutes}м")
+            
+            # Цветовые зоны продолжительности (оптимально 7-9 часов)
+            duration_hours = total_minutes / 60
+            duration_status = "success" if 7 <= duration_hours <= 9 else "warning" if 6 <= duration_hours <= 10 else "danger"
+            duration_description = "Оптимально" if 7 <= duration_hours <= 9 else "Приемлемо" if 6 <= duration_hours <= 10 else "Недостаточно" if duration_hours < 7 else "Слишком много"
+            
+            ModernUI.status_card(
+                "⏰ Продолжительность", 
+                f"{hours}ч {minutes}м",
+                duration_status,
+                description=duration_description
+            )
         
         with col2:
             sleep_score = latest_sleep.get('sleep_score', 0)
-            score_color = "🟢" if sleep_score >= 80 else "🟡" if sleep_score >= 60 else "🔴"
-            st.metric("Качество сна", f"{score_color} {sleep_score:.1f}")
+            sleep_status = "success" if sleep_score >= 80 else "warning" if sleep_score >= 60 else "danger"
+            sleep_icon = "🟢" if sleep_score >= 80 else "🟡" if sleep_score >= 60 else "🔴"
+            
+            ModernUI.status_card(
+                "💤 Sleep Score", 
+                f"{sleep_score:.1f}",
+                sleep_status,
+                description="Качество сна"
+            )
         
         with col3:
             efficiency = latest_sleep.get('sleep_efficiency', 0)
-            st.metric("Эффективность", f"{efficiency:.1f}%")
+            efficiency_status = "success" if efficiency >= 85 else "warning" if efficiency >= 75 else "danger"
+            
+            ModernUI.status_card(
+                "⚡ Эффективность", 
+                f"{efficiency:.1f}%",
+                efficiency_status,
+                description="Время сна от времени в постели"
+            )
         
         with col4:
             awakenings = latest_sleep.get('awakenings_count', 0)
-            st.metric("Пробуждения", f"{awakenings:.0f}")
+            awakenings_status = "success" if awakenings <= 2 else "warning" if awakenings <= 4 else "danger"
+            
+            ModernUI.status_card(
+                "🌅 Пробуждения", 
+                f"{awakenings:.0f}",
+                awakenings_status,
+                description="Количество пробуждений"
+            )
         
-        # Детали фаз сна
+        # Детали фаз сна с современными карточками
         st.subheader("🌀 Фазы сна")
         col1, col2, col3 = st.columns(3)
         
         with col1:
             deep_min = latest_sleep.get('deep_sleep_minutes', 0)
             deep_pct = (deep_min / total_minutes * 100) if total_minutes > 0 else 0
-            st.metric(
-                "Глубокий сон", 
+            # Нормальный глубокий сон: 15-20% от общего времени сна
+            deep_status = "success" if 15 <= deep_pct <= 25 else "warning" if 10 <= deep_pct <= 30 else "danger"
+            
+            ModernUI.status_card(
+                "🛌 Глубокий сон", 
                 f"{deep_min}мин",
-                f"{deep_pct:.1f}% от сна"
+                deep_status,
+                description=f"{deep_pct:.1f}% от сна"
             )
         
         with col2:
             light_min = latest_sleep.get('light_sleep_minutes', 0)
             light_pct = (light_min / total_minutes * 100) if total_minutes > 0 else 0
-            st.metric(
-                "Легкий сон", 
+            # Нормальный легкий сон: 45-55% от общего времени сна
+            light_status = "success" if 45 <= light_pct <= 65 else "warning" if 35 <= light_pct <= 75 else "danger"
+            
+            ModernUI.status_card(
+                "💤 Легкий сон", 
                 f"{light_min}мин",
-                f"{light_pct:.1f}% от сна"
+                light_status,
+                description=f"{light_pct:.1f}% от сна"
             )
         
         with col3:
             rem_min = latest_sleep.get('rem_sleep_minutes', 0)
             rem_pct = (rem_min / total_minutes * 100) if total_minutes > 0 else 0
-            st.metric(
-                "REM сон", 
+            # Нормальный REM сон: 20-25% от общего времени сна
+            rem_status = "success" if 20 <= rem_pct <= 30 else "warning" if 15 <= rem_pct <= 35 else "danger"
+            
+            ModernUI.status_card(
+                "🧠 REM сон", 
                 f"{rem_min}мин",
-                f"{rem_pct:.1f}% от сна"
+                rem_status,
+                description=f"{rem_pct:.1f}% от сна"
             )
         
         # Время сна
@@ -2109,32 +2493,36 @@ def show_sleep_analysis():
         import plotly.graph_objects as go
         from plotly.subplots import make_subplots
         
-        # График качества сна во времени
+        # Современный график трендов сна с градиентами
         fig = make_subplots(
             rows=2, cols=2,
             subplot_titles=[
-                'Качество сна', 'Продолжительность сна',
-                'Эффективность сна', 'Пробуждения'
+                '💤 Качество сна', '⏰ Продолжительность сна',
+                '⚡ Эффективность сна', '🌅 Пробуждения'
             ],
-            vertical_spacing=0.15
+            vertical_spacing=0.15,
+            horizontal_spacing=0.1
         )
         
         dates = filtered_df['date']
         
-        # Качество сна
+        # Качество сна с градиентной заливкой
         fig.add_trace(
             go.Scatter(
                 x=dates, 
                 y=filtered_df['sleep_score'],
                 mode='lines+markers',
                 name='Качество сна',
-                line=dict(color='#1f77b4', width=2),
-                marker=dict(size=6)
+                line=dict(color='#3B82F6', width=3),
+                marker=dict(size=8, color='#3B82F6', line=dict(width=2, color='white')),
+                fill='tonexty',
+                fillcolor='rgba(59, 130, 246, 0.2)',
+                hovertemplate='<b>Sleep Score</b><br>%{y:.1f}<br>%{x}<extra></extra>'
             ),
             row=1, col=1
         )
         
-        # Продолжительность
+        # Продолжительность с цветовыми зонами
         sleep_hours = filtered_df['total_sleep_minutes'] / 60
         fig.add_trace(
             go.Scatter(
@@ -2142,21 +2530,27 @@ def show_sleep_analysis():
                 y=sleep_hours,
                 mode='lines+markers',
                 name='Часы сна',
-                line=dict(color='#ff7f0e', width=2),
-                marker=dict(size=6)
+                line=dict(color='#10B981', width=3),
+                marker=dict(size=8, color='#10B981', line=dict(width=2, color='white')),
+                fill='tonexty',
+                fillcolor='rgba(16, 185, 129, 0.2)',
+                hovertemplate='<b>Продолжительность</b><br>%{y:.1f}ч<br>%{x}<extra></extra>'
             ),
             row=1, col=2
         )
         
-        # Эффективность
+        # Эффективность сна
         fig.add_trace(
             go.Scatter(
                 x=dates, 
                 y=filtered_df['sleep_efficiency'],
                 mode='lines+markers',
                 name='Эффективность %',
-                line=dict(color='#2ca02c', width=2),
-                marker=dict(size=6)
+                line=dict(color='#8B5CF6', width=3),
+                marker=dict(size=8, color='#8B5CF6', line=dict(width=2, color='white')),
+                fill='tonexty',
+                fillcolor='rgba(139, 92, 246, 0.2)',
+                hovertemplate='<b>Эффективность</b><br>%{y:.1f}%<br>%{x}<extra></extra>'
             ),
             row=2, col=1
         )
@@ -2168,79 +2562,146 @@ def show_sleep_analysis():
                 y=filtered_df['awakenings_count'],
                 mode='lines+markers',
                 name='Пробуждения',
-                line=dict(color='#d62728', width=2),
-                marker=dict(size=6)
+                line=dict(color='#EF4444', width=3),
+                marker=dict(size=8, color='#EF4444', line=dict(width=2, color='white')),
+                fill='tonexty',
+                fillcolor='rgba(239, 68, 68, 0.2)',
+                hovertemplate='<b>Пробуждения</b><br>%{y:.0f}<br>%{x}<extra></extra>'
             ),
             row=2, col=2
         )
         
         fig.update_layout(
-            height=500,
+            height=550,
             showlegend=False,
-            title_text=f"Тренды сна за {period_label}"
+            title={
+                'text': f"📈 Тренды сна за {period_label}",
+                'x': 0.5,
+                'xanchor': 'center',
+                'font': {'size': 18, 'color': '#1F2937'}
+            },
+            font=dict(family="Inter, -apple-system, sans-serif", size=12),
+            paper_bgcolor='rgba(0,0,0,0)',
+            plot_bgcolor='rgba(0,0,0,0)',
+            hovermode='x unified'
         )
         
-        # Добавляем средние линии
+        # Добавляем оптимальные зоны и средние линии
         avg_score = filtered_df['sleep_score'].mean()
         avg_hours = filtered_df['total_sleep_minutes'].mean() / 60
         avg_efficiency = filtered_df['sleep_efficiency'].mean()
         avg_awakenings = filtered_df['awakenings_count'].mean()
         
-        # Горизонтальные линии средних значений
-        for row, col, avg_val, color in [
-            (1, 1, avg_score, '#1f77b4'),
-            (1, 2, avg_hours, '#ff7f0e'),
-            (2, 1, avg_efficiency, '#2ca02c'),
-            (2, 2, avg_awakenings, '#d62728')
-        ]:
-            fig.add_hline(
-                y=avg_val, 
-                line_dash="dash", 
-                line_color=color,
-                opacity=0.5,
-                row=row, col=col
-            )
+        # Оптимальные зоны для продолжительности (7-9 часов)
+        fig.add_hrect(
+            y0=7, y1=9, fillcolor="rgba(16, 185, 129, 0.1)", 
+            line_width=0, row=1, col=2
+        )
+        fig.add_hline(
+            y=8, line_dash="dot", line_color="#10B981", line_width=2,
+            annotation_text="Оптимально", annotation_position="right",
+            row=1, col=2
+        )
+        
+        # Оптимальная эффективность (>85%)
+        fig.add_hline(
+            y=85, line_dash="dot", line_color="#8B5CF6", line_width=2,
+            annotation_text="Хорошо", annotation_position="right",
+            row=2, col=1
+        )
+        
+        # Линии качества сна
+        fig.add_hline(
+            y=80, line_dash="dot", line_color="#10B981", line_width=1,
+            annotation_text="Отлично", annotation_position="right",
+            row=1, col=1
+        )
+        fig.add_hline(
+            y=60, line_dash="dot", line_color="#F59E0B", line_width=1,
+            annotation_text="Удовлетворительно", annotation_position="right",
+            row=1, col=1
+        )
+        
+        # Средние линии с современным стилем
+        fig.add_hline(
+            y=avg_score, line_dash="dash", line_color="#6B7280", line_width=2,
+            annotation_text=f"Среднее: {avg_score:.1f}", annotation_position="left",
+            row=1, col=1
+        )
+        fig.add_hline(
+            y=avg_hours, line_dash="dash", line_color="#6B7280", line_width=2,
+            annotation_text=f"Среднее: {avg_hours:.1f}ч", annotation_position="left",
+            row=1, col=2
+        )
+        fig.add_hline(
+            y=avg_efficiency, line_dash="dash", line_color="#6B7280", line_width=2,
+            annotation_text=f"Среднее: {avg_efficiency:.1f}%", annotation_position="left",
+            row=2, col=1
+        )
+        fig.add_hline(
+            y=avg_awakenings, line_dash="dash", line_color="#6B7280", line_width=2,
+            annotation_text=f"Среднее: {avg_awakenings:.1f}", annotation_position="left",
+            row=2, col=2
+        )
+        
+        # Обновляем оси для современного вида
+        fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor='rgba(156, 163, 175, 0.2)')
+        fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor='rgba(156, 163, 175, 0.2)')
         
         st.plotly_chart(fig, use_container_width=True)
         
-        # Статистика за период
+        # Статистика за период с современными карточками
         st.subheader("📊 Статистика за период")
         
-        # Адаптивная сетка: 2x2 на мобильных
-        col1, col2 = st.columns(2)
-        col3, col4 = st.columns(2)
+        col1, col2, col3, col4 = st.columns(4)
         
         with col1:
             avg_quality = filtered_df['sleep_score'].mean()
-            # Проверяем на NaN значения
             if pd.isna(avg_quality):
                 avg_quality = 0
+            
+            quality_status = "success" if avg_quality >= 80 else "warning" if avg_quality >= 60 else "danger"
             quality_trend = "📈" if len(filtered_df) > 0 and not pd.isna(filtered_df['sleep_score'].iloc[0]) and filtered_df['sleep_score'].iloc[0] > avg_quality else "📉"
-            st.metric(
-                "Среднее качество", 
+            
+            ModernUI.status_card(
+                "💤 Среднее качество", 
                 f"{avg_quality:.1f}",
-                f"{quality_trend} тренд"
+                quality_status,
+                trend=quality_trend,
+                description=f"За {period_label.lower()}"
             )
         
         with col2:
             avg_duration = filtered_df['total_sleep_minutes'].mean() / 60
-            st.metric(
-                "Средняя длительность", 
-                f"{avg_duration:.1f}ч"
+            duration_status = "success" if 7 <= avg_duration <= 9 else "warning" if 6 <= avg_duration <= 10 else "danger"
+            
+            ModernUI.status_card(
+                "⏰ Средняя длительность", 
+                f"{avg_duration:.1f}ч",
+                duration_status,
+                description="Рекомендуется 7-9ч"
             )
         
         with col3:
             avg_eff = filtered_df['sleep_efficiency'].mean()
-            st.metric(
-                "Средняя эффективность", 
-                f"{avg_eff:.1f}%"
+            eff_status = "success" if avg_eff >= 85 else "warning" if avg_eff >= 75 else "danger"
+            
+            ModernUI.status_card(
+                "⚡ Средняя эффективность", 
+                f"{avg_eff:.1f}%",
+                eff_status,
+                description="Норма >85%"
             )
         
         with col4:
             avg_awake = filtered_df['awakenings_count'].mean()
-            st.metric(
-                "Среднее пробуждений", 
-                f"{avg_awake:.1f}"
+            awake_status = "success" if avg_awake <= 2 else "warning" if avg_awake <= 4 else "danger"
+            
+            ModernUI.status_card(
+                "🌅 Среднее пробуждений", 
+                f"{avg_awake:.1f}",
+                awake_status,
+                description="Норма ≤2"
             )
     
     # Распределение фаз сна
@@ -2270,11 +2731,38 @@ def show_sleep_analysis():
             fig_pie = px.pie(
                 values=phases_data['Минуты'],
                 names=phases_data['Фаза'],
-                title=f"Среднее распределение фаз сна за {period_label}",
-                color_discrete_sequence=['#1f77b4', '#ff7f0e', '#2ca02c']
+                title=f"🥧 Среднее распределение фаз сна за {period_label}",
+                color_discrete_sequence=['#3B82F6', '#10B981', '#8B5CF6'],  # Современная палитра
+                hole=0.4  # Создаем кольцевую диаграмму
             )
             
-            fig_pie.update_traces(textinfo='percent+label')
+            # Обновляем стиль пайчарта
+            fig_pie.update_traces(
+                textinfo='percent+label',
+                textposition='inside',
+                textfont_size=12,
+                marker=dict(line=dict(color='white', width=2))
+            )
+            
+            fig_pie.update_layout(
+                title={
+                    'x': 0.5,
+                    'xanchor': 'center',
+                    'font': {'size': 16, 'color': '#1F2937'}
+                },
+                font=dict(family="Inter, -apple-system, sans-serif"),
+                paper_bgcolor='rgba(0,0,0,0)',
+                plot_bgcolor='rgba(0,0,0,0)',
+                showlegend=True,
+                legend=dict(
+                    orientation="h",
+                    yanchor="bottom",
+                    y=-0.1,
+                    xanchor="center",
+                    x=0.5
+                )
+            )
+            
             st.plotly_chart(fig_pie, use_container_width=True)
         
         # Таблица с рекомендациями (вынесена из условного блока)
@@ -2567,6 +3055,57 @@ def show_chat_management():
         else:
             st.info("Пока нет сохраненных чатов")
 
+def show_modern_ai_chat(ai_metrics):
+    """Современный AI чат с быстрыми вопросами"""
+    st.subheader("💬 AI Чат")
+    
+    # Быстрые вопросы
+    st.markdown("### ⚡ Быстрые вопросы:")
+    quick_questions = [
+        "Как мое текущее состояние?",
+        "Что показывает мой TSB?",
+        "Готов ли я к тяжелой тренировке?",
+        "Как восстанавливаюсь?",
+        "Какие зоны интенсивности использовать?",
+        "Нужен ли день отдыха?"
+    ]
+    
+    # Создаем кнопки быстрых вопросов в 3 колонки
+    cols = st.columns(3)
+    for i, question in enumerate(quick_questions):
+        col = cols[i % 3]
+        if col.button(question, key=f"quick_q_{i}", use_container_width=True):
+            # Автоматически отправляем быстрый вопрос
+            with st.spinner("AI отвечает на ваш вопрос..."):
+                answer = st.session_state.ai_coach.answer_question(question, ai_metrics)
+                st.markdown("### 💡 Ответ коуча:")
+                st.markdown(answer)
+    
+    st.divider()
+    
+    # Свободный чат
+    st.markdown("### 💭 Свободный чат:")
+    question = st.text_area(
+        "Ваш вопрос:",
+        placeholder="Задайте любой вопрос о тренировках, восстановлении, питании, планировании...",
+        key="custom_question"
+    )
+    
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("💬 Отправить", key="send_question"):
+            if question:
+                with st.spinner("AI формирует ответ..."):
+                    answer = st.session_state.ai_coach.answer_question(question, ai_metrics)
+                    st.markdown("### 💡 Ответ коуча:")
+                    st.markdown(answer)
+            else:
+                st.warning("Введите вопрос")
+    
+    with col2:
+        if st.button("🗣️ Голосовой чат", key="voice_chat"):
+            st.info("Функция голосового чата будет добавлена в следующих обновлениях")
+
 def show_ai_coaching():
     """Страница AI коучинга с поддержкой разных провайдеров"""
     st.header("🤖 AI Коучинг")
@@ -2834,36 +3373,37 @@ def show_ai_coaching():
         st.markdown("### 💬 AI Чат")
         show_ai_chat()
     else:
-        # Показываем обычные табы
-        tab_chat, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+        # Современные табы для AI функций
+        tab1, tab2, tab3, tab4, tab5 = st.tabs([
             "💬 AI Чат",
             "📊 Анализ состояния",
-            "📅 Недельный план", 
-            "🏃 Анализ тренировки",
-            "❓ Вопрос коучу",
-            "📚 Объяснение метрик"
+            "📋 Недельный план", 
+            "🔍 Анализ тренировки",
+            "❓ Объяснение метрик"
         ])
-        with tab_chat:
-            show_ai_chat()
+        
         with tab1:
-            st.subheader("📊 Анализ текущего состояния")
-        
-        # Показываем текущие метрики
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("CTL", f"{current_metrics['ctl']:.1f}")
-        with col2:
-            st.metric("ATL", f"{current_metrics['atl']:.1f}")
-        with col3:
-            st.metric("TSB", f"{current_metrics['tsb']:.1f}")
-        
-        if st.button("🔍 Проанализировать состояние", key="analyze_state"):
-            with st.spinner("AI анализирует ваши данные..."):
-                analysis = st.session_state.ai_coach.analyze_current_state(ai_metrics)
-                st.markdown("### 🤖 Анализ AI коуча:")
-                st.markdown(analysis)
-    
+            show_modern_ai_chat(ai_metrics)
+            
         with tab2:
+            st.subheader("📊 Анализ текущего состояния")
+            
+            # Показываем текущие метрики
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("CTL", f"{current_metrics['ctl']:.1f}")
+            with col2:
+                st.metric("ATL", f"{current_metrics['atl']:.1f}")
+            with col3:
+                st.metric("TSB", f"{current_metrics['tsb']:.1f}")
+            
+            if st.button("🔍 Проанализировать состояние", key="analyze_state"):
+                with st.spinner("AI анализирует ваши данные..."):
+                    analysis = st.session_state.ai_coach.analyze_current_state(ai_metrics)
+                    st.markdown("### 🤖 Анализ AI коуча:")
+                    st.markdown(analysis)
+    
+        with tab3:
             st.subheader("📅 Генерация недельного плана")
             
             goals = st.text_area(
@@ -2877,7 +3417,7 @@ def show_ai_coaching():
                     st.markdown("### 📋 Ваш недельный план:")
                     st.markdown(plan)
     
-        with tab3:
+        with tab4:
             st.subheader("🏃 Анализ последней тренировки")
             
             # Выбор тренировки для анализа
@@ -2907,23 +3447,6 @@ def show_ai_coaching():
                         analysis = st.session_state.ai_coach.analyze_workout(workout_data, feeling)
                         st.markdown("### 🎯 Анализ тренировки:")
                         st.markdown(analysis)
-    
-        with tab4:
-            st.subheader("❓ Задайте вопрос AI коучу")
-            
-            question = st.text_area(
-                "Ваш вопрос:",
-                placeholder="Любой вопрос о тренировках, восстановлении, питании, планировании..."
-            )
-            
-            if st.button("💬 Получить ответ", key="ask_question"):
-                if question:
-                    with st.spinner("AI формирует ответ..."):
-                        answer = st.session_state.ai_coach.answer_question(question, ai_metrics)
-                        st.markdown("### 💡 Ответ коуча:")
-                        st.markdown(answer)
-                else:
-                    st.warning("Введите вопрос")
     
         with tab5:
             st.subheader("📚 Объяснение метрик")
