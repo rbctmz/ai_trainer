@@ -20,6 +20,454 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+def responsive_columns(num_items, mobile_cols=1, desktop_cols=None):
+    """
+    Create responsive columns based on screen size.
+    Returns columns that work well on both mobile and desktop.
+    """
+    if desktop_cols is None:
+        desktop_cols = num_items
+    
+    # Use container to check available width
+    container = st.container()
+    
+    # For mobile: stack items vertically or use fewer columns
+    # For desktop: use specified number of columns
+    if desktop_cols <= 2:
+        return st.columns(desktop_cols)
+    elif desktop_cols <= 4:
+        # For 3-4 columns, use 2x2 grid on mobile
+        return st.columns(min(2, desktop_cols))
+    else:
+        # For 5-6 columns, use 3x2 grid
+        return st.columns(min(3, desktop_cols))
+
+def format_date(date_obj, format_type='display'):
+    """
+    Стандартизированное форматирование дат
+    format_type: 'display' для UI (дд.мм.гггг), 'db' для БД (гггг-мм-дд)
+    """
+    if pd.isna(date_obj):
+        return ""
+    
+    if isinstance(date_obj, str):
+        # Попытка распарсить строку
+        try:
+            date_obj = pd.to_datetime(date_obj)
+        except:
+            return date_obj
+    
+    if format_type == 'display':
+        return date_obj.strftime('%d.%m.%Y')
+    elif format_type == 'db':
+        return date_obj.strftime('%Y-%m-%d')
+    else:
+        return str(date_obj)
+
+def get_plotly_theme():
+    """Получение темы для графиков Plotly"""
+    if st.session_state.get('dark_mode', False):
+        return {
+            'template': 'plotly_dark',
+            'paper_bgcolor': '#121212',  # Material Design dark background
+            'plot_bgcolor': '#1E1E1E',   # Surface color
+            'font_color': '#F5F5F5',     # High contrast text
+            'gridcolor': '#2B2B2B'       # Proper divider color
+        }
+    else:
+        return {
+            'template': 'plotly_white',
+            'paper_bgcolor': 'white',
+            'plot_bgcolor': 'white',
+            'font_color': '#262730',
+            'gridcolor': '#e0e0e0'
+        }
+
+def create_dark_table_html(df, max_height=400):
+    """Создает HTML таблицу для темной темы"""
+    html_table = f"""
+    <div style="background-color: #1E1E1E; border: 1px solid #2B2B2B; border-radius: 8px; padding: 10px; max-height: {max_height}px; overflow-y: auto;">
+    <table style="width: 100%; color: #F5F5F5; border-collapse: collapse;">
+    <thead>
+    <tr style="background-color: #2B2B2B;">
+    """
+    
+    # Добавляем заголовки
+    for col in df.columns:
+        html_table += f'<th style="padding: 8px; border: 1px solid #2B2B2B; color: #F5F5F5; font-weight: bold; text-align: left;">{col}</th>'
+    html_table += "</tr></thead><tbody>"
+    
+    # Добавляем строки данных
+    for idx, row in df.iterrows():
+        bg_color = "#1A1A1A" if idx % 2 == 1 else "#1E1E1E"
+        html_table += f'<tr style="background-color: {bg_color};">'
+        for value in row:
+            html_table += f'<td style="padding: 8px; border: 1px solid #2B2B2B; color: #F5F5F5;">{value}</td>'
+        html_table += "</tr>"
+    
+    html_table += "</tbody></table></div>"
+    return html_table
+
+def apply_plotly_theme(fig):
+    """Применяет тему к графику Plotly"""
+    theme = get_plotly_theme()
+    fig.update_layout(
+        template=theme['template'],
+        paper_bgcolor=theme['paper_bgcolor'],
+        plot_bgcolor=theme['plot_bgcolor'],
+        font=dict(color=theme['font_color']),
+        xaxis=dict(gridcolor=theme['gridcolor']),
+        yaxis=dict(gridcolor=theme['gridcolor'])
+    )
+    return fig
+
+def apply_theme():
+    """Применение темной или светлой темы"""
+    if 'dark_mode' not in st.session_state:
+        # Пытаемся загрузить сохраненное предпочтение
+        st.session_state.dark_mode = False
+        
+    # JavaScript для сохранения/загрузки темы из localStorage
+    st.markdown(f"""
+    <script>
+        // Сохраняем текущую тему
+        localStorage.setItem('aitrainer_dark_mode', '{str(st.session_state.dark_mode).lower()}');
+    </script>
+    """, unsafe_allow_html=True)
+    
+    if st.session_state.dark_mode:
+        # Темная тема
+        st.markdown("""
+        <style>
+        :root {
+            /* Material Design темная палитра - WCAG AA совместимая */
+            --background-color: #121212;     /* Material Dark background */
+            --surface-1-color: #1E1E1E;     /* Surface elevation 1 */
+            --surface-2-color: #262626;     /* Surface elevation 2 */
+            --surface-3-color: #2D2D2D;     /* Surface elevation 3 */
+            --border-color: #2B2B2B;        /* Dividers/borders */
+            --hover-color: #333333;         /* Hover state */
+            
+            --accent-color: #5C6BC0;        /* Material indigo accent */
+            --accent-color-hover: #7986CB;  /* Lighter indigo for hover */
+            --accent-secondary: #4F83CC;    /* Secondary accent blue */
+            
+            --text-primary-color: #F5F5F5;  /* High contrast primary text */
+            --text-secondary-color: #A0A0A0; /* Secondary text */
+            --text-disabled-color: #707070; /* Disabled text */
+            
+            --success-bg-color: #1B5E20;    /* Material green dark */
+            --warning-bg-color: #E65100;    /* Material orange dark */
+            --error-bg-color: #C62828;      /* Material red dark */
+            --info-bg-color: #1565C0;       /* Material blue dark */
+        }
+
+        /* Основные стили */
+        .stApp {
+            background-color: var(--background-color);
+            color: var(--text-primary-color);
+        }
+        
+        /* Боковая панель */
+        section[data-testid="stSidebar"] {
+            background-color: var(--surface-1-color);
+            border-right: 1px solid var(--border-color);
+        }
+        
+        /* Метрики */
+        [data-testid="metric-container"] {
+            background-color: var(--surface-1-color);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 12px;
+        }
+        [data-testid="metric-container"] .stMetricValue {
+            color: var(--accent-color); /* Акцентный цвет для значения метрики */
+        }
+        
+        /* Эк��пандеры */
+        .streamlit-expanderHeader {
+            background-color: var(--surface-1-color);
+            color: var(--text-primary-color) !important;
+            border-radius: 8px;
+        }
+        .streamlit-expanderContent {
+            background-color: var(--surface-1-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        /* Таблицы */
+        .dataframe, div[data-testid="stDataFrame"] {
+            background-color: var(--surface-1-color) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Заголовки таблиц */
+        .dataframe thead tr th,
+        div[data-testid="stDataFrame"] thead tr th,
+        .stDataFrame thead tr th {
+            background-color: var(--surface-2-color) !important;
+            color: var(--text-primary-color) !important;
+            border-bottom: 1px solid var(--border-color) !important;
+            border-right: 1px solid var(--border-color) !important;
+        }
+        
+        /* Строки таблиц */
+        .dataframe tbody tr,
+        div[data-testid="stDataFrame"] tbody tr,
+        .stDataFrame tbody tr {
+            background-color: var(--surface-1-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Ячейки таблиц */
+        .dataframe tbody tr td,
+        div[data-testid="stDataFrame"] tbody tr td,
+        .stDataFrame tbody tr td {
+            background-color: var(--surface-1-color) !important;
+            color: var(--text-primary-color) !important;
+            border-right: 1px solid var(--border-color) !important;
+            border-bottom: 1px solid var(--border-color) !important;
+        }
+        
+        /* Hover эффект */
+        .dataframe tbody tr:hover,
+        div[data-testid="stDataFrame"] tbody tr:hover,
+        .stDataFrame tbody tr:hover {
+            background-color: var(--hover-color) !important;
+        }
+        
+        .dataframe tbody tr:hover td,
+        div[data-testid="stDataFrame"] tbody tr:hover td,
+        .stDataFrame tbody tr:hover td {
+            background-color: var(--hover-color) !important;
+        }
+        
+        /* Альтернативные строки */
+        .dataframe tbody tr:nth-child(even),
+        div[data-testid="stDataFrame"] tbody tr:nth-child(even),
+        .stDataFrame tbody tr:nth-child(even) {
+            background-color: #1A1A1A !important;
+        }
+        
+        .dataframe tbody tr:nth-child(even) td,
+        div[data-testid="stDataFrame"] tbody tr:nth-child(even) td,
+        .stDataFrame tbody tr:nth-child(even) td {
+            background-color: #1A1A1A !important;
+        }
+        
+        /* Специальная стилизация для Streamlit dataframes */
+        div[data-testid="stDataFrame"] {
+            background-color: var(--surface-1-color) !important;
+            border-radius: 8px !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        div[data-testid="stDataFrame"] > div {
+            background-color: var(--surface-1-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Все элементы внутри dataframe */
+        div[data-testid="stDataFrame"] *,
+        div[data-testid="stDataFrame"] table,
+        div[data-testid="stDataFrame"] thead,
+        div[data-testid="stDataFrame"] tbody,
+        div[data-testid="stDataFrame"] tr,
+        div[data-testid="stDataFrame"] th,
+        div[data-testid="stDataFrame"] td {
+            background-color: var(--surface-1-color) !important;
+            color: var(--text-primary-color) !important;
+            border-color: var(--border-color) !important;
+        }
+        
+        /* Заголовки dataframe */
+        div[data-testid="stDataFrame"] thead th,
+        div[data-testid="stDataFrame"] .stDataFrame th {
+            background-color: var(--surface-2-color) !important;
+            color: var(--text-primary-color) !important;
+            font-weight: 600 !important;
+        }
+        
+        /* Строки с данными */
+        div[data-testid="stDataFrame"] tbody tr:nth-child(odd) td {
+            background-color: var(--surface-1-color) !important;
+        }
+        
+        div[data-testid="stDataFrame"] tbody tr:nth-child(even) td {
+            background-color: #1A1A1A !important;
+        }
+        
+        /* Принудительное переопределение всех стилей таблицы */
+        .stDataFrame, .stDataFrame * {
+            background-color: var(--surface-1-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        .stDataFrame thead th {
+            background-color: var(--surface-2-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Самые агрессивные правила для dataframe */
+        div[data-testid="stDataFrame"] div,
+        div[data-testid="stDataFrame"] div div,
+        div[data-testid="stDataFrame"] div div div {
+            background-color: var(--surface-1-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Переопределение цветов текста и фона для всех вложенных элементов */
+        [data-testid="stDataFrame"] span,
+        [data-testid="stDataFrame"] p,
+        [data-testid="stDataFrame"] div,
+        [data-testid="stDataFrame"] * {
+            color: var(--text-primary-color) !important;
+            background-color: transparent !important;
+        }
+        
+        /* Специфичные правила для ячеек таблицы в темной теме */
+        div[data-testid="stDataFrame"] [role="gridcell"],
+        div[data-testid="stDataFrame"] [role="columnheader"] {
+            background-color: var(--surface-1-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Дополнительное принудительное переопределение для Streamlit dataframes */
+        section[data-testid="stDataFrame"] {
+            background-color: var(--surface-1-color) !important;
+            border-radius: 8px !important;
+        }
+        
+        /* Переопределение всех возможных селекторов для dataframe */
+        .stDataFrame table tbody tr td,
+        .stDataFrame table thead tr th,
+        div[data-testid="stDataFrame"] table tbody tr td,
+        div[data-testid="stDataFrame"] table thead tr th {
+            background-color: var(--surface-1-color) !important;
+            color: var(--text-primary-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        .stDataFrame table thead tr th,
+        div[data-testid="stDataFrame"] table thead tr th {
+            background-color: var(--surface-2-color) !important;
+        }
+        
+        /* Переопределение цветов для чередующихся строк */
+        .stDataFrame table tbody tr:nth-child(even) td,
+        div[data-testid="stDataFrame"] table tbody tr:nth-child(even) td {
+            background-color: #1A1A1A !important;
+        }
+        
+        /* Кнопки */
+        .stButton > button {
+            background-color: var(--surface-2-color);
+            color: var(--text-primary-color);
+            border: 1px solid var(--border-color);
+        }
+        .stButton > button:hover {
+            background-color: var(--hover-color);
+            border: 1px solid var(--accent-color);
+        }
+        .stButton > button:focus {
+            box-shadow: 0 0 0 2px var(--accent-color);
+        }
+        
+        /* Поля ввода */
+        .stTextInput > div > div > input,
+        .stSelectbox > div > div,
+        .stTextArea > div > div > textarea,
+        .stNumberInput > div > div > input {
+            background-color: var(--surface-1-color) !important;
+            color: var(--text-primary-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        /* Вкладки */
+        .stTabs [data-baseweb="tab-list"] {
+            background-color: var(--surface-1-color);
+            border-radius: 8px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            background-color: var(--surface-2-color);
+            color: var(--text-primary-color);
+            border: 1px solid var(--border-color);
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: var(--accent-color);
+            border: 1px solid var(--accent-color);
+        }
+        
+        /* Текст и типография */
+        .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+            color: var(--text-primary-color) !important;
+        }
+        .stCaption {
+            color: var(--text-secondary-color) !important;
+        }
+        a, .stMarkdown a {
+            color: var(--accent-color) !important;
+        }
+        a:hover, .stMarkdown a:hover {
+            color: var(--accent-color-hover) !important;
+        }
+        
+        /* Уведомления */
+        .stAlert {
+            background-color: var(--surface-1-color);
+            border: 1px solid var(--border-color);
+        }
+        .stInfo { background-color: var(--info-bg-color) !important; }
+        .stWarning { background-color: var(--warning-bg-color) !important; }
+        .stError { background-color: var(--error-bg-color) !important; }
+        .stSuccess { background-color: var(--success-bg-color) !important; }
+        
+        /* Чат */
+        .stChatInput > div > div > textarea,
+        .stChatInputContainer textarea {
+            background-color: var(--surface-1-color) !important;
+            color: var(--text-primary-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        div[data-testid="stChatInput"] {
+            background-color: var(--surface-1-color) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 25px !important;
+        }
+        .stChatMessage {
+            background-color: var(--surface-1-color);
+            border-radius: 10px !important;
+        }
+        [data-testid="chatAvatarIcon-assistant"] {
+            background-color: var(--accent-color) !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+    else:
+        # Светлая тема (стандартная)
+        st.markdown("""
+        <style>
+        /* Сброс к светлой теме */
+        .stApp {
+            background-color: white;
+            color: #262730;
+        }
+        
+        section[data-testid="stSidebar"] {
+            background-color: #f0f2f6;
+        }
+        
+        [data-testid="metric-container"] {
+            background-color: #ffffff;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            padding: 10px;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
 def main():
     st.title("🏃‍♂️ Персональный AI Тренер")
     
@@ -29,60 +477,85 @@ def main():
     if 'database' not in st.session_state:
         st.session_state.database = Database()
     
+    # Применяем тему
+    apply_theme()
+    
     # Боковая панель навигации
-    st.sidebar.title("Навигация")
+    col1, col2 = st.sidebar.columns([4, 1])
+    with col1:
+        st.title("🏃‍♂️ AI Trainer")
+    with col2:
+        # Переключатель темы
+        st.markdown("<br>", unsafe_allow_html=True)  # Отступ сверху
+        if st.button("🌙" if not st.session_state.get('dark_mode', False) else "☀️", 
+                     help="Переключить тему",
+                     use_container_width=True,
+                     key="theme_toggle"):
+            st.session_state.dark_mode = not st.session_state.get('dark_mode', False)
+            st.rerun()
     
     # Блок подключения к Garmin Connect
     show_garmin_connection()
     
     # Главное меню (только если подключён)
     if st.session_state.garmin_client.is_authenticated:
-        page = st.sidebar.selectbox("Выберите раздел:", [
+        # Используем радио-кнопки для лучшей навигации на мобильных
+        st.sidebar.markdown("### 📍 Основные разделы")
+        
+        # Определяем текущую страницу
+        pages = [
             "📊 Дашборд", 
-            "🏃‍♂️ Активности", 
-            "💓 Анализ HRV",
-            "😴 Анализ сна", 
-            "📈 Планирование", 
             "🤖 AI Коучинг",
-            "📋 Логи синхронизации"
-        ])
+            "🏃‍♂️ Активности", 
+            "📈 Планирование",
+            "⚙️ Управление данными"
+        ]
         
-        # Управление данными
+        # Если есть выбранная страница из session state, используем её
+        default_index = 0
+        if "selected_page" in st.session_state and st.session_state.selected_page in pages:
+            default_index = pages.index(st.session_state.selected_page)
+        
+        page = st.sidebar.radio("", pages, 
+                               index=default_index,
+                               label_visibility="collapsed")
+        
+        # Обновляем selected_page в session state
+        st.session_state.selected_page = page
+        
+        # Дополнительные разделы в отдельном экспандере
+        with st.sidebar.expander("📂 Дополнительно"):
+            additional_page = st.selectbox("Анализ данных:", [
+                "Основной раздел",
+                "💓 Анализ HRV",
+                "😴 Анализ сна",
+                "📋 Логи синхронизации"
+            ], label_visibility="collapsed")
+            
+            if additional_page != "Основной раздел":
+                page = additional_page
+        
         st.sidebar.markdown("---")
-        st.sidebar.subheader("🗄️ Управление данными")
         
-        # Выбор периода синхронизации
-        sync_days = st.sidebar.selectbox(
-            "Период загрузки:",
-            options=[7, 14, 30, 60, 90],
-            index=2,  # По умолчанию 30 дней
-            format_func=lambda x: f"{x} дней"
-        )
+        # Инициализация и отображение управления чатами
+        # Инициализация менеджера чатов
+        if "chat_manager" not in st.session_state:
+            from models.chat_manager import ChatManager
+            st.session_state.chat_manager = ChatManager()
         
-        # Кнопка синхронизации с выбранным периодом
-        if st.sidebar.button("🔄 Синхронизировать данные"):
-            sync_data(days=sync_days)
+        # Инициализация текущего чата
+        if "current_chat_id" not in st.session_state:
+            st.session_state.current_chat_id = None
         
-        # Статистика БД
-        if hasattr(st.session_state, 'database'):
-            stats = st.session_state.database.get_database_stats()
-            st.sidebar.markdown(f"""
-            📊 **Данные в БД:**
-            - Активности: {stats['activities']}
-            - HRV записи: {stats['hrv_data']}
-            - Данные сна: {stats.get('sleep_data', 0)}
-            - Показатели здоровья: {stats.get('daily_health', 0)}
-            - Статус тренированности: {stats.get('training_status', 0)}
-            """)
+        # Показываем управление чатами
+        show_chat_management()
         
-        # Очистка БД
-        clear_database()
+        st.sidebar.markdown("---")
         
-        # Тестовые данные
-        st.divider()
-        st.subheader("🧪 Тестирование")
-        st.write("Для демонстрации функций Фазы 1:")
-        add_test_phase1_data()
+        # Тестовые данные в отдельном экспандере
+        with st.sidebar.expander("🧪 Разработка", expanded=False):
+            st.caption("Тестовые функции для демонстрации")
+            add_test_phase1_data()
         
         # Основной контент
         if page == "📊 Дашборд":
@@ -99,6 +572,8 @@ def main():
             show_ai_coaching()
         elif page == "📋 Логи синхронизации":
             show_sync_logs()
+        elif page == "⚙️ Управление данными":
+            show_data_management()
     else:
         show_welcome_screen()
 
@@ -163,14 +638,20 @@ def sync_data(days=30):
         st.error("Не подключен к Garmin Connect")
         return
     
-    # Прогресс-бар
-    progress_bar = st.progress(0)
-    status_text = st.empty()
+    # Улучшенный прогресс с контейнером
+    progress_container = st.container()
+    with progress_container:
+        st.info("🔄 Начинаем синхронизацию...")
+        progress_bar = st.progress(0, text="Подготовка...")
+        status_text = st.empty()
+        
+        # Счетчики для отображения прогресса
+        sync_stats = st.empty()
     
     try:
         # Получение активностей
-        status_text.text(f"Загрузка активностей за {days} дней...")
-        progress_bar.progress(10)
+        status_text.text(f"📊 Загрузка активностей за {days} дней...")
+        progress_bar.progress(10, text="Шаг 1/5: Получение активностей...")
         
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
@@ -178,16 +659,17 @@ def sync_data(days=30):
         activities = st.session_state.garmin_client.get_activities(start_date, end_date)
         activities_synced = False
         
-        progress_bar.progress(30)
+        progress_bar.progress(30, text="Шаг 2/5: Обработка активностей...")
         
         if activities:
-            status_text.text(f"Обработка {len(activities)} активностей...")
+            status_text.text(f"⚙️ Обработка {len(activities)} активностей...")
+            sync_stats.info(f"Найдено активностей: {len(activities)}")
             # Обработка и сохранение данных
             df = ActivityProcessor.process_activities(activities)
             
             # Расчёт TSS для активностей - оптимизированно
-            status_text.text("Расчёт Training Stress Score...")
-            progress_bar.progress(50)
+            status_text.text("📈 Расчёт Training Stress Score...")
+            progress_bar.progress(50, text="Шаг 3/5: Расчет метрик...")
             
             tss_values = []
             for idx, row in df.iterrows():
@@ -206,10 +688,10 @@ def sync_data(days=30):
         else:
             sync_result = {'new': 0, 'updated': 0, 'skipped': 0}
             
-        progress_bar.progress(70)
+        progress_bar.progress(70, text="Шаг 4/5: Загрузка HRV...")
         
         # Синхронизация HRV данных - оптимизированно батчами
-        status_text.text("Загрузка HRV и данных восстановления...")
+        status_text.text("💓 Загрузка HRV и данных восстановления...")
         hrv_data = {}
         
         # Создаём список дат для пакетной обработки
@@ -227,20 +709,44 @@ def sync_data(days=30):
             batch_dates = date_list[batch_idx:batch_idx + batch_size]
             
             for date in batch_dates:
-                date_str = date.strftime('%Y-%m-%d')
+                date_str = format_date(date, 'db')
                 
                 # Получаем HRV данные
                 hrv_day_data = st.session_state.garmin_client.get_hrv_data(date)
                 rmssd_value = None
-                if hrv_day_data and 'hrvSummary' in hrv_day_data:
-                    hrv_summary = hrv_day_data['hrvSummary']
-                    rmssd_value = hrv_summary.get('lastNightAvg')
                 
+                # Debug вывод
+                print(f"DEBUG HRV: Получены данные HRV для {date_str}: {type(hrv_day_data)}")
+                if hrv_day_data:
+                    print(f"DEBUG HRV: Структура данных: {hrv_day_data}")
+                
+                if isinstance(hrv_day_data, dict):
+                    # Новый garth_client может возвращать {'hrvSummary': {'rmssd': ...}}
+                    if 'hrvSummary' in hrv_day_data and isinstance(hrv_day_data['hrvSummary'], dict):
+                        hrv_summary = hrv_day_data['hrvSummary']
+                        rmssd_value = hrv_summary.get('rmssd') or hrv_summary.get('lastNightAvg')
+                        print(f"DEBUG HRV: Извлечено RMSSD из hrvSummary: {rmssd_value}")
+                    # Также может возвращать {'daily_rmssd': ...} напрямую
+                    elif 'daily_rmssd' in hrv_day_data:
+                        rmssd_value = hrv_day_data['daily_rmssd']
+                        print(f"DEBUG HRV: Извлечено RMSSD из daily_rmssd: {rmssd_value}")
+                    elif 'rmssd' in hrv_day_data:
+                        rmssd_value = hrv_day_data['rmssd']
+                        print(f"DEBUG HRV: Извлечено RMSSD напрямую: {rmssd_value}")
+
                 # Получаем данные о стрессе
                 stress_score = None
                 stress_data = st.session_state.garmin_client.get_stress_data(date)
+                print(f"DEBUG STRESS SYNC: Получены данные стресса для {date_str}: {type(stress_data)}")
                 if stress_data:
+                    print(f"DEBUG STRESS SYNC: Структура данных стресса: {stress_data}")
+                
+                if isinstance(stress_data, dict):
                     stress_score = stress_data.get('avgStressLevel') or stress_data.get('overallStressLevel')
+                    print(f"DEBUG STRESS SYNC: Извлечен stress_score из словаря: {stress_score}")
+                elif isinstance(stress_data, (int, float)): # Иногда API может вернуть просто число
+                    stress_score = stress_data
+                    print(f"DEBUG STRESS SYNC: stress_score - простое число: {stress_score}")
                 
                 # Получаем данные Body Battery (восстановление)
                 recovery_score = None
@@ -259,6 +765,8 @@ def sync_data(days=30):
                         'stress_score': stress_score,
                         'recovery_score': recovery_score
                     }
+                    print(f"DEBUG HRV: Сохранены данные для {date_str}: {hrv_data[date_str]}")
+                    print(f"DEBUG HRV: RMSSD={rmssd_value}, Stress={stress_score}, Recovery={recovery_score}")
             
             # Обновляем прогресс после каждого батча
             progress = 70 + (batch_idx // batch_size + 1) / total_batches * 10
@@ -276,7 +784,7 @@ def sync_data(days=30):
         daily_health_data = {}
         
         for date in date_list[:min(len(date_list), days)]:  # Ограничиваем количество запросов
-            date_str = date.strftime('%Y-%m-%d')
+            date_str = format_date(date, 'db')
             
             # Получаем и обрабатываем данные сна
             try:
@@ -396,8 +904,13 @@ def sync_data(days=30):
         progress_bar.progress(95)
         
         hrv_result = {'new': 0, 'updated': 0}
+        print(f"DEBUG HRV SYNC: Сохранение HRV данных в базу: {len(hrv_data)} записей")
+        print(f"DEBUG HRV SYNC: Ключи данных HRV: {list(hrv_data.keys()) if hrv_data else 'Нет данных'}")
         if hrv_data:
             hrv_result = st.session_state.database.sync_hrv_data(hrv_data)
+            print(f"DEBUG HRV SYNC: Результат сохранения HRV: {hrv_result}")
+        else:
+            print("DEBUG HRV SYNC: Нет данных HRV для сохранения")
         
         # Сохраняем новые типы данных
         sleep_result = {'new': 0, 'updated': 0}
@@ -417,8 +930,9 @@ def sync_data(days=30):
         if training_status_data:
             status_result = st.session_state.database.sync_training_status(training_status_data)
         
-        progress_bar.progress(100)
-        status_text.text("Синхронизация завершена!")
+        progress_bar.progress(100, text="✅ Синхронизация завершена!")
+        status_text.empty()
+        sync_stats.empty()
         
         # Показываем результат
         success_msgs = []
@@ -565,15 +1079,15 @@ def add_test_phase1_data():
             health_result = st.session_state.database.sync_daily_health(health_data)
             status_result = st.session_state.database.sync_training_status(status_data)
             
-            st.success(f"""✅ Тестовые данные добавлены:
-• 😴 Сон: {sleep_result['new']} новых записей
-• 🏃 Здоровье: {health_result['new']} новых записей  
-• 🎯 Статус: {status_result['new']} новых записей
-
-Теперь вы можете проверить:
-• Страницу "😴 Анализ сна"
-• Индекс готовности на дашборде
-• Комплексный анализ готовности""")
+            success_msg = f"✅ Тестовые данные добавлены:\n"
+            success_msg += f"• 😴 Сон: {sleep_result['new']} новых записей\n"
+            success_msg += f"• 🏃 Здоровье: {health_result['new']} новых записей\n"
+            success_msg += f"• 🎯 Статус: {status_result['new']} новых записей\n\n"
+            success_msg += "Теперь вы можете проверить:\n"
+            success_msg += "• Страницу \"😴 Анализ сна\"\n"
+            success_msg += "• Индекс готовности на дашборде\n"
+            success_msg += "• Комплексный анализ готовности"
+            st.success(success_msg)
             
             # Обновляем страницу через 2 секунды
             import time
@@ -585,23 +1099,21 @@ def add_test_phase1_data():
 
 def show_welcome_screen():
     """Экран приветствия для неподключённых пользователей"""
-    st.markdown("""
-    ## Добро пожаловать в персональный AI тренер! 🏃‍♂️
-    
-    Этот инструмент поможет вам:
-    - 📊 Анализировать тренировочные данные из Garmin Connect
-    - 💓 Отслеживать показатели HRV и восстановления  
-    - 📈 Планировать тренировки с помощью модели Банистера
-    - 🤖 Получать персонализированные рекомендации от AI
-    
-    ### Для начала работы:
-    1. Подключитесь к Garmin Connect в боковой панели
-    2. Синхронизируйте ваши тренировочные данные
-    3. Начните анализировать и планировать тренировки!
-    
-    ---
-    *Требуется аккаунт Garmin Connect с историей тренировок*
-    """)
+    st.markdown("## Добро пожаловать в персональный AI тренер! 🏃‍♂️")
+    st.markdown("")
+    st.markdown("Этот инструмент поможет вам:")
+    st.markdown("- 📊 Анализировать тренировочные данные из Garmin Connect")
+    st.markdown("- 💓 Отслеживать показатели HRV и восстановления")
+    st.markdown("- 📈 Планировать тренировки с помощью модели Банистера")
+    st.markdown("- 🤖 Получать персонализированные рекомендации от AI")
+    st.markdown("")
+    st.markdown("### Для начала работы:")
+    st.markdown("1. Подключитесь к Garmin Connect в боковой панели")
+    st.markdown("2. Синхронизируйте ваши тренировочные данные")
+    st.markdown("3. Начните анализировать и планировать тренировки!")
+    st.markdown("")
+    st.markdown("---")
+    st.markdown("*Требуется аккаунт Garmin Connect с историей тренировок*")
 
 def show_dashboard():
     """Дашборд тренировок"""
@@ -611,13 +1123,84 @@ def show_dashboard():
     activities_df = st.session_state.database.get_activities(30)
     
     if activities_df.empty:
-        st.warning("📭 Нет данных. Выполните синхронизацию с Garmin Connect.")
-        if st.button("🔄 Синхронизировать сейчас"):
-            sync_data()
+        # Улучшенное приветствие для новых пользователей
+        st.info("👋 Добро пожаловать в AI Trainer!")
+        
+        # Карточки с инструкциями
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown("### 🚀 Быстрый старт")
+            st.markdown("")
+            st.markdown("1. **Подключитесь к Garmin** (уже выполнено ✅)")
+            st.markdown("2. **Синхронизируйте данные** - загрузите тренировки")
+            st.markdown("3. **Изучите метрики** - TSS, HRV, сон")
+            st.markdown("4. **Получите рекомендации** от AI коуча")
+            
+            if st.button("🔄 Синхронизировать данные", type="primary", use_container_width=True):
+                sync_data(days=30)
+        
+        with col2:
+            st.markdown("### 💡 Что умеет AI Trainer?")
+            st.markdown("")
+            st.markdown("- 📊 Анализ тренировочной нагрузки")
+            st.markdown("- 💓 Мониторинг восстановления по HRV")
+            st.markdown("- 😴 Оценка качества сна")
+            st.markdown("- 🤖 Персональные рекомендации AI")
+            st.markdown("- 📈 Планирование тренировок")
+            
+            if st.button("🎮 Загрузить демо-данные", use_container_width=True):
+                # Вызываем функцию добавления тестовых данных
+                from datetime import datetime, timedelta
+                from data.data_processor_phase1 import Phase1DataProcessor
+                
+                # Создаем тестовые данные за последние 7 дней
+                sleep_data = {}
+                health_data = {}
+                
+                for i in range(7):
+                    date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
+                    
+                    # Тестовые данные сна
+                    base_quality = 75 + (i % 3) * 5
+                    sleep_data[date] = {
+                        'total_sleep_minutes': 420 + (i % 2) * 30,
+                        'deep_sleep_minutes': 80 + (i % 3) * 10,
+                        'light_sleep_minutes': 280 + (i % 2) * 20,
+                        'rem_sleep_minutes': 60 + (i % 3) * 10,
+                        'awakenings_count': 1 + (i % 3),
+                        'sleep_score': base_quality + (i % 2) * 5,
+                    }
+                    
+                    # Тестовые данные здоровья
+                    health_data[date] = {
+                        'resting_hr': 48 + (i % 4) * 2,
+                        'steps': 8000 + i * 500,
+                    }
+                
+                # Обрабатываем и сохраняем
+                processor = Phase1DataProcessor(st.session_state.database)
+                processed_sleep = processor.process_sleep_data(sleep_data)
+                processed_health = processor.process_health_data(health_data)
+                
+                st.session_state.database.save_phase1_data(
+                    sleep_data=processed_sleep,
+                    health_data=processed_health,
+                    training_status={}
+                )
+                
+                st.success("✅ Демо-данные загружены!")
+                st.rerun()
+        
+        # Подсказка внизу
+        st.markdown("---")
+        st.caption("💡 **Совет:** Начните с синхронизации последних 30 дней тренировок или попробуйте демо-данные")
         return
     
-    # Основные метрики  
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
+    # Основные метрики
+    # Используем адаптивную сетку: 2 строки по 3 колонки
+    col1, col2, col3 = st.columns(3)
+    col4, col5, col6 = st.columns(3)
     
     with col1:
         total_activities = len(activities_df)
@@ -724,17 +1307,31 @@ def show_dashboard():
                 'distance_km': 'sum'
             }).reset_index()
             
+            theme = get_plotly_theme()
             fig = px.bar(daily_stats, x='date', y='duration_minutes', 
                         title="⏱️ Время тренировок по дням",
-                        labels={'duration_minutes': 'Время (мин)', 'date': 'Дата'})
+                        labels={'duration_minutes': 'Время (мин)', 'date': 'Дата'},
+                        template=theme['template'])
+            fig.update_layout(
+                paper_bgcolor=theme['paper_bgcolor'],
+                plot_bgcolor=theme['plot_bgcolor'],
+                font_color=theme['font_color']
+            )
             st.plotly_chart(fig, use_container_width=True)
     
     with col2:
         # Распределение по видам спорта
         if not activities_df.empty:
             sport_dist = activities_df['sport'].value_counts()
+            theme = get_plotly_theme()
             fig = px.pie(values=sport_dist.values, names=sport_dist.index,
-                        title="🏃‍♂️ Распределение по видам спорта")
+                        title="🏃‍♂️ Распределение по видам спорта",
+                        template=theme['template'])
+            fig.update_layout(
+                paper_bgcolor=theme['paper_bgcolor'],
+                plot_bgcolor=theme['plot_bgcolor'],
+                font_color=theme['font_color']
+            )
             st.plotly_chart(fig, use_container_width=True)
     
     # Таблица последних активностей
@@ -744,16 +1341,24 @@ def show_dashboard():
         
         # Безопасное форматирование даты
         if pd.api.types.is_datetime64_any_dtype(display_df['date']):
-            display_df['date'] = display_df['date'].dt.strftime('%d.%m.%Y')
+            display_df['date'] = display_df['date'].apply(lambda x: format_date(x, 'display'))
         else:
             # Если дата не в datetime формате, преобразуем её
-            display_df['date'] = pd.to_datetime(display_df['date']).dt.strftime('%d.%m.%Y')
+            display_df['date'] = pd.to_datetime(display_df['date']).apply(lambda x: format_date(x, 'display'))
         
         display_df['duration_minutes'] = display_df['duration_minutes'].round(0).astype(int)
         display_df['distance_km'] = display_df['distance_km'].round(1)
         
         display_df.columns = ['Дата', 'Вид спорта', 'Время (мин)', 'Дистанция (км)', 'Ср. пульс', 'TSS']
-        st.dataframe(display_df, use_container_width=True)
+        
+        # Отображаем таблицу с учетом темы
+        if st.session_state.get('dark_mode', False):
+            st.markdown(create_dark_table_html(display_df, 400), unsafe_allow_html=True)
+        else:
+            st.dataframe(display_df, use_container_width=True, height=400)
+        
+    else:
+        st.info("Нет данных об активностях. Синхронизируйтесь с Garmin Connect.")
     
     # Детальный анализ готовности
     st.subheader("🎯 Комплексный анализ готовности")
@@ -874,7 +1479,9 @@ def show_activities():
     # Статистика
     st.subheader("📊 Статистика")
     
-    col1, col2, col3, col4 = st.columns(4)
+    # Адаптивная сетка: 2x2 на мобильных
+    col1, col2 = st.columns(2)
+    col3, col4 = st.columns(2)
     
     with col1:
         st.metric("Всего тренировок", len(filtered_df))
@@ -904,14 +1511,21 @@ def show_activities():
         }).reset_index()
         
         # График TSS
+        theme = get_plotly_theme()
         fig_tss = px.bar(
             daily_stats, 
             x='date', 
             y='tss',
             title="Training Stress Score по дням",
-            labels={'tss': 'TSS', 'date': 'Дата'}
+            labels={'tss': 'TSS', 'date': 'Дата'},
+            template=theme['template']
         )
-        fig_tss.update_layout(height=400)
+        fig_tss.update_layout(
+            height=400,
+            paper_bgcolor=theme['paper_bgcolor'],
+            plot_bgcolor=theme['plot_bgcolor'],
+            font_color=theme['font_color']
+        )
         st.plotly_chart(fig_tss, use_container_width=True)
     
     # Таблица активностей
@@ -919,7 +1533,7 @@ def show_activities():
     
     # Форматируем данные для отображения
     display_df = filtered_df.copy()
-    display_df['date'] = pd.to_datetime(display_df['date']).dt.strftime('%d.%m.%Y')
+    display_df['date'] = pd.to_datetime(display_df['date']).apply(lambda x: format_date(x, 'display'))
     display_df['duration_minutes'] = display_df['duration_minutes'].round(0).astype(int)
     display_df['distance_km'] = display_df['distance_km'].round(2)
     
@@ -938,12 +1552,11 @@ def show_activities():
     columns_to_show = [col for col in display_columns.keys() if col in display_df.columns]
     table_df = display_df[columns_to_show].rename(columns=display_columns)
     
-    # Отображаем таблицу
-    st.dataframe(
-        table_df,
-        use_container_width=True,
-        hide_index=True
-    )
+    # Отображаем таблицу с учетом темы
+    if st.session_state.get('dark_mode', False):
+        st.markdown(create_dark_table_html(table_df), unsafe_allow_html=True)
+    else:
+        st.dataframe(table_df, use_container_width=True, hide_index=True)
     
     # Детали выбранной тренировки
     if len(filtered_df) > 0:
@@ -1004,26 +1617,6 @@ def show_hrv_analysis():
     # Получаем HRV данные за максимальный период для корректной фильтрации
     hrv_df = st.session_state.database.get_hrv_data(90)  # Получаем больше данных для фильтрации
     
-    if hrv_df.empty:
-        st.warning("📭 Нет данных HRV за последние 30 дней. Синхронизируйте данные с Garmin Connect.")
-        
-        # Информационный блок о HRV
-        with st.expander("❓ Что такое HRV?", expanded=True):
-            st.markdown("""
-            **HRV (Heart Rate Variability)** - вариабельность сердечного ритма - это изменение времени между ударами сердца.
-            
-            **Основные показатели:**
-            - **RMSSD** - основной показатель HRV, отражает активность парасимпатической нервной системы
-            - **Стресс-индекс** - оценка текущего уровня стресса организма  
-            - **Индекс восстановления** - готовность организма к нагрузкам
-            
-            **Как интерпретировать:**
-            - 🟢 **Высокий HRV** = хорошее восстановление, готовность к интенсивным тренировкам
-            - 🟡 **Средний HRV** = нормальное состояние, умеренные нагрузки
-            - 🔴 **Низкий HRV** = усталость/стресс, нужен отдых или лёгкие тренировки
-            """)
-        return
-    
     # Импортируем анализатор HRV
     from models.hrv_analyzer import HRVAnalyzer
     hrv_analyzer = HRVAnalyzer()
@@ -1046,73 +1639,85 @@ def show_hrv_analysis():
             index=1
         )
     
-    # Правильная фильтрация данных по периоду
-    # Так как данные отсортированы по убыванию (DESC), используем head() вместо tail()
-    # или фильтруем по дате
-    if len(hrv_df) > period_days:
-        hrv_df = hrv_df.head(period_days)
+    # Фильтруем данные по выбранному периоду (надежный метод)
     hrv_df['date'] = pd.to_datetime(hrv_df['date'])
+    cutoff_date = datetime.now() - timedelta(days=period_days)
+    hrv_df = hrv_df[hrv_df['date'] >= cutoff_date].copy()
+
+    if hrv_df.empty:
+        st.warning(f"📭 Нет данных HRV за последние {period_days} дней. Синхронизируйте данные с Garmin Connect.")
+        # Информационный блок о HRV
+        with st.expander("❓ Что такое HRV?", expanded=True):
+            st.markdown("**HRV (Heart Rate Variability)** - вариабельность сердечного ритма - это изменение времени между ударами сердца.")
+            st.markdown("")
+            st.markdown("**Основные показатели:**")
+            st.markdown("- **RMSSD** - основной показатель HRV, отражает активность парасимпатической нервной системы")
+            st.markdown("- **Стресс-индекс** - оценка текущего уровня стресса организма")
+            st.markdown("- **Индекс восстановления** - готовность организма к нагрузкам")
+            st.markdown("")
+            st.markdown("**Как интерпретировать:**")
+            st.markdown("- 🟢 **Высокий HRV** = хорошее восстановление, готовность к интенсивным тренировкам")
+            st.markdown("- 🟡 **Средний HRV** = нормальное состояние, умеренные нагрузки")
+            st.markdown("- 🔴 **Низкий HRV** = усталость/стресс, нужен отдых или лёгкие тренировки")
+        return
     
-    # Текущие показатели - всегда берём самые последние данные независимо от периода
-    latest_hrv_df = st.session_state.database.get_hrv_data(7)  # Последние 7 дней для актуальных данных
-    if not latest_hrv_df.empty:
-        latest_data = latest_hrv_df.iloc[0]  # Самая свежая запись (данные сортированы по убыванию)
-        # Базовый уровень рассчитываем от выбранного периода анализа
-        baseline_rmssd = hrv_df['rmssd'].mean() if not hrv_df.empty else latest_data['rmssd']
+    # Текущие показатели - всегда берём самые последние данные из уже загруженного DataFrame
+    latest_data = hrv_df.iloc[0]  # Самая свежая запись (данные сортированы по убыванию)
+    # Базовый уровень рассчитываем от выбранного периода анализа
+    baseline_rmssd = hrv_df['rmssd'].mean() # hrv_df не может быть пустым на этом этапе
+    
+    latest_date = latest_data['date'] if 'date' in latest_data else 'Н/Д'
+    st.subheader(f"📊 Текущее состояние (данные от {latest_date})")
+    
+    # Адаптивная сетка: 2x2 на мобильных
+    col1, col2 = st.columns(2)
+    col3, col4 = st.columns(2)
+    
+    with col1:
+        current_rmssd = latest_data['rmssd'] if pd.notna(latest_data['rmssd']) else 0
+        delta_rmssd = current_rmssd - baseline_rmssd if baseline_rmssd > 0 else 0
+        st.metric(
+            "RMSSD (мс)", 
+            f"{current_rmssd:.1f}",
+            f"{delta_rmssd:+.1f} от среднего"
+        )
+    
+    with col2:
+        # Проверяем стресс-индекс
+        stress_score = None
+        if 'stress_score' in latest_data and latest_data['stress_score'] is not None and not pd.isna(latest_data['stress_score']):
+            stress_score = latest_data['stress_score']
+            stress_color = "🟢" if stress_score < 30 else "🟡" if stress_score < 60 else "🔴"
+            st.metric("Стресс-индекс", f"{stress_color} {stress_score:.0f}")
+        else:
+            st.metric("Стресс-индекс", "Н/Д", help="Данные о стрессе недоступны. Синхронизируйте с Garmin Connect.")
+    
+    with col3:
+        # Проверяем индекс восстановления
+        recovery_score = None
+        if 'recovery_score' in latest_data and latest_data['recovery_score'] is not None and not pd.isna(latest_data['recovery_score']):
+            recovery_score = latest_data['recovery_score']
+            recovery_color = "🟢" if recovery_score > 70 else "🟡" if recovery_score > 40 else "🔴"
+            st.metric("Восстановление", f"{recovery_color} {recovery_score:.0f}%")
+        else:
+            # Рассчитываем на основе RMSSD если HRV анализатор доступен
+            try:
+                calculated_recovery = hrv_analyzer.recovery_score(current_rmssd, baseline_rmssd) if current_rmssd > 0 else 50
+                recovery_color = "🟢" if calculated_recovery > 70 else "🟡" if calculated_recovery > 40 else "🔴"
+                st.metric("Восстановление", f"{recovery_color} {calculated_recovery:.0f}%", help="Расчет на основе RMSSD")
+            except:
+                st.metric("Восстановление", "Н/Д", help="Данные Body Battery недоступны. Синхронизируйте с Garmin Connect.")
+    
+    with col4:
+        # Рекомендация на основе последних данных
+        if current_rmssd > baseline_rmssd * 1.1:
+            recommendation = "🟢 Интенсивная тренировка"
+        elif current_rmssd > baseline_rmssd * 0.9:
+            recommendation = "🟡 Умеренная нагрузка"
+        else:
+            recommendation = "🔴 Отдых/восстановление"
         
-        latest_date = latest_data['date'] if 'date' in latest_data else 'Н/Д'
-        st.subheader(f"📊 Текущее состояние (данные от {latest_date})")
-        
-        col1, col2, col3, col4 = st.columns(4)
-        
-        with col1:
-            current_rmssd = latest_data['rmssd'] if pd.notna(latest_data['rmssd']) else 0
-            delta_rmssd = current_rmssd - baseline_rmssd if baseline_rmssd > 0 else 0
-            st.metric(
-                "RMSSD (мс)", 
-                f"{current_rmssd:.1f}",
-                f"{delta_rmssd:+.1f} от среднего"
-            )
-        
-        with col2:
-            # Проверяем стресс-индекс
-            stress_score = None
-            if 'stress_score' in latest_data and latest_data['stress_score'] is not None and not pd.isna(latest_data['stress_score']):
-                stress_score = latest_data['stress_score']
-                stress_color = "🟢" if stress_score < 30 else "🟡" if stress_score < 60 else "🔴"
-                st.metric("Стресс-индекс", f"{stress_color} {stress_score:.0f}")
-            else:
-                st.metric("Стресс-индекс", "Н/Д", help="Данные о стрессе недоступны. Синхронизируйте с Garmin Connect.")
-        
-        with col3:
-            # Проверяем индекс восстановления
-            recovery_score = None
-            if 'recovery_score' in latest_data and latest_data['recovery_score'] is not None and not pd.isna(latest_data['recovery_score']):
-                recovery_score = latest_data['recovery_score']
-                recovery_color = "🟢" if recovery_score > 70 else "🟡" if recovery_score > 40 else "🔴"
-                st.metric("Восстановление", f"{recovery_color} {recovery_score:.0f}%")
-            else:
-                # Рассчитываем на основе RMSSD если HRV анализатор доступен
-                try:
-                    calculated_recovery = hrv_analyzer.recovery_score(current_rmssd, baseline_rmssd) if current_rmssd > 0 else 50
-                    recovery_color = "🟢" if calculated_recovery > 70 else "🟡" if calculated_recovery > 40 else "🔴"
-                    st.metric("Восстановление", f"{recovery_color} {calculated_recovery:.0f}%", help="Расчет на основе RMSSD")
-                except:
-                    st.metric("Восстановление", "Н/Д", help="Данные Body Battery недоступны. Синхронизируйте с Garmin Connect.")
-        
-        with col4:
-            # Рекомендация на основе последних данных
-            if current_rmssd > baseline_rmssd * 1.1:
-                recommendation = "🟢 Интенсивная тренировка"
-            elif current_rmssd > baseline_rmssd * 0.9:
-                recommendation = "🟡 Умеренная нагрузка"
-            else:
-                recommendation = "🔴 Отдых/восстановление"
-            
-            st.metric("Рекомендация", recommendation)
-    else:
-        st.subheader("📊 Текущее состояние")
-        st.warning("⚠️ Нет актуальных данных HRV. Синхронизируйте данные с Garmin Connect.")
+        st.metric("Рекомендация", recommendation)
     
     # Графики динамики
     if len(hrv_df) > 1:
@@ -1319,7 +1924,7 @@ def show_hrv_analysis():
         display_df = display_df.sort_values('date', ascending=False)
         
         # Потом форматируем дату в строку
-        display_df['date'] = display_df['date'].dt.strftime('%d.%m.%Y')
+        display_df['date'] = display_df['date'].apply(lambda x: format_date(x, 'display'))
         display_df['rmssd'] = display_df['rmssd'].round(1)
         
         # Переименовываем колонки
@@ -1333,12 +1938,11 @@ def show_hrv_analysis():
         columns_to_show = [col for col in display_columns.keys() if col in display_df.columns]
         table_df = display_df[columns_to_show].rename(columns=display_columns)
         
-        # Убираем сортировку строковых дат, так как уже отсортированы правильно
-        st.dataframe(
-            table_df,
-            use_container_width=True,
-            hide_index=True
-        )
+        # Отображаем таблицу с учетом темы
+        if st.session_state.get('dark_mode', False):
+            st.markdown(create_dark_table_html(table_df), unsafe_allow_html=True)
+        else:
+            st.dataframe(table_df, use_container_width=True, hide_index=True)
     
     # Рекомендации
     st.subheader("💡 Рекомендации по HRV")
@@ -1346,7 +1950,7 @@ def show_hrv_analysis():
     if not hrv_df.empty and len(hrv_df) > 7:
         # Анализ тенденций за последнюю неделю
         recent_data = hrv_df.tail(7)
-        rmssd_trend = recent_data['rmssd'].pct_change().mean() * 100
+        rmssd_trend = recent_data['rmssd'].pct_change(fill_method='pad').mean() * 100
         
         col1, col2 = st.columns(2)
         
@@ -1434,9 +2038,11 @@ def show_sleep_analysis():
     latest_sleep = filtered_df.iloc[0] if not filtered_df.empty else None
     
     if latest_sleep is not None:
-        st.subheader(f"🌙 Последний сон ({latest_sleep['date'].strftime('%d.%m.%Y')})")
+        st.subheader(f"🌙 Последний сон ({format_date(latest_sleep['date'], 'display')})")
         
-        col1, col2, col3, col4 = st.columns(4)
+        # Адаптивная сетка: 2x2 на мобильных
+        col1, col2 = st.columns(2)
+        col3, col4 = st.columns(2)
         
         with col1:
             total_minutes = latest_sleep.get('total_sleep_minutes', 0)
@@ -1600,7 +2206,9 @@ def show_sleep_analysis():
         # Статистика за период
         st.subheader("📊 Статистика за период")
         
-        col1, col2, col3, col4 = st.columns(4)
+        # Адаптивная сетка: 2x2 на мобильных
+        col1, col2 = st.columns(2)
+        col3, col4 = st.columns(2)
         
         with col1:
             avg_quality = filtered_df['sleep_score'].mean()
@@ -1768,7 +2376,9 @@ def show_planning():
     
     # Отображаем текущие метрики
     st.subheader("🎯 Текущее состояние")
-    col1, col2, col3, col4 = st.columns(4)
+    # Адаптивная сетка: 2x2 на мобильных
+    col1, col2 = st.columns(2)
+    col3, col4 = st.columns(2)
     
     with col1:
         st.metric("CTL (Фитнес)", current_metrics['ctl'])
@@ -1892,6 +2502,70 @@ def show_planning():
         if not activities_df.empty:
             fig_weekly = Visualizations.create_weekly_tss_chart(activities_df)
             st.plotly_chart(fig_weekly, use_container_width=True)
+
+def show_chat_management():
+    """Управление чатами в боковой панели"""
+    # Боковая панель с управлением чатами
+    with st.sidebar:
+        st.subheader("💬 Управление чатами")
+        
+        # Кнопки управления чатом
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("➕ Новый чат", use_container_width=True, type="primary"):
+                new_chat_id = st.session_state.chat_manager.create_new_chat()
+                st.session_state.current_chat_id = new_chat_id
+                st.rerun()
+        
+        with col2:
+            # Кнопка очистки текущего чата
+            if st.session_state.current_chat_id and st.button("🧹 Очистить", use_container_width=True):
+                if st.session_state.chat_manager.clear_chat(st.session_state.current_chat_id):
+                    st.success("Чат очищен")
+                    st.rerun()
+        
+        # Список чатов
+        chats = st.session_state.chat_manager.get_chat_list()
+        
+        if chats:
+            st.markdown('<div class="sidebar-chat-list">', unsafe_allow_html=True)
+            
+            for chat in chats:
+                is_current = chat["id"] == st.session_state.current_chat_id
+                
+                col1, col2 = st.columns([4, 1])
+                
+                with col1:
+                    # Кнопка выбора чата
+                    chat_title = chat['title'][:30] + ("..." if len(chat['title']) > 30 else "")
+                    button_text = f"{'🔵' if is_current else '💬'} {chat_title}"
+                    
+                    if st.button(
+                        button_text,
+                        key=f"chat_{chat['id']}",
+                        use_container_width=True,
+                        help=f"Сообщений: {chat['message_count']} • {chat['updated_at'][:16].replace('T', ' ')}"
+                    ):
+                        st.session_state.current_chat_id = chat["id"]
+                        # Переключаемся на страницу AI коучинга
+                        st.session_state.selected_page = "🤖 AI Коучинг"
+                        # Устанавливаем флаг для автоматического переключения на чат
+                        st.session_state.switch_to_chat_tab = True
+                        st.success(f"Выбран чат: {chat['title'][:20]}...")
+                        st.rerun()
+                
+                with col2:
+                    # Кнопка удаления чата
+                    if st.button("🗑️", key=f"delete_{chat['id']}", help="Удалить чат"):
+                        if st.session_state.chat_manager.delete_chat(chat["id"]):
+                            if st.session_state.current_chat_id == chat["id"]:
+                                st.session_state.current_chat_id = None
+                            st.success("Чат удален")
+                            st.rerun()
+            
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.info("Пока нет сохраненных чатов")
 
 def show_ai_coaching():
     """Страница AI коучинга с поддержкой разных провайдеров"""
@@ -2147,18 +2821,32 @@ def show_ai_coaching():
         'primary_sport': primary_sport
     }
     
-    # Табы для разных функций AI коуча
-    tab1, tab2, tab3, tab4, tab5, tab_chat = st.tabs([
-        "📊 Анализ состояния",
-        "📅 Недельный план", 
-        "🏃 Анализ тренировки",
-        "❓ Вопрос коучу",
-        "📚 Объяснение метрик",
-        "💬 AI Чат"
-    ])
-    
-    with tab1:
-        st.subheader("📊 Анализ текущего состояния")
+    # Проверяем, нужно ли сразу показать чат
+    if st.session_state.get('switch_to_chat_tab', False):
+        # Сбрасываем флаг
+        st.session_state.switch_to_chat_tab = False
+        # Показываем кнопку возврата к вкладкам
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if st.button("← Назад к вкладкам", key="back_to_tabs"):
+                st.rerun()
+        # Показываем чат сразу без вкладок
+        st.markdown("### 💬 AI Чат")
+        show_ai_chat()
+    else:
+        # Показываем обычные табы
+        tab_chat, tab1, tab2, tab3, tab4, tab5 = st.tabs([
+            "💬 AI Чат",
+            "📊 Анализ состояния",
+            "📅 Недельный план", 
+            "🏃 Анализ тренировки",
+            "❓ Вопрос коучу",
+            "📚 Объяснение метрик"
+        ])
+        with tab_chat:
+            show_ai_chat()
+        with tab1:
+            st.subheader("📊 Анализ текущего состояния")
         
         # Показываем текущие метрики
         col1, col2, col3 = st.columns(3)
@@ -2175,93 +2863,91 @@ def show_ai_coaching():
                 st.markdown("### 🤖 Анализ AI коуча:")
                 st.markdown(analysis)
     
-    with tab2:
-        st.subheader("📅 Генерация недельного плана")
-        
-        goals = st.text_area(
-            "Ваши цели на неделю:",
-            placeholder="Например: подготовка к полумарафону, увеличение выносливости, восстановление после соревнований..."
-        )
-        
-        if st.button("📝 Создать план", key="create_plan"):
-            with st.spinner("AI создаёт персональный план..."):
-                plan = st.session_state.ai_coach.generate_weekly_plan(ai_metrics, goals)
-                st.markdown("### 📋 Ваш недельный план:")
-                st.markdown(plan)
-    
-    with tab3:
-        st.subheader("🏃 Анализ последней тренировки")
-        
-        # Выбор тренировки для анализа
-        if not activities_df.empty:
-            last_activities = activities_df.head(10)
+        with tab2:
+            st.subheader("📅 Генерация недельного плана")
             
-            activity_options = []
-            for idx, row in last_activities.iterrows():
-                date_str = row['date'].strftime('%d.%m')
-                activity_str = f"{date_str} - {row['sport']} - {row['distance_km']:.1f}км - TSS: {row['tss']:.0f}"
-                activity_options.append(activity_str)
-            
-            selected_idx = st.selectbox("Выберите тренировку:", range(len(activity_options)),
-                                       format_func=lambda x: activity_options[x])
-            
-            selected_activity = last_activities.iloc[selected_idx]
-            
-            # Субъективные ощущения
-            feeling = st.text_area(
-                "Как вы себя чувствовали?",
-                placeholder="Опишите ваши ощущения: усталость, лёгкость, проблемы, успехи..."
+            goals = st.text_area(
+                "Ваши цели на неделю:",
+                placeholder="Например: подготовка к полумарафону, увеличение выносливости, восстановление после соревнований..."
             )
             
-            if st.button("🔬 Анализировать тренировку", key="analyze_workout"):
-                with st.spinner("AI анализирует тренировку..."):
-                    workout_data = selected_activity.to_dict()
-                    analysis = st.session_state.ai_coach.analyze_workout(workout_data, feeling)
-                    st.markdown("### 🎯 Анализ тренировки:")
-                    st.markdown(analysis)
+            if st.button("📝 Создать план", key="create_plan"):
+                with st.spinner("AI создаёт персональный план..."):
+                    plan = st.session_state.ai_coach.generate_weekly_plan(ai_metrics, goals)
+                    st.markdown("### 📋 Ваш недельный план:")
+                    st.markdown(plan)
     
-    with tab4:
-        st.subheader("❓ Задайте вопрос AI коучу")
-        
-        question = st.text_area(
-            "Ваш вопрос:",
-            placeholder="Любой вопрос о тренировках, восстановлении, питании, планировании..."
-        )
-        
-        if st.button("💬 Получить ответ", key="ask_question"):
-            if question:
-                with st.spinner("AI формирует ответ..."):
-                    answer = st.session_state.ai_coach.answer_question(question, ai_metrics)
-                    st.markdown("### 💡 Ответ коуча:")
-                    st.markdown(answer)
-            else:
-                st.warning("Введите вопрос")
+        with tab3:
+            st.subheader("🏃 Анализ последней тренировки")
+            
+            # Выбор тренировки для анализа
+            if not activities_df.empty:
+                last_activities = activities_df.head(10)
+                
+                activity_options = []
+                for idx, row in last_activities.iterrows():
+                    date_str = row['date'].strftime('%d.%m')
+                    activity_str = f"{date_str} - {row['sport']} - {row['distance_km']:.1f}км - TSS: {row['tss']:.0f}"
+                    activity_options.append(activity_str)
+                
+                selected_idx = st.selectbox("Выберите тренировку:", range(len(activity_options)),
+                                           format_func=lambda x: activity_options[x])
+                
+                selected_activity = last_activities.iloc[selected_idx]
+                
+                # Субъективные ощущения
+                feeling = st.text_area(
+                    "Как вы себя чувствовали?",
+                    placeholder="Опишите ваши ощущения: усталость, лёгкость, проблемы, успехи..."
+                )
+                
+                if st.button("🔬 Анализировать тренировку", key="analyze_workout"):
+                    with st.spinner("AI анализирует тренировку..."):
+                        workout_data = selected_activity.to_dict()
+                        analysis = st.session_state.ai_coach.analyze_workout(workout_data, feeling)
+                        st.markdown("### 🎯 Анализ тренировки:")
+                        st.markdown(analysis)
     
-    with tab5:
-        st.subheader("📚 Объяснение метрик")
-        
-        metric_options = {
-            "TSS (Training Stress Score)": "TSS",
-            "CTL (Chronic Training Load)": "CTL",
-            "ATL (Acute Training Load)": "ATL",
-            "TSB (Training Stress Balance)": "TSB",
-            "FTP (Functional Threshold Power)": "FTP",
-            "LTHR (Lactate Threshold Heart Rate)": "LTHR",
-            "HRV (Heart Rate Variability)": "HRV",
-            "RMSSD": "RMSSD",
-            "VO2max": "VO2max"
-        }
-        
-        selected_metric_name = st.selectbox("Выберите метрику:", list(metric_options.keys()))
-        
-        if st.button("📖 Объяснить", key="explain_metric"):
-            with st.spinner("AI готовит объяснение..."):
-                explanation = st.session_state.ai_coach.explain_metrics(selected_metric_name)
-                st.markdown("### 📘 Объяснение:")
-                st.markdown(explanation)
+        with tab4:
+            st.subheader("❓ Задайте вопрос AI коучу")
+            
+            question = st.text_area(
+                "Ваш вопрос:",
+                placeholder="Любой вопрос о тренировках, восстановлении, питании, планировании..."
+            )
+            
+            if st.button("💬 Получить ответ", key="ask_question"):
+                if question:
+                    with st.spinner("AI формирует ответ..."):
+                        answer = st.session_state.ai_coach.answer_question(question, ai_metrics)
+                        st.markdown("### 💡 Ответ коуча:")
+                        st.markdown(answer)
+                else:
+                    st.warning("Введите вопрос")
     
-    with tab_chat:
-        show_ai_chat()
+        with tab5:
+            st.subheader("📚 Объяснение метрик")
+            
+            metric_options = {
+                "TSS (Training Stress Score)": "TSS",
+                "CTL (Chronic Training Load)": "CTL",
+                "ATL (Acute Training Load)": "ATL",
+                "TSB (Training Stress Balance)": "TSB",
+                "FTP (Functional Threshold Power)": "FTP",
+                "LTHR (Lactate Threshold Heart Rate)": "LTHR",
+                "HRV (Heart Rate Variability)": "HRV",
+                "RMSSD": "RMSSD",
+                "VO2max": "VO2max"
+            }
+            
+            selected_metric_name = st.selectbox("Выберите метрику:", list(metric_options.keys()))
+            
+            if st.button("📖 Объяснить", key="explain_metric"):
+                with st.spinner("AI готовит объяснение..."):
+                    explanation = st.session_state.ai_coach.explain_metrics(selected_metric_name)
+                    st.markdown("### 📘 Объяснение:")
+                    st.markdown(explanation)
+    
 
 def show_ai_chat():
     """Современный интерфейс AI чата с сохранением и управлением"""
@@ -2270,10 +2956,7 @@ def show_ai_chat():
         st.warning("👆 Настройте AI провайдера для использования чата")
         return
     
-    # Инициализация менеджера чатов
-    if "chat_manager" not in st.session_state:
-        from models.chat_manager import ChatManager
-        st.session_state.chat_manager = ChatManager()
+    # Менеджер чатов уже инициализирован в main()
     
     # Инициализация AI инструментов
     if "ai_tools" not in st.session_state:
@@ -2368,54 +3051,8 @@ def show_ai_chat():
     </style>
     """, unsafe_allow_html=True)
     
-    # Боковая панель с управлением чатами
+    # Настройки AI коучинга в боковой панели
     with st.sidebar:
-        st.subheader("💬 Управление чатами")
-        
-        # Кнопка создания нового чата
-        if st.button("➕ Новый чат", use_container_width=True):
-            new_chat_id = st.session_state.chat_manager.create_new_chat()
-            st.session_state.current_chat_id = new_chat_id
-            st.rerun()
-        
-        # Список чатов
-        chats = st.session_state.chat_manager.get_chat_list()
-        
-        if chats:
-            st.markdown('<div class="sidebar-chat-list">', unsafe_allow_html=True)
-            
-            for chat in chats:
-                is_current = chat["id"] == st.session_state.current_chat_id
-                
-                col1, col2 = st.columns([4, 1])
-                
-                with col1:
-                    # Кнопка выбора чата
-                    chat_title = chat['title'][:30] + ("..." if len(chat['title']) > 30 else "")
-                    button_text = f"{'🔵' if is_current else '💬'} {chat_title}"
-                    
-                    if st.button(
-                        button_text,
-                        key=f"chat_{chat['id']}",
-                        use_container_width=True,
-                        help=f"Сообщений: {chat['message_count']} • {chat['updated_at'][:16].replace('T', ' ')}"
-                    ):
-                        st.session_state.current_chat_id = chat["id"]
-                        st.rerun()
-                
-                with col2:
-                    # Кнопка удаления чата
-                    if st.button("🗑️", key=f"delete_{chat['id']}", help="Удалить чат"):
-                        if st.session_state.chat_manager.delete_chat(chat["id"]):
-                            if st.session_state.current_chat_id == chat["id"]:
-                                st.session_state.current_chat_id = None
-                            st.success("Чат удален")
-                            st.rerun()
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.info("Пока нет сохраненных чатов")
-        
         # Настройки
         st.divider()
         st.subheader("⚙️ Настройки")
@@ -2437,16 +3074,140 @@ def show_ai_chat():
                 st.session_state.context_loaded = True
                 st.success(f"✅ Данные обновлены")
         
-        # Статус контекста
-        if st.session_state.context_loaded:
-            st.success(f"📊 Данные: {context_days} дней")
-            if st.session_state.data_context:
-                summary = st.session_state.data_context['summary']
-                st.caption(f"Тренировок: {summary.get('total_activities', 0)} • HRV: {summary.get('hrv_data_points', 0)}")
+        # Расширенная диагностика контекста
+        st.divider()
+        st.subheader("🔍 Диагностика данных")
+        
+        if st.session_state.context_loaded and st.session_state.data_context:
+            context = st.session_state.data_context
+            summary = context['summary']
+            
+            # Показываем детальную информацию о доступных данных
+            st.success(f"✅ Данные загружены: {context_days} дней")
+            
+            # Основная сводка
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Тренировок", summary.get('total_activities', 0))
+            with col2:
+                st.metric("HRV записей", summary.get('hrv_data_points', 0))
+            with col3:
+                st.metric("Общий TSS", f"{summary.get('total_tss', 0):.0f}")
+            
+            # Проверка доступности разных типов данных
+            st.write("**Доступные модули данных:**")
+            data_modules = []
+            
+            if context.get('activities', {}).get('has_data', False):
+                data_modules.append("✅ Активности")
+            else:
+                data_modules.append("❌ Активности")
+                
+            if context.get('hrv', {}).get('has_data', False):
+                data_modules.append("✅ HRV данные") 
+            else:
+                data_modules.append("❌ HRV данные")
+                
+            if context.get('performance_metrics', {}).get('has_data', False):
+                data_modules.append("✅ Метрики (Banister)")
+            else:
+                data_modules.append("❌ Метрики (Banister)")
+                
+            if context.get('sleep', {}).get('has_data', False):
+                data_modules.append("✅ Данные сна")
+            else:
+                data_modules.append("❌ Данные сна")
+                
+            if context.get('user_profile', {}).get('has_data', False):
+                data_modules.append("✅ Профиль пользователя")
+            else:
+                data_modules.append("❌ Профиль пользователя")
+                
+            st.write(" • ".join(data_modules))
+            
+            # Показываем последние активности если есть
+            if context.get('activities', {}).get('recent_activities'):
+                with st.expander("🏃 Последние активности"):
+                    recent = context['activities']['recent_activities'][:5]
+                    for activity in recent:
+                        st.write(f"• {activity.get('date', 'N/A')} - {activity.get('sport', 'N/A')} ({activity.get('duration_minutes', 0)} мин, TSS: {activity.get('tss', 0)})")
+            
+            # Показываем метрики производительности если есть
+            if context.get('performance_metrics', {}).get('has_data', False):
+                with st.expander("📊 Текущие метрики"):
+                    pm = context['performance_metrics']['banister_model']
+                    st.write(f"• CTL: {pm.get('ctl', 0):.1f}")
+                    st.write(f"• ATL: {pm.get('atl', 0):.1f}")
+                    st.write(f"• TSB: {pm.get('tsb', 0):.1f}")
+                    
+            # Показываем HRV статус если есть
+            if context.get('hrv', {}).get('has_data', False):
+                with st.expander("💓 HRV состояние"):
+                    hrv_stats = context['hrv']['stats']
+                    st.write(f"• Текущий RMSSD: {hrv_stats.get('current_rmssd', 0):.1f} мс")
+                    st.write(f"• Состояние: {hrv_stats.get('recovery_state', 'unknown')}")
+            
+            # Показываем данные сна если есть
+            if context.get('sleep', {}).get('has_data', False):
+                with st.expander("😴 Состояние сна"):
+                    sleep_stats = context['sleep']['stats']
+                    st.write(f"• Среднее время сна: {sleep_stats.get('avg_total_sleep_hours', 0):.1f} ч/ночь")
+                    st.write(f"• Оценка сна: {sleep_stats.get('avg_sleep_score', 0):.1f}/100")
+                    st.write(f"• Качество: {context['sleep'].get('sleep_quality', 'unknown')}")
+                    st.write(f"• Данных: {context['sleep'].get('data_points', 0)} записей")
+                    
         else:
-            st.warning("⚠️ Данные не загружены")
+            st.warning("⚠️ Данные не загружены - нажмите '🔄 Обновить данные'")
+            st.info("🤖 **AI имеет доступ ко ВСЕМ данным из Garmin Connect:**")
+            st.markdown("""
+            **Данные активностей:**
+            • Тренировки (дата, спорт, длительность, расстояние)
+            • Пульс (средний, максимальный, зоны)
+            • Мощность и TSS (Training Stress Score)
+            • Набор высоты и темп
+            • Анализ по видам спорта
+            
+            **HRV (вариабельность сердечного ритма):**
+            • RMSSD (основной показатель)
+            • Стресс-индекс и уровень восстановления
+            • Тренды и динамика
+            • Корреляция с тренировочной нагрузкой
+            
+            **Данные сна:**
+            • Общее время сна и эффективность сна
+            • Фазы сна (глубокий, легкий, REM)
+            • Оценка качества сна (Garmin Sleep Score)
+            • Время засыпания и пробуждения
+            • Количество пробуждений за ночь
+            • Анализ паттернов и трендов сна
+            
+            **Модель Банистера:**
+            • CTL (хроническая тренировочная нагрузка)
+            • ATL (острая тренировочная нагрузка)  
+            • TSB (баланс стресса тренировки)
+            • Прогноз формы и рекомендации
+            
+            **Аналитика:**
+            • Недельные и месячные тренды
+            • Распределение интенсивности
+            • Паттерны тренировок
+            • Профиль спортсмена и уровень подготовки
+            """)
+            
+            # Дополнительная диагностическая кнопка для показа полного контекста AI
+            if st.button("🔬 Показать полный контекст для AI"):
+                with st.expander("📋 Системный промпт AI", expanded=True):
+                    system_prompt = create_chat_system_prompt_with_tools(st.session_state.data_context)
+                    st.code(system_prompt, language="markdown")
+                    
+                with st.expander("🗄️ Полный контекст данных"):
+                    from models.ai_data_context import AIDataContext
+                    context_formatter = AIDataContext(None)
+                    formatted_context = context_formatter.format_context_for_ai(st.session_state.data_context)
+                    st.code(formatted_context, language="markdown")
         
         # Статистика чатов
+        chats = st.session_state.chat_manager.get_chat_list()
         if chats:
             stats = st.session_state.chat_manager.get_stats()
             st.divider()
@@ -2469,6 +3230,7 @@ def show_ai_chat():
     # Контейнер для чата с улучшенным стилем
     with st.container():
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+        
         # Загружаем сообщения текущего чата
         current_messages = []
         if st.session_state.current_chat_id:
@@ -2515,23 +3277,25 @@ def show_ai_chat():
     # Быстрые кнопки (компактные)
     st.markdown('<div class="quick-buttons">', unsafe_allow_html=True)
     st.markdown("**⚡ Быстрые вопросы:**")
-    col1, col2, col3, col4 = st.columns(4)
+    # Адаптивная сетка: 2x2 на мобильных
+    col1, col2 = st.columns(2)
+    col3, col4 = st.columns(2)
     
     with col1:
         if st.button("💪 Форма", key="form_q", help="Как моя текущая форма?"):
-            process_modern_chat_message("Проанализируй мою текущую форму и готовность к нагрузкам")
+            process_modern_chat_message("Проанализируй мою текущую форму (TSB, CTL, ATL) и состояние восстановления (HRV). Дай четкую оценку готовности к нагрузкам.")
     
     with col2:
         if st.button("📅 План", key="plan_q", help="План на неделю"):
-            process_modern_chat_message("Составь план тренировок на следующую неделю")
+            process_modern_chat_message("На основе моего текущего состояния (TSB, HRV, недавние тренировки) составь конкретный план тренировок на следующую неделю. ОБЯЗАТЕЛЬНО дай четкий план по дням с видами тренировок и интенсивностью.")
     
     with col3:
         if st.button("📊 Прогресс", key="progress_q", help="Анализ прогресса"):
-            process_modern_chat_message("Покажи прогресс за последний месяц")
+            process_modern_chat_message("Покажи мой прогресс за месяц: тренды нагрузки, лучшие результаты, изменение формы. ОБЯЗАТЕЛЬНО дай конкретные выводы.")
     
     with col4:
         if st.button("💓 HRV", key="hrv_q", help="Анализ восстановления"):
-            process_modern_chat_message("Как мое восстановление по HRV?")
+            process_modern_chat_message("Проанализируй мое состояние восстановления: HRV тренды, нагрузка за неделю, качество сна. ОБЯЗАТЕЛЬНО дай рекомендации по тренировкам.")
     
     st.markdown('</div>', unsafe_allow_html=True)
     
@@ -2583,7 +3347,7 @@ def process_modern_chat_message(user_input):
 
 НОВЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ: {user_input}
 
-Используй инструменты для получения точных данных. Отвечай персонально, конкретно и полезно. Используй эмодзи.
+Используй инструменты для получения точных данных. ОБЯЗАТЕЛЬНО завершай задачу полностью - если просят план, составляй конкретный план, а не только анализируй данные. Отвечай персонально, конкретно и полезно. Используй эмодзи.
 """
             
             # Показываем начальное состояние генерации
@@ -2608,7 +3372,7 @@ def process_modern_chat_message(user_input):
                 final_response
             )
             
-            # Принуждаем обновление интерфейса
+            # Обновляем интерфейс для отображения нового сообщения
             st.rerun()
             
         except Exception as e:
@@ -2650,7 +3414,7 @@ def process_chat_message(user_input):
 
 НОВЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ: {user_input}
 
-Используй инструменты для получения точных данных. Отвечай персонально, конкретно и полезно. Используй эмодзи.
+Используй инструменты для получения точных данных. ОБЯЗАТЕЛЬНО завершай задачу полностью - если просят план, составляй конкретный план, а не только анализируй данные. Отвечай персонально, конкретно и полезно. Используй эмодзи.
 """
                 
                 # Получаем ответ от AI (может содержать запросы инструментов)
@@ -2678,6 +3442,7 @@ def create_chat_system_prompt_with_tools(data_context):
 
 ТВОИ ПРИНЦИПЫ:
 • ВСЕГДА используй инструменты для получения конкретных данных
+• ВСЕГДА завершай задачу полностью - не останавливайся на анализе
 • Давай персонализированные, научно обоснованные советы
 • Объясняй сложные концепции простым языком
 • Предупреждай о рисках перетренированности и травм
@@ -3015,6 +3780,127 @@ def format_tool_result(tool_name, data):
 {chr(10).join([f"• {sport}" for sport in sports_text])}
 {activities_preview}"""
     
+    elif tool_name == "get_sleep_data":
+        if not data.get('has_data', True):
+            return f"😴 **{data.get('message', 'Нет данных сна')}**"
+        
+        # Рассчитываем средние значения из recent_sleep данных
+        recent_sleep = data.get('recent_sleep', [])
+        if recent_sleep:
+            total_hours = []
+            sleep_scores = []
+            for record in recent_sleep:
+                if record.get('total_sleep_hours') is not None:
+                    total_hours.append(record['total_sleep_hours'])
+                if record.get('sleep_score') is not None:
+                    sleep_scores.append(record['sleep_score'])
+            
+            avg_hours = sum(total_hours) / len(total_hours) if total_hours else 0
+            avg_score = sum(sleep_scores) / len(sleep_scores) if sleep_scores else 0
+            
+            # Форматируем последний сон
+            latest_sleep = recent_sleep[0] if recent_sleep else {}
+            recent_summary = f"Продолжительность: {latest_sleep.get('total_sleep_hours', 'н/д')}ч, "
+            recent_summary += f"Качество: {latest_sleep.get('sleep_score', 'н/д')}/100, "
+            recent_summary += f"Эффективность: {latest_sleep.get('sleep_efficiency', 'н/д')}%"
+        else:
+            avg_hours = 0
+            avg_score = 0
+            recent_summary = "Данные недоступны"
+        
+        return f"""
+## 😴 Данные сна за последние {data.get('period_days', 30)} дней
+
+### 📊 Основная информация:
+• **Всего записей:** {data.get('data_points', 0)}
+• **Среднее время сна:** {avg_hours:.1f} часов
+• **Средняя оценка сна:** {avg_score:.1f}/100
+
+### 🌙 Последний сон:
+{recent_summary}"""
+    
+    elif tool_name == "get_sleep_stats":
+        if not data.get('has_data', True):
+            return f"😴 **{data.get('message', 'Нет данных сна')}**"
+        
+        stats = data.get('statistics', {})
+        quality = stats.get('current_sleep_quality', 'не определено')
+        
+        # Эмодзи для качества сна
+        quality_emoji = "🟢" if "отличное" in quality.lower() else "🟡" if "хорошее" in quality.lower() else "🟠" if "удовлетворительное" in quality.lower() else "🔴"
+        
+        # Рассчитываем проценты фаз сна
+        avg_total = stats.get('avg_sleep_hours', 0) * 60  # переводим в минуты
+        deep_pct = (stats.get('avg_deep_sleep_minutes', 0) / avg_total * 100) if avg_total > 0 else 0
+        rem_pct = (stats.get('avg_rem_sleep_minutes', 0) / avg_total * 100) if avg_total > 0 else 0
+        light_pct = 100 - deep_pct - rem_pct if (deep_pct + rem_pct) <= 100 else 0
+        
+        return f"""
+## 😴 Статистика сна за {stats.get('period_days', 30)} дней
+
+### 🎯 Общая оценка: {quality_emoji} {quality}
+
+### 📈 Средние показатели:
+• **Продолжительность:** {stats.get('avg_sleep_hours', 0):.1f} часов
+• **Качество сна:** {stats.get('avg_sleep_score', 0):.1f}/100
+• **Эффективность:** {stats.get('avg_sleep_efficiency', 0):.1f}%
+• **Пробуждения:** {stats.get('avg_awakenings', 0):.1f} раз за ночь
+
+### 🌀 Фазы сна:
+• **Глубокий сон:** {stats.get('avg_deep_sleep_minutes', 0):.0f} мин ({deep_pct:.1f}%)
+• **Легкий сон:** Расчетное ({light_pct:.1f}%)
+• **REM сон:** {stats.get('avg_rem_sleep_minutes', 0):.0f} мин ({rem_pct:.1f}%)"""
+    
+    elif tool_name == "analyze_sleep_patterns":
+        if not data.get('has_data', True):
+            return f"😴 **{data.get('message', 'Нет данных для анализа сна')}**"
+        
+        patterns = data.get('patterns', {})
+        recommendations = patterns.get('recommendations', [])
+        
+        # Форматируем основные паттерны
+        main_patterns = []
+        if patterns.get('avg_sleep_duration'):
+            main_patterns.append(f"• **Средняя продолжительность:** {patterns['avg_sleep_duration']}")
+        if patterns.get('sleep_consistency'):
+            main_patterns.append(f"• **Постоянство сна:** {patterns['sleep_consistency']}")
+        if patterns.get('optimal_sleep_adherence'):
+            main_patterns.append(f"• **Следование рекомендациям:** {patterns['optimal_sleep_adherence']}")
+        
+        # Качество и тренды
+        quality_trends = []
+        if patterns.get('avg_sleep_score'):
+            quality_trends.append(f"• **Средняя оценка качества:** {patterns['avg_sleep_score']}")
+        if patterns.get('sleep_trend'):
+            quality_trends.append(f"• **Тренд:** {patterns['sleep_trend']}")
+        
+        # Фазы сна
+        phases_text = []
+        if patterns.get('deep_sleep_percentage'):
+            phases_text.append(f"• **Глубокий сон:** {patterns['deep_sleep_percentage']}")
+        if patterns.get('rem_sleep_percentage'):
+            phases_text.append(f"• **REM сон:** {patterns['rem_sleep_percentage']}")
+        
+        # Рекомендации
+        recommendations_text = ""
+        if recommendations:
+            recommendations_text = f"""
+### 💡 Рекомендации:
+{chr(10).join([f"• {rec}" for rec in recommendations[:5]])}"""
+        
+        return f"""
+## 😴 Анализ паттернов сна за {data.get('period_days', 30)} дней
+
+### 📊 Основные паттерны:
+{chr(10).join(main_patterns) if main_patterns else "• Недостаточно данных для анализа"}
+
+### 📈 Качество и тренды:
+{chr(10).join(quality_trends) if quality_trends else "• Данные о качестве недоступны"}
+
+### 🌀 Фазы сна:
+{chr(10).join(phases_text) if phases_text else "• Данные о фазах недоступны"}
+{recommendations_text}"""
+    
     else:
         # Общий формат для остальных инструментов
         if isinstance(data, dict):
@@ -3155,7 +4041,9 @@ def show_sync_logs():
             
             # Статистика
             st.subheader("📊 Статистика логов")
-            col1, col2, col3, col4 = st.columns(4)
+            # Адаптивная сетка: 2x2 на мобильных
+            col1, col2 = st.columns(2)
+            col3, col4 = st.columns(2)
             
             total_lines = len(lines)
             errors_count = len([l for l in lines if "ERROR" in l])
@@ -3169,6 +4057,72 @@ def show_sync_logs():
             
         except Exception as e:
             st.error(f"Ошибка чтения файла лога: {e}")
+
+def show_data_management():
+    """Показывает страницу управления данными"""
+    st.title("⚙️ Управление данными")
+    st.write("Управление синхронизацией и данными в базе")
+    
+    # Выбор периода синхронизации
+    st.subheader("🔄 Синхронизация данных")
+    
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        sync_days = st.selectbox(
+            "Период загрузки:",
+            options=[7, 14, 30, 60, 90],
+            index=2,  # По умолчанию 30 дней
+            format_func=lambda x: f"{x} дней",
+            help="Количество дней для синхронизации с Garmin Connect"
+        )
+    
+    with col2:
+        if st.button("🔄 Синхронизировать данные", use_container_width=True):
+            sync_data(days=sync_days)
+    
+    st.divider()
+    
+    # Статистика БД
+    st.subheader("📊 Данные в БД")
+    
+    if hasattr(st.session_state, 'database'):
+        stats = st.session_state.database.get_database_stats()
+        
+        # Показываем статистику в виде метрик
+        col1, col2, col3 = st.columns(3)
+        col4, col5 = st.columns(2)
+        
+        with col1:
+            st.metric("🏃‍♂️ Активности", stats['activities'])
+        
+        with col2:
+            st.metric("💓 HRV записи", stats['hrv_data'])
+        
+        with col3:
+            st.metric("😴 Данные сна", stats.get('sleep_data', 0))
+        
+        with col4:
+            st.metric("🏥 Показатели здоровья", stats.get('daily_health', 0))
+        
+        with col5:
+            st.metric("📈 Статус тренированности", stats.get('training_status', 0))
+        
+        # Дополнительная информация
+        if stats['activities'] > 0:
+            try:
+                # Получаем дату последней активности
+                activities_df = st.session_state.database.get_activities(1)
+                if not activities_df.empty:
+                    last_activity_date = activities_df.iloc[0]['date']
+                    st.info(f"📅 Последняя активность: {last_activity_date}")
+            except Exception:
+                pass
+    
+    st.divider()
+    
+    # Очистка БД
+    clear_database()
 
 if __name__ == "__main__":
     main()
