@@ -97,6 +97,16 @@ class ChatManager:
                 return False
         return False
     
+    def clear_chat(self, chat_id: str) -> bool:
+        """Очищает все сообщения в чате, сохраняя его структуру"""
+        chat_data = self.load_chat(chat_id)
+        if chat_data:
+            chat_data["messages"] = []
+            chat_data["title"] = f"Чат {datetime.now().strftime('%d.%m %H:%M')}"
+            self.save_chat(chat_id, chat_data)
+            return True
+        return False
+    
     def update_chat_title(self, chat_id: str, new_title: str) -> bool:
         """Обновляет название чата"""
         chat_data = self.load_chat(chat_id)

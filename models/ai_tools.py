@@ -35,7 +35,10 @@ class AITools:
             "calculate_weekly_stats": self.calculate_weekly_stats,
             "find_best_performances": self.find_best_performances,
             "analyze_recovery_state": self.analyze_recovery_state,
-            "get_activities_by_date_range": self.get_activities_by_date_range
+            "get_activities_by_date_range": self.get_activities_by_date_range,
+            "get_sleep_data": self.get_sleep_data,
+            "analyze_sleep_patterns": self.analyze_sleep_patterns,
+            "get_sleep_stats": self.get_sleep_stats
         }
     
     def get_available_tools(self) -> Dict[str, str]:
@@ -53,7 +56,10 @@ class AITools:
             "calculate_weekly_stats": "Рассчитать недельную статистику (weeks=4)",
             "find_best_performances": "Найти лучшие результаты по метрикам (metric='tss', limit=10)",
             "analyze_recovery_state": "Проанализировать текущее состояние восстановления",
-            "get_activities_by_date_range": "Получить активности за конкретный период (start_date='2025-05-01', end_date='2025-05-31')"
+            "get_activities_by_date_range": "Получить активности за конкретный период (start_date='2025-05-01', end_date='2025-05-31')",
+            "get_sleep_data": "Получить данные сна за период (days=30)",
+            "analyze_sleep_patterns": "Анализ паттернов и качества сна (days=30)",
+            "get_sleep_stats": "Получить статистику сна (days=30)"
         }
     
     def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
@@ -662,4 +668,176 @@ class AITools:
         except Exception as e:
             return {
                 "error": f"Ошибка получения активностей по датам: {str(e)}"
+            }
+    
+    def get_sleep_data(self, days: int = 30) -> Dict[str, Any]:
+        """Получить данные сна за последние N дней"""
+        try:
+            sleep_df = self.db.get_sleep_data(days)
+            
+            if sleep_df.empty:
+                return {
+                    "has_data": False,
+                    "message": f"Нет данных сна за последние {days} дней"
+                }
+            
+            # Форматируем данные для AI
+            sleep_records = []
+            for _, row in sleep_df.head(10).iterrows():
+                record = {
+                    "date": row.get("date", ""),
+                    "total_sleep_hours": round(row.get("total_sleep_minutes", 0) / 60, 1) if row.get("total_sleep_minutes") else None,
+                    "sleep_score": row.get("sleep_score"),
+                    "sleep_efficiency": row.get("sleep_efficiency"),
+                    "deep_sleep_minutes": row.get("deep_sleep_minutes"),
+                    "rem_sleep_minutes": row.get("rem_sleep_minutes"),
+                    "light_sleep_minutes": row.get("light_sleep_minutes"),
+                    "awakenings": row.get("awakenings_count")
+                }
+                sleep_records.append(record)
+            
+            return {
+                "has_data": True,
+                "period_days": days,
+                "data_points": len(sleep_df),
+                "recent_sleep": sleep_records
+            }
+            
+        except Exception as e:
+            return {
+                "error": f"Ошибка получения данных сна: {str(e)}"
+            }
+    
+    def get_sleep_stats(self, days: int = 30) -> Dict[str, Any]:
+        """Получить статистику сна за период"""
+        try:
+            sleep_df = self.db.get_sleep_data(days)
+            
+            if sleep_df.empty:
+                return {
+                    "has_data": False,
+                    "message": f"Нет данных сна за последние {days} дней"
+                }
+            
+            # Рассчитываем статистику
+            stats = {
+                "period_days": days,
+                "data_points": len(sleep_df),
+                "avg_sleep_hours": sleep_df["total_sleep_minutes"].mean() / 60 if "total_sleep_minutes" in sleep_df.columns else None,
+                "avg_sleep_score": sleep_df["sleep_score"].mean() if "sleep_score" in sleep_df.columns else None,
+                "avg_sleep_efficiency": sleep_df["sleep_efficiency"].mean() if "sleep_efficiency" in sleep_df.columns else None,
+                "avg_deep_sleep_minutes": sleep_df["deep_sleep_minutes"].mean() if "deep_sleep_minutes" in sleep_df.columns else None,
+                "avg_rem_sleep_minutes": sleep_df["rem_sleep_minutes"].mean() if "rem_sleep_minutes" in sleep_df.columns else None,
+                "avg_awakenings": sleep_df["awakenings_count"].mean() if "awakenings_count" in sleep_df.columns else None
+            }
+            
+            # Анализ качества сна
+            if "sleep_score" in sleep_df.columns and not sleep_df["sleep_score"].isna().all():
+                current_score = sleep_df.iloc[0]["sleep_score"] if not sleep_df.empty else None
+                if current_score:
+                    if current_score >= 80:
+                        sleep_quality = "отличное"
+                    elif current_score >= 60:
+                        sleep_quality = "хорошее"
+                    elif current_score >= 40:
+                        sleep_quality = "удовлетворительное"
+                    else:
+                        sleep_quality = "плохое"
+                else:
+                    sleep_quality = "неизвестно"
+            else:
+                sleep_quality = "неизвестно"
+            
+            stats["current_sleep_quality"] = sleep_quality
+            
+            return {
+                "has_data": True,
+                "statistics": stats
+            }
+            
+        except Exception as e:
+            return {
+                "error": f"Ошибка расчета статистики сна: {str(e)}"
+            }
+    
+    def analyze_sleep_patterns(self, days: int = 30) -> Dict[str, Any]:
+        """Анализ паттернов и качества сна"""
+        try:
+            sleep_df = self.db.get_sleep_data(days)
+            
+            if sleep_df.empty:
+                return {
+                    "has_data": False,
+                    "message": f"Нет данных сна за последние {days} дней для анализа паттернов"
+                }
+            
+            patterns = {}
+            
+            # Анализ продолжительности сна
+            if "total_sleep_minutes" in sleep_df.columns:
+                avg_sleep = sleep_df["total_sleep_minutes"].mean() / 60
+                patterns["avg_sleep_duration"] = f"{avg_sleep:.1f} часов"
+                
+                # Соответствие рекомендациям (7-9 часов)
+                optimal_sleep = sleep_df[(sleep_df["total_sleep_minutes"] >= 420) & 
+                                       (sleep_df["total_sleep_minutes"] <= 540)]
+                adherence = len(optimal_sleep) / len(sleep_df) * 100
+                patterns["optimal_sleep_adherence"] = f"{adherence:.0f}% ночей в рекомендуемом диапазоне"
+                
+                # Постоянство сна
+                sleep_std = sleep_df["total_sleep_minutes"].std() / 60
+                if sleep_std < 0.5:
+                    patterns["sleep_consistency"] = "очень постоянное"
+                elif sleep_std < 1:
+                    patterns["sleep_consistency"] = "постоянное"
+                else:
+                    patterns["sleep_consistency"] = "нерегулярное"
+            
+            # Анализ качества сна
+            if "sleep_score" in sleep_df.columns and not sleep_df["sleep_score"].isna().all():
+                avg_score = sleep_df["sleep_score"].mean()
+                patterns["avg_sleep_score"] = f"{avg_score:.0f}/100"
+                
+                # Тренд сна за последние 7 дней
+                if len(sleep_df) >= 7:
+                    recent_score = sleep_df.head(7)["sleep_score"].mean()
+                    older_score = sleep_df.tail(7)["sleep_score"].mean()
+                    
+                    if recent_score > older_score + 5:
+                        patterns["sleep_trend"] = "улучшение"
+                    elif recent_score < older_score - 5:
+                        patterns["sleep_trend"] = "ухудшение"
+                    else:
+                        patterns["sleep_trend"] = "стабильность"
+            
+            # Анализ фаз сна
+            if all(col in sleep_df.columns for col in ["deep_sleep_minutes", "rem_sleep_minutes", "light_sleep_minutes"]):
+                total_phases = sleep_df["deep_sleep_minutes"] + sleep_df["rem_sleep_minutes"] + sleep_df["light_sleep_minutes"]
+                patterns["deep_sleep_percentage"] = f"{(sleep_df['deep_sleep_minutes'] / total_phases * 100).mean():.1f}%"
+                patterns["rem_sleep_percentage"] = f"{(sleep_df['rem_sleep_minutes'] / total_phases * 100).mean():.1f}%"
+            
+            # Рекомендации на основе паттернов
+            recommendations = []
+            
+            if "avg_sleep_duration" in patterns:
+                avg_hours = float(patterns["avg_sleep_duration"].split()[0])
+                if avg_hours < 7:
+                    recommendations.append("Увеличить продолжительность сна до 7-9 часов")
+                elif avg_hours > 9:
+                    recommendations.append("Рассмотреть оптимизацию времени сна")
+            
+            if "sleep_consistency" in patterns and patterns["sleep_consistency"] == "нерегулярное":
+                recommendations.append("Установить регулярный режим сна")
+            
+            patterns["recommendations"] = recommendations
+            
+            return {
+                "has_data": True,
+                "period_days": days,
+                "patterns": patterns
+            }
+            
+        except Exception as e:
+            return {
+                "error": f"Ошибка анализа паттернов сна: {str(e)}"
             }

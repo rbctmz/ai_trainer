@@ -147,58 +147,159 @@ class GarthClient:
             return None
     
     def get_hrv_data_garth(self, date):
-        """Получение HRV данных через garth"""
+        """Получение HRV данных через garth с fallback'ом"""
         if not self.is_authenticated:
             return None
         
+        date_str = date.strftime("%Y-%m-%d")
+        
+        # Метод 1: Через DailyHRV класс
         try:
-            date_str = date.strftime("%Y-%m-%d")
-            
-            # Метод 1: Через DailyHRV класс
-            try:
-                daily_hrv = garth.DailyHRV.get(date_str)
-                if daily_hrv:
-                    print(f"DEBUG: HRV данные получены через DailyHRV для {date_str}")
-                    # Конвертируем объект garth в словарь для совместимости
-                    return self._convert_hrv_to_dict(daily_hrv)
-            except Exception as e:
-                print(f"DEBUG: DailyHRV failed for {date_str}: {e}")
-            
-            # Метод 2: Через HRVData класс
-            try:
-                hrv_data = garth.HRVData.get(date_str)
-                if hrv_data:
-                    print(f"DEBUG: HRV данные получены через HRVData для {date_str}")
-                    # Конвертируем объект garth в словарь для совместимости
-                    return self._convert_hrv_to_dict(hrv_data)
-            except Exception as e:
-                print(f"DEBUG: HRVData failed for {date_str}: {e}")
-            
-            return None
-            
+            daily_hrv = garth.DailyHRV.get(date_str)
+            if daily_hrv:
+                print(f"DEBUG GARTH HRV: HRV данные получены через DailyHRV для {date_str}")
+                result = self._convert_hrv_to_dict(daily_hrv)
+                print(f"DEBUG GARTH HRV: Конвертированные данные: {result}")
+                return result
         except Exception as e:
-            print(f"DEBUG: Ошибка получения HRV данных для {date}: {e}")
-            return None
+            print(f"DEBUG GARTH HRV: DailyHRV failed for {date_str}: {e}")
+        
+        # Метод 2: Через HRVData класс
+        try:
+            hrv_data = garth.HRVData.get(date_str)
+            if hrv_data:
+                print(f"DEBUG GARTH HRV: HRV данные получены через HRVData для {date_str}")
+                result = self._convert_hrv_to_dict(hrv_data)
+                print(f"DEBUG GARTH HRV: Конвертированные данные: {result}")
+                return result
+        except Exception as e:
+            print(f"DEBUG GARTH HRV: HRVData failed for {date_str}: {e}")
+            
+        # Метод 3: Через прямой API запрос к HRV endpoint
+        try:
+            username = getattr(garth.client, 'username', self.username)
+            if username:
+                # Пробуем специфичный HRV endpoint
+                hrv_api_url = f"/hrv-service/hrv/{username}"
+                params = {"fromDate": date_str, "untilDate": date_str}
+                print(f"DEBUG GARTH HRV: Попытка HRV API: {hrv_api_url}")
+                
+                try:
+                    hrv_response = garth.connectapi(hrv_api_url, params=params)
+                    if hrv_response:
+                        print(f"DEBUG GARTH HRV: HRV API ответ получен: {type(hrv_response)}")
+                        if isinstance(hrv_response, list) and len(hrv_response) > 0:
+                            hrv_entry = hrv_response[0]
+                            if 'lastNightAvg' in hrv_entry or 'rmssd' in hrv_entry:
+                                rmssd_val = hrv_entry.get('lastNightAvg') or hrv_entry.get('rmssd')
+                                print(f"DEBUG GARTH HRV: HRV значение из API: {rmssd_val}")
+                                return {
+                                    'hrvSummary': {
+                                        'lastNightAvg': rmssd_val,
+                                        'rmssd': rmssd_val
+                                    }
+                                }
+                except Exception as hrv_e:
+                    print(f"DEBUG GARTH HRV: HRV-specific API failed: {hrv_e}")
+                
+                # Пробуем общий daily summary endpoint
+                api_url = f"/usersummary-service/usersummary/daily/{username}"
+                params = {"calendarDate": date_str}
+                print(f"DEBUG GARTH HRV: Попытка daily summary API: {api_url}")
+                
+                daily_data = garth.connectapi(api_url, params=params)
+                if daily_data and isinstance(daily_data, dict):
+                    print(f"DEBUG GARTH HRV: Daily data ключи: {list(daily_data.keys())}")
+                    
+                    # Ищем HRV в разных местах
+                    hrv_value = None
+                    if 'lastNightAvg' in daily_data:
+                        hrv_value = daily_data['lastNightAvg']
+                    elif 'restingHeartRateData' in daily_data and isinstance(daily_data['restingHeartRateData'], dict):
+                        hrv_value = daily_data['restingHeartRateData'].get('hrv')
+                    elif 'hrvData' in daily_data:
+                        hrv_data_nested = daily_data['hrvData']
+                        if isinstance(hrv_data_nested, dict):
+                            hrv_value = hrv_data_nested.get('lastNightAvg') or hrv_data_nested.get('rmssd')
+                    
+                    if hrv_value:
+                        print(f"DEBUG GARTH HRV: HRV найден в daily summary: {hrv_value}")
+                        return {
+                            'hrvSummary': {
+                                'lastNightAvg': hrv_value,
+                                'rmssd': hrv_value
+                            }
+                        }
+        except Exception as e:
+            print(f"DEBUG GARTH HRV: Direct API failed for {date_str}: {e}")
+            
+        # Метод 4: Fallback через общую сводку дня
+        print(f"DEBUG GARTH HRV: HRV методы не сработали, пробуем fallback через daily summary для {date_str}")
+        daily_summary = self.get_daily_summary_garth(date)
+        if daily_summary:
+            print(f"DEBUG GARTH HRV: Daily summary получен, ключи: {list(daily_summary.keys()) if isinstance(daily_summary, dict) else 'не словарь'}")
+            if 'hrv' in daily_summary:
+                print(f"DEBUG GARTH HRV: HRV данные найдены в daily summary для {date_str}")
+                return self._convert_hrv_to_dict(daily_summary['hrv'])
+            
+        print(f"DEBUG GARTH HRV: Не удалось получить HRV данные для {date_str}")
+        return None
     
     def _convert_hrv_to_dict(self, hrv_obj):
         """Конвертирует объект HRV из garth в словарь для совместимости"""
         try:
+            print(f"DEBUG CONVERT HRV: Входной тип: {type(hrv_obj)}")
+            
+            # Если уже словарь, работаем с ним
+            if isinstance(hrv_obj, dict):
+                hrv_dict = hrv_obj
             # Проверяем доступные атрибуты объекта
-            if hasattr(hrv_obj, '__dict__'):
+            elif hasattr(hrv_obj, '__dict__'):
                 hrv_dict = hrv_obj.__dict__.copy()
             elif hasattr(hrv_obj, 'dict'):
                 hrv_dict = hrv_obj.dict()
             else:
                 # Пытаемся получить основные поля вручную
                 hrv_dict = {}
-                for attr in ['lastNightAvg', 'rmssd', 'daily_rmssd', 'hrvSummary']:
+                for attr in ['lastNightAvg', 'rmssd', 'daily_rmssd', 'hrvSummary', 'hrv_summary', 'last_night_avg']:
                     if hasattr(hrv_obj, attr):
                         hrv_dict[attr] = getattr(hrv_obj, attr)
             
+            print(f"DEBUG CONVERT HRV: Ключи словаря: {list(hrv_dict.keys()) if isinstance(hrv_dict, dict) else 'не словарь'}")
+            
+            # Ищем HRV значение в разных местах
+            rmssd_value = None
+            
+            # Вариант 1: hrv_summary объект с атрибутами
+            if 'hrv_summary' in hrv_dict:
+                hrv_summary = hrv_dict['hrv_summary']
+                print(f"DEBUG CONVERT HRV: Найден hrv_summary, тип: {type(hrv_summary)}")
+                if hasattr(hrv_summary, 'last_night_avg'):
+                    rmssd_value = hrv_summary.last_night_avg
+                    print(f"DEBUG CONVERT HRV: Извлечен last_night_avg из объекта: {rmssd_value}")
+                elif hasattr(hrv_summary, 'lastNightAvg'):
+                    rmssd_value = hrv_summary.lastNightAvg
+                elif isinstance(hrv_summary, dict):
+                    rmssd_value = hrv_summary.get('last_night_avg') or hrv_summary.get('lastNightAvg')
+            
+            # Вариант 2: hrvSummary словарь
+            if not rmssd_value and 'hrvSummary' in hrv_dict:
+                hrv_summary = hrv_dict['hrvSummary']
+                if isinstance(hrv_summary, dict):
+                    rmssd_value = hrv_summary.get('lastNightAvg') or hrv_summary.get('rmssd') or hrv_summary.get('last_night_avg')
+                elif hasattr(hrv_summary, 'last_night_avg'):
+                    rmssd_value = hrv_summary.last_night_avg
+                elif hasattr(hrv_summary, 'lastNightAvg'):
+                    rmssd_value = hrv_summary.lastNightAvg
+            
+            # Вариант 3: Прямые поля в корне
+            if not rmssd_value:
+                rmssd_value = hrv_dict.get('lastNightAvg') or hrv_dict.get('rmssd') or hrv_dict.get('daily_rmssd') or hrv_dict.get('last_night_avg')
+            
+            print(f"DEBUG CONVERT HRV: Финальное значение RMSSD: {rmssd_value}")
+            
             # Создаем структуру совместимую с garminconnect
-            if 'lastNightAvg' in hrv_dict or 'rmssd' in hrv_dict or 'daily_rmssd' in hrv_dict:
-                rmssd_value = hrv_dict.get('lastNightAvg') or hrv_dict.get('rmssd') or hrv_dict.get('daily_rmssd')
-                
+            if rmssd_value is not None:
                 return {
                     'hrvSummary': {
                         'lastNightAvg': rmssd_value,
@@ -208,13 +309,16 @@ class GarthClient:
                 }
             
             # Если структура неизвестна, возвращаем как есть с обёрткой
+            print(f"DEBUG CONVERT HRV: RMSSD не найден, возвращаем сырые данные")
             return {
                 'hrvSummary': hrv_dict,
                 'raw_data': hrv_dict
             }
             
         except Exception as e:
-            print(f"DEBUG: Ошибка конвертации HRV объекта: {e}")
+            print(f"DEBUG CONVERT HRV: Ошибка конвертации HRV объекта: {e}")
+            import traceback
+            traceback.print_exc()
             # В крайнем случае создаем минимальную структуру
             return {
                 'hrvSummary': {
@@ -265,26 +369,133 @@ class GarthClient:
             }
     
     def get_stress_data_garth(self, date):
-        """Получение данных стресса через garth"""
+        """Получение данных стресса через garth с fallback'ом"""
+        if not self.is_authenticated:
+            return None
+        
+        date_str = date.strftime("%Y-%m-%d")
+        
+        # Метод 1: Через прямой API запрос к правильному endpoint
+        try:
+            # Используем правильный endpoint для стресс-данных
+            stress_api_url = f"/wellness-service/wellness/dailyStress/{date_str}"
+            print(f"DEBUG STRESS: Попытка wellness stress API: {stress_api_url}")
+            
+            stress_response = garth.connectapi(stress_api_url)
+            if stress_response:
+                print(f"DEBUG STRESS: Stress API ответ получен через wellness")
+                return self._convert_stress_to_dict(stress_response)
+        except Exception as e:
+            print(f"DEBUG STRESS: Wellness stress API failed: {e}")
+        
+        # Метод 2: Через endpoint с userId
+        try:
+            username = getattr(garth.client, 'username', self.username)
+            if username:
+                # Пробуем другой endpoint  
+                stress_api_url = f"/wellness-service/wellness/dailyStress"
+                params = {"date": date_str}
+                print(f"DEBUG STRESS: Попытка stress API с параметрами: {stress_api_url}")
+                
+                stress_response = garth.connectapi(stress_api_url, params=params)
+                if stress_response:
+                    print(f"DEBUG STRESS: Stress API ответ получен")
+                    return self._convert_stress_to_dict(stress_response)
+        except Exception as e:
+            print(f"DEBUG STRESS: Stress API с параметрами failed: {e}")
+        
+        # Метод 3: Пробуем получить через учетные данные пользователя
+        try:
+            # Часто стресс включен в данные дня
+            user_data_url = f"/usersummary-service/usersummary/daily/{date_str}"
+            print(f"DEBUG STRESS: Попытка usersummary API: {user_data_url}")
+            
+            user_summary = garth.connectapi(user_data_url)
+            if user_summary:
+                print(f"DEBUG STRESS: User summary получен, ищем стресс")
+                if isinstance(user_summary, dict):
+                    # Ищем стресс в разных местах
+                    if 'averageStressLevel' in user_summary:
+                        return {'avgStressLevel': user_summary['averageStressLevel']}
+                    elif 'stressLevel' in user_summary:
+                        return {'avgStressLevel': user_summary['stressLevel']}
+                    elif 'maxStressLevel' in user_summary:
+                        # Если есть только максимальный, используем его
+                        return {'avgStressLevel': user_summary['maxStressLevel']}
+        except Exception as e:
+            print(f"DEBUG STRESS: User summary failed: {e}")
+        
+        # Метод 4: Возвращаем заглушку, если стресс данные недоступны
+        print(f"DEBUG STRESS: Не удалось получить данные стресса для {date_str}")
+        # Можно вернуть расчетный стресс на основе других данных
+        return None
+    
+    def _convert_stress_to_dict(self, stress_obj):
+        """Конвертирует объект стресса в нужный формат"""
+        try:
+            print(f"DEBUG CONVERT STRESS: Входной тип: {type(stress_obj)}")
+            
+            # Если это уже число - это средний уровень стресса
+            if isinstance(stress_obj, (int, float)):
+                print(f"DEBUG CONVERT STRESS: Простое число: {stress_obj}")
+                return {'avgStressLevel': stress_obj, 'overallStressLevel': stress_obj}
+            
+            # Если это словарь
+            if isinstance(stress_obj, dict):
+                avg_stress = stress_obj.get('avgStressLevel') or stress_obj.get('overallStressLevel') or stress_obj.get('averageStressLevel')
+                if avg_stress:
+                    print(f"DEBUG CONVERT STRESS: Извлечен уровень из словаря: {avg_stress}")
+                    return {'avgStressLevel': avg_stress, 'overallStressLevel': avg_stress}
+            
+            # Если это объект с атрибутами
+            if hasattr(stress_obj, '__dict__'):
+                stress_dict = stress_obj.__dict__
+                print(f"DEBUG CONVERT STRESS: Ключи объекта: {list(stress_dict.keys())}")
+                
+                # Ищем средний уровень стресса
+                avg_stress = None
+                if hasattr(stress_obj, 'avgStressLevel'):
+                    avg_stress = stress_obj.avgStressLevel
+                elif hasattr(stress_obj, 'overallStressLevel'):
+                    avg_stress = stress_obj.overallStressLevel
+                elif hasattr(stress_obj, 'averageStressLevel'):
+                    avg_stress = stress_obj.averageStressLevel
+                elif 'stressData' in stress_dict and isinstance(stress_dict['stressData'], dict):
+                    avg_stress = stress_dict['stressData'].get('avgStressLevel')
+                
+                if avg_stress:
+                    print(f"DEBUG CONVERT STRESS: Извлечен уровень из объекта: {avg_stress}")
+                    return {'avgStressLevel': avg_stress, 'overallStressLevel': avg_stress}
+            
+            # Если не смогли извлечь - возвращаем None
+            print(f"DEBUG CONVERT STRESS: Не удалось извлечь уровень стресса")
+            return None
+            
+        except Exception as e:
+            print(f"DEBUG CONVERT STRESS: Ошибка конвертации: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+
+    def get_daily_summary_garth(self, date):
+        """Получение общей сводки за день (часто содержит HRV, стресс и т.д.)"""
         if not self.is_authenticated:
             return None
         
         try:
             date_str = date.strftime("%Y-%m-%d")
-            
-            # Через DailyStress класс
-            try:
-                daily_stress = garth.DailyStress.get(date_str)
-                if daily_stress:
-                    print(f"DEBUG: Данные стресса получены через DailyStress для {date_str}")
-                    return daily_stress
-            except Exception as e:
-                print(f"DEBUG: DailyStress failed for {date_str}: {e}")
-            
+            username = getattr(garth.client, 'username', self.username)
+            if username:
+                summary = garth.connectapi(
+                    f"/wellness-service/wellness/dailySummary/{username}",
+                    params={"calendarDate": date_str}
+                )
+                if summary:
+                    print(f"DEBUG: Daily summary получено для {date_str}")
+                    return summary
             return None
-            
         except Exception as e:
-            print(f"DEBUG: Ошибка получения данных стресса для {date}: {e}")
+            print(f"DEBUG: Ошибка получения daily summary для {date}: {e}")
             return None
     
     def get_wellness_comprehensive(self, date):

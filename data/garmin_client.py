@@ -170,11 +170,28 @@ class GarminClient:
             if stress_data:
                 return stress_data
         
-        # Используем стандартный garminconnect клиент
+        # Используем стандартный garminconnect клиент как fallback
         if self.client:
             try:
-                return self.client.get_stress_data(date.strftime("%Y-%m-%d"))
+                print(f"DEBUG: Пробуем получить стресс через garminconnect для {date.strftime('%Y-%m-%d')}")
+                stress_result = self.client.get_stress_data(date.strftime("%Y-%m-%d"))
+                if stress_result:
+                    print(f"DEBUG: Стресс получен через garminconnect: {type(stress_result)}")
+                    # Конвертируем в нужный формат
+                    if isinstance(stress_result, list) and len(stress_result) > 0:
+                        # Берем средний стресс за день
+                        total_stress = sum(item.get('stressLevel', 0) for item in stress_result if item.get('stressLevel'))
+                        count = len([item for item in stress_result if item.get('stressLevel')])
+                        if count > 0:
+                            avg_stress = total_stress / count
+                            return {'avgStressLevel': avg_stress}
+                    elif isinstance(stress_result, dict):
+                        avg = stress_result.get('avgStressLevel') or stress_result.get('averageStressLevel')
+                        if avg:
+                            return {'avgStressLevel': avg}
+                return stress_result
             except Exception as e:
+                print(f"DEBUG: Стресс данные недоступны через garminconnect: {e}")
                 # Стресс данные могут быть недоступны
                 return None
         

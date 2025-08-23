@@ -7,6 +7,7 @@ import sys
 import os
 import sqlite3
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
 
 # Добавляем путь к корневой папке проекта
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,19 +20,37 @@ def force_sync_yesterday():
     """Принудительно синхронизируем данные за вчера с новым процессором"""
     print("🔄 Принудительная синхронизация данных сна за вчера...")
     
+    # Загружаем переменные окружения из .env файла
+    load_dotenv()
+    GARMIN_EMAIL = os.getenv("GARMIN_EMAIL")
+    GARMIN_PASSWORD = os.getenv("GARMIN_PASSWORD")
+
+    if not GARMIN_EMAIL or not GARMIN_PASSWORD:
+        print("❌ ОШИБКА: Учетные данные Garmin не найдены.")
+        print("Пожалуйста, создайте файл .env в корневой папке проекта и добавьте в него:")
+        print("GARMIN_EMAIL=your_email@example.com")
+        print("GARMIN_PASSWORD=your_password")
+        return False
+
     yesterday = datetime.now() - timedelta(days=1)
     date_str = yesterday.strftime('%Y-%m-%d')
     
     print(f"📅 Синхронизируем данные за {date_str}")
     
     try:
-        # Инициализируем клиент Garmin
+        # Инициализируем и аутентифицируем клиент Garmin
         garmin_client = GarminClient()
-        print("✅ GarminClient инициализирован")
+        print("🔐 Попытка аутентификации...")
+        if not garmin_client.authenticate(GARMIN_EMAIL, GARMIN_PASSWORD):
+            print(f"❌ ОШИБКА АУТЕНТИФИКАЦИИ: {garmin_client.auth_error}")
+            print("Пожалуйста, проверьте правильность логина и пароля в вашем .env файле.")
+            return False
+        
+        print("✅ Аутентификация прошла успешно!")
         
         # Получаем данные сна
         print(f"📥 Получаем данные сна за {date_str}...")
-        sleep_raw_data = garmin_client.get_sleep_data(date_str)
+        sleep_raw_data = garmin_client.get_sleep_data(yesterday) # Передаем объект datetime
         
         if sleep_raw_data:
             print(f"✅ Данные получены: {type(sleep_raw_data)}")

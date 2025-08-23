@@ -33,6 +33,7 @@ class AIDataContext:
             'summary': {},
             'activities': {},
             'hrv': {},
+            'sleep': {},
             'performance_metrics': {},
             'trends': {},
             'user_profile': {}
@@ -47,13 +48,16 @@ class AIDataContext:
         # 3. HRV данные
         context['hrv'] = self._get_hrv_context(days)
         
-        # 4. Метрики производительности
+        # 4. Данные сна
+        context['sleep'] = self._get_sleep_context(days)
+        
+        # 5. Метрики производительности
         context['performance_metrics'] = self._get_performance_metrics(days)
         
-        # 5. Тренды и динамика
+        # 6. Тренды и динамика
         context['trends'] = self._get_trends_analysis(days)
         
-        # 6. Профиль пользователя
+        # 7. Профиль пользователя
         context['user_profile'] = self._get_user_profile()
         
         return context
@@ -157,6 +161,101 @@ class AIDataContext:
             'recent_values': hrv_df.head(7)[['date', 'rmssd', 'stress_score', 'recovery_score']].to_dict('records')
         }
     
+    def _get_sleep_context(self, days: int) -> Dict[str, Any]:
+        """Контекст данных сна"""
+        sleep_df = self.db.get_sleep_data(days)
+        
+        if sleep_df.empty:
+            return {'has_data': False, 'message': 'Нет данных о сне'}
+        
+        # Статистика сна
+        sleep_stats = {
+            'total_data_points': len(sleep_df),
+            'avg_total_sleep_hours': sleep_df['total_sleep_minutes'].mean() / 60 if 'total_sleep_minutes' in sleep_df.columns else None,
+            'avg_deep_sleep_minutes': sleep_df['deep_sleep_minutes'].mean() if 'deep_sleep_minutes' in sleep_df.columns else None,
+            'avg_light_sleep_minutes': sleep_df['light_sleep_minutes'].mean() if 'light_sleep_minutes' in sleep_df.columns else None,
+            'avg_rem_sleep_minutes': sleep_df['rem_sleep_minutes'].mean() if 'rem_sleep_minutes' in sleep_df.columns else None,
+            'avg_sleep_efficiency': sleep_df['sleep_efficiency'].mean() if 'sleep_efficiency' in sleep_df.columns else None,
+            'avg_sleep_score': sleep_df['sleep_score'].mean() if 'sleep_score' in sleep_df.columns else None,
+            'avg_awakenings': sleep_df['awakenings_count'].mean() if 'awakenings_count' in sleep_df.columns else None
+        }
+        
+        # Анализ качества сна
+        if 'sleep_score' in sleep_df.columns and not sleep_df['sleep_score'].isna().all():
+            current_score = sleep_df.iloc[0]['sleep_score'] if not sleep_df.empty else None
+            avg_score = sleep_df['sleep_score'].mean()
+            if current_score and avg_score:
+                if current_score >= avg_score * 1.1:
+                    sleep_quality = 'excellent'
+                elif current_score >= avg_score * 0.95:
+                    sleep_quality = 'good' 
+                elif current_score >= avg_score * 0.85:
+                    sleep_quality = 'fair'
+                else:
+                    sleep_quality = 'poor'
+            else:
+                sleep_quality = 'unknown'
+        else:
+            sleep_quality = 'unknown'
+        
+        # Тренд сна за последние 7 дней
+        sleep_trend = None
+        if len(sleep_df) >= 7 and 'sleep_score' in sleep_df.columns:
+            recent_sleep = sleep_df.head(7)['sleep_score'].dropna()
+            if len(recent_sleep) >= 2:
+                try:
+                    trend_coef = np.polyfit(range(len(recent_sleep)), recent_sleep, 1)
+                    sleep_trend = 'improving' if trend_coef[0] > 0 else 'declining'
+                except:
+                    sleep_trend = 'stable'
+        
+        # Последние записи сна
+        recent_sleep = []
+        if len(sleep_df) > 0:
+            columns_to_show = ['date', 'total_sleep_minutes', 'sleep_score', 'sleep_efficiency']
+            available_columns = [col for col in columns_to_show if col in sleep_df.columns]
+            recent_sleep = sleep_df.head(7)[available_columns].to_dict('records')
+        
+        return {
+            'has_data': True,
+            'data_points': len(sleep_df),
+            'stats': sleep_stats,
+            'sleep_quality': sleep_quality,
+            'trend_7days': sleep_trend,
+            'recent_sleep': recent_sleep,
+            'sleep_pattern_analysis': self._analyze_sleep_patterns(sleep_df)
+        }
+    
+    def _analyze_sleep_patterns(self, sleep_df: pd.DataFrame) -> Dict[str, Any]:
+        """Анализирует паттерны сна"""
+        if sleep_df.empty:
+            return {'has_data': False}
+        
+        patterns = {}
+        
+        # Анализ времени сна
+        if 'bedtime' in sleep_df.columns and not sleep_df['bedtime'].isna().all():
+            bedtimes = pd.to_datetime(sleep_df['bedtime'], errors='coerce').dt.hour
+            patterns['avg_bedtime_hour'] = bedtimes.mean()
+            patterns['bedtime_consistency'] = 24 - bedtimes.std() if not bedtimes.isna().all() else None
+        
+        # Анализ продолжительности сна
+        if 'total_sleep_minutes' in sleep_df.columns:
+            patterns['sleep_duration_consistency'] = sleep_df['total_sleep_minutes'].std()
+            patterns['recommended_sleep_adherence'] = len(sleep_df[
+                (sleep_df['total_sleep_minutes'] >= 420) & 
+                (sleep_df['total_sleep_minutes'] <= 540)
+            ]) / len(sleep_df) * 100  # 7-9 часов
+        
+        # Анализ фаз сна
+        if all(col in sleep_df.columns for col in ['deep_sleep_minutes', 'light_sleep_minutes', 'rem_sleep_minutes']):
+            total_measured = sleep_df['deep_sleep_minutes'] + sleep_df['light_sleep_minutes'] + sleep_df['rem_sleep_minutes']
+            patterns['deep_sleep_percentage'] = (sleep_df['deep_sleep_minutes'] / total_measured * 100).mean()
+            patterns['rem_sleep_percentage'] = (sleep_df['rem_sleep_minutes'] / total_measured * 100).mean()
+            patterns['light_sleep_percentage'] = (sleep_df['light_sleep_minutes'] / total_measured * 100).mean()
+        
+        return patterns
+    
     def _get_performance_metrics(self, days: int) -> Dict[str, Any]:
         """Метрики производительности и модель Банистера"""
         activities_df = self.db.get_activities(days)
@@ -226,14 +325,17 @@ class AIDataContext:
             }
         
         if not hrv_df.empty:
-            # Тренд HRV
-            hrv_trend = np.polyfit(range(len(hrv_df)), hrv_df['rmssd'], 1)
-            trends['hrv'] = {
-                'direction': 'improving' if hrv_trend[0] > 0 else 'declining',
-                'slope': hrv_trend[0],
-                'recent_avg': hrv_df.head(7)['rmssd'].mean(),
-                'period_avg': hrv_df['rmssd'].mean()
-            }
+            # Очищаем данные от пропусков перед расчетом тренда
+            valid_hrv_df = hrv_df.dropna(subset=['rmssd'])
+            if len(valid_hrv_df) >= 2:
+                # Тренд HRV
+                hrv_trend = np.polyfit(range(len(valid_hrv_df)), valid_hrv_df['rmssd'], 1)
+                trends['hrv'] = {
+                    'direction': 'improving' if hrv_trend[0] > 0 else 'declining',
+                    'slope': hrv_trend[0],
+                    'recent_avg': valid_hrv_df.head(7)['rmssd'].mean(),
+                    'period_avg': valid_hrv_df['rmssd'].mean()
+                }
         
         return trends
     
@@ -293,17 +395,28 @@ class AIDataContext:
             'rest_day_pattern': 7 - df['day_of_week'].nunique(),  # сколько дней в неделю отдых
         }
     
-    def _calculate_hrv_trend(self, hrv_df: pd.DataFrame, days: int) -> float:
-        """Рассчитывает тренд HRV за последние N дней"""
-        if len(hrv_df) < days:
-            return 0
+    def _calculate_hrv_trend(self, hrv_df: pd.DataFrame, days: int) -> Optional[float]:
+        """Рассчитывает тренд HRV за последние N дней, игнорируя пропуски."""
+        if len(hrv_df) < 2: # Нужно хотя бы 2 точки для тренда
+            return None
         
-        recent_data = hrv_df.head(days)
+        # Берем данные за N дней и удаляем строки с пропущенными значениями HRV
+        recent_data = hrv_df.head(days).dropna(subset=['rmssd'])
+        
+        # Если после очистки осталось меньше 2 точек, тренд рассчитать нельзя
         if len(recent_data) < 2:
-            return 0
+            return None
         
-        trend = np.polyfit(range(len(recent_data)), recent_data['rmssd'], 1)
-        return trend[0]
+        # Данные должны быть отсортированы по дате для корректного polyfit
+        recent_data = recent_data.sort_values('date', ascending=True)
+        
+        try:
+            # Рассчитываем линейный тренд
+            trend = np.polyfit(range(len(recent_data)), recent_data['rmssd'], 1)
+            return trend[0]
+        except Exception:
+            # На случай других ошибок в polyfit
+            return None
     
     def _assess_recovery_state(self, hrv_df: pd.DataFrame) -> str:
         """Оценивает состояние восстановления на основе HRV"""
@@ -500,6 +613,20 @@ class AIDataContext:
 • Базовый уровень: {hrv['baseline_rmssd']:.1f} мс
 • Тренд за 7 дней: {hrv['trend_7days']:+.2f} мс/день
 • Состояние восстановления: {hrv['recovery_state']}
+"""
+        
+        if context['sleep']['has_data']:
+            sleep_data = context['sleep']['stats']
+            formatted += f"""
+=== ДАННЫЕ СНА ===
+• Среднее время сна: {sleep_data['avg_total_sleep_hours']:.1f} часов/ночь
+• Средняя оценка сна: {sleep_data['avg_sleep_score']:.1f}/100
+• Эффективность сна: {sleep_data['avg_sleep_efficiency']:.1f}%
+• Глубокий сон: {sleep_data['avg_deep_sleep_minutes']:.0f} мин
+• REM сон: {sleep_data['avg_rem_sleep_minutes']:.0f} мин
+• Пробуждения: {sleep_data['avg_awakenings']:.1f} раз за ночь
+• Качество сна: {context['sleep']['sleep_quality']}
+• Тренд за 7 дней: {context['sleep']['trend_7days'] or 'стабильно'}
 """
         
         if context['trends']:

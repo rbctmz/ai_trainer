@@ -162,30 +162,32 @@ class Database:
         return df
     
     def get_hrv_data(self, days=30):
-        """Получение HRV данных за последние N дней"""
+        """Получение данных HRV за последние N дней (исправлено)"""
+        from datetime import datetime, timedelta
         conn = sqlite3.connect(self.db_path)
         
-        cutoff_date = (datetime.now() - pd.Timedelta(days=days)).date()
+        # Вычисляем дату начала периода в Python
+        start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
         
-        # Изменяем сортировку на ASC, чтобы последние записи были в конце DataFrame
-        # Это позволит корректно использовать tail() для получения последних дней
-        query = f'''
-            SELECT * FROM hrv_data 
-            WHERE date >= '{cutoff_date}'
-            ORDER BY date ASC
-        '''
-        df = pd.read_sql_query(query, conn)
-        conn.close()
+        # Используем параметризованный запрос для надежности
+        query = """
+            SELECT date, rmssd, stress_score, recovery_score
+            FROM hrv_data
+            WHERE date >= ?
+            ORDER BY date DESC
+        """
         
-        # Преобразование даты в datetime если она есть  
+        try:
+            df = pd.read_sql_query(query, conn, params=(start_date,))
+        except Exception as e:
+            print(f"Ошибка при выполнении запроса HRV: {e}")
+            df = pd.DataFrame() # Возвращаем пустой DataFrame в случае ошибки
+        finally:
+            conn.close()
+        
+        # Преобразование даты в datetime, если данные есть
         if not df.empty and 'date' in df.columns:
-            # Обрабатываем смешанные форматы дат
-            df['date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
-        
-        # Сортируем по убыванию после преобразования для отображения в UI
-        # (самые новые данные первыми)
-        if not df.empty:
-            df = df.sort_values('date', ascending=False).reset_index(drop=True)
+            df['date'] = pd.to_datetime(df['date'], errors='coerce')
         
         return df
     
