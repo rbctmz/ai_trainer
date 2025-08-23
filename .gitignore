@@ -237,3 +237,20 @@ Desktop.ini
 /*_prototype.py
 /*_example.py
 /*_integration_*.py
+
+# Chat history and temporary session files
+chats/
+*.json
+
+# Temporary files and screenshots
+temp/
+*.png
+*.jpg
+*.jpeg
+*.gif
+screenshot_*.png
+image.png
+
+# Database backup files
+*.db.bak
+*.db.backup
