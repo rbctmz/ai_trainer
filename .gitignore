@@ -254,3 +254,16 @@ image.png
 # Database backup files
 *.db.bak
 *.db.backup
+
+# Local media and downloads
+*.dmg
+*.mov
+*.pdf
+
+# Тренировочные выгрузки и пакеты
+*.fit
+*.tcx
+Zwift_Training_Plan_*.zip
+week_*.zip
+week_*/
+workout_*.zip
