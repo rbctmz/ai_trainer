@@ -118,6 +118,63 @@ class UniversalAICoach:
         """
         
         return self.provider.generate_response(prompt, self.system_prompt)
+
+    def generate_weekly_plan_structured(self, metrics: Dict, structured_week: List[Dict], note: str = "") -> str:
+        """Генерация недельного плана на основе строгой структуры целевого плана.
+
+        structured_week: список из 7 словарей вида:
+          {
+            'date': 'YYYY-MM-DD' | datetime,
+            'total_tss': float,
+            'run_tss': float,
+            'bike_tss': float,
+            'swim_tss': float,
+            'phase': str
+          }
+        note: опциональное текстовое примечание от пользователя.
+        """
+        if not self.provider or not self.provider.is_available():
+            return "❌ AI провайдер не доступен. Проверьте настройки."
+
+        # Собираем таблицу дней в читаемый вид
+        def fmt_day(d):
+            date_str = d.get('date')
+            try:
+                if hasattr(date_str, 'strftime'):
+                    date_str = date_str.strftime('%Y-%m-%d')
+            except:
+                pass
+            return (
+                f"{date_str}: total TSS {d.get('total_tss', 0):.0f} | "
+                f"Run {d.get('run_tss', 0):.0f}, Bike {d.get('bike_tss', 0):.0f}, Swim {d.get('swim_tss', 0):.0f}"
+            )
+
+        days_block = "\n".join(["- " + fmt_day(d) for d in structured_week])
+        phase = structured_week[0].get('phase', 'Base') if structured_week else 'Base'
+        week_total = sum(float(d.get('total_tss', 0) or 0) for d in structured_week)
+
+        prompt = f"""
+        Составь подробный недельный план тренировок на основе фиксированной структуры TSS по дням.
+
+        📊 Текущие показатели:
+        - CTL: {metrics.get('ctl', 0):.1f}
+        - ATL: {metrics.get('atl', 0):.1f}
+        - TSB: {metrics.get('tsb', 0):.1f}
+
+        🗓️ Фаза периода: {phase}
+        🎯 Целевой Weekly TSS: {week_total:.0f}
+        📅 Структура по дням (нужно придерживаться, допуск ±10% на TSS):
+        {days_block}
+
+        Требования к ответу:
+        1) Для каждого дня предложи тип тренировки, ориентировочную длительность и интенсивность, соблюдая целевой TSS.
+        2) Учитывай распределение между бегом/велосипедом/плаванием (если доля 0 — не предлагай этот вид).
+        3) Добавь пояснение к ключевым дням, а также один лёгкий восстановительный день.
+        4) Укажи общий Weekly TSS и краткие рекомендации по неделе.
+        {('Заметка от пользователя: ' + note) if note else ''}
+        """
+
+        return self.provider.generate_response(prompt, self.system_prompt)
     
     def analyze_workout(self, workout_data: Dict, subjective_feel: str = "") -> str:
         """

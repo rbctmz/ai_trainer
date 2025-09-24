@@ -451,21 +451,524 @@ def apply_theme():
         # Светлая тема (стандартная)
         st.markdown("""
         <style>
-        /* Сброс к светлой теме */
+        :root {
+            /* Светлая тема - Material Design палитра */
+            --background-color: #ffffff;
+            --surface-1-color: #f5f5f5;
+            --surface-2-color: #e8e8e8;
+            --surface-3-color: #d4d4d4;
+            --border-color: #e0e0e0;
+            --hover-color: #f0f0f0;
+            
+            --accent-color: #1976d2;
+            --accent-color-hover: #1565c0;
+            --accent-secondary: #1e88e5;
+            
+            --text-primary-color: #212121;
+            --text-secondary-color: #757575;
+            --text-disabled-color: #bdbdbd;
+            
+            --success-bg-color: #c8e6c9;
+            --warning-bg-color: #ffecb3;
+            --error-bg-color: #ffcdd2;
+            --info-bg-color: #bbdefb;
+        }
+
+        /* Основные стили */
         .stApp {
-            background-color: white;
-            color: #262730;
+            background-color: var(--background-color);
+            color: var(--text-primary-color);
         }
         
+        /* Боковая панель - ИСПРАВЛЕНИЕ ДЛЯ СВЕТЛОЙ ТЕМЫ */
         section[data-testid="stSidebar"] {
-            background-color: #f0f2f6;
+            background-color: var(--surface-1-color) !important;
+            border-right: 1px solid var(--border-color) !important;
         }
         
+        /* Весь текст в сайдбаре должен быть тёмным */
+        section[data-testid="stSidebar"] * {
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Заголовки в сайдбаре */
+        section[data-testid="stSidebar"] h1,
+        section[data-testid="stSidebar"] h2, 
+        section[data-testid="stSidebar"] h3,
+        section[data-testid="stSidebar"] .stMarkdown h1,
+        section[data-testid="stSidebar"] .stMarkdown h2,
+        section[data-testid="stSidebar"] .stMarkdown h3 {
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Параграфы и обычный текст в сайдбаре */
+        section[data-testid="stSidebar"] p,
+        section[data-testid="stSidebar"] .stMarkdown p,
+        section[data-testid="stSidebar"] .stMarkdown,
+        section[data-testid="stSidebar"] span,
+        section[data-testid="stSidebar"] div {
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Selectbox в сайдбаре */
+        section[data-testid="stSidebar"] .stSelectbox label,
+        section[data-testid="stSidebar"] .stSelectbox > div > div,
+        section[data-testid="stSidebar"] .stSelectbox select,
+        section[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] {
+            color: var(--text-primary-color) !important;
+            background-color: var(--background-color) !important;
+        }
+        
+        /* Выпадающий список в selectbox */
+        section[data-testid="stSidebar"] .stSelectbox [role="listbox"],
+        section[data-testid="stSidebar"] .stSelectbox [role="option"] {
+            color: var(--text-primary-color) !important;
+            background-color: var(--background-color) !important;
+        }
+        
+        /* Expander в сайдбаре */
+        section[data-testid="stSidebar"] .streamlit-expanderHeader {
+            color: var(--text-primary-color) !important;
+            background-color: var(--surface-2-color) !important;
+        }
+        
+        section[data-testid="stSidebar"] .streamlit-expanderContent {
+            background-color: var(--background-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        /* Все элементы внутри expander в сайдбаре */
+        section[data-testid="stSidebar"] .streamlit-expanderHeader *,
+        section[data-testid="stSidebar"] .streamlit-expanderContent * {
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Специальные правила для expander заголовков */
+        section[data-testid="stSidebar"] details summary {
+            color: var(--text-primary-color) !important;
+            background-color: var(--surface-1-color) !important;
+        }
+        
+        section[data-testid="stSidebar"] details summary:hover {
+            background-color: var(--hover-color) !important;
+        }
+        
+        /* АГРЕССИВНЫЕ ПРАВИЛА для всех expander элементов */
+        section[data-testid="stSidebar"] [data-testid="stExpander"],
+        section[data-testid="stSidebar"] [data-testid="stExpander"] *,
+        section[data-testid="stSidebar"] .streamlit-expander,
+        section[data-testid="stSidebar"] .streamlit-expander * {
+            color: var(--text-primary-color) !important;
+        }
+        
+        section[data-testid="stSidebar"] [data-testid="stExpanderToggleIcon"] {
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Кнопки в сайдбаре */
+        section[data-testid="stSidebar"] .stButton > button {
+            color: var(--text-primary-color) !important;
+            background-color: var(--background-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        section[data-testid="stSidebar"] .stButton > button:hover {
+            background-color: var(--hover-color) !important;
+            border: 1px solid var(--accent-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Кнопка переключения темы - МАКСИМАЛЬНО АГРЕССИВНЫЕ ПРАВИЛА */
+        section[data-testid="stSidebar"] button[title="Переключить тему"],
+        section[data-testid="stSidebar"] .stButton button[title="Переключить тему"],
+        section[data-testid="stSidebar"] .stButton > button[title="Переключить тему"],
+        section[data-testid="stSidebar"] button[data-testid*="theme"],
+        section[data-testid="stSidebar"] button[key="theme_toggle"] {
+            color: var(--text-primary-color) !important;
+            background: var(--background-color) !important;
+            background-color: var(--background-color) !important;
+            border: 1px solid var(--border-color) !important;
+            box-shadow: none !important;
+        }
+        
+        section[data-testid="stSidebar"] button[title="Переключить тему"]:hover,
+        section[data-testid="stSidebar"] .stButton button[title="Переключить тему"]:hover,
+        section[data-testid="stSidebar"] .stButton > button[title="Переключить тему"]:hover,
+        section[data-testid="stSidebar"] button[data-testid*="theme"]:hover,
+        section[data-testid="stSidebar"] button[key="theme_toggle"]:hover {
+            background: var(--hover-color) !important;
+            background-color: var(--hover-color) !important;
+            border: 1px solid var(--accent-color) !important;
+            color: var(--text-primary-color) !important;
+            box-shadow: none !important;
+        }
+        
+        /* СУПЕР-АГРЕССИВНОЕ правило для кнопки переключения темы */
+        section[data-testid="stSidebar"] div:nth-child(2) button {
+            color: var(--text-primary-color) !important;
+            background: var(--background-color) !important;
+            background-color: var(--background-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        /* TextInput в сайдбаре */
+        section[data-testid="stSidebar"] .stTextInput > div > div > input,
+        section[data-testid="stSidebar"] .stTextInput label {
+            color: var(--text-primary-color) !important;
+            background-color: var(--background-color) !important;
+        }
+        
+        /* Кнопка показать/скрыть пароль - МАКСИМАЛЬНО АГРЕССИВНЫЕ ПРАВИЛА */
+        section[data-testid="stSidebar"] .stTextInput button,
+        section[data-testid="stSidebar"] .stTextInput [data-baseweb="button"],
+        section[data-testid="stSidebar"] .stTextInput div button,
+        section[data-testid="stSidebar"] .stTextInput > div > div > button,
+        section[data-testid="stSidebar"] input[type="password"] + button,
+        section[data-testid="stSidebar"] [data-testid="baseButton-secondary"],
+        section[data-testid="stSidebar"] [role="button"] {
+            color: var(--text-primary-color) !important;
+            background: var(--background-color) !important;
+            background-color: var(--background-color) !important;
+            border: 1px solid var(--border-color) !important;
+            box-shadow: none !important;
+        }
+        
+        section[data-testid="stSidebar"] .stTextInput button:hover,
+        section[data-testid="stSidebar"] .stTextInput [data-baseweb="button"]:hover,
+        section[data-testid="stSidebar"] .stTextInput div button:hover,
+        section[data-testid="stSidebar"] .stTextInput > div > div > button:hover,
+        section[data-testid="stSidebar"] input[type="password"] + button:hover,
+        section[data-testid="stSidebar"] [data-testid="baseButton-secondary"]:hover,
+        section[data-testid="stSidebar"] [role="button"]:hover {
+            background: var(--hover-color) !important;
+            background-color: var(--hover-color) !important;
+            color: var(--text-primary-color) !important;
+            box-shadow: none !important;
+        }
+        
+        /* Дополнительные правила для любых SVG иконок в кнопках */
+        section[data-testid="stSidebar"] button svg,
+        section[data-testid="stSidebar"] [role="button"] svg,
+        section[data-testid="stSidebar"] .stTextInput svg {
+            fill: var(--text-primary-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Уведомления в сайдбаре */
+        section[data-testid="stSidebar"] .stSuccess,
+        section[data-testid="stSidebar"] .stError,
+        section[data-testid="stSidebar"] .stWarning,
+        section[data-testid="stSidebar"] .stInfo {
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Метрики */
         [data-testid="metric-container"] {
-            background-color: #ffffff;
-            border: 1px solid #e0e0e0;
+            background-color: var(--background-color);
+            border: 1px solid var(--border-color);
             border-radius: 8px;
-            padding: 10px;
+            padding: 12px;
+        }
+        [data-testid="metric-container"] .stMetricValue {
+            color: var(--accent-color);
+        }
+        
+        /* Эспандеры */
+        .streamlit-expanderHeader {
+            background-color: var(--surface-1-color);
+            color: var(--text-primary-color) !important;
+            border-radius: 8px;
+        }
+        .streamlit-expanderContent {
+            background-color: var(--background-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        /* Таблицы */
+        .dataframe, div[data-testid="stDataFrame"] {
+            background-color: var(--background-color) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 8px !important;
+        }
+        
+        .dataframe thead tr th,
+        div[data-testid="stDataFrame"] thead tr th,
+        .stDataFrame thead tr th {
+            background-color: var(--surface-2-color) !important;
+            color: var(--text-primary-color) !important;
+            border-bottom: 1px solid var(--border-color) !important;
+            border-right: 1px solid var(--border-color) !important;
+        }
+        
+        .dataframe tbody tr,
+        div[data-testid="stDataFrame"] tbody tr,
+        .stDataFrame tbody tr {
+            background-color: var(--background-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        .dataframe tbody tr td,
+        div[data-testid="stDataFrame"] tbody tr td,
+        .stDataFrame tbody tr td {
+            background-color: var(--background-color) !important;
+            color: var(--text-primary-color) !important;
+            border-right: 1px solid var(--border-color) !important;
+            border-bottom: 1px solid var(--border-color) !important;
+        }
+        
+        .dataframe tbody tr:hover,
+        div[data-testid="stDataFrame"] tbody tr:hover,
+        .stDataFrame tbody tr:hover {
+            background-color: var(--hover-color) !important;
+        }
+        
+        .dataframe tbody tr:hover td,
+        div[data-testid="stDataFrame"] tbody tr:hover td,
+        .stDataFrame tbody tr:hover td {
+            background-color: var(--hover-color) !important;
+        }
+        
+        .dataframe tbody tr:nth-child(even),
+        div[data-testid="stDataFrame"] tbody tr:nth-child(even),
+        .stDataFrame tbody tr:nth-child(even) {
+            background-color: var(--surface-1-color) !important;
+        }
+        
+        .dataframe tbody tr:nth-child(even) td,
+        div[data-testid="stDataFrame"] tbody tr:nth-child(even) td,
+        .stDataFrame tbody tr:nth-child(even) td {
+            background-color: var(--surface-1-color) !important;
+        }
+        
+        /* Кнопки */
+        .stButton > button {
+            background-color: var(--background-color);
+            color: var(--text-primary-color);
+            border: 1px solid var(--border-color);
+        }
+        .stButton > button:hover {
+            background-color: var(--hover-color);
+            border: 1px solid var(--accent-color);
+        }
+        .stButton > button:focus {
+            box-shadow: 0 0 0 2px var(--accent-color);
+        }
+        
+        /* Поля ввода */
+        .stTextInput > div > div > input,
+        .stSelectbox > div > div,
+        .stTextArea > div > div > textarea,
+        .stNumberInput > div > div > input {
+            background-color: var(--background-color) !important;
+            color: var(--text-primary-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        /* Вкладки */
+        .stTabs [data-baseweb="tab-list"] {
+            background-color: var(--surface-1-color);
+            border-radius: 8px;
+        }
+        .stTabs [data-baseweb="tab"] {
+            background-color: var(--background-color);
+            color: var(--text-primary-color);
+            border: 1px solid var(--border-color);
+        }
+        .stTabs [aria-selected="true"] {
+            background-color: var(--accent-color);
+            color: white;
+            border: 1px solid var(--accent-color);
+        }
+        
+        /* Текст и типография */
+        .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
+            color: var(--text-primary-color) !important;
+        }
+        .stCaption {
+            color: var(--text-secondary-color) !important;
+        }
+        a, .stMarkdown a {
+            color: var(--accent-color) !important;
+        }
+        a:hover, .stMarkdown a:hover {
+            color: var(--accent-color-hover) !important;
+        }
+        
+        /* Уведомления */
+        .stAlert {
+            background-color: var(--surface-1-color);
+            border: 1px solid var(--border-color);
+            color: var(--text-primary-color);
+        }
+        .stInfo { 
+            background-color: var(--info-bg-color) !important; 
+            color: var(--text-primary-color) !important;
+        }
+        .stWarning { 
+            background-color: var(--warning-bg-color) !important;
+            color: var(--text-primary-color) !important; 
+        }
+        .stError { 
+            background-color: var(--error-bg-color) !important;
+            color: var(--text-primary-color) !important; 
+        }
+        .stSuccess { 
+            background-color: var(--success-bg-color) !important;
+            color: var(--text-primary-color) !important; 
+        }
+        
+        /* Чат */
+        .stChatInput > div > div > textarea,
+        .stChatInputContainer textarea {
+            background-color: var(--background-color) !important;
+            color: var(--text-primary-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        div[data-testid="stChatInput"] {
+            background-color: var(--background-color) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 25px !important;
+        }
+        .stChatMessage {
+            background-color: var(--surface-1-color);
+            border-radius: 10px !important;
+            color: var(--text-primary-color);
+        }
+        [data-testid="chatAvatarIcon-assistant"] {
+            background-color: var(--accent-color) !important;
+        }
+        
+        /* ФИНАЛЬНОЕ СУПЕР-АГРЕССИВНОЕ правило для всех кнопок в сайдбаре */
+        section[data-testid="stSidebar"] button,
+        section[data-testid="stSidebar"] [role="button"],
+        section[data-testid="stSidebar"] [data-baseweb="button"] {
+            color: var(--text-primary-color) !important;
+            background: var(--background-color) !important;
+            background-color: var(--background-color) !important;
+            border: 1px solid var(--border-color) !important;
+            box-shadow: none !important;
+        }
+        
+        section[data-testid="stSidebar"] button:hover,
+        section[data-testid="stSidebar"] [role="button"]:hover,
+        section[data-testid="stSidebar"] [data-baseweb="button"]:hover {
+            background: var(--hover-color) !important;
+            background-color: var(--hover-color) !important;
+            color: var(--text-primary-color) !important;
+            border: 1px solid var(--accent-color) !important;
+            box-shadow: none !important;
+        }
+        
+        /* Убираем любые focus состояния */
+        section[data-testid="stSidebar"] button:focus,
+        section[data-testid="stSidebar"] [role="button"]:focus,
+        section[data-testid="stSidebar"] [data-baseweb="button"]:focus {
+            background: var(--background-color) !important;
+            background-color: var(--background-color) !important;
+            color: var(--text-primary-color) !important;
+            border: 1px solid var(--border-color) !important;
+            box-shadow: none !important;
+            outline: none !important;
+        }
+        
+        /* Убираем любые active состояния */
+        section[data-testid="stSidebar"] button:active,
+        section[data-testid="stSidebar"] [role="button"]:active,
+        section[data-testid="stSidebar"] [data-baseweb="button"]:active {
+            background: var(--hover-color) !important;
+            background-color: var(--hover-color) !important;
+            color: var(--text-primary-color) !important;
+            border: 1px solid var(--accent-color) !important;
+            box-shadow: none !important;
+        }
+        
+        /* ВЫПАДАЮЩИЕ СПИСКИ SELECTBOX - ГЛОБАЛЬНЫЕ ПРАВИЛА */
+        [data-baseweb="popover"],
+        [data-baseweb="menu"],
+        [role="listbox"],
+        [role="option"],
+        .stSelectbox [data-baseweb="popover"],
+        .stSelectbox [data-baseweb="menu"],
+        .stSelectbox [role="listbox"],
+        .stSelectbox [role="option"] {
+            background-color: var(--background-color) !important;
+            color: var(--text-primary-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        /* Выпадающие списки - элементы опций */
+        [role="option"]:hover,
+        .stSelectbox [role="option"]:hover,
+        [data-baseweb="menu-item"]:hover {
+            background-color: var(--hover-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Выпадающие списки - выбранные элементы */
+        [role="option"][aria-selected="true"],
+        .stSelectbox [role="option"][aria-selected="true"],
+        [data-baseweb="menu-item"][aria-selected="true"] {
+            background-color: var(--accent-color) !important;
+            color: white !important;
+        }
+        
+        /* ДОПОЛНИТЕЛЬНЫЕ ПРАВИЛА ДЛЯ ВСЕХ ВОЗМОЖНЫХ ВЫПАДАЮЩИХ ЭЛЕМЕНТОВ */
+        /* Streamlit использует разные библиотеки для dropdown */
+        [data-baseweb="select"] [role="listbox"],
+        [data-baseweb="select"] [data-baseweb="list"],
+        [data-baseweb="select"] ul,
+        [data-baseweb="select"] li,
+        [data-testid="stSelectbox-results"],
+        .stSelectbox ul,
+        .stSelectbox li,
+        div[data-baseweb*="select"] > div,
+        div[data-baseweb*="dropdown"] > div {
+            background-color: var(--background-color) !important;
+            color: var(--text-primary-color) !important;
+            border-color: var(--border-color) !important;
+        }
+        
+        /* Для всех элементов списков */
+        [data-baseweb="select"] li:hover,
+        [data-baseweb="list-item"]:hover,
+        .stSelectbox li:hover {
+            background-color: var(--hover-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        /* Портальные элементы (которые рендерятся вне DOM структуры) */
+        body > div[data-baseweb="popover"],
+        body > div[data-baseweb="menu"],
+        body > div[role="dialog"],
+        body > div[data-baseweb="layer"] {
+            background-color: var(--background-color) !important;
+            border: 1px solid var(--border-color) !important;
+        }
+        
+        /* Все текстовые элементы в портальных компонентах */
+        body > div[data-baseweb="popover"] *,
+        body > div[data-baseweb="menu"] *,
+        body > div[role="dialog"] *,
+        body > div[data-baseweb="layer"] * {
+            color: var(--text-primary-color) !important;
+            background-color: transparent !important;
+        }
+        
+        /* Элементы опций в портальных компонентах */
+        body > div[data-baseweb="popover"] [role="option"],
+        body > div[data-baseweb="menu"] [role="option"],
+        body > div[data-baseweb="popover"] li,
+        body > div[data-baseweb="menu"] li {
+            background-color: var(--background-color) !important;
+            color: var(--text-primary-color) !important;
+        }
+        
+        body > div[data-baseweb="popover"] [role="option"]:hover,
+        body > div[data-baseweb="menu"] [role="option"]:hover,
+        body > div[data-baseweb="popover"] li:hover,
+        body > div[data-baseweb="menu"] li:hover {
+            background-color: var(--hover-color) !important;
+            color: var(--text-primary-color) !important;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -475,7 +978,7 @@ def calculate_current_status():
     
     # Получаем данные за последние 30 дней
     activities_df = st.session_state.database.get_activities(30)
-    hrv_df = st.session_state.database.get_hrv_data(7)
+    hrv_df = st.session_state.database.get_hrv_data(90)  # Для продвинутого алгоритма
     sleep_df = st.session_state.database.get_sleep_data(7)
     
     status = {
@@ -571,9 +1074,21 @@ def calculate_current_status():
         baseline_hrv = hrv_df['rmssd'].mean()
         status['hrv'] = latest_hrv
         
+        # Продвинутый алгоритм AI Endurance
+        try:
+            from models.hrv_analyzer import HRVAnalyzer
+            advanced_score, info = HRVAnalyzer.recovery_score_advanced(hrv_df)
+            if advanced_score is not None:
+                status['hrv_advanced'] = {
+                    'score': advanced_score,
+                    'info': info
+                }
+        except:
+            pass
+        
         # Тренд HRV за последние 3 дня
         if len(hrv_df) >= 3:
-            recent_trend = hrv_df.head(3)['rmssd'].pct_change().mean() * 100
+            recent_trend = hrv_df.head(3)['rmssd'].ffill().pct_change().mean() * 100
             status['trends']['hrv'] = recent_trend
         
         # Дополнительная проверка критического состояния и рекомендации по HRV
@@ -623,6 +1138,7 @@ def calculate_current_status():
             else:
                 status['readiness'] = 40
     
+    print("Текущий статус:", status)
     return status
 
 def main():
@@ -634,11 +1150,11 @@ def main():
     if 'database' not in st.session_state:
         st.session_state.database = Database()
     
-    # Применяем современные стили
+    # Применяем современные стили с учетом темы
     from utils.modern_ui import ModernUI
-    ModernUI.apply_modern_styles()
+    ModernUI.apply_modern_styles(dark_mode=st.session_state.get('dark_mode', False))
     
-    # Применяем тему
+    # Применяем базовую тему
     apply_theme()
     
     # Боковая панель навигации
@@ -1287,7 +1803,7 @@ def add_test_phase1_data():
 
 def show_welcome_screen():
     """Экран приветствия для неподключённых пользователей"""
-    st.markdown("## Добро пожаловать в персональный AI тренер! 🏃‍♂️")
+    st.markdown("## Добро пожаловать в персональный AI тренер!")
     st.markdown("")
     st.markdown("Этот инструмент поможет вам:")
     st.markdown("- 📊 Анализировать тренировочные данные из Garmin Connect")
@@ -1304,14 +1820,16 @@ def show_welcome_screen():
     st.markdown("*Требуется аккаунт Garmin Connect с историей тренировок*")
 
 def show_dashboard():
-    """Современный дашборд тренировок"""
+    """Современный дашборд тренировок в стиле AIEndurance"""
     from utils.modern_ui import ModernUI
     
-    # Применяем современные стили
-    ModernUI.apply_modern_styles()
+    # Применяем современные стили и навигацию с учетом темы
+    ModernUI.apply_modern_styles(dark_mode=st.session_state.get('dark_mode', False))
+    ModernUI.show_horizontal_nav("Dashboard")
     
     # Получение данных из БД
     activities_df = st.session_state.database.get_activities(30)
+    df_hrv = st.session_state.database.get_hrv_data(90)  # Для продвинутого алгоритма
     
     if activities_df.empty:
         # Улучшенное приветствие для новых пользователей
@@ -1415,53 +1933,72 @@ def show_dashboard():
             </div>
             """, unsafe_allow_html=True)
     
-    # Основные статус-карточки
+    # Основные статус-карточки (3 карточки в делстиле AI Endurance)
+    col1, col2, col3, col4 = st.columns(4)
+
+    with col1:
+        tsb_value = current_status.get('tsb', 0)
+        tsb_trend = current_status.get('tsb_trend', 0)
+        fig_tsb = ModernUI.create_circular_indicator(tsb_value, 100, "TSB", f"{tsb_value:.1f}", "#10B981")
+        st.plotly_chart(fig_tsb, use_container_width=True)
+        st.markdown('<div style="text-align: center;"><span style="background: rgba(232,240,255,0.8); padding: 4px 8px; border-radius: 12px; font-size: 11px;">Training Stress Balance<br>Тренировочный стресс баланс</span></div>', unsafe_allow_html=True)
+        
+    with col2:
+        readiness_value = current_status.get('readiness', 0)
+        readiness_trend = current_status.get('readiness_trend', 0)
+        fig_readiness = ModernUI.create_circular_indicator(readiness_value, 100, "Readiness", f"{readiness_value:.0f}%", "#3B82F6")
+        st.plotly_chart(fig_readiness, use_container_width=True)
+        st.markdown('<div style="text-align: center;"><span style="background: rgba(59,130,246,0.8); padding: 4px 8px; border-radius: 12px; font-size: 11px;">Готовность</span></div>', unsafe_allow_html=True)
+    
+    with col3:
+        
+        ctl_value = current_status.get('ctl', 0)
+        fig_ctl = ModernUI.create_circular_indicator(ctl_value, 150, "CTL", f"{ctl_value:.1f}", "#10B981")
+        st.plotly_chart(fig_ctl, use_container_width=True)
+        st.markdown('<div style="text-align: center;"><span style="background: rgba(232,240,255,0.8); padding: 4px 8px; border-radius: 12px; font-size: 11px;">Chronic Training Load<br>Хроническая тренировочная нагрузка</span></div>', unsafe_allow_html=True)
+
+    with col4:
+        dfa_value = 100
+        fig_dfa = ModernUI.create_circular_indicator(dfa_value, 100, "DFA α₁", "N/A", "#64748B")
+        st.plotly_chart(fig_dfa, use_container_width=True)
+    # Отступ между блоками карточек
+    st.markdown("<br><br>", unsafe_allow_html=True)
+
+    # Дополнительные Карточки в стиле AI Endurance
+
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
-        ModernUI.status_card(
-            "Training Stress Balance",
-            f"{current_status['tsb']:.1f}",
-            "tsb",
-            trend=current_status.get('tsb_trend'),
-            description="Показатель тренировочной формы"
-        )
-    
+        st.markdown('<div style="text-align: center; padding: 40px; background: rgba(232,240,255,0.8); border-radius: 15px; height: 300px;"><h4 style="color: #64748B;">ESS on Aug 23, 2025</h4><div style="font-size: 48px; margin: 50px 0; color: #64748B;">30</div></div>', unsafe_allow_html=True)
+
     with col2:
-        ModernUI.status_card(
-            "HRV (RMSSD)",
-            f"{current_status['hrv']:.1f}" if current_status['hrv'] else "Н/Д",
-            "hrv", 
-            trend=current_status.get('hrv_trend'),
-            description="Вариабельность сердечного ритма"
-        )
+        rmssd_value = current_status.get('hrv', 39)
+        fig_rmssd = ModernUI.create_circular_indicator(rmssd_value, 50, "RMSSD", f"{rmssd_value} ms", "#667eea")
+        st.plotly_chart(fig_rmssd, use_container_width=True)
+        st.markdown('<div style="text-align: center;"><span style="background: #667eea; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px;">Driving Aerobic Recovery</span></div>', unsafe_allow_html=True)
     
     with col3:
-        ModernUI.status_card(
-            "Готовность",
-            f"{current_status['readiness']:.0f}%" if current_status['readiness'] else "Н/Д",
-            "readiness",
-            description="Комплексный индекс готовности"
-        )
+        hrv_value = current_status.get('hrv', 39)
+        fig_hrv = ModernUI.create_circular_indicator(hrv_value, 100, "HR Rest", f"{hrv_value} bpm", "#F59E0B")
+        st.plotly_chart(fig_hrv, use_container_width=True)
+        st.markdown('<div style="text-align: center;"><span style="background: #F59E0B; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px;">Resting Heart Rate<br>Пульс покоя</span></div>', unsafe_allow_html=True)
     
     with col4:
-        ModernUI.status_card(
-            "CTL (нагрузка)",
-            f"{current_status['ctl']:.1f}",
-            "ctl",
-            description="Хроническая тренировочная нагрузка"
-        )
+        st.markdown('<div style="text-align: center; padding: 40px; background: rgba(232,240,255,0.8); border-radius: 15px; height: 300px;"><h4 style="color: #64748B;">ESS on Aug 23, 2025</h4><div style="font-size: 48px; margin: 50px 0; color: #64748B;">30</div></div>', unsafe_allow_html=True)
+    
+    # Отступ перед календарем
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    
+    # Недельный календарь тренировок
+    ModernUI.show_weekly_training_calendar()
     
     # AI рекомендации
     recommendations = current_status.get('recommendations', [])
     if recommendations:
         ModernUI.ai_recommendation_panel(recommendations)
     
-    # Быстрые действия
+    # Быстрые действия (компактные)
     show_quick_actions(current_status)
-    
-    # Индикатор интенсивности тренировок
-    show_training_intensity_indicator(current_status)
     
     # Компактная аналитика в раскрывающемся блоке
     show_compact_analytics(activities_df)
@@ -1867,7 +2404,7 @@ def show_activities():
 def show_hrv_analysis():
     """Современная страница анализа HRV"""
     from utils.modern_ui import ModernUI
-    ModernUI.apply_modern_styles()
+    ModernUI.apply_modern_styles(dark_mode=st.session_state.get('dark_mode', False))
     
     st.header("💓 Анализ вариабельности сердечного ритма (HRV)")
     
@@ -1900,6 +2437,8 @@ def show_hrv_analysis():
     hrv_df['date'] = pd.to_datetime(hrv_df['date'])
     cutoff_date = datetime.now() - timedelta(days=period_days)
     hrv_df = hrv_df[hrv_df['date'] >= cutoff_date].copy()
+    # Гарантируем сортировку по дате (сначала самые свежие)
+    hrv_df.sort_values('date', ascending=False, inplace=True)
 
     if hrv_df.empty:
         st.warning(f"📭 Нет данных HRV за последние {period_days} дней. Синхронизируйте данные с Garmin Connect.")
@@ -1919,12 +2458,13 @@ def show_hrv_analysis():
         return
     
     # Текущие показатели - всегда берём самые последние данные из уже загруженного DataFrame
-    latest_data = hrv_df.iloc[0]  # Самая свежая запись (данные сортированы по убыванию)
+    latest_data = hrv_df.iloc[0]  # Самая свежая запись
     # Базовый уровень рассчитываем от выбранного периода анализа
     baseline_rmssd = hrv_df['rmssd'].mean() # hrv_df не может быть пустым на этом этапе
     
-    latest_date = latest_data['date'] if 'date' in latest_data else 'Н/Д'
-    st.subheader(f"📊 Текущее состояние (данные от {latest_date})")
+    latest_date = latest_data.get('date') if isinstance(latest_data, pd.Series) else None
+    display_date = format_date(latest_date, 'display') if latest_date is not None and not pd.isna(latest_date) else 'Н/Д'
+    st.subheader(f"📊 Текущее состояние (данные от {display_date})")
     
     # Современные карточки состояния
     col1, col2, col3, col4 = st.columns(4)
@@ -1985,14 +2525,26 @@ def show_hrv_analysis():
         else:
             # Рассчитываем на основе RMSSD
             try:
+                # Простой метод
                 calculated_recovery = hrv_analyzer.recovery_score(current_rmssd, baseline_rmssd) if current_rmssd > 0 else 50
                 recovery_status = "success" if calculated_recovery > 70 else "warning" if calculated_recovery > 40 else "danger"
+                
+                # Продвинутый метод AI Endurance
+                advanced_recovery = None
+                advanced_info = ""
+                try:
+                    advanced_score, info = hrv_analyzer.recovery_score_advanced(df_hrv)
+                    if advanced_score is not None:
+                        advanced_recovery = advanced_score
+                        advanced_info = f" | AI Endurance: {advanced_score:.0f}% ({info})"
+                except:
+                    pass
                 
                 ModernUI.status_card(
                     "🔄 Восстановление", 
                     f"{calculated_recovery:.0f}%",
                     recovery_status,
-                    description="Расчет на основе RMSSD"
+                    description=f"Простой RMSSD{advanced_info}"
                 )
             except:
                 ModernUI.status_card(
@@ -2288,7 +2840,7 @@ def show_hrv_analysis():
     if not hrv_df.empty and len(hrv_df) > 7:
         # Анализ тенденций за последнюю неделю
         recent_data = hrv_df.tail(7)
-        rmssd_trend = recent_data['rmssd'].pct_change(fill_method='pad').mean() * 100
+        rmssd_trend = recent_data['rmssd'].ffill().pct_change().mean() * 100
         
         col1, col2 = st.columns(2)
         
@@ -2337,7 +2889,7 @@ def show_hrv_analysis():
 def show_sleep_analysis():
     """Современная страница анализа сна"""
     from utils.modern_ui import ModernUI
-    ModernUI.apply_modern_styles()
+    ModernUI.apply_modern_styles(dark_mode=st.session_state.get('dark_mode', False))
     
     st.header("😴 Анализ качества сна")
     
@@ -2381,7 +2933,7 @@ def show_sleep_analysis():
     if latest_sleep is not None:
         st.subheader(f"🌙 Последний сон ({format_date(latest_sleep['date'], 'display')})")
         
-        # Современные карточки метрик сна
+        # Карточки метрик сна в стиле AI Endurance
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
@@ -2973,7 +3525,449 @@ def show_planning():
                 forecast_message = "🔴 Предупреждение: высокий риск переутомления!"
             
             st.info(f"**Прогноз через {simulation_weeks} недель:** TSB = {final_tsb:.1f} - {forecast_message}")
+
+    # Планирование от цели
+    st.subheader("🎯 План под цель (дата старта)")
+
+    from models.training_planner import (
+        goal_target_weekly_tss,
+        create_weekly_tss_plan,
+        compute_phase_schedule,
+        expand_weekly_to_daily_triathlon,
+        flatten_daily_total,
+        weeks_until,
+    )
+
+    colg1, colg2, colg3 = st.columns(3)
+    with colg1:
+        goal_type = st.selectbox(
+            "Тип цели:",
+            ["Триатлон", "Бег", "Вело"],
+            index=0,
+        )
+        if goal_type == "Триатлон":
+            distance_options = ["Спринт", "Олимпийка", "Half (70.3)", "Ironman"]
+            default_index = 1
+        elif goal_type == "Бег":
+            distance_options = ["5 км", "10 км", "Полумарафон", "Марафон", "Ультра"]
+            default_index = 2
+        else:  # Вело
+            distance_options = ["40 км TT", "100 км", "100 миль", "200 км (бревет)", "Этапная гонка"]
+            default_index = 1
+        distance = st.selectbox("Дистанция:", distance_options, index=default_index)
+    with colg2:
+        goal_date = st.date_input(
+            "Дата старта:",
+            value=datetime.now().date() + timedelta(weeks=8),
+        )
+        weeks_to_race = weeks_until(goal_date)
+        st.caption(f"До старта: ~{weeks_to_race} нед.")
+    with colg3:
+        start_weekly_tss_guess = int((current_metrics.get('ctl', 50)) * 7)
+        from models.training_planner import suggest_target_weekly_tss
+        auto = suggest_target_weekly_tss(goal_type, distance, activities_df)
+        t_min, t_max = goal_target_weekly_tss(goal_type, distance)
+        st.caption(f"Автонастройка: последняя неделя {auto['last_week']}, среднее 4н {auto['avg_4']}, лучшая 8н {auto['best_8']}")
+        target_weekly_tss = st.slider(
+            "Целевой недельный TSS к пику:",
+            min_value=max(100, t_min),
+            max_value=max(300, t_max),
+            value=int(auto['suggested'] or int((t_min + t_max) / 2)),
+            step=25,
+            help="Ориентир под дистанцию; можно скорректировать",
+        )
+
+    # Настройки распределения
+    with st.expander("⚙️ Настроить распределение (фазы, проценты, дни)", expanded=False):
+        import json
+        phases_all = ['Base', 'Build', 'Peak', 'Taper']
+        # Инициализация в session_state
+        if 'planner_mix' not in st.session_state:
+            st.session_state.planner_mix = {}
+        if 'planner_weights' not in st.session_state:
+            st.session_state.planner_weights = {}
+        # Сброс пресетов и значений слайдеров при смене типа цели
+        prev_goal = st.session_state.get('planner_goal_type')
+        if prev_goal != goal_type:
+            st.session_state.planner_goal_type = goal_type
+            st.session_state.planner_mix = {}
+            st.session_state.planner_weights = {}
+            # Сбрасываем значения слайдеров и инпутов дней, чтобы дефолты применились визуально
+            for ph in phases_all:
+                for key in (f"mix_bike_{ph}", f"mix_run_{ph}", f"mix_swim_{ph}"):
+                    st.session_state.pop(key, None)
+                for i in range(7):
+                    for key in (f"w_run_{ph}_{i}", f"w_bike_{ph}_{i}", f"w_swim_{ph}_{i}"):
+                        st.session_state.pop(key, None)
+
+        tabs = st.tabs(phases_all)
+        from models.training_planner import triathlon_weekly_mix, daily_weights_for_phase
+        for phase, tab in zip(phases_all, tabs):
+            with tab:
+                st.caption("Проценты TSS по видам спорта (нормализуются автоматически)")
+                # Текущие значения или дефолт
+                if goal_type == "Бег":
+                    default_mix = {'run': 1.0, 'bike': 0.0, 'swim': 0.0}
+                elif goal_type == "Вело":
+                    default_mix = {'run': 0.0, 'bike': 1.0, 'swim': 0.0}
+                else:
+                    default_mix = triathlon_weekly_mix(distance, phase)
+                stored_mix = st.session_state.planner_mix.get(phase, default_mix)
+                bike = st.slider(f"{phase} • Bike %", 0, 100, int(round(stored_mix.get('bike', default_mix['bike']) * 100)), key=f"mix_bike_{phase}")
+                run = st.slider(f"{phase} • Run %", 0, 100, int(round(stored_mix.get('run', default_mix['run']) * 100)), key=f"mix_run_{phase}")
+                swim = st.slider(f"{phase} • Swim %", 0, 100, int(round(stored_mix.get('swim', default_mix['swim']) * 100)), key=f"mix_swim_{phase}")
+                total = bike + run + swim
+                if total == 0:
+                    # Если пользователь выставил все нули — вернёмся к дефолту цели
+                    mix_norm = default_mix
+                else:
+                    mix_norm = {'bike': bike/total, 'run': run/total, 'swim': swim/total}
+                st.session_state.planner_mix[phase] = mix_norm
+                st.caption(f"Сумма: {bike+run+swim}% → будет нормализовано до 100%")
+
+                st.divider()
+                st.caption("Дневные веса (Пн..Вс) для каждого вида спорта. Значения нормализуются к 100% на неделю.")
+                default_w = daily_weights_for_phase(phase)
+                stored_w = st.session_state.planner_weights.get(phase, default_w)
+                days = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
+                cols_run = st.columns(7)
+                run_vals = []
+                for i, c in enumerate(cols_run):
+                    with c:
+                        val = c.number_input(f"Run {days[i]}", min_value=0.0, max_value=1.0, step=0.05,
+                                             value=float(stored_w.get('run', default_w['run'])[i]), key=f"w_run_{phase}_{i}")
+                        run_vals.append(val)
+                cols_bike = st.columns(7)
+                bike_vals = []
+                for i, c in enumerate(cols_bike):
+                    with c:
+                        val = c.number_input(f"Bike {days[i]}", min_value=0.0, max_value=1.0, step=0.05,
+                                             value=float(stored_w.get('bike', default_w['bike'])[i]), key=f"w_bike_{phase}_{i}")
+                        bike_vals.append(val)
+                cols_swim = st.columns(7)
+                swim_vals = []
+                for i, c in enumerate(cols_swim):
+                    with c:
+                        val = c.number_input(f"Swim {days[i]}", min_value=0.0, max_value=1.0, step=0.05,
+                                             value=float(stored_w.get('swim', default_w['swim'])[i]), key=f"w_swim_{phase}_{i}")
+                        swim_vals.append(val)
+                st.session_state.planner_weights[phase] = {'run': run_vals, 'bike': bike_vals, 'swim': swim_vals}
+
+    if st.button("🧭 Построить план до старта"):
+        weekly_tss_plan = create_weekly_tss_plan(
+            start_weekly_tss=start_weekly_tss_guess,
+            weeks_total=weeks_to_race,
+            target_weekly_tss=target_weekly_tss,
+            deload_every=4,
+            taper_weeks=2,
+            max_ramp=0.10,
+        )
+
+        # Старт с ближайшего понедельника
+        today = datetime.now().date()
+        start_week = today - timedelta(days=today.weekday())
+        phases = compute_phase_schedule(weeks_to_race)
+        mix_overrides = st.session_state.get('planner_mix') or None
+        # Для целей Бег/Вело по умолчанию зададим соответствующий микс (если пользователь не задал свой)
+        if not mix_overrides:
+            if goal_type == "Бег":
+                mix_overrides = {ph: {'run': 1.0, 'bike': 0.0, 'swim': 0.0} for ph in phases}
+            elif goal_type == "Вело":
+                mix_overrides = {ph: {'run': 0.0, 'bike': 1.0, 'swim': 0.0} for ph in phases}
+        weights_overrides = st.session_state.get('planner_weights') or None
+        daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+            weekly_tss_plan, phases, distance, start_week,
+            mix_overrides=mix_overrides, weights_overrides=weights_overrides
+        )
+        daily_seq = flatten_daily_total(daily_plan)
+
+        # Кешируем план, чтобы не терялся при экспорте
+        st.session_state.goal_plan = {
+            'goal_type': goal_type,
+            'distance': distance,
+            'weeks_to_race': weeks_to_race,
+            'start_week': start_week,
+            'weekly_tss_plan': weekly_tss_plan,
+            'phases': phases,
+            'daily_plan': daily_plan,
+            'weekly_summary': weekly_summary,
+        }
+        st.session_state._just_built_plan = True
+
+        # Прогноз по переменной нагрузке
+        future_dates, future_ctl, future_atl, future_tsb = banister.simulate_variable_load(
+            current_metrics, daily_seq, start_date=datetime.combine(start_week, datetime.min.time())
+        )
+
+        fig_future = Visualizations.create_banister_chart(
+            future_dates, future_ctl, future_atl, future_tsb
+        )
+        fig_future.update_layout(title=f"Прогноз до старта ({goal_type} • {distance})")
+        st.plotly_chart(fig_future, use_container_width=True)
+
+        # Сводка по неделям с фазами и разбивкой по видам спорта
+        df_plan = pd.DataFrame(weekly_summary)
+        df_plan['Неделя от'] = df_plan['week_start'].apply(lambda d: d.strftime('%d.%m'))
+        df_plan = df_plan[['Неделя от', 'phase', 'weekly_tss', 'bike', 'run', 'swim']]
+        df_plan.rename(columns={'phase': 'Фаза', 'weekly_tss': 'Weekly TSS', 'bike': 'Bike', 'run': 'Run', 'swim': 'Swim'}, inplace=True)
+        st.dataframe(df_plan, use_container_width=True, hide_index=True)
+
+        # Экспорт CSV/ICS
+        # Weekly CSV
+        csv_weekly = df_plan.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="💾 Экспорт недельного плана (CSV)",
+            data=csv_weekly,
+            file_name="weekly_plan.csv",
+            mime="text/csv",
+        )
+
+        # Daily CSV
+        daily_rows = []
+        for dt, total, parts in daily_plan:
+            daily_rows.append({
+                'date': dt.strftime('%Y-%m-%d'),
+                'total_tss': total,
+                'run_tss': parts.get('run', 0.0),
+                'bike_tss': parts.get('bike', 0.0),
+                'swim_tss': parts.get('swim', 0.0),
+            })
+        df_daily = pd.DataFrame(daily_rows)
+        csv_daily = df_daily.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="💾 Экспорт дневного плана (CSV)",
+            data=csv_daily,
+            file_name="daily_plan.csv",
+            mime="text/csv",
+        )
+
+        # ICS Calendar
+        from models.training_planner import create_ics_from_daily
+        ics_content = create_ics_from_daily(daily_plan, title_prefix=f"{goal_type} {distance}")
+        st.download_button(
+            label="📅 Экспорт в календарь (ICS)",
+            data=ics_content,
+            file_name="training_plan.ics",
+            mime="text/calendar",
+        )
+
+        # После построения плана сделаем перерисовку, чтобы показать стабильный UI из кеша
+        st.rerun()
     
+    # Отрисовка плана из кеша, чтобы экспорт не сбрасывал страницу
+    # Показываем сразу при наличии goal_plan (после st.rerun() из кнопки)
+    if st.session_state.get('goal_plan'):
+        # Очистим флаг, если он остался
+        st.session_state.pop('_just_built_plan', None)
+        gp = st.session_state.goal_plan
+        daily_plan = gp['daily_plan']
+        weekly_summary = gp['weekly_summary']
+        start_week = gp['start_week']
+        goal_type_cached = gp.get('goal_type', goal_type)
+        distance_cached = gp.get('distance', distance)
+
+        future_dates, future_ctl, future_atl, future_tsb = banister.simulate_variable_load(
+            current_metrics, flatten_daily_total(daily_plan), start_date=datetime.combine(start_week, datetime.min.time())
+        )
+        fig_future = Visualizations.create_banister_chart(
+            future_dates, future_ctl, future_atl, future_tsb
+        )
+        fig_future.update_layout(title=f"Прогноз до старта ({goal_type_cached} • {distance_cached})")
+        st.plotly_chart(fig_future, use_container_width=True)
+
+        df_plan = pd.DataFrame(weekly_summary)
+        df_plan['Неделя от'] = df_plan['week_start'].apply(lambda d: d.strftime('%d.%m'))
+        df_plan = df_plan[['Неделя от', 'phase', 'weekly_tss', 'bike', 'run', 'swim']]
+        df_plan.rename(columns={'phase': 'Фаза', 'weekly_tss': 'Weekly TSS', 'bike': 'Bike', 'run': 'Run', 'swim': 'Swim'}, inplace=True)
+        st.dataframe(df_plan, use_container_width=True, hide_index=True)
+
+        csv_weekly = df_plan.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="💾 Экспорт недельного плана (CSV)",
+            data=csv_weekly,
+            file_name="weekly_plan.csv",
+            mime="text/csv",
+        )
+
+        daily_rows = []
+        for dt, total, parts in daily_plan:
+            daily_rows.append({
+                'date': dt.strftime('%Y-%m-%d'),
+                'total_tss': total,
+                'run_tss': parts.get('run', 0.0),
+                'bike_tss': parts.get('bike', 0.0),
+                'swim_tss': parts.get('swim', 0.0),
+            })
+        df_daily = pd.DataFrame(daily_rows)
+        csv_daily = df_daily.to_csv(index=False).encode('utf-8')
+        st.download_button(
+            label="💾 Экспорт дневного плана (CSV)",
+            data=csv_daily,
+            file_name="daily_plan.csv",
+            mime="text/csv",
+        )
+
+        from models.training_planner import create_ics_from_daily
+        ics_content = create_ics_from_daily(daily_plan, title_prefix=f"{goal_type_cached} {distance_cached}")
+        st.download_button(
+            label="📅 Экспорт в календарь (ICS)",
+            data=ics_content,
+            file_name="training_plan.ics",
+            mime="text/calendar",
+        )
+
+        # Экспорт тренировки (FIT-CSV / FIT / TCX) для выбранного дня
+        st.markdown("### 🧩 Экспорт тренировки (FIT-CSV / FIT / TCX)")
+        day_idx = st.number_input("День недели (1=Пн … 7=Вс)", min_value=1, max_value=7, value=1, key="fit_day")
+        if st.button("⬇️ Экспортировать выбранный день в FIT-CSV / FIT", key="export_fit_day"):
+            from models.fit_export import build_steps_for_sport, generate_fit_csv, try_convert_fit_verbose
+            from models.tcx_export import generate_tcx_workout
+            from models.tcx_activity_export import generate_tcx_activity
+            from config.settings import Settings
+
+            day = daily_plan[day_idx - 1]
+            dt, total, parts = day
+            # Определяем вид спорта дня по максимальной доле
+            sport = 'run'
+            if parts.get('bike', 0) >= max(parts.get('run', 0), parts.get('swim', 0)):
+                sport = 'bike'
+            elif parts.get('swim', 0) >= max(parts.get('run', 0), parts.get('bike', 0)):
+                sport = 'swim'
+            steps = build_steps_for_sport(total, sport)
+            workout_name = f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}"
+            csv_text = generate_fit_csv(workout_name, sport, steps, created=dt)
+            csv_bytes = csv_text.encode('utf-8')
+
+            colf1, colf2, colf3, colf4 = st.columns(4)
+            with colf1:
+                st.download_button(
+                    label="💾 Скачать FIT-CSV",
+                    data=csv_bytes,
+                    file_name=f"workout_{dt.strftime('%Y%m%d')}.csv",
+                    mime="text/csv",
+                )
+            with colf2:
+                jar = Settings.FIT_SDK_JAR
+                fit_bytes, out_s, err_s, rc = try_convert_fit_verbose(csv_bytes, 'java', jar) if jar else (None, '', 'FIT_SDK_JAR не задан', 127)
+                if fit_bytes and rc == 0:
+                    st.download_button(
+                        label="💾 Скачать FIT",
+                        data=fit_bytes,
+                        file_name=f"workout_{dt.strftime('%Y%m%d')}.fit",
+                        mime="application/octet-stream",
+                    )
+                else:
+                    if rc != 0:
+                        st.warning("FIT не собран. Логи FitCSVTool:")
+                        if out_s:
+                            st.code(out_s)
+                        if err_s:
+                            st.code(err_s)
+                    else:
+                        st.info("Чтобы собрать .FIT внутри приложения, укажите путь к FitCSVTool.jar в переменной окружения FIT_SDK_JAR.")
+            with colf3:
+                # Генерация TCX как альтернатива для импорта в Garmin Connect
+                tcx_text = generate_tcx_workout(workout_name, sport, steps, created=dt)
+                st.download_button(
+                    label="💾 Скачать TCX",
+                    data=tcx_text.encode('utf-8'),
+                    file_name=f"workout_{dt.strftime('%Y%m%d')}.tcx",
+                    mime="application/vnd.garmin.tcx+xml",
+                )
+            with colf4:
+                # TCX Activity — для импорта в разделе "Импорт данных" (активности)
+                tcx_act = generate_tcx_activity(workout_name, sport, steps, start_time=datetime.combine(dt.date(), datetime.min.time()))
+                st.download_button(
+                    label="💾 TCX Activity (импорт)",
+                    data=tcx_act.encode('utf-8'),
+                    file_name=f"activity_{dt.strftime('%Y%m%d')}.tcx",
+                    mime="application/vnd.garmin.tcx+xml",
+                    help="Используйте этот файл на странице Импорт данных в Garmin Connect",
+                )
+
+        with st.expander("📦 Экспорт всей недели (ZIP)", expanded=False):
+            # Выбор недели относительно start_week из goal_plan
+            total_days = len(daily_plan)
+            total_weeks = max(1, (total_days + 6) // 7)
+            week_idx = st.number_input("Номер недели (1=первая)", min_value=1, max_value=total_weeks, value=1, key="fit_week_idx")
+            if st.button("⬇️ Собрать ZIP с FIT-CSV/FIT/TCX", key="export_fit_week_zip"):
+                import io, zipfile
+                from models.fit_export import build_steps_for_sport, generate_fit_csv, try_convert_fit_verbose
+                from models.tcx_export import generate_tcx_workout
+                from config.settings import Settings
+                jar = Settings.FIT_SDK_JAR
+
+                start = (week_idx - 1) * 7
+                end = min(start + 7, total_days)
+                week_days = daily_plan[start:end]
+
+                csv_zip = io.BytesIO()
+                tcx_zip = io.BytesIO()
+                with zipfile.ZipFile(csv_zip, 'w', zipfile.ZIP_DEFLATED) as zc, \
+                     zipfile.ZipFile(tcx_zip, 'w', zipfile.ZIP_DEFLATED) as zt:
+                    for dt, total, parts in week_days:
+                        # Определяем вид спорта по максимальной доле
+                        sport = 'run'
+                        if parts.get('bike', 0) >= max(parts.get('run', 0), parts.get('swim', 0)):
+                            sport = 'bike'
+                        elif parts.get('swim', 0) >= max(parts.get('run', 0), parts.get('bike', 0)):
+                            sport = 'swim'
+                        steps = build_steps_for_sport(total, sport)
+                        csv_text = generate_fit_csv(f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}", sport, steps, created=dt)
+                        zc.writestr(f"workout_{dt.strftime('%Y%m%d')}.csv", csv_text)
+                        tcx_text = generate_tcx_workout(f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}", sport, steps, created=dt)
+                        zt.writestr(f"workout_{dt.strftime('%Y%m%d')}.tcx", tcx_text)
+                st.download_button(
+                    label="💾 Скачать все FIT-CSV (ZIP)",
+                    data=csv_zip.getvalue(),
+                    file_name=f"week_{week_idx:02d}_fitcsv.zip",
+                    mime="application/zip",
+                    key="dl_fitcsv_week_zip",
+                )
+                st.download_button(
+                    label="💾 Скачать все TCX (ZIP)",
+                    data=tcx_zip.getvalue(),
+                    file_name=f"week_{week_idx:02d}_tcx.zip",
+                    mime="application/zip",
+                    key="dl_tcx_week_zip",
+                )
+
+                if jar:
+                    fit_zip = io.BytesIO()
+                    failed_days = 0
+                    with zipfile.ZipFile(fit_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
+                        for dt, total, parts in week_days:
+                            sport = 'run'
+                            if parts.get('bike', 0) >= max(parts.get('run', 0), parts.get('swim', 0)):
+                                sport = 'bike'
+                            elif parts.get('swim', 0) >= max(parts.get('run', 0), parts.get('bike', 0)):
+                                sport = 'swim'
+                            steps = build_steps_for_sport(total, sport)
+                            csv_text = generate_fit_csv(f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}", sport, steps, created=dt)
+                            fit_bytes, _, _, rc = try_convert_fit_verbose(csv_text.encode('utf-8'), 'java', jar)
+                            if fit_bytes and rc == 0:
+                                zf.writestr(f"workout_{dt.strftime('%Y%m%d')}.fit", fit_bytes)
+                            else:
+                                failed_days += 1
+                    if fit_zip.getbuffer().nbytes > 0:
+                        st.download_button(
+                            label="💾 Скачать все FIT (ZIP)",
+                            data=fit_zip.getvalue(),
+                            file_name=f"week_{week_idx:02d}_fit.zip",
+                            mime="application/zip",
+                            key="dl_fit_week_zip",
+                        )
+                    if failed_days:
+                        st.info(f"Не удалось собрать FIT для {failed_days} дн. Проверьте FIT_SDK_JAR/Java или структуру CSV.")
+
+        # Кнопка сброса плана
+        if st.button("♻️ Сбросить план"):
+            st.session_state.pop('goal_plan', None)
+            st.session_state.pop('planner_mix', None)
+            st.session_state.pop('planner_weights', None)
+            st.success("План сброшен")
+            st.rerun()
+
     # Дополнительная статистика
     st.subheader("📈 Дополнительная статистика")
     
@@ -3405,17 +4399,185 @@ def show_ai_coaching():
     
         with tab3:
             st.subheader("📅 Генерация недельного плана")
-            
+
+            use_structured = False
+            structured_week = None
+
+            if st.session_state.get('goal_plan'):
+                gp = st.session_state.goal_plan
+                weeks_count = max(1, len(gp.get('phases', [])))
+                week_options = []
+                start_week = gp['start_week']
+                for w in range(weeks_count):
+                    ws = start_week + timedelta(weeks=w)
+                    we = ws + timedelta(days=6)
+                    phase = gp['phases'][w] if w < len(gp['phases']) else '—'
+                    week_options.append((w, f"Неделя {w+1}: {ws.strftime('%d.%m')}–{we.strftime('%d.%m')} • {phase}"))
+
+                idx = st.selectbox(
+                    "Неделя из цель‑плана:",
+                    options=[w[0] for w in week_options],
+                    format_func=lambda i: week_options[i][1]
+                )
+
+                # Собираем структуру выбранной недели
+                start = idx * 7
+                end = start + 7
+                slice_days = gp['daily_plan'][start:end]
+                structured_week = []
+                for dt, total, parts in slice_days:
+                    structured_week.append({
+                        'date': dt,
+                        'total_tss': float(total),
+                        'run_tss': float(parts.get('run', 0.0)),
+                        'bike_tss': float(parts.get('bike', 0.0)),
+                        'swim_tss': float(parts.get('swim', 0.0)),
+                        'phase': gp['phases'][idx] if idx < len(gp['phases']) else 'Base'
+                    })
+
+                use_structured = st.checkbox("Использовать структуру из цель‑плана", value=True)
+
+            # Свободный текст как альтернатива
             goals = st.text_area(
-                "Ваши цели на неделю:",
-                placeholder="Например: подготовка к полумарафону, увеличение выносливости, восстановление после соревнований..."
+                "Ваши цели на неделю (необязательно при использовании структуры):",
+                placeholder="Например: подготовка к полумарафону, увеличение выносливости, восстановление после соревнований...",
+                key="weekly_goals_text"
             )
             
             if st.button("📝 Создать план", key="create_plan"):
                 with st.spinner("AI создаёт персональный план..."):
-                    plan = st.session_state.ai_coach.generate_weekly_plan(ai_metrics, goals)
+                    if use_structured and structured_week:
+                        # Передаем строгую структуру напрямую в промпт
+                        coach = st.session_state.ai_coach
+                        if hasattr(coach, 'generate_weekly_plan_structured'):
+                            plan = coach.generate_weekly_plan_structured(ai_metrics, structured_week, note=goals)
+                        else:
+                            # Фоллбэк на текстовый промпт
+                            plan = coach.generate_weekly_plan(ai_metrics, goals)
+                    else:
+                        plan = st.session_state.ai_coach.generate_weekly_plan(ai_metrics, goals)
                     st.markdown("### 📋 Ваш недельный план:")
                     st.markdown(plan)
+                    # Сохраняем текст плана для последующего экспорта из текста
+                    st.session_state.last_ai_weekly_plan_text = plan
+
+            # Экспорт из сгенерированного текста (если структура не использовалась)
+            if st.session_state.get('last_ai_weekly_plan_text'):
+                with st.expander("📤 Экспортировать из сгенерированного текста", expanded=False):
+                    base_date = st.date_input("Дата начала недели (Понедельник):", value=datetime.now().date())
+                    colx1, colx2 = st.columns([1,1])
+                    with colx1:
+                        target_sport = st.selectbox("Основной вид (для распределения TSS)", ["Бег", "Вело", "Плавание"], index=0)
+                    with colx2:
+                        file_prefix = st.text_input("Префикс имени файла", value="ai_week_plan")
+
+                    if st.button("🔽 Сформировать CSV/ICS/FIT из текста", key="export_text_week"):
+                        import re
+                        import io, zipfile
+                        text = st.session_state.last_ai_weekly_plan_text
+                        # Ищем все значения TSS по порядку упоминания дней
+                        tss_vals = [int(m.group(1)) for m in re.finditer(r"TSS:\s*(\d+)", text)]
+                        # Гарантируем 7 значений (недостающие заполняем нулями, лишние обрезаем)
+                        if len(tss_vals) < 7:
+                            tss_vals += [0] * (7 - len(tss_vals))
+                        tss_vals = tss_vals[:7]
+
+                        # Собираем дневной план
+                        daily_rows = []
+                        daily_plan_text = []
+                        for i in range(7):
+                            dt = datetime.combine(base_date + timedelta(days=i), datetime.min.time())
+                            total = float(tss_vals[i])
+                            run_t, bike_t, swim_t = 0.0, 0.0, 0.0
+                            if target_sport == "Бег":
+                                run_t = total
+                            elif target_sport == "Вело":
+                                bike_t = total
+                            else:
+                                swim_t = total
+                            daily_rows.append({
+                                'date': dt.strftime('%Y-%m-%d'),
+                                'total_tss': total,
+                                'run_tss': run_t,
+                                'bike_tss': bike_t,
+                                'swim_tss': swim_t,
+                            })
+                            daily_plan_text.append((dt, total, {'run': run_t, 'bike': bike_t, 'swim': swim_t}))
+
+                        df_daily = pd.DataFrame(daily_rows)
+                        csv_daily = df_daily.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="💾 Скачать daily_plan.csv",
+                            data=csv_daily,
+                            file_name=f"{file_prefix}_daily_plan.csv",
+                            mime="text/csv",
+                        )
+
+                        # Недельная сводка
+                        df_weekly = pd.DataFrame([{
+                            'Неделя от': base_date.strftime('%d.%m'),
+                            'Фаза': '—',
+                            'Weekly TSS': sum(tss_vals),
+                            'Bike': sum(r['bike_tss'] for r in daily_rows),
+                            'Run': sum(r['run_tss'] for r in daily_rows),
+                            'Swim': sum(r['swim_tss'] for r in daily_rows),
+                        }])
+                        csv_weekly = df_weekly.to_csv(index=False).encode('utf-8')
+                        st.download_button(
+                            label="💾 Скачать weekly_plan.csv",
+                            data=csv_weekly,
+                            file_name=f"{file_prefix}_weekly_plan.csv",
+                            mime="text/csv",
+                        )
+
+                        # ICS
+                        from models.training_planner import create_ics_from_daily
+                        ics_content = create_ics_from_daily(daily_plan_text, title_prefix=f"{target_sport}")
+                        st.download_button(
+                            label="📅 Скачать training_plan.ics",
+                            data=ics_content,
+                            file_name=f"{file_prefix}_training_plan.ics",
+                            mime="text/calendar",
+                        )
+
+                        # FIT-CSV и FIT для всей недели (ZIP)
+                        from models.fit_export import build_steps_for_sport, generate_fit_csv, try_convert_fit
+                        csv_zip = io.BytesIO()
+                        fit_zip = io.BytesIO()
+                        with zipfile.ZipFile(csv_zip, 'w', zipfile.ZIP_DEFLATED) as zc:
+                            for i, (dt, total, parts) in enumerate(daily_plan_text):
+                                sport_map = {'Бег':'run','Вело':'bike','Плавание':'swim'}
+                                sport = sport_map.get(target_sport, 'run')
+                                steps = build_steps_for_sport(total, sport)
+                                csv_text = generate_fit_csv(f"AI Week Plan — {dt.strftime('%Y-%m-%d')}", sport, steps, created=dt)
+                                zc.writestr(f"workout_{dt.strftime('%Y%m%d')}.csv", csv_text)
+                        st.download_button(
+                            label="💾 Скачать все FIT-CSV (ZIP)",
+                            data=csv_zip.getvalue(),
+                            file_name=f"{file_prefix}_fitcsv_week.zip",
+                            mime="application/zip",
+                        )
+
+                        jar = Settings.FIT_SDK_JAR
+                        if jar:
+                            with zipfile.ZipFile(fit_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
+                                for i, (dt, total, parts) in enumerate(daily_plan_text):
+                                    sport_map = {'Бег':'run','Вело':'bike','Плавание':'swim'}
+                                    sport = sport_map.get(target_sport, 'run')
+                                    steps = build_steps_for_sport(total, sport)
+                                    csv_text = generate_fit_csv(f"AI Week Plan — {dt.strftime('%Y-%m-%d')}", sport, steps, created=dt)
+                                    fit_bytes = try_convert_fit(csv_text.encode('utf-8'), 'java', jar)
+                                    if fit_bytes:
+                                        zf.writestr(f"workout_{dt.strftime('%Y%m%d')}.fit", fit_bytes)
+                            if fit_zip.getbuffer().nbytes > 0:
+                                st.download_button(
+                                    label="💾 Скачать все FIT (ZIP)",
+                                    data=fit_zip.getvalue(),
+                                    file_name=f"{file_prefix}_fit_week.zip",
+                                    mime="application/zip",
+                                )
+                            else:
+                                st.info("FIT не собран. Проверьте FIT_SDK_JAR и наличие Java.")
     
         with tab4:
             st.subheader("🏃 Анализ последней тренировки")

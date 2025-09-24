@@ -19,8 +19,7 @@ class ModernUI:
         'border_gray': '#E2E8F0',
         'bg_primary': '#F8FAFF',
         'metric_bg': '#FFFFFF',
-        'metric_border': '#E2E8F0',
-        'is_dark': False
+        'metric_border': '#E2E8F0'
     }
     
     DARK_THEME = {
@@ -33,8 +32,7 @@ class ModernUI:
         'border_gray': '#2B2B2B',
         'bg_primary': '#121212',
         'metric_bg': '#1E1E1E',
-        'metric_border': '#2B2B2B',
-        'is_dark': True
+        'metric_border': '#2B2B2B'
     }
     
     @classmethod
@@ -287,11 +285,7 @@ class ModernUI:
     
     @staticmethod
     def status_card(title, value, status_type, trend=None, description=None):
-        """Карточка статуса в стиле AI Endurance с круговыми индикаторами
-
-        Дополнительно поддерживает статус-типы: 'success', 'warning', 'danger', 'secondary', 'info'
-        и строковые тренды (например, стрелки '↗️', '↘️').
-        """
+        """Карточка статуса с цветовыми индикаторами и автоматической адаптацией к теме"""
         
         # Получаем текущую тему
         theme = ModernUI.get_theme()
@@ -307,128 +301,67 @@ class ModernUI:
         except:
             numeric_value = 0
         
-        # Определяем статус, цвет и процент для кругового индикатора
-        if status_type in ('success', 'warning', 'danger', 'secondary', 'info'):
-            # Цвета в палитре AI Endurance
-            color_map = {
-                'success': ('#10B981', 'Good'),     # зеленый
-                'warning': ('#F59E0B', 'Caution'),  # желтый
-                'danger': ('#EF4444', 'Critical'),  # красный
-                'secondary': ('#64748B', 'Info'),   # серый
-                'info': ('#3B82F6', 'Info'),        # синий
-            }
-            color, status_badge = color_map.get(status_type, ('#8B5CF6', 'Status'))
-            # Для категориальных статусов отображаем условный прогресс, чтобы кольцо выглядело завершенным
-            progress_map = {
-                'success': 90,
-                'warning': 65,
-                'danger': 35,
-                'secondary': 50,
-                'info': 75,
-            }
-            progress_percent = progress_map.get(status_type, 75)
-        elif status_type == 'tsb':
-            # TSB: -50 до +20 -> 0 до 100%
-            progress_percent = max(0, min(100, ((numeric_value + 50) / 70) * 100))
+        # Определяем статус и цвет
+        if status_type == 'tsb':
             if numeric_value > 5:
-                color = '#10B981'  # зеленый
-                status_badge = "Peak Form"
+                status = 'excellent'
+                color = '#10B981'
             elif numeric_value > -10:
-                color = '#3B82F6'  # синий
-                status_badge = "Fresh"
+                status = 'good'
+                color = '#F59E0B'
             elif numeric_value > -30:
-                color = '#F59E0B'  # желтый
-                status_badge = "Tired"
+                status = 'warning'
+                color = '#EF4444'
             else:
-                color = '#EF4444'  # красный
-                status_badge = "Overtrained"
+                status = 'critical'
+                color = '#991B1B'
+        elif status_type == 'hrv':
+            if numeric_value > 40:
+                status = 'excellent'
+                color = '#10B981'
+            elif numeric_value > 30:
+                status = 'good'
+                color = '#F59E0B'
+            else:
+                status = 'warning'
+                color = '#EF4444'
         elif status_type == 'readiness':
-            progress_percent = min(100, max(0, numeric_value))
             if numeric_value > 80:
-                color = '#10B981'  # зеленый
-                status_badge = "Ready"
+                status = 'excellent'
+                color = '#3B82F6'
             elif numeric_value > 60:
-                color = '#F59E0B'  # желтый
-                status_badge = "Caution"
+                status = 'good'
+                color = '#10B981'
             else:
-                color = '#EF4444'  # красный
-                status_badge = "Not Ready"
-        else:  # ctl
-            # CTL: 0 до 200 -> 0 до 100%
-            progress_percent = min(100, max(0, (numeric_value / 200) * 100))
-            color = '#8B5CF6'  # фиолетовый
-            status_badge = "Training Load"
+                status = 'warning'
+                color = '#F59E0B'
+        else:  # ctl и другие
+            status = 'good'
+            color = '#8B5CF6'
         
-        # Создаем круговой индикатор (упрощенный SVG) с адаптацией к теме
-        bg_circle_color = "rgba(100,100,100,0.3)" if theme['is_dark'] else "rgba(200,200,200,0.3)"
-        value_color = color
-        
-        circle_html = f"""
-        <div style="width: 120px; height: 120px; margin: 20px auto; position: relative;">
-            <svg width="120" height="120" viewBox="0 0 120 120" style="transform: rotate(-90deg);">
-                <circle cx="60" cy="60" r="50" fill="none" 
-                        stroke="{bg_circle_color}" stroke-width="8"/>
-                <circle cx="60" cy="60" r="50" fill="none" 
-                        stroke="{color}" stroke-width="8" 
-                        stroke-dasharray="{2 * 3.14159 * 50}" 
-                        stroke-dashoffset="{2 * 3.14159 * 50 * (1 - progress_percent / 100)}"
-                        stroke-linecap="round"/>
-            </svg>
-            <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); 
-                        text-align: center; font-size: 24px; font-weight: bold; color: {value_color};">
-                {value}
-            </div>
-        </div>
-        """
-        
-        # Тренд
         trend_html = ""
         if trend is not None:
             try:
-                # Если пришло число — отрисуем стрелку и величину
-                if isinstance(trend, (int, float)) or (isinstance(trend, str) and trend.replace('.', '', 1).replace('-', '', 1).isdigit()):
-                    trend_value = float(trend)
-                    trend_direction = "↗" if trend_value > 0 else "↘" if trend_value < 0 else "→"
-                    trend_text = f"{trend_direction} {abs(trend_value):.1f}"
-                elif isinstance(trend, str) and trend.strip():
-                    # Если пришла строка (например, '↗️') — показываем как есть
-                    trend_text = trend.strip()
-                else:
-                    trend_text = None
-
-                if trend_text:
-                    trend_html = (
-                        f"<div style=\"position: absolute; top: 15px; right: 15px; "
-                        f"           background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 12px;"
-                        f"           font-size: 12px; font-weight: bold; color: {color};\">{trend_text}</div>"
-                    )
+                trend_value = float(trend) if trend != 0 else 0
+                trend_direction = "📈" if trend_value > 0 else "📉" if trend_value < 0 else "➡️"
+                trend_html = f'''
+                <div style="position: absolute; top: 10px; right: 10px; font-size: 12px;">
+                    {trend_direction} {abs(trend_value):.1f}
+                </div>
+                '''
             except:
                 pass
         
-        # Статус бейдж
-        badge_html = (
-            f"<div style=\"text-align: center; margin: 10px 0;\">"
-            f"<span style=\"background: {color}; color: white; padding: 6px 12px; border-radius: 15px; font-size: 12px; font-weight: bold;\">{status_badge}</span>"
-            f"</div>"
-        )
+        desc_html = f'<div class="metric-description">{description}</div>' if description else ''
         
-        # AI Endurance стиль карточки с адаптацией к теме
-        bg_color = "rgba(30,30,30,0.95)" if theme['is_dark'] else "rgba(255,255,255,0.95)"
-        title_color = "#F5F5F5" if theme['is_dark'] else "#374151"
-        desc_color = "#A0A0A0" if theme['is_dark'] else "#6B7280"
-        box_shadow = "0 4px 20px rgba(255,255,255,0.1)" if theme['is_dark'] else "0 4px 20px rgba(0,0,0,0.1)"
-        
-        card_html = (
-            f"<div style=\"background: {bg_color}; border-radius: 20px; padding: 25px; "
-            f"            box-shadow: {box_shadow}; text-align: center; "
-            f"            position: relative; margin: 10px 0; height: 320px; border: 1px solid rgba(128,128,128,0.2);\">"
-            f"{trend_html}"
-            f"<div style=\"margin: 0 0 15px 0; color: {title_color}; font-size: 16px; font-weight: 600;\">{title}</div>"
-            f"{circle_html}"
-            f"{badge_html}"
-            f"<p style=\"margin: 10px 0 0 0; color: {desc_color}; font-size: 13px; line-height: 1.4;\">{(description or '')}</p>"
-            f"</div>"
-        )
+        card_html = f"""
+        <div class="metric-card status-{status}" style="position: relative; border-left: 4px solid {color};">
+            <div class="metric-label">{title}</div>
+            <div class="metric-value" style="color: {color};">{value}</div>
+            {desc_html}
+            {trend_html}
+        </div>
+        """
         
         st.markdown(card_html, unsafe_allow_html=True)
     
@@ -541,125 +474,61 @@ class ModernUI:
     def show_weekly_training_calendar():
         """Недельный календарь тренировок с адаптацией к теме"""
         
-        from datetime import datetime, timedelta
-        import pandas as pd
-
         theme = ModernUI.get_theme()
         st.markdown("### Тренировки на этой неделе")
-
-        # Определяем текущую неделю (Пн–Вс)
-        today = datetime.now().date()
-        week_start = today - timedelta(days=today.weekday())  # Понедельник
-        week_dates = [week_start + timedelta(days=i) for i in range(7)]
-        day_labels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
+        
+        days = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
         cols = st.columns(7)
-
-        # Загружаем активности за последние 14 дней (с запасом) и фильтруем по неделе
+        
+        # Получаем данные тренировок если есть база данных
         try:
-            activities_df = st.session_state.database.get_activities(14)
-        except Exception:
+            activities_df = st.session_state.database.get_activities(7)
+        except:
+            # Заглушка если нет базы данных
+            import pandas as pd
             activities_df = pd.DataFrame()
-
-        if not activities_df.empty and 'date' in activities_df.columns:
-            activities_df['date'] = pd.to_datetime(activities_df['date'], errors='coerce')
-            # Нормализуем до даты без времени
-            activities_df['date_only'] = activities_df['date'].dt.date
-            # Фильтр только на текущую неделю
-            activities_df = activities_df[(activities_df['date_only'] >= week_start) & (activities_df['date_only'] <= week_dates[-1])]
-        else:
-            activities_df = pd.DataFrame(columns=['date_only','sport','duration_minutes','distance_km'])
-
-        # Подготовка агрегатов по дням
-        by_day = {}
-        if not activities_df.empty:
-            # Заполняем NaN нулями для безопасных сумм
-            activities_df['distance_km'] = pd.to_numeric(activities_df.get('distance_km', 0), errors='coerce').fillna(0.0)
-            activities_df['duration_minutes'] = pd.to_numeric(activities_df.get('duration_minutes', 0), errors='coerce').fillna(0.0)
-
-            for d in week_dates:
-                day_df = activities_df[activities_df['date_only'] == d]
-                if day_df.empty:
-                    by_day[d] = None
-                else:
-                    # Главная активность (по длительности, затем по дистанции)
-                    main = day_df.sort_values(['duration_minutes','distance_km'], ascending=False).iloc[0].to_dict()
-                    total_distance = float(day_df['distance_km'].sum()) if 'distance_km' in day_df else 0.0
-                    total_duration = float(day_df['duration_minutes'].sum()) if 'duration_minutes' in day_df else 0.0
-                    count = len(day_df)
-                    by_day[d] = {
-                        'main': main,
-                        'total_distance': total_distance,
-                        'total_duration': total_duration,
-                        'count': count
-                    }
-
-        # Утилиты форматирования
-        def fmt_distance(km: float) -> str:
-            if km <= 0:
-                return "—"
-            return f"{km:.1f} км" if km >= 1 else f"{km*1000:.0f} м"
-
-        def fmt_duration(mins: float) -> str:
-            mins = int(round(mins or 0))
-            h, m = divmod(mins, 60)
-            return f"{h} ч {m} м" if h else f"{m} мин"
-
-        def sport_icon(name: str) -> str:
-            n = (name or '').lower()
-            if 'run' in n or 'бег' in n:
-                return '🏃‍♂️ Бег'
-            if 'ride' in n or 'cycle' in n or 'вел' in n:
-                return '🚴‍♂️ Велосипед'
-            if 'swim' in n or 'плав' in n:
-                return '🏊‍♂️ Плавание'
-            if 'walk' in n or 'ход' in n:
-                return '🚶 Ходьба'
-            if 'hike' in n or 'поход' in n:
-                return '🥾 Поход'
-            if 'row' in n:
-                return '🚣 Гребля'
-            if 'ski' in n:
-                return '🎿 Лыжи'
-            if 'strength' in n or 'сил' in n:
-                return '🏋️ Силовая'
-            return f"⚪ {name or 'Другое'}"
-
-        # Рендер по дням недели
-        for i, day_date in enumerate(week_dates):
-            day_label = day_labels[i]
+        
+        for i, day in enumerate(days):
             with cols[i]:
-                data = by_day.get(day_date)
-                if data:
+                # Определяем есть ли тренировка (заглушка для демо)
+                has_workout = i % 3 != 2  # Тренировки в Пн, Вт, Чт, Пт, Вс
+                
+                if has_workout:
+                    workout_type = ['Бег', 'Велосипед', 'Плавание'][i % 3]
                     bg_color = theme['surface_light']
                     text_color = theme['text_primary']
                     border_color = '#10B981'
-
-                    main = data['main']
-                    title = sport_icon(main.get('sport'))
-                    totals = f"{fmt_distance(data['total_distance'])} • {fmt_duration(data['total_duration'])}"
-                    more = f"+{data['count']-1} ещё" if data['count'] > 1 else ""
-
-                    card_html = (
-                        f"<div style=\"background: {bg_color}; border-radius: 15px; padding: 12px; height: 150px;"
-                        f"           border-left: 4px solid {border_color}; box-shadow: 0 2px 4px rgba(0,0,0,0.1);\">"
-                        f"  <div style=\"text-align: center; font-weight: 700; margin-bottom: 6px; color: {text_color};\">{day_label} {day_date.day:02d}.{day_date.month:02d}</div>"
-                        f"  <div style=\"margin-bottom: 6px; font-weight: 600; color: {text_color};\">{title}</div>"
-                        f"  <div style=\"font-size: 12px; color: {theme['text_secondary']};\">{totals}</div>"
-                        f"  <div style=\"font-size: 11px; color: {theme['text_secondary']}; margin-top: 6px;\">{more}</div>"
-                        f"</div>"
-                    )
-                    st.markdown(card_html, unsafe_allow_html=True)
+                    
+                    st.markdown(f"""
+                    <div style="background: {bg_color}; border-radius: 15px; 
+                               padding: 12px; height: 130px;
+                               border-left: 4px solid {border_color};
+                               box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <div style="text-align: center; font-weight: bold; 
+                                   margin-bottom: 8px; color: {text_color};">{day}</div>
+                        <div style="margin-bottom: 8px; font-weight: 500; color: {text_color};">
+                            {workout_type}
+                        </div>
+                        <div style="font-size: 12px; color: {theme['text_secondary']};">
+                            10 км<br>45 мин
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
                 else:
                     # День отдыха
                     bg_color = theme['surface_dark']
-                    text_color = 'white' if not theme['is_dark'] else theme['text_secondary']
-                    rest_html = (
-                        f"<div style=\"background: {bg_color}; border-radius: 15px; padding: 12px; height: 150px; box-shadow: 0 2px 4px rgba(0,0,0,0.1);\">"
-                        f"  <div style=\"text-align: center; color: {text_color}; font-weight: 700;\">{day_label} {day_date.day:02d}.{day_date.month:02d}</div>"
-                        f"  <div style=\"text-align: center; color: {text_color}; margin-top: 18px; font-size: 12px; opacity: 0.8;\">Отдых</div>"
-                        f"</div>"
-                    )
-                    st.markdown(rest_html, unsafe_allow_html=True)
+                    text_color = 'white' if not st.session_state.get('dark_mode', False) else theme['text_secondary']
+                    
+                    st.markdown(f"""
+                    <div style="background: {bg_color}; border-radius: 15px; 
+                               padding: 12px; height: 130px;
+                               box-shadow: 0 2px 4px rgba(0,0,0,0.1);">
+                        <div style="text-align: center; color: {text_color}; 
+                                   font-weight: bold; margin-top: 30px;">{day}</div>
+                        <div style="text-align: center; color: {text_color}; 
+                                   margin-top: 15px; font-size: 12px; opacity: 0.7;">Отдых</div>
+                    </div>
+                    """, unsafe_allow_html=True)
     
     @staticmethod
     def create_mini_trend_chart(data, title, color="#3B82F6", height=100):

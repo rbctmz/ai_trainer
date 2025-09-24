@@ -235,7 +235,7 @@ class AIDataContext:
         
         # Анализ времени сна
         if 'bedtime' in sleep_df.columns and not sleep_df['bedtime'].isna().all():
-            bedtimes = pd.to_datetime(sleep_df['bedtime'], errors='coerce').dt.hour
+            bedtimes = pd.to_datetime(sleep_df['bedtime'], format='%H:%M', errors='coerce').dt.hour
             patterns['avg_bedtime_hour'] = bedtimes.mean()
             patterns['bedtime_consistency'] = 24 - bedtimes.std() if not bedtimes.isna().all() else None
         

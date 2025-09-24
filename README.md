@@ -2,6 +2,13 @@
 
 Интеллектуальный анализатор тренировочных данных с интеграцией Garmin Connect для персонализированного планирования тренировок.
 
+## 📋 Требования
+
+- Python 3.10+ (проект проверен на 3.11)
+- `pip` и модуль `venv` для управления зависимостями
+- Учётная запись Garmin Connect (нужна для синхронизации данных)
+- API-ключ хотя бы одного AI‑провайдера из списка ниже
+
 ## 🚀 Быстрый старт
 
 ### 1. Установка зависимостей
@@ -21,7 +28,9 @@ pip install -r requirements.txt
 
 ### 2. Настройка окружения
 
-Создайте файл `.env` в корне проекта со следующими переменными:
+Создайте файл `.env` в корне проекта со следующими переменными. Обязателен только ключ провайдера, которого вы планируете использовать (хотя бы один из OpenAI/Anthropic/Gemini/Ollama). Остальные параметры можно оставить пустыми или удалить, если они вам не нужны.
+
+> 💡 Для совместной работы удобно держать шаблон `.env.example` без секретных данных и копировать его в `.env` при настройке.
 
 ```bash
 # AI Провайдеры (выберите один или несколько)
@@ -47,9 +56,21 @@ USER_MAX_HR=185                        # Максимальный пульс (у
 ./run.sh
 ```
 
+Если скрипт не исполняется, сделайте его и `setup_env.sh` исполняемыми: `chmod +x run.sh setup_env.sh`.
+
 #### Альтернативный запуск
 ```bash
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
+streamlit run app.py
+```
+
+```powershell
+# Windows PowerShell
+$env:PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION = "python"
+streamlit run app.py
+
+# Windows Command Prompt (cmd)
+set PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 streamlit run app.py
 ```
 
@@ -158,6 +179,10 @@ ai_trainer/
 
 ### Тестирование
 ```bash
+# Перед запуском тестов активируйте виртуальное окружение с зависимостями
+# source ai_trainer_env/bin/activate  (macOS/Linux)
+# ai_trainer_env\Scripts\activate     (Windows)
+
 # Запуск всех тестов
 python -m pytest tests/
 

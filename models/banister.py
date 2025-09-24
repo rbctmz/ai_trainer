@@ -194,3 +194,46 @@ class BanisterModel:
             future_tsb.append(tsb_sim)
         
         return future_dates, future_ctl, future_atl, future_tsb
+
+    def simulate_variable_load(self, current_metrics, daily_tss_sequence, start_date=None):
+        """Симуляция CTL/ATL/TSB по переменной ежедневной нагрузке (список float).
+        daily_tss_sequence: list[float] или list[(datetime, float)]
+        Возвращает (dates, ctl, atl, tsb).
+        """
+        import numpy as np
+        from datetime import datetime, timedelta
+
+        current_ctl = current_metrics.get('ctl', 0)
+        current_atl = current_metrics.get('atl', 0)
+
+        ctl_alpha = 1 - np.exp(-1/42)
+        atl_alpha = 1 - np.exp(-1/7)
+
+        dates = []
+        ctl_vals = []
+        atl_vals = []
+        tsb_vals = []
+
+        ctl_sim = float(current_ctl)
+        atl_sim = float(current_atl)
+        base_date = start_date or datetime.now()
+
+        for idx, item in enumerate(daily_tss_sequence):
+            if isinstance(item, (tuple, list)) and len(item) == 2:
+                dt, tss = item
+                dt = dt if isinstance(dt, datetime) else base_date + timedelta(days=idx)
+                load = float(tss or 0)
+            else:
+                dt = base_date + timedelta(days=idx)
+                load = float(item or 0)
+
+            ctl_sim = ctl_alpha * load + (1 - ctl_alpha) * ctl_sim
+            atl_sim = atl_alpha * load + (1 - atl_alpha) * atl_sim
+            tsb_sim = ctl_sim - atl_sim
+
+            dates.append(dt)
+            ctl_vals.append(ctl_sim)
+            atl_vals.append(atl_sim)
+            tsb_vals.append(tsb_sim)
+
+        return dates, ctl_vals, atl_vals, tsb_vals

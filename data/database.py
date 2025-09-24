@@ -157,7 +157,7 @@ class Database:
         # Преобразование даты в datetime если она есть  
         if not df.empty and 'date' in df.columns:
             # Обрабатываем смешанные форматы дат
-            df['date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
+            df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d', errors='coerce')
         
         return df
     
@@ -187,7 +187,7 @@ class Database:
         
         # Преобразование даты в datetime, если данные есть
         if not df.empty and 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'], errors='coerce')
+            df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d', errors='coerce')
         
         return df
     
@@ -727,7 +727,7 @@ class Database:
         
         # Преобразование даты в datetime если она есть  
         if not df.empty and 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
+            df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d', errors='coerce')
         
         return df
     
@@ -753,7 +753,7 @@ class Database:
         
         # Преобразование даты в datetime если она есть  
         if not df.empty and 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
+            df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d', errors='coerce')
         
         return df
     
@@ -779,6 +779,6 @@ class Database:
         
         # Преобразование даты в datetime если она есть  
         if not df.empty and 'date' in df.columns:
-            df['date'] = pd.to_datetime(df['date'], format='mixed', errors='coerce')
+            df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d', errors='coerce')
         
         return df

@@ -48,3 +48,6 @@ class Settings:
     # HRV пороги
     HRV_DFA_AEROBIC_THRESHOLD = 0.75
     HRV_DFA_ANAEROBIC_THRESHOLD = 0.5
+
+    # Garmin FIT SDK (опционально) — путь к FitCSVTool.jar для сборки .fit из CSV
+    FIT_SDK_JAR = os.getenv("FIT_SDK_JAR", "")
