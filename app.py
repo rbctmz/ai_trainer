@@ -4,14 +4,23 @@ from datetime import datetime, timedelta
 import os
 import plotly.express as px
 import plotly.graph_objects as go
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Импорты наших модулей
-from data.garmin_client import GarminClient
-from data.database import Database
 from data.data_processor import ActivityProcessor
 from models.banister import BanisterModel
 from utils.visualizations import Visualizations
 from config.settings import Settings
+from state import StateManager, get_state_manager
+from ui.theme import apply_theme, create_dark_table_html, get_plotly_theme
+from ui.navigation import (
+    render_primary_navigation,
+    render_sidebar_navigation,
+    render_sidebar_utilities,
+)
+from services import garmin as garmin_service
 
 st.set_page_config(
     page_title="AI Trainer",
@@ -19,6 +28,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+logger = logging.getLogger(__name__)
 
 def responsive_columns(num_items, mobile_cols=1, desktop_cols=None):
     """
@@ -66,1202 +77,228 @@ def format_date(date_obj, format_type='display'):
     else:
         return str(date_obj)
 
-def get_plotly_theme():
-    """Получение темы для графиков Plotly"""
-    if st.session_state.get('dark_mode', False):
-        return {
-            'template': 'plotly_dark',
-            'paper_bgcolor': '#121212',  # Material Design dark background
-            'plot_bgcolor': '#1E1E1E',   # Surface color
-            'font_color': '#F5F5F5',     # High contrast text
-            'gridcolor': '#2B2B2B'       # Proper divider color
-        }
-    else:
-        return {
-            'template': 'plotly_white',
-            'paper_bgcolor': 'white',
-            'plot_bgcolor': 'white',
-            'font_color': '#262730',
-            'gridcolor': '#e0e0e0'
-        }
-
-def create_dark_table_html(df, max_height=400):
-    """Создает HTML таблицу для темной темы"""
-    html_table = f"""
-    <div style="background-color: #1E1E1E; border: 1px solid #2B2B2B; border-radius: 8px; padding: 10px; max-height: {max_height}px; overflow-y: auto;">
-    <table style="width: 100%; color: #F5F5F5; border-collapse: collapse;">
-    <thead>
-    <tr style="background-color: #2B2B2B;">
-    """
-    
-    # Добавляем заголовки
-    for col in df.columns:
-        html_table += f'<th style="padding: 8px; border: 1px solid #2B2B2B; color: #F5F5F5; font-weight: bold; text-align: left;">{col}</th>'
-    html_table += "</tr></thead><tbody>"
-    
-    # Добавляем строки данных
-    for idx, row in df.iterrows():
-        bg_color = "#1A1A1A" if idx % 2 == 1 else "#1E1E1E"
-        html_table += f'<tr style="background-color: {bg_color};">'
-        for value in row:
-            html_table += f'<td style="padding: 8px; border: 1px solid #2B2B2B; color: #F5F5F5;">{value}</td>'
-        html_table += "</tr>"
-    
-    html_table += "</tbody></table></div>"
-    return html_table
-
-def apply_plotly_theme(fig):
-    """Применяет тему к графику Plotly"""
-    theme = get_plotly_theme()
-    fig.update_layout(
-        template=theme['template'],
-        paper_bgcolor=theme['paper_bgcolor'],
-        plot_bgcolor=theme['plot_bgcolor'],
-        font=dict(color=theme['font_color']),
-        xaxis=dict(gridcolor=theme['gridcolor']),
-        yaxis=dict(gridcolor=theme['gridcolor'])
-    )
-    return fig
-
-def apply_theme():
-    """Применение темной или светлой темы"""
-    if 'dark_mode' not in st.session_state:
-        # Пытаемся загрузить сохраненное предпочтение
-        st.session_state.dark_mode = False
-        
-    # JavaScript для сохранения/загрузки темы из localStorage
-    st.markdown(f"""
-    <script>
-        // Сохраняем текущую тему
-        localStorage.setItem('aitrainer_dark_mode', '{str(st.session_state.dark_mode).lower()}');
-    </script>
-    """, unsafe_allow_html=True)
-    
-    if st.session_state.dark_mode:
-        # Темная тема
-        st.markdown("""
-        <style>
-        :root {
-            /* Material Design темная палитра - WCAG AA совместимая */
-            --background-color: #121212;     /* Material Dark background */
-            --surface-1-color: #1E1E1E;     /* Surface elevation 1 */
-            --surface-2-color: #262626;     /* Surface elevation 2 */
-            --surface-3-color: #2D2D2D;     /* Surface elevation 3 */
-            --border-color: #2B2B2B;        /* Dividers/borders */
-            --hover-color: #333333;         /* Hover state */
-            
-            --accent-color: #5C6BC0;        /* Material indigo accent */
-            --accent-color-hover: #7986CB;  /* Lighter indigo for hover */
-            --accent-secondary: #4F83CC;    /* Secondary accent blue */
-            
-            --text-primary-color: #F5F5F5;  /* High contrast primary text */
-            --text-secondary-color: #A0A0A0; /* Secondary text */
-            --text-disabled-color: #707070; /* Disabled text */
-            
-            --success-bg-color: #1B5E20;    /* Material green dark */
-            --warning-bg-color: #E65100;    /* Material orange dark */
-            --error-bg-color: #C62828;      /* Material red dark */
-            --info-bg-color: #1565C0;       /* Material blue dark */
-        }
-
-        /* Основные стили */
-        .stApp {
-            background-color: var(--background-color);
-            color: var(--text-primary-color);
-        }
-        
-        /* Боковая панель */
-        section[data-testid="stSidebar"] {
-            background-color: var(--surface-1-color);
-            border-right: 1px solid var(--border-color);
-        }
-        
-        /* Метрики */
-        [data-testid="metric-container"] {
-            background-color: var(--surface-1-color);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 12px;
-        }
-        [data-testid="metric-container"] .stMetricValue {
-            color: var(--accent-color); /* Акцентный цвет для значения метрики */
-        }
-        
-        /* Эк��пандеры */
-        .streamlit-expanderHeader {
-            background-color: var(--surface-1-color);
-            color: var(--text-primary-color) !important;
-            border-radius: 8px;
-        }
-        .streamlit-expanderContent {
-            background-color: var(--surface-1-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        /* Таблицы */
-        .dataframe, div[data-testid="stDataFrame"] {
-            background-color: var(--surface-1-color) !important;
-            border: 1px solid var(--border-color) !important;
-            border-radius: 8px !important;
-        }
-        
-        /* Заголовки таблиц */
-        .dataframe thead tr th,
-        div[data-testid="stDataFrame"] thead tr th,
-        .stDataFrame thead tr th {
-            background-color: var(--surface-2-color) !important;
-            color: var(--text-primary-color) !important;
-            border-bottom: 1px solid var(--border-color) !important;
-            border-right: 1px solid var(--border-color) !important;
-        }
-        
-        /* Строки таблиц */
-        .dataframe tbody tr,
-        div[data-testid="stDataFrame"] tbody tr,
-        .stDataFrame tbody tr {
-            background-color: var(--surface-1-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Ячейки таблиц */
-        .dataframe tbody tr td,
-        div[data-testid="stDataFrame"] tbody tr td,
-        .stDataFrame tbody tr td {
-            background-color: var(--surface-1-color) !important;
-            color: var(--text-primary-color) !important;
-            border-right: 1px solid var(--border-color) !important;
-            border-bottom: 1px solid var(--border-color) !important;
-        }
-        
-        /* Hover эффект */
-        .dataframe tbody tr:hover,
-        div[data-testid="stDataFrame"] tbody tr:hover,
-        .stDataFrame tbody tr:hover {
-            background-color: var(--hover-color) !important;
-        }
-        
-        .dataframe tbody tr:hover td,
-        div[data-testid="stDataFrame"] tbody tr:hover td,
-        .stDataFrame tbody tr:hover td {
-            background-color: var(--hover-color) !important;
-        }
-        
-        /* Альтернативные строки */
-        .dataframe tbody tr:nth-child(even),
-        div[data-testid="stDataFrame"] tbody tr:nth-child(even),
-        .stDataFrame tbody tr:nth-child(even) {
-            background-color: #1A1A1A !important;
-        }
-        
-        .dataframe tbody tr:nth-child(even) td,
-        div[data-testid="stDataFrame"] tbody tr:nth-child(even) td,
-        .stDataFrame tbody tr:nth-child(even) td {
-            background-color: #1A1A1A !important;
-        }
-        
-        /* Специальная стилизация для Streamlit dataframes */
-        div[data-testid="stDataFrame"] {
-            background-color: var(--surface-1-color) !important;
-            border-radius: 8px !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        div[data-testid="stDataFrame"] > div {
-            background-color: var(--surface-1-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Все элементы внутри dataframe */
-        div[data-testid="stDataFrame"] *,
-        div[data-testid="stDataFrame"] table,
-        div[data-testid="stDataFrame"] thead,
-        div[data-testid="stDataFrame"] tbody,
-        div[data-testid="stDataFrame"] tr,
-        div[data-testid="stDataFrame"] th,
-        div[data-testid="stDataFrame"] td {
-            background-color: var(--surface-1-color) !important;
-            color: var(--text-primary-color) !important;
-            border-color: var(--border-color) !important;
-        }
-        
-        /* Заголовки dataframe */
-        div[data-testid="stDataFrame"] thead th,
-        div[data-testid="stDataFrame"] .stDataFrame th {
-            background-color: var(--surface-2-color) !important;
-            color: var(--text-primary-color) !important;
-            font-weight: 600 !important;
-        }
-        
-        /* Строки с данными */
-        div[data-testid="stDataFrame"] tbody tr:nth-child(odd) td {
-            background-color: var(--surface-1-color) !important;
-        }
-        
-        div[data-testid="stDataFrame"] tbody tr:nth-child(even) td {
-            background-color: #1A1A1A !important;
-        }
-        
-        /* Принудительное переопределение всех стилей таблицы */
-        .stDataFrame, .stDataFrame * {
-            background-color: var(--surface-1-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        .stDataFrame thead th {
-            background-color: var(--surface-2-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Самые агрессивные правила для dataframe */
-        div[data-testid="stDataFrame"] div,
-        div[data-testid="stDataFrame"] div div,
-        div[data-testid="stDataFrame"] div div div {
-            background-color: var(--surface-1-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Переопределение цветов текста и фона для всех вложенных элементов */
-        [data-testid="stDataFrame"] span,
-        [data-testid="stDataFrame"] p,
-        [data-testid="stDataFrame"] div,
-        [data-testid="stDataFrame"] * {
-            color: var(--text-primary-color) !important;
-            background-color: transparent !important;
-        }
-        
-        /* Специфичные правила для ячеек таблицы в темной теме */
-        div[data-testid="stDataFrame"] [role="gridcell"],
-        div[data-testid="stDataFrame"] [role="columnheader"] {
-            background-color: var(--surface-1-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Дополнительное принудительное переопределение для Streamlit dataframes */
-        section[data-testid="stDataFrame"] {
-            background-color: var(--surface-1-color) !important;
-            border-radius: 8px !important;
-        }
-        
-        /* Переопределение всех возможных селекторов для dataframe */
-        .stDataFrame table tbody tr td,
-        .stDataFrame table thead tr th,
-        div[data-testid="stDataFrame"] table tbody tr td,
-        div[data-testid="stDataFrame"] table thead tr th {
-            background-color: var(--surface-1-color) !important;
-            color: var(--text-primary-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        .stDataFrame table thead tr th,
-        div[data-testid="stDataFrame"] table thead tr th {
-            background-color: var(--surface-2-color) !important;
-        }
-        
-        /* Переопределение цветов для чередующихся строк */
-        .stDataFrame table tbody tr:nth-child(even) td,
-        div[data-testid="stDataFrame"] table tbody tr:nth-child(even) td {
-            background-color: #1A1A1A !important;
-        }
-        
-        /* Кнопки */
-        .stButton > button {
-            background-color: var(--surface-2-color);
-            color: var(--text-primary-color);
-            border: 1px solid var(--border-color);
-        }
-        .stButton > button:hover {
-            background-color: var(--hover-color);
-            border: 1px solid var(--accent-color);
-        }
-        .stButton > button:focus {
-            box-shadow: 0 0 0 2px var(--accent-color);
-        }
-        
-        /* Поля ввода */
-        .stTextInput > div > div > input,
-        .stSelectbox > div > div,
-        .stTextArea > div > div > textarea,
-        .stNumberInput > div > div > input {
-            background-color: var(--surface-1-color) !important;
-            color: var(--text-primary-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        /* Вкладки */
-        .stTabs [data-baseweb="tab-list"] {
-            background-color: var(--surface-1-color);
-            border-radius: 8px;
-        }
-        .stTabs [data-baseweb="tab"] {
-            background-color: var(--surface-2-color);
-            color: var(--text-primary-color);
-            border: 1px solid var(--border-color);
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: var(--accent-color);
-            border: 1px solid var(--accent-color);
-        }
-        
-        /* Текст и типография */
-        .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-            color: var(--text-primary-color) !important;
-        }
-        .stCaption {
-            color: var(--text-secondary-color) !important;
-        }
-        a, .stMarkdown a {
-            color: var(--accent-color) !important;
-        }
-        a:hover, .stMarkdown a:hover {
-            color: var(--accent-color-hover) !important;
-        }
-        
-        /* Уведомления */
-        .stAlert {
-            background-color: var(--surface-1-color);
-            border: 1px solid var(--border-color);
-        }
-        .stInfo { background-color: var(--info-bg-color) !important; }
-        .stWarning { background-color: var(--warning-bg-color) !important; }
-        .stError { background-color: var(--error-bg-color) !important; }
-        .stSuccess { background-color: var(--success-bg-color) !important; }
-        
-        /* Чат */
-        .stChatInput > div > div > textarea,
-        .stChatInputContainer textarea {
-            background-color: var(--surface-1-color) !important;
-            color: var(--text-primary-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        div[data-testid="stChatInput"] {
-            background-color: var(--surface-1-color) !important;
-            border: 1px solid var(--border-color) !important;
-            border-radius: 25px !important;
-        }
-        .stChatMessage {
-            background-color: var(--surface-1-color);
-            border-radius: 10px !important;
-        }
-        [data-testid="chatAvatarIcon-assistant"] {
-            background-color: var(--accent-color) !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-    else:
-        # Светлая тема (стандартная)
-        st.markdown("""
-        <style>
-        :root {
-            /* Светлая тема - Material Design палитра */
-            --background-color: #ffffff;
-            --surface-1-color: #f5f5f5;
-            --surface-2-color: #e8e8e8;
-            --surface-3-color: #d4d4d4;
-            --border-color: #e0e0e0;
-            --hover-color: #f0f0f0;
-            
-            --accent-color: #1976d2;
-            --accent-color-hover: #1565c0;
-            --accent-secondary: #1e88e5;
-            
-            --text-primary-color: #212121;
-            --text-secondary-color: #757575;
-            --text-disabled-color: #bdbdbd;
-            
-            --success-bg-color: #c8e6c9;
-            --warning-bg-color: #ffecb3;
-            --error-bg-color: #ffcdd2;
-            --info-bg-color: #bbdefb;
-        }
-
-        /* Основные стили */
-        .stApp {
-            background-color: var(--background-color);
-            color: var(--text-primary-color);
-        }
-        
-        /* Боковая панель - ИСПРАВЛЕНИЕ ДЛЯ СВЕТЛОЙ ТЕМЫ */
-        section[data-testid="stSidebar"] {
-            background-color: var(--surface-1-color) !important;
-            border-right: 1px solid var(--border-color) !important;
-        }
-        
-        /* Весь текст в сайдбаре должен быть тёмным */
-        section[data-testid="stSidebar"] * {
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Заголовки в сайдбаре */
-        section[data-testid="stSidebar"] h1,
-        section[data-testid="stSidebar"] h2, 
-        section[data-testid="stSidebar"] h3,
-        section[data-testid="stSidebar"] .stMarkdown h1,
-        section[data-testid="stSidebar"] .stMarkdown h2,
-        section[data-testid="stSidebar"] .stMarkdown h3 {
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Параграфы и обычный текст в сайдбаре */
-        section[data-testid="stSidebar"] p,
-        section[data-testid="stSidebar"] .stMarkdown p,
-        section[data-testid="stSidebar"] .stMarkdown,
-        section[data-testid="stSidebar"] span,
-        section[data-testid="stSidebar"] div {
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Selectbox в сайдбаре */
-        section[data-testid="stSidebar"] .stSelectbox label,
-        section[data-testid="stSidebar"] .stSelectbox > div > div,
-        section[data-testid="stSidebar"] .stSelectbox select,
-        section[data-testid="stSidebar"] .stSelectbox [data-baseweb="select"] {
-            color: var(--text-primary-color) !important;
-            background-color: var(--background-color) !important;
-        }
-        
-        /* Выпадающий список в selectbox */
-        section[data-testid="stSidebar"] .stSelectbox [role="listbox"],
-        section[data-testid="stSidebar"] .stSelectbox [role="option"] {
-            color: var(--text-primary-color) !important;
-            background-color: var(--background-color) !important;
-        }
-        
-        /* Expander в сайдбаре */
-        section[data-testid="stSidebar"] .streamlit-expanderHeader {
-            color: var(--text-primary-color) !important;
-            background-color: var(--surface-2-color) !important;
-        }
-        
-        section[data-testid="stSidebar"] .streamlit-expanderContent {
-            background-color: var(--background-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        /* Все элементы внутри expander в сайдбаре */
-        section[data-testid="stSidebar"] .streamlit-expanderHeader *,
-        section[data-testid="stSidebar"] .streamlit-expanderContent * {
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Специальные правила для expander заголовков */
-        section[data-testid="stSidebar"] details summary {
-            color: var(--text-primary-color) !important;
-            background-color: var(--surface-1-color) !important;
-        }
-        
-        section[data-testid="stSidebar"] details summary:hover {
-            background-color: var(--hover-color) !important;
-        }
-        
-        /* АГРЕССИВНЫЕ ПРАВИЛА для всех expander элементов */
-        section[data-testid="stSidebar"] [data-testid="stExpander"],
-        section[data-testid="stSidebar"] [data-testid="stExpander"] *,
-        section[data-testid="stSidebar"] .streamlit-expander,
-        section[data-testid="stSidebar"] .streamlit-expander * {
-            color: var(--text-primary-color) !important;
-        }
-        
-        section[data-testid="stSidebar"] [data-testid="stExpanderToggleIcon"] {
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Кнопки в сайдбаре */
-        section[data-testid="stSidebar"] .stButton > button {
-            color: var(--text-primary-color) !important;
-            background-color: var(--background-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        section[data-testid="stSidebar"] .stButton > button:hover {
-            background-color: var(--hover-color) !important;
-            border: 1px solid var(--accent-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Кнопка переключения темы - МАКСИМАЛЬНО АГРЕССИВНЫЕ ПРАВИЛА */
-        section[data-testid="stSidebar"] button[title="Переключить тему"],
-        section[data-testid="stSidebar"] .stButton button[title="Переключить тему"],
-        section[data-testid="stSidebar"] .stButton > button[title="Переключить тему"],
-        section[data-testid="stSidebar"] button[data-testid*="theme"],
-        section[data-testid="stSidebar"] button[key="theme_toggle"] {
-            color: var(--text-primary-color) !important;
-            background: var(--background-color) !important;
-            background-color: var(--background-color) !important;
-            border: 1px solid var(--border-color) !important;
-            box-shadow: none !important;
-        }
-        
-        section[data-testid="stSidebar"] button[title="Переключить тему"]:hover,
-        section[data-testid="stSidebar"] .stButton button[title="Переключить тему"]:hover,
-        section[data-testid="stSidebar"] .stButton > button[title="Переключить тему"]:hover,
-        section[data-testid="stSidebar"] button[data-testid*="theme"]:hover,
-        section[data-testid="stSidebar"] button[key="theme_toggle"]:hover {
-            background: var(--hover-color) !important;
-            background-color: var(--hover-color) !important;
-            border: 1px solid var(--accent-color) !important;
-            color: var(--text-primary-color) !important;
-            box-shadow: none !important;
-        }
-        
-        /* СУПЕР-АГРЕССИВНОЕ правило для кнопки переключения темы */
-        section[data-testid="stSidebar"] div:nth-child(2) button {
-            color: var(--text-primary-color) !important;
-            background: var(--background-color) !important;
-            background-color: var(--background-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        /* TextInput в сайдбаре */
-        section[data-testid="stSidebar"] .stTextInput > div > div > input,
-        section[data-testid="stSidebar"] .stTextInput label {
-            color: var(--text-primary-color) !important;
-            background-color: var(--background-color) !important;
-        }
-        
-        /* Кнопка показать/скрыть пароль - МАКСИМАЛЬНО АГРЕССИВНЫЕ ПРАВИЛА */
-        section[data-testid="stSidebar"] .stTextInput button,
-        section[data-testid="stSidebar"] .stTextInput [data-baseweb="button"],
-        section[data-testid="stSidebar"] .stTextInput div button,
-        section[data-testid="stSidebar"] .stTextInput > div > div > button,
-        section[data-testid="stSidebar"] input[type="password"] + button,
-        section[data-testid="stSidebar"] [data-testid="baseButton-secondary"],
-        section[data-testid="stSidebar"] [role="button"] {
-            color: var(--text-primary-color) !important;
-            background: var(--background-color) !important;
-            background-color: var(--background-color) !important;
-            border: 1px solid var(--border-color) !important;
-            box-shadow: none !important;
-        }
-        
-        section[data-testid="stSidebar"] .stTextInput button:hover,
-        section[data-testid="stSidebar"] .stTextInput [data-baseweb="button"]:hover,
-        section[data-testid="stSidebar"] .stTextInput div button:hover,
-        section[data-testid="stSidebar"] .stTextInput > div > div > button:hover,
-        section[data-testid="stSidebar"] input[type="password"] + button:hover,
-        section[data-testid="stSidebar"] [data-testid="baseButton-secondary"]:hover,
-        section[data-testid="stSidebar"] [role="button"]:hover {
-            background: var(--hover-color) !important;
-            background-color: var(--hover-color) !important;
-            color: var(--text-primary-color) !important;
-            box-shadow: none !important;
-        }
-        
-        /* Дополнительные правила для любых SVG иконок в кнопках */
-        section[data-testid="stSidebar"] button svg,
-        section[data-testid="stSidebar"] [role="button"] svg,
-        section[data-testid="stSidebar"] .stTextInput svg {
-            fill: var(--text-primary-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Уведомления в сайдбаре */
-        section[data-testid="stSidebar"] .stSuccess,
-        section[data-testid="stSidebar"] .stError,
-        section[data-testid="stSidebar"] .stWarning,
-        section[data-testid="stSidebar"] .stInfo {
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Метрики */
-        [data-testid="metric-container"] {
-            background-color: var(--background-color);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 12px;
-        }
-        [data-testid="metric-container"] .stMetricValue {
-            color: var(--accent-color);
-        }
-        
-        /* Эспандеры */
-        .streamlit-expanderHeader {
-            background-color: var(--surface-1-color);
-            color: var(--text-primary-color) !important;
-            border-radius: 8px;
-        }
-        .streamlit-expanderContent {
-            background-color: var(--background-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        /* Таблицы */
-        .dataframe, div[data-testid="stDataFrame"] {
-            background-color: var(--background-color) !important;
-            border: 1px solid var(--border-color) !important;
-            border-radius: 8px !important;
-        }
-        
-        .dataframe thead tr th,
-        div[data-testid="stDataFrame"] thead tr th,
-        .stDataFrame thead tr th {
-            background-color: var(--surface-2-color) !important;
-            color: var(--text-primary-color) !important;
-            border-bottom: 1px solid var(--border-color) !important;
-            border-right: 1px solid var(--border-color) !important;
-        }
-        
-        .dataframe tbody tr,
-        div[data-testid="stDataFrame"] tbody tr,
-        .stDataFrame tbody tr {
-            background-color: var(--background-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        .dataframe tbody tr td,
-        div[data-testid="stDataFrame"] tbody tr td,
-        .stDataFrame tbody tr td {
-            background-color: var(--background-color) !important;
-            color: var(--text-primary-color) !important;
-            border-right: 1px solid var(--border-color) !important;
-            border-bottom: 1px solid var(--border-color) !important;
-        }
-        
-        .dataframe tbody tr:hover,
-        div[data-testid="stDataFrame"] tbody tr:hover,
-        .stDataFrame tbody tr:hover {
-            background-color: var(--hover-color) !important;
-        }
-        
-        .dataframe tbody tr:hover td,
-        div[data-testid="stDataFrame"] tbody tr:hover td,
-        .stDataFrame tbody tr:hover td {
-            background-color: var(--hover-color) !important;
-        }
-        
-        .dataframe tbody tr:nth-child(even),
-        div[data-testid="stDataFrame"] tbody tr:nth-child(even),
-        .stDataFrame tbody tr:nth-child(even) {
-            background-color: var(--surface-1-color) !important;
-        }
-        
-        .dataframe tbody tr:nth-child(even) td,
-        div[data-testid="stDataFrame"] tbody tr:nth-child(even) td,
-        .stDataFrame tbody tr:nth-child(even) td {
-            background-color: var(--surface-1-color) !important;
-        }
-        
-        /* Кнопки */
-        .stButton > button {
-            background-color: var(--background-color);
-            color: var(--text-primary-color);
-            border: 1px solid var(--border-color);
-        }
-        .stButton > button:hover {
-            background-color: var(--hover-color);
-            border: 1px solid var(--accent-color);
-        }
-        .stButton > button:focus {
-            box-shadow: 0 0 0 2px var(--accent-color);
-        }
-        
-        /* Поля ввода */
-        .stTextInput > div > div > input,
-        .stSelectbox > div > div,
-        .stTextArea > div > div > textarea,
-        .stNumberInput > div > div > input {
-            background-color: var(--background-color) !important;
-            color: var(--text-primary-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        /* Вкладки */
-        .stTabs [data-baseweb="tab-list"] {
-            background-color: var(--surface-1-color);
-            border-radius: 8px;
-        }
-        .stTabs [data-baseweb="tab"] {
-            background-color: var(--background-color);
-            color: var(--text-primary-color);
-            border: 1px solid var(--border-color);
-        }
-        .stTabs [aria-selected="true"] {
-            background-color: var(--accent-color);
-            color: white;
-            border: 1px solid var(--accent-color);
-        }
-        
-        /* Текст и типография */
-        .stMarkdown, .stMarkdown p, .stMarkdown li, .stMarkdown h1, .stMarkdown h2, .stMarkdown h3 {
-            color: var(--text-primary-color) !important;
-        }
-        .stCaption {
-            color: var(--text-secondary-color) !important;
-        }
-        a, .stMarkdown a {
-            color: var(--accent-color) !important;
-        }
-        a:hover, .stMarkdown a:hover {
-            color: var(--accent-color-hover) !important;
-        }
-        
-        /* Уведомления */
-        .stAlert {
-            background-color: var(--surface-1-color);
-            border: 1px solid var(--border-color);
-            color: var(--text-primary-color);
-        }
-        .stInfo { 
-            background-color: var(--info-bg-color) !important; 
-            color: var(--text-primary-color) !important;
-        }
-        .stWarning { 
-            background-color: var(--warning-bg-color) !important;
-            color: var(--text-primary-color) !important; 
-        }
-        .stError { 
-            background-color: var(--error-bg-color) !important;
-            color: var(--text-primary-color) !important; 
-        }
-        .stSuccess { 
-            background-color: var(--success-bg-color) !important;
-            color: var(--text-primary-color) !important; 
-        }
-        
-        /* Чат */
-        .stChatInput > div > div > textarea,
-        .stChatInputContainer textarea {
-            background-color: var(--background-color) !important;
-            color: var(--text-primary-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        div[data-testid="stChatInput"] {
-            background-color: var(--background-color) !important;
-            border: 1px solid var(--border-color) !important;
-            border-radius: 25px !important;
-        }
-        .stChatMessage {
-            background-color: var(--surface-1-color);
-            border-radius: 10px !important;
-            color: var(--text-primary-color);
-        }
-        [data-testid="chatAvatarIcon-assistant"] {
-            background-color: var(--accent-color) !important;
-        }
-        
-        /* ФИНАЛЬНОЕ СУПЕР-АГРЕССИВНОЕ правило для всех кнопок в сайдбаре */
-        section[data-testid="stSidebar"] button,
-        section[data-testid="stSidebar"] [role="button"],
-        section[data-testid="stSidebar"] [data-baseweb="button"] {
-            color: var(--text-primary-color) !important;
-            background: var(--background-color) !important;
-            background-color: var(--background-color) !important;
-            border: 1px solid var(--border-color) !important;
-            box-shadow: none !important;
-        }
-        
-        section[data-testid="stSidebar"] button:hover,
-        section[data-testid="stSidebar"] [role="button"]:hover,
-        section[data-testid="stSidebar"] [data-baseweb="button"]:hover {
-            background: var(--hover-color) !important;
-            background-color: var(--hover-color) !important;
-            color: var(--text-primary-color) !important;
-            border: 1px solid var(--accent-color) !important;
-            box-shadow: none !important;
-        }
-        
-        /* Убираем любые focus состояния */
-        section[data-testid="stSidebar"] button:focus,
-        section[data-testid="stSidebar"] [role="button"]:focus,
-        section[data-testid="stSidebar"] [data-baseweb="button"]:focus {
-            background: var(--background-color) !important;
-            background-color: var(--background-color) !important;
-            color: var(--text-primary-color) !important;
-            border: 1px solid var(--border-color) !important;
-            box-shadow: none !important;
-            outline: none !important;
-        }
-        
-        /* Убираем любые active состояния */
-        section[data-testid="stSidebar"] button:active,
-        section[data-testid="stSidebar"] [role="button"]:active,
-        section[data-testid="stSidebar"] [data-baseweb="button"]:active {
-            background: var(--hover-color) !important;
-            background-color: var(--hover-color) !important;
-            color: var(--text-primary-color) !important;
-            border: 1px solid var(--accent-color) !important;
-            box-shadow: none !important;
-        }
-        
-        /* ВЫПАДАЮЩИЕ СПИСКИ SELECTBOX - ГЛОБАЛЬНЫЕ ПРАВИЛА */
-        [data-baseweb="popover"],
-        [data-baseweb="menu"],
-        [role="listbox"],
-        [role="option"],
-        .stSelectbox [data-baseweb="popover"],
-        .stSelectbox [data-baseweb="menu"],
-        .stSelectbox [role="listbox"],
-        .stSelectbox [role="option"] {
-            background-color: var(--background-color) !important;
-            color: var(--text-primary-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        /* Выпадающие списки - элементы опций */
-        [role="option"]:hover,
-        .stSelectbox [role="option"]:hover,
-        [data-baseweb="menu-item"]:hover {
-            background-color: var(--hover-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Выпадающие списки - выбранные элементы */
-        [role="option"][aria-selected="true"],
-        .stSelectbox [role="option"][aria-selected="true"],
-        [data-baseweb="menu-item"][aria-selected="true"] {
-            background-color: var(--accent-color) !important;
-            color: white !important;
-        }
-        
-        /* ДОПОЛНИТЕЛЬНЫЕ ПРАВИЛА ДЛЯ ВСЕХ ВОЗМОЖНЫХ ВЫПАДАЮЩИХ ЭЛЕМЕНТОВ */
-        /* Streamlit использует разные библиотеки для dropdown */
-        [data-baseweb="select"] [role="listbox"],
-        [data-baseweb="select"] [data-baseweb="list"],
-        [data-baseweb="select"] ul,
-        [data-baseweb="select"] li,
-        [data-testid="stSelectbox-results"],
-        .stSelectbox ul,
-        .stSelectbox li,
-        div[data-baseweb*="select"] > div,
-        div[data-baseweb*="dropdown"] > div {
-            background-color: var(--background-color) !important;
-            color: var(--text-primary-color) !important;
-            border-color: var(--border-color) !important;
-        }
-        
-        /* Для всех элементов списков */
-        [data-baseweb="select"] li:hover,
-        [data-baseweb="list-item"]:hover,
-        .stSelectbox li:hover {
-            background-color: var(--hover-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        /* Портальные элементы (которые рендерятся вне DOM структуры) */
-        body > div[data-baseweb="popover"],
-        body > div[data-baseweb="menu"],
-        body > div[role="dialog"],
-        body > div[data-baseweb="layer"] {
-            background-color: var(--background-color) !important;
-            border: 1px solid var(--border-color) !important;
-        }
-        
-        /* Все текстовые элементы в портальных компонентах */
-        body > div[data-baseweb="popover"] *,
-        body > div[data-baseweb="menu"] *,
-        body > div[role="dialog"] *,
-        body > div[data-baseweb="layer"] * {
-            color: var(--text-primary-color) !important;
-            background-color: transparent !important;
-        }
-        
-        /* Элементы опций в портальных компонентах */
-        body > div[data-baseweb="popover"] [role="option"],
-        body > div[data-baseweb="menu"] [role="option"],
-        body > div[data-baseweb="popover"] li,
-        body > div[data-baseweb="menu"] li {
-            background-color: var(--background-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        
-        body > div[data-baseweb="popover"] [role="option"]:hover,
-        body > div[data-baseweb="menu"] [role="option"]:hover,
-        body > div[data-baseweb="popover"] li:hover,
-        body > div[data-baseweb="menu"] li:hover {
-            background-color: var(--hover-color) !important;
-            color: var(--text-primary-color) !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
 def calculate_current_status():
     """Расчет текущего статуса с приоритизацией проблем"""
-    
-    # Получаем данные за последние 30 дней
-    activities_df = st.session_state.database.get_activities(30)
-    hrv_df = st.session_state.database.get_hrv_data(90)  # Для продвинутого алгоритма
-    sleep_df = st.session_state.database.get_sleep_data(7)
-    
+
+    state = get_state_manager()
+    database = state.database
+
+    activities_df = database.get_activities(30)
+    hrv_df = database.get_hrv_data(90)
+    sleep_df = database.get_sleep_data(7)
+
     status = {
-        'critical_status': None,
-        'critical_action': None,
-        'recommendations': [],
-        'tsb': 0,
-        'hrv': 0,
-        'readiness': 0,
-        'ctl': 0,
-        'trends': {}
+        "critical_status": None,
+        "critical_action": None,
+        "recommendations": [],
+        "tsb": 0,
+        "hrv": 0,
+        "readiness": 0,
+        "ctl": 0,
+        "trends": {},
     }
-    
-    # Расчет TSB через модель Банистера
+
     if not activities_df.empty:
         from models.banister import BanisterModel
+
         banister = BanisterModel()
-        
-        # Безопасная подготовка данных
         tss_data = []
         dates = []
-        
-        for idx, row in activities_df.iterrows():
-            tss_val = row['tss'] if 'tss' in row and pd.notna(row['tss']) else 0
-            if pd.isna(tss_val) or tss_val is None:
+
+        for _, row in activities_df.iterrows():
+            tss_val = row.get("tss")
+            if pd.isna(tss_val):
                 tss_val = 0
-            tss_data.append(float(tss_val))
-            dates.append(row['date'])
-        
+            tss_data.append(float(tss_val or 0))
+            dates.append(row["date"])
+
         current_metrics = banister.get_current_metrics(tss_data, dates)
-        status['tsb'] = current_metrics.get('tsb', 0)
-        status['ctl'] = current_metrics.get('ctl', 0)
-        
-        # Определение критических состояний и детальных рекомендаций
-        if status['tsb'] < -30:
-            status['critical_status'] = "Критическое переутомление"
-            status['critical_action'] = "Полный отдых 2-3 дня без тренировок"
-            status['recommendations'].extend([
-                {
-                    'title': '🚨 Немедленный отдых',
-                    'description': 'TSB критически низкий (-30+). Организм в состоянии переутомления.',
-                    'priority': 'high'
-                },
-                {
-                    'title': '😴 Качество сна',
-                    'description': 'Увеличьте сон до 8-9 часов, соблюдайте режим.',
-                    'priority': 'high'  
-                },
-                {
-                    'title': '💧 Восстановление',
-                    'description': 'Массаж, баня, легкие прогулки. Никаких интенсивных нагрузок.',
-                    'priority': 'medium'
-                }
-            ])
-        elif status['tsb'] < -20:
-            status['critical_status'] = "Сильная усталость"
-            status['critical_action'] = "Только легкие восстановительные тренировки в Зоне 1"
-            status['recommendations'].extend([
-                {
-                    'title': '🔄 Активное восстановление',
-                    'description': 'TSB -20 до -30. Только тренировки в аэробной зоне 1.',
-                    'priority': 'high'
-                },
-                {
-                    'title': '🍎 Питание',
-                    'description': 'Увеличьте потребление белка и углеводов для восстановления.',
-                    'priority': 'medium'
-                }
-            ])
-        elif status['tsb'] > 5:
-            status['recommendations'].extend([
-                {
-                    'title': '🚀 Пиковая форма!',
-                    'description': 'TSB выше +5. Отличное время для соревнований или тестов.',
-                    'priority': 'low'
-                },
-                {
-                    'title': '🎯 Интенсивные тренировки',
-                    'description': 'Можно проводить FTP-тесты, интервалы, темповые работы.',
-                    'priority': 'low'
-                }
-            ])
+        status["tsb"] = current_metrics.get("tsb", 0)
+        status["ctl"] = current_metrics.get("ctl", 0)
+
+        if status["tsb"] < -30:
+            status["critical_status"] = "Критическое переутомление"
+            status["critical_action"] = "Полный отдых 2-3 дня без тренировок"
+            status["recommendations"].extend(
+                [
+                    {
+                        "title": "🚨 Немедленный отдых",
+                        "description": "TSB критически низкий (-30+). Организм в состоянии переутомления.",
+                        "priority": "high",
+                    },
+                    {
+                        "title": "😴 Качество сна",
+                        "description": "Увеличьте сон до 8-9 часов, соблюдайте режим.",
+                        "priority": "high",
+                    },
+                    {
+                        "title": "💧 Восстановление",
+                        "description": "Массаж, баня, легкие прогулки. Никаких интенсивных нагрузок.",
+                        "priority": "medium",
+                    },
+                ]
+            )
+        elif status["tsb"] < -20:
+            status["critical_status"] = "Сильная усталость"
+            status["critical_action"] = "Только легкие восстановительные тренировки в Зоне 1"
+            status["recommendations"].extend(
+                [
+                    {
+                        "title": "🔄 Активное восстановление",
+                        "description": "TSB -20 до -30. Только тренировки в аэробной зоне 1.",
+                        "priority": "high",
+                    },
+                    {
+                        "title": "🍎 Питание",
+                        "description": "Увеличьте потребление белка и углеводов для восстановления.",
+                        "priority": "medium",
+                    },
+                ]
+            )
+        elif status["tsb"] > 5:
+            status["recommendations"].extend(
+                [
+                    {
+                        "title": "🚀 Пиковая форма!",
+                        "description": "TSB выше +5. Отличное время для соревнований или тестов.",
+                        "priority": "low",
+                    },
+                    {
+                        "title": "🎯 Интенсивные тренировки",
+                        "description": "Можно проводить FTP-тесты, интервалы, темповые работы.",
+                        "priority": "low",
+                    },
+                ]
+            )
         else:
-            status['recommendations'].append({
-                'title': '💪 Стандартный режим',
-                'description': 'TSB в норме. Поддерживайте текущий объем тренировок.',
-                'priority': 'low'
-            })
-    
-    # HRV анализ
+            status["recommendations"].append(
+                {
+                    "title": "💪 Стандартный режим",
+                    "description": "TSB в норме. Поддерживайте текущий объем тренировок.",
+                    "priority": "low",
+                }
+            )
+
     if not hrv_df.empty:
-        latest_hrv = hrv_df.iloc[0]['rmssd'] if pd.notna(hrv_df.iloc[0]['rmssd']) else 0
-        baseline_hrv = hrv_df['rmssd'].mean()
-        status['hrv'] = latest_hrv
-        
-        # Продвинутый алгоритм AI Endurance
+        latest_hrv = hrv_df.iloc[0]["rmssd"] if pd.notna(hrv_df.iloc[0]["rmssd"]) else 0
+        baseline_hrv = hrv_df["rmssd"].mean()
+        status["hrv"] = latest_hrv
+
         try:
             from models.hrv_analyzer import HRVAnalyzer
+
             advanced_score, info = HRVAnalyzer.recovery_score_advanced(hrv_df)
             if advanced_score is not None:
-                status['hrv_advanced'] = {
-                    'score': advanced_score,
-                    'info': info
-                }
-        except:
+                status["hrv_advanced"] = {"score": advanced_score, "info": info}
+        except Exception:
             pass
-        
-        # Тренд HRV за последние 3 дня
+
         if len(hrv_df) >= 3:
-            recent_trend = hrv_df.head(3)['rmssd'].ffill().pct_change().mean() * 100
-            status['trends']['hrv'] = recent_trend
-        
-        # Дополнительная проверка критического состояния и рекомендации по HRV
-        if latest_hrv < baseline_hrv * 0.8 and status['critical_status'] is None:
-            status['critical_status'] = "Низкий HRV - стресс или недовосстановление"
-            status['critical_action'] = "Проверьте качество сна и уровень стресса"
-            status['recommendations'].append({
-                'title': '💓 Низкий HRV',
-                'description': f'HRV ({latest_hrv:.1f}) ниже базового ({baseline_hrv:.1f}) на 20%+',
-                'priority': 'medium'
-            })
-        
-        # Общие HRV рекомендации
+            recent_trend = hrv_df.head(3)["rmssd"].ffill().pct_change().mean() * 100
+            status["trends"]["hrv"] = recent_trend
+
+        if latest_hrv < baseline_hrv * 0.8 and status["critical_status"] is None:
+            status["critical_status"] = "Низкий HRV - стресс или недовосстановление"
+            status["critical_action"] = "Проверьте качество сна и уровень стресса"
+            status["recommendations"].append(
+                {
+                    "title": "💓 Низкий HRV",
+                    "description": f"HRV ({latest_hrv:.1f}) ниже базового ({baseline_hrv:.1f}) на 20%+",
+                    "priority": "medium",
+                }
+            )
+
         if latest_hrv < 30:
-            status['recommendations'].append({
-                'title': '⚠️ HRV требует внимания',
-                'description': 'Низкая вариабельность сердечного ритма. Фокус на восстановлении.',
-                'priority': 'medium'
-            })
+            status["recommendations"].append(
+                {
+                    "title": "⚠️ HRV требует внимания",
+                    "description": "Низкая вариабельность сердечного ритма. Фокус на восстановлении.",
+                    "priority": "medium",
+                }
+            )
         elif latest_hrv > 50:
-            status['recommendations'].append({
-                'title': '✨ Отличный HRV',
-                'description': 'Высокая вариабельность - организм готов к нагрузкам.',
-                'priority': 'low'
-            })
-    
-    # Комплексный индекс готовности
+            status["recommendations"].append(
+                {
+                    "title": "✨ Отличный HRV",
+                    "description": "Высокая вариабельность - организм готов к нагрузкам.",
+                    "priority": "low",
+                }
+            )
+
     if not sleep_df.empty or not hrv_df.empty:
         try:
             from data.data_processor_phase1 import Phase1DataProcessor
-            
-            latest_sleep = sleep_df.iloc[0].to_dict() if not sleep_df.empty else {}
-            latest_hrv = hrv_df.iloc[0].to_dict() if not hrv_df.empty else {}
-            
+
+            latest_sleep = {}
+            latest_hrv_entry = {}
+            if not sleep_df.empty:
+                latest_sleep = sleep_df.sort_values("date", ascending=False).iloc[0].to_dict()
+            if not hrv_df.empty:
+                latest_hrv_entry = hrv_df.sort_values("date", ascending=False).iloc[0].to_dict()
+
             readiness_data = Phase1DataProcessor.calculate_comprehensive_readiness(
-                latest_sleep, latest_hrv, {}, {}
+                latest_sleep,
+                latest_hrv_entry,
+                {},
+                {},
             )
-            
-            if readiness_data and 'readiness_score' in readiness_data:
-                status['readiness'] = readiness_data['readiness_score']
-        except Exception as e:
-            # Если не получается рассчитать готовность, используем базовый расчёт
-            if status['hrv'] > 40 and status['tsb'] > -10:
-                status['readiness'] = 80
-            elif status['hrv'] > 30 and status['tsb'] > -20:
-                status['readiness'] = 60
+
+            if readiness_data and "readiness_score" in readiness_data:
+                status["readiness"] = readiness_data["readiness_score"]
+        except Exception:
+            if status["hrv"] > 40 and status["tsb"] > -10:
+                status["readiness"] = 80
+            elif status["hrv"] > 30 and status["tsb"] > -20:
+                status["readiness"] = 60
             else:
-                status['readiness'] = 40
-    
-    print("Текущий статус:", status)
+                status["readiness"] = 40
+
+    logger.debug("Текущий статус: %s", status)
     return status
 
+
 def main():
+    state = get_state_manager()
     st.title("🏃‍♂️ Персональный AI Тренер")
-    
-    # Инициализация состояния
-    if 'garmin_client' not in st.session_state:
-        st.session_state.garmin_client = GarminClient()
-    if 'database' not in st.session_state:
-        st.session_state.database = Database()
-    
-    # Применяем современные стили с учетом темы
+
     from utils.modern_ui import ModernUI
-    ModernUI.apply_modern_styles(dark_mode=st.session_state.get('dark_mode', False))
-    
-    # Применяем базовую тему
-    apply_theme()
-    
-    # Боковая панель навигации
+    ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
+
+    apply_theme(state.dark_mode)
+
     col1, col2 = st.sidebar.columns([4, 1])
     with col1:
         st.title("🏃‍♂️ AI Trainer")
     with col2:
-        # Переключатель темы
-        st.markdown("<br>", unsafe_allow_html=True)  # Отступ сверху
-        if st.button("🌙" if not st.session_state.get('dark_mode', False) else "☀️", 
+        st.markdown("<br>", unsafe_allow_html=True)
+        if st.button("🌙" if not state.dark_mode else "☀️",
                      help="Переключить тему",
                      use_container_width=True,
                      key="theme_toggle"):
-            st.session_state.dark_mode = not st.session_state.get('dark_mode', False)
+            state.toggle_dark_mode()
             st.rerun()
-    
-    # Блок подключения к Garmin Connect
-    show_garmin_connection()
-    
-    # Главное меню (только если подключён)
-    if st.session_state.garmin_client.is_authenticated:
-        # СОВРЕМЕННАЯ ГОРИЗОНТАЛЬНАЯ НАВИГАЦИЯ
-        def show_horizontal_navigation():
-            """Создает горизонтальную панель навигации с современными кнопками"""
-            st.markdown("### 🧭 Навигация")
-            
-            # Все страницы в одном списке - ВСЕ разделы доступны!
-            nav_items = [
-                ("📊", "Дашборд", "📊 Дашборд"), 
-                ("🤖", "AI Коучинг", "🤖 AI Коучинг"),
-                ("🏃‍♂️", "Активности", "🏃‍♂️ Активности"), 
-                ("📈", "Планирование", "📈 Планирование"),
-                ("💓", "Анализ HRV", "💓 Анализ HRV"),
-                ("😴", "Анализ сна", "😴 Анализ сна"),
-                ("⚙️", "Управление", "⚙️ Управление данными")
-            ]
-            
-            # Создаем горизонтальные кнопки
-            cols = st.columns(len(nav_items))
-            selected_page = st.session_state.get('selected_page', "📊 Дашборд")
-            
-            for i, (icon, short_name, full_name) in enumerate(nav_items):
-                with cols[i]:
-                    # Определяем активна ли кнопка
-                    is_active = selected_page == full_name
-                    button_type = "primary" if is_active else "secondary"
-                    
-                    if st.button(f"{icon}\n{short_name}", 
-                                key=f"nav_{i}",
-                                help=full_name,
-                                use_container_width=True,
-                                type=button_type):
-                        st.session_state.selected_page = full_name
-                        st.rerun()
-            
-            return st.session_state.get('selected_page', "📊 Дашборд")
-        
-        # Показываем навигацию и получаем выбранную страницу
-        page = show_horizontal_navigation()
-        
-        # Боковая панель - упрощенная для мобильных
-        all_pages = [
-            "📊 Дашборд", "🤖 AI Коучинг", "🏃‍♂️ Активности", 
-            "📈 Планирование", "💓 Анализ HRV", "😴 Анализ сна", "⚙️ Управление данными"
-        ]
-        
-        st.sidebar.markdown("### 📱 Мобильное меню")
-        sidebar_page = st.sidebar.selectbox("Выберите раздел:", all_pages, 
-                                           index=all_pages.index(page) if page in all_pages else 0,
-                                           label_visibility="collapsed")
-        
-        # Если выбрали из sidebar - обновляем
+
+    show_garmin_connection(state)
+
+    if state.garmin_client.is_authenticated:
+        page = render_primary_navigation(state)
+        sidebar_page = render_sidebar_navigation(state, page)
         if sidebar_page != page:
-            st.session_state.selected_page = sidebar_page
             page = sidebar_page
-            st.rerun()
-        
-        # Дополнительные инструменты
-        with st.sidebar.expander("🔧 Дополнительные инструменты"):
-            if st.button("📋 Логи синхронизации"):
-                st.session_state.selected_page = "📋 Логи синхронизации"
-                page = "📋 Логи синхронизации"
-                st.rerun()
-        
+
+        render_sidebar_utilities(state)
+
         st.sidebar.markdown("---")
-        
-        # Инициализация и отображение управления чатами
-        # Инициализация менеджера чатов
-        if "chat_manager" not in st.session_state:
-            from models.chat_manager import ChatManager
-            st.session_state.chat_manager = ChatManager()
-        
-        # Инициализация текущего чата
-        if "current_chat_id" not in st.session_state:
-            st.session_state.current_chat_id = None
-        
-        # Показываем управление чатами
+
+        _ = state.chat_manager  # Ensure chat manager initialised
         show_chat_management()
-        
+
         st.sidebar.markdown("---")
-        
-        # Тестовые данные в отдельном экспандере
+
         with st.sidebar.expander("🧪 Разработка", expanded=False):
             st.caption("Тестовые функции для демонстрации")
             add_test_phase1_data()
-        
-        # Основной контент
+
         if page == "📊 Дашборд":
             show_dashboard()
         elif page == "🏃‍♂️ Активности":
@@ -1281,49 +318,48 @@ def main():
     else:
         show_welcome_screen()
 
-def show_garmin_connection():
+
+def show_garmin_connection(state: StateManager):
     """Блок подключения к Garmin Connect"""
-    with st.sidebar.expander("🔗 Garmin Connect", expanded=not st.session_state.garmin_client.is_authenticated):
-        if not st.session_state.garmin_client.is_authenticated:
+    client = state.garmin_client
+    with st.sidebar.expander("🔗 Garmin Connect", expanded=not client.is_authenticated):
+        if not client.is_authenticated:
             st.write("Подключитесь для синхронизации данных:")
-            
-            # Поля для ввода учётных данных
+
             email = st.text_input("Email Garmin", value=Settings.GARMIN_EMAIL or "")
             password = st.text_input("Пароль Garmin", type="password", value=Settings.GARMIN_PASSWORD or "")
-            
+
             col1, col2 = st.columns(2)
-            
+
             with col1:
                 if st.button("🔐 Подключиться"):
                     if email and password:
                         with st.spinner("Подключение к Garmin Connect..."):
-                            if st.session_state.garmin_client.authenticate(email, password):
+                            if garmin_service.authenticate(state, email, password):
                                 st.success("✅ Успешно подключено!")
                                 st.rerun()
                             else:
-                                st.error(f"❌ Ошибка подключения: {st.session_state.garmin_client.auth_error}")
+                                error = getattr(client, 'auth_error', 'Неизвестно')
+                                st.error(f"❌ Ошибка подключения: {error}")
                     else:
                         st.warning("Введите email и пароль")
-            
         else:
             st.success("✅ Подключено к Garmin Connect")
-            
-            # Информация о типе подключения
-            connection_info = st.session_state.garmin_client.get_connection_info()
+
+            connection_info = garmin_service.connection_info(state)
             if connection_info.get('using_garth'):
                 st.info("🚀 Используется garth (улучшенный API)")
             else:
                 st.info("📡 Используется garminconnect")
-            
-            profile = st.session_state.garmin_client.get_user_profile()
+
+            profile = garmin_service.user_profile(state)
             if profile:
                 st.write(f"👤 {profile.get('displayName', 'Пользователь')}")
-            
-            # Дополнительная диагностика garth
+
             if connection_info.get('garth_available') and connection_info.get('using_garth'):
                 if st.button("🔍 Тест garth", help="Проверить расширенные возможности garth"):
                     with st.spinner("Тестирование garth..."):
-                        test_results = st.session_state.garmin_client.test_garth_connection()
+                        test_results = client.test_garth_connection()
                         if test_results.get('authenticated'):
                             st.success("✅ Garth работает корректно")
                             with st.expander("📋 Детали garth тестирования"):
@@ -1331,14 +367,19 @@ def show_garmin_connection():
                                     st.write(f"• **{method}**: {status}")
                         else:
                             st.warning(f"⚠️ Проблема с garth: {test_results.get('error', 'Неизвестно')}")
-            
+
             if st.button("🔌 Отключиться"):
-                st.session_state.garmin_client.disconnect()
+                garmin_service.disconnect(state)
                 st.rerun()
 
-def sync_data(days=30):
+
+def sync_data(days=30, state=None):
     """Синхронизация данных с Garmin Connect"""
-    if not st.session_state.garmin_client.is_authenticated:
+    state = state or get_state_manager()
+    client = state.garmin_client
+    database = state.database
+
+    if not client.is_authenticated:
         st.error("Не подключен к Garmin Connect")
         return
     
@@ -1360,7 +401,7 @@ def sync_data(days=30):
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
         
-        activities = st.session_state.garmin_client.get_activities(start_date, end_date)
+        activities = client.get_activities(start_date, end_date)
         activities_synced = False
         
         progress_bar.progress(30, text="Шаг 2/5: Обработка активностей...")
@@ -1387,7 +428,7 @@ def sync_data(days=30):
             
             # Конвертируем DataFrame в список словарей для умной синхронизации
             activities_list = df.to_dict('records')
-            sync_result = st.session_state.database.sync_activities(activities_list)
+            sync_result = database.sync_activities(activities_list)
             activities_synced = True
         else:
             sync_result = {'new': 0, 'updated': 0, 'skipped': 0}
@@ -1416,45 +457,45 @@ def sync_data(days=30):
                 date_str = format_date(date, 'db')
                 
                 # Получаем HRV данные
-                hrv_day_data = st.session_state.garmin_client.get_hrv_data(date)
+                hrv_day_data = client.get_hrv_data(date)
                 rmssd_value = None
                 
                 # Debug вывод
-                print(f"DEBUG HRV: Получены данные HRV для {date_str}: {type(hrv_day_data)}")
+                logger.debug(f"DEBUG HRV: Получены данные HRV для {date_str}: {type(hrv_day_data)}")
                 if hrv_day_data:
-                    print(f"DEBUG HRV: Структура данных: {hrv_day_data}")
+                    logger.debug(f"DEBUG HRV: Структура данных: {hrv_day_data}")
                 
                 if isinstance(hrv_day_data, dict):
                     # Новый garth_client может возвращать {'hrvSummary': {'rmssd': ...}}
                     if 'hrvSummary' in hrv_day_data and isinstance(hrv_day_data['hrvSummary'], dict):
                         hrv_summary = hrv_day_data['hrvSummary']
                         rmssd_value = hrv_summary.get('rmssd') or hrv_summary.get('lastNightAvg')
-                        print(f"DEBUG HRV: Извлечено RMSSD из hrvSummary: {rmssd_value}")
+                        logger.debug(f"DEBUG HRV: Извлечено RMSSD из hrvSummary: {rmssd_value}")
                     # Также может возвращать {'daily_rmssd': ...} напрямую
                     elif 'daily_rmssd' in hrv_day_data:
                         rmssd_value = hrv_day_data['daily_rmssd']
-                        print(f"DEBUG HRV: Извлечено RMSSD из daily_rmssd: {rmssd_value}")
+                        logger.debug(f"DEBUG HRV: Извлечено RMSSD из daily_rmssd: {rmssd_value}")
                     elif 'rmssd' in hrv_day_data:
                         rmssd_value = hrv_day_data['rmssd']
-                        print(f"DEBUG HRV: Извлечено RMSSD напрямую: {rmssd_value}")
+                        logger.debug(f"DEBUG HRV: Извлечено RMSSD напрямую: {rmssd_value}")
 
                 # Получаем данные о стрессе
                 stress_score = None
-                stress_data = st.session_state.garmin_client.get_stress_data(date)
-                print(f"DEBUG STRESS SYNC: Получены данные стресса для {date_str}: {type(stress_data)}")
+                stress_data = client.get_stress_data(date)
+                logger.debug(f"DEBUG STRESS SYNC: Получены данные стресса для {date_str}: {type(stress_data)}")
                 if stress_data:
-                    print(f"DEBUG STRESS SYNC: Структура данных стресса: {stress_data}")
+                    logger.debug(f"DEBUG STRESS SYNC: Структура данных стресса: {stress_data}")
                 
                 if isinstance(stress_data, dict):
                     stress_score = stress_data.get('avgStressLevel') or stress_data.get('overallStressLevel')
-                    print(f"DEBUG STRESS SYNC: Извлечен stress_score из словаря: {stress_score}")
+                    logger.debug(f"DEBUG STRESS SYNC: Извлечен stress_score из словаря: {stress_score}")
                 elif isinstance(stress_data, (int, float)): # Иногда API может вернуть просто число
                     stress_score = stress_data
-                    print(f"DEBUG STRESS SYNC: stress_score - простое число: {stress_score}")
+                    logger.debug(f"DEBUG STRESS SYNC: stress_score - простое число: {stress_score}")
                 
                 # Получаем данные Body Battery (восстановление)
                 recovery_score = None
-                body_battery_data = st.session_state.garmin_client.get_body_battery_data(date)
+                body_battery_data = client.get_body_battery_data(date)
                 if body_battery_data and isinstance(body_battery_data, list) and len(body_battery_data) > 0:
                     entry = body_battery_data[0]
                     if 'bodyBatteryValuesArray' in entry and entry['bodyBatteryValuesArray']:
@@ -1469,8 +510,8 @@ def sync_data(days=30):
                         'stress_score': stress_score,
                         'recovery_score': recovery_score
                     }
-                    print(f"DEBUG HRV: Сохранены данные для {date_str}: {hrv_data[date_str]}")
-                    print(f"DEBUG HRV: RMSSD={rmssd_value}, Stress={stress_score}, Recovery={recovery_score}")
+                    logger.debug(f"DEBUG HRV: Сохранены данные для {date_str}: {hrv_data[date_str]}")
+                    logger.debug(f"DEBUG HRV: RMSSD={rmssd_value}, Stress={stress_score}, Recovery={recovery_score}")
             
             # Обновляем прогресс после каждого батча
             progress = 70 + (batch_idx // batch_size + 1) / total_batches * 10
@@ -1492,53 +533,55 @@ def sync_data(days=30):
             
             # Получаем и обрабатываем данные сна
             try:
-                sleep_raw = st.session_state.garmin_client.get_sleep_data(date)
-                print(f"DEBUG SYNC: Получены данные сна для {date_str}: {type(sleep_raw)}")
+                sleep_raw = client.get_sleep_data(date)
+                logger.debug(f"DEBUG SYNC: Получены данные сна для {date_str}: {type(sleep_raw)}")
                 
                 if sleep_raw:
-                    print(f"DEBUG SYNC: === ДЕТАЛЬНАЯ СТРУКТУРА ДАННЫХ СНА для {date_str} ===")
+                    logger.debug(f"DEBUG SYNC: === ДЕТАЛЬНАЯ СТРУКТУРА ДАННЫХ СНА для {date_str} ===")
                     
                     # Подробное логирование структуры данных
                     if isinstance(sleep_raw, dict):
-                        print(f"DEBUG SYNC: Ключи верхнего уровня: {list(sleep_raw.keys())}")
+                        logger.debug(f"DEBUG SYNC: Ключи верхнего уровня: {list(sleep_raw.keys())}")
                         
                         # Проверяем dailySleepDTO
                         if 'dailySleepDTO' in sleep_raw:
                             dto = sleep_raw['dailySleepDTO']
-                            print(f"DEBUG SYNC: dailySleepDTO ключи: {list(dto.keys()) if isinstance(dto, dict) else 'НЕ СЛОВАРЬ'}")
+                            logger.debug(f"DEBUG SYNC: dailySleepDTO ключи: {list(dto.keys()) if isinstance(dto, dict) else 'НЕ СЛОВАРЬ'}")
                             if isinstance(dto, dict):
-                                print(f"DEBUG SYNC: sleepTimeSeconds: {dto.get('sleepTimeSeconds', 'НЕТ')}")
-                                print(f"DEBUG SYNC: deepSleepSeconds: {dto.get('deepSleepSeconds', 'НЕТ')}")
-                                print(f"DEBUG SYNC: lightSleepSeconds: {dto.get('lightSleepSeconds', 'НЕТ')}")
-                                print(f"DEBUG SYNC: remSleepSeconds: {dto.get('remSleepSeconds', 'НЕТ')}")
-                                print(f"DEBUG SYNC: awakeCount: {dto.get('awakeCount', 'НЕТ')}")
+                                logger.debug(f"DEBUG SYNC: sleepTimeSeconds: {dto.get('sleepTimeSeconds', 'НЕТ')}")
+                                logger.debug(f"DEBUG SYNC: deepSleepSeconds: {dto.get('deepSleepSeconds', 'НЕТ')}")
+                                logger.debug(f"DEBUG SYNC: lightSleepSeconds: {dto.get('lightSleepSeconds', 'НЕТ')}")
+                                logger.debug(f"DEBUG SYNC: remSleepSeconds: {dto.get('remSleepSeconds', 'НЕТ')}")
+                                logger.debug(f"DEBUG SYNC: awakeCount: {dto.get('awakeCount', 'НЕТ')}")
                         
                         # Проверяем sleepScores
                         if 'sleepScores' in sleep_raw:
                             scores = sleep_raw['sleepScores']
-                            print(f"DEBUG SYNC: sleepScores ключи: {list(scores.keys()) if isinstance(scores, dict) else 'НЕ СЛОВАРЬ'}")
+                            logger.debug(f"DEBUG SYNC: sleepScores ключи: {list(scores.keys()) if isinstance(scores, dict) else 'НЕ СЛОВАРЬ'}")
                             if isinstance(scores, dict):
                                 if 'deepPercentage' in scores:
-                                    print(f"DEBUG SYNC: deepPercentage: {scores['deepPercentage']}")
+                                    logger.debug(f"DEBUG SYNC: deepPercentage: {scores['deepPercentage']}")
                                 if 'lightPercentage' in scores:
-                                    print(f"DEBUG SYNC: lightPercentage: {scores['lightPercentage']}")
+                                    logger.debug(f"DEBUG SYNC: lightPercentage: {scores['lightPercentage']}")
                                 if 'remPercentage' in scores:
-                                    print(f"DEBUG SYNC: remPercentage: {scores['remPercentage']}")
+                                    logger.debug(f"DEBUG SYNC: remPercentage: {scores['remPercentage']}")
                                 if 'overall' in scores:
-                                    print(f"DEBUG SYNC: overall: {scores['overall']}")
+                                    logger.debug(f"DEBUG SYNC: overall: {scores['overall']}")
                         
                         # Проверяем другие возможные структуры
                         for key in sleep_raw.keys():
                             if key not in ['dailySleepDTO', 'sleepScores']:
-                                print(f"DEBUG SYNC: Дополнительный ключ {key}: {type(sleep_raw[key])}")
+                                logger.debug(f"DEBUG SYNC: Дополнительный ключ {key}: {type(sleep_raw[key])}")
                     
-                    print(f"DEBUG SYNC: === ПЕРЕДАЕМ В ПРОЦЕССОР ===")
+                    logger.debug(f"DEBUG SYNC: === ПЕРЕДАЕМ В ПРОЦЕССОР ===")
                     processed_sleep = Phase1DataProcessor.process_sleep_data(sleep_raw)
-                    print(f"DEBUG SYNC: Обработанные данные сна для {date_str}: {processed_sleep}")
+                    logger.debug(f"DEBUG SYNC: Обработанные данные сна для {date_str}: {processed_sleep}")
                     
                     if processed_sleep:
-                        sleep_data[date_str] = processed_sleep
-                        print(f"DEBUG SYNC: ✅ Данные сна добавлены для {date_str}")
+                        # Используем дату окончания сна (wakeup) если доступна, иначе исходную дату запроса
+                        date_key = processed_sleep.get('sleep_date') or date_str
+                        sleep_data[date_key] = processed_sleep
+                        logger.debug(f"DEBUG SYNC: ✅ Данные сна добавлены для {date_key}")
                         
                         # Проверяем что именно сохранили
                         total = processed_sleep.get('total_sleep_minutes', 0)
@@ -1547,17 +590,17 @@ def sync_data(days=30):
                         rem = processed_sleep.get('rem_sleep_minutes', 0)
                         score = processed_sleep.get('sleep_score', 0)
                         
-                        print(f"DEBUG SYNC: 📊 Сохраненные значения: total={total}, deep={deep}, light={light}, rem={rem}, score={score}")
+                        logger.debug(f"DEBUG SYNC: 📊 Сохраненные значения: total={total}, deep={deep}, light={light}, rem={rem}, score={score}")
                         
                         if deep == 0 and light == 0 and rem == 0:
-                            print(f"DEBUG SYNC: ⚠️ КРИТИЧНО: Все фазы сна равны 0!")
+                            logger.debug(f"DEBUG SYNC: ⚠️ КРИТИЧНО: Все фазы сна равны 0!")
                     else:
-                        print(f"DEBUG SYNC: ❌ Обработка данных сна вернула None для {date_str}")
+                        logger.debug(f"DEBUG SYNC: ❌ Обработка данных сна вернула None для {date_str}")
                 else:
-                    print(f"DEBUG SYNC: Нет данных сна для {date_str}")
+                    logger.debug(f"DEBUG SYNC: Нет данных сна для {date_str}")
                     
             except Exception as e:
-                print(f"DEBUG SYNC: ❌ Ошибка обработки данных сна для {date_str}: {e}")
+                logger.debug(f"DEBUG SYNC: ❌ Ошибка обработки данных сна для {date_str}: {e}")
                 import traceback
                 traceback.print_exc()
                 pass  # Данные сна могут быть недоступны
@@ -1565,9 +608,9 @@ def sync_data(days=30):
             # Получаем и обрабатываем ежедневные показатели здоровья
             try:
                 # Общие показатели активности
-                daily_summary = st.session_state.garmin_client.get_daily_summary(date)
+                daily_summary = client.get_daily_summary(date)
                 # Пульс покоя
-                resting_hr = st.session_state.garmin_client.get_resting_heart_rate(date)
+                resting_hr = client.get_resting_heart_rate(date)
                 
                 if daily_summary or resting_hr:
                     processed_health = Phase1DataProcessor.process_daily_health_data(
@@ -1586,11 +629,11 @@ def sync_data(days=30):
         
         try:
             # Статус тренированности
-            training_status = st.session_state.garmin_client.get_training_status()
+            training_status = client.get_training_status()
             # VO2 max
-            vo2_data = st.session_state.garmin_client.get_vo2_max()
+            vo2_data = client.get_vo2_max()
             # Готовность к тренировке
-            readiness_data = st.session_state.garmin_client.get_training_readiness()
+            readiness_data = client.get_training_readiness()
             
             if training_status or vo2_data:
                 processed_status = Phase1DataProcessor.process_training_status_data(
@@ -1608,31 +651,31 @@ def sync_data(days=30):
         progress_bar.progress(95)
         
         hrv_result = {'new': 0, 'updated': 0}
-        print(f"DEBUG HRV SYNC: Сохранение HRV данных в базу: {len(hrv_data)} записей")
-        print(f"DEBUG HRV SYNC: Ключи данных HRV: {list(hrv_data.keys()) if hrv_data else 'Нет данных'}")
+        logger.debug(f"DEBUG HRV SYNC: Сохранение HRV данных в базу: {len(hrv_data)} записей")
+        logger.debug(f"DEBUG HRV SYNC: Ключи данных HRV: {list(hrv_data.keys()) if hrv_data else 'Нет данных'}")
         if hrv_data:
-            hrv_result = st.session_state.database.sync_hrv_data(hrv_data)
-            print(f"DEBUG HRV SYNC: Результат сохранения HRV: {hrv_result}")
+            hrv_result = database.sync_hrv_data(hrv_data)
+            logger.debug(f"DEBUG HRV SYNC: Результат сохранения HRV: {hrv_result}")
         else:
-            print("DEBUG HRV SYNC: Нет данных HRV для сохранения")
+            logger.debug("DEBUG HRV SYNC: Нет данных HRV для сохранения")
         
         # Сохраняем новые типы данных
         sleep_result = {'new': 0, 'updated': 0}
-        print(f"DEBUG SYNC: Сохранение данных сна в базу: {len(sleep_data)} записей")
-        print(f"DEBUG SYNC: Ключи данных сна: {list(sleep_data.keys()) if sleep_data else 'Нет данных'}")
+        logger.debug(f"DEBUG SYNC: Сохранение данных сна в базу: {len(sleep_data)} записей")
+        logger.debug(f"DEBUG SYNC: Ключи данных сна: {list(sleep_data.keys()) if sleep_data else 'Нет данных'}")
         if sleep_data:
-            sleep_result = st.session_state.database.sync_sleep_data(sleep_data)
-            print(f"DEBUG SYNC: Результат сохранения сна: {sleep_result}")
+            sleep_result = database.sync_sleep_data(sleep_data)
+            logger.debug(f"DEBUG SYNC: Результат сохранения сна: {sleep_result}")
         else:
-            print("DEBUG SYNC: Нет данных сна для сохранения")
+            logger.debug("DEBUG SYNC: Нет данных сна для сохранения")
         
         health_result = {'new': 0, 'updated': 0}
         if daily_health_data:
-            health_result = st.session_state.database.sync_daily_health(daily_health_data)
+            health_result = database.sync_daily_health(daily_health_data)
         
         status_result = {'new': 0, 'updated': 0}
         if training_status_data:
-            status_result = st.session_state.database.sync_training_status(training_status_data)
+            status_result = database.sync_training_status(training_status_data)
         
         progress_bar.progress(100, text="✅ Синхронизация завершена!")
         status_text.empty()
@@ -1697,76 +740,74 @@ def sync_data(days=30):
 
 def clear_database():
     """Очистка базы данных с подтверждением"""
+    state = get_state_manager()
+    database = state.database
+
     if st.button("🗑️ Очистить базу данных", type="secondary", key="clear_db_btn"):
-        if 'confirm_clear' not in st.session_state:
-            st.session_state.confirm_clear = False
-        
-        if not st.session_state.confirm_clear:
-            st.session_state.confirm_clear = True
+        if not state.confirm_clear:
+            state.confirm_clear = True
             st.rerun()
-    
-    if st.session_state.get('confirm_clear', False):
+
+    if state.confirm_clear:
         st.warning("⚠️ Это действие удалит ВСЕ данные из базы. Подтвердите удаление.")
-        
+
         col1, col2 = st.columns(2)
         with col1:
             if st.button("✅ Да, удалить все данные", type="primary", key="confirm_clear_btn"):
                 try:
-                    result = st.session_state.database.clear_all_data()
+                    database.clear_all_data()
                     st.success("✅ База данных очищена")
-                    st.session_state.confirm_clear = False
+                except Exception as exc:
+                    st.error(f"❌ Ошибка очистки БД: {exc}")
+                finally:
+                    state.confirm_clear = False
                     st.rerun()
-                except Exception as e:
-                    st.error(f"❌ Ошибка очистки БД: {e}")
-                    st.session_state.confirm_clear = False
-        
+
         with col2:
             if st.button("❌ Отмена", type="secondary", key="cancel_clear_btn"):
-                st.session_state.confirm_clear = False
+                state.confirm_clear = False
                 st.rerun()
+
 
 def add_test_phase1_data():
     """Добавление тестовых данных Фазы 1 для демонстрации"""
+    state = get_state_manager()
+    database = state.database
+
     if st.button("🧪 Добавить тестовые данные Фазы 1", type="primary", key="add_test_data_btn"):
         try:
             from datetime import datetime, timedelta
-            from data.data_processor_phase1 import Phase1DataProcessor
-            
-            # Создаем тестовые данные за последние 7 дней
-            sleep_data = {}
-            health_data = {}
-            status_data = {}
-            
+
+            sleep_data: dict[str, dict] = {}
+            health_data: dict[str, dict] = {}
+            status_data: dict[str, dict] = {}
+
             for i in range(7):
                 date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
-                
-                # Тестовые данные сна (варьируем качество)
-                base_quality = 75 + (i % 3) * 5  # 75-85
+
                 sleep_data[date] = {
-                    'total_sleep_minutes': 420 + (i % 2) * 30,  # 7-7.5 часов
+                    'total_sleep_minutes': 420 + (i % 2) * 30,
                     'deep_sleep_minutes': 80 + (i % 3) * 10,
                     'light_sleep_minutes': 280 + (i % 2) * 20,
                     'rem_sleep_minutes': 60 + (i % 3) * 10,
                     'awakenings_count': 1 + (i % 3),
-                    'sleep_score': base_quality + (i % 2) * 5,
+                    'sleep_score': 75 + (i % 3) * 5,
                     'bedtime': f"23:{15 + (i % 3) * 15:02d}",
                     'wakeup_time': f"0{6 + (i % 2)}:{30 + (i % 2) * 15:02d}",
-                    'sleep_efficiency': 88.0 + (i % 3) * 3
+                    'sleep_efficiency': 88.0 + (i % 3) * 3,
                 }
-                
-                # Тестовые данные здоровья
+
                 health_data[date] = {
-                    'resting_hr': 48 + (i % 4) * 2,  # 48-54
-                    'steps': 8000 + i * 500,  # 8000-11000
+                    'resting_hr': 48 + (i % 4) * 2,
+                    'steps': 8000 + i * 500,
                     'floors_climbed': 8 + (i % 3) * 2,
                     'calories_active': 350 + i * 30,
                     'calories_bmr': 1580,
                     'distance_meters': 6000 + i * 400,
                     'active_minutes': 40 + (i % 3) * 10,
-                    'intensity_minutes': 15 + (i % 3) * 5
+                    'intensity_minutes': 15 + (i % 3) * 5,
                 }
-            
-            # Статус тренированности (один на сегодня)
+
             today = datetime.now().strftime('%Y-%m-%d')
             status_data[today] = {
                 'vo2_max': 48.5,
@@ -1775,31 +816,19 @@ def add_test_phase1_data():
                 'training_status': 'PRODUCTIVE',
                 'training_readiness': 75.0,
                 'recovery_time_hours': 14,
-                'load_ratio': 1.05
+                'load_ratio': 1.05,
             }
-            
-            # Синхронизируем тестовые данные
-            sleep_result = st.session_state.database.sync_sleep_data(sleep_data)
-            health_result = st.session_state.database.sync_daily_health(health_data)
-            status_result = st.session_state.database.sync_training_status(status_data)
-            
-            success_msg = f"✅ Тестовые данные добавлены:\n"
-            success_msg += f"• 😴 Сон: {sleep_result['new']} новых записей\n"
-            success_msg += f"• 🏃 Здоровье: {health_result['new']} новых записей\n"
-            success_msg += f"• 🎯 Статус: {status_result['new']} новых записей\n\n"
-            success_msg += "Теперь вы можете проверить:\n"
-            success_msg += "• Страницу \"😴 Анализ сна\"\n"
-            success_msg += "• Индекс готовности на дашборде\n"
-            success_msg += "• Комплексный анализ готовности"
-            st.success(success_msg)
-            
-            # Обновляем страницу через 2 секунды
-            import time
-            time.sleep(2)
-            st.rerun()
-            
-        except Exception as e:
-            st.error(f"❌ Ошибка добавления тестовых данных: {e}")
+
+            database.save_phase1_data(
+                sleep_data=sleep_data,
+                health_data=health_data,
+                training_status=status_data,
+            )
+
+            st.success("✅ Тестовые данные добавлены")
+        except Exception as exc:
+            st.error(f"❌ Ошибка добавления тестовых данных: {exc}")
+
 
 def show_welcome_screen():
     """Экран приветствия для неподключённых пользователей"""
@@ -1822,14 +851,16 @@ def show_welcome_screen():
 def show_dashboard():
     """Современный дашборд тренировок в стиле AIEndurance"""
     from utils.modern_ui import ModernUI
-    
-    # Применяем современные стили и навигацию с учетом темы
-    ModernUI.apply_modern_styles(dark_mode=st.session_state.get('dark_mode', False))
+
+    state = get_state_manager()
+    database = state.database
+    dark_mode = state.dark_mode
+
+    ModernUI.apply_modern_styles(dark_mode=dark_mode)
     ModernUI.show_horizontal_nav("Dashboard")
-    
-    # Получение данных из БД
-    activities_df = st.session_state.database.get_activities(30)
-    df_hrv = st.session_state.database.get_hrv_data(90)  # Для продвинутого алгоритма
+
+    activities_df = database.get_activities(30)
+    df_hrv = database.get_hrv_data(90)  # Для продвинутого алгоритма
     
     if activities_df.empty:
         # Улучшенное приветствие для новых пользователей
@@ -1888,11 +919,11 @@ def show_dashboard():
                     }
                 
                 # Обрабатываем и сохраняем
-                processor = Phase1DataProcessor(st.session_state.database)
+                processor = Phase1DataProcessor(database)
                 processed_sleep = processor.process_sleep_data(sleep_data)
                 processed_health = processor.process_health_data(health_data)
                 
-                st.session_state.database.save_phase1_data(
+                database.save_phase1_data(
                     sleep_data=processed_sleep,
                     health_data=processed_health,
                     training_status={}
@@ -2061,23 +1092,26 @@ def show_quick_actions(current_status):
 
 def handle_quick_action(action):
     """Обработка быстрых действий"""
+    state = get_state_manager()
+
     if action == "recovery_plan":
-        st.session_state.page = "AI Коуч"
+        state.selected_page = "🤖 AI Коучинг"
         st.rerun()
     elif action == "intense_workout":
-        st.session_state.page = "Планирование"
+        state.selected_page = "📈 Планирование"
         st.rerun()
     elif action == "hrv_analysis":
-        st.session_state.page = "HRV анализ"
+        state.selected_page = "💓 Анализ HRV"
         st.rerun()
     elif action == "sync":
         sync_data(days=7)
     elif action == "ai_chat":
-        st.session_state.page = "AI Коуч"
+        state.selected_page = "🤖 AI Коучинг"
         st.rerun()
     elif action == "planning":
-        st.session_state.page = "Планирование"
+        state.selected_page = "📈 Планирование"
         st.rerun()
+
 
 def show_compact_analytics(activities_df):
     """Компактная аналитика в раскрывающемся блоке"""
@@ -2223,10 +1257,12 @@ def show_training_intensity_indicator(current_status):
 
 def show_activities():
     """Страница активностей"""
+    state = get_state_manager()
+    database = state.database
     st.header("🏃‍♂️ Ваши активности")
     
     # Получаем данные активностей
-    activities_df = st.session_state.database.get_activities(30)  # За последние 30 дней
+    activities_df = database.get_activities(30)  # За последние 30 дней
     
     if activities_df.empty:
         st.warning("📭 Нет активностей за последние 30 дней. Синхронизируйте данные с Garmin Connect.")
@@ -2344,7 +1380,7 @@ def show_activities():
     table_df = display_df[columns_to_show].rename(columns=display_columns)
     
     # Отображаем таблицу с учетом темы
-    if st.session_state.get('dark_mode', False):
+    if get_state_manager().dark_mode:
         st.markdown(create_dark_table_html(table_df), unsafe_allow_html=True)
     else:
         st.dataframe(table_df, use_container_width=True, hide_index=True)
@@ -2403,13 +1439,15 @@ def show_activities():
 
 def show_hrv_analysis():
     """Современная страница анализа HRV"""
+    state = get_state_manager()
+    database = state.database
     from utils.modern_ui import ModernUI
-    ModernUI.apply_modern_styles(dark_mode=st.session_state.get('dark_mode', False))
+    ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
     
     st.header("💓 Анализ вариабельности сердечного ритма (HRV)")
     
     # Получаем HRV данные за максимальный период для корректной фильтрации
-    hrv_df = st.session_state.database.get_hrv_data(90)  # Получаем больше данных для фильтрации
+    hrv_df = database.get_hrv_data(90)  # Получаем больше данных для фильтрации
     
     # Импортируем анализатор HRV
     from models.hrv_analyzer import HRVAnalyzer
@@ -2649,7 +1687,7 @@ def show_hrv_analysis():
         st.subheader("🔍 Анализ взаимосвязей")
         
         # Получаем данные активностей за тот же период
-        activities_df = st.session_state.database.get_activities(period_days)
+        activities_df = database.get_activities(period_days)
         
         if not activities_df.empty:
             activities_df['date'] = pd.to_datetime(activities_df['date'])
@@ -2829,7 +1867,7 @@ def show_hrv_analysis():
         table_df = display_df[columns_to_show].rename(columns=display_columns)
         
         # Отображаем таблицу с учетом темы
-        if st.session_state.get('dark_mode', False):
+        if get_state_manager().dark_mode:
             st.markdown(create_dark_table_html(table_df), unsafe_allow_html=True)
         else:
             st.dataframe(table_df, use_container_width=True, hide_index=True)
@@ -2888,13 +1926,15 @@ def show_hrv_analysis():
 
 def show_sleep_analysis():
     """Современная страница анализа сна"""
+    state = get_state_manager()
+    database = state.database
     from utils.modern_ui import ModernUI
-    ModernUI.apply_modern_styles(dark_mode=st.session_state.get('dark_mode', False))
+    ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
     
     st.header("😴 Анализ качества сна")
     
     # Получаем данные сна из БД
-    sleep_df = st.session_state.database.get_sleep_data(90)
+    sleep_df = database.get_sleep_data(90)
     
     if sleep_df.empty:
         st.warning("📊 Данные сна отсутствуют. Выполните синхронизацию с Garmin Connect.")
@@ -2927,8 +1967,11 @@ def show_sleep_analysis():
         st.warning(f"📊 Нет данных сна за последние {period_days} дней.")
         return
     
-    # Текущее состояние сна (последние данные)
-    latest_sleep = filtered_df.iloc[0] if not filtered_df.empty else None
+    # Текущее состояние сна (последние данные) - явно сортируем по дате
+    latest_sleep = None
+    if not filtered_df.empty:
+        sorted_df = filtered_df.sort_values('date', ascending=False)
+        latest_sleep = sorted_df.iloc[0]
     
     if latest_sleep is not None:
         st.subheader(f"🌙 Последний сон ({format_date(latest_sleep['date'], 'display')})")
@@ -3037,6 +2080,12 @@ def show_sleep_analysis():
                 st.metric("🌙 Время засыпания", latest_sleep['bedtime'])
             with col2:
                 st.metric("🌅 Время пробуждения", latest_sleep['wakeup_time'])
+            # Пояснение часового пояса для времени сна
+            try:
+                tz_name = datetime.now().astimezone().tzname()
+                st.caption(f"Время отображается в локальной зоне: {tz_name}")
+            except Exception:
+                st.caption("Время отображается в локальной часовой зоне устройства/сервера")
     
     # Тренды и графики
     st.subheader("📈 Тренды сна")
@@ -3387,10 +2436,12 @@ def show_sleep_analysis():
 
 def show_planning():
     """Страница планирования с моделью Банистера"""
+    state = get_state_manager()
+    database = state.database
     st.header("📈 Планирование тренировок")
     
     # Получаем данные активностей
-    activities_df = st.session_state.database.get_activities(90)  # 90 дней для лучшего анализа
+    activities_df = database.get_activities(90)  # 90 дней для лучшего анализа
     
     if activities_df.empty:
         st.warning("📭 Нет данных для анализа. Синхронизируйте данные с Garmin Connect.")
@@ -3582,23 +2633,23 @@ def show_planning():
         import json
         phases_all = ['Base', 'Build', 'Peak', 'Taper']
         # Инициализация в session_state
-        if 'planner_mix' not in st.session_state:
-            st.session_state.planner_mix = {}
-        if 'planner_weights' not in st.session_state:
-            st.session_state.planner_weights = {}
+        if 'planner_mix' not in state:
+            state.planner_mix = {}
+        if 'planner_weights' not in state:
+            state.planner_weights = {}
         # Сброс пресетов и значений слайдеров при смене типа цели
-        prev_goal = st.session_state.get('planner_goal_type')
+        prev_goal = state.planner_goal_type
         if prev_goal != goal_type:
-            st.session_state.planner_goal_type = goal_type
-            st.session_state.planner_mix = {}
-            st.session_state.planner_weights = {}
+            state.planner_goal_type = goal_type
+            state.planner_mix = {}
+            state.planner_weights = {}
             # Сбрасываем значения слайдеров и инпутов дней, чтобы дефолты применились визуально
             for ph in phases_all:
                 for key in (f"mix_bike_{ph}", f"mix_run_{ph}", f"mix_swim_{ph}"):
-                    st.session_state.pop(key, None)
+                    state.pop(key, None)
                 for i in range(7):
                     for key in (f"w_run_{ph}_{i}", f"w_bike_{ph}_{i}", f"w_swim_{ph}_{i}"):
-                        st.session_state.pop(key, None)
+                        state.pop(key, None)
 
         tabs = st.tabs(phases_all)
         from models.training_planner import triathlon_weekly_mix, daily_weights_for_phase
@@ -3612,7 +2663,7 @@ def show_planning():
                     default_mix = {'run': 0.0, 'bike': 1.0, 'swim': 0.0}
                 else:
                     default_mix = triathlon_weekly_mix(distance, phase)
-                stored_mix = st.session_state.planner_mix.get(phase, default_mix)
+                stored_mix = state.planner_mix.get(phase, default_mix)
                 bike = st.slider(f"{phase} • Bike %", 0, 100, int(round(stored_mix.get('bike', default_mix['bike']) * 100)), key=f"mix_bike_{phase}")
                 run = st.slider(f"{phase} • Run %", 0, 100, int(round(stored_mix.get('run', default_mix['run']) * 100)), key=f"mix_run_{phase}")
                 swim = st.slider(f"{phase} • Swim %", 0, 100, int(round(stored_mix.get('swim', default_mix['swim']) * 100)), key=f"mix_swim_{phase}")
@@ -3622,13 +2673,13 @@ def show_planning():
                     mix_norm = default_mix
                 else:
                     mix_norm = {'bike': bike/total, 'run': run/total, 'swim': swim/total}
-                st.session_state.planner_mix[phase] = mix_norm
+                state.planner_mix[phase] = mix_norm
                 st.caption(f"Сумма: {bike+run+swim}% → будет нормализовано до 100%")
 
                 st.divider()
                 st.caption("Дневные веса (Пн..Вс) для каждого вида спорта. Значения нормализуются к 100% на неделю.")
                 default_w = daily_weights_for_phase(phase)
-                stored_w = st.session_state.planner_weights.get(phase, default_w)
+                stored_w = state.planner_weights.get(phase, default_w)
                 days = ['Пн','Вт','Ср','Чт','Пт','Сб','Вс']
                 cols_run = st.columns(7)
                 run_vals = []
@@ -3651,7 +2702,7 @@ def show_planning():
                         val = c.number_input(f"Swim {days[i]}", min_value=0.0, max_value=1.0, step=0.05,
                                              value=float(stored_w.get('swim', default_w['swim'])[i]), key=f"w_swim_{phase}_{i}")
                         swim_vals.append(val)
-                st.session_state.planner_weights[phase] = {'run': run_vals, 'bike': bike_vals, 'swim': swim_vals}
+                state.planner_weights[phase] = {'run': run_vals, 'bike': bike_vals, 'swim': swim_vals}
 
     if st.button("🧭 Построить план до старта"):
         weekly_tss_plan = create_weekly_tss_plan(
@@ -3667,14 +2718,14 @@ def show_planning():
         today = datetime.now().date()
         start_week = today - timedelta(days=today.weekday())
         phases = compute_phase_schedule(weeks_to_race)
-        mix_overrides = st.session_state.get('planner_mix') or None
+        mix_overrides = state.planner_mix or None
         # Для целей Бег/Вело по умолчанию зададим соответствующий микс (если пользователь не задал свой)
         if not mix_overrides:
             if goal_type == "Бег":
                 mix_overrides = {ph: {'run': 1.0, 'bike': 0.0, 'swim': 0.0} for ph in phases}
             elif goal_type == "Вело":
                 mix_overrides = {ph: {'run': 0.0, 'bike': 1.0, 'swim': 0.0} for ph in phases}
-        weights_overrides = st.session_state.get('planner_weights') or None
+        weights_overrides = state.planner_weights or None
         daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
             weekly_tss_plan, phases, distance, start_week,
             mix_overrides=mix_overrides, weights_overrides=weights_overrides
@@ -3682,7 +2733,7 @@ def show_planning():
         daily_seq = flatten_daily_total(daily_plan)
 
         # Кешируем план, чтобы не терялся при экспорте
-        st.session_state.goal_plan = {
+        state.goal_plan = {
             'goal_type': goal_type,
             'distance': distance,
             'weeks_to_race': weeks_to_race,
@@ -3692,7 +2743,7 @@ def show_planning():
             'daily_plan': daily_plan,
             'weekly_summary': weekly_summary,
         }
-        st.session_state._just_built_plan = True
+        state._just_built_plan = True
 
         # Прогноз по переменной нагрузке
         future_dates, future_ctl, future_atl, future_tsb = banister.simulate_variable_load(
@@ -3756,10 +2807,10 @@ def show_planning():
     
     # Отрисовка плана из кеша, чтобы экспорт не сбрасывал страницу
     # Показываем сразу при наличии goal_plan (после st.rerun() из кнопки)
-    if st.session_state.get('goal_plan'):
+    if state.goal_plan:
         # Очистим флаг, если он остался
-        st.session_state.pop('_just_built_plan', None)
-        gp = st.session_state.goal_plan
+        state.pop('_just_built_plan', None)
+        gp = state.goal_plan
         daily_plan = gp['daily_plan']
         weekly_summary = gp['weekly_summary']
         start_week = gp['start_week']
@@ -3962,9 +3013,7 @@ def show_planning():
 
         # Кнопка сброса плана
         if st.button("♻️ Сбросить план"):
-            st.session_state.pop('goal_plan', None)
-            st.session_state.pop('planner_mix', None)
-            st.session_state.pop('planner_weights', None)
+            state.reset_planner_overrides()
             st.success("План сброшен")
             st.rerun()
 
@@ -3987,67 +3036,65 @@ def show_planning():
 
 def show_chat_management():
     """Управление чатами в боковой панели"""
-    # Боковая панель с управлением чатами
+    state = get_state_manager()
+    chat_manager = state.chat_manager
+
     with st.sidebar:
         st.subheader("💬 Управление чатами")
-        
-        # Кнопки управления чатом
+
         col1, col2 = st.columns(2)
         with col1:
             if st.button("➕ Новый чат", use_container_width=True, type="primary"):
-                new_chat_id = st.session_state.chat_manager.create_new_chat()
-                st.session_state.current_chat_id = new_chat_id
+                new_chat_id = chat_manager.create_new_chat()
+                state.current_chat_id = new_chat_id
+                state.switch_to_chat_tab = True
+                state.selected_page = "🤖 AI Коучинг"
                 st.rerun()
-        
+
         with col2:
-            # Кнопка очистки текущего чата
-            if st.session_state.current_chat_id and st.button("🧹 Очистить", use_container_width=True):
-                if st.session_state.chat_manager.clear_chat(st.session_state.current_chat_id):
+            if state.current_chat_id and st.button("🧹 Очистить", use_container_width=True):
+                if chat_manager.clear_chat(state.current_chat_id):
                     st.success("Чат очищен")
                     st.rerun()
-        
-        # Список чатов
-        chats = st.session_state.chat_manager.get_chat_list()
-        
+
+        chats = chat_manager.get_chat_list()
+
         if chats:
             st.markdown('<div class="sidebar-chat-list">', unsafe_allow_html=True)
-            
+
             for chat in chats:
-                is_current = chat["id"] == st.session_state.current_chat_id
-                
+                is_current = chat["id"] == state.current_chat_id
+
                 col1, col2 = st.columns([4, 1])
-                
+
                 with col1:
-                    # Кнопка выбора чата
                     chat_title = chat['title'][:30] + ("..." if len(chat['title']) > 30 else "")
                     button_text = f"{'🔵' if is_current else '💬'} {chat_title}"
-                    
+
                     if st.button(
                         button_text,
                         key=f"chat_{chat['id']}",
                         use_container_width=True,
-                        help=f"Сообщений: {chat['message_count']} • {chat['updated_at'][:16].replace('T', ' ')}"
+                        help=f"Сообщений: {chat['message_count']} • {chat['updated_at'][:16].replace('T', ' ')}",
                     ):
-                        st.session_state.current_chat_id = chat["id"]
-                        # Переключаемся на страницу AI коучинга
-                        st.session_state.selected_page = "🤖 AI Коучинг"
-                        # Устанавливаем флаг для автоматического переключения на чат
-                        st.session_state.switch_to_chat_tab = True
+                        state.current_chat_id = chat["id"]
+                        state.selected_page = "🤖 AI Коучинг"
+                        state.switch_to_chat_tab = True
                         st.success(f"Выбран чат: {chat['title'][:20]}...")
                         st.rerun()
-                
+
                 with col2:
-                    # Кнопка удаления чата
                     if st.button("🗑️", key=f"delete_{chat['id']}", help="Удалить чат"):
-                        if st.session_state.chat_manager.delete_chat(chat["id"]):
-                            if st.session_state.current_chat_id == chat["id"]:
-                                st.session_state.current_chat_id = None
+                        if chat_manager.delete_chat(chat["id"]):
+                            if state.current_chat_id == chat["id"]:
+                                state.current_chat_id = None
                             st.success("Чат удален")
                             st.rerun()
-            
+
             st.markdown('</div>', unsafe_allow_html=True)
         else:
             st.info("Пока нет сохраненных чатов")
+
 
 def show_modern_ai_chat(ai_metrics):
     """Современный AI чат с быстрыми вопросами"""
@@ -4071,7 +3118,7 @@ def show_modern_ai_chat(ai_metrics):
         if col.button(question, key=f"quick_q_{i}", use_container_width=True):
             # Автоматически отправляем быстрый вопрос
             with st.spinner("AI отвечает на ваш вопрос..."):
-                answer = st.session_state.ai_coach.answer_question(question, ai_metrics)
+                answer = state.ai_coach.answer_question(question, ai_metrics)
                 st.markdown("### 💡 Ответ коуча:")
                 st.markdown(answer)
     
@@ -4090,7 +3137,7 @@ def show_modern_ai_chat(ai_metrics):
         if st.button("💬 Отправить", key="send_question"):
             if question:
                 with st.spinner("AI формирует ответ..."):
-                    answer = st.session_state.ai_coach.answer_question(question, ai_metrics)
+                    answer = state.ai_coach.answer_question(question, ai_metrics)
                     st.markdown("### 💡 Ответ коуча:")
                     st.markdown(answer)
             else:
@@ -4102,6 +3149,8 @@ def show_modern_ai_chat(ai_metrics):
 
 def show_ai_coaching():
     """Страница AI коучинга с поддержкой разных провайдеров"""
+    state = get_state_manager()
+    database = state.database
     st.header("🤖 AI Коучинг")
     
     # Импортируем необходимые модули
@@ -4109,10 +3158,10 @@ def show_ai_coaching():
     from models.ai_coach_universal import UniversalAICoach
     
     # Инициализация состояния
-    if 'ai_coach' not in st.session_state:
-        st.session_state.ai_coach = None
-    if 'selected_provider' not in st.session_state:
-        st.session_state.selected_provider = Settings.DEFAULT_AI_PROVIDER
+    if not getattr(state, 'ai_coach', None):
+        state.ai_coach = None
+    if not state.selected_provider:
+        state.selected_provider = Settings.DEFAULT_AI_PROVIDER
     
     # Боковая панель с настройками AI
     with st.sidebar.expander("⚙️ Настройки AI", expanded=True):
@@ -4139,7 +3188,7 @@ def show_ai_coaching():
         selected_name = st.selectbox(
             "Провайдер:",
             options=list(provider_options.keys()),
-            index=list(provider_options.values()).index(st.session_state.selected_provider)
+            index=list(provider_options.values()).index(state.selected_provider)
         )
         
         selected_provider = provider_options[selected_name]
@@ -4297,8 +3346,8 @@ def show_ai_coaching():
                 try:
                     provider = AIProviderFactory.create_provider(selected_provider, **provider_kwargs)
                     if provider.is_available():
-                        st.session_state.ai_coach = UniversalAICoach(provider)
-                        st.session_state.selected_provider = selected_provider
+                        state.ai_coach = UniversalAICoach(provider)
+                        state.selected_provider = selected_provider
                         st.success(f"✅ Подключено к {provider.get_model_name()}")
                         
                         # Показываем краткую информацию о подключении
@@ -4310,12 +3359,12 @@ def show_ai_coaching():
                     st.error(f"❌ Ошибка: {e}")
     
     # Основной контент
-    if st.session_state.ai_coach is None:
+    if state.ai_coach is None:
         st.warning("👆 Настройте AI провайдера в боковой панели")
         return
     
     # Получаем данные для анализа
-    activities_df = st.session_state.database.get_activities(30)
+    activities_df = database.get_activities(30)
     
     if activities_df.empty:
         st.warning("📭 Нет данных для анализа. Синхронизируйте данные с Garmin Connect.")
@@ -4355,9 +3404,9 @@ def show_ai_coaching():
     }
     
     # Проверяем, нужно ли сразу показать чат
-    if st.session_state.get('switch_to_chat_tab', False):
+    if state.switch_to_chat_tab:
         # Сбрасываем флаг
-        st.session_state.switch_to_chat_tab = False
+        state.switch_to_chat_tab = False
         # Показываем кнопку возврата к вкладкам
         col1, col2 = st.columns([1, 4])
         with col1:
@@ -4393,7 +3442,7 @@ def show_ai_coaching():
             
             if st.button("🔍 Проанализировать состояние", key="analyze_state"):
                 with st.spinner("AI анализирует ваши данные..."):
-                    analysis = st.session_state.ai_coach.analyze_current_state(ai_metrics)
+                    analysis = state.ai_coach.analyze_current_state(ai_metrics)
                     st.markdown("### 🤖 Анализ AI коуча:")
                     st.markdown(analysis)
     
@@ -4403,8 +3452,8 @@ def show_ai_coaching():
             use_structured = False
             structured_week = None
 
-            if st.session_state.get('goal_plan'):
-                gp = st.session_state.goal_plan
+            if state.goal_plan:
+                gp = state.goal_plan
                 weeks_count = max(1, len(gp.get('phases', [])))
                 week_options = []
                 start_week = gp['start_week']
@@ -4448,21 +3497,21 @@ def show_ai_coaching():
                 with st.spinner("AI создаёт персональный план..."):
                     if use_structured and structured_week:
                         # Передаем строгую структуру напрямую в промпт
-                        coach = st.session_state.ai_coach
+                        coach = state.ai_coach
                         if hasattr(coach, 'generate_weekly_plan_structured'):
                             plan = coach.generate_weekly_plan_structured(ai_metrics, structured_week, note=goals)
                         else:
                             # Фоллбэк на текстовый промпт
                             plan = coach.generate_weekly_plan(ai_metrics, goals)
                     else:
-                        plan = st.session_state.ai_coach.generate_weekly_plan(ai_metrics, goals)
+                        plan = state.ai_coach.generate_weekly_plan(ai_metrics, goals)
                     st.markdown("### 📋 Ваш недельный план:")
                     st.markdown(plan)
                     # Сохраняем текст плана для последующего экспорта из текста
-                    st.session_state.last_ai_weekly_plan_text = plan
+                    state.last_ai_weekly_plan_text = plan
 
             # Экспорт из сгенерированного текста (если структура не использовалась)
-            if st.session_state.get('last_ai_weekly_plan_text'):
+            if state.last_ai_weekly_plan_text:
                 with st.expander("📤 Экспортировать из сгенерированного текста", expanded=False):
                     base_date = st.date_input("Дата начала недели (Понедельник):", value=datetime.now().date())
                     colx1, colx2 = st.columns([1,1])
@@ -4474,7 +3523,7 @@ def show_ai_coaching():
                     if st.button("🔽 Сформировать CSV/ICS/FIT из текста", key="export_text_week"):
                         import re
                         import io, zipfile
-                        text = st.session_state.last_ai_weekly_plan_text
+                        text = state.last_ai_weekly_plan_text
                         # Ищем все значения TSS по порядку упоминания дней
                         tss_vals = [int(m.group(1)) for m in re.finditer(r"TSS:\s*(\d+)", text)]
                         # Гарантируем 7 значений (недостающие заполняем нулями, лишние обрезаем)
@@ -4606,7 +3655,7 @@ def show_ai_coaching():
                 if st.button("🔬 Анализировать тренировку", key="analyze_workout"):
                     with st.spinner("AI анализирует тренировку..."):
                         workout_data = selected_activity.to_dict()
-                        analysis = st.session_state.ai_coach.analyze_workout(workout_data, feeling)
+                        analysis = state.ai_coach.analyze_workout(workout_data, feeling)
                         st.markdown("### 🎯 Анализ тренировки:")
                         st.markdown(analysis)
     
@@ -4629,33 +3678,32 @@ def show_ai_coaching():
             
             if st.button("📖 Объяснить", key="explain_metric"):
                 with st.spinner("AI готовит объяснение..."):
-                    explanation = st.session_state.ai_coach.explain_metrics(selected_metric_name)
+                    explanation = state.ai_coach.explain_metrics(selected_metric_name)
                     st.markdown("### 📘 Объяснение:")
                     st.markdown(explanation)
     
-
 def show_ai_chat():
     """Современный интерфейс AI чата с сохранением и управлением"""
     # Проверяем подключение к AI
-    if st.session_state.ai_coach is None:
+    if state.ai_coach is None:
         st.warning("👆 Настройте AI провайдера для использования чата")
         return
     
     # Менеджер чатов уже инициализирован в main()
     
     # Инициализация AI инструментов
-    if "ai_tools" not in st.session_state:
+    if "ai_tools" not in state:
         from models.ai_tools import AITools
-        st.session_state.ai_tools = AITools(st.session_state.database)
+        state.ai_tools = AITools(database)
     
     # Инициализация контекста данных
-    if "data_context" not in st.session_state:
-        st.session_state.data_context = None
-        st.session_state.context_loaded = False
+    if "data_context" not in state:
+        state.data_context = None
+        state.context_loaded = False
     
     # Текущий чат
-    if "current_chat_id" not in st.session_state:
-        st.session_state.current_chat_id = None
+    if "current_chat_id" not in state:
+        state.current_chat_id = None
     
     # CSS для улучшения интерфейса чата
     st.markdown("""
@@ -4754,17 +3802,17 @@ def show_ai_chat():
         if st.button("🔄 Обновить данные", help="Загрузить свежие данные"):
             with st.spinner("Загрузка данных..."):
                 from models.ai_data_context import AIDataContext
-                data_context = AIDataContext(st.session_state.database)
-                st.session_state.data_context = data_context.get_full_context(context_days)
-                st.session_state.context_loaded = True
+                data_context = AIDataContext(database)
+                state.data_context = data_context.get_full_context(context_days)
+                state.context_loaded = True
                 st.success(f"✅ Данные обновлены")
         
         # Расширенная диагностика контекста
         st.divider()
         st.subheader("🔍 Диагностика данных")
         
-        if st.session_state.context_loaded and st.session_state.data_context:
-            context = st.session_state.data_context
+        if state.context_loaded and state.data_context:
+            context = state.data_context
             summary = context['summary']
             
             # Показываем детальную информацию о доступных данных
@@ -4882,19 +3930,19 @@ def show_ai_chat():
             # Дополнительная диагностическая кнопка для показа полного контекста AI
             if st.button("🔬 Показать полный контекст для AI"):
                 with st.expander("📋 Системный промпт AI", expanded=True):
-                    system_prompt = create_chat_system_prompt_with_tools(st.session_state.data_context)
+                    system_prompt = create_chat_system_prompt_with_tools(state.data_context)
                     st.code(system_prompt, language="markdown")
                     
                 with st.expander("🗄️ Полный контекст данных"):
                     from models.ai_data_context import AIDataContext
                     context_formatter = AIDataContext(None)
-                    formatted_context = context_formatter.format_context_for_ai(st.session_state.data_context)
+                    formatted_context = context_formatter.format_context_for_ai(state.data_context)
                     st.code(formatted_context, language="markdown")
         
         # Статистика чатов
-        chats = st.session_state.chat_manager.get_chat_list()
+        chats = state.chat_manager.get_chat_list()
         if chats:
-            stats = st.session_state.chat_manager.get_stats()
+            stats = state.chat_manager.get_stats()
             st.divider()
             st.subheader("📊 Статистика")
             col1, col2 = st.columns(2)
@@ -4905,12 +3953,12 @@ def show_ai_chat():
     st.title("🤖 AI Тренер")
     
     # Загрузка контекста при первом запуске
-    if not st.session_state.context_loaded:
+    if not state.context_loaded:
         with st.spinner("Загрузка данных для AI..."):
             from models.ai_data_context import AIDataContext
-            data_context = AIDataContext(st.session_state.database)
-            st.session_state.data_context = data_context.get_full_context(context_days)
-            st.session_state.context_loaded = True
+            data_context = AIDataContext(database)
+            state.data_context = data_context.get_full_context(context_days)
+            state.context_loaded = True
     
     # Контейнер для чата с улучшенным стилем
     with st.container():
@@ -4918,8 +3966,8 @@ def show_ai_chat():
         
         # Загружаем сообщения текущего чата
         current_messages = []
-        if st.session_state.current_chat_id:
-            current_messages = st.session_state.chat_manager.get_chat_messages(st.session_state.current_chat_id)
+        if state.current_chat_id:
+            current_messages = state.chat_manager.get_chat_messages(state.current_chat_id)
         
         # Отображение сообщений
         if current_messages:
@@ -4995,12 +4043,12 @@ def show_ai_chat():
 def process_modern_chat_message(user_input):
     """Обрабатывает сообщение в современном чате с сохранением"""
     # Создаем новый чат если его нет
-    if not st.session_state.current_chat_id:
-        st.session_state.current_chat_id = st.session_state.chat_manager.create_new_chat()
+    if not state.current_chat_id:
+        state.current_chat_id = state.chat_manager.create_new_chat()
     
     # Добавляем сообщение пользователя в чат
-    st.session_state.chat_manager.add_message(
-        st.session_state.current_chat_id, 
+    state.chat_manager.add_message(
+        state.current_chat_id, 
         "user", 
         user_input
     )
@@ -5016,10 +4064,10 @@ def process_modern_chat_message(user_input):
         
         try:
             # Создаем системный промпт с инструментами
-            system_prompt = create_chat_system_prompt_with_tools(st.session_state.data_context)
+            system_prompt = create_chat_system_prompt_with_tools(state.data_context)
             
             # Получаем историю разговора
-            chat_messages = st.session_state.chat_manager.get_chat_messages(st.session_state.current_chat_id)
+            chat_messages = state.chat_manager.get_chat_messages(state.current_chat_id)
             conversation_history = ""
             for msg in chat_messages[:-1]:  # Исключаем последнее сообщение
                 conversation_history += f"\n{msg['role'].upper()}: {msg['content']}"
@@ -5039,7 +4087,7 @@ def process_modern_chat_message(user_input):
             response_placeholder.markdown("🤖 *Генерирую ответ...*")
             
             # Получаем ответ от AI (может содержать запросы инструментов)
-            ai_response = st.session_state.ai_coach.provider.generate_response(full_prompt, "")
+            ai_response = state.ai_coach.provider.generate_response(full_prompt, "")
             
             # Показываем состояние обработки инструментов
             response_placeholder.markdown("🔧 *Обрабатываю данные...*")
@@ -5051,8 +4099,8 @@ def process_modern_chat_message(user_input):
             simulate_streaming_response(response_placeholder, final_response)
             
             # Сохраняем ответ в чат
-            st.session_state.chat_manager.add_message(
-                st.session_state.current_chat_id,
+            state.chat_manager.add_message(
+                state.current_chat_id,
                 "assistant", 
                 final_response
             )
@@ -5064,8 +4112,8 @@ def process_modern_chat_message(user_input):
             error_msg = f"❌ Ошибка AI: {e}"
             response_placeholder.markdown(error_msg)
             # Сохраняем ошибку в чат
-            st.session_state.chat_manager.add_message(
-                st.session_state.current_chat_id,
+            state.chat_manager.add_message(
+                state.current_chat_id,
                 "assistant", 
                 error_msg
             )
@@ -5073,7 +4121,7 @@ def process_modern_chat_message(user_input):
 def process_chat_message(user_input):
     """Обрабатывает сообщение пользователя в чате с поддержкой инструментов"""
     # Добавляем сообщение пользователя
-    st.session_state.chat_messages.append({"role": "user", "content": user_input})
+    state.chat_messages.append({"role": "user", "content": user_input})
     
     # Отображаем сообщение пользователя
     with st.chat_message("user"):
@@ -5084,11 +4132,11 @@ def process_chat_message(user_input):
         with st.spinner("AI тренер анализирует данные..."):
             try:
                 # Создаем системный промпт с инструментами
-                system_prompt = create_chat_system_prompt_with_tools(st.session_state.data_context)
+                system_prompt = create_chat_system_prompt_with_tools(state.data_context)
                 
                 # Собираем историю разговора
                 conversation_history = ""
-                for msg in st.session_state.chat_messages[:-1]:  # Исключаем последнее сообщение
+                for msg in state.chat_messages[:-1]:  # Исключаем последнее сообщение
                     conversation_history += f"\n{msg['role'].upper()}: {msg['content']}"
                 
                 # Создаем полный промпт
@@ -5103,7 +4151,7 @@ def process_chat_message(user_input):
 """
                 
                 # Получаем ответ от AI (может содержать запросы инструментов)
-                ai_response = st.session_state.ai_coach.provider.generate_response(full_prompt, "")
+                ai_response = state.ai_coach.provider.generate_response(full_prompt, "")
                 
                 # Обрабатываем инструменты в ответе
                 final_response = process_tool_calls(ai_response)
@@ -5112,7 +4160,7 @@ def process_chat_message(user_input):
                 st.markdown(final_response)
                 
                 # Сохраняем в историю
-                st.session_state.chat_messages.append({"role": "assistant", "content": final_response})
+                state.chat_messages.append({"role": "assistant", "content": final_response})
                 
             except Exception as e:
                 st.error(f"❌ Ошибка AI: {e}")
@@ -5148,7 +4196,7 @@ def create_chat_system_prompt_with_tools(data_context):
 """
     
     # Добавляем описание инструментов
-    tools_description = st.session_state.ai_tools.format_tool_descriptions_for_ai()
+    tools_description = state.ai_tools.format_tool_descriptions_for_ai()
     
     return f"{base_prompt}\n\n{tools_description}"
 
@@ -5225,7 +4273,7 @@ def process_tool_calls(ai_response):
         
         # Выполняем инструмент
         try:
-            result = st.session_state.ai_tools.execute_tool(tool_name, **params)
+            result = state.ai_tools.execute_tool(tool_name, **params)
             
             if result.get('success'):
                 # Форматируем результат для отображения
@@ -5745,6 +4793,8 @@ def show_sync_logs():
 
 def show_data_management():
     """Показывает страницу управления данными"""
+    state = get_state_manager()
+    database = state.database
     st.title("⚙️ Управление данными")
     st.write("Управление синхронизацией и данными в базе")
     
@@ -5771,8 +4821,8 @@ def show_data_management():
     # Статистика БД
     st.subheader("📊 Данные в БД")
     
-    if hasattr(st.session_state, 'database'):
-        stats = st.session_state.database.get_database_stats()
+    if hasattr(state, 'database'):
+        stats = database.get_database_stats()
         
         # Показываем статистику в виде метрик
         col1, col2, col3 = st.columns(3)
@@ -5797,7 +4847,7 @@ def show_data_management():
         if stats['activities'] > 0:
             try:
                 # Получаем дату последней активности
-                activities_df = st.session_state.database.get_activities(1)
+                activities_df = database.get_activities(1)
                 if not activities_df.empty:
                     last_activity_date = activities_df.iloc[0]['date']
                     st.info(f"📅 Последняя активность: {last_activity_date}")
