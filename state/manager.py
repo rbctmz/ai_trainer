@@ -45,6 +45,7 @@ class StateManager:
         "planner_goal_type": None,
         "selected_provider": None,
         "switch_to_chat_tab": False,
+        "use_custom_theme": True,
     }
 
     _MUTABLE_DEFAULT_FACTORIES: Dict[str, Callable[[], Any]] = {
@@ -62,7 +63,18 @@ class StateManager:
     # Bootstrap helpers
     # ------------------------------------------------------------------
     def _bootstrap_defaults(self) -> None:
+        if "dark_mode" not in self._session:
+            theme_state = self._session.get("_theme")
+            base_theme = None
+            if isinstance(theme_state, dict):
+                base_theme = theme_state.get("base")
+            if base_theme is None and callable(getattr(st, "get_option", None)):
+                base_theme = st.get_option("theme.base")
+            self._session["dark_mode"] = (base_theme or "light").lower() == "dark"
+
         for key, value in self._PRIMITIVE_DEFAULTS.items():
+            if key == "dark_mode":
+                continue
             self._session.setdefault(key, value)
 
         for key, factory in self._MUTABLE_DEFAULT_FACTORIES.items():
@@ -127,9 +139,13 @@ class StateManager:
     def dark_mode(self) -> bool:
         return bool(self._session.get("dark_mode", False))
 
+    @dark_mode.setter
+    def dark_mode(self, value: bool) -> None:
+        self._session["dark_mode"] = bool(value)
+
     def toggle_dark_mode(self) -> bool:
         new_value = not self.dark_mode
-        self._session["dark_mode"] = new_value
+        self.dark_mode = new_value
         return new_value
 
     @property
@@ -155,6 +171,14 @@ class StateManager:
     @selected_provider.setter
     def selected_provider(self, value: Optional[str]) -> None:
         self._session["selected_provider"] = value
+
+    @property
+    def use_custom_theme(self) -> bool:
+        return bool(self._session.get("use_custom_theme", True))
+
+    @use_custom_theme.setter
+    def use_custom_theme(self, value: bool) -> None:
+        self._session["use_custom_theme"] = bool(value)
 
     @property
     def current_chat_id(self):
@@ -204,8 +228,13 @@ class StateManager:
     def last_ai_weekly_plan_text(self, value):
         self._session["last_ai_weekly_plan_text"] = value
 
+    @property
     def chat_messages(self):
         return self._session.get("chat_messages", [])
+
+    @chat_messages.setter
+    def chat_messages(self, value) -> None:
+        self._session["chat_messages"] = value
 
     @property
     def data_context(self):

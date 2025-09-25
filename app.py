@@ -262,7 +262,8 @@ def main():
     st.title("🏃‍♂️ Персональный AI Тренер")
 
     from utils.modern_ui import ModernUI
-    ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
+    if state.use_custom_theme:
+        ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
 
     apply_theme(state.dark_mode)
 
@@ -271,12 +272,18 @@ def main():
         st.title("🏃‍♂️ AI Trainer")
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
-        if st.button("🌙" if not state.dark_mode else "☀️",
-                     help="Переключить тему",
-                     use_container_width=True,
-                     key="theme_toggle"):
-            state.toggle_dark_mode()
-            st.rerun()
+        if state.use_custom_theme:
+            if st.button("🌙" if not state.dark_mode else "☀️",
+                         help="Переключить тему",
+                         use_container_width=True,
+                         key="theme_toggle"):
+                state.toggle_dark_mode()
+                st.rerun()
+
+    custom_theme_enabled = st.sidebar.checkbox("🎨 Кастомная тема", value=state.use_custom_theme, key="use_custom_theme_checkbox")
+    if custom_theme_enabled != state.use_custom_theme:
+        state.use_custom_theme = custom_theme_enabled
+        st.rerun()
 
     show_garmin_connection(state)
 
@@ -856,7 +863,9 @@ def show_dashboard():
     database = state.database
     dark_mode = state.dark_mode
 
-    ModernUI.apply_modern_styles(dark_mode=dark_mode)
+    if state.use_custom_theme:
+        ModernUI.apply_modern_styles(dark_mode=dark_mode)
+
     ModernUI.show_horizontal_nav("Dashboard")
 
     activities_df = database.get_activities(30)
@@ -1328,7 +1337,7 @@ def show_activities():
     # График активности по дням
     if len(filtered_df) > 0:
         st.subheader("📈 Активность по дням")
-        
+
         # Подготовка данных для графика
         filtered_df['date'] = pd.to_datetime(filtered_df['date'])
         daily_stats = filtered_df.groupby('date').agg({
@@ -1336,23 +1345,33 @@ def show_activities():
             'duration_minutes': 'sum',
             'distance_km': 'sum'
         }).reset_index()
-        
-        # График TSS
-        theme = get_plotly_theme()
-        fig_tss = px.bar(
-            daily_stats, 
-            x='date', 
-            y='tss',
-            title="Training Stress Score по дням",
-            labels={'tss': 'TSS', 'date': 'Дата'},
-            template=theme['template']
-        )
-        fig_tss.update_layout(
-            height=400,
-            paper_bgcolor=theme['paper_bgcolor'],
-            plot_bgcolor=theme['plot_bgcolor'],
-            font_color=theme['font_color']
-        )
+
+        if state.use_custom_theme:
+            theme = get_plotly_theme(state.dark_mode)
+            fig_tss = px.bar(
+                daily_stats,
+                x='date',
+                y='tss',
+                title="Training Stress Score по дням",
+                labels={'tss': 'TSS', 'date': 'Дата'},
+                template=theme['template']
+            )
+            fig_tss.update_layout(
+                height=400,
+                paper_bgcolor=theme['paper_bgcolor'],
+                plot_bgcolor=theme['plot_bgcolor'],
+                font_color=theme['font_color']
+            )
+        else:
+            fig_tss = px.bar(
+                daily_stats,
+                x='date',
+                y='tss',
+                title="Training Stress Score по дням",
+                labels={'tss': 'TSS', 'date': 'Дата'}
+            )
+            fig_tss.update_layout(height=400)
+
         st.plotly_chart(fig_tss, use_container_width=True)
     
     # Таблица активностей
@@ -1380,7 +1399,7 @@ def show_activities():
     table_df = display_df[columns_to_show].rename(columns=display_columns)
     
     # Отображаем таблицу с учетом темы
-    if get_state_manager().dark_mode:
+    if state.use_custom_theme and state.dark_mode:
         st.markdown(create_dark_table_html(table_df), unsafe_allow_html=True)
     else:
         st.dataframe(table_df, use_container_width=True, hide_index=True)
@@ -1442,7 +1461,8 @@ def show_hrv_analysis():
     state = get_state_manager()
     database = state.database
     from utils.modern_ui import ModernUI
-    ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
+    if state.use_custom_theme:
+        ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
     
     st.header("💓 Анализ вариабельности сердечного ритма (HRV)")
     
@@ -1867,7 +1887,7 @@ def show_hrv_analysis():
         table_df = display_df[columns_to_show].rename(columns=display_columns)
         
         # Отображаем таблицу с учетом темы
-        if get_state_manager().dark_mode:
+        if state.use_custom_theme and state.dark_mode:
             st.markdown(create_dark_table_html(table_df), unsafe_allow_html=True)
         else:
             st.dataframe(table_df, use_container_width=True, hide_index=True)
@@ -1929,7 +1949,8 @@ def show_sleep_analysis():
     state = get_state_manager()
     database = state.database
     from utils.modern_ui import ModernUI
-    ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
+    if state.use_custom_theme:
+        ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
     
     st.header("😴 Анализ качества сна")
     
@@ -3098,6 +3119,7 @@ def show_chat_management():
 
 def show_modern_ai_chat(ai_metrics):
     """Современный AI чат с быстрыми вопросами"""
+    state = get_state_manager()
     st.subheader("💬 AI Чат")
     
     # Быстрые вопросы

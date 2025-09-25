@@ -69,13 +69,16 @@ def apply_plotly_theme(fig, dark_mode: Optional[bool] = None):
 def apply_theme(dark_mode: Optional[bool] = None):
     """Применение темной или светлой темы"""
     state = get_state_manager()
+
+    if not state.use_custom_theme:
+        base_theme = st.get_option("theme.base") if callable(getattr(st, "get_option", None)) else "light"
+        state.dark_mode = (base_theme or "light").lower() == "dark"
+        return
+
     if dark_mode is None:
         dark_mode = state.dark_mode
 
-    if 'dark_mode' not in st.session_state:
-        st.session_state.dark_mode = dark_mode
-
-    st.session_state.dark_mode = dark_mode
+    state.dark_mode = dark_mode
 
     # JavaScript для сохранения/загрузки темы из localStorage
     st.markdown(f"""

@@ -293,6 +293,13 @@ class ModernUI:
         и строковые тренды (например, стрелки '↗️', '↘️').
         """
         
+        if not st.session_state.get("use_custom_theme", True):
+            display_value = value if isinstance(value, str) else f"{value}"
+            st.metric(title, display_value)
+            if description:
+                st.caption(description)
+            return
+
         # Получаем текущую тему
         theme = ModernUI.get_theme()
         
