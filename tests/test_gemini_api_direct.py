@@ -4,18 +4,28 @@
 """
 
 import sys
-import os
 import subprocess
 import requests
 import json
 
+import pytest
+
+from config.settings import Settings
+
+
+@pytest.fixture(scope="module")
+def api_key():
+    key = Settings.GOOGLE_API_KEY
+    if not key:
+        pytest.skip("GOOGLE_API_KEY не настроен для интеграционных тестов Gemini")
+    return key
+
 def test_gemini_curl(api_key: str):
     """Тест Gemini API через curl команду"""
-    
+
     print("🌐 ТЕСТ GEMINI API ЧЕРЕЗ CURL")
     print("=" * 50)
-    
-    # Подготавливаем curl команду
+
     curl_command = [
         'curl',
         'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
@@ -34,63 +44,48 @@ def test_gemini_curl(api_key: str):
             ]
         })
     ]
-    
-    print(f"🔧 Команда curl:")
+
+    print("🔧 Команда curl:")
     masked_command = " ".join(curl_command).replace(api_key, "***API_KEY***")
     print(f"  {masked_command}")
-    
+
     try:
-        # Выполняем curl команду
         result = subprocess.run(curl_command, capture_output=True, text=True, timeout=30)
-        
-        print(f"\n📊 Результат curl:")
-        print(f"  Return code: {result.returncode}")
-        
-        if result.returncode == 0:
-            # Парсим JSON ответ
-            try:
-                response_data = json.loads(result.stdout)
-                print(f"  ✅ Успешный ответ JSON")
-                
-                # Извлекаем текст ответа
-                if 'candidates' in response_data:
-                    text = response_data['candidates'][0]['content']['parts'][0]['text']
-                    print(f"  💬 Ответ AI: {text[:200]}...")
-                    return True
-                else:
-                    print(f"  ❌ Неожиданная структура ответа: {response_data}")
-                    return False
-                    
-            except json.JSONDecodeError as e:
-                print(f"  ❌ Ошибка парсинга JSON: {e}")
-                print(f"  📄 Raw output: {result.stdout[:500]}...")
-                return False
-        else:
-            print(f"  ❌ Ошибка curl")
-            print(f"  📄 stdout: {result.stdout}")
-            print(f"  📄 stderr: {result.stderr}")
-            return False
-            
     except subprocess.TimeoutExpired:
-        print(f"  ⏱️ Таймаут curl команды")
-        return False
-    except Exception as e:
-        print(f"  ❌ Исключение: {e}")
-        return False
+        pytest.fail("Таймаут curl команды")
+    except Exception as exc:  # noqa: BLE001
+        pytest.fail(f"Исключение при выполнении curl: {exc}")
+
+    print("\n📊 Результат curl:")
+    print(f"  Return code: {result.returncode}")
+    print(f"  📄 stdout: {result.stdout[:200]}")
+    print(f"  📄 stderr: {result.stderr[:200]}")
+
+    assert result.returncode == 0, "curl не смог получить ответ от Gemini"
+
+    try:
+        response_data = json.loads(result.stdout)
+    except json.JSONDecodeError as exc:
+        pytest.fail(f"Ошибка парсинга JSON: {exc}. Raw output: {result.stdout[:500]}")
+
+    assert 'candidates' in response_data, f"Неожиданная структура ответа: {response_data}"
+    text = response_data['candidates'][0]['content']['parts'][0]['text']
+    assert text, "Ответ Gemini пуст"
+    print(f"  💬 Ответ AI: {text[:200]}...")
 
 def test_gemini_requests(api_key: str):
     """Тест Gemini API через Python requests"""
-    
-    print(f"\n🐍 ТЕСТ GEMINI API ЧЕРЕЗ PYTHON REQUESTS")
+
+    print("\n🐍 ТЕСТ GEMINI API ЧЕРЕЗ PYTHON REQUESTS")
     print("=" * 50)
-    
+
     url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
-    
+
     headers = {
         "Content-Type": "application/json",
         "X-goog-api-key": api_key
     }
-    
+
     data = {
         "contents": [
             {
@@ -102,87 +97,69 @@ def test_gemini_requests(api_key: str):
             }
         ]
     }
-    
+
+    print("🌐 Отправка запроса к API...")
+
     try:
-        print(f"🌐 Отправка запроса к API...")
         response = requests.post(url, headers=headers, json=data, timeout=30)
-        
-        print(f"📊 HTTP Status: {response.status_code}")
-        
-        if response.status_code == 200:
-            response_data = response.json()
-            
-            if 'candidates' in response_data:
-                text = response_data['candidates'][0]['content']['parts'][0]['text']
-                print(f"✅ Успешный ответ!")
-                print(f"💬 AI тренер отвечает: {text}")
-                return True
-            else:
-                print(f"❌ Неожиданная структура ответа")
-                print(f"📄 Response: {response_data}")
-                return False
-        else:
-            print(f"❌ Ошибка API")
-            print(f"📄 Response: {response.text}")
-            return False
-            
     except requests.exceptions.Timeout:
-        print(f"⏱️ Таймаут запроса")
-        return False
-    except Exception as e:
-        print(f"❌ Исключение: {e}")
-        return False
+        pytest.fail("Таймаут HTTP-запроса к Gemini")
+    except requests.RequestException as exc:
+        pytest.fail(f"HTTP исключение: {exc}")
+
+    print(f"📊 HTTP Status: {response.status_code}")
+    assert response.status_code == 200, f"Gemini API вернул ошибку: {response.text}"
+
+    response_data = response.json()
+    assert 'candidates' in response_data, f"Неожиданная структура ответа: {response_data}"
+    text = response_data['candidates'][0]['content']['parts'][0]['text']
+    assert text, "Ответ Gemini пуст"
+    print(f"✅ Успешный ответ!\n💬 AI тренер отвечает: {text}")
 
 def test_available_models(api_key: str):
     """Проверяем доступные модели Gemini"""
-    
-    print(f"\n📋 ПРОВЕРКА ДОСТУПНЫХ МОДЕЛЕЙ GEMINI")
+
+    print("\n📋 ПРОВЕРКА ДОСТУПНЫХ МОДЕЛЕЙ GEMINI")
     print("=" * 50)
-    
+
     models_url = "https://generativelanguage.googleapis.com/v1beta/models"
-    
+
     headers = {
         "X-goog-api-key": api_key
     }
-    
+
     try:
         response = requests.get(models_url, headers=headers, timeout=15)
-        
-        if response.status_code == 200:
-            models_data = response.json()
-            
-            if 'models' in models_data:
-                print(f"✅ Найдено моделей: {len(models_data['models'])}")
-                
-                # Фильтруем только Gemini модели
-                gemini_models = [
-                    model for model in models_data['models']
-                    if 'gemini' in model['name'].lower()
-                ]
-                
-                print(f"🤖 Доступные Gemini модели:")
-                for model in gemini_models:
-                    name = model['name'].split('/')[-1]
-                    print(f"  • {name}")
-                    
-                return len(gemini_models) > 0
-            else:
-                print(f"❌ Неожиданная структура ответа моделей")
-                return False
-        else:
-            print(f"❌ Ошибка получения списка моделей: {response.status_code}")
-            return False
-            
-    except Exception as e:
-        print(f"❌ Исключение: {e}")
-        return False
+    except requests.RequestException as exc:
+        pytest.fail(f"HTTP исключение при получении списка моделей: {exc}")
+
+    assert response.status_code == 200, f"Не удалось получить список моделей: {response.status_code} {response.text}"
+
+    models_data = response.json()
+    assert 'models' in models_data, f"Неожиданная структура ответа: {models_data}"
+
+    gemini_models = [
+        model for model in models_data['models']
+        if 'gemini' in model['name'].lower()
+    ]
+
+    assert gemini_models, "Gemini модели не найдены"
+
+    print(f"✅ Найдено моделей: {len(models_data['models'])}")
+    print("🤖 Доступные Gemini модели:")
+    for model in gemini_models:
+        name = model['name'].split('/')[-1]
+        print(f"  • {name}")
+
+    # Дополнительная проверка: первая модель должна иметь имя
+    assert gemini_models[0]['name'], "Некорректная запись модели"
 
 def main():
     print("🚀 ПРЯМОЕ ТЕСТИРОВАНИЕ GOOGLE GEMINI API")
     print("=" * 60)
     
     # Получаем API ключ
-    api_key = os.getenv('GOOGLE_API_KEY')
+    api_key = Settings.GOOGLE_API_KEY
     
     if not api_key:
         print("❌ API ключ не найден в переменной окружения GOOGLE_API_KEY")

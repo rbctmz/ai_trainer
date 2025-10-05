@@ -3,7 +3,6 @@
 Детальная отладка проблемы с Ollama
 """
 
-import os
 import sys
 sys.path.append('..')
 from dotenv import load_dotenv
@@ -15,18 +14,13 @@ def debug_ollama_issue():
     print("🔍 Детальная отладка проблемы с Ollama")
     print("=" * 50)
     
-    # Проверяем переменные окружения
-    print("\n📋 Переменные окружения:")
-    print(f"   OLLAMA_HOST: {os.getenv('OLLAMA_HOST')}")
-    print(f"   OLLAMA_MODEL: {os.getenv('OLLAMA_MODEL')}")
-    print(f"   DEFAULT_AI_PROVIDER: {os.getenv('DEFAULT_AI_PROVIDER')}")
-    
-    # Проверяем settings
     from config.settings import Settings
-    print(f"\n⚙️ Settings:")
-    print(f"   Settings.OLLAMA_HOST: {Settings.OLLAMA_HOST}")
-    print(f"   Settings.OLLAMA_MODEL: {Settings.OLLAMA_MODEL}")
-    print(f"   Settings.DEFAULT_AI_PROVIDER: {Settings.DEFAULT_AI_PROVIDER}")
+
+    # Проверяем значения конфигурации
+    print("\n📋 Конфигурация из Settings:")
+    print(f"   OLLAMA_HOST: {Settings.OLLAMA_HOST}")
+    print(f"   OLLAMA_MODEL: {Settings.OLLAMA_MODEL}")
+    print(f"   DEFAULT_AI_PROVIDER: {Settings.DEFAULT_AI_PROVIDER}")
     
     # Пробуем создать провайдер напрямую
     print(f"\n🏭 Создание провайдера напрямую:")

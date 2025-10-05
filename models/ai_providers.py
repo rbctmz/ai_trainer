@@ -4,7 +4,7 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Type
 import os
 from config.settings import Settings
 
@@ -51,9 +51,15 @@ class AIProvider(ABC):
 class OpenAIProvider(AIProvider):
     """Провайдер OpenAI (GPT-3.5/GPT-4)"""
     
-    def __init__(self, api_key: str = None, model: str = "gpt-3.5-turbo"):
-        self.api_key = api_key or os.getenv("OPENAI_API_KEY")
-        self.model = model
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        settings: Type[Settings] = Settings,
+    ) -> None:
+        self.settings = settings
+        self.api_key = api_key or settings.OPENAI_API_KEY
+        self.model = model or settings.OPENAI_MODEL
         self.client = None
         
         if self.api_key:
@@ -141,9 +147,15 @@ class OpenAIProvider(AIProvider):
 class AnthropicProvider(AIProvider):
     """Провайдер Anthropic (Claude)"""
     
-    def __init__(self, api_key: str = None, model: str = "claude-3-haiku-20240307"):
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        self.model = model
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        settings: Type[Settings] = Settings,
+    ) -> None:
+        self.settings = settings
+        self.api_key = api_key or settings.ANTHROPIC_API_KEY
+        self.model = model or settings.ANTHROPIC_MODEL
         self.client = None
         
         if self.api_key:
@@ -224,9 +236,15 @@ class AnthropicProvider(AIProvider):
 class GoogleGeminiProvider(AIProvider):
     """Провайдер Google Gemini с поддержкой новых моделей"""
     
-    def __init__(self, api_key: str = None, model: str = "models/gemini-2.5-flash"):
-        self.api_key = api_key or os.getenv("GOOGLE_API_KEY")
-        self.model_name = model
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        settings: Type[Settings] = Settings,
+    ) -> None:
+        self.settings = settings
+        self.api_key = api_key or settings.GOOGLE_API_KEY
+        self.model_name = model or settings.GOOGLE_MODEL
         self.model = None
         
         if self.api_key:
@@ -312,9 +330,15 @@ class GoogleGeminiProvider(AIProvider):
 class OllamaProvider(AIProvider):
     """Провайдер Ollama (локальные модели)"""
     
-    def __init__(self, model: str = "llama2", host: str = "http://localhost:11434"):
-        self.model = model
-        self.host = host
+    def __init__(
+        self,
+        model: Optional[str] = None,
+        host: Optional[str] = None,
+        settings: Type[Settings] = Settings,
+    ) -> None:
+        self.settings = settings
+        self.model = model or settings.OLLAMA_MODEL
+        self.host = host or settings.OLLAMA_HOST
         self.client = None
         
         try:

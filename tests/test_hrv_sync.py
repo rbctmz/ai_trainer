@@ -4,13 +4,13 @@
 """
 
 import sys
-import os
 from datetime import datetime, timedelta
 
 sys.path.append('.')
 
 from data.garmin_client import GarminClient
 from data.database import Database
+from config.settings import Settings
 
 def test_hrv_sync():
     """Тест синхронизации HRV данных"""
@@ -23,8 +23,8 @@ def test_hrv_sync():
     database = Database()
     
     # Подключение к Garmin
-    email = os.getenv('GARMIN_EMAIL')
-    password = os.getenv('GARMIN_PASSWORD')
+    email = Settings.GARMIN_EMAIL
+    password = Settings.GARMIN_PASSWORD
     
     if not email or not password:
         print("📧 Введите данные для входа в Garmin Connect:")

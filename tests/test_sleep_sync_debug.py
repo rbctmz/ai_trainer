@@ -27,12 +27,16 @@ def test_sleep_sync_with_debug():
     test_date = datetime.now() - timedelta(days=1)
     date_str = test_date.strftime('%Y-%m-%d')
     
-    # Имитируем данные от garth
+    # Имитируем данные от garth с корректным форматом времени
+    current_timestamp = int(datetime.now().timestamp())
+    sleep_start_ts = current_timestamp - 28800  # 8 часов назад
+    sleep_end_ts = current_timestamp - 1800  # 30 минут назад
+    
     mock_garth_data = {
         'dailySleepDTO': {
             'sleepTimeSeconds': 26400,  # 7.3 часа
-            'sleepStartTimestampLocal': '2025-08-15T23:00:00Z',
-            'sleepEndTimestampLocal': '2025-08-16T06:20:00Z',
+            'sleepStartTimestampLocal': sleep_start_ts * 1000,  # в миллисекундах
+            'sleepEndTimestampLocal': sleep_end_ts * 1000,     # в миллисекундах
             'deepSleepSeconds': 3600,   # 1 час
             'lightSleepSeconds': 19800, # 5.5 часов
             'remSleepSeconds': 3000,    # 50 минут

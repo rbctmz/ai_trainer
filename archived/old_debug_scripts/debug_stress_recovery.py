@@ -4,12 +4,12 @@
 """
 
 import sys
-import os
 from datetime import datetime, timedelta
 import json
 
 sys.path.append('.')
 
+from config.settings import Settings
 from data.garmin_client import GarminClient
 
 def debug_stress_recovery():
@@ -21,9 +21,9 @@ def debug_stress_recovery():
     # Инициализация клиента
     client = GarminClient()
     
-    # Получаем креды из переменных окружения
-    email = os.getenv('GARMIN_EMAIL')
-    password = os.getenv('GARMIN_PASSWORD')
+    # Получаем креды из централизованных настроек
+    email = Settings.GARMIN_EMAIL
+    password = Settings.GARMIN_PASSWORD
     
     if not email or not password:
         print("📧 Введите данные для входа в Garmin Connect:")

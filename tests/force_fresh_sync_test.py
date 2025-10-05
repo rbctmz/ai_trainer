@@ -3,8 +3,8 @@
 Принудительная синхронизация одного дня для тестирования нового подхода
 """
 
-import sys
 import os
+import sys
 import sqlite3
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
@@ -12,6 +12,9 @@ from dotenv import load_dotenv
 # Добавляем путь к корневой папке проекта
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+load_dotenv()
+
+from config.settings import Settings
 from data.garmin_client import GarminClient
 from data.data_processor_phase1 import Phase1DataProcessor
 from data.database import Database
@@ -20,10 +23,8 @@ def force_sync_yesterday():
     """Принудительно синхронизируем данные за вчера с новым процессором"""
     print("🔄 Принудительная синхронизация данных сна за вчера...")
     
-    # Загружаем переменные окружения из .env файла
-    load_dotenv()
-    GARMIN_EMAIL = os.getenv("GARMIN_EMAIL")
-    GARMIN_PASSWORD = os.getenv("GARMIN_PASSWORD")
+    GARMIN_EMAIL = Settings.GARMIN_EMAIL
+    GARMIN_PASSWORD = Settings.GARMIN_PASSWORD
 
     if not GARMIN_EMAIL or not GARMIN_PASSWORD:
         print("❌ ОШИБКА: Учетные данные Garmin не найдены.")

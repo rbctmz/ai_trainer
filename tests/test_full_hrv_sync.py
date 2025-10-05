@@ -4,13 +4,16 @@
 """
 
 import sys
-import os
 from datetime import datetime, timedelta
+
+import pandas as pd
+import pytest
 
 sys.path.append('.')
 
 from data.garmin_client import GarminClient
 from data.database import Database
+from config.settings import Settings
 
 def test_full_hrv_sync():
     """Тест полной синхронизации HRV, стресс и восстановление"""
@@ -22,17 +25,15 @@ def test_full_hrv_sync():
     client = GarminClient() 
     database = Database()
     
-    # Подключение к Garmin (используем переменные окружения)
-    email = os.getenv('GARMIN_EMAIL')
-    password = os.getenv('GARMIN_PASSWORD')
+    # Подключение к Garmin через централизованные настройки
+    email = Settings.GARMIN_EMAIL
+    password = Settings.GARMIN_PASSWORD
     
     if not email or not password:
-        print("❌ Не найдены переменные окружения GARMIN_EMAIL и GARMIN_PASSWORD")
-        return False
-    
+        pytest.skip("Не найдены переменные окружения GARMIN_EMAIL и GARMIN_PASSWORD")
+
     if not client.authenticate(email, password):
-        print(f"❌ Ошибка аутентификации: {client.auth_error}")
-        return False
+        pytest.fail(f"Ошибка аутентификации: {client.auth_error}")
     
     print("✅ Подключен к Garmin Connect")
     
@@ -124,10 +125,9 @@ def test_full_hrv_sync():
                 recovery = row['recovery_score'] if row['recovery_score'] is not None else 'Н/Д'
                 print(f"  {row['date'].strftime('%Y-%m-%d')}: RMSSD={rmssd}, Стресс={stress}, Восст.={recovery}")
         
-        return True
+        assert len(saved_hrv) > 0, "Должны быть сохраненные HRV данные"
     else:
-        print("\n📭 Нет данных для синхронизации")
-        return False
+        pytest.fail("Нет данных для синхронизации")
 
 if __name__ == "__main__":
     import pandas as pd  # нужен для проверки isna

@@ -4,7 +4,6 @@
 """
 
 import sys
-import os
 from datetime import datetime, timedelta
 import json
 
@@ -22,9 +21,9 @@ def debug_hrv_data():
     # Инициализация клиента
     client = GarminClient()
     
-    # Получаем креды из переменных окружения или вводим вручную
-    email = os.getenv('GARMIN_EMAIL')
-    password = os.getenv('GARMIN_PASSWORD')
+    # Получаем креды из централизованных настроек или вводим вручную
+    email = Settings.GARMIN_EMAIL
+    password = Settings.GARMIN_PASSWORD
     
     if not email or not password:
         print("📧 Введите данные для входа в Garmin Connect:")

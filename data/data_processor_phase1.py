@@ -2,7 +2,7 @@
 Процессор данных для Фазы 1 - обработка расширенных данных Garmin
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import pandas as pd
 
 class Phase1DataProcessor:
@@ -10,10 +10,19 @@ class Phase1DataProcessor:
     
     @staticmethod
     def process_sleep_data(sleep_raw_data):
-        """Обработка сырых данных сна от Garmin с четким приоритетом источников."""
+        """Обработка сырых данных сна от Garmin с четким приоритетом источников и датой."""
         if not sleep_raw_data or not isinstance(sleep_raw_data, dict):
             print("DEBUG PROCESSOR: sleep_raw_data пуст или имеет неверный тип.")
             return None
+        
+        # Проверяем наличие календарной даты
+        calendar_date = sleep_raw_data.get('calendarDate')
+        if not calendar_date:
+            # Пытаемся получить дату из временной метки окончания сна
+            end_ts = sleep_raw_data.get('sleepEndTimestampLocal')
+            end_dt = Phase1DataProcessor._parse_local_timestamp(end_ts)
+            if end_dt:
+                calendar_date = end_dt.strftime('%Y-%m-%d')
 
         print(f"DEBUG PROCESSOR: Начинаем обработку данных сна. Ключи: {list(sleep_raw_data.keys())}")
         
@@ -90,13 +99,21 @@ class Phase1DataProcessor:
             else:
                 processed_data['awakenings_count'] = sleep_dto.get('awakeSleepSeconds', 0) // 300
 
-            # Время сна (в миллисекундах)
+            # Время сна (в миллисекундах) с учетом временной зоны
             start_ts = sleep_dto.get('sleepStartTimestampLocal')
             end_ts = sleep_dto.get('sleepEndTimestampLocal')
-            if start_ts:
-                processed_data['bedtime'] = datetime.fromtimestamp(start_ts / 1000).strftime('%H:%M')
-            if end_ts:
-                processed_data['wakeup_time'] = datetime.fromtimestamp(end_ts / 1000).strftime('%H:%M')
+
+            start_dt = Phase1DataProcessor._parse_local_timestamp(start_ts)
+            end_dt = Phase1DataProcessor._parse_local_timestamp(end_ts)
+
+            if start_dt and end_dt:
+                
+                # Сохраняем время в 24-часовом формате
+                processed_data['bedtime'] = start_dt.strftime('%H:%M')
+                processed_data['wakeup_time'] = end_dt.strftime('%H:%M')
+                
+                # Используем дату окончания сна для определения даты записи
+                processed_data['sleep_date'] = end_dt.date().strftime('%Y-%m-%d')
 
             # 5. Рассчитываем производные метрики, если их нет
             if 'sleep_score' not in processed_data and total_minutes > 0:
@@ -118,7 +135,7 @@ class Phase1DataProcessor:
         
         print(f"DEBUG PROCESSOR: ✅ Обработка завершена. Результат: {processed_data}")
         return processed_data
-    
+
     @staticmethod
     def process_daily_health_data(health_raw_data, resting_hr_data=None):
         """Обработка ежедневных показателей здоровья"""
@@ -152,6 +169,40 @@ class Phase1DataProcessor:
             return None
         
         return processed_data
+
+    @staticmethod
+    def _parse_local_timestamp(value):
+        """Приводит различные форматы временных меток Garmin к naive datetime."""
+        if value is None:
+            return None
+
+        try:
+            if isinstance(value, (int, float)):
+                timestamp = value
+                if timestamp > 1600000000000:
+                    timestamp = timestamp / 1000
+                return datetime.utcfromtimestamp(timestamp)
+
+            if isinstance(value, str):
+                candidate = value.strip()
+                if candidate.endswith('Z'):
+                    candidate = candidate[:-1] + '+00:00'
+                dt = datetime.fromisoformat(candidate)
+                if dt.tzinfo:
+                    dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+                return dt
+
+            # Попытка через pandas, если формат нестандартный
+            parsed = pd.to_datetime(value, errors='coerce')
+            if pd.notna(parsed):
+                if getattr(parsed, 'tzinfo', None):
+                    parsed = parsed.tz_convert(None)
+                return parsed.to_pydatetime()
+        except Exception as exc:
+            print(f"DEBUG PROCESSOR: Не удалось распарсить временную метку {value}: {exc}")
+            return None
+
+        return None
     
     @staticmethod
     def process_training_status_data(status_raw_data, vo2_data=None, readiness_data=None):

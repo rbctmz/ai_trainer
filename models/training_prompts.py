@@ -232,7 +232,7 @@ class TrainingPrompts:
         if len(valid_data) >= 3:
             import numpy as np
             x = np.arange(len(valid_data))
-            y = valid_data['rmssd'].values
+            y = valid_data['rmssd'].to_numpy()
             trend = np.polyfit(x, y, 1)[0]  # Линейный тренд
             
             if abs(trend) > 0.1:

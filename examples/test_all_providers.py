@@ -13,6 +13,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.ai_providers import AIProviderFactory
 from models.ai_coach_universal import UniversalAICoach
+from config.settings import Settings
 
 # Загружаем переменные окружения
 load_dotenv()
@@ -112,41 +113,25 @@ def main():
     
     # OpenAI
     if "openai" in working_providers:
-        provider = test_provider(
-            "openai",
-            api_key=os.getenv("OPENAI_API_KEY"),
-            model=os.getenv("OPENAI_MODEL", "gpt-3.5-turbo")
-        )
+        provider = test_provider("openai", settings=Settings)
         if provider:
             results["OpenAI"] = provider
-    
+
     # Anthropic
     if "anthropic" in working_providers:
-        provider = test_provider(
-            "anthropic", 
-            api_key=os.getenv("ANTHROPIC_API_KEY"),
-            model=os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
-        )
+        provider = test_provider("anthropic", settings=Settings)
         if provider:
             results["Anthropic"] = provider
-    
+
     # Google
     if "google" in working_providers:
-        provider = test_provider(
-            "google",
-            api_key=os.getenv("GOOGLE_API_KEY"),
-            model=os.getenv("GOOGLE_MODEL", "gemini-pro")
-        )
+        provider = test_provider("google", settings=Settings)
         if provider:
             results["Google"] = provider
-    
+
     # Ollama
     if "ollama" in working_providers:
-        provider = test_provider(
-            "ollama",
-            host=os.getenv("OLLAMA_HOST", "http://localhost:11434"),
-            model=os.getenv("OLLAMA_MODEL", "llama2")
-        )
+        provider = test_provider("ollama", settings=Settings)
         if provider:
             results["Ollama"] = provider
     
