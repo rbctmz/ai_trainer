@@ -7,6 +7,8 @@ from datetime import datetime, timedelta
 import streamlit as st
 import sys
 import os
+from typing import Any, Dict
+from pydantic import ValidationError
 
 # Добавляем путь к логгеру
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -19,6 +21,8 @@ class GarthClient:
         self.is_authenticated = False
         self.auth_error = None
         self.username = None
+        self._cached_profile: Dict[str, Any] | None = None
+        self._profile_fetch_failed = False
     
     def authenticate(self, email, password):
         """Аутентификация через garth"""
@@ -549,19 +553,81 @@ class GarthClient:
             print(f"DEBUG: Ошибка получения комплексных данных для {date}: {e}")
             return None
     
+    @staticmethod
+    def _snake_to_camel(key: str) -> str:
+        parts = key.split('_')
+        if not parts:
+            return key
+        return parts[0] + ''.join(part.capitalize() for part in parts[1:])
+
+    def _normalize_profile(self, profile_obj: Any) -> Dict[str, Any] | None:
+        """Приводим профиль garth к словарю, нормализуем проблемные поля и ключи."""
+        if profile_obj is None:
+            return None
+
+        if hasattr(profile_obj, "model_dump"):
+            profile_data = profile_obj.model_dump()
+        elif isinstance(profile_obj, dict):
+            profile_data = dict(profile_obj)
+        else:
+            profile_data = {
+                key: getattr(profile_obj, key)
+                for key in dir(profile_obj)
+                if not key.startswith("_") and not callable(getattr(profile_obj, key))
+            }
+
+        normalized = dict(profile_data)
+
+        for key in ("motivation", "other_motivation", "otherMotivation"):
+            if key in normalized and normalized[key] is not None and not isinstance(normalized[key], str):
+                normalized[key] = str(normalized[key])
+
+        additional_keys: Dict[str, Any] = {}
+        for key, value in list(normalized.items()):
+            if '_' in key:
+                camel_key = self._snake_to_camel(key)
+                if camel_key not in normalized:
+                    additional_keys[camel_key] = value
+
+        if additional_keys:
+            normalized.update(additional_keys)
+
+        return normalized
+
     def get_user_profile(self):
         """Получение профиля пользователя через garth"""
         if not self.is_authenticated:
             return None
-        
+
+        if self._cached_profile is not None:
+            return self._cached_profile
+
+        if not self._profile_fetch_failed:
+            try:
+                profile = garth.UserProfile.get()
+                if profile:
+                    print("DEBUG: Профиль пользователя получен через garth")
+                    normalized = self._normalize_profile(profile)
+                    self._cached_profile = normalized
+                    return normalized
+            except ValidationError as e:
+                self._profile_fetch_failed = True
+                print(f"DEBUG: Ошибка валидации профиля garth: {e}")
+            except Exception as e:
+                self._profile_fetch_failed = True
+                print(f"DEBUG: Ошибка получения профиля: {e}")
+
+        # Резервный сценарий: получаем профиль напрямую и нормализуем
         try:
-            profile = garth.UserProfile.get()
-            if profile:
-                print("DEBUG: Профиль пользователя получен через garth")
-                return profile
+            raw_profile = garth.connectapi("/userprofile-service/socialProfile")
+            if raw_profile:
+                print("DEBUG: Профиль пользователя получен через резервный socialProfile API")
+                normalized = self._normalize_profile(raw_profile)
+                self._cached_profile = normalized
+                return normalized
         except Exception as e:
-            print(f"DEBUG: Ошибка получения профиля: {e}")
-        
+            print(f"DEBUG: Ошибка резервного получения профиля: {e}")
+
         return None
     
     def test_connection(self):
@@ -579,13 +645,16 @@ class GarthClient:
         # Тестируем доступные методы
         test_date = datetime.now() - timedelta(days=1)
         
+        test_date_str = test_date.strftime("%Y-%m-%d")
+
         methods_to_test = [
-            ("DailySleep", lambda: garth.DailySleep.get(test_date.strftime("%Y-%m-%d"))),
-            ("SleepData", lambda: garth.SleepData.list(test_date.strftime("%Y-%m-%d"), test_date.strftime("%Y-%m-%d"))),
-            ("DailyHRV", lambda: garth.DailyHRV.get(test_date.strftime("%Y-%m-%d"))),
-            ("DailyStress", lambda: garth.DailyStress.get(test_date.strftime("%Y-%m-%d"))),
-            ("DailySteps", lambda: garth.DailySteps.get(test_date.strftime("%Y-%m-%d"))),
-            ("UserProfile", lambda: garth.UserProfile.get())
+            ("SleepData", lambda: garth.SleepData.get(test_date_str)),
+            ("DailySleep", lambda: garth.DailySleep.list(end=test_date_str, period=1)),
+            ("HRVData", lambda: garth.HRVData.get(test_date_str)),
+            ("DailyHRV", lambda: garth.DailyHRV.list(end=test_date_str, period=1)),
+            ("DailyStress", lambda: garth.DailyStress.list(end=test_date_str, period=1)),
+            ("DailySteps", lambda: garth.DailySteps.list(end=test_date_str, period=1)),
+            ("UserProfile", lambda: self.get_user_profile()),
         ]
         
         for method_name, method_func in methods_to_test:
@@ -604,3 +673,5 @@ class GarthClient:
         self.is_authenticated = False
         self.auth_error = None
         self.username = None
+        self._cached_profile = None
+        self._profile_fetch_failed = False

@@ -5,6 +5,7 @@ import os
 import plotly.express as px
 import plotly.graph_objects as go
 import logging
+from typing import Any, Dict
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +22,12 @@ from ui.navigation import (
     render_sidebar_utilities,
 )
 from services import garmin as garmin_service
+from services.data_cache import (
+    clear_data_caches,
+    load_activities,
+    load_hrv,
+    load_sleep,
+)
 
 st.set_page_config(
     page_title="AI Trainer",
@@ -77,15 +84,59 @@ def format_date(date_obj, format_type='display'):
     else:
         return str(date_obj)
 
+
+def render_garmin_profile(profile: Dict[str, Any]) -> None:
+    """Отображает ключевую информацию профиля Garmin в удобном виде."""
+    if not isinstance(profile, dict):
+        st.caption("Не удалось прочитать профиль Garmin.")
+        return
+
+    display_name = (
+        profile.get('displayName')
+        or profile.get('display_name')
+        or profile.get('fullName')
+        or profile.get('full_name')
+        or "Пользователь"
+    )
+
+    st.write(f"👤 **{display_name}**")
+
+    fields = [
+        ("Полное имя", ('fullName', 'full_name', 'userProfileFullName', 'user_profile_full_name')),
+        ("Локация", ('location',)),
+        ("Основной вид спорта", ('primaryActivity', 'primary_activity')),
+        ("Дополнительная активность", ('otherActivity', 'other_activity')),
+        ("Мотивация", ('motivation', 'otherMotivation', 'other_motivation')),
+        ("Уровень Garmin", ('userLevel', 'user_level')),
+    ]
+
+    info_pairs = []
+    for label, keys in fields:
+        value = next((profile.get(key) for key in keys if profile.get(key)), None)
+        if value is None:
+            continue
+        info_pairs.append((label, value))
+
+    if info_pairs:
+        col_left, col_right = st.columns(2)
+        for index, (label, value) in enumerate(info_pairs):
+            target_col = col_left if index % 2 == 0 else col_right
+            target_col.markdown(f"**{label}:** {value}")
+    else:
+        st.caption("Garmin не вернул дополнительных данных профиля.")
+
+    with st.expander("Детали профиля Garmin", expanded=False):
+        st.json(profile)
+
+
 def calculate_current_status():
     """Расчет текущего статуса с приоритизацией проблем"""
 
     state = get_state_manager()
-    database = state.database
 
-    activities_df = database.get_activities(30)
-    hrv_df = database.get_hrv_data(90)
-    sleep_df = database.get_sleep_data(7)
+    activities_df = load_activities(30)
+    hrv_df = load_hrv(90)
+    sleep_df = load_sleep(7)
 
     status = {
         "critical_status": None,
@@ -360,8 +411,8 @@ def show_garmin_connection(state: StateManager):
                 st.info("📡 Используется garminconnect")
 
             profile = garmin_service.user_profile(state)
-            if profile:
-                st.write(f"👤 {profile.get('displayName', 'Пользователь')}")
+            if profile is not None:
+                render_garmin_profile(profile)
 
             if connection_info.get('garth_available') and connection_info.get('using_garth'):
                 if st.button("🔍 Тест garth", help="Проверить расширенные возможности garth"):
@@ -535,7 +586,8 @@ def sync_data(days=30, state=None):
         sleep_data = {}
         daily_health_data = {}
         
-        for date in date_list[:min(len(date_list), days)]:  # Ограничиваем количество запросов
+        dates_to_process = date_list[:min(len(date_list), days + 1)]
+        for date in dates_to_process:  # Обрабатываем последнюю доступную дату включительно
             date_str = format_date(date, 'db')
             
             # Получаем и обрабатываем данные сна
@@ -688,6 +740,8 @@ def sync_data(days=30, state=None):
         status_text.empty()
         sync_stats.empty()
         
+        clear_data_caches()
+
         # Показываем результат
         success_msgs = []
         if sync_result['new'] > 0:
@@ -833,6 +887,7 @@ def add_test_phase1_data():
             )
 
             st.success("✅ Тестовые данные добавлены")
+            clear_data_caches()
         except Exception as exc:
             st.error(f"❌ Ошибка добавления тестовых данных: {exc}")
 
@@ -868,8 +923,8 @@ def show_dashboard():
 
     ModernUI.show_horizontal_nav("Dashboard")
 
-    activities_df = database.get_activities(30)
-    df_hrv = database.get_hrv_data(90)  # Для продвинутого алгоритма
+    activities_df = load_activities(30)
+    df_hrv = load_hrv(90)  # Для продвинутого алгоритма
     
     if activities_df.empty:
         # Улучшенное приветствие для новых пользователей
@@ -1271,7 +1326,7 @@ def show_activities():
     st.header("🏃‍♂️ Ваши активности")
     
     # Получаем данные активностей
-    activities_df = database.get_activities(30)  # За последние 30 дней
+    activities_df = load_activities(30)  # За последние 30 дней
     
     if activities_df.empty:
         st.warning("📭 Нет активностей за последние 30 дней. Синхронизируйте данные с Garmin Connect.")
@@ -1467,7 +1522,7 @@ def show_hrv_analysis():
     st.header("💓 Анализ вариабельности сердечного ритма (HRV)")
     
     # Получаем HRV данные за максимальный период для корректной фильтрации
-    hrv_df = database.get_hrv_data(90)  # Получаем больше данных для фильтрации
+    hrv_df = load_hrv(90)  # Получаем больше данных для фильтрации
     
     # Импортируем анализатор HRV
     from models.hrv_analyzer import HRVAnalyzer
@@ -1707,7 +1762,7 @@ def show_hrv_analysis():
         st.subheader("🔍 Анализ взаимосвязей")
         
         # Получаем данные активностей за тот же период
-        activities_df = database.get_activities(period_days)
+        activities_df = load_activities(period_days)
         
         if not activities_df.empty:
             activities_df['date'] = pd.to_datetime(activities_df['date'])
@@ -1792,37 +1847,32 @@ def show_hrv_analysis():
             
             # Улучшенный анализ корреляции с запаздыванием
             if len(combined_df) > 5:
-                col1, col2 = st.columns(2)
-                
+                st.write("**📊 Анализ корреляции HRV и нагрузки:**")
+                col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    st.write("**📊 Анализ корреляции HRV и нагрузки:**")
-                    
                     # Корреляция в тот же день
                     correlation_same_day = combined_df[['rmssd', 'tss']].corr().iloc[0, 1]
-                    
-                    # Корреляция с запаздыванием (HRV следующего дня vs TSS предыдущего)
-                    combined_shifted = combined_df.copy()
-                    combined_shifted['tss_prev'] = combined_shifted['tss'].shift(1)  # TSS предыдущего дня
-                    correlation_lag1 = combined_shifted[['rmssd', 'tss_prev']].corr().iloc[0, 1]
-                    
-                    # Кумулятивная нагрузка за последние 3 дня
-                    combined_shifted['tss_3day'] = combined_shifted['tss'].rolling(window=3, min_periods=1).sum()
-                    correlation_cumulative = combined_shifted[['rmssd', 'tss_3day']].corr().iloc[0, 1]
-                    
                     # Современные карточки корреляции
                     if not pd.isna(correlation_same_day):
                         corr_status = "success" if abs(correlation_same_day) > 0.4 else "warning" if abs(correlation_same_day) > 0.2 else "secondary"
                         ModernUI.status_card("📅 Тот же день", f"{correlation_same_day:.3f}", corr_status)
-                    
+                with col2:
+                    # Корреляция с запаздыванием (HRV следующего дня vs TSS предыдущего)
+                    combined_shifted = combined_df.copy()
+                    combined_shifted['tss_prev'] = combined_shifted['tss'].shift(1)  # TSS предыдущего дня
+                    correlation_lag1 = combined_shifted[['rmssd', 'tss_prev']].corr().iloc[0, 1]
                     if not pd.isna(correlation_lag1):
                         lag_status = "success" if abs(correlation_lag1) > 0.4 else "warning" if abs(correlation_lag1) > 0.2 else "secondary"
                         ModernUI.status_card("⏭️ Запаздывание (1 день)", f"{correlation_lag1:.3f}", lag_status)
-                    
+                with col3:
+                    # Кумулятивная нагрузка за последние 3 дня
+                    combined_shifted['tss_3day'] = combined_shifted['tss'].rolling(window=3, min_periods=1).sum()
+                    correlation_cumulative = combined_shifted[['rmssd', 'tss_3day']].corr().iloc[0, 1]
+     
                     if not pd.isna(correlation_cumulative):
                         cum_status = "success" if abs(correlation_cumulative) > 0.4 else "warning" if abs(correlation_cumulative) > 0.2 else "secondary"
                         ModernUI.status_card("📈 Кумулятивная (3 дня)", f"{correlation_cumulative:.3f}", cum_status)
-                
-                with col2:
+                with col4:
                     st.write("**🎯 Интерпретация:**")
                     
                     # Находим наиболее значимую корреляцию
@@ -1955,7 +2005,7 @@ def show_sleep_analysis():
     st.header("😴 Анализ качества сна")
     
     # Получаем данные сна из БД
-    sleep_df = database.get_sleep_data(90)
+    sleep_df = load_sleep(90)
     
     if sleep_df.empty:
         st.warning("📊 Данные сна отсутствуют. Выполните синхронизацию с Garmin Connect.")
@@ -2462,7 +2512,7 @@ def show_planning():
     st.header("📈 Планирование тренировок")
     
     # Получаем данные активностей
-    activities_df = database.get_activities(90)  # 90 дней для лучшего анализа
+    activities_df = load_activities(90)  # 90 дней для лучшего анализа
     
     if activities_df.empty:
         st.warning("📭 Нет данных для анализа. Синхронизируйте данные с Garmin Connect.")
