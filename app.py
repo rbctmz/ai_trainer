@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import os
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import logging
 from typing import Any, Dict
 
@@ -28,6 +29,7 @@ from services.data_cache import (
     load_hrv,
     load_sleep,
 )
+from utils.sleep_metrics import compute_sleep_regularity
 
 st.set_page_config(
     page_title="AI Trainer",
@@ -2100,6 +2102,132 @@ def show_sleep_analysis():
                 awakenings_status,
                 description="Количество пробуждений"
             )
+
+        regularity_metrics = compute_sleep_regularity(filtered_df)
+        bedtime_metric = (regularity_metrics or {}).get('bedtime')
+        wake_metric = (regularity_metrics or {}).get('wakeup')
+        if (
+            regularity_metrics.get('count', 0) >= 3
+            and bedtime_metric
+            and wake_metric
+            and bedtime_metric.get('status') != 'secondary'
+            and wake_metric.get('status') != 'secondary'
+        ):
+            st.subheader("⏱ Регулярность режима")
+            reg_col1, reg_col2 = st.columns(2)
+
+            with reg_col1:
+                ModernUI.status_card(
+                    "🛏️ Время отбоя",
+                    f"σ {bedtime_metric['std_text']}",
+                    bedtime_metric['status'],
+                    description=f"Среднее: {bedtime_metric['mean_text']} • Δ±{bedtime_metric['mad_text']} ({bedtime_metric['label']})"
+                )
+                st.caption(bedtime_metric['recommendation'])
+
+            with reg_col2:
+                ModernUI.status_card(
+                    "🌅 Пробуждение",
+                    f"σ {wake_metric['std_text']}",
+                    wake_metric['status'],
+                    description=f"Среднее: {wake_metric['mean_text']} • Δ±{wake_metric['mad_text']} ({wake_metric['label']})"
+                )
+                st.caption(wake_metric['recommendation'])
+        elif regularity_metrics.get('count', 0) > 0:
+            st.caption("Недостаточно данных, чтобы сформировать метрику регулярности сна — нужно минимум 3 записи с временем отбоя и подъёма.")
+
+        weekday_profile_df = (regularity_metrics or {}).get('weekday_profile')
+        if weekday_profile_df is not None and not weekday_profile_df.empty:
+            st.subheader("📊 Засыпание и пробуждение по дням недели")
+
+            plot_df = weekday_profile_df.copy()
+            bedtime_hours = plot_df['bedtime_hours']
+            wake_hours = plot_df['wakeup_hours']
+            duration_hours = plot_df['sleep_duration_hours']
+            all_hours = pd.concat([bedtime_hours, wake_hours])
+
+            if not all_hours.empty:
+                lower = float(all_hours.min()) - 0.5
+                upper = float(all_hours.max()) + 0.5
+            else:
+                lower, upper = 18.0, 34.0
+
+            lower = max(min(lower, 18.0), 0.0)
+            upper = min(max(upper, 32.0), 36.0)
+            if upper - lower < 4:
+                upper = lower + 4
+
+            tick_vals = list(range(int(lower), int(upper) + 1))
+            tick_text = [f"{(h % 24):02d}:00" for h in tick_vals]
+
+            fig_weekday = go.Figure()
+            fig_weekday.add_trace(
+                go.Bar(
+                    x=plot_df['weekday_label'],
+                    y=duration_hours,
+                    base=bedtime_hours,
+                    width=0.55,
+                    marker=dict(
+                        color='rgba(148,163,184,0.75)',
+                        line=dict(color='rgba(148,163,184,0.95)', width=1.4),
+                        pattern=dict(shape='', solidity=0.7),
+                    ),
+                    hovertemplate=(
+                        'Отбой: %{customdata[0]}<br>'
+                        'Подъём: %{customdata[1]}<br>'
+                        'Средняя длительность: %{customdata[2]}<br>'
+                        'Замеров: %{customdata[3]}<extra></extra>'
+                    ),
+                    customdata=plot_df[[
+                        'bedtime_text',
+                        'wakeup_text',
+                        'sleep_duration_text',
+                        'count'
+                    ]],
+                    name='Сон',
+                )
+            )
+
+            earliest_bed = float(bedtime_hours.min()) if not bedtime_hours.empty else lower
+            latest_wake = float(wake_hours.max()) if not wake_hours.empty else upper
+
+            fig_weekday.update_layout(
+                xaxis_title='День недели',
+                legend_title='',
+                hovermode='x',
+                bargap=0.4,
+                bargroupgap=0.2,
+                shapes=[
+                    dict(
+                        type='line',
+                        xref='paper',
+                        x0=0,
+                        x1=1,
+                        y0=earliest_bed,
+                        y1=earliest_bed,
+                        line=dict(color='rgba(148,163,184,0.6)', dash='dash')
+                    ),
+                    dict(
+                        type='line',
+                        xref='paper',
+                        x0=0,
+                        x1=1,
+                        y0=latest_wake,
+                        y1=latest_wake,
+                        line=dict(color='rgba(148,163,184,0.6)', dash='dash')
+                    ),
+                ],
+            )
+            fig_weekday.update_yaxes(
+                title_text='Время суток',
+                range=[lower, upper],
+                tickmode='array',
+                tickvals=tick_vals,
+                ticktext=tick_text,
+            )
+
+            st.plotly_chart(fig_weekday, use_container_width=True)
+            st.caption("Столбики показывают средний интервал сна по дням. Чем ровнее высота, тем стабильнее режим.")
         
         # Детали фаз сна с современными карточками
         st.subheader("🌀 Фазы сна")
@@ -2162,9 +2290,6 @@ def show_sleep_analysis():
     st.subheader("📈 Тренды сна")
     
     if len(filtered_df) > 1:
-        import plotly.graph_objects as go
-        from plotly.subplots import make_subplots
-        
         # Современный график трендов сна с градиентами
         fig = make_subplots(
             rows=2, cols=2,
