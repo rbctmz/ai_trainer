@@ -2,13 +2,13 @@
 
 ## Overview
 - **Purpose**: Streamlit app that ingests Garmin Connect training data, analyzes workload (TSS/CTL/ATL/TSB), HRV, and produces coaching insights via multi-provider LLM integration. 
-- **Core pillars**: data ingestion (Garmin API + local SQLite cache), analytics (Banister, HRV, workload modeling), AI coaching layer, and modernized UI with light/dark themes.
+- **Core pillars**: data ingestion (Garmin API + local SQLite cache), analytics (Banister, HRV, workload modeling, sleep regularity), AI coaching layer, and modernized UI with light/dark themes.
 
 ## Runtime Architecture
 - `app.py`: all Streamlit UI logic. Key components:
   - Preference & theming (`apply_theme`, `get_plotly_theme`, `ModernUI` helpers).
   - Data synchronization flows (trigger Garmin fetch, persist to DB, recalc metrics).
-  - Visualization views (dashboards, HRV trends, workload charts, AI coach interface).
+  - Visualization views (dashboards, HRV trends, sleep regularity, workload charts, AI coach interface).
   - Workout export pipeline producing FIT/TCX/CSV via `models.fit_export` and related helpers.
 - `config/settings.py`: single source of environment-driven configuration (API keys, FTP/LTHR defaults, DB path, etc.).
 - `data/`: Garmin API wrappers and data ETL.
@@ -25,6 +25,7 @@
   - `ai_data_context.py`: builds structured context packages (history summaries, workload snapshots) consumed by AI prompts.
 - `utils/`:
   - `metrics.py`: additional metric computations (Intensity Factor, normalized power, load summaries).
+  - `sleep_metrics.py`: sleep schedule regularity, weekday aggregation, ModernUI-ready recommendations.
   - `visualizations.py`: Plotly dashboards + chart factories; now aligned with theme helpers.
   - `modern_ui.py` (+ backups): shared HTML/CSS snippets, responsive card rendering, theme colors.
   - `logger.py` (in package) and others support structured logging.
@@ -43,7 +44,7 @@
 - Extensive custom HTML injected via `st.markdown` to overcome Streamlit styling limits.
 
 ## Testing & Tooling
-- `tests/` contains API provider unit tests, HRV trend checks, etc. (`pytest` runner documented in README).
+- `tests/` contains API provider unit tests, HRV trend checks, sleep regularity coverage, etc. (`pytest` runner documented in README).
 - Debug scripts in `debug/` (Ollama connectivity, data inspection).
 - `examples/` hosts demo flows for AI features.
 - `run.sh` sets protobuf workaround and launches Streamlit; `setup_env.sh` installs extra deps for Gemini fix.
@@ -66,4 +67,3 @@
 - Database file (default): `ai_trainer.db` in repo root.
 - AI provider selection + validation handled in `app.py` (sidebar controls) referencing `AIProviderFactory`.
 - Export artifacts saved to temp directories and offered via Streamlit download buttons.
-
