@@ -348,19 +348,47 @@ class GarminClient:
         
         # Пробуем разные методы получения статуса тренированности
         from datetime import datetime, timedelta
-        methods_to_try = [
-            ('get_training_status', lambda: self.client.get_training_status()),
-            ('get_progress_summary_between_dates', lambda: self.client.get_progress_summary_between_dates(
-                (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d"),
-                datetime.now().strftime("%Y-%m-%d")
-            )),
-        ]
+        now = datetime.now()
+        current_date = now.strftime("%Y-%m-%d")
+        start_date = (now - timedelta(days=30)).strftime("%Y-%m-%d")
+
+        methods_to_try = []
+
+        if self.use_garth and self.garth_client:
+            methods_to_try.append(
+                ('garth_get_training_status', lambda d=current_date: self.garth_client.get_training_status(d))
+            )
+            methods_to_try.append(
+                (
+                    'garth_get_progress_summary_between_dates',
+                    lambda start=start_date, end=current_date: self.garth_client.get_progress_summary_between_dates(start, end)
+                )
+            )
+
+        if self.client:
+            methods_to_try.append(
+                ('get_training_status', lambda d=current_date: self.client.get_training_status(d))
+            )
+            methods_to_try.append(
+                (
+                    'get_progress_summary_between_dates',
+                    lambda start=start_date, end=current_date: self.client.get_progress_summary_between_dates(start, end)
+                )
+            )
+
+        if not methods_to_try:
+            print("DEBUG: Нет доступных клиентов для получения статуса тренированности")
+            return None
         
         for method_name, method_func in methods_to_try:
             try:
                 result = method_func()
                 if result:
                     print(f"DEBUG: Статус тренированности получен через {method_name}")
+                    try:
+                        garmin_logger.debug(f"TRAINING STATUS RAW ({method_name}): {result}")
+                    except Exception:
+                        pass
                     return result
             except Exception as e:
                 print(f"DEBUG: {method_name} failed: {e}")

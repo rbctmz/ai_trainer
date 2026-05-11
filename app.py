@@ -6,9 +6,44 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# Карты отображения статусов тренированности и ACWR
+TRAINING_STATUS_TITLES = {
+    "PRODUCTIVE": "Продуктивно",
+    "UNPRODUCTIVE": "Непродуктивно",
+    "RECOVERY": "Восстановление",
+    "MAINTAINING": "Поддержание",
+    "DETRAINING": "Потеря формы",
+    "PEAK": "Пик",
+    "BASE": "База",
+    "BUILD": "Билд",
+    "OVERREACHING": "Перегрузка",
+    "IMPROVING": "Улучшение",
+}
+
+TRAINING_STATUS_COLORS = {
+    "PRODUCTIVE": "#10B981",
+    "MAINTAINING": "#3B82F6",
+    "BASE": "#6366F1",
+    "BUILD": "#F59E0B",
+    "PEAK": "#8B5CF6",
+    "RECOVERY": "#22D3EE",
+    "OVERREACHING": "#F97316",
+    "UNPRODUCTIVE": "#EF4444",
+    "DETRAINING": "#F97316",
+}
+
+ACWR_STATUS_STYLES = {
+    "OPTIMAL": {"label": "Оптимально", "color": "#10B981"},
+    "BALANCED": {"label": "Баланс", "color": "#10B981"},
+    "LOW": {"label": "Ниже нормы", "color": "#F59E0B"},
+    "VERY_LOW": {"label": "Сильно ниже нормы", "color": "#F97316"},
+    "HIGH": {"label": "Выше нормы", "color": "#F97316"},
+    "VERY_HIGH": {"label": "Сильно выше нормы", "color": "#EF4444"},
+}
 
 # Импорты наших модулей
 from data.data_processor import ActivityProcessor
@@ -924,9 +959,14 @@ def show_dashboard():
         ModernUI.apply_modern_styles(dark_mode=dark_mode)
 
     ModernUI.show_horizontal_nav("Dashboard")
-
+    
+    theme = ModernUI.get_theme()
+    badge_bg_light = "rgba(232,240,255,0.8)"
+    badge_bg_dark = theme['surface_light']
+    badge_text_color = theme['text_primary']
+    badge_border = theme['metric_border']
+    
     activities_df = load_activities(30)
-    df_hrv = load_hrv(90)  # Для продвинутого алгоритма
     
     if activities_df.empty:
         # Улучшенное приветствие для новых пользователей
@@ -1009,6 +1049,33 @@ def show_dashboard():
     # Расчет текущего статуса
     current_status = calculate_current_status()
     
+    # Последний статус тренированности из БД
+    training_status_df = database.get_training_status_history(days=30)
+    latest_training_status = {}
+    if isinstance(training_status_df, pd.DataFrame) and not training_status_df.empty:
+        latest_training_status = (
+            training_status_df.sort_values("date", ascending=False).iloc[0].to_dict()
+        )
+    
+    training_status_code = (latest_training_status.get('training_status') or "").upper()
+    training_status_display = TRAINING_STATUS_TITLES.get(training_status_code, training_status_code or "Нет данных")
+    training_load_7d = latest_training_status.get('training_load_7d')
+    training_load_chronic = latest_training_status.get('training_load_chronic')
+    recovery_time_hours = latest_training_status.get('recovery_time_hours')
+    garmin_readiness = latest_training_status.get('training_readiness')
+    if garmin_readiness is None or pd.isna(garmin_readiness):
+        garmin_readiness = None
+    acwr_status_value = (latest_training_status.get('acwr_status') or "").upper()
+    acwr_percent = latest_training_status.get('acwr_percent')
+    training_feedback_text = latest_training_status.get('training_feedback')
+    if not training_feedback_text and latest_training_status.get('training_feedback_code'):
+        training_feedback_text = latest_training_status['training_feedback_code'].replace('_', ' ').title()
+    balance_feedback_text = latest_training_status.get('training_balance_feedback')
+    if not balance_feedback_text and latest_training_status.get('training_balance_feedback_code'):
+        balance_feedback_text = latest_training_status['training_balance_feedback_code'].replace('_', ' ').title()
+    training_since_date = latest_training_status.get('training_since_date')
+    last_primary_sync_date = latest_training_status.get('last_primary_sync_date')
+    
     # Критические уведомления
     if current_status.get('critical_status'):
         st.error(f"🚨 {current_status['critical_status']}")
@@ -1030,65 +1097,121 @@ def show_dashboard():
             </div>
             """, unsafe_allow_html=True)
     
-    # Основные статус-карточки (3 карточки в делстиле AI Endurance)
+    # Основные статус-карточки (компактный ряд)
     col1, col2, col3, col4 = st.columns(4)
 
     with col1:
         tsb_value = current_status.get('tsb', 0)
-        tsb_trend = current_status.get('tsb_trend', 0)
         fig_tsb = ModernUI.create_circular_indicator(tsb_value, 100, "TSB", f"{tsb_value:.1f}", "#10B981")
         st.plotly_chart(fig_tsb, use_container_width=True)
-        st.markdown('<div style="text-align: center;"><span style="background: rgba(232,240,255,0.8); padding: 4px 8px; border-radius: 12px; font-size: 11px;">Training Stress Balance<br>Тренировочный стресс баланс</span></div>', unsafe_allow_html=True)
+        badge_bg = badge_bg_dark if theme['is_dark'] else badge_bg_light
+        badge_style = (
+            f"background: {badge_bg};"
+            f" color: {badge_text_color}; padding: 4px 8px; border-radius: 12px;"
+            f" font-size: 11px; display: inline-block;"
+        )
+        if theme['is_dark']:
+            badge_style += f" border: 1px solid {badge_border};"
+        st.markdown(
+            f'<div style="text-align: center;"><span style="{badge_style}">Training Stress Balance<br>Тренировочный стресс баланс</span></div>',
+            unsafe_allow_html=True
+        )
         
     with col2:
-        readiness_value = current_status.get('readiness', 0)
-        readiness_trend = current_status.get('readiness_trend', 0)
-        fig_readiness = ModernUI.create_circular_indicator(readiness_value, 100, "Readiness", f"{readiness_value:.0f}%", "#3B82F6")
-        st.plotly_chart(fig_readiness, use_container_width=True)
-        st.markdown('<div style="text-align: center;"><span style="background: rgba(59,130,246,0.8); padding: 4px 8px; border-radius: 12px; font-size: 11px;">Готовность</span></div>', unsafe_allow_html=True)
-    
-    with col3:
-        
         ctl_value = current_status.get('ctl', 0)
         fig_ctl = ModernUI.create_circular_indicator(ctl_value, 150, "CTL", f"{ctl_value:.1f}", "#10B981")
         st.plotly_chart(fig_ctl, use_container_width=True)
-        st.markdown('<div style="text-align: center;"><span style="background: rgba(232,240,255,0.8); padding: 4px 8px; border-radius: 12px; font-size: 11px;">Chronic Training Load<br>Хроническая тренировочная нагрузка</span></div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="text-align: center;"><span style="{badge_style}">Chronic Training Load<br>Хроническая тренировочная нагрузка</span></div>',
+            unsafe_allow_html=True
+        )
+    
+    with col3:
+        status_color = TRAINING_STATUS_COLORS.get(training_status_code, theme['text_primary'])
+        load_text = f"{float(training_load_7d):.0f}" if training_load_7d is not None and not pd.isna(training_load_7d) else "—"
+        chronic_text = f"{float(training_load_chronic):.0f}" if training_load_chronic is not None and not pd.isna(training_load_chronic) else "—"
+        load_ratio_value = latest_training_status.get('load_ratio')
+        load_ratio_text = f"{float(load_ratio_value):.2f}" if load_ratio_value is not None and not pd.isna(load_ratio_value) else "—"
+        acwr_style = ACWR_STATUS_STYLES.get(acwr_status_value)
+        load_ratio_color = acwr_style['color'] if acwr_style else theme['text_primary']
+        acwr_label = acwr_style['label'] if acwr_style else (acwr_status_value.title() if acwr_status_value else "")
+        if acwr_percent is not None and not pd.isna(acwr_percent):
+            acwr_suffix = f"({float(acwr_percent):.0f}%)"
+        else:
+            acwr_suffix = ""
+        status_date = latest_training_status.get('date')
+        caption_parts = []
+        if status_date is not None and not pd.isna(status_date):
+            try:
+                caption_parts.append(f"Обновлено: {format_date(status_date, 'display')}")
+            except Exception:
+                pass
+        if training_since_date:
+            try:
+                caption_parts.append(f"С {format_date(training_since_date, 'display')}")
+            except Exception:
+                caption_parts.append(f"С {training_since_date}")
+        if last_primary_sync_date and last_primary_sync_date != status_date:
+            try:
+                caption_parts.append(f"Синхронизировано: {format_date(last_primary_sync_date, 'display')}")
+            except Exception:
+                caption_parts.append(f"Синхронизировано: {last_primary_sync_date}")
+        feedback_messages = []
+        if training_feedback_text:
+            feedback_messages.append(training_feedback_text)
+        if balance_feedback_text and balance_feedback_text != training_feedback_text:
+            feedback_messages.append(balance_feedback_text)
+        load_ratio_details = {
+            "label": "Load ratio",
+            "value": load_ratio_text,
+            "color": load_ratio_color,
+            "badge": acwr_label,
+            "suffix": acwr_suffix,
+        }
+        ModernUI.training_status_card(
+            # Training Status
+            title="Статус тренировки",
+            status_text=training_status_display,
+            status_color=status_color,
+            metrics=[
+                ("Нагрузка 7д", load_text),
+                ("Хроническая", chronic_text),
+            ],
+            load_ratio=load_ratio_details,
+            feedback=feedback_messages,
+        )
+        if caption_parts:
+            st.caption(" • ".join(caption_parts))
+        ModernUI.training_status_description()
 
     with col4:
-        dfa_value = 100
-        fig_dfa = ModernUI.create_circular_indicator(dfa_value, 100, "DFA α₁", "N/A", "#64748B")
-        st.plotly_chart(fig_dfa, use_container_width=True)
+        readiness_fallback = current_status.get('readiness', 0) or 0
+        readiness_value = garmin_readiness if garmin_readiness is not None else readiness_fallback
+        try:
+            readiness_value = float(readiness_value)
+        except (ValueError, TypeError):
+            readiness_value = 0.0
+        readiness_value = max(0.0, min(100.0, readiness_value))
+        readiness_source = "Garmin" if garmin_readiness is not None else "AI индекс"
+        readiness_subtitle = f"{readiness_value:.0f}% • {readiness_source}"
+        readiness_color = "#3B82F6" if garmin_readiness is not None else "#8B5CF6"
+        fig_readiness = ModernUI.create_circular_indicator(readiness_value, 100, "Readiness", readiness_subtitle, readiness_color)
+        st.plotly_chart(fig_readiness, use_container_width=True)
+        readiness_bg = badge_bg_dark if theme['is_dark'] else "rgba(59,130,246,0.85)"
+        readiness_style = (
+            f"background: {readiness_bg}; color: {badge_text_color if theme['is_dark'] else '#FFFFFF'};"
+            f" padding: 4px 8px; border-radius: 12px; font-size: 11px; display: inline-block;"
+        )
+        if theme['is_dark']:
+            readiness_style += f" border: 1px solid {badge_border};"
+        st.markdown(
+            f'<div style="text-align: center;"><span style="{readiness_style}">Готовность</span></div>',
+            unsafe_allow_html=True
+        )
+
     # Отступ между блоками карточек
     st.markdown("<br><br>", unsafe_allow_html=True)
 
-    # Дополнительные Карточки в стиле AI Endurance
-
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.markdown('<div style="text-align: center; padding: 40px; background: rgba(232,240,255,0.8); border-radius: 15px; height: 300px;"><h4 style="color: #64748B;">ESS on Aug 23, 2025</h4><div style="font-size: 48px; margin: 50px 0; color: #64748B;">30</div></div>', unsafe_allow_html=True)
-
-    with col2:
-        rmssd_value = current_status.get('hrv', 39)
-        fig_rmssd = ModernUI.create_circular_indicator(rmssd_value, 50, "RMSSD", f"{rmssd_value} ms", "#667eea")
-        st.plotly_chart(fig_rmssd, use_container_width=True)
-        st.markdown('<div style="text-align: center;"><span style="background: #667eea; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px;">Driving Aerobic Recovery</span></div>', unsafe_allow_html=True)
-    
-    with col3:
-        hrv_value = current_status.get('hrv', 39)
-        fig_hrv = ModernUI.create_circular_indicator(hrv_value, 100, "HR Rest", f"{hrv_value} bpm", "#F59E0B")
-        st.plotly_chart(fig_hrv, use_container_width=True)
-        st.markdown('<div style="text-align: center;"><span style="background: #F59E0B; color: white; padding: 4px 8px; border-radius: 12px; font-size: 11px;">Resting Heart Rate<br>Пульс покоя</span></div>', unsafe_allow_html=True)
-    
-    with col4:
-        st.markdown('<div style="text-align: center; padding: 40px; background: rgba(232,240,255,0.8); border-radius: 15px; height: 300px;"><h4 style="color: #64748B;">ESS on Aug 23, 2025</h4><div style="font-size: 48px; margin: 50px 0; color: #64748B;">30</div></div>', unsafe_allow_html=True)
-    
-    # Отступ перед календарем
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    
-    # Недельный календарь тренировок
-    ModernUI.show_weekly_training_calendar()
-    
     # AI рекомендации
     recommendations = current_status.get('recommendations', [])
     if recommendations:
@@ -1096,13 +1219,52 @@ def show_dashboard():
     
     # Быстрые действия (компактные)
     show_quick_actions(current_status)
+
+    # Недельный календарь тренировок
+    ModernUI.show_weekly_training_calendar(activities_df)
     
     # Компактная аналитика в раскрывающемся блоке
-    show_compact_analytics(activities_df)
+    show_compact_analytics(activities_df, latest_training_status)
 
 def show_quick_actions(current_status):
     """Быстрые действия на основе текущего статуса"""
+    from utils.modern_ui import ModernUI
+
     st.markdown("### ⚡ Быстрые действия")
+
+    # Краткая рекомендация по интенсивности на основе TSB
+    try:
+        tsb_val = float(current_status.get('tsb', 0) or 0)
+    except (ValueError, TypeError):
+        tsb_val = 0.0
+
+    if tsb_val < -30:
+        intensity_status = "danger"
+        intensity_label = "🔴 Отдых"
+        intensity_desc = "Полный отдых и восстановление — избегайте тренировок."
+    elif tsb_val < -20:
+        intensity_status = "warning"
+        intensity_label = "🟡 Очень легко"
+        intensity_desc = "Только восстановительные сессии в Zone 1 и мягкий сон."
+    elif tsb_val < -10:
+        intensity_status = "warning"
+        intensity_label = "🟠 Легко"
+        intensity_desc = "Аэробные тренировки в Zone 1-2, избегайте интенсивных блоков."
+    elif tsb_val < 5:
+        intensity_status = "success"
+        intensity_label = "🟢 Средне"
+        intensity_desc = "Можно выполнять стандартные тренировки вплоть до Zone 4."
+    else:
+        intensity_status = "success"
+        intensity_label = "🚀 Высоко"
+        intensity_desc = "Готовность высокая — подключайте интенсивные интервалы и VO₂max."
+
+    ModernUI.status_card(
+        "Интенсивность сегодня",
+        intensity_label,
+        intensity_status,
+        description=intensity_desc,
+    )
     
     # Определяем действия на основе статуса
     actions = []
@@ -1179,7 +1341,7 @@ def handle_quick_action(action):
         st.rerun()
 
 
-def show_compact_analytics(activities_df):
+def show_compact_analytics(activities_df, training_status_info=None):
     """Компактная аналитика в раскрывающемся блоке"""
     with st.expander("📊 Подробная аналитика", expanded=False):
         if activities_df.empty:
@@ -1257,69 +1419,73 @@ def show_compact_analytics(activities_df):
         
         st.dataframe(display_df, use_container_width=True, height=200)
 
-def show_training_intensity_indicator(current_status):
-    """Индикатор интенсивности тренировок с рекомендациями"""
-    
-    tsb = current_status.get('tsb', 0)
-    ctl = current_status.get('ctl', 0)
-    
-    # Определяем рекомендуемую интенсивность
-    if tsb < -30:
-        intensity_level = "🔴 Отдых"
-        intensity_desc = "Полный отдых обязателен"
-        intensity_color = "text-red-600"
-        progress = 0
-    elif tsb < -20:
-        intensity_level = "🟡 Очень легко"
-        intensity_desc = "Только Zone 1 (восстановительные)"
-        intensity_color = "text-yellow-600"
-        progress = 20
-    elif tsb < -10:
-        intensity_level = "🟠 Легко"
-        intensity_desc = "Zone 1-2 (аэробные нагрузки)"
-        intensity_color = "text-orange-600"
-        progress = 40
-    elif tsb < 5:
-        intensity_level = "🟢 Средне"
-        intensity_desc = "Zone 1-4 (стандартные тренировки)"
-        intensity_color = "text-green-600"
-        progress = 70
-    else:
-        intensity_level = "🚀 Высоко"
-        intensity_desc = "Zone 1-5 (включая VO2max)"
-        intensity_color = "text-blue-600"
-        progress = 100
-    
-    # Отображаем индикатор
-    st.markdown("### ⚡ Рекомендуемая интенсивность")
-    
-    col1, col2 = st.columns([1, 2])
-    
-    with col1:
-        st.markdown(f"""
-        <div class="metric-card text-center">
-            <div class="metric-label">Интенсивность сегодня</div>
-            <div class="metric-value {intensity_color}">{intensity_level}</div>
-            <div class="metric-description">{intensity_desc}</div>
-        </div>
-        """, unsafe_allow_html=True)
-    
-    with col2:
-        st.markdown("**Зоны интенсивности:**")
-        
-        zones = [
-            ("Zone 1", "Восстановительная", "50-60%", progress >= 20),
-            ("Zone 2", "Аэробная", "60-70%", progress >= 40), 
-            ("Zone 3", "Темповая", "70-80%", progress >= 60),
-            ("Zone 4", "Лактатный порог", "80-90%", progress >= 70),
-            ("Zone 5", "VO2 Max", "90-100%", progress >= 100)
-        ]
-        
-        for zone, name, hr_range, available in zones:
-            color = "text-green-600" if available else "text-gray-400"
-            icon = "✅" if available else "❌"
-            st.markdown(f"{icon} **{zone}** - {name} ({hr_range})", 
-                       help=f"{'Разрешено' if available else 'Не рекомендуется'} при текущем TSB")
+        if training_status_info:
+            monthly_rows = []
+
+            def _fmt_number(value):
+                if value is None or (isinstance(value, float) and pd.isna(value)):
+                    return "—"
+                try:
+                    return f"{float(value):.0f}"
+                except (TypeError, ValueError):
+                    return str(value)
+
+            def _fmt_range(min_value, max_value):
+                if min_value is None and max_value is None:
+                    return "—"
+                if min_value is None:
+                    return f"≤ {_fmt_number(max_value)}"
+                if max_value is None:
+                    return f"≥ {_fmt_number(min_value)}"
+                try:
+                    min_val = float(min_value)
+                    max_val = float(max_value)
+                except (TypeError, ValueError):
+                    return f"{_fmt_number(min_value)}–{_fmt_number(max_value)}"
+                if abs(min_val - max_val) < 1e-3:
+                    return _fmt_number(min_val)
+                return f"{min_val:.0f}–{max_val:.0f}"
+
+            monthly_low = training_status_info.get('monthly_load_aerobic_low')
+            if monthly_low is not None:
+                monthly_rows.append({
+                    'Зона': 'Низкоаэробная',
+                    'Текущее': _fmt_number(monthly_low),
+                    'Цель': _fmt_range(
+                        training_status_info.get('monthly_load_aerobic_low_target_min'),
+                        training_status_info.get('monthly_load_aerobic_low_target_max')
+                    )
+                })
+
+            monthly_high = training_status_info.get('monthly_load_aerobic_high')
+            if monthly_high is not None:
+                monthly_rows.append({
+                    'Зона': 'Высокоаэробная',
+                    'Текущее': _fmt_number(monthly_high),
+                    'Цель': _fmt_range(
+                        training_status_info.get('monthly_load_aerobic_high_target_min'),
+                        training_status_info.get('monthly_load_aerobic_high_target_max')
+                    )
+                })
+
+            monthly_ana = training_status_info.get('monthly_load_anaerobic')
+            if monthly_ana is not None:
+                monthly_rows.append({
+                    'Зона': 'Анаэробная',
+                    'Текущее': _fmt_number(monthly_ana),
+                    'Цель': _fmt_range(
+                        training_status_info.get('monthly_load_anaerobic_target_min'),
+                        training_status_info.get('monthly_load_anaerobic_target_max')
+                    )
+                })
+
+            if monthly_rows:
+                st.markdown("**Баланс нагрузки Garmin:**")
+                monthly_df = pd.DataFrame(monthly_rows)
+                st.dataframe(monthly_df, use_container_width=True, hide_index=True)
+                balance_feedback = training_status_info.get('training_balance_feedback')
+                if balance_feedback:
+                    st.caption(balance_feedback)
 
 def show_activities():
     """Страница активностей"""
@@ -3291,254 +3457,161 @@ def show_chat_management():
         else:
             st.info("Пока нет сохраненных чатов")
 
-
-def show_modern_ai_chat(ai_metrics):
-    """Современный AI чат с быстрыми вопросами"""
-    state = get_state_manager()
-    st.subheader("💬 AI Чат")
-    
-    # Быстрые вопросы
-    st.markdown("### ⚡ Быстрые вопросы:")
-    quick_questions = [
-        "Как мое текущее состояние?",
-        "Что показывает мой TSB?",
-        "Готов ли я к тяжелой тренировке?",
-        "Как восстанавливаюсь?",
-        "Какие зоны интенсивности использовать?",
-        "Нужен ли день отдыха?"
-    ]
-    
-    # Создаем кнопки быстрых вопросов в 3 колонки
-    cols = st.columns(3)
-    for i, question in enumerate(quick_questions):
-        col = cols[i % 3]
-        if col.button(question, key=f"quick_q_{i}", use_container_width=True):
-            # Автоматически отправляем быстрый вопрос
-            with st.spinner("AI отвечает на ваш вопрос..."):
-                answer = state.ai_coach.answer_question(question, ai_metrics)
-                st.markdown("### 💡 Ответ коуча:")
-                st.markdown(answer)
-    
-    st.divider()
-    
-    # Свободный чат
-    st.markdown("### 💭 Свободный чат:")
-    question = st.text_area(
-        "Ваш вопрос:",
-        placeholder="Задайте любой вопрос о тренировках, восстановлении, питании, планировании...",
-        key="custom_question"
-    )
-    
-    col1, col2 = st.columns([1, 4])
-    with col1:
-        if st.button("💬 Отправить", key="send_question"):
-            if question:
-                with st.spinner("AI формирует ответ..."):
-                    answer = state.ai_coach.answer_question(question, ai_metrics)
-                    st.markdown("### 💡 Ответ коуча:")
-                    st.markdown(answer)
-            else:
-                st.warning("Введите вопрос")
-    
-    with col2:
-        if st.button("🗣️ Голосовой чат", key="voice_chat"):
-            st.info("Функция голосового чата будет добавлена в следующих обновлениях")
-
 def show_ai_coaching():
-    """Страница AI коучинга с поддержкой разных провайдеров"""
+    """Страница AI коучинга: управление провайдерами и чат"""
     state = get_state_manager()
-    database = state.database
     st.header("🤖 AI Коучинг")
-    
-    # Импортируем необходимые модули
+
     from models.ai_providers import AIProviderFactory
     from models.ai_coach_universal import UniversalAICoach
-    
-    # Инициализация состояния
+
     if not getattr(state, 'ai_coach', None):
         state.ai_coach = None
     if not state.selected_provider:
         state.selected_provider = Settings.DEFAULT_AI_PROVIDER
-    
-    # Боковая панель с настройками AI
+
     with st.sidebar.expander("⚙️ Настройки AI", expanded=True):
         st.subheader("Выбор AI провайдера")
-        
-        # Проверка доступных провайдеров
         available = AIProviderFactory.get_available_providers()
-        
-        # Отображение статуса провайдеров
         for name, is_available in available.items():
             if is_available:
                 st.success(f"✅ {name}")
             else:
                 st.error(f"❌ {name}")
-        
-        # Выбор провайдера
+
         provider_options = {
             "OpenAI (GPT)": "openai",
-            "Anthropic (Claude)": "anthropic", 
+            "Anthropic (Claude)": "anthropic",
             "Google (Gemini)": "google",
             "Ollama (Локально)": "ollama"
         }
-        
+
         selected_name = st.selectbox(
             "Провайдер:",
             options=list(provider_options.keys()),
             index=list(provider_options.values()).index(state.selected_provider)
         )
-        
         selected_provider = provider_options[selected_name]
-        
-        # Настройки для выбранного провайдера
+
         provider_kwargs = {}
-        
-        # Функция для получения доступных моделей
-        @st.cache_data(ttl=300)  # Кешируем на 5 минут
+
+        @st.cache_data(ttl=300)
         def get_models_for_provider(provider_type, **kwargs):
             try:
                 temp_provider = AIProviderFactory.create_provider(provider_type, **kwargs)
                 return temp_provider.get_available_models()
-            except:
+            except Exception:
                 return []
-        
+
         if selected_provider == "openai":
             api_key = st.text_input("API Key:", value=Settings.OPENAI_API_KEY or "", type="password")
-            
-            # Получаем список моделей
             if api_key:
                 with st.spinner("Загрузка списка моделей OpenAI..."):
                     available_models = get_models_for_provider("openai", api_key=api_key)
             else:
-                available_models = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo-preview"]  # Fallback
-            
+                available_models = ["gpt-3.5-turbo", "gpt-4", "gpt-4-turbo-preview"]
+
             if available_models:
-                # Находим индекс текущей модели
                 current_model = Settings.OPENAI_MODEL
                 try:
-                    default_index = available_models.index(current_model) if current_model in available_models else 0
-                except:
+                    default_index = available_models.index(current_model)
+                except ValueError:
                     default_index = 0
-                    
                 model = st.selectbox(
-                    f"Модель: ({len(available_models)} доступно)", 
-                    available_models, 
+                    f"Модель: ({len(available_models)} доступно)",
+                    available_models,
                     index=default_index,
                     help=f"Выберите модель из {len(available_models)} доступных"
                 )
             else:
                 model = st.text_input("Модель:", value=Settings.OPENAI_MODEL)
                 st.warning("⚠️ Не удалось загрузить список моделей. Введите название модели вручную.")
-            
             provider_kwargs = {"api_key": api_key, "model": model}
-            
+
         elif selected_provider == "anthropic":
             api_key = st.text_input("API Key:", value=Settings.ANTHROPIC_API_KEY or "", type="password")
-            
-            # Для Anthropic используем известный список
             available_models = [
-                "claude-3-haiku-20240307", 
-                "claude-3-sonnet-20240229", 
+                "claude-3-haiku-20240307",
+                "claude-3-sonnet-20240229",
                 "claude-3-opus-20240229",
-                "claude-2.1", 
-                "claude-2.0"
+                "claude-2.1",
+                "claude-2.0",
             ]
-            
             current_model = Settings.ANTHROPIC_MODEL
             try:
-                default_index = available_models.index(current_model) if current_model in available_models else 0
-            except:
+                default_index = available_models.index(current_model)
+            except ValueError:
                 default_index = 0
-                
             model = st.selectbox(
-                f"Модель: ({len(available_models)} доступно)", 
-                available_models, 
+                f"Модель: ({len(available_models)} доступно)",
+                available_models,
                 index=default_index,
                 help="Выберите модель Claude"
             )
             provider_kwargs = {"api_key": api_key, "model": model}
-            
+
         elif selected_provider == "google":
             api_key = st.text_input("API Key:", value=Settings.GOOGLE_API_KEY or "", type="password")
-            
-            # Для Google используем только работающие модели (протестированы с protobuf fix)
             available_models = [
-                "models/gemini-2.5-flash",  # Самая новая и быстрая
-                "models/gemini-2.0-flash-exp",  # Экспериментальная 2.0
-                "models/gemini-2.0-flash",  # Стабильная 2.0
-                "models/gemini-1.5-flash-latest",  # Последняя 1.5 Flash
-                "models/gemini-1.5-flash",  # Стабильная 1.5 Flash
-                "models/gemini-1.5-flash-8b",  # Компактная версия
+                "models/gemini-2.5-flash",
+                "models/gemini-2.0-flash-exp",
+                "models/gemini-2.0-flash",
+                "models/gemini-1.5-flash-latest",
+                "models/gemini-1.5-flash",
+                "models/gemini-1.5-flash-8b",
             ]
-            
             current_model = Settings.GOOGLE_MODEL
             try:
-                default_index = available_models.index(current_model) if current_model in available_models else 0
-            except:
+                default_index = available_models.index(current_model)
+            except ValueError:
                 default_index = 0
-                
             model = st.selectbox(
-                f"Модель: ({len(available_models)} доступно)", 
-                available_models, 
+                f"Модель: ({len(available_models)} доступно)",
+                available_models,
                 index=default_index,
                 help="Выберите модель Gemini"
             )
             provider_kwargs = {"api_key": api_key, "model": model}
-            
+
         elif selected_provider == "ollama":
             host = st.text_input("Host:", value=Settings.OLLAMA_HOST)
-            
-            # Получаем список моделей Ollama
             with st.spinner("Загрузка локальных моделей Ollama..."):
                 available_models = get_models_for_provider("ollama", host=host, model="dummy")
-            
             if available_models:
                 current_model = Settings.OLLAMA_MODEL
                 try:
-                    default_index = available_models.index(current_model) if current_model in available_models else 0
-                except:
+                    default_index = available_models.index(current_model)
+                except ValueError:
                     default_index = 0
-                    
                 model = st.selectbox(
-                    f"Модель: ({len(available_models)} локальных)", 
-                    available_models, 
+                    f"Модель: ({len(available_models)} локальных)",
+                    available_models,
                     index=default_index,
                     help=f"Выберите локальную модель из {len(available_models)} установленных"
                 )
             else:
                 model = st.text_input("Модель:", value=Settings.OLLAMA_MODEL)
                 st.warning("⚠️ Не удалось загрузить список моделей Ollama. Убедитесь, что Ollama запущен.")
-                
             provider_kwargs = {"host": host, "model": model}
-        
-        # Кнопки управления
+
         col1, col2 = st.columns(2)
-        
         with col1:
-            # Кнопка проверки подключения
             if st.button("🔍 Тест подключения", help="Проверить API ключ и подключение"):
                 try:
                     provider = AIProviderFactory.create_provider(selected_provider, **provider_kwargs)
-                    
                     with st.spinner("Проверка подключения..."):
                         test_result = provider.test_connection()
-                    
                     if test_result.get('success'):
                         st.success(f"✅ {test_result.get('message')}")
-                        
-                        # Показываем дополнительную информацию
                         with st.expander("📋 Детали подключения"):
                             for key, value in test_result.items():
-                                if key not in ['success', 'message']:
+                                if key not in ["success", "message"]:
                                     st.write(f"**{key}:** {value}")
                     else:
                         st.error(f"❌ {test_result.get('error')}")
-                        
-                except Exception as e:
-                    st.error(f"❌ Ошибка тестирования: {e}")
-        
+                except Exception as exc:
+                    st.error(f"❌ Ошибка тестирования: {exc}")
         with col2:
-            # Кнопка подключения
             if st.button("🔌 Подключить AI", help="Подключиться к выбранному провайдеру"):
                 try:
                     provider = AIProviderFactory.create_provider(selected_provider, **provider_kwargs)
@@ -3546,341 +3619,25 @@ def show_ai_coaching():
                         state.ai_coach = UniversalAICoach(provider)
                         state.selected_provider = selected_provider
                         st.success(f"✅ Подключено к {provider.get_model_name()}")
-                        
-                        # Показываем краткую информацию о подключении
                         st.info(f"🎯 Выбранная модель: **{provider_kwargs.get('model')}**")
-                        
                     else:
                         st.error("❌ Не удалось подключиться к провайдеру")
-                except Exception as e:
-                    st.error(f"❌ Ошибка: {e}")
-    
-    # Основной контент
+                except Exception as exc:
+                    st.error(f"❌ Ошибка: {exc}")
+
     if state.ai_coach is None:
         st.warning("👆 Настройте AI провайдера в боковой панели")
         return
-    
-    # Получаем данные для анализа
-    activities_df = database.get_activities(30)
-    
-    if activities_df.empty:
-        st.warning("📭 Нет данных для анализа. Синхронизируйте данные с Garmin Connect.")
-        return
-    
-    # Подготовка метрик для AI
-    banister = BanisterModel()
-    tss_data = []
-    dates = []
-    
-    for idx, row in activities_df.iterrows():
-        tss_val = row.get('tss', 0)
-        if pd.isna(tss_val) or tss_val is None:
-            tss_val = 0
-        tss_data.append(float(tss_val))
-        dates.append(row['date'])
-    
-    current_metrics = banister.get_current_metrics(tss_data, dates)
-    
-    # Дополнительные метрики для AI
-    week_activities = len(activities_df[activities_df['date'] >= (datetime.now() - timedelta(days=7))])
-    week_tss = activities_df[activities_df['date'] >= (datetime.now() - timedelta(days=7))]['tss'].sum()
-    avg_tss = activities_df['tss'].mean() if not activities_df['tss'].isna().all() else 0
-    
-    # Определяем основной вид спорта
-    if not activities_df.empty:
-        primary_sport = activities_df['sport'].mode()[0] if not activities_df['sport'].empty else 'смешанный'
-    else:
-        primary_sport = 'неизвестно'
-    
-    ai_metrics = {
-        **current_metrics,
-        'week_activities': week_activities,
-        'week_tss': week_tss,
-        'avg_tss': avg_tss,
-        'primary_sport': primary_sport
-    }
-    
-    # Проверяем, нужно ли сразу показать чат
+
     if state.switch_to_chat_tab:
-        # Сбрасываем флаг
         state.switch_to_chat_tab = False
-        # Показываем кнопку возврата к вкладкам
-        col1, col2 = st.columns([1, 4])
-        with col1:
-            if st.button("← Назад к вкладкам", key="back_to_tabs"):
-                st.rerun()
-        # Показываем чат сразу без вкладок
-        st.markdown("### 💬 AI Чат")
-        show_ai_chat()
-    else:
-        # Современные табы для AI функций
-        tab1, tab2, tab3, tab4, tab5 = st.tabs([
-            "💬 AI Чат",
-            "📊 Анализ состояния",
-            "📋 Недельный план", 
-            "🔍 Анализ тренировки",
-            "❓ Объяснение метрик"
-        ])
-        
-        with tab1:
-            show_modern_ai_chat(ai_metrics)
-            
-        with tab2:
-            st.subheader("📊 Анализ текущего состояния")
-            
-            # Показываем текущие метрики
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("CTL", f"{current_metrics['ctl']:.1f}")
-            with col2:
-                st.metric("ATL", f"{current_metrics['atl']:.1f}")
-            with col3:
-                st.metric("TSB", f"{current_metrics['tsb']:.1f}")
-            
-            if st.button("🔍 Проанализировать состояние", key="analyze_state"):
-                with st.spinner("AI анализирует ваши данные..."):
-                    analysis = state.ai_coach.analyze_current_state(ai_metrics)
-                    st.markdown("### 🤖 Анализ AI коуча:")
-                    st.markdown(analysis)
-    
-        with tab3:
-            st.subheader("📅 Генерация недельного плана")
 
-            use_structured = False
-            structured_week = None
+    show_ai_chat()
 
-            if state.goal_plan:
-                gp = state.goal_plan
-                weeks_count = max(1, len(gp.get('phases', [])))
-                week_options = []
-                start_week = gp['start_week']
-                for w in range(weeks_count):
-                    ws = start_week + timedelta(weeks=w)
-                    we = ws + timedelta(days=6)
-                    phase = gp['phases'][w] if w < len(gp['phases']) else '—'
-                    week_options.append((w, f"Неделя {w+1}: {ws.strftime('%d.%m')}–{we.strftime('%d.%m')} • {phase}"))
-
-                idx = st.selectbox(
-                    "Неделя из цель‑плана:",
-                    options=[w[0] for w in week_options],
-                    format_func=lambda i: week_options[i][1]
-                )
-
-                # Собираем структуру выбранной недели
-                start = idx * 7
-                end = start + 7
-                slice_days = gp['daily_plan'][start:end]
-                structured_week = []
-                for dt, total, parts in slice_days:
-                    structured_week.append({
-                        'date': dt,
-                        'total_tss': float(total),
-                        'run_tss': float(parts.get('run', 0.0)),
-                        'bike_tss': float(parts.get('bike', 0.0)),
-                        'swim_tss': float(parts.get('swim', 0.0)),
-                        'phase': gp['phases'][idx] if idx < len(gp['phases']) else 'Base'
-                    })
-
-                use_structured = st.checkbox("Использовать структуру из цель‑плана", value=True)
-
-            # Свободный текст как альтернатива
-            goals = st.text_area(
-                "Ваши цели на неделю (необязательно при использовании структуры):",
-                placeholder="Например: подготовка к полумарафону, увеличение выносливости, восстановление после соревнований...",
-                key="weekly_goals_text"
-            )
-            
-            if st.button("📝 Создать план", key="create_plan"):
-                with st.spinner("AI создаёт персональный план..."):
-                    if use_structured and structured_week:
-                        # Передаем строгую структуру напрямую в промпт
-                        coach = state.ai_coach
-                        if hasattr(coach, 'generate_weekly_plan_structured'):
-                            plan = coach.generate_weekly_plan_structured(ai_metrics, structured_week, note=goals)
-                        else:
-                            # Фоллбэк на текстовый промпт
-                            plan = coach.generate_weekly_plan(ai_metrics, goals)
-                    else:
-                        plan = state.ai_coach.generate_weekly_plan(ai_metrics, goals)
-                    st.markdown("### 📋 Ваш недельный план:")
-                    st.markdown(plan)
-                    # Сохраняем текст плана для последующего экспорта из текста
-                    state.last_ai_weekly_plan_text = plan
-
-            # Экспорт из сгенерированного текста (если структура не использовалась)
-            if state.last_ai_weekly_plan_text:
-                with st.expander("📤 Экспортировать из сгенерированного текста", expanded=False):
-                    base_date = st.date_input("Дата начала недели (Понедельник):", value=datetime.now().date())
-                    colx1, colx2 = st.columns([1,1])
-                    with colx1:
-                        target_sport = st.selectbox("Основной вид (для распределения TSS)", ["Бег", "Вело", "Плавание"], index=0)
-                    with colx2:
-                        file_prefix = st.text_input("Префикс имени файла", value="ai_week_plan")
-
-                    if st.button("🔽 Сформировать CSV/ICS/FIT из текста", key="export_text_week"):
-                        import re
-                        import io, zipfile
-                        text = state.last_ai_weekly_plan_text
-                        # Ищем все значения TSS по порядку упоминания дней
-                        tss_vals = [int(m.group(1)) for m in re.finditer(r"TSS:\s*(\d+)", text)]
-                        # Гарантируем 7 значений (недостающие заполняем нулями, лишние обрезаем)
-                        if len(tss_vals) < 7:
-                            tss_vals += [0] * (7 - len(tss_vals))
-                        tss_vals = tss_vals[:7]
-
-                        # Собираем дневной план
-                        daily_rows = []
-                        daily_plan_text = []
-                        for i in range(7):
-                            dt = datetime.combine(base_date + timedelta(days=i), datetime.min.time())
-                            total = float(tss_vals[i])
-                            run_t, bike_t, swim_t = 0.0, 0.0, 0.0
-                            if target_sport == "Бег":
-                                run_t = total
-                            elif target_sport == "Вело":
-                                bike_t = total
-                            else:
-                                swim_t = total
-                            daily_rows.append({
-                                'date': dt.strftime('%Y-%m-%d'),
-                                'total_tss': total,
-                                'run_tss': run_t,
-                                'bike_tss': bike_t,
-                                'swim_tss': swim_t,
-                            })
-                            daily_plan_text.append((dt, total, {'run': run_t, 'bike': bike_t, 'swim': swim_t}))
-
-                        df_daily = pd.DataFrame(daily_rows)
-                        csv_daily = df_daily.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            label="💾 Скачать daily_plan.csv",
-                            data=csv_daily,
-                            file_name=f"{file_prefix}_daily_plan.csv",
-                            mime="text/csv",
-                        )
-
-                        # Недельная сводка
-                        df_weekly = pd.DataFrame([{
-                            'Неделя от': base_date.strftime('%d.%m'),
-                            'Фаза': '—',
-                            'Weekly TSS': sum(tss_vals),
-                            'Bike': sum(r['bike_tss'] for r in daily_rows),
-                            'Run': sum(r['run_tss'] for r in daily_rows),
-                            'Swim': sum(r['swim_tss'] for r in daily_rows),
-                        }])
-                        csv_weekly = df_weekly.to_csv(index=False).encode('utf-8')
-                        st.download_button(
-                            label="💾 Скачать weekly_plan.csv",
-                            data=csv_weekly,
-                            file_name=f"{file_prefix}_weekly_plan.csv",
-                            mime="text/csv",
-                        )
-
-                        # ICS
-                        from models.training_planner import create_ics_from_daily
-                        ics_content = create_ics_from_daily(daily_plan_text, title_prefix=f"{target_sport}")
-                        st.download_button(
-                            label="📅 Скачать training_plan.ics",
-                            data=ics_content,
-                            file_name=f"{file_prefix}_training_plan.ics",
-                            mime="text/calendar",
-                        )
-
-                        # FIT-CSV и FIT для всей недели (ZIP)
-                        from models.fit_export import build_steps_for_sport, generate_fit_csv, try_convert_fit
-                        csv_zip = io.BytesIO()
-                        fit_zip = io.BytesIO()
-                        with zipfile.ZipFile(csv_zip, 'w', zipfile.ZIP_DEFLATED) as zc:
-                            for i, (dt, total, parts) in enumerate(daily_plan_text):
-                                sport_map = {'Бег':'run','Вело':'bike','Плавание':'swim'}
-                                sport = sport_map.get(target_sport, 'run')
-                                steps = build_steps_for_sport(total, sport)
-                                csv_text = generate_fit_csv(f"AI Week Plan — {dt.strftime('%Y-%m-%d')}", sport, steps, created=dt)
-                                zc.writestr(f"workout_{dt.strftime('%Y%m%d')}.csv", csv_text)
-                        st.download_button(
-                            label="💾 Скачать все FIT-CSV (ZIP)",
-                            data=csv_zip.getvalue(),
-                            file_name=f"{file_prefix}_fitcsv_week.zip",
-                            mime="application/zip",
-                        )
-
-                        jar = Settings.FIT_SDK_JAR
-                        if jar:
-                            with zipfile.ZipFile(fit_zip, 'w', zipfile.ZIP_DEFLATED) as zf:
-                                for i, (dt, total, parts) in enumerate(daily_plan_text):
-                                    sport_map = {'Бег':'run','Вело':'bike','Плавание':'swim'}
-                                    sport = sport_map.get(target_sport, 'run')
-                                    steps = build_steps_for_sport(total, sport)
-                                    csv_text = generate_fit_csv(f"AI Week Plan — {dt.strftime('%Y-%m-%d')}", sport, steps, created=dt)
-                                    fit_bytes = try_convert_fit(csv_text.encode('utf-8'), 'java', jar)
-                                    if fit_bytes:
-                                        zf.writestr(f"workout_{dt.strftime('%Y%m%d')}.fit", fit_bytes)
-                            if fit_zip.getbuffer().nbytes > 0:
-                                st.download_button(
-                                    label="💾 Скачать все FIT (ZIP)",
-                                    data=fit_zip.getvalue(),
-                                    file_name=f"{file_prefix}_fit_week.zip",
-                                    mime="application/zip",
-                                )
-                            else:
-                                st.info("FIT не собран. Проверьте FIT_SDK_JAR и наличие Java.")
-    
-        with tab4:
-            st.subheader("🏃 Анализ последней тренировки")
-            
-            # Выбор тренировки для анализа
-            if not activities_df.empty:
-                last_activities = activities_df.head(10)
-                
-                activity_options = []
-                for idx, row in last_activities.iterrows():
-                    date_str = row['date'].strftime('%d.%m')
-                    activity_str = f"{date_str} - {row['sport']} - {row['distance_km']:.1f}км - TSS: {row['tss']:.0f}"
-                    activity_options.append(activity_str)
-                
-                selected_idx = st.selectbox("Выберите тренировку:", range(len(activity_options)),
-                                           format_func=lambda x: activity_options[x])
-                
-                selected_activity = last_activities.iloc[selected_idx]
-                
-                # Субъективные ощущения
-                feeling = st.text_area(
-                    "Как вы себя чувствовали?",
-                    placeholder="Опишите ваши ощущения: усталость, лёгкость, проблемы, успехи..."
-                )
-                
-                if st.button("🔬 Анализировать тренировку", key="analyze_workout"):
-                    with st.spinner("AI анализирует тренировку..."):
-                        workout_data = selected_activity.to_dict()
-                        analysis = state.ai_coach.analyze_workout(workout_data, feeling)
-                        st.markdown("### 🎯 Анализ тренировки:")
-                        st.markdown(analysis)
-    
-        with tab5:
-            st.subheader("📚 Объяснение метрик")
-            
-            metric_options = {
-                "TSS (Training Stress Score)": "TSS",
-                "CTL (Chronic Training Load)": "CTL",
-                "ATL (Acute Training Load)": "ATL",
-                "TSB (Training Stress Balance)": "TSB",
-                "FTP (Functional Threshold Power)": "FTP",
-                "LTHR (Lactate Threshold Heart Rate)": "LTHR",
-                "HRV (Heart Rate Variability)": "HRV",
-                "RMSSD": "RMSSD",
-                "VO2max": "VO2max"
-            }
-            
-            selected_metric_name = st.selectbox("Выберите метрику:", list(metric_options.keys()))
-            
-            if st.button("📖 Объяснить", key="explain_metric"):
-                with st.spinner("AI готовит объяснение..."):
-                    explanation = state.ai_coach.explain_metrics(selected_metric_name)
-                    st.markdown("### 📘 Объяснение:")
-                    st.markdown(explanation)
-    
 def show_ai_chat():
     """Современный интерфейс AI чата с сохранением и управлением"""
+    state = get_state_manager()
+    database = state.database
     # Проверяем подключение к AI
     if state.ai_coach is None:
         st.warning("👆 Настройте AI провайдера для использования чата")
@@ -3901,6 +3658,12 @@ def show_ai_chat():
     # Текущий чат
     if "current_chat_id" not in state:
         state.current_chat_id = None
+    
+    # Если чат не выбран, пробуем открыть последний из списка
+    if state.current_chat_id is None:
+        existing_chats = state.chat_manager.get_chat_list()
+        if existing_chats:
+            state.current_chat_id = existing_chats[0]["id"]
     
     # CSS для улучшения интерфейса чата
     st.markdown("""
@@ -4010,6 +3773,10 @@ def show_ai_chat():
         
         if state.context_loaded and state.data_context:
             context = state.data_context
+            def fmt_health(value, fmt_mask=".1f"):
+                if value is None or (hasattr(pd, "isna") and pd.isna(value)):
+                    return "н/д"
+                return format(float(value), fmt_mask)
             summary = context['summary']
             
             # Показываем детальную информацию о доступных данных
@@ -4048,6 +3815,16 @@ def show_ai_chat():
             else:
                 data_modules.append("❌ Данные сна")
                 
+            if context.get('daily_health', {}).get('has_data', False):
+                data_modules.append("✅ Ежедневное здоровье")
+            else:
+                data_modules.append("❌ Ежедневное здоровье")
+                
+            if context.get('training_status', {}).get('has_data', False):
+                data_modules.append("✅ Garmin Training Status")
+            else:
+                data_modules.append("❌ Garmin Training Status")
+                
             if context.get('user_profile', {}).get('has_data', False):
                 data_modules.append("✅ Профиль пользователя")
             else:
@@ -4069,6 +3846,26 @@ def show_ai_chat():
                     st.write(f"• CTL: {pm.get('ctl', 0):.1f}")
                     st.write(f"• ATL: {pm.get('atl', 0):.1f}")
                     st.write(f"• TSB: {pm.get('tsb', 0):.1f}")
+            
+            if context.get('daily_health', {}).get('has_data', False):
+                with st.expander("🏥 Ежедневное здоровье"):
+                    dh_stats = context['daily_health']['stats']
+                    st.write(f"• Шаги (средние): {fmt_health(dh_stats.get('avg_steps'), '.0f')}")
+                    st.write(f"• ЧСС покоя: {fmt_health(dh_stats.get('avg_resting_hr'))}")
+                    st.write(f"• Активные минуты: {fmt_health(dh_stats.get('avg_active_minutes'))}")
+                    st.write(f"• Тренд шагов: {context['daily_health']['trend_steps'] or 'н/д'}")
+            
+            if context.get('training_status', {}).get('has_data', False):
+                with st.expander("🎯 Garmin Training Status"):
+                    latest = context['training_status']['latest']
+                    summary = context['training_status']['summary']
+                    st.write(f"• Последний статус: {latest.get('training_status', 'н/д')}")
+                    readiness_avg = summary.get('avg_training_readiness')
+                    st.write(f"• Readiness (среднее): {fmt_health(readiness_avg)}/100" if readiness_avg is not None else "• Readiness: данных нет")
+                    load_avg = summary.get('avg_training_load_7d')
+                    st.write(f"• Нагрузка 7д (средняя): {fmt_health(load_avg)}" if load_avg is not None else "• Нагрузка 7д: данных нет")
+                    vo2_avg = summary.get('avg_vo2_max')
+                    st.write(f"• VO₂max (средний): {fmt_health(vo2_avg)}" if vo2_avg is not None else "• VO₂max: данных нет")
                     
             # Показываем HRV статус если есть
             if context.get('hrv', {}).get('has_data', False):
@@ -4110,6 +3907,16 @@ def show_ai_chat():
             • Время засыпания и пробуждения
             • Количество пробуждений за ночь
             • Анализ паттернов и трендов сна
+            
+            **Ежедневное здоровье:**
+            • Шаги и активные калории
+            • ЧСС в покое и интенсивные минуты
+            • Тренды активности по дням
+            
+            **Garmin Training Status:**
+            • Readiness, тренированность и VO₂max
+            • Недельная нагрузка и ACWR
+            • История статусов Garmin
             
             **Модель Банистера:**
             • CTL (хроническая тренировочная нагрузка)
@@ -4160,11 +3967,13 @@ def show_ai_chat():
     # Контейнер для чата с улучшенным стилем
     with st.container():
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+        st.caption(f"ID текущего чата: {state.current_chat_id or '—'}")
         
         # Загружаем сообщения текущего чата
         current_messages = []
         if state.current_chat_id:
             current_messages = state.chat_manager.get_chat_messages(state.current_chat_id)
+        st.caption(f"Сообщений в чате: {len(current_messages)}")
         
         # Отображение сообщений
         if current_messages:
@@ -4237,18 +4046,131 @@ def show_ai_chat():
     
     st.markdown('</div>', unsafe_allow_html=True)
 
+def handle_chat_command(command: str, state):
+    """Обрабатывает команды чата (начинающиеся с /)"""
+    # Парсим команду
+    parts = command.strip().split(maxsplit=1)
+    cmd = parts[0].lower()
+    args = parts[1] if len(parts) > 1 else ""
+    
+    # Создаем новый чат если его нет
+    if not state.current_chat_id:
+        state.current_chat_id = state.chat_manager.create_new_chat()
+    
+    # Добавляем команду в чат
+    state.chat_manager.add_message(state.current_chat_id, "user", command)
+    
+    # Отображаем команду пользователя
+    with st.chat_message("user"):
+        st.write(command)
+    
+    # Обрабатываем команду
+    with st.chat_message("assistant"):
+        response = ""
+        
+        if cmd == "/speechcore":
+            response = handle_speechcore_command(args, state)
+        else:
+            response = f"❓ Неизвестная команда: `{cmd}`\n\nДоступные команды:\n- `/speechcore` - Управление речевыми функциями"
+        
+        st.markdown(response)
+        state.chat_manager.add_message(state.current_chat_id, "assistant", response)
+    
+    st.rerun()
+
+def handle_speechcore_command(args: str, state) -> str:
+    """Обрабатывает команду /speechcore"""
+    args = args.strip().lower()
+    
+    # Инициализируем состояние speechcore если его нет
+    if "speechcore_enabled" not in state._session:
+        state._session["speechcore_enabled"] = False
+    if "speechcore_voice" not in state._session:
+        state._session["speechcore_voice"] = "default"
+    
+    if args == "" or args == "help" or args == "?":
+        # Показываем справку
+        enabled_status = '✅ Включен' if state._session.get('speechcore_enabled', False) else '❌ Выключен'
+        voice_name = state._session.get('speechcore_voice', 'default')
+        return f"""🎤 **SpeechCore - Речевые функции AI тренера**
+
+**Доступные команды:**
+- `/speechcore` или `/speechcore help` - Показать эту справку
+- `/speechcore on` - Включить речевой синтез (озвучивание ответов)
+- `/speechcore off` - Выключить речевой синтез
+- `/speechcore status` - Показать текущий статус
+- `/speechcore voice <имя>` - Выбрать голос (например: `default`, `female`, `male`)
+
+**Текущий статус:**
+- Речевой синтез: {enabled_status}
+- Голос: `{voice_name}`
+
+**Примечание:** Речевой синтез будет озвучивать ответы AI тренера в чате."""
+    
+    elif args == "on" or args == "enable":
+        state._session["speechcore_enabled"] = True
+        return f"""✅ **Речевой синтез включен**
+
+Ответы AI тренера теперь будут озвучиваться. Голос: `{state._session.get('speechcore_voice', 'default')}`
+
+Используйте `/speechcore off` для отключения."""
+    
+    elif args == "off" or args == "disable":
+        state._session["speechcore_enabled"] = False
+        return """❌ **Речевой синтез выключен**
+
+Ответы AI тренера больше не будут озвучиваться.
+
+Используйте `/speechcore on` для включения."""
+    
+    elif args == "status":
+        enabled = state._session.get("speechcore_enabled", False)
+        voice = state._session.get("speechcore_voice", "default")
+        return f"""📊 **Статус SpeechCore**
+
+- Речевой синтез: {'✅ Включен' if enabled else '❌ Выключен'}
+- Голос: `{voice}`
+
+Используйте `/speechcore help` для списка команд."""
+    
+    elif args.startswith("voice "):
+        voice_name = args.replace("voice ", "").strip()
+        if voice_name:
+            state._session["speechcore_voice"] = voice_name
+            return f"""🎙️ **Голос изменен**
+
+Новый голос: `{voice_name}`
+
+Доступные варианты: `default`, `female`, `male`
+
+Используйте `/speechcore on` для включения речевого синтеза."""
+        else:
+            return """❌ **Ошибка**
+
+Укажите имя голоса. Например: `/speechcore voice female`"""
+    
+    else:
+        return f"""❓ **Неизвестная подкоманда: `{args}`**
+
+Используйте `/speechcore help` для списка доступных команд."""
+
 def process_modern_chat_message(user_input):
     """Обрабатывает сообщение в современном чате с сохранением"""
+    state = get_state_manager()
+    
+    # Обработка команд (начинающихся с /)
+    if user_input.startswith('/'):
+        handle_chat_command(user_input, state)
+        return
+    
     # Создаем новый чат если его нет
     if not state.current_chat_id:
         state.current_chat_id = state.chat_manager.create_new_chat()
     
     # Добавляем сообщение пользователя в чат
-    state.chat_manager.add_message(
-        state.current_chat_id, 
-        "user", 
-        user_input
-    )
+    if not state.chat_manager.add_message(state.current_chat_id, "user", user_input):
+        st.error(f"❌ Не удалось сохранить сообщение пользователя (чат {state.current_chat_id}).")
+        return
     
     # Отображаем сообщение пользователя
     with st.chat_message("user"):
@@ -4291,16 +4213,22 @@ def process_modern_chat_message(user_input):
             
             # Обрабатываем инструменты в ответе
             final_response = process_tool_calls(ai_response)
+            final_response = maybe_append_progress_report(state, user_input, final_response)
             
             # Симулируем стриминг финального ответа
             simulate_streaming_response(response_placeholder, final_response)
             
             # Сохраняем ответ в чат
-            state.chat_manager.add_message(
-                state.current_chat_id,
-                "assistant", 
-                final_response
-            )
+            if not state.chat_manager.add_message(state.current_chat_id, "assistant", final_response):
+                st.error(f"❌ Не удалось сохранить ответ AI в чат (чат {state.current_chat_id}).")
+            
+            # Озвучиваем ответ, если речевой синтез включен
+            if state._session.get("speechcore_enabled", False):
+                speak_text(final_response, state._session.get("speechcore_voice", "default"))
+            
+            # Гарантируем, что остаёмся на странице AI чата
+            state.selected_page = "🤖 AI Коучинг"
+            state.switch_to_chat_tab = True
             
             # Обновляем интерфейс для отображения нового сообщения
             st.rerun()
@@ -4317,6 +4245,7 @@ def process_modern_chat_message(user_input):
 
 def process_chat_message(user_input):
     """Обрабатывает сообщение пользователя в чате с поддержкой инструментов"""
+    state = get_state_manager()
     # Добавляем сообщение пользователя
     state.chat_messages.append({"role": "user", "content": user_input})
     
@@ -4352,6 +4281,7 @@ def process_chat_message(user_input):
                 
                 # Обрабатываем инструменты в ответе
                 final_response = process_tool_calls(ai_response)
+                final_response = maybe_append_progress_report(state, user_input, final_response)
                 
                 # Отображаем финальный ответ
                 st.markdown(final_response)
@@ -4364,6 +4294,7 @@ def process_chat_message(user_input):
 
 def create_chat_system_prompt_with_tools(data_context):
     """Создает системный промпт с инструментами для доступа к данным"""
+    state = get_state_manager()
     
     base_prompt = """
 Ты — персональный AI тренер по выносливости с глубокими знаниями спортивной науки. 
@@ -4390,6 +4321,13 @@ def create_chat_system_prompt_with_tools(data_context):
 • Используй эмодзи для лучшего восприятия
 • Структурируй ответы с заголовками и списками
 • Будь конкретным с цифрами и фактами
+
+ДАННЫЕ И ИНСТРУМЕНТЫ:
+• Для запросов о шагах, калориях или ЧСС покоя ОБЯЗАТЕЛЬНО сначала вызывай инструмент **get_daily_health_stats** (укажи days при необходимости)
+• Для readiness, VO₂max и статусов Garmin ОБЯЗАТЕЛЬНО сначала применяй **get_training_status** (для конкретных дат) или **analyze_training_status**
+• Если вопрос требует период/дату, вызывай инструмент с параметром days/start/end, а затем цитируй фактические значения из результата
+• Метрики CTL/ATL/TSB и анализ нагрузки получай через соответствующие инструменты, вместо общих оценок
+• Если данных нет, явно сообщай об этом пользователю
 """
     
     # Добавляем описание инструментов
@@ -4443,6 +4381,8 @@ def process_tool_calls(ai_response):
     """Обрабатывает вызовы инструментов в ответе AI"""
     import re
     
+    state = get_state_manager()
+    
     # Ищем паттерны инструментов в формате [TOOL: tool_name, param=value]
     tool_pattern = r'\[TOOL:\s*([^,\]]+)(?:,\s*([^\]]*))?\]'
     
@@ -4488,6 +4428,84 @@ def process_tool_calls(ai_response):
     
     return processed_response
 
+def speak_text(text: str, voice: str = "default"):
+    """Озвучивает текст с помощью Web Speech API через JavaScript"""
+    import re
+    import json
+    
+    # Очищаем текст от markdown разметки для озвучивания
+    # Удаляем markdown синтаксис, но оставляем читаемый текст
+    clean_text = text
+    
+    # Удаляем markdown заголовки
+    clean_text = re.sub(r'^#+\s+', '', clean_text, flags=re.MULTILINE)
+    # Удаляем жирный текст
+    clean_text = re.sub(r'\*\*(.+?)\*\*', r'\1', clean_text)
+    # Удаляем курсив
+    clean_text = re.sub(r'\*(.+?)\*', r'\1', clean_text)
+    # Удаляем код
+    clean_text = re.sub(r'`(.+?)`', r'\1', clean_text)
+    # Удаляем ссылки
+    clean_text = re.sub(r'\[(.+?)\]\(.+?\)', r'\1', clean_text)
+    
+    # Ограничиваем длину для озвучивания (слишком длинные тексты могут быть проблематичны)
+    if len(clean_text) > 500:
+        clean_text = clean_text[:500] + "..."
+    
+    # Экранируем текст для JavaScript
+    clean_text_escaped = json.dumps(clean_text, ensure_ascii=False)
+    
+    # Создаем JavaScript код для озвучивания
+    js_code = f"""
+    <script>
+    (function() {{
+        if ('speechSynthesis' in window) {{
+            // Останавливаем предыдущее озвучивание, если есть
+            window.speechSynthesis.cancel();
+            
+            // Ждем загрузки голосов
+            function speak() {{
+                const utterance = new SpeechSynthesisUtterance({clean_text_escaped});
+                
+                // Настройка голоса
+                utterance.lang = 'ru-RU';
+                utterance.rate = 1.0;
+                utterance.pitch = 1.0;
+                utterance.volume = 1.0;
+                
+                // Пытаемся выбрать голос по предпочтению
+                const voices = window.speechSynthesis.getVoices();
+                if (voices.length > 0) {{
+                    // Ищем русский голос
+                    let selectedVoice = voices.find(v => v.lang.startsWith('ru'));
+                    if (!selectedVoice) {{
+                        // Если нет русского, берем первый доступный
+                        selectedVoice = voices[0];
+                    }}
+                    utterance.voice = selectedVoice;
+                }}
+                
+                window.speechSynthesis.speak(utterance);
+            }}
+            
+            // Если голоса уже загружены, говорим сразу
+            if (window.speechSynthesis.getVoices().length > 0) {{
+                speak();
+            }} else {{
+                // Иначе ждем события загрузки голосов
+                window.speechSynthesis.onvoiceschanged = speak;
+            }}
+        }} else {{
+            console.warn('Speech synthesis not supported');
+        }}
+    }})();
+    </script>
+    """
+    
+    # Выполняем JavaScript через Streamlit
+    import streamlit.components.v1 as components
+    components.html(js_code, height=0)
+
 def simulate_streaming_response(placeholder, text):
     """Симулирует стриминг вывода текста для лучшего UX"""
     import time
@@ -4530,6 +4548,17 @@ def simulate_streaming_response(placeholder, text):
     # Финальное отображение без курсора
     placeholder.markdown(current_text)
 
+PROGRESS_KEYWORDS = (
+    "прогресс за месяц",
+    "прогресс за последний месяц",
+    "покажи прогресс за месяц",
+    "итоги месяца",
+    "итоги за месяц",
+    "month progress",
+    "monthly progress"
+)
+
+
 def format_tool_result(tool_name, data):
     """Форматирует результат инструмента для красивого отображения"""
     
@@ -4569,6 +4598,47 @@ def format_tool_result(tool_name, data):
         
         return activities_text
     
+    elif tool_name == "get_activities":
+        count = data.get("count", 0)
+        period = data.get("period_days")
+        activities = data.get("activities") or []
+        
+        if count == 0 or not activities:
+            period_text = f"за {period} дней" if period is not None else ""
+            return f"📭 **Нет тренировок {period_text}**"
+        
+        total_tss = sum(float(a.get("tss", 0) or 0) for a in activities)
+        total_duration = sum(float(a.get("duration_minutes", 0) or 0) for a in activities)
+        
+        header = f"## 🏃‍♂️ Тренировки за {period} дней\n\n"
+        summary = (
+            f"- Всего занятий: **{count}**\n"
+            f"- Суммарный TSS: **{total_tss:.0f}**\n"
+            f"- Общее время: **{total_duration/60:.1f} ч**\n\n"
+        )
+        
+        sport_emojis = {
+            'cycling': '🚴', 'running': '🏃', 'swimming': '🏊',
+            'open_water_swimming': '🏊‍♂️', 'walking': '🚶', 'strength': '💪',
+        }
+        
+        rows = []
+        for activity in activities[:7]:
+            date = activity.get("date", "N/A")
+            sport = activity.get("sport", "unknown")
+            emoji = sport_emojis.get(sport.lower(), '⚡') if isinstance(sport, str) else '⚡'
+            duration = activity.get("duration_minutes", 0) or 0
+            tss = activity.get("tss", 0) or 0
+            description = activity.get("description")
+            if not description:
+                description = f"{sport} — {duration:.0f} мин, TSS {tss:.0f}"
+            rows.append(f"| {date} | {emoji} {description} |")
+        
+        table_header = "| Дата | Сессия |\n| --- | --- |\n"
+        table_body = "\n".join(rows)
+        
+        return header + summary + table_header + table_body
+    
     elif tool_name == "analyze_hrv_trends":
         recovery_emoji = {"отличное": "🟢", "хорошее": "🟡", "удовлетворительное": "🟠", "плохое": "🔴"}
         trend_emoji = {"improving": "📈", "declining": "📉"}
@@ -4592,15 +4662,113 @@ def format_tool_result(tool_name, data):
 • Средний TSS: {data['avg_tss_per_session']:.1f}
 """
     
+    elif tool_name == "compare_periods":
+        message = data.get("message")
+        period1 = data.get("period1_days")
+        period2 = data.get("period2_days")
+        
+        if message:
+            fallback = data.get("fallback", {})
+            summary_lines = [f"### {message}"]
+            
+            recent_stats = fallback.get("recent_activity_stats")
+            if isinstance(recent_stats, dict):
+                summary_lines.append(
+                    f"- Последний период: {recent_stats.get('total_activities', 0)} тренировок, "
+                    f"{recent_stats.get('total_duration_hours', 0):.1f} ч, TSS {recent_stats.get('total_tss', 0):.0f}"
+                )
+            
+            load_summary = fallback.get("training_load")
+            if isinstance(load_summary, dict):
+                summary_lines.append(
+                    f"- Тренд нагрузки: {load_summary.get('load_trend', 'н/д')}"
+                )
+            
+            summary_lines.append(
+                "Попробуй обновить данные, чтобы сравнить периоды заново."
+            )
+            
+            return "## 📈 Прогресс за период\n\n" + "\n".join(summary_lines)
+        
+        recent = data.get("recent_period", {}) or {}
+        previous = data.get("previous_period", {}) or {}
+        comparison = data.get("comparison", {}) or {}
+        
+        def fmt_hours(minutes: float) -> str:
+            return f"{(minutes or 0) / 60:.1f} ч"
+        
+        def fmt_delta(value: Optional[float], unit: str = "", precision: int = 0) -> str:
+            if value is None:
+                return "0"
+            sign = "+" if value > 0 else ""
+            formatted = f"{sign}{value:.{precision}f}" if precision > 0 else f"{sign}{int(value)}"
+            return f"{formatted}{unit}"
+        
+        def arrow(value: Optional[float]) -> str:
+            if value is None:
+                return "→"
+            if value > 0:
+                return "↑"
+            if value < 0:
+                return "↓"
+            return "→"
+        
+        recent_duration = recent.get("total_duration", 0.0)
+        previous_duration = previous.get("total_duration", 0.0)
+        volume_change = comparison.get("volume_change")
+        duration_change_hours = (volume_change or 0) / 60 if volume_change is not None else None
+        
+        summary_block = [
+            "## 📈 Прогресс за период",
+            "",
+            "**Итоги текущего периода**",
+            f"- Тренировок: **{recent.get('activity_count', 0)}**",
+            f"- Общее время: **{fmt_hours(recent_duration)}**",
+            f"- Суммарный TSS: **{recent.get('total_tss', 0):.0f}**",
+            f"- Частота: **{recent.get('activities_per_week', 0):.1f} / нед**"
+        ]
+        
+        if not previous.get("no_data"):
+            summary_block.extend([
+                "",
+                f"**Динамика vs предыдущие {period2 or 'предыдущие'} дней**",
+                f"- Тренировок: {comparison.get('activity_count_change', 0):+d} {arrow(comparison.get('activity_count_change'))}",
+                f"- Объём: {fmt_delta(duration_change_hours, ' ч', 1)} {arrow(duration_change_hours)}",
+                f"- TSS: {fmt_delta(comparison.get('tss_change'), '', 0)} {arrow(comparison.get('tss_change'))}"
+            ])
+        else:
+            summary_block.append("\nНет данных для сравнения с предыдущим периодом.")
+        
+        return "\n".join(summary_block)
+    
     elif tool_name == "analyze_training_load":
-        return f"""
-**⚡ Анализ нагрузки:**
-• Тренд нагрузки: {data['load_trend']}
-• Распределение интенсивности:
-  - Низкая: {data['intensity_distribution']['low_intensity_percent']:.1f}%
-  - Умеренная: {data['intensity_distribution']['moderate_intensity_percent']:.1f}%
-  - Высокая: {data['intensity_distribution']['high_intensity_percent']:.1f}%
-"""
+        if data.get("message"):
+            return f"ℹ️ **{data['message']}**"
+        
+        intensity = data.get("intensity_distribution", {})
+        weekly = data.get("weekly_breakdown", []) or []
+        
+        intensity_lines = [
+            f"- Низкая: {intensity.get('low_intensity_percent', 0):.1f}%",
+            f"- Умеренная: {intensity.get('moderate_intensity_percent', 0):.1f}%",
+            f"- Высокая: {intensity.get('high_intensity_percent', 0):.1f}%"
+        ] if intensity else ["- Нет данных по зонам интенсивности"]
+        
+        if weekly:
+            table_rows = [
+                "| Неделя | Сессий | TSS | Часы |",
+                "| --- | --- | --- | --- |"
+            ]
+            for week in weekly[:4]:
+                hours = (week.get("total_duration", 0) or 0) / 60
+                table_rows.append(
+                    f"| {week.get('week', '—')} | {week.get('session_count', 0)} | "
+                    f"{week.get('total_tss', 0):.0f} | {hours:.1f} |"
+                )
+            weekly_section = "\n".join(table_rows)
+        else:
+            weekly_section = "Нет разбивки по неделям."
+        
     
     elif tool_name == "analyze_recovery_state":
         factors = data.get("factors", [])
@@ -4668,6 +4836,151 @@ def format_tool_result(tool_name, data):
 {hrv_section}
 {load_section}
 {factors_section}"""
+    
+    elif tool_name == "get_training_status":
+        if not isinstance(data, dict):
+            return f"ℹ️ **{data}**"
+        if data.get("message"):
+            return f"ℹ️ **{data['message']}**"
+        
+        latest = data.get("latest", {})
+        summary = data.get("summary", {})
+        
+        def fmt_number(value, fmt: str = ".1f", default: str = "н/д"):
+            if value is None:
+                return default
+            try:
+                if pd.isna(value):
+                    return default
+                return format(float(value), fmt)
+            except (TypeError, ValueError):
+                return default
+        
+        status_distribution = summary.get("status_distribution", {})
+        distribution_lines = [
+            f"• {status}: {count}" for status, count in list(status_distribution.items())[:5]
+        ] if status_distribution else ["• Нет статистики по статусам"]
+
+        history = data.get("history", [])
+        readiness_rows = []
+        for entry in history:
+            readiness = entry.get("training_readiness")
+            date_value = entry.get("date")
+            if isinstance(date_value, str):
+                date_str = date_value
+            elif hasattr(date_value, "strftime"):
+                date_str = date_value.strftime("%Y-%m-%d")
+            else:
+                date_str = str(date_value)
+            if readiness is not None and not (hasattr(pd, "isna") and pd.isna(readiness)):
+                readiness_rows.append((date_str, readiness))
+        readiness_rows = readiness_rows[:7]
+        if readiness_rows:
+            readiness_table = "\n".join([
+                f"| {date} | {fmt_number(value, '.0f')} / 100 |"
+                for date, value in readiness_rows
+            ])
+            readiness_block = f"""
+### 📅 Readiness по датам:
+| Дата | Readiness |
+| --- | --- |
+{readiness_table}
+"""
+        else:
+            readiness_block = "\n### 📅 Readiness по датам:\n• Нет данных по дням\n"
+        
+        return f"""
+## 📈 Статус тренированности (последние {data.get('period_days', 30)} дней)
+
+### 🔝 Последний статус:
+• Статус Garmin: {latest.get('training_status', 'н/д')}
+• Readiness: {fmt_number(latest.get('training_readiness'), '.0f')} / 100
+• Нагрузка 7 дней: {fmt_number(latest.get('training_load_7d'), '.0f')}
+• VO₂max: {fmt_number(latest.get('vo2_max'), '.1f')}
+
+### 📊 Средние значения:
+• Readiness: {fmt_number(summary.get('avg_training_readiness'), '.1f')} / 100
+• Нагрузка (7д): {fmt_number(summary.get('avg_training_load_7d'), '.1f')}
+• VO₂max: {fmt_number(summary.get('avg_vo2_max'), '.1f')}
+
+### 🧭 Распределение статусов:
+{chr(10).join(distribution_lines)}
+{readiness_block}
+"""
+    
+    elif tool_name == "analyze_training_status":
+        if not isinstance(data, dict):
+            return f"ℹ️ **{data}**"
+        if data.get("message"):
+            return f"ℹ️ **{data['message']}**"
+        
+        insights = data.get("insights", [])
+        latest = data.get("latest", {})
+        readiness = data.get("readiness_assessment", {})
+        load = data.get("load_assessment", {})
+        
+        def fmt_section(section: Dict[str, Any], default: str) -> str:
+            lines = [value for value in section.values() if isinstance(value, str)]
+            return chr(10).join([f"• {line}" for line in lines]) if lines else default
+        
+        return f"""
+## 🧠 Анализ статуса тренированности
+
+### 🔝 Последний статус:
+• {latest.get('summary', 'Нет данных')}
+
+### 💡 Ключевые выводы:
+{chr(10).join([f"• {item}" for item in insights]) if insights else "• Нет выводов — недостаточно данных"}
+
+### 📈 Readiness:
+{fmt_section(readiness, "• Недостаточно данных по readiness")}
+
+### ⚙️ Нагрузка:
+{fmt_section(load, "• Недостаточно данных по нагрузке")}
+"""
+    
+    elif tool_name == "get_daily_health_stats":
+        if not isinstance(data, dict):
+            return f"ℹ️ **{data}**"
+        if data.get("message"):
+            return f"ℹ️ **{data['message']}**"
+        
+        stats = data.get("stats", {})
+        trend = data.get("trend_steps", "н/д")
+        recent = data.get("recent_entries", [])
+        
+        def fmt_number(value, fmt: str = ".1f", default: str = "н/д"):
+            if value is None:
+                return default
+            try:
+                if pd.isna(value):
+                    return default
+                return format(float(value), fmt)
+            except (TypeError, ValueError):
+                return default
+        
+        recent_lines = []
+        for entry in recent[:5]:
+            date = entry.get("date")
+            steps = fmt_number(entry.get("steps"), ".0f")
+            resting_hr = fmt_number(entry.get("resting_hr"), ".0f")
+            active_minutes = fmt_number(entry.get("active_minutes"), ".0f")
+            recent_lines.append(f"• {date}: шаги {steps}, ЧСС покоя {resting_hr}, активность {active_minutes} мин")
+        
+        return f"""
+## 🏥 Ежедневные показатели здоровья ({data.get('period_days', 30)} дней)
+
+### 📊 Средние значения:
+• Шаги: {fmt_number(stats.get('avg_steps'), '.0f')} в день
+• ЧСС покоя: {fmt_number(stats.get('avg_resting_hr'), '.1f')} уд/мин
+• Активные минуты: {fmt_number(stats.get('avg_active_minutes'), '.1f')} мин/день
+• Активные калории: {fmt_number(stats.get('avg_calories_active'), '.0f')} ккал/день
+
+### 📈 Тренд шагов: {trend}
+
+### 🗓️ Последние дни:
+{chr(10).join(recent_lines) if recent_lines else "• Нет свежих записей"}
+"""
     
     elif tool_name == "get_activities_by_date_range":
         if data['count'] == 0:
@@ -4861,6 +5174,296 @@ def format_tool_result(tool_name, data):
             return result_text
         else:
             return f"**📊 {tool_name.replace('_', ' ').title()}:** {str(data)}"
+
+
+def is_progress_request(text: Optional[str]) -> bool:
+    """Определяет, просит ли пользователь отчёт по прогрессу за месяц."""
+    if not text:
+        return False
+    lowered = text.lower()
+    if "прогресс" in lowered and "меся" in lowered:
+        return True
+    return any(keyword in lowered for keyword in PROGRESS_KEYWORDS)
+
+
+def maybe_append_progress_report(state, user_input: Optional[str], final_response: str) -> str:
+    """Добавляет отчёт о прогрессе, если пользователь его запрашивал, а ответ его не содержит."""
+    if not is_progress_request(user_input):
+        return final_response
+    
+    filtered_existing = _filter_progress_sections(final_response)
+    if filtered_existing and "## 📈 Прогресс" in filtered_existing:
+        return filtered_existing
+    
+    progress_report = build_progress_report(state)
+    if not progress_report:
+        return filtered_existing or final_response
+    
+    base_text = filtered_existing.strip()
+    if base_text and progress_report.strip() == base_text:
+        return base_text
+    
+    if base_text:
+        return f"{base_text}\n\n{progress_report}".strip()
+    
+    return progress_report.strip()
+
+
+def build_progress_report(state, period_days: int = 30, previous_days: Optional[int] = None) -> Optional[str]:
+    """Собирает структурированный отчёт о прогрессе, восстановлении и сне."""
+    if state is None:
+        return None
+    
+    ai_tools = getattr(state, "ai_tools", None)
+    if ai_tools is None:
+        return None
+    
+    previous_days = previous_days or period_days
+    
+    sections: List[str] = []
+    compare_data: Optional[Dict[str, Any]] = None
+    
+    compare_result = ai_tools.execute_tool("compare_periods", period1_days=period_days, period2_days=previous_days)
+    if compare_result.get("success"):
+        compare_data = compare_result.get("result")
+        if compare_data:
+            compare_block = format_tool_result("compare_periods", compare_data)
+            if compare_block:
+                sections.append(compare_block.strip())
+    else:
+        error_msg = compare_result.get("error")
+        if error_msg:
+            sections.append(f"ℹ️ **Не удалось сформировать сравнение:** {error_msg}")
+    
+    load_data: Optional[Dict[str, Any]] = None
+    load_result = ai_tools.execute_tool("analyze_training_load", days=period_days)
+    if load_result.get("success"):
+        potential_load = load_result.get("result")
+        if isinstance(potential_load, dict) and potential_load:
+            load_data = potential_load
+    
+    hrv_data: Optional[Dict[str, Any]] = None
+    hrv_result = ai_tools.execute_tool("analyze_hrv_trends", days=period_days)
+    if hrv_result.get("success"):
+        potential_hrv = hrv_result.get("result")
+        if isinstance(potential_hrv, dict) and potential_hrv:
+            hrv_data = potential_hrv
+    
+    recovery_section = _format_recovery_section(load_data, hrv_data, period_days)
+    if recovery_section:
+        sections.append(recovery_section)
+    
+    sleep_data: Optional[Dict[str, Any]] = None
+    sleep_result = ai_tools.execute_tool("get_sleep_stats", days=period_days)
+    if sleep_result.get("success"):
+        sleep_data = sleep_result.get("result")
+        if isinstance(sleep_data, dict) and sleep_data.get("has_data"):
+            sections.append(_format_sleep_section(sleep_data))
+    
+    recommendations = _generate_progress_recommendations(compare_data, load_data, hrv_data, sleep_data)
+    if recommendations:
+        bullet_lines = [f"{idx}. {rec}" for idx, rec in enumerate(recommendations, 1)]
+        sections.append("### Что сделать дальше\n" + "\n".join(bullet_lines))
+    
+    sections.append("_Хочешь, составлю план на следующую неделю или разберу конкретный вид спорта?_")
+    
+    return "\n\n".join(section for section in sections if section and section.strip())
+
+
+def _format_recovery_section(
+    load_data: Optional[Dict[str, Any]],
+    hrv_data: Optional[Dict[str, Any]],
+    period_days: int
+) -> str:
+    """Формирует блок про нагрузку и восстановление в рамках периода."""
+    if not load_data and not hrv_data:
+        return ""
+    
+    lines: List[str] = [f"### Нагрузка и восстановление ({period_days} дней)"]
+    
+    if load_data:
+        trend = load_data.get("load_trend", "н/д")
+        weekly_breakdown = load_data.get("weekly_breakdown") or []
+        total_week_tss = sum(float(week.get("total_tss", 0) or 0) for week in weekly_breakdown)
+        avg_week_tss = total_week_tss / len(weekly_breakdown) if weekly_breakdown else 0.0
+        avg_sessions = (
+            sum(float(week.get("session_count", 0) or 0) for week in weekly_breakdown) / len(weekly_breakdown)
+            if weekly_breakdown else 0.0
+        )
+        intensity = load_data.get("intensity_distribution", {})
+        
+        lines.append(f"- Тренд нагрузки: {trend}")
+        if avg_week_tss > 0:
+            lines.append(f"- Средний недельный TSS: {avg_week_tss:.0f} при {avg_sessions:.1f} тренировок/нед")
+        if intensity:
+            lines.append(
+                "- Распределение интенсивности: "
+                f"{intensity.get('low_intensity_percent', 0):.0f}% низк · "
+                f"{intensity.get('moderate_intensity_percent', 0):.0f}% умер · "
+                f"{intensity.get('high_intensity_percent', 0):.0f}% высок"
+            )
+    
+    if hrv_data:
+        current = hrv_data.get("current_rmssd")
+        recent_avg = hrv_data.get("recent_avg_7days")
+        baseline = hrv_data.get("baseline_median")
+        trend = hrv_data.get("trend_direction")
+        recovery_state = hrv_data.get("recovery_state")
+        
+        trend_text = _describe_hrv_trend(trend)
+        recovery_label = _describe_recovery_state(recovery_state)
+        
+        lines.append(
+            "- HRV (RMSSD): "
+            f"{float(current or 0):.1f} мс (7д {float(recent_avg or 0):.1f} мс, "
+            f"база {float(baseline or 0):.1f} мс) — {trend_text}, {recovery_label}"
+        )
+    
+    return "\n".join(lines)
+
+
+def _describe_hrv_trend(direction: Optional[str]) -> str:
+    mapping = {
+        "improving": "тренд растёт",
+        "declining": "тренд снижается",
+        "stable": "тренд стабильный"
+    }
+    return mapping.get(direction, "тренд не определён")
+
+
+def _describe_recovery_state(state: Optional[str]) -> str:
+    mapping = {
+        "excellent": "восстановление отличное",
+        "good": "восстановление хорошее",
+        "fair": "восстановление умеренное",
+        "poor": "восстановление требует внимания"
+    }
+    return mapping.get(state, "восстановление под контролем")
+
+
+def _format_sleep_section(sleep_data: Dict[str, Any]) -> str:
+    """Формирует блок про сон."""
+    stats = sleep_data.get("statistics", {})
+    if not stats:
+        return ""
+    
+    lines = ["### Сон"]
+    
+    avg_hours = stats.get("avg_sleep_hours")
+    if avg_hours is not None:
+        lines.append(f"- Средняя продолжительность: {avg_hours:.1f} ч")
+    
+    avg_score = stats.get("avg_sleep_score")
+    if avg_score is not None:
+        lines.append(f"- Средняя оценка: {avg_score:.0f}/100")
+    
+    avg_efficiency = stats.get("avg_sleep_efficiency")
+    if avg_efficiency is not None:
+        lines.append(f"- Эффективность: {avg_efficiency:.1f}%")
+    
+    lines.append(f"- Текущее качество: {stats.get('current_sleep_quality', 'н/д')}")
+    
+    return "\n".join(lines)
+
+
+def _generate_progress_recommendations(
+    compare_data: Optional[Dict[str, Any]],
+    load_data: Optional[Dict[str, Any]],
+    hrv_data: Optional[Dict[str, Any]],
+    sleep_data: Optional[Dict[str, Any]]
+) -> List[str]:
+    """Создаёт список рекомендуемых действий на основе данных."""
+    recs: List[str] = []
+    
+    if compare_data:
+        comparison = compare_data.get("comparison", {}) or {}
+        tss_change = comparison.get("tss_change")
+        duration_change = comparison.get("volume_change")
+        activity_change = comparison.get("activity_count_change")
+        
+        if isinstance(tss_change, (int, float)):
+            if tss_change < -40:
+                recs.append("Верни одну интервальную сессию средней интенсивности, чтобы остановить спад нагрузки.")
+            elif tss_change > 60:
+                recs.append("Сохраняй объём, но закладывай лёгкий день после тяжёлых тренировок — нагрузка растёт.")
+        
+        if isinstance(duration_change, (int, float)) and duration_change < -120:
+            recs.append("Добавь длительную тренировку на выносливость (60–75 мин), чтобы подтянуть объём.")
+        
+        if isinstance(activity_change, (int, float)) and activity_change < 0:
+            recs.append("Планируй минимум 5 качественных сессий в неделю, чтобы удержать частоту тренировок.")
+    
+    if load_data:
+        weekly_breakdown = load_data.get("weekly_breakdown") or []
+        avg_week_tss = (
+            sum(float(week.get("total_tss", 0) or 0) for week in weekly_breakdown) / len(weekly_breakdown)
+            if weekly_breakdown else 0.0
+        )
+        trend = (load_data.get("load_trend") or "").lower()
+        intensity = load_data.get("intensity_distribution", {})
+        
+        if avg_week_tss > 380:
+            recs.append("Нагрузка за месяц высокая — планируй день восстановления после каждой тяжёлой сессии.")
+        elif avg_week_tss < 220 and (trend in ("снижение", "низкий") or "decreasing" in trend):
+            recs.append("Добавь интервальную работу средней интенсивности, чтобы вернуть растущий тренд нагрузки.")
+        
+        high_intensity = intensity.get("high_intensity_percent")
+        if isinstance(high_intensity, (int, float)) and high_intensity < 10 and avg_week_tss >= 250:
+            recs.append("Увеличь долю высокоинтенсивных блоков до 12–15%, чтобы ускорить прогресс.")
+    
+    if hrv_data:
+        current = hrv_data.get("current_rmssd")
+        baseline = hrv_data.get("baseline_median")
+        if isinstance(current, (int, float)) and isinstance(baseline, (int, float)) and baseline > 0:
+            deviation = (current - baseline) / baseline * 100
+            if deviation < -5:
+                recs.append("HRV ниже базы — включи активное восстановление и удлини сон на 30–45 минут.")
+            elif deviation > 8:
+                recs.append("HRV стабильно высокий — можно добавить качественную интервальную работу.")
+    
+    if sleep_data and sleep_data.get("has_data"):
+        stats = sleep_data.get("statistics", {})
+        avg_hours = stats.get("avg_sleep_hours")
+        if isinstance(avg_hours, (int, float)) and avg_hours < 7:
+            recs.append("Повысь среднюю продолжительность сна до 7–7.5 ч, это ускорит восстановление.")
+    
+    # Удаляем дубликаты, сохраняем порядок и ограничиваем до трёх пунктов
+    unique_recs: List[str] = []
+    seen = set()
+    for rec in recs:
+        if rec not in seen:
+            unique_recs.append(rec)
+            seen.add(rec)
+        if len(unique_recs) >= 3:
+            break
+    
+    if not unique_recs:
+        unique_recs.append("Готов помочь составить персональный план — просто напомни, какие цели приоритетны.")
+    
+    return unique_recs
+
+
+def _filter_progress_sections(text: str) -> str:
+    """Удаляет инструментальные блоки, оставляя только прогресс и свободный текст."""
+    if not text or not text.strip():
+        return ""
+    
+    import re
+    
+    sections = re.split(r'(?=^## )', text, flags=re.MULTILINE)
+    kept: List[str] = []
+    
+    for section in sections:
+        stripped = section.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("## "):
+            if "прогресс" in stripped.lower():
+                kept.append(stripped)
+        else:
+            kept.append(stripped)
+    
+    return "\n\n".join(kept).strip()
 
 def show_sync_logs():
     """Показывает логи синхронизации для отладки"""

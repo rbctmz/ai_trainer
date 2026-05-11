@@ -2,8 +2,11 @@
 Улучшенные UI компоненты с полной поддержкой темной темы
 """
 
+import textwrap
+
 import streamlit as st
 import plotly.graph_objects as go
+from typing import Dict, Optional, Sequence, Tuple
 
 class ModernUI:
     """Современные UI компоненты для AI Trainer с улучшенной поддержкой тем"""
@@ -286,6 +289,269 @@ class ModernUI:
         st.markdown(css, unsafe_allow_html=True)
     
     @staticmethod
+    def _hex_to_rgba(hex_color: str, alpha: float) -> str:
+        """Конвертация HEX цвета в строку RGBA с защитой от неверных значений."""
+        alpha = max(0.0, min(1.0, alpha))
+        if not hex_color:
+            return f"rgba(59,130,246,{alpha})"
+        value = hex_color.lstrip("#")
+        if len(value) == 3:
+            value = "".join(ch * 2 for ch in value)
+        if len(value) != 6:
+            return f"rgba(59,130,246,{alpha})"
+        try:
+            r = int(value[0:2], 16)
+            g = int(value[2:4], 16)
+            b = int(value[4:6], 16)
+        except ValueError:
+            return f"rgba(59,130,246,{alpha})"
+        return f"rgba({r},{g},{b},{alpha})"
+    
+    @staticmethod
+    def _clean_html(html: str) -> str:
+        """Удаляет лишние отступы, чтобы Markdown не превращал HTML в код."""
+        return textwrap.dedent(html).strip()
+
+    @staticmethod
+    def training_status_card(
+        title: str,
+        status_text: str,
+        status_color: str,
+        metrics: Sequence[Tuple[str, str]],
+        load_ratio: Optional[Dict[str, str]] = None,
+        feedback: Optional[Sequence[str]] = None,
+    ) -> None:
+        """Визуализация статуса тренировки в фирменном стиле темы."""
+        
+        theme = ModernUI.get_theme()
+        safe_color = status_color or theme["text_primary"]
+        card_bg = theme["metric_bg"]
+        text_primary = theme["text_primary"]
+        text_secondary = theme["text_secondary"]
+        border_color = theme["metric_border"]
+        shadow_color = "rgba(15,23,42,0.12)" if not theme["is_dark"] else "rgba(0,0,0,0.35)"
+        tile_bg_color = ModernUI._hex_to_rgba(
+            theme["text_primary"], 0.08 if not theme["is_dark"] else 0.18
+        )
+
+        metrics_html_parts = []
+        for label, value in metrics:
+            metrics_html_parts.append(
+                ModernUI._clean_html(
+                    f"""
+                    <div style="
+                        display:flex;
+                        justify-content:space-between;
+                        align-items:flex-end;
+                        gap:12px;
+                        padding:10px 14px;
+                        border-radius:10px;
+                        background:{tile_bg_color};
+                    ">
+                        <span style="font-size:0.85rem; color:{text_secondary}; white-space:nowrap;">
+                            {label}
+                        </span>
+                        <span style="font-size:0.95rem; color:{text_primary}; font-weight:600;">
+                            {value}
+                        </span>
+                    </div>
+                    """
+                )
+            )
+
+        ratio_badge = ""
+        if load_ratio:
+            ratio_label = load_ratio.get("label", "Load ratio")
+            ratio_value = load_ratio.get("value", "—")
+            ratio_color = load_ratio.get("color") or safe_color
+            ratio_suffix = load_ratio.get("suffix", "")
+            ratio_detail = load_ratio.get("badge")
+            ratio_secondary_parts = []
+            if ratio_detail:
+                ratio_secondary_parts.append(ratio_detail)
+            if ratio_suffix:
+                ratio_secondary_parts.append(ratio_suffix.strip())
+            ratio_secondary = ""
+            if ratio_secondary_parts:
+                ratio_secondary = (
+                    ModernUI._clean_html(
+                        f"""
+                        <div style='font-size:0.75rem; margin-top:2px; color:{ratio_color}; font-weight:500;'>
+                            {' '.join(ratio_secondary_parts)}
+                        </div>
+                        """
+                    )
+                )
+            metrics_html_parts.append(
+                ModernUI._clean_html(
+                    f"""
+                    <div style="
+                        display:flex;
+                        justify-content:space-between;
+                        align-items:flex-start;
+                        gap:12px;
+                        padding:10px 14px;
+                        border-radius:10px;
+                        background:{tile_bg_color};
+                    ">
+                        <span style="font-size:0.85rem; color:{text_secondary}; white-space:nowrap;">
+                            {ratio_label}
+                        </span>
+                        <div style="text-align:right;">
+                            <span style="font-size:0.95rem; color:{ratio_color}; font-weight:600;">
+                                {ratio_value}
+                            </span>
+                            {ratio_secondary}
+                        </div>
+                    </div>
+                    """
+                )
+            )
+            ratio_badge = ratio_detail or ""
+            ratio_badge_color = ratio_color
+        else:
+            ratio_badge_color = safe_color
+
+        metrics_html = "".join(metrics_html_parts)
+
+        feedback_html = ""
+        if feedback:
+            feedback_items = [
+                ModernUI._clean_html(
+                    f"<div style='font-size:0.8rem; color:{text_secondary}; line-height:1.45;'>{text}</div>"
+                )
+                for text in feedback
+                if text
+            ]
+            if feedback_items:
+                feedback_html = ModernUI._clean_html(
+                    "<div style='margin-top:16px; display:flex; flex-direction:column; gap:6px;'>"
+                    + "".join(feedback_items)
+                    + "</div>"
+                )
+
+        badge_text = ratio_badge or status_text
+        badge_bg = ModernUI._hex_to_rgba(
+            ratio_badge_color, 0.12 if not theme["is_dark"] else 0.24
+        )
+
+        header_html = ModernUI._clean_html(
+            f"""
+            <div style="
+                display:flex;
+                align-items:center;
+                justify-content:space-between;
+                margin-bottom:16px;
+            ">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span style="
+                        width:36px;
+                        height:36px;
+                        border-radius:12px;
+                        background:{ModernUI._hex_to_rgba(safe_color, 0.18 if not theme['is_dark'] else 0.4)};
+                        display:inline-flex;
+                        align-items:center;
+                        justify-content:center;
+                    ">
+                        <span style="
+                            width:10px;
+                            height:10px;
+                            border-radius:999px;
+                            background:{safe_color};
+                            display:inline-block;
+                        "></span>
+                    </span>
+                    <span style="
+                        font-size:0.82rem;
+                        font-weight:600;
+                        letter-spacing:0.08em;
+                        text-transform:uppercase;
+                        color:{text_secondary};
+                    ">{title}</span>
+                </div>
+                <span style="
+                    padding:6px 14px;
+                    border-radius:999px;
+                    background:{badge_bg};
+                    color:{ratio_badge_color};
+                    font-size:0.78rem;
+                    font-weight:600;
+                ">{badge_text}</span>
+            </div>
+            """
+        )
+
+        status_html = ModernUI._clean_html(
+            f"""
+            <div style="
+                font-size:1.8rem;
+                font-weight:700;
+                text-transform:uppercase;
+                color:{safe_color};
+                text-align:center;
+                margin-bottom:18px;
+            ">{status_text}</div>
+            """
+        )
+
+        card_html = ModernUI._clean_html(
+            f"""
+            <div class="metric-card training-status-card" style="
+                position:relative;
+                background:{card_bg};
+                border:1px solid {border_color};
+                box-shadow:0 14px 28px -24px {shadow_color};
+                padding:24px 22px;
+            ">
+                <div style="
+                    position:absolute;
+                    top:0;
+                    left:0;
+                    right:0;
+                    height:4px;
+                    background:{ModernUI._hex_to_rgba(safe_color, 0.5 if not theme['is_dark'] else 0.35)};
+                "></div>
+                {header_html}
+                {status_html}
+                <div style="display:flex; flex-direction:column; gap:8px;">
+                    {metrics_html}
+                </div>
+                {feedback_html}
+            </div>
+            """
+        )
+
+        st.markdown(card_html, unsafe_allow_html=True)
+    
+    @staticmethod
+    def training_status_description() -> None:
+        """Отображает справочную информацию Garmin о статусе тренировки."""
+        
+        info_text = ModernUI._clean_html(
+            """
+            Статус тренировки помогает оценить, как общий объем и качество ваших занятий влияет на форму.
+
+            **Узнавайте о своих успехах.** При отслеживании активности с помощью устройств Garmin оценка обновляется на основе острой нагрузки, вариабельности частоты пульса и показателя VO₂ Max.
+
+            Возможные статусы:
+            - Высокая нагрузка
+            - Пиковое значение
+            - Производительная
+            - Поддержание
+            - Восстановление
+            - Напряжение
+            - Непроизводительная
+            - Детренированность
+            - Статус недоступен
+            - Приостановлено
+
+            Каждый статус сопровождается пояснениями, что привело к оценке, и подсказками по дальнейшим шагам, включая влияние VO₂ Max, состояния ВЧП и острой нагрузки.
+            """
+        )
+        with st.expander("❓ Статус тренировки?"):
+            st.markdown(info_text)
+    
+    @staticmethod
     def status_card(title, value, status_type, trend=None, description=None):
         """Карточка статуса в стиле AI Endurance с круговыми индикаторами
 
@@ -545,9 +811,11 @@ class ModernUI:
         """, unsafe_allow_html=True)
     
     @staticmethod
-    def show_weekly_training_calendar():
-        """Недельный календарь тренировок с адаптацией к теме"""
-        
+    def show_weekly_training_calendar(activities_df=None):
+        """Недельный календарь тренировок с адаптацией к теме.
+
+        Если передан DataFrame, он используется напрямую, иначе данные подгружаются из базы.
+        """
         from datetime import datetime, timedelta
         import pandas as pd
 
@@ -561,20 +829,22 @@ class ModernUI:
         day_labels = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс']
         cols = st.columns(7)
 
-        # Загружаем активности за последние 14 дней (с запасом) и фильтруем по неделе
-        try:
-            activities_df = st.session_state.database.get_activities(14)
-        except Exception:
-            activities_df = pd.DataFrame()
+        # Загружаем активности при необходимости и фильтруем по неделе
+        if activities_df is None:
+            try:
+                activities_df = st.session_state.database.get_activities(14)
+            except Exception:
+                activities_df = pd.DataFrame()
 
         if not activities_df.empty and 'date' in activities_df.columns:
+            activities_df = activities_df.copy()
             activities_df['date'] = pd.to_datetime(activities_df['date'], errors='coerce')
-            # Нормализуем до даты без времени
             activities_df['date_only'] = activities_df['date'].dt.date
-            # Фильтр только на текущую неделю
-            activities_df = activities_df[(activities_df['date_only'] >= week_start) & (activities_df['date_only'] <= week_dates[-1])]
+            activities_df = activities_df[
+                (activities_df['date_only'] >= week_start) & (activities_df['date_only'] <= week_dates[-1])
+            ]
         else:
-            activities_df = pd.DataFrame(columns=['date_only','sport','duration_minutes','distance_km'])
+            activities_df = pd.DataFrame(columns=['date_only', 'sport', 'duration_minutes', 'distance_km'])
 
         # Подготовка агрегатов по дням
         by_day = {}

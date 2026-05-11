@@ -4,6 +4,71 @@ from datetime import datetime
 from config.settings import Settings
 
 class Database:
+    _TRAINING_STATUS_COLUMN_ORDER = [
+        'vo2_max',
+        'fitness_age',
+        'training_load_7d',
+        'training_status',
+        'training_readiness',
+        'recovery_time_hours',
+        'load_ratio',
+        'training_feedback_code',
+        'training_feedback',
+        'training_load_chronic',
+        'acwr_status',
+        'acwr_status_feedback',
+        'acwr_percent',
+        'training_since_date',
+        'fitness_trend',
+        'fitness_trend_sport',
+        'sport',
+        'device_id',
+        'last_primary_sync_date',
+        'training_balance_feedback_code',
+        'training_balance_feedback',
+        'monthly_load_aerobic_low',
+        'monthly_load_aerobic_low_target_min',
+        'monthly_load_aerobic_low_target_max',
+        'monthly_load_aerobic_high',
+        'monthly_load_aerobic_high_target_min',
+        'monthly_load_aerobic_high_target_max',
+        'monthly_load_anaerobic',
+        'monthly_load_anaerobic_target_min',
+        'monthly_load_anaerobic_target_max'
+    ]
+
+    _TRAINING_STATUS_COLUMN_TYPES = {
+        'vo2_max': 'REAL',
+        'fitness_age': 'REAL',
+        'training_load_7d': 'REAL',
+        'training_status': 'TEXT',
+        'training_readiness': 'REAL',
+        'recovery_time_hours': 'REAL',
+        'load_ratio': 'REAL',
+        'training_feedback_code': 'TEXT',
+        'training_feedback': 'TEXT',
+        'training_load_chronic': 'REAL',
+        'acwr_status': 'TEXT',
+        'acwr_status_feedback': 'TEXT',
+        'acwr_percent': 'REAL',
+        'training_since_date': 'TEXT',
+        'fitness_trend': 'INTEGER',
+        'fitness_trend_sport': 'TEXT',
+        'sport': 'TEXT',
+        'device_id': 'TEXT',
+        'last_primary_sync_date': 'TEXT',
+        'training_balance_feedback_code': 'TEXT',
+        'training_balance_feedback': 'TEXT',
+        'monthly_load_aerobic_low': 'REAL',
+        'monthly_load_aerobic_low_target_min': 'REAL',
+        'monthly_load_aerobic_low_target_max': 'REAL',
+        'monthly_load_aerobic_high': 'REAL',
+        'monthly_load_aerobic_high_target_min': 'REAL',
+        'monthly_load_aerobic_high_target_max': 'REAL',
+        'monthly_load_anaerobic': 'REAL',
+        'monthly_load_anaerobic_target_min': 'REAL',
+        'monthly_load_anaerobic_target_max': 'REAL'
+    }
     def __init__(self, db_path=None):
         self.db_path = db_path or Settings.DATABASE_PATH
         self.init_tables()
@@ -110,18 +175,51 @@ class Database:
             CREATE TABLE IF NOT EXISTS training_status (
                 date DATE PRIMARY KEY,
                 vo2_max REAL,
-                fitness_age INTEGER,
+                fitness_age REAL,
                 training_load_7d REAL,
                 training_status TEXT,
                 training_readiness REAL,
-                recovery_time_hours INTEGER,
+                recovery_time_hours REAL,
                 load_ratio REAL,
+                training_feedback_code TEXT,
+                training_feedback TEXT,
+                training_load_chronic REAL,
+                acwr_status TEXT,
+                acwr_status_feedback TEXT,
+                acwr_percent REAL,
+                training_since_date TEXT,
+                fitness_trend INTEGER,
+                fitness_trend_sport TEXT,
+                sport TEXT,
+                device_id TEXT,
+                last_primary_sync_date TEXT,
+                training_balance_feedback_code TEXT,
+                training_balance_feedback TEXT,
+                monthly_load_aerobic_low REAL,
+                monthly_load_aerobic_low_target_min REAL,
+                monthly_load_aerobic_low_target_max REAL,
+                monthly_load_aerobic_high REAL,
+                monthly_load_aerobic_high_target_min REAL,
+                monthly_load_aerobic_high_target_max REAL,
+                monthly_load_anaerobic REAL,
+                monthly_load_anaerobic_target_min REAL,
+                monthly_load_anaerobic_target_max REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
+        self._ensure_training_status_columns(conn)
         conn.commit()
         conn.close()
+    
+    def _ensure_training_status_columns(self, conn: sqlite3.Connection) -> None:
+        """Добавление недостающих колонок в таблицу training_status (для обратной совместимости)."""
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(training_status)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        for column, column_type in self._TRAINING_STATUS_COLUMN_TYPES.items():
+            if column not in existing_columns:
+                cursor.execute(f'ALTER TABLE training_status ADD COLUMN {column} {column_type}')
+        conn.commit()
     
     def save_activities(self, activities_df):
         """Сохранение активностей"""
@@ -156,8 +254,8 @@ class Database:
         
         # Преобразование даты в datetime если она есть  
         if not df.empty and 'date' in df.columns:
-            # Обрабатываем смешанные форматы дат
-            df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d', errors='coerce')
+            # Обрабатываем смешанные форматы дат и нормализуем до полуночи
+            df['date'] = pd.to_datetime(df['date'], format='%Y-%m-%d', errors='coerce').dt.normalize()
         
         return df
     
@@ -655,43 +753,22 @@ class Database:
         
         for date_str, data in status_data.items():
             clean_date = self.clean_value(date_str)
+            column_values = [self.clean_value(data.get(column)) for column in self._TRAINING_STATUS_COLUMN_ORDER]
+            update_clause = ', '.join(f"{column}=?" for column in self._TRAINING_STATUS_COLUMN_ORDER)
+            insert_columns = ['date'] + self._TRAINING_STATUS_COLUMN_ORDER
+            insert_placeholders = ', '.join('?' for _ in insert_columns)
             
             if clean_date in existing_dates:
-                # Обновляем существующую запись
-                cursor.execute('''
-                    UPDATE training_status SET 
-                    vo2_max=?, fitness_age=?, training_load_7d=?,
-                    training_status=?, training_readiness=?, recovery_time_hours=?,
-                    load_ratio=?
-                    WHERE date=?
-                ''', (
-                    self.clean_value(data.get('vo2_max')),
-                    self.clean_value(data.get('fitness_age')),
-                    self.clean_value(data.get('training_load_7d')),
-                    self.clean_value(data.get('training_status')),
-                    self.clean_value(data.get('training_readiness')),
-                    self.clean_value(data.get('recovery_time_hours')),
-                    self.clean_value(data.get('load_ratio')),
-                    clean_date
-                ))
+                cursor.execute(
+                    f'UPDATE training_status SET {update_clause} WHERE date=?',
+                    (*column_values, clean_date)
+                )
                 updated_count += 1
             else:
-                # Вставляем новую запись
-                cursor.execute('''
-                    INSERT INTO training_status 
-                    (date, vo2_max, fitness_age, training_load_7d, training_status,
-                     training_readiness, recovery_time_hours, load_ratio)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    clean_date,
-                    self.clean_value(data.get('vo2_max')),
-                    self.clean_value(data.get('fitness_age')),
-                    self.clean_value(data.get('training_load_7d')),
-                    self.clean_value(data.get('training_status')),
-                    self.clean_value(data.get('training_readiness')),
-                    self.clean_value(data.get('recovery_time_hours')),
-                    self.clean_value(data.get('load_ratio'))
-                ))
+                cursor.execute(
+                    f"INSERT INTO training_status ({', '.join(insert_columns)}) VALUES ({insert_placeholders})",
+                    [clean_date] + column_values
+                )
                 existing_dates.add(clean_date)
                 new_count += 1
         

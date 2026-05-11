@@ -17,3 +17,6 @@ Recent history follows Conventional Commits (`feat:`, `refactor:`, `chore:`); us
 
 ## Environment & Security Tips
 Store secrets only in `.env`, never in version control. The SQLite cache `ai_trainer.db` is local-only; wipe it with `tests/clean_database.py` before sharing datasets. Logs under `logs/` might contain personal metrics—purge or redact them before publishing branches.
+
+# ExecPlans
+When writing complex features or significant refactors, use an ExecPlan (as described in .agent/PLANS.md) from design to implementation.

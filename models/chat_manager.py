@@ -119,23 +119,25 @@ class ChatManager:
     def add_message(self, chat_id: str, role: str, content: str) -> bool:
         """Добавляет сообщение в чат"""
         chat_data = self.load_chat(chat_id)
-        if chat_data:
-            message = {
-                "role": role,
-                "content": content,
-                "timestamp": datetime.now().isoformat()
-            }
-            chat_data["messages"].append(message)
-            
-            # Автоматически обновляем название чата на основе первого сообщения
-            if len(chat_data["messages"]) == 1 and role == "user":
-                # Берем первые 50 символов для названия
-                auto_title = content[:50] + ("..." if len(content) > 50 else "")
-                chat_data["title"] = auto_title
-            
-            self.save_chat(chat_id, chat_data)
-            return True
-        return False
+        if not chat_data:
+            print(f"[ChatManager] ⚠️ Не удалось загрузить чат {chat_id} для добавления сообщения.")
+            return False
+        
+        message = {
+            "role": role,
+            "content": content,
+            "timestamp": datetime.now().isoformat()
+        }
+        chat_data["messages"].append(message)
+        
+        # Автоматически обновляем название чата на основе первого сообщения
+        if len(chat_data["messages"]) == 1 and role == "user":
+            # Берем первые 50 символов для названия
+            auto_title = content[:50] + ("..." if len(content) > 50 else "")
+            chat_data["title"] = auto_title
+        
+        self.save_chat(chat_id, chat_data)
+        return True
     
     def get_chat_messages(self, chat_id: str) -> List[Dict[str, Any]]:
         """Возвращает сообщения чата"""

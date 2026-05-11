@@ -553,6 +553,71 @@ class GarthClient:
             print(f"DEBUG: Ошибка получения комплексных данных для {date}: {e}")
             return None
     
+    def get_training_status(self, date):
+        """Получение статуса тренированности через garth."""
+        if not self.is_authenticated:
+            garmin_logger.warning("🔒 Попытка получения training status без авторизации")
+            return None
+
+        if isinstance(date, datetime):
+            date_str = date.strftime("%Y-%m-%d")
+        else:
+            date_str = str(date)
+
+        try:
+            api_url = f"/metrics-service/metrics/trainingstatus/aggregated/{date_str}"
+            garmin_logger.info(f"📡 Получение training status через garth для {date_str}")
+            status = garth.connectapi(api_url)
+            if status:
+                try:
+                    garmin_logger.log_garth_object(status, "TrainingStatus")
+                except Exception:
+                    garmin_logger.debug(f"TrainingStatus raw: {status}")
+                garmin_logger.debug("✅ Training status получен через garth")
+            else:
+                garmin_logger.warning("⚠️ Training status не вернул данных")
+            return status
+        except Exception as e:
+            garmin_logger.error(f"❌ Ошибка получения training status через garth: {e}")
+            return None
+
+    def get_progress_summary_between_dates(self, start_date, end_date, metric="distance", group_by_parent_activity=True):
+        """Получение сводки прогресса через garth для указанного периода."""
+        if not self.is_authenticated:
+            garmin_logger.warning("🔒 Попытка получения прогресса без авторизации")
+            return None
+
+        if isinstance(start_date, datetime):
+            start_str = start_date.strftime("%Y-%m-%d")
+        else:
+            start_str = str(start_date)
+
+        if isinstance(end_date, datetime):
+            end_str = end_date.strftime("%Y-%m-%d")
+        else:
+            end_str = str(end_date)
+
+        params = {
+            "startDate": start_str,
+            "endDate": end_str,
+            "aggregation": "lifetime",
+            "groupByParentActivityType": "true" if group_by_parent_activity else "false",
+            "metric": str(metric),
+        }
+
+        try:
+            api_url = "/fitnessstats-service/activity"
+            garmin_logger.info(f"📡 Получение progress summary через garth: {start_str} - {end_str}")
+            summary = garth.connectapi(api_url, params=params)
+            if summary:
+                garmin_logger.debug("✅ Progress summary получена через garth")
+            else:
+                garmin_logger.warning("⚠️ Progress summary не вернула данных")
+            return summary
+        except Exception as e:
+            garmin_logger.error(f"❌ Ошибка получения progress summary через garth: {e}")
+            return None
+    
     @staticmethod
     def _snake_to_camel(key: str) -> str:
         parts = key.split('_')

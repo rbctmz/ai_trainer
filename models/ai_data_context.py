@@ -34,6 +34,8 @@ class AIDataContext:
             'activities': {},
             'hrv': {},
             'sleep': {},
+            'daily_health': {},
+            'training_status': {},
             'performance_metrics': {},
             'trends': {},
             'user_profile': {}
@@ -51,13 +53,19 @@ class AIDataContext:
         # 4. Данные сна
         context['sleep'] = self._get_sleep_context(days)
         
-        # 5. Метрики производительности
+        # 5. Данные ежедневного здоровья
+        context['daily_health'] = self._get_daily_health_context(days)
+        
+        # 6. Статус тренированности
+        context['training_status'] = self._get_training_status_context(days)
+        
+        # 7. Метрики производительности
         context['performance_metrics'] = self._get_performance_metrics(days)
         
-        # 6. Тренды и динамика
+        # 8. Тренды и динамика
         context['trends'] = self._get_trends_analysis(days)
         
-        # 7. Профиль пользователя
+        # 9. Профиль пользователя
         context['user_profile'] = self._get_user_profile()
         
         return context
@@ -225,6 +233,89 @@ class AIDataContext:
             'recent_sleep': recent_sleep,
             'sleep_pattern_analysis': self._analyze_sleep_patterns(sleep_df)
         }
+
+    def _get_daily_health_context(self, days: int) -> Dict[str, Any]:
+        """Контекст ежедневных показателей здоровья"""
+        daily_df = self.db.get_daily_health(days)
+        
+        if daily_df.empty:
+            return {'has_data': False, 'message': 'Нет данных ежедневного здоровья'}
+        
+        # Преобразуем даты для удобства
+        daily_df['date'] = pd.to_datetime(daily_df['date'])
+        
+        stats = {
+            'data_points': len(daily_df),
+            'avg_steps': daily_df['steps'].mean() if 'steps' in daily_df.columns else None,
+            'avg_resting_hr': daily_df['resting_hr'].mean() if 'resting_hr' in daily_df.columns else None,
+            'avg_active_minutes': daily_df['active_minutes'].mean() if 'active_minutes' in daily_df.columns else None,
+            'avg_calories_active': daily_df['calories_active'].mean() if 'calories_active' in daily_df.columns else None,
+            'avg_intensity_minutes': daily_df['intensity_minutes'].mean() if 'intensity_minutes' in daily_df.columns else None,
+            'total_steps': daily_df['steps'].sum() if 'steps' in daily_df.columns else None
+        }
+        
+        trend = None
+        if 'steps' in daily_df.columns and len(daily_df.dropna(subset=['steps'])) >= 2:
+            steps_series = daily_df.sort_values('date')['steps'].dropna()
+            if len(steps_series) >= 2:
+                slope = np.polyfit(range(len(steps_series)), steps_series, 1)[0]
+                if slope > 0:
+                    trend = 'increasing'
+                elif slope < 0:
+                    trend = 'decreasing'
+                else:
+                    trend = 'stable'
+        
+        recent_entries = daily_df.sort_values('date', ascending=False).head(5).to_dict('records')
+        
+        stats = {
+            'has_data': True,
+            'period_days': days,
+            'stats': stats,
+            'trend_steps': trend,
+            'recent_entries': recent_entries
+        }
+        
+        return stats
+
+    def _get_training_status_context(self, days: int) -> Dict[str, Any]:
+        """Контекст данных статуса тренированности Garmin"""
+        ts_df = self.db.get_training_status_history(days)
+        
+        if ts_df.empty:
+            return {'has_data': False, 'message': 'Нет данных статуса тренированности'}
+        
+        ts_df['date'] = pd.to_datetime(ts_df['date'])
+        latest = ts_df.sort_values('date', ascending=False).iloc[0].to_dict()
+        
+        readiness_avg = ts_df['training_readiness'].mean() if 'training_readiness' in ts_df.columns else None
+        load_avg = ts_df['training_load_7d'].mean() if 'training_load_7d' in ts_df.columns else None
+        vo2_avg = ts_df['vo2_max'].mean() if 'vo2_max' in ts_df.columns else None
+        
+        status_counts = (
+            ts_df['training_status']
+            .dropna()
+            .str.upper()
+            .value_counts()
+            .to_dict()
+            if 'training_status' in ts_df.columns
+            else {}
+        )
+        
+        context = {
+            'has_data': True,
+            'period_days': days,
+            'latest': latest,
+            'summary': {
+                'avg_training_readiness': readiness_avg,
+                'avg_training_load_7d': load_avg,
+                'avg_vo2_max': vo2_avg,
+                'status_distribution': status_counts
+            },
+            'history': ts_df.head(10).to_dict('records')
+        }
+        
+        return context
     
     def _analyze_sleep_patterns(self, sleep_df: pd.DataFrame) -> Dict[str, Any]:
         """Анализирует паттерны сна"""
@@ -578,6 +669,16 @@ class AIDataContext:
         if not context['summary']['has_data']:
             return "У пользователя нет данных активностей для анализа."
         
+        def fmt_number(value, fmt: str = ".1f", default: str = "н/д"):
+            if value is None:
+                return default
+            try:
+                if pd.isna(value):
+                    return default
+                return format(float(value), fmt)
+            except (TypeError, ValueError):
+                return default
+        
         formatted = f"""
 КОНТЕКСТ ДАННЫХ ПОЛЬЗОВАТЕЛЯ (за {context['period_days']} дней):
 
@@ -627,6 +728,28 @@ class AIDataContext:
 • Пробуждения: {sleep_data['avg_awakenings']:.1f} раз за ночь
 • Качество сна: {context['sleep']['sleep_quality']}
 • Тренд за 7 дней: {context['sleep']['trend_7days'] or 'стабильно'}
+"""
+
+        if context['daily_health']['has_data']:
+            dh_stats = context['daily_health']['stats']
+            formatted += f"""
+=== ЕЖЕДНЕВНОЕ ЗДОРОВЬЕ ===
+• Среднее количество шагов: {fmt_number(dh_stats.get('avg_steps'), '.0f')} в день
+• ЧСС в покое: {fmt_number(dh_stats.get('avg_resting_hr'), '.1f')} уд/мин
+• Активные минуты: {fmt_number(dh_stats.get('avg_active_minutes'), '.1f')} мин/день
+• Активные калории: {fmt_number(dh_stats.get('avg_calories_active'), '.0f')} ккал/день
+• Тренд шагов: {context['daily_health']['trend_steps'] or 'н/д'}
+"""
+
+        if context['training_status']['has_data']:
+            ts_summary = context['training_status']['summary']
+            latest = context['training_status']['latest']
+            formatted += f"""
+=== СТАТУС ТРЕНИРОВАННОСТИ ===
+• Последний статус: {latest.get('training_status', 'н/д')}
+• Readiness (среднее): {fmt_number(ts_summary.get('avg_training_readiness'), '.1f')} / 100
+• 7-дневная нагрузка (средняя): {fmt_number(ts_summary.get('avg_training_load_7d'), '.1f')}
+• VO₂max (средний): {fmt_number(ts_summary.get('avg_vo2_max'), '.1f')}
 """
         
         if context['trends']:
