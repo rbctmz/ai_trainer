@@ -17,6 +17,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 11:05+03:00) Wrote a three-iteration roadmap covering stabilization, modularization, and core-flow polish.
 - [x] (2026-06-06 11:10+03:00) Expanded the roadmap with explicit developer-driven execution rules appropriate to the repository stage.
 - [x] (2026-06-06 12:11+03:00) Iteration 1 completed: removed Garmin credential prefill from the UI, added an explicit `doctor_env.py` workflow, introduced `requirements-dev.txt`, `pytest.ini`, smoke tests, and verified the landing page plus contributor-safe smoke command.
+- [x] (2026-06-06 12:36+03:00) Started Iteration 2 with a low-risk extraction: moved the sync logs and data-management pages into `ui/pages/admin.py`, delegated page dispatch from `app.py`, and kept smoke tests green.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -39,6 +40,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The current virtual environment is damaged beyond a single-package fix because multiple packages are missing source files or `dist-info` metadata.
   Evidence: `python -m pytest` initially failed, `doctor_env.py repair --dev` restored compiled module files for several packages, and a final `pip install --ignore-installed ...` was needed to get a working pytest entrypoint for verification.
+
+- Observation: The admin-oriented pages are much less coupled to the core analytics flow than the dashboard or AI coaching screens.
+  Evidence: `show_sync_logs()` and `show_data_management()` moved into `ui/pages/admin.py` using only `StateManager` plus explicit callbacks for sync and database-clear actions, with no changes required to the analytics or chat rendering paths.
 
 ## Decision Log
 
@@ -70,6 +74,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The repository contains a mix of pure checks, diagnostics, and live integration tests. A dedicated `tests/smoke/` path and pytest markers are a more honest stabilization step than pretending the existing flat suite is uniformly safe.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Start Iteration 2 by extracting the admin pages before touching the dashboard or AI coaching screens.
+  Rationale: `show_sync_logs()` and `show_data_management()` are relatively isolated and can move behind small callback contracts. That makes them a safer first modularization slice than the largest product surfaces.
+  Date/Author: 2026-06-06 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -77,6 +85,8 @@ The outcome of this planning milestone is not code movement; it is a precise exe
 The main lesson from the initial audit is that the strongest short-term gains do not come from new analytics features. They come from removing unsafe defaults, restoring trust in the environment, and shrinking the mental load of `app.py`. The work should begin there.
 
 After completing Iteration 1, that hypothesis held. The landing page no longer exposes stored Garmin secrets, the startup script now checks runtime health instead of patching packages silently, and the repository has a documented smoke path that was actually run successfully. The remaining lesson is that the current virtual environment is significantly more damaged than it first appeared, so future work should prefer verifying behavior from a clean environment whenever possible instead of assuming the checked-in `ai_trainer_env` is representative.
+
+The first Iteration 2 extraction also validated the chosen approach. Moving two admin-facing pages into `ui/pages/admin.py` reduced `app.py` from 5679 to 5490 lines without changing the user-facing flow or breaking the smoke suite. That supports continuing with page-by-page extraction rather than attempting a broad cutover.
 
 ## Context and Orientation
 

@@ -57,6 +57,7 @@ from ui.navigation import (
     render_sidebar_navigation,
     render_sidebar_utilities,
 )
+from ui.pages import render_data_management_page, render_sync_logs_page
 from services import garmin as garmin_service
 from services.data_cache import (
     clear_data_caches,
@@ -418,9 +419,13 @@ def main():
         elif page == "🤖 AI Коучинг":
             show_ai_coaching()
         elif page == "📋 Логи синхронизации":
-            show_sync_logs()
+            render_sync_logs_page()
         elif page == "⚙️ Управление данными":
-            show_data_management()
+            render_data_management_page(
+                state,
+                on_sync=lambda days: sync_data(days=days, state=state),
+                on_clear_database=clear_database,
+            )
     else:
         show_welcome_screen()
 
@@ -5480,200 +5485,6 @@ def _filter_progress_sections(text: str) -> str:
             kept.append(stripped)
     
     return "\n\n".join(kept).strip()
-
-def show_sync_logs():
-    """Показывает логи синхронизации для отладки"""
-    st.title("📋 Логи синхронизации")
-    st.write("Детальные логи процесса синхронизации с Garmin Connect")
-    
-    import os
-    import glob
-    from datetime import datetime
-    
-    # Ищем файлы логов
-    log_dir = "logs"
-    if not os.path.exists(log_dir):
-        st.warning("📁 Папка с логами не найдена. Логи будут создаваться при следующей синхронизации.")
-        return
-    
-    # Получаем список файлов логов
-    log_files = glob.glob(f"{log_dir}/garmin_sync_*.log")
-    log_files.sort(reverse=True)  # Новые файлы сначала
-    
-    if not log_files:
-        st.info("📝 Файлы логов пока не созданы. Выполните синхронизацию для создания логов.")
-        return
-    
-    # Выбор файла лога
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        selected_file = st.selectbox(
-            "Выберите файл лога:",
-            log_files,
-            format_func=lambda x: os.path.basename(x)
-        )
-    
-    with col2:
-        # Кнопка обновления
-        if st.button("🔄 Обновить"):
-            st.rerun()
-    
-    if selected_file:
-        try:
-            # Опции фильтрации
-            st.subheader("🔍 Фильтры")
-            col1, col2, col3 = st.columns(3)
-            
-            with col1:
-                level_filter = st.multiselect(
-                    "Уровень логов:",
-                    ["INFO", "DEBUG", "WARNING", "ERROR"],
-                    default=["INFO", "WARNING", "ERROR"]
-                )
-            
-            with col2:
-                search_term = st.text_input("Поиск по тексту:")
-            
-            with col3:
-                max_lines = st.number_input("Максимум строк:", min_value=10, max_value=1000, value=100)
-            
-            # Читаем файл лога
-            with open(selected_file, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
-            
-            # Применяем фильтры
-            filtered_lines = []
-            for line in lines:
-                # Фильтр по уровню
-                if level_filter:
-                    if not any(level in line for level in level_filter):
-                        continue
-                
-                # Фильтр по поиску
-                if search_term and search_term.lower() not in line.lower():
-                    continue
-                
-                filtered_lines.append(line)
-            
-            # Показываем последние строки
-            display_lines = filtered_lines[-max_lines:] if len(filtered_lines) > max_lines else filtered_lines
-            
-            st.subheader(f"📄 Логи ({len(display_lines)} из {len(lines)} строк)")
-            
-            # Группируем по типам для удобства
-            if st.checkbox("Группировать по типам"):
-                errors = [line for line in display_lines if "ERROR" in line]
-                warnings = [line for line in display_lines if "WARNING" in line]
-                infos = [line for line in display_lines if "INFO" in line and "ERROR" not in line and "WARNING" not in line]
-                debugs = [line for line in display_lines if "DEBUG" in line]
-                
-                if errors:
-                    st.error(f"❌ Ошибки ({len(errors)}):")
-                    st.code('\n'.join(errors), language=None)
-                
-                if warnings:
-                    st.warning(f"⚠️ Предупреждения ({len(warnings)}):")
-                    st.code('\n'.join(warnings), language=None)
-                
-                if infos:
-                    st.info(f"ℹ️ Информация ({len(infos)}):")
-                    st.code('\n'.join(infos), language=None)
-                
-                if debugs and "DEBUG" in level_filter:
-                    with st.expander(f"🔍 Отладка ({len(debugs)})"):
-                        st.code('\n'.join(debugs), language=None)
-            else:
-                # Показываем все логи подряд
-                log_text = ''.join(display_lines)
-                st.code(log_text, language=None)
-            
-            # Статистика
-            st.subheader("📊 Статистика логов")
-            # Адаптивная сетка: 2x2 на мобильных
-            col1, col2 = st.columns(2)
-            col3, col4 = st.columns(2)
-            
-            total_lines = len(lines)
-            errors_count = len([l for l in lines if "ERROR" in l])
-            warnings_count = len([l for l in lines if "WARNING" in l])
-            success_count = len([l for l in lines if "✅" in l])
-            
-            col1.metric("Всего строк", total_lines)
-            col2.metric("Ошибок", errors_count)
-            col3.metric("Предупреждений", warnings_count)
-            col4.metric("Успешных операций", success_count)
-            
-        except Exception as e:
-            st.error(f"Ошибка чтения файла лога: {e}")
-
-def show_data_management():
-    """Показывает страницу управления данными"""
-    state = get_state_manager()
-    database = state.database
-    st.title("⚙️ Управление данными")
-    st.write("Управление синхронизацией и данными в базе")
-    
-    # Выбор периода синхронизации
-    st.subheader("🔄 Синхронизация данных")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        sync_days = st.selectbox(
-            "Период загрузки:",
-            options=[7, 14, 30, 60, 90],
-            index=2,  # По умолчанию 30 дней
-            format_func=lambda x: f"{x} дней",
-            help="Количество дней для синхронизации с Garmin Connect"
-        )
-    
-    with col2:
-        if st.button("🔄 Синхронизировать данные", use_container_width=True):
-            sync_data(days=sync_days)
-    
-    st.divider()
-    
-    # Статистика БД
-    st.subheader("📊 Данные в БД")
-    
-    if hasattr(state, 'database'):
-        stats = database.get_database_stats()
-        
-        # Показываем статистику в виде метрик
-        col1, col2, col3 = st.columns(3)
-        col4, col5 = st.columns(2)
-        
-        with col1:
-            st.metric("🏃‍♂️ Активности", stats['activities'])
-        
-        with col2:
-            st.metric("💓 HRV записи", stats['hrv_data'])
-        
-        with col3:
-            st.metric("😴 Данные сна", stats.get('sleep_data', 0))
-        
-        with col4:
-            st.metric("🏥 Показатели здоровья", stats.get('daily_health', 0))
-        
-        with col5:
-            st.metric("📈 Статус тренированности", stats.get('training_status', 0))
-        
-        # Дополнительная информация
-        if stats['activities'] > 0:
-            try:
-                # Получаем дату последней активности
-                activities_df = database.get_activities(1)
-                if not activities_df.empty:
-                    last_activity_date = activities_df.iloc[0]['date']
-                    st.info(f"📅 Последняя активность: {last_activity_date}")
-            except Exception:
-                pass
-    
-    st.divider()
-    
-    # Очистка БД
-    clear_database()
 
 if __name__ == "__main__":
     main()
