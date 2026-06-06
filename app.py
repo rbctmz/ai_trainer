@@ -51,6 +51,7 @@ from models.banister import BanisterModel
 from utils.visualizations import Visualizations
 from config.settings import Settings
 from state import StateManager, get_state_manager
+from ui.components import render_garmin_connection
 from ui.theme import apply_theme, create_dark_table_html, get_plotly_theme
 from ui.navigation import (
     render_primary_navigation,
@@ -121,18 +122,6 @@ def format_date(date_obj, format_type='display'):
         return date_obj.strftime('%d.%m')
     else:
         return str(date_obj)
-
-
-def get_garmin_form_defaults() -> Dict[str, str]:
-    """Return safe defaults for the Garmin login form without exposing stored secrets."""
-    return {"email": "", "password": ""}
-
-
-def clear_garmin_form_state() -> None:
-    """Remove Garmin credential inputs from session state."""
-    st.session_state.pop("garmin_email_input", None)
-    st.session_state.pop("garmin_password_input", None)
-
 
 def render_garmin_profile(profile: Dict[str, Any]) -> None:
     """Отображает ключевую информацию профиля Garmin в удобном виде."""
@@ -385,7 +374,7 @@ def main():
         state.use_custom_theme = custom_theme_enabled
         st.rerun()
 
-    show_garmin_connection(state)
+    render_garmin_connection(state, render_profile=render_garmin_profile)
 
     if state.garmin_client.is_authenticated:
         page = render_primary_navigation(state)
@@ -428,67 +417,6 @@ def main():
             )
     else:
         show_welcome_screen()
-
-
-def show_garmin_connection(state: StateManager):
-    """Блок подключения к Garmin Connect"""
-    client = state.garmin_client
-    with st.sidebar.expander("🔗 Garmin Connect", expanded=not client.is_authenticated):
-        if not client.is_authenticated:
-            st.write("Подключитесь для синхронизации данных:")
-            defaults = get_garmin_form_defaults()
-            email = st.text_input("Email Garmin", value=defaults["email"], key="garmin_email_input")
-            password = st.text_input("Пароль Garmin", type="password", value=defaults["password"], key="garmin_password_input")
-
-            if Settings.GARMIN_EMAIL or Settings.GARMIN_PASSWORD:
-                st.caption("Учётные данные Garmin из `.env` больше не подставляются в форму автоматически из соображений безопасности.")
-
-            col1, col2 = st.columns(2)
-
-            with col1:
-                if st.button("🔐 Подключиться"):
-                    if email and password:
-                        with st.spinner("Подключение к Garmin Connect..."):
-                            if garmin_service.authenticate(state, email, password):
-                                clear_garmin_form_state()
-                                st.success("✅ Успешно подключено!")
-                                st.rerun()
-                            else:
-                                error = getattr(client, 'auth_error', 'Неизвестно')
-                                st.error(f"❌ Ошибка подключения: {error}")
-                    else:
-                        st.warning("Введите email и пароль")
-        else:
-            st.success("✅ Подключено к Garmin Connect")
-
-            connection_info = garmin_service.connection_info(state)
-            if connection_info.get('using_garth'):
-                st.info("🚀 Используется garth (улучшенный API)")
-            else:
-                st.info("📡 Используется garminconnect")
-
-            profile = garmin_service.user_profile(state)
-            if profile is not None:
-                render_garmin_profile(profile)
-
-            if connection_info.get('garth_available') and connection_info.get('using_garth'):
-                if st.button("🔍 Тест garth", help="Проверить расширенные возможности garth"):
-                    with st.spinner("Тестирование garth..."):
-                        test_results = client.test_garth_connection()
-                        if test_results.get('authenticated'):
-                            st.success("✅ Garth работает корректно")
-                            with st.expander("📋 Детали garth тестирования"):
-                                for method, status in test_results.get('test_results', {}).items():
-                                    st.write(f"• **{method}**: {status}")
-                        else:
-                            st.warning(f"⚠️ Проблема с garth: {test_results.get('error', 'Неизвестно')}")
-
-            if st.button("🔌 Отключиться"):
-                clear_garmin_form_state()
-                garmin_service.disconnect(state)
-                st.rerun()
-
-
 def sync_data(days=30, state=None):
     """Синхронизация данных с Garmin Connect"""
     state = state or get_state_manager()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import pandas as pd
 import pytest
 
-from app import get_garmin_form_defaults
+from ui.components import get_garmin_form_defaults
 from utils.sleep_metrics import compute_sleep_regularity
 
 

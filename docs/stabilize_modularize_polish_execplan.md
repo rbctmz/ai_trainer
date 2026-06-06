@@ -18,6 +18,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 11:10+03:00) Expanded the roadmap with explicit developer-driven execution rules appropriate to the repository stage.
 - [x] (2026-06-06 12:11+03:00) Iteration 1 completed: removed Garmin credential prefill from the UI, added an explicit `doctor_env.py` workflow, introduced `requirements-dev.txt`, `pytest.ini`, smoke tests, and verified the landing page plus contributor-safe smoke command.
 - [x] (2026-06-06 12:36+03:00) Started Iteration 2 with a low-risk extraction: moved the sync logs and data-management pages into `ui/pages/admin.py`, delegated page dispatch from `app.py`, and kept smoke tests green.
+- [x] (2026-06-06 12:58+03:00) Continued Iteration 2 by extracting the Garmin sidebar connection widget into `ui/components/garmin_connection.py`, updating the smoke test import contract, and keeping the modularized shell green.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -43,6 +44,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The admin-oriented pages are much less coupled to the core analytics flow than the dashboard or AI coaching screens.
   Evidence: `show_sync_logs()` and `show_data_management()` moved into `ui/pages/admin.py` using only `StateManager` plus explicit callbacks for sync and database-clear actions, with no changes required to the analytics or chat rendering paths.
+
+- Observation: The Garmin connection UI can move behind a narrow component contract without moving the Garmin profile renderer at the same time.
+  Evidence: `show_garmin_connection()` plus its form-state helpers moved into `ui/components/garmin_connection.py`, while `app.py` kept `render_garmin_profile()` and passed it into the component as a callback.
 
 ## Decision Log
 
@@ -78,6 +82,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: `show_sync_logs()` and `show_data_management()` are relatively isolated and can move behind small callback contracts. That makes them a safer first modularization slice than the largest product surfaces.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Extract the Garmin sidebar as a component before moving another full analytics page.
+  Rationale: The Garmin connection flow is a top-level UI boundary already called from `main()`. Moving it into `ui/components/` reduces shell clutter and creates a clearer split between the app composition root and reusable sidebar behavior.
+  Date/Author: 2026-06-06 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -87,6 +95,8 @@ The main lesson from the initial audit is that the strongest short-term gains do
 After completing Iteration 1, that hypothesis held. The landing page no longer exposes stored Garmin secrets, the startup script now checks runtime health instead of patching packages silently, and the repository has a documented smoke path that was actually run successfully. The remaining lesson is that the current virtual environment is significantly more damaged than it first appeared, so future work should prefer verifying behavior from a clean environment whenever possible instead of assuming the checked-in `ai_trainer_env` is representative.
 
 The first Iteration 2 extraction also validated the chosen approach. Moving two admin-facing pages into `ui/pages/admin.py` reduced `app.py` from 5679 to 5490 lines without changing the user-facing flow or breaking the smoke suite. That supports continuing with page-by-page extraction rather than attempting a broad cutover.
+
+The next Iteration 2 slice confirmed that components can be peeled out independently of full page moves. Extracting the Garmin sidebar into `ui/components/garmin_connection.py` reduced `app.py` further to 5418 lines, preserved the smoke suite, and clarified that some UI boundaries are component-shaped rather than page-shaped.
 
 ## Context and Orientation
 
