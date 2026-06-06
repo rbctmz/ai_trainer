@@ -24,6 +24,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 16:03+03:00) Tightened the Garmin boundary further: removed the leftover `streamlit` import from `data/garth_client.py`, moved Garmin auth/profile/activity/test helpers behind `services/garmin.py`, and kept the expanded smoke suite green.
 - [x] (2026-06-06 16:55+03:00) Moved the Garmin sync pipeline out of `app.py` into `services/sync.py`, kept `sync_data()` as a thin Streamlit wrapper with progress rendering only, and expanded the smoke suite to seven passing tests.
 - [x] (2026-06-06 17:07+03:00) Extracted the activities page into `ui/pages/activities.py`, switched page dispatch to the new renderer contract, and expanded the smoke suite to eight passing tests.
+- [x] (2026-06-06 17:21+03:00) Extracted sidebar chat management into `ui/components/chat_management.py`, switched the shell to the new component contract, and expanded the smoke suite to nine passing tests.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -67,6 +68,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The activities page can move behind a single `render(state)` contract without first extracting shared helpers or touching the Garmin boundary again.
   Evidence: The full activities flow now lives in `ui/pages/activities.py`, `app.py` dropped further to 4830 lines, and `ai_trainer_env/bin/python -m pytest tests/smoke -q` reports `8 passed`.
+
+- Observation: Sidebar-specific shell helpers are still worth extracting even when they are smaller than full pages, because they simplify the composition root and preserve the same smoke-contract pattern.
+  Evidence: `show_chat_management()` moved into `ui/components/chat_management.py`, `app.py` dropped to 4769 lines, and `ai_trainer_env/bin/python -m pytest tests/smoke -q` reports `9 passed`.
 
 ## Decision Log
 
@@ -126,6 +130,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The activities page is materially smaller and more self-contained than the dashboard, so it delivers another verified `ui/pages/*` renderer slice with less regression risk while the worktree still contains unrelated local noise.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Extract `show_chat_management()` before starting the dashboard bundle.
+  Rationale: The chat-management sidebar is a nearly isolated shell concern and can be moved behind a simple component contract immediately. That reduces `app.py` and keeps shell cleanup progressing, while the dashboard still deserves a dedicated larger slice.
+  Date/Author: 2026-06-06 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -147,6 +155,8 @@ That next slice also held. `data/garth_client.py` is now free of the leftover St
 The next Iteration 2 slice validated the larger extraction strategy too. Moving the Garmin sync orchestration into `services/sync.py` reduced `app.py` further to 5017 lines while keeping the Streamlit progress UI intact through a callback contract. The smoke suite expanded to seven passing tests, which is a useful sign that the orchestration logic is no longer trapped inside an untestable page function.
 
 The following Iteration 2 slice confirmed that low-risk page-by-page extraction still works after the sync refactor. Moving the activities screen into `ui/pages/activities.py` reduced `app.py` again to 4830 lines, kept the page dispatch simple, and pushed the contributor-safe smoke suite to eight passing tests.
+
+The next Iteration 2 slice reinforced that the remaining shell clutter is still worth attacking directly. Moving chat management into `ui/components/chat_management.py` reduced `app.py` again to 4769 lines and pushed the smoke suite to nine passing tests. The next worthwhile milestone is now the larger dashboard bundle rather than more sidebar trivia.
 
 ## Context and Orientation
 
@@ -323,3 +333,5 @@ Revision Note (2026-06-06 / Codex): Expanded the plan with explicit developer-dr
 Revision Note (2026-06-06 / Codex): Updated the plan after extracting Garmin sync orchestration into `services/sync.py`, documenting the new progress-callback contract and the latest smoke-test evidence.
 
 Revision Note (2026-06-06 / Codex): Updated the plan after moving the activities page into `ui/pages/activities.py`, documenting the reduced `app.py` size and the expanded smoke-suite evidence.
+
+Revision Note (2026-06-06 / Codex): Updated the plan after extracting sidebar chat management into `ui/components/chat_management.py`, documenting the reduced `app.py` size and the expanded smoke-suite evidence.

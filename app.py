@@ -50,7 +50,7 @@ from models.banister import BanisterModel
 from utils.visualizations import Visualizations
 from config.settings import Settings
 from state import StateManager, get_state_manager
-from ui.components import render_development_tools, render_garmin_connection
+from ui.components import render_chat_management, render_development_tools, render_garmin_connection
 from ui.theme import apply_theme, create_dark_table_html, get_plotly_theme
 from ui.navigation import (
     render_primary_navigation,
@@ -390,7 +390,7 @@ def main():
         st.sidebar.markdown("---")
 
         _ = state.chat_manager  # Ensure chat manager initialised
-        show_chat_management()
+        render_chat_management(state)
 
         st.sidebar.markdown("---")
 
@@ -2754,67 +2754,6 @@ def show_planning():
         if not activities_df.empty:
             fig_weekly = Visualizations.create_weekly_tss_chart(activities_df)
             st.plotly_chart(fig_weekly, use_container_width=True)
-
-def show_chat_management():
-    """Управление чатами в боковой панели"""
-    state = get_state_manager()
-    chat_manager = state.chat_manager
-
-    with st.sidebar:
-        st.subheader("💬 Управление чатами")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("➕ Новый чат", use_container_width=True, type="primary"):
-                new_chat_id = chat_manager.create_new_chat()
-                state.current_chat_id = new_chat_id
-                state.switch_to_chat_tab = True
-                state.selected_page = "🤖 AI Коучинг"
-                st.rerun()
-
-        with col2:
-            if state.current_chat_id and st.button("🧹 Очистить", use_container_width=True):
-                if chat_manager.clear_chat(state.current_chat_id):
-                    st.success("Чат очищен")
-                    st.rerun()
-
-        chats = chat_manager.get_chat_list()
-
-        if chats:
-            st.markdown('<div class="sidebar-chat-list">', unsafe_allow_html=True)
-
-            for chat in chats:
-                is_current = chat["id"] == state.current_chat_id
-
-                col1, col2 = st.columns([4, 1])
-
-                with col1:
-                    chat_title = chat['title'][:30] + ("..." if len(chat['title']) > 30 else "")
-                    button_text = f"{'🔵' if is_current else '💬'} {chat_title}"
-
-                    if st.button(
-                        button_text,
-                        key=f"chat_{chat['id']}",
-                        use_container_width=True,
-                        help=f"Сообщений: {chat['message_count']} • {chat['updated_at'][:16].replace('T', ' ')}",
-                    ):
-                        state.current_chat_id = chat["id"]
-                        state.selected_page = "🤖 AI Коучинг"
-                        state.switch_to_chat_tab = True
-                        st.success(f"Выбран чат: {chat['title'][:20]}...")
-                        st.rerun()
-
-                with col2:
-                    if st.button("🗑️", key=f"delete_{chat['id']}", help="Удалить чат"):
-                        if chat_manager.delete_chat(chat["id"]):
-                            if state.current_chat_id == chat["id"]:
-                                state.current_chat_id = None
-                            st.success("Чат удален")
-                            st.rerun()
-
-            st.markdown('</div>', unsafe_allow_html=True)
-        else:
-            st.info("Пока нет сохраненных чатов")
 
 def show_ai_coaching():
     """Страница AI коучинга: управление провайдерами и чат"""
