@@ -122,6 +122,17 @@ def format_date(date_obj, format_type='display'):
         return str(date_obj)
 
 
+def get_garmin_form_defaults() -> Dict[str, str]:
+    """Return safe defaults for the Garmin login form without exposing stored secrets."""
+    return {"email": "", "password": ""}
+
+
+def clear_garmin_form_state() -> None:
+    """Remove Garmin credential inputs from session state."""
+    st.session_state.pop("garmin_email_input", None)
+    st.session_state.pop("garmin_password_input", None)
+
+
 def render_garmin_profile(profile: Dict[str, Any]) -> None:
     """Отображает ключевую информацию профиля Garmin в удобном виде."""
     if not isinstance(profile, dict):
@@ -420,9 +431,12 @@ def show_garmin_connection(state: StateManager):
     with st.sidebar.expander("🔗 Garmin Connect", expanded=not client.is_authenticated):
         if not client.is_authenticated:
             st.write("Подключитесь для синхронизации данных:")
+            defaults = get_garmin_form_defaults()
+            email = st.text_input("Email Garmin", value=defaults["email"], key="garmin_email_input")
+            password = st.text_input("Пароль Garmin", type="password", value=defaults["password"], key="garmin_password_input")
 
-            email = st.text_input("Email Garmin", value=Settings.GARMIN_EMAIL or "")
-            password = st.text_input("Пароль Garmin", type="password", value=Settings.GARMIN_PASSWORD or "")
+            if Settings.GARMIN_EMAIL or Settings.GARMIN_PASSWORD:
+                st.caption("Учётные данные Garmin из `.env` больше не подставляются в форму автоматически из соображений безопасности.")
 
             col1, col2 = st.columns(2)
 
@@ -431,6 +445,7 @@ def show_garmin_connection(state: StateManager):
                     if email and password:
                         with st.spinner("Подключение к Garmin Connect..."):
                             if garmin_service.authenticate(state, email, password):
+                                clear_garmin_form_state()
                                 st.success("✅ Успешно подключено!")
                                 st.rerun()
                             else:
@@ -464,6 +479,7 @@ def show_garmin_connection(state: StateManager):
                             st.warning(f"⚠️ Проблема с garth: {test_results.get('error', 'Неизвестно')}")
 
             if st.button("🔌 Отключиться"):
+                clear_garmin_form_state()
                 garmin_service.disconnect(state)
                 st.rerun()
 

@@ -212,6 +212,11 @@ sleep_data_*.csv
 *.swo
 *~
 
+# Browser automation artifacts
+.playwright-cli/
+.playwright-mcp/
+output/playwright/
+
 # macOS specific
 .DS_Store
 .AppleDouble
