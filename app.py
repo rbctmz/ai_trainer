@@ -57,7 +57,12 @@ from ui.navigation import (
     render_sidebar_navigation,
     render_sidebar_utilities,
 )
-from ui.pages import render_data_management_page, render_sync_logs_page, render_welcome_page
+from ui.pages import (
+    render_activities_page,
+    render_data_management_page,
+    render_sync_logs_page,
+    render_welcome_page,
+)
 from services import garmin as garmin_service, sync as sync_service
 from services.data_cache import (
     load_activities,
@@ -394,7 +399,7 @@ def main():
         if page == "📊 Дашборд":
             show_dashboard()
         elif page == "🏃‍♂️ Активности":
-            show_activities()
+            render_activities_page(state)
         elif page == "💓 Анализ HRV":
             show_hrv_analysis()
         elif page == "😴 Анализ сна":
@@ -1032,198 +1037,6 @@ def show_compact_analytics(activities_df, training_status_info=None):
                 balance_feedback = training_status_info.get('training_balance_feedback')
                 if balance_feedback:
                     st.caption(balance_feedback)
-
-def show_activities():
-    """Страница активностей"""
-    state = get_state_manager()
-    database = state.database
-    st.header("🏃‍♂️ Ваши активности")
-    
-    # Получаем данные активностей
-    activities_df = load_activities(30)  # За последние 30 дней
-    
-    if activities_df.empty:
-        st.warning("📭 Нет активностей за последние 30 дней. Синхронизируйте данные с Garmin Connect.")
-        return
-    
-    # Фильтры
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        selected_sports = st.multiselect(
-            "Виды спорта:",
-            options=activities_df['sport'].unique(),
-            default=activities_df['sport'].unique()
-        )
-    
-    with col2:
-        date_range = st.slider(
-            "Период (дней):",
-            min_value=7,
-            max_value=90,
-            value=30
-        )
-    
-    with col3:
-        sort_by = st.selectbox(
-            "Сортировать по:",
-            options=["date", "distance_km", "duration_minutes", "tss"],
-            format_func=lambda x: {
-                "date": "Дате",
-                "distance_km": "Дистанции", 
-                "duration_minutes": "Времени",
-                "tss": "TSS"
-            }.get(x, x)
-        )
-    
-    # Фильтруем данные
-    filtered_df = activities_df[
-        (activities_df['sport'].isin(selected_sports))
-    ].tail(date_range * 3).sort_values(sort_by, ascending=False)  # Примерно 3 тренировки в день максимум
-    
-    # Статистика
-    st.subheader("📊 Статистика")
-    
-    # Адаптивная сетка: 2x2 на мобильных
-    col1, col2 = st.columns(2)
-    col3, col4 = st.columns(2)
-    
-    with col1:
-        st.metric("Всего тренировок", len(filtered_df))
-    
-    with col2:
-        total_distance = filtered_df['distance_km'].sum()
-        st.metric("Общая дистанция", f"{total_distance:.1f} км")
-    
-    with col3:
-        total_time = filtered_df['duration_minutes'].sum()
-        st.metric("Общее время", f"{total_time/60:.1f} ч")
-    
-    with col4:
-        avg_tss = filtered_df['tss'].mean() if 'tss' in filtered_df.columns else 0
-        st.metric("Средний TSS", f"{avg_tss:.0f}")
-    
-    # График активности по дням
-    if len(filtered_df) > 0:
-        st.subheader("📈 Активность по дням")
-
-        # Подготовка данных для графика
-        filtered_df['date'] = pd.to_datetime(filtered_df['date'])
-        daily_stats = filtered_df.groupby('date').agg({
-            'tss': 'sum',
-            'duration_minutes': 'sum',
-            'distance_km': 'sum'
-        }).reset_index()
-
-        if state.use_custom_theme:
-            theme = get_plotly_theme(state.dark_mode)
-            fig_tss = px.bar(
-                daily_stats,
-                x='date',
-                y='tss',
-                title="Training Stress Score по дням",
-                labels={'tss': 'TSS', 'date': 'Дата'},
-                template=theme['template']
-            )
-            fig_tss.update_layout(
-                height=400,
-                paper_bgcolor=theme['paper_bgcolor'],
-                plot_bgcolor=theme['plot_bgcolor'],
-                font_color=theme['font_color']
-            )
-        else:
-            fig_tss = px.bar(
-                daily_stats,
-                x='date',
-                y='tss',
-                title="Training Stress Score по дням",
-                labels={'tss': 'TSS', 'date': 'Дата'}
-            )
-            fig_tss.update_layout(height=400)
-
-        st.plotly_chart(fig_tss, use_container_width=True)
-    
-    # Таблица активностей
-    st.subheader("📋 Список тренировок")
-    
-    # Форматируем данные для отображения
-    display_df = filtered_df.copy()
-    display_df['date'] = pd.to_datetime(display_df['date']).apply(lambda x: format_date(x, 'display'))
-    display_df['duration_minutes'] = display_df['duration_minutes'].round(0).astype(int)
-    display_df['distance_km'] = display_df['distance_km'].round(2)
-    
-    # Переименовываем колонки
-    display_columns = {
-        'date': 'Дата',
-        'sport': 'Спорт', 
-        'duration_minutes': 'Время (мин)',
-        'distance_km': 'Дистанция (км)',
-        'avg_hr': 'Ср. ЧСС',
-        'avg_power': 'Ср. мощность',
-        'tss': 'TSS'
-    }
-    
-    # Выбираем и переименовываем колонки
-    columns_to_show = [col for col in display_columns.keys() if col in display_df.columns]
-    table_df = display_df[columns_to_show].rename(columns=display_columns)
-    
-    # Отображаем таблицу с учетом темы
-    if state.use_custom_theme and state.dark_mode:
-        st.markdown(create_dark_table_html(table_df), unsafe_allow_html=True)
-    else:
-        st.dataframe(table_df, use_container_width=True, hide_index=True)
-    
-    # Детали выбранной тренировки
-    if len(filtered_df) > 0:
-        st.subheader("🔍 Детали тренировки")
-        
-        selected_activity = st.selectbox(
-            "Выберите тренировку:",
-            options=range(len(filtered_df)),
-            format_func=lambda i: f"{filtered_df.iloc[i]['date']} - {filtered_df.iloc[i]['sport']} ({filtered_df.iloc[i]['distance_km']:.1f} км)"
-        )
-        
-        activity = filtered_df.iloc[selected_activity]
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.write("**Основные показатели:**")
-            st.write(f"📅 Дата: {activity['date']}")
-            st.write(f"🏃 Вид спорта: {activity['sport']}")
-            st.write(f"⏱️ Время: {activity['duration_minutes']:.0f} мин")
-            st.write(f"📏 Дистанция: {activity['distance_km']:.2f} км")
-            
-        with col2:
-            st.write("**Показатели интенсивности:**")
-            if 'avg_hr' in activity and pd.notna(activity['avg_hr']):
-                st.write(f"💓 Средний пульс: {activity['avg_hr']:.0f} уд/мин")
-            if 'avg_power' in activity and pd.notna(activity['avg_power']):
-                st.write(f"⚡ Средняя мощность: {activity['avg_power']:.0f} W")
-            if 'tss' in activity and pd.notna(activity['tss']):
-                st.write(f"📊 TSS: {activity['tss']:.0f}")
-            if 'calories' in activity and pd.notna(activity['calories']):
-                st.write(f"🔥 Калории: {activity['calories']:.0f}")
-    
-    # Экспорт данных
-    if len(filtered_df) > 0:
-        st.subheader("📤 Экспорт данных")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("📊 Скачать CSV"):
-                csv = table_df.to_csv(index=False)
-                st.download_button(
-                    label="💾 Загрузить CSV файл",
-                    data=csv,
-                    file_name=f"activities_{datetime.now().strftime('%Y%m%d')}.csv",
-                    mime="text/csv"
-                )
-        
-        with col2:
-            if st.button("📈 Создать отчет"):
-                st.info("📋 Функция создания отчетов будет добавлена в следующих версиях.")
 
 def show_hrv_analysis():
     """Современная страница анализа HRV"""

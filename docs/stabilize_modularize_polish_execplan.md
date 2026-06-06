@@ -23,6 +23,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 13:18+03:00) Started data/UI boundary cleanup by removing direct Streamlit rendering from `data/garmin_client.py`, introducing non-UI error state, and covering the contract with a smoke test.
 - [x] (2026-06-06 16:03+03:00) Tightened the Garmin boundary further: removed the leftover `streamlit` import from `data/garth_client.py`, moved Garmin auth/profile/activity/test helpers behind `services/garmin.py`, and kept the expanded smoke suite green.
 - [x] (2026-06-06 16:55+03:00) Moved the Garmin sync pipeline out of `app.py` into `services/sync.py`, kept `sync_data()` as a thin Streamlit wrapper with progress rendering only, and expanded the smoke suite to seven passing tests.
+- [x] (2026-06-06 17:07+03:00) Extracted the activities page into `ui/pages/activities.py`, switched page dispatch to the new renderer contract, and expanded the smoke suite to eight passing tests.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -63,6 +64,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: `sync_data()` could be reduced substantially without losing the current Streamlit progress UX by introducing a service-level progress callback contract.
   Evidence: The new `services/sync.py` owns activity/HRV/sleep/health/training-status orchestration and emits `SyncProgressUpdate` events, while `app.py` now dropped to 5017 lines and `ai_trainer_env/bin/python -m pytest tests/smoke -q` reports `7 passed`.
+
+- Observation: The activities page can move behind a single `render(state)` contract without first extracting shared helpers or touching the Garmin boundary again.
+  Evidence: The full activities flow now lives in `ui/pages/activities.py`, `app.py` dropped further to 4830 lines, and `ai_trainer_env/bin/python -m pytest tests/smoke -q` reports `8 passed`.
 
 ## Decision Log
 
@@ -118,6 +122,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The next architectural risk in `app.py` was the large `sync_data()` function, but the user-visible progress behavior still matters. A service-level callback keeps orchestration testable and reusable while leaving the Streamlit widgets in `app.py`.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Continue page-by-page modularization with `show_activities()` before attempting the larger dashboard extraction.
+  Rationale: The activities page is materially smaller and more self-contained than the dashboard, so it delivers another verified `ui/pages/*` renderer slice with less regression risk while the worktree still contains unrelated local noise.
+  Date/Author: 2026-06-06 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -137,6 +145,8 @@ The first boundary-cleanup slice validated that the transition can be incrementa
 That next slice also held. `data/garth_client.py` is now free of the leftover Streamlit import, the Garmin sidebar talks through `services/garmin.py` instead of poking at client internals for auth/profile/test flows, and the smoke suite expanded again to six passing tests. The Garmin boundary is not fully complete until `sync_data()` is split further, but the layering is now meaningfully cleaner than at the start of Iteration 2.
 
 The next Iteration 2 slice validated the larger extraction strategy too. Moving the Garmin sync orchestration into `services/sync.py` reduced `app.py` further to 5017 lines while keeping the Streamlit progress UI intact through a callback contract. The smoke suite expanded to seven passing tests, which is a useful sign that the orchestration logic is no longer trapped inside an untestable page function.
+
+The following Iteration 2 slice confirmed that low-risk page-by-page extraction still works after the sync refactor. Moving the activities screen into `ui/pages/activities.py` reduced `app.py` again to 4830 lines, kept the page dispatch simple, and pushed the contributor-safe smoke suite to eight passing tests.
 
 ## Context and Orientation
 
@@ -311,3 +321,5 @@ Revision Note (2026-06-06 / Codex): Created the initial three-iteration ExecPlan
 Revision Note (2026-06-06 / Codex): Expanded the plan with explicit developer-driven execution guidance so future work uses SpecDD, BDD, TDD, contract-first boundaries, self-review, and minimal-complexity guardrails appropriate to this repository.
 
 Revision Note (2026-06-06 / Codex): Updated the plan after extracting Garmin sync orchestration into `services/sync.py`, documenting the new progress-callback contract and the latest smoke-test evidence.
+
+Revision Note (2026-06-06 / Codex): Updated the plan after moving the activities page into `ui/pages/activities.py`, documenting the reduced `app.py` size and the expanded smoke-suite evidence.
