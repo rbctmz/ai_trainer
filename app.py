@@ -46,7 +46,6 @@ ACWR_STATUS_STYLES = {
 }
 
 # Импорты наших модулей
-from data.data_processor import ActivityProcessor
 from models.banister import BanisterModel
 from utils.visualizations import Visualizations
 from config.settings import Settings
@@ -59,9 +58,8 @@ from ui.navigation import (
     render_sidebar_utilities,
 )
 from ui.pages import render_data_management_page, render_sync_logs_page, render_welcome_page
-from services import garmin as garmin_service
+from services import garmin as garmin_service, sync as sync_service
 from services.data_cache import (
-    clear_data_caches,
     load_activities,
     load_hrv,
     load_sleep,
@@ -420,375 +418,49 @@ def main():
 def sync_data(days=30, state=None):
     """Синхронизация данных с Garmin Connect"""
     state = state or get_state_manager()
-    client = state.garmin_client
-    database = state.database
 
-    if not client.is_authenticated:
+    if not garmin_service.is_authenticated(state):
         st.error("Не подключен к Garmin Connect")
         return
-    
-    # Улучшенный прогресс с контейнером
-    progress_container = st.container()
-    with progress_container:
+
+    progress_container = st.empty()
+    with progress_container.container():
         st.info("🔄 Начинаем синхронизацию...")
         progress_bar = st.progress(0, text="Подготовка...")
         status_text = st.empty()
-        
-        # Счетчики для отображения прогресса
         sync_stats = st.empty()
-    
-    try:
-        # Получение активностей
-        status_text.text(f"📊 Загрузка активностей за {days} дней...")
-        progress_bar.progress(10, text="Шаг 1/5: Получение активностей...")
-        
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days)
-        
-        activities, activities_error = garmin_service.get_activities_with_error(
-            state,
-            start_date,
-            end_date,
-        )
-        if activities_error:
-            st.error(activities_error["message"])
-        activities_synced = False
-        
-        progress_bar.progress(30, text="Шаг 2/5: Обработка активностей...")
-        
-        if activities:
-            status_text.text(f"⚙️ Обработка {len(activities)} активностей...")
-            sync_stats.info(f"Найдено активностей: {len(activities)}")
-            # Обработка и сохранение данных
-            df = ActivityProcessor.process_activities(activities)
-            
-            # Расчёт TSS для активностей - оптимизированно
-            status_text.text("📈 Расчёт Training Stress Score...")
-            progress_bar.progress(50, text="Шаг 3/5: Расчет метрик...")
-            
-            tss_values = []
-            for idx, row in df.iterrows():
-                activity_dict = row.to_dict()
-                tss = ActivityProcessor.calculate_tss(activity_dict, 
-                                                    ftp=Settings.USER_FTP, 
-                                                    lthr=Settings.USER_LTHR)
-                tss_values.append(tss)
-            
-            df['tss'] = tss_values
-            
-            # Конвертируем DataFrame в список словарей для умной синхронизации
-            activities_list = df.to_dict('records')
-            sync_result = database.sync_activities(activities_list)
-            activities_synced = True
-        else:
-            sync_result = {'new': 0, 'updated': 0, 'skipped': 0}
-            
-        progress_bar.progress(70, text="Шаг 4/5: Загрузка HRV...")
-        
-        # Синхронизация HRV данных - оптимизированно батчами
-        status_text.text("💓 Загрузка HRV и данных восстановления...")
-        hrv_data = {}
-        
-        # Создаём список дат для пакетной обработки
-        date_list = []
-        current_date = start_date
-        while current_date <= end_date:
-            date_list.append(current_date)
-            current_date += timedelta(days=1)
-        
-        # Обрабатываем по 5 дней за раз для ускорения
-        batch_size = 5
-        total_batches = len(date_list) // batch_size + (1 if len(date_list) % batch_size else 0)
-        
-        for batch_idx in range(0, len(date_list), batch_size):
-            batch_dates = date_list[batch_idx:batch_idx + batch_size]
-            
-            for date in batch_dates:
-                date_str = format_date(date, 'db')
-                
-                # Получаем HRV данные
-                hrv_day_data = client.get_hrv_data(date)
-                rmssd_value = None
-                
-                # Debug вывод
-                logger.debug(f"DEBUG HRV: Получены данные HRV для {date_str}: {type(hrv_day_data)}")
-                if hrv_day_data:
-                    logger.debug(f"DEBUG HRV: Структура данных: {hrv_day_data}")
-                
-                if isinstance(hrv_day_data, dict):
-                    # Новый garth_client может возвращать {'hrvSummary': {'rmssd': ...}}
-                    if 'hrvSummary' in hrv_day_data and isinstance(hrv_day_data['hrvSummary'], dict):
-                        hrv_summary = hrv_day_data['hrvSummary']
-                        rmssd_value = hrv_summary.get('rmssd') or hrv_summary.get('lastNightAvg')
-                        logger.debug(f"DEBUG HRV: Извлечено RMSSD из hrvSummary: {rmssd_value}")
-                    # Также может возвращать {'daily_rmssd': ...} напрямую
-                    elif 'daily_rmssd' in hrv_day_data:
-                        rmssd_value = hrv_day_data['daily_rmssd']
-                        logger.debug(f"DEBUG HRV: Извлечено RMSSD из daily_rmssd: {rmssd_value}")
-                    elif 'rmssd' in hrv_day_data:
-                        rmssd_value = hrv_day_data['rmssd']
-                        logger.debug(f"DEBUG HRV: Извлечено RMSSD напрямую: {rmssd_value}")
 
-                # Получаем данные о стрессе
-                stress_score = None
-                stress_data = client.get_stress_data(date)
-                logger.debug(f"DEBUG STRESS SYNC: Получены данные стресса для {date_str}: {type(stress_data)}")
-                if stress_data:
-                    logger.debug(f"DEBUG STRESS SYNC: Структура данных стресса: {stress_data}")
-                
-                if isinstance(stress_data, dict):
-                    stress_score = stress_data.get('avgStressLevel') or stress_data.get('overallStressLevel')
-                    logger.debug(f"DEBUG STRESS SYNC: Извлечен stress_score из словаря: {stress_score}")
-                elif isinstance(stress_data, (int, float)): # Иногда API может вернуть просто число
-                    stress_score = stress_data
-                    logger.debug(f"DEBUG STRESS SYNC: stress_score - простое число: {stress_score}")
-                
-                # Получаем данные Body Battery (восстановление)
-                recovery_score = None
-                body_battery_data = client.get_body_battery_data(date)
-                if body_battery_data and isinstance(body_battery_data, list) and len(body_battery_data) > 0:
-                    entry = body_battery_data[0]
-                    if 'bodyBatteryValuesArray' in entry and entry['bodyBatteryValuesArray']:
-                        battery_values = entry['bodyBatteryValuesArray']
-                        if battery_values:
-                            recovery_score = battery_values[-1][1]
-                
-                # Сохраняем данные если есть хотя бы один показатель
-                if rmssd_value is not None or stress_score is not None or recovery_score is not None:
-                    hrv_data[date_str] = {
-                        'rmssd': rmssd_value,
-                        'stress_score': stress_score,
-                        'recovery_score': recovery_score
-                    }
-                    logger.debug(f"DEBUG HRV: Сохранены данные для {date_str}: {hrv_data[date_str]}")
-                    logger.debug(f"DEBUG HRV: RMSSD={rmssd_value}, Stress={stress_score}, Recovery={recovery_score}")
-            
-            # Обновляем прогресс после каждого батча
-            progress = 70 + (batch_idx // batch_size + 1) / total_batches * 10
-            progress_bar.progress(min(int(progress), 80))
-        
-        # =================== НОВЫЕ ДАННЫЕ ФАЗА 1 ===================
-        
-        # Синхронизация данных сна
-        progress_bar.progress(80)
-        status_text.text("Загрузка данных сна...")
-        
-        from data.data_processor_phase1 import Phase1DataProcessor
-        
-        sleep_data = {}
-        daily_health_data = {}
-        
-        dates_to_process = date_list[:min(len(date_list), days + 1)]
-        for date in dates_to_process:  # Обрабатываем последнюю доступную дату включительно
-            date_str = format_date(date, 'db')
-            
-            # Получаем и обрабатываем данные сна
-            try:
-                sleep_raw = client.get_sleep_data(date)
-                logger.debug(f"DEBUG SYNC: Получены данные сна для {date_str}: {type(sleep_raw)}")
-                
-                if sleep_raw:
-                    logger.debug(f"DEBUG SYNC: === ДЕТАЛЬНАЯ СТРУКТУРА ДАННЫХ СНА для {date_str} ===")
-                    
-                    # Подробное логирование структуры данных
-                    if isinstance(sleep_raw, dict):
-                        logger.debug(f"DEBUG SYNC: Ключи верхнего уровня: {list(sleep_raw.keys())}")
-                        
-                        # Проверяем dailySleepDTO
-                        if 'dailySleepDTO' in sleep_raw:
-                            dto = sleep_raw['dailySleepDTO']
-                            logger.debug(f"DEBUG SYNC: dailySleepDTO ключи: {list(dto.keys()) if isinstance(dto, dict) else 'НЕ СЛОВАРЬ'}")
-                            if isinstance(dto, dict):
-                                logger.debug(f"DEBUG SYNC: sleepTimeSeconds: {dto.get('sleepTimeSeconds', 'НЕТ')}")
-                                logger.debug(f"DEBUG SYNC: deepSleepSeconds: {dto.get('deepSleepSeconds', 'НЕТ')}")
-                                logger.debug(f"DEBUG SYNC: lightSleepSeconds: {dto.get('lightSleepSeconds', 'НЕТ')}")
-                                logger.debug(f"DEBUG SYNC: remSleepSeconds: {dto.get('remSleepSeconds', 'НЕТ')}")
-                                logger.debug(f"DEBUG SYNC: awakeCount: {dto.get('awakeCount', 'НЕТ')}")
-                        
-                        # Проверяем sleepScores
-                        if 'sleepScores' in sleep_raw:
-                            scores = sleep_raw['sleepScores']
-                            logger.debug(f"DEBUG SYNC: sleepScores ключи: {list(scores.keys()) if isinstance(scores, dict) else 'НЕ СЛОВАРЬ'}")
-                            if isinstance(scores, dict):
-                                if 'deepPercentage' in scores:
-                                    logger.debug(f"DEBUG SYNC: deepPercentage: {scores['deepPercentage']}")
-                                if 'lightPercentage' in scores:
-                                    logger.debug(f"DEBUG SYNC: lightPercentage: {scores['lightPercentage']}")
-                                if 'remPercentage' in scores:
-                                    logger.debug(f"DEBUG SYNC: remPercentage: {scores['remPercentage']}")
-                                if 'overall' in scores:
-                                    logger.debug(f"DEBUG SYNC: overall: {scores['overall']}")
-                        
-                        # Проверяем другие возможные структуры
-                        for key in sleep_raw.keys():
-                            if key not in ['dailySleepDTO', 'sleepScores']:
-                                logger.debug(f"DEBUG SYNC: Дополнительный ключ {key}: {type(sleep_raw[key])}")
-                    
-                    logger.debug(f"DEBUG SYNC: === ПЕРЕДАЕМ В ПРОЦЕССОР ===")
-                    processed_sleep = Phase1DataProcessor.process_sleep_data(sleep_raw)
-                    logger.debug(f"DEBUG SYNC: Обработанные данные сна для {date_str}: {processed_sleep}")
-                    
-                    if processed_sleep:
-                        # Используем дату окончания сна (wakeup) если доступна, иначе исходную дату запроса
-                        date_key = processed_sleep.get('sleep_date') or date_str
-                        sleep_data[date_key] = processed_sleep
-                        logger.debug(f"DEBUG SYNC: ✅ Данные сна добавлены для {date_key}")
-                        
-                        # Проверяем что именно сохранили
-                        total = processed_sleep.get('total_sleep_minutes', 0)
-                        deep = processed_sleep.get('deep_sleep_minutes', 0)
-                        light = processed_sleep.get('light_sleep_minutes', 0)
-                        rem = processed_sleep.get('rem_sleep_minutes', 0)
-                        score = processed_sleep.get('sleep_score', 0)
-                        
-                        logger.debug(f"DEBUG SYNC: 📊 Сохраненные значения: total={total}, deep={deep}, light={light}, rem={rem}, score={score}")
-                        
-                        if deep == 0 and light == 0 and rem == 0:
-                            logger.debug(f"DEBUG SYNC: ⚠️ КРИТИЧНО: Все фазы сна равны 0!")
-                    else:
-                        logger.debug(f"DEBUG SYNC: ❌ Обработка данных сна вернула None для {date_str}")
-                else:
-                    logger.debug(f"DEBUG SYNC: Нет данных сна для {date_str}")
-                    
-            except Exception as e:
-                logger.debug(f"DEBUG SYNC: ❌ Ошибка обработки данных сна для {date_str}: {e}")
-                import traceback
-                traceback.print_exc()
-                pass  # Данные сна могут быть недоступны
-            
-            # Получаем и обрабатываем ежедневные показатели здоровья
-            try:
-                # Общие показатели активности
-                daily_summary = client.get_daily_summary(date)
-                # Пульс покоя
-                resting_hr = client.get_resting_heart_rate(date)
-                
-                if daily_summary or resting_hr:
-                    processed_health = Phase1DataProcessor.process_daily_health_data(
-                        daily_summary, resting_hr
-                    )
-                    if processed_health:
-                        daily_health_data[date_str] = processed_health
-            except Exception as e:
-                pass  # Данные могут быть недоступны
-        
-        progress_bar.progress(85)
-        
-        # Получаем текущий статус тренированности (один раз)
-        status_text.text("Загрузка статуса тренированности...")
-        training_status_data = {}
-        
-        try:
-            # Статус тренированности
-            training_status = client.get_training_status()
-            # VO2 max
-            vo2_data = client.get_vo2_max()
-            # Готовность к тренировке
-            readiness_data = client.get_training_readiness()
-            
-            if training_status or vo2_data:
-                processed_status = Phase1DataProcessor.process_training_status_data(
-                    training_status, vo2_data, readiness_data
-                )
-                if processed_status:
-                    training_status_data[datetime.now().strftime('%Y-%m-%d')] = processed_status
-        except Exception as e:
-            pass  # Данные могут быть недоступны
-        
-        progress_bar.progress(90)
-        
-        # Сохранение всех данных
-        status_text.text("Сохранение расширенных данных...")
-        progress_bar.progress(95)
-        
-        hrv_result = {'new': 0, 'updated': 0}
-        logger.debug(f"DEBUG HRV SYNC: Сохранение HRV данных в базу: {len(hrv_data)} записей")
-        logger.debug(f"DEBUG HRV SYNC: Ключи данных HRV: {list(hrv_data.keys()) if hrv_data else 'Нет данных'}")
-        if hrv_data:
-            hrv_result = database.sync_hrv_data(hrv_data)
-            logger.debug(f"DEBUG HRV SYNC: Результат сохранения HRV: {hrv_result}")
+    def render_progress(update: sync_service.SyncProgressUpdate) -> None:
+        status_text.text(update.message)
+        if update.step_text:
+            progress_bar.progress(update.percent, text=update.step_text)
         else:
-            logger.debug("DEBUG HRV SYNC: Нет данных HRV для сохранения")
-        
-        # Сохраняем новые типы данных
-        sleep_result = {'new': 0, 'updated': 0}
-        logger.debug(f"DEBUG SYNC: Сохранение данных сна в базу: {len(sleep_data)} записей")
-        logger.debug(f"DEBUG SYNC: Ключи данных сна: {list(sleep_data.keys()) if sleep_data else 'Нет данных'}")
-        if sleep_data:
-            sleep_result = database.sync_sleep_data(sleep_data)
-            logger.debug(f"DEBUG SYNC: Результат сохранения сна: {sleep_result}")
-        else:
-            logger.debug("DEBUG SYNC: Нет данных сна для сохранения")
-        
-        health_result = {'new': 0, 'updated': 0}
-        if daily_health_data:
-            health_result = database.sync_daily_health(daily_health_data)
-        
-        status_result = {'new': 0, 'updated': 0}
-        if training_status_data:
-            status_result = database.sync_training_status(training_status_data)
-        
-        progress_bar.progress(100, text="✅ Синхронизация завершена!")
+            progress_bar.progress(update.percent)
+        if update.stats_message:
+            sync_stats.info(update.stats_message)
+
+    try:
+        result = sync_service.sync_garmin_data(state, days=days, on_progress=render_progress)
         status_text.empty()
         sync_stats.empty()
-        
-        clear_data_caches()
 
-        # Показываем результат
-        success_msgs = []
-        if sync_result['new'] > 0:
-            success_msgs.append(f"🆕 {sync_result['new']} новых активностей")
-        if sync_result['updated'] > 0:
-            success_msgs.append(f"🔄 {sync_result['updated']} активностей обновлено")
-        if sync_result['skipped'] > 0:
-            success_msgs.append(f"⏭️ {sync_result['skipped']} активностей пропущено")
-            
-        if hrv_result['new'] > 0:
-            success_msgs.append(f"💓 {hrv_result['new']} новых HRV записей")
-        if hrv_result['updated'] > 0:
-            success_msgs.append(f"💓 {hrv_result['updated']} HRV записей обновлено")
-        
-        # Новые типы данных
-        if sleep_result['new'] > 0:
-            success_msgs.append(f"😴 {sleep_result['new']} новых записей сна")
-        if sleep_result['updated'] > 0:
-            success_msgs.append(f"😴 {sleep_result['updated']} записей сна обновлено")
-        
-        if health_result['new'] > 0:
-            success_msgs.append(f"🏃 {health_result['new']} новых записей здоровья")
-        if health_result['updated'] > 0:
-            success_msgs.append(f"🏃 {health_result['updated']} записей здоровья обновлено")
-        
-        if status_result['new'] > 0 or status_result['updated'] > 0:
-            success_msgs.append(f"🎯 Статус тренированности обновлён")
-        
-        # Детальная информация о том, что было найдено/не найдено
-        details = []
-        if len(sleep_data) == 0:
-            details.append("😴 Данные сна: не найдены (возможно, недоступны в Garmin Connect)")
-        if len(daily_health_data) == 0:
-            details.append("🏃 Данные здоровья: не найдены")
-        if len(training_status_data) == 0:
-            details.append("🎯 Статус тренированности: не найден (возможно, требуется Premium подписка Garmin)")
-        
-        # Показываем детали, если есть проблемы
-        if details:
-            st.info("ℹ️ **Информация о данных:**\n" + "\n".join([f"• {detail}" for detail in details]))
-        
-        if success_msgs:
-            st.success("✅ " + " | ".join(success_msgs))
+        for warning in result.warnings:
+            st.error(warning)
+
+        if result.details:
+            st.info("ℹ️ **Информация о данных:**\n" + "\n".join([f"• {detail}" for detail in result.details]))
+
+        if result.success_messages:
+            st.success("✅ " + " | ".join(result.success_messages))
         else:
             st.info("ℹ️ Новых данных не найдено")
-        
-        # Очищаем прогресс через 2 секунды
+
         import time
         time.sleep(2)
-        progress_bar.empty()
-        status_text.empty()
-        
+        progress_container.empty()
+
     except Exception as e:
-        progress_bar.empty()
-        status_text.empty()
+        progress_container.empty()
         st.error(f"❌ Ошибка синхронизации: {e}")
 
 def clear_database():

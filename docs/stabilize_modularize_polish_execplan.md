@@ -22,6 +22,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 13:12+03:00) Continued Iteration 2 with shell cleanup: moved the unauthenticated welcome page into `ui/pages/welcome.py` and the sidebar development tools into `ui/components/development_tools.py`, keeping smoke tests green.
 - [x] (2026-06-06 13:18+03:00) Started data/UI boundary cleanup by removing direct Streamlit rendering from `data/garmin_client.py`, introducing non-UI error state, and covering the contract with a smoke test.
 - [x] (2026-06-06 16:03+03:00) Tightened the Garmin boundary further: removed the leftover `streamlit` import from `data/garth_client.py`, moved Garmin auth/profile/activity/test helpers behind `services/garmin.py`, and kept the expanded smoke suite green.
+- [x] (2026-06-06 16:55+03:00) Moved the Garmin sync pipeline out of `app.py` into `services/sync.py`, kept `sync_data()` as a thin Streamlit wrapper with progress rendering only, and expanded the smoke suite to seven passing tests.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -59,6 +60,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: Once the `last_error` contract existed, the remaining Garmin UI/client coupling shifted mostly into the service wrapper rather than the data clients.
   Evidence: After adding `auth_error()`, `is_authenticated()`, `get_activities_with_error()`, `user_profile_with_error()`, and `test_garth_connection()` to `services/garmin.py`, the Garmin sidebar no longer needed direct access to `state.garmin_client` internals.
+
+- Observation: `sync_data()` could be reduced substantially without losing the current Streamlit progress UX by introducing a service-level progress callback contract.
+  Evidence: The new `services/sync.py` owns activity/HRV/sleep/health/training-status orchestration and emits `SyncProgressUpdate` events, while `app.py` now dropped to 5017 lines and `ai_trainer_env/bin/python -m pytest tests/smoke -q` reports `7 passed`.
 
 ## Decision Log
 
@@ -110,6 +114,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: A slightly richer service wrapper is cheaper and safer than a wide `sync_data()` rewrite. It reduces UI/client coupling immediately and gives the next refactor a cleaner seam.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Extract the Garmin sync pipeline into a dedicated service that emits UI-agnostic progress updates rather than pushing Streamlit progress primitives deeper into the stack.
+  Rationale: The next architectural risk in `app.py` was the large `sync_data()` function, but the user-visible progress behavior still matters. A service-level callback keeps orchestration testable and reusable while leaving the Streamlit widgets in `app.py`.
+  Date/Author: 2026-06-06 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -127,6 +135,8 @@ The latest shell cleanup reinforced that trend. Extracting the welcome page and 
 The first boundary-cleanup slice validated that the transition can be incremental. `data/garmin_client.py` no longer imports Streamlit, the UI now renders Garmin client errors explicitly after consuming client state, and the smoke suite expanded from two to four passing tests. The next logical Iteration 2 slice is to apply the same principle to `data/garth_client.py` or to widen the Garmin service wrapper so fewer UI call sites touch data-client internals directly.
 
 That next slice also held. `data/garth_client.py` is now free of the leftover Streamlit import, the Garmin sidebar talks through `services/garmin.py` instead of poking at client internals for auth/profile/test flows, and the smoke suite expanded again to six passing tests. The Garmin boundary is not fully complete until `sync_data()` is split further, but the layering is now meaningfully cleaner than at the start of Iteration 2.
+
+The next Iteration 2 slice validated the larger extraction strategy too. Moving the Garmin sync orchestration into `services/sync.py` reduced `app.py` further to 5017 lines while keeping the Streamlit progress UI intact through a callback contract. The smoke suite expanded to seven passing tests, which is a useful sign that the orchestration logic is no longer trapped inside an untestable page function.
 
 ## Context and Orientation
 
@@ -280,6 +290,16 @@ The Garmin connection widget should move into a dedicated UI component with a st
 
 `services/garmin.py` should remain the boundary that page code uses for authentication, connection status, and profile access. `services/data_cache.py` should remain the boundary that page code uses for cached read access. `data/garmin_client.py` and `data/garth_client.py` should not import or call Streamlit rendering helpers in the target state.
 
+Garmin synchronization should now also have a dedicated service boundary in `services/sync.py`. The stable orchestration entry point is:
+
+    def sync_garmin_data(
+        state: StateManager,
+        days: int = 30,
+        on_progress: SyncProgressCallback | None = None,
+    ) -> GarminSyncResult:
+
+The progress callback must receive `SyncProgressUpdate` values, which carry `percent`, `message`, optional `step_text`, and optional `stats_message`. This keeps sync orchestration outside Streamlit while preserving the existing progress-bar behavior in `app.py`.
+
 The development dependency story should become explicit. A committed development manifest such as `requirements-dev.txt` should include the runtime requirements plus `pytest`. `pytest.ini` should define at least the markers `live`, `debug`, and `smoke`. The default documented command should target the safe suite, for example:
 
     python -m pytest -m "not live and not debug" tests/
@@ -289,3 +309,5 @@ The AI surface should continue to rely on existing modules rather than new abstr
 Revision Note (2026-06-06 / Codex): Created the initial three-iteration ExecPlan after auditing the repository, launching the app, and reviewing the landing flow and runtime behavior in a live browser session.
 
 Revision Note (2026-06-06 / Codex): Expanded the plan with explicit developer-driven execution guidance so future work uses SpecDD, BDD, TDD, contract-first boundaries, self-review, and minimal-complexity guardrails appropriate to this repository.
+
+Revision Note (2026-06-06 / Codex): Updated the plan after extracting Garmin sync orchestration into `services/sync.py`, documenting the new progress-callback contract and the latest smoke-test evidence.
