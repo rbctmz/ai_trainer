@@ -25,6 +25,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 16:55+03:00) Moved the Garmin sync pipeline out of `app.py` into `services/sync.py`, kept `sync_data()` as a thin Streamlit wrapper with progress rendering only, and expanded the smoke suite to seven passing tests.
 - [x] (2026-06-06 17:07+03:00) Extracted the activities page into `ui/pages/activities.py`, switched page dispatch to the new renderer contract, and expanded the smoke suite to eight passing tests.
 - [x] (2026-06-06 17:21+03:00) Extracted sidebar chat management into `ui/components/chat_management.py`, switched the shell to the new component contract, and expanded the smoke suite to nine passing tests.
+- [x] (2026-06-06 18:16+03:00) Extracted the dashboard bundle into `ui/pages/dashboard.py`, moved status/quick-actions/compact-analytics logic behind a page contract with sync callback, and expanded the smoke suite to ten passing tests.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -71,6 +72,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: Sidebar-specific shell helpers are still worth extracting even when they are smaller than full pages, because they simplify the composition root and preserve the same smoke-contract pattern.
   Evidence: `show_chat_management()` moved into `ui/components/chat_management.py`, `app.py` dropped to 4769 lines, and `ai_trainer_env/bin/python -m pytest tests/smoke -q` reports `9 passed`.
+
+- Observation: The dashboard needed to move as a whole bundle rather than as isolated tiny functions, because status computation, quick actions, and compact analytics all share live state and navigation side effects.
+  Evidence: `ui/pages/dashboard.py` now owns the dashboard renderer plus its helpers and sync callback contract, `app.py` dropped sharply to 4016 lines, and `ai_trainer_env/bin/python -m pytest tests/smoke -q` reports `10 passed`.
 
 ## Decision Log
 
@@ -134,6 +138,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The chat-management sidebar is a nearly isolated shell concern and can be moved behind a simple component contract immediately. That reduces `app.py` and keeps shell cleanup progressing, while the dashboard still deserves a dedicated larger slice.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Move the dashboard as a single page module with an explicit `on_sync` callback instead of leaving status helpers in `app.py`.
+  Rationale: The main value of the dashboard extraction was reducing `app.py` meaningfully, not just shuffling one renderer while leaving its orchestration logic behind. Passing an `on_sync` callback keeps the page independent from `app.py` while preserving the existing sync flow.
+  Date/Author: 2026-06-06 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -157,6 +165,8 @@ The next Iteration 2 slice validated the larger extraction strategy too. Moving 
 The following Iteration 2 slice confirmed that low-risk page-by-page extraction still works after the sync refactor. Moving the activities screen into `ui/pages/activities.py` reduced `app.py` again to 4830 lines, kept the page dispatch simple, and pushed the contributor-safe smoke suite to eight passing tests.
 
 The next Iteration 2 slice reinforced that the remaining shell clutter is still worth attacking directly. Moving chat management into `ui/components/chat_management.py` reduced `app.py` again to 4769 lines and pushed the smoke suite to nine passing tests. The next worthwhile milestone is now the larger dashboard bundle rather than more sidebar trivia.
+
+That dashboard milestone also held. Moving the dashboard, status logic, quick actions, and compact analytics into `ui/pages/dashboard.py` reduced `app.py` to 4016 lines and pushed the smoke suite to ten passing tests. The app shell is now materially thinner, and the remaining large surfaces are more obviously page-sized units rather than shell clutter.
 
 ## Context and Orientation
 
@@ -335,3 +345,5 @@ Revision Note (2026-06-06 / Codex): Updated the plan after extracting Garmin syn
 Revision Note (2026-06-06 / Codex): Updated the plan after moving the activities page into `ui/pages/activities.py`, documenting the reduced `app.py` size and the expanded smoke-suite evidence.
 
 Revision Note (2026-06-06 / Codex): Updated the plan after extracting sidebar chat management into `ui/components/chat_management.py`, documenting the reduced `app.py` size and the expanded smoke-suite evidence.
+
+Revision Note (2026-06-06 / Codex): Updated the plan after extracting the dashboard bundle into `ui/pages/dashboard.py`, documenting the new sync-callback contract, the reduced `app.py` size, and the expanded smoke-suite evidence.
