@@ -376,7 +376,7 @@ def main():
 
     render_garmin_connection(state, render_profile=render_garmin_profile)
 
-    if state.garmin_client.is_authenticated:
+    if garmin_service.is_authenticated(state):
         page = render_primary_navigation(state)
         sidebar_page = render_sidebar_navigation(state, page)
         if sidebar_page != page:
@@ -445,8 +445,11 @@ def sync_data(days=30, state=None):
         end_date = datetime.now()
         start_date = end_date - timedelta(days=days)
         
-        activities = client.get_activities(start_date, end_date)
-        activities_error = client.pop_last_error()
+        activities, activities_error = garmin_service.get_activities_with_error(
+            state,
+            start_date,
+            end_date,
+        )
         if activities_error:
             st.error(activities_error["message"])
         activities_synced = False

@@ -28,9 +28,11 @@ def render_garmin_connection(
     render_profile: Callable[[Dict[str, Any]], None],
 ) -> None:
     """Render the Garmin sidebar connection widget."""
-    client = state.garmin_client
-    with st.sidebar.expander("🔗 Garmin Connect", expanded=not client.is_authenticated):
-        if not client.is_authenticated:
+    connection_info = garmin_service.connection_info(state)
+    authenticated = connection_info.get("authenticated", False)
+
+    with st.sidebar.expander("🔗 Garmin Connect", expanded=not authenticated):
+        if not authenticated:
             st.write("Подключитесь для синхронизации данных:")
             defaults = get_garmin_form_defaults()
             email = st.text_input("Email Garmin", value=defaults["email"], key="garmin_email_input")
@@ -49,7 +51,7 @@ def render_garmin_connection(
                                 st.success("✅ Успешно подключено!")
                                 st.rerun()
                             else:
-                                error = getattr(client, "auth_error", "Неизвестно")
+                                error = garmin_service.auth_error(state) or "Неизвестно"
                                 st.error(f"❌ Ошибка подключения: {error}")
                     else:
                         st.warning("Введите email и пароль")
@@ -63,18 +65,16 @@ def render_garmin_connection(
         else:
             st.info("📡 Используется garminconnect")
 
-        profile = garmin_service.user_profile(state)
+        profile, profile_error = garmin_service.user_profile_with_error(state)
         if profile is not None:
             render_profile(profile)
-        else:
-            profile_error = state.garmin_client.pop_last_error()
-            if profile_error:
-                st.error(profile_error["message"])
+        elif profile_error:
+            st.error(profile_error["message"])
 
         if connection_info.get("garth_available") and connection_info.get("using_garth"):
             if st.button("🔍 Тест garth", help="Проверить расширенные возможности garth"):
                 with st.spinner("Тестирование garth..."):
-                    test_results = client.test_garth_connection()
+                    test_results = garmin_service.test_garth_connection(state)
                     if test_results.get("authenticated"):
                         st.success("✅ Garth работает корректно")
                         with st.expander("📋 Детали garth тестирования"):

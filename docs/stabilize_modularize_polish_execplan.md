@@ -21,6 +21,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 12:58+03:00) Continued Iteration 2 by extracting the Garmin sidebar connection widget into `ui/components/garmin_connection.py`, updating the smoke test import contract, and keeping the modularized shell green.
 - [x] (2026-06-06 13:12+03:00) Continued Iteration 2 with shell cleanup: moved the unauthenticated welcome page into `ui/pages/welcome.py` and the sidebar development tools into `ui/components/development_tools.py`, keeping smoke tests green.
 - [x] (2026-06-06 13:18+03:00) Started data/UI boundary cleanup by removing direct Streamlit rendering from `data/garmin_client.py`, introducing non-UI error state, and covering the contract with a smoke test.
+- [x] (2026-06-06 16:03+03:00) Tightened the Garmin boundary further: removed the leftover `streamlit` import from `data/garth_client.py`, moved Garmin auth/profile/activity/test helpers behind `services/garmin.py`, and kept the expanded smoke suite green.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -55,6 +56,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: Removing `streamlit` from the Garmin data client required an explicit error handoff contract or the UI would silently lose failure messages.
   Evidence: `get_activities()` and `get_user_profile()` previously returned fallback values after calling `st.error(...)`. After replacing those calls with client-side `last_error` state, the UI had to consume and render that state in `sync_data()` and `ui/components/garmin_connection.py`.
+
+- Observation: Once the `last_error` contract existed, the remaining Garmin UI/client coupling shifted mostly into the service wrapper rather than the data clients.
+  Evidence: After adding `auth_error()`, `is_authenticated()`, `get_activities_with_error()`, `user_profile_with_error()`, and `test_garth_connection()` to `services/garmin.py`, the Garmin sidebar no longer needed direct access to `state.garmin_client` internals.
 
 ## Decision Log
 
@@ -102,6 +106,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: It removes direct Streamlit rendering from the data layer without forcing a larger exception-model rewrite across the sync flow. The UI can render errors explicitly while existing return shapes stay stable.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Finish the Garmin boundary by growing `services/garmin.py` before touching the larger sync orchestration function.
+  Rationale: A slightly richer service wrapper is cheaper and safer than a wide `sync_data()` rewrite. It reduces UI/client coupling immediately and gives the next refactor a cleaner seam.
+  Date/Author: 2026-06-06 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -117,6 +125,8 @@ The next Iteration 2 slice confirmed that components can be peeled out independe
 The latest shell cleanup reinforced that trend. Extracting the welcome page and the sidebar development tools reduced `app.py` to 5335 lines while keeping the contributor-safe smoke path green. The next meaningful Iteration 2 step should now shift from shell cleanup to boundary cleanup between `data/*` and Streamlit.
 
 The first boundary-cleanup slice validated that the transition can be incremental. `data/garmin_client.py` no longer imports Streamlit, the UI now renders Garmin client errors explicitly after consuming client state, and the smoke suite expanded from two to four passing tests. The next logical Iteration 2 slice is to apply the same principle to `data/garth_client.py` or to widen the Garmin service wrapper so fewer UI call sites touch data-client internals directly.
+
+That next slice also held. `data/garth_client.py` is now free of the leftover Streamlit import, the Garmin sidebar talks through `services/garmin.py` instead of poking at client internals for auth/profile/test flows, and the smoke suite expanded again to six passing tests. The Garmin boundary is not fully complete until `sync_data()` is split further, but the layering is now meaningfully cleaner than at the start of Iteration 2.
 
 ## Context and Orientation
 
