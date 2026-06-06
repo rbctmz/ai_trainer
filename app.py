@@ -51,14 +51,14 @@ from models.banister import BanisterModel
 from utils.visualizations import Visualizations
 from config.settings import Settings
 from state import StateManager, get_state_manager
-from ui.components import render_garmin_connection
+from ui.components import render_development_tools, render_garmin_connection
 from ui.theme import apply_theme, create_dark_table_html, get_plotly_theme
 from ui.navigation import (
     render_primary_navigation,
     render_sidebar_navigation,
     render_sidebar_utilities,
 )
-from ui.pages import render_data_management_page, render_sync_logs_page
+from ui.pages import render_data_management_page, render_sync_logs_page, render_welcome_page
 from services import garmin as garmin_service
 from services.data_cache import (
     clear_data_caches,
@@ -391,9 +391,7 @@ def main():
 
         st.sidebar.markdown("---")
 
-        with st.sidebar.expander("🧪 Разработка", expanded=False):
-            st.caption("Тестовые функции для демонстрации")
-            add_test_phase1_data()
+        render_development_tools(state)
 
         if page == "📊 Дашборд":
             show_dashboard()
@@ -416,7 +414,9 @@ def main():
                 on_clear_database=clear_database,
             )
     else:
-        show_welcome_screen()
+        render_welcome_page(state)
+
+
 def sync_data(days=30, state=None):
     """Синхронизация данных с Garmin Connect"""
     state = state or get_state_manager()
@@ -814,87 +814,6 @@ def clear_database():
             if st.button("❌ Отмена", type="secondary", key="cancel_clear_btn"):
                 state.confirm_clear = False
                 st.rerun()
-
-
-def add_test_phase1_data():
-    """Добавление тестовых данных Фазы 1 для демонстрации"""
-    state = get_state_manager()
-    database = state.database
-
-    if st.button("🧪 Добавить тестовые данные Фазы 1", type="primary", key="add_test_data_btn"):
-        try:
-            from datetime import datetime, timedelta
-
-            sleep_data: dict[str, dict] = {}
-            health_data: dict[str, dict] = {}
-            status_data: dict[str, dict] = {}
-
-            for i in range(7):
-                date = (datetime.now() - timedelta(days=i)).strftime('%Y-%m-%d')
-
-                sleep_data[date] = {
-                    'total_sleep_minutes': 420 + (i % 2) * 30,
-                    'deep_sleep_minutes': 80 + (i % 3) * 10,
-                    'light_sleep_minutes': 280 + (i % 2) * 20,
-                    'rem_sleep_minutes': 60 + (i % 3) * 10,
-                    'awakenings_count': 1 + (i % 3),
-                    'sleep_score': 75 + (i % 3) * 5,
-                    'bedtime': f"23:{15 + (i % 3) * 15:02d}",
-                    'wakeup_time': f"0{6 + (i % 2)}:{30 + (i % 2) * 15:02d}",
-                    'sleep_efficiency': 88.0 + (i % 3) * 3,
-                }
-
-                health_data[date] = {
-                    'resting_hr': 48 + (i % 4) * 2,
-                    'steps': 8000 + i * 500,
-                    'floors_climbed': 8 + (i % 3) * 2,
-                    'calories_active': 350 + i * 30,
-                    'calories_bmr': 1580,
-                    'distance_meters': 6000 + i * 400,
-                    'active_minutes': 40 + (i % 3) * 10,
-                    'intensity_minutes': 15 + (i % 3) * 5,
-                }
-
-            today = datetime.now().strftime('%Y-%m-%d')
-            status_data[today] = {
-                'vo2_max': 48.5,
-                'fitness_age': 32,
-                'training_load_7d': 285.0,
-                'training_status': 'PRODUCTIVE',
-                'training_readiness': 75.0,
-                'recovery_time_hours': 14,
-                'load_ratio': 1.05,
-            }
-
-            database.save_phase1_data(
-                sleep_data=sleep_data,
-                health_data=health_data,
-                training_status=status_data,
-            )
-
-            st.success("✅ Тестовые данные добавлены")
-            clear_data_caches()
-        except Exception as exc:
-            st.error(f"❌ Ошибка добавления тестовых данных: {exc}")
-
-
-def show_welcome_screen():
-    """Экран приветствия для неподключённых пользователей"""
-    st.markdown("## Добро пожаловать в персональный AI тренер!")
-    st.markdown("")
-    st.markdown("Этот инструмент поможет вам:")
-    st.markdown("- 📊 Анализировать тренировочные данные из Garmin Connect")
-    st.markdown("- 💓 Отслеживать показатели HRV и восстановления")
-    st.markdown("- 📈 Планировать тренировки с помощью модели Банистера")
-    st.markdown("- 🤖 Получать персонализированные рекомендации от AI")
-    st.markdown("")
-    st.markdown("### Для начала работы:")
-    st.markdown("1. Подключитесь к Garmin Connect в боковой панели")
-    st.markdown("2. Синхронизируйте ваши тренировочные данные")
-    st.markdown("3. Начните анализировать и планировать тренировки!")
-    st.markdown("")
-    st.markdown("---")
-    st.markdown("*Требуется аккаунт Garmin Connect с историей тренировок*")
 
 def show_dashboard():
     """Современный дашборд тренировок в стиле AIEndurance"""

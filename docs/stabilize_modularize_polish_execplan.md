@@ -19,6 +19,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 12:11+03:00) Iteration 1 completed: removed Garmin credential prefill from the UI, added an explicit `doctor_env.py` workflow, introduced `requirements-dev.txt`, `pytest.ini`, smoke tests, and verified the landing page plus contributor-safe smoke command.
 - [x] (2026-06-06 12:36+03:00) Started Iteration 2 with a low-risk extraction: moved the sync logs and data-management pages into `ui/pages/admin.py`, delegated page dispatch from `app.py`, and kept smoke tests green.
 - [x] (2026-06-06 12:58+03:00) Continued Iteration 2 by extracting the Garmin sidebar connection widget into `ui/components/garmin_connection.py`, updating the smoke test import contract, and keeping the modularized shell green.
+- [x] (2026-06-06 13:12+03:00) Continued Iteration 2 with shell cleanup: moved the unauthenticated welcome page into `ui/pages/welcome.py` and the sidebar development tools into `ui/components/development_tools.py`, keeping smoke tests green.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -47,6 +48,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The Garmin connection UI can move behind a narrow component contract without moving the Garmin profile renderer at the same time.
   Evidence: `show_garmin_connection()` plus its form-state helpers moved into `ui/components/garmin_connection.py`, while `app.py` kept `render_garmin_profile()` and passed it into the component as a callback.
+
+- Observation: Some remaining `app.py` responsibilities are shell-only and do not need to stay near analytics code.
+  Evidence: The unauthenticated welcome view and the sidebar development expander moved cleanly into `ui/pages/welcome.py` and `ui/components/development_tools.py` without requiring changes to analytics loaders or the Garmin integration path.
 
 ## Decision Log
 
@@ -86,6 +90,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The Garmin connection flow is a top-level UI boundary already called from `main()`. Moving it into `ui/components/` reduces shell clutter and creates a clearer split between the app composition root and reusable sidebar behavior.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Finish the remaining low-risk shell-only extractions before starting data/UI boundary cleanup.
+  Rationale: Welcome rendering and development helpers are easy to isolate, reduce orchestration clutter further, and create a cleaner base before touching `data/garmin_client.py`, which carries higher regression risk.
+  Date/Author: 2026-06-06 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -97,6 +105,8 @@ After completing Iteration 1, that hypothesis held. The landing page no longer e
 The first Iteration 2 extraction also validated the chosen approach. Moving two admin-facing pages into `ui/pages/admin.py` reduced `app.py` from 5679 to 5490 lines without changing the user-facing flow or breaking the smoke suite. That supports continuing with page-by-page extraction rather than attempting a broad cutover.
 
 The next Iteration 2 slice confirmed that components can be peeled out independently of full page moves. Extracting the Garmin sidebar into `ui/components/garmin_connection.py` reduced `app.py` further to 5418 lines, preserved the smoke suite, and clarified that some UI boundaries are component-shaped rather than page-shaped.
+
+The latest shell cleanup reinforced that trend. Extracting the welcome page and the sidebar development tools reduced `app.py` to 5335 lines while keeping the contributor-safe smoke path green. The next meaningful Iteration 2 step should now shift from shell cleanup to boundary cleanup between `data/*` and Streamlit.
 
 ## Context and Orientation
 
