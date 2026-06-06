@@ -66,6 +66,10 @@ def render_garmin_connection(
         profile = garmin_service.user_profile(state)
         if profile is not None:
             render_profile(profile)
+        else:
+            profile_error = state.garmin_client.pop_last_error()
+            if profile_error:
+                st.error(profile_error["message"])
 
         if connection_info.get("garth_available") and connection_info.get("using_garth"):
             if st.button("🔍 Тест garth", help="Проверить расширенные возможности garth"):

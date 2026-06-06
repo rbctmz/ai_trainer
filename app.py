@@ -446,6 +446,9 @@ def sync_data(days=30, state=None):
         start_date = end_date - timedelta(days=days)
         
         activities = client.get_activities(start_date, end_date)
+        activities_error = client.pop_last_error()
+        if activities_error:
+            st.error(activities_error["message"])
         activities_synced = False
         
         progress_bar.progress(30, text="Шаг 2/5: Обработка активностей...")

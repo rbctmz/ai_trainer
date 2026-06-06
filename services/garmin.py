@@ -31,10 +31,9 @@ def connection_info(state: StateManager) -> Dict[str, Any]:
     return client.get_connection_info() or {}
 
 
-def user_profile(state: StateManager) -> Dict[str, Any]:
+def user_profile(state: StateManager) -> Dict[str, Any] | None:
     """Return the Garmin user profile if available."""
     client = get_client(state)
-    profile = client.get_user_profile() or {}
-    return profile
+    return client.get_user_profile()
 
 __all__ = ['get_client', 'authenticate', 'disconnect', 'connection_info', 'user_profile']

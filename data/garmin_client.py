@@ -1,7 +1,6 @@
 from garminconnect import Garmin
 from datetime import datetime, timedelta
 import pandas as pd
-import streamlit as st
 import sys
 import os
 
@@ -36,7 +35,26 @@ class GarminClient:
         self.garth_client = GarthClient() if GARTH_AVAILABLE else None
         self.is_authenticated = False
         self.auth_error = None
+        self.last_error = None
         self.use_garth = False
+
+    def _clear_last_error(self):
+        """Очищает последнюю не-UI ошибку клиента."""
+        self.last_error = None
+
+    def _remember_error(self, context, message):
+        """Сохраняет ошибку для последующей отрисовки в UI-слое."""
+        self.last_error = {
+            "context": context,
+            "message": message,
+        }
+        garmin_logger.error(f"{context}: {message}")
+
+    def pop_last_error(self):
+        """Возвращает и очищает последнюю ошибку клиента."""
+        error = self.last_error
+        self.last_error = None
+        return error
     
     def authenticate(self, email, password):
         """Аутентификация в Garmin Connect с поддержкой garth"""
@@ -46,6 +64,7 @@ class GarminClient:
                 if self.garth_client.authenticate(email, password):
                     self.is_authenticated = True
                     self.auth_error = None
+                    self._clear_last_error()
                     self.use_garth = True
                     print("DEBUG: Авторизация через garth успешна")
                     return True
@@ -58,6 +77,7 @@ class GarminClient:
             self.client.login()
             self.is_authenticated = True
             self.auth_error = None
+            self._clear_last_error()
             self.use_garth = False
             print("DEBUG: Авторизация через garminconnect успешна")
             return True
@@ -88,6 +108,7 @@ class GarminClient:
                     }
                 )
                 if activities and isinstance(activities, list):
+                    self._clear_last_error()
                     print(f"DEBUG: Получено {len(activities)} активностей через garth")
                     return activities[:limit]
                 else:
@@ -103,12 +124,13 @@ class GarminClient:
                     end_date.strftime("%Y-%m-%d"),
                     activitytype=None
                 )
+                self._clear_last_error()
                 return activities[:limit] if activities else []
             except Exception as e:
-                st.error(f"Ошибка получения активностей: {e}")
+                self._remember_error("activities", f"Ошибка получения активностей: {e}")
                 return []
-        
-        st.error("Нет доступного клиента для получения активностей")
+
+        self._remember_error("activities", "Нет доступного клиента для получения активностей")
         return []
     
     def get_activity_details(self, activity_id):
@@ -122,6 +144,7 @@ class GarminClient:
                 import garth
                 activity_details = garth.connectapi(f"/activity-service/activity/{activity_id}")
                 if activity_details:
+                    self._clear_last_error()
                     print(f"DEBUG: Детали активности {activity_id} получены через garth")
                     return activity_details
             except Exception as e:
@@ -130,12 +153,14 @@ class GarminClient:
         # Используем стандартный garminconnect клиент
         if self.client:
             try:
-                return self.client.get_activity_by_id(activity_id)
+                activity_details = self.client.get_activity_by_id(activity_id)
+                self._clear_last_error()
+                return activity_details
             except Exception as e:
-                st.error(f"Ошибка получения деталей активности: {e}")
+                self._remember_error("activity_details", f"Ошибка получения деталей активности: {e}")
                 return None
-        
-        st.error("Нет доступного клиента для получения деталей активности")
+
+        self._remember_error("activity_details", "Нет доступного клиента для получения деталей активности")
         return None
     
     def get_hrv_data(self, date):
@@ -229,14 +254,17 @@ class GarminClient:
         if self.use_garth and self.garth_client:
             profile = self.garth_client.get_user_profile()
             if profile:
+                self._clear_last_error()
                 return profile
         
         # Используем стандартный garminconnect клиент
         if self.client:
             try:
-                return self.client.get_user_profile()
+                profile = self.client.get_user_profile()
+                self._clear_last_error()
+                return profile
             except Exception as e:
-                st.error(f"Ошибка получения профиля: {e}")
+                self._remember_error("user_profile", f"Ошибка получения профиля: {e}")
                 return None
         
         return None
@@ -259,6 +287,7 @@ class GarminClient:
             self.garth_client.disconnect()
         self.is_authenticated = False
         self.auth_error = None
+        self._clear_last_error()
         self.use_garth = False
     
     # =================== НОВЫЕ МЕТОДЫ ФАЗА 1 ===================
@@ -469,5 +498,6 @@ class GarminClient:
             "authenticated": self.is_authenticated,
             "using_garth": self.use_garth,
             "garth_available": GARTH_AVAILABLE,
-            "auth_error": self.auth_error
+            "auth_error": self.auth_error,
+            "last_error": self.last_error,
         }
