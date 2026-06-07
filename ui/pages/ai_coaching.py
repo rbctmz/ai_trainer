@@ -10,6 +10,20 @@ from config.settings import Settings
 from state import StateManager, get_state_manager
 
 
+def _render_hidden_api_key_input(label: str, field_key: str, env_value: Optional[str]) -> str:
+    """Render a secret input without pre-filling the underlying environment value."""
+    typed_value = st.text_input(
+        label,
+        value="",
+        type="password",
+        key=field_key,
+        placeholder="Введите ключ только если хотите переопределить значение из .env",
+    )
+    if env_value and not typed_value:
+        st.caption("API key из `.env` скрыт в интерфейсе и будет использован автоматически, если поле оставить пустым.")
+    return typed_value or env_value or ""
+
+
 def render_ai_coaching_page(state: StateManager) -> None:
     """Render the AI coaching page with provider selection and chat."""
     st.header("🤖 AI Коучинг")
@@ -56,7 +70,11 @@ def render_ai_coaching_page(state: StateManager) -> None:
                 return []
 
         if selected_provider == "openai":
-            api_key = st.text_input("API Key:", value=Settings.OPENAI_API_KEY or "", type="password")
+            api_key = _render_hidden_api_key_input(
+                "API Key:",
+                "openai_api_key_override",
+                Settings.OPENAI_API_KEY,
+            )
             if api_key:
                 with st.spinner("Загрузка списка моделей OpenAI..."):
                     available_models = get_models_for_provider("openai", api_key=api_key)
@@ -81,7 +99,11 @@ def render_ai_coaching_page(state: StateManager) -> None:
             provider_kwargs = {"api_key": api_key, "model": model}
 
         elif selected_provider == "anthropic":
-            api_key = st.text_input("API Key:", value=Settings.ANTHROPIC_API_KEY or "", type="password")
+            api_key = _render_hidden_api_key_input(
+                "API Key:",
+                "anthropic_api_key_override",
+                Settings.ANTHROPIC_API_KEY,
+            )
             available_models = [
                 "claude-3-haiku-20240307",
                 "claude-3-sonnet-20240229",
@@ -103,7 +125,11 @@ def render_ai_coaching_page(state: StateManager) -> None:
             provider_kwargs = {"api_key": api_key, "model": model}
 
         elif selected_provider == "google":
-            api_key = st.text_input("API Key:", value=Settings.GOOGLE_API_KEY or "", type="password")
+            api_key = _render_hidden_api_key_input(
+                "API Key:",
+                "google_api_key_override",
+                Settings.GOOGLE_API_KEY,
+            )
             available_models = [
                 "models/gemini-2.5-flash",
                 "models/gemini-2.0-flash-exp",

@@ -35,6 +35,7 @@ class StateManager:
 
     _PRIMITIVE_DEFAULTS: Dict[str, Any] = {
         "dark_mode": False,
+        "demo_mode": False,
         "selected_page": "📊 Дашборд",
         "confirm_clear": False,
         "context_loaded": False,
@@ -181,6 +182,14 @@ class StateManager:
         self._session["use_custom_theme"] = bool(value)
 
     @property
+    def demo_mode(self) -> bool:
+        return bool(self._session.get("demo_mode", False))
+
+    @demo_mode.setter
+    def demo_mode(self, value: bool) -> None:
+        self._session["demo_mode"] = bool(value)
+
+    @property
     def current_chat_id(self):
         return self._session.get("current_chat_id")
 
@@ -274,6 +283,7 @@ class StateManager:
 
         integrations_state = IntegrationState(
             garmin_authenticated=getattr(self.garmin_client, "is_authenticated", False),
+            demo_mode=self.demo_mode,
             last_sync_status=self._session.get("last_sync_status"),
             syncing_in_progress=self._session.get("syncing_in_progress", False),
         )

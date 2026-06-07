@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from services import demo_mode as demo_mode_service
 from services.data_cache import load_activities, load_hrv, load_sleep
 from state import StateManager
 from ui.theme import get_plotly_theme
@@ -73,10 +74,13 @@ def render_dashboard_page(
 
     activities_df = load_activities(30)
     if activities_df.empty:
-        _render_empty_dashboard_state(database, on_sync)
+        _render_empty_dashboard_state(state, on_sync)
         return
 
     st.title("🏃‍♂️ Статус тренировок")
+
+    if demo_mode_service.is_demo_mode(state):
+        st.info("🎮 Вы просматриваете демо-режим. Подключите Garmin, чтобы заменить sample data реальными тренировками и синхронизацией.")
 
     current_status = _calculate_current_status()
     latest_training_status = _get_latest_training_status(database)
@@ -233,7 +237,7 @@ def render_dashboard_page(
     _render_compact_analytics(activities_df, latest_training_status)
 
 
-def _render_empty_dashboard_state(database: Any, on_sync: Callable[[int], None]) -> None:
+def _render_empty_dashboard_state(state: StateManager, on_sync: Callable[[int], None]) -> None:
     st.info("👋 Добро пожаловать в AI Trainer!")
 
     col1, col2 = st.columns(2)
@@ -258,43 +262,16 @@ def _render_empty_dashboard_state(database: Any, on_sync: Callable[[int], None])
         st.markdown("- 🤖 Персональные рекомендации AI")
         st.markdown("- 📈 Планирование тренировок")
 
-        if st.button("🎮 Загрузить демо-данные", use_container_width=True):
-            from data.data_processor_phase1 import Phase1DataProcessor
-
-            sleep_data = {}
-            health_data = {}
-
-            for i in range(7):
-                date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-                base_quality = 75 + (i % 3) * 5
-                sleep_data[date] = {
-                    "total_sleep_minutes": 420 + (i % 2) * 30,
-                    "deep_sleep_minutes": 80 + (i % 3) * 10,
-                    "light_sleep_minutes": 280 + (i % 2) * 20,
-                    "rem_sleep_minutes": 60 + (i % 3) * 10,
-                    "awakenings_count": 1 + (i % 3),
-                    "sleep_score": base_quality + (i % 2) * 5,
-                }
-                health_data[date] = {
-                    "resting_hr": 48 + (i % 4) * 2,
-                    "steps": 8000 + i * 500,
-                }
-
-            processor = Phase1DataProcessor(database)
-            processed_sleep = processor.process_sleep_data(sleep_data)
-            processed_health = processor.process_health_data(health_data)
-
-            database.save_phase1_data(
-                sleep_data=processed_sleep,
-                health_data=processed_health,
-                training_status={},
+        if st.button("🎮 Запустить демо-режим", use_container_width=True):
+            result = demo_mode_service.activate_demo_mode(state)
+            st.success(
+                "✅ Демо-режим активирован: "
+                f"{result['activities']} активностей и sample metrics для dashboard."
             )
-
-            st.success("✅ Демо-данные загружены!")
             st.rerun()
 
     st.markdown("---")
-    st.caption("💡 **Совет:** Начните с синхронизации последних 30 дней тренировок или попробуйте демо-данные")
+    st.caption("💡 **Совет:** Синхронизируйте последние 30 дней тренировок или временно откройте продукт на sample dataset.")
 
 
 def _calculate_current_status() -> dict[str, Any]:

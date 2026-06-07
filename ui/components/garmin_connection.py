@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict
 import streamlit as st
 
 from config.settings import Settings
-from services import garmin as garmin_service
+from services import demo_mode as demo_mode_service, garmin as garmin_service
 
 if TYPE_CHECKING:
     from state import StateManager
@@ -30,8 +30,18 @@ def render_garmin_connection(
     """Render the Garmin sidebar connection widget."""
     connection_info = garmin_service.connection_info(state)
     authenticated = connection_info.get("authenticated", False)
+    demo_mode = demo_mode_service.is_demo_mode(state)
 
     with st.sidebar.expander("🔗 Garmin Connect", expanded=not authenticated):
+        if demo_mode and not authenticated:
+            st.info("🎮 Демо-режим активен")
+            st.caption("Сейчас приложение работает на временном sample dataset. Подключение Garmin отключит демо-режим и очистит временные данные.")
+            if st.button("🚪 Выйти из демо-режима", use_container_width=True, key="exit_demo_mode_btn"):
+                demo_mode_service.deactivate_demo_mode(state)
+                _clear_form_state()
+                st.rerun()
+            st.markdown("---")
+
         if not authenticated:
             st.write("Подключитесь для синхронизации данных:")
             defaults = get_garmin_form_defaults()
@@ -47,6 +57,8 @@ def render_garmin_connection(
                     if email and password:
                         with st.spinner("Подключение к Garmin Connect..."):
                             if garmin_service.authenticate(state, email, password):
+                                if demo_mode:
+                                    demo_mode_service.deactivate_demo_mode(state)
                                 _clear_form_state()
                                 st.success("✅ Успешно подключено!")
                                 st.rerun()

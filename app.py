@@ -1,6 +1,7 @@
 import streamlit as st
 from typing import Any, Dict
 
+from config.settings import Settings
 from state import get_state_manager
 from ui.components import render_chat_management, render_development_tools, render_garmin_connection
 from ui.theme import apply_theme
@@ -25,7 +26,7 @@ from ui.pages.ai_coaching import (
     format_tool_result,
     simulate_streaming_response,
 )
-from services import garmin as garmin_service, sync as sync_service
+from services import demo_mode as demo_mode_service, garmin as garmin_service, sync as sync_service
 
 st.set_page_config(
     page_title="AI Trainer",
@@ -108,7 +109,7 @@ def main():
 
     render_garmin_connection(state, render_profile=render_garmin_profile)
 
-    if garmin_service.is_authenticated(state):
+    if garmin_service.is_authenticated(state) or demo_mode_service.is_demo_mode(state):
         page = render_primary_navigation(state)
         sidebar_page = render_sidebar_navigation(state, page)
         if sidebar_page != page:
@@ -121,9 +122,9 @@ def main():
         _ = state.chat_manager  # Ensure chat manager initialised
         render_chat_management(state)
 
-        st.sidebar.markdown("---")
-
-        render_development_tools(state)
+        if Settings.SHOW_DEVELOPMENT_TOOLS:
+            st.sidebar.markdown("---")
+            render_development_tools(state)
 
         if page == "📊 Дашборд":
             render_dashboard_page(state, on_sync=lambda days: sync_data(days=days, state=state))
@@ -152,6 +153,13 @@ def main():
 def sync_data(days=30, state=None):
     """Синхронизация данных с Garmin Connect"""
     state = state or get_state_manager()
+
+    if demo_mode_service.is_demo_mode(state) and not garmin_service.is_authenticated(state):
+        st.info("🎮 Демо-режим использует временный локальный набор данных. Подключите Garmin, чтобы заменить демо-данные реальной синхронизацией.")
+        return
+
+    if demo_mode_service.is_demo_mode(state) and garmin_service.is_authenticated(state):
+        demo_mode_service.deactivate_demo_mode(state)
 
     if not garmin_service.is_authenticated(state):
         st.error("Не подключен к Garmin Connect")

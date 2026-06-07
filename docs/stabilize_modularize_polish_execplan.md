@@ -31,6 +31,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-07 09:39+03:00) Extracted the sleep analysis page into `ui/pages/sleep.py`, switched page dispatch/export contracts, reduced `app.py` to 870 lines, and expanded the smoke suite to thirteen passing tests.
 - [x] (2026-06-07 09:52+03:00) Extracted the planning page into `ui/pages/planning.py`, reduced `app.py` to 233 lines, and expanded the smoke suite to fourteen passing tests.
 - [x] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
+- [x] (2026-06-07 11:08+03:00) Completed the first Iteration 3 polish slice: added an official demo onboarding path, hid development tools behind `SHOW_DEVELOPMENT_TOOLS`, kept demo data isolated from real Garmin sync, and prevented AI provider API keys from being rendered back into the UI while preserving `.env` fallback behavior.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
 ## Surprises & Discoveries
@@ -91,6 +92,12 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The planning page was the last product-sized surface in `app.py`; once it moved, the remaining file became a true Streamlit shell plus a small number of orchestration helpers.
   Evidence: `show_planning()` moved into `ui/pages/planning.py`, `app.py` dropped to 233 lines, and the contributor-safe smoke suite increased to fourteen passing tests.
+
+- Observation: The first-run product flow still lacked a real demo path even after Iteration 2, because the empty dashboard's old demo button seeded only partial sample data and did not unblock the main dashboard journey.
+  Evidence: The live welcome/dashboard audit showed that the product had no official entry path for "just explore the app," while the previous `Phase1DataProcessor` button on the empty dashboard left `activities_df` empty and therefore could not advance the user into the normal dashboard state.
+
+- Observation: API secrets were still being rendered back into the UI on the AI coaching page even after Garmin credential prefill had been removed elsewhere.
+  Evidence: A live browser verification on the Iteration 3 slice showed the OpenAI password field exposing the stored API key value in the sidebar. The source confirmed `st.text_input(..., value=Settings.OPENAI_API_KEY or "", type="password")` and equivalent patterns for Anthropic and Google.
 
 ## Decision Log
 
@@ -174,6 +181,14 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The architectural milestone was to remove page ownership from `app.py`, not to redesign planning behavior. Moving the page as-is behind a stable renderer contract closes the modularization phase with lower risk than a combined extraction-plus-feature refactor.
   Date/Author: 2026-06-07 / Codex
 
+- Decision: Make demo mode an explicit first-run product path owned by a dedicated service rather than a hidden development helper or partial sample-data button.
+  Rationale: Iteration 3 needs a coherent path from entry to insight even when a user does not want to authenticate with Garmin. A dedicated `services/demo_mode.py` makes that path deliberate, isolates demo data from real sync, and gives the UI a stable contract for entering and leaving demo mode.
+  Date/Author: 2026-06-07 / Codex
+
+- Decision: Hide environment-backed AI API keys in the UI while still allowing `.env` values to power provider setup when the input is left blank.
+  Rationale: The user should never see stored secrets rendered back into a form. At the same time, removing `.env` fallback entirely would regress the existing local workflow for configured contributors. The safer contract is an empty password field plus an explicit caption explaining that `.env` will be used implicitly unless the user overrides it.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -207,6 +222,8 @@ The following slice confirmed that the remaining analytics pages can still be pe
 The next slice held the same pattern. Moving sleep analysis into `ui/pages/sleep.py` reduced `app.py` again to 870 lines and pushed the contributor-safe smoke suite to thirteen passing tests. At this point, the remaining product-sized surface in `app.py` is mainly planning, while the rest of the file is much closer to a true Streamlit shell.
 
 The final Iteration 2 slice completed the modularization goal. Moving planning into `ui/pages/planning.py` reduced `app.py` to 233 lines and pushed the contributor-safe smoke suite to fourteen passing tests. At this point, `app.py` is substantially a composition root: page config, theme bootstrap, Garmin auth gate, navigation, dispatch, and a few orchestration callbacks.
+
+The first Iteration 3 slice validated the next phase of the roadmap. A user can now choose between Garmin onboarding and an explicit demo mode directly from the welcome screen, reach a populated dashboard without guessing, move on to AI coaching from that state, and leave demo mode cleanly without mixing sample data into real sync. The same slice also exposed and fixed a second secret-rendering problem on the AI settings page, where stored provider API keys were still being shown in password inputs. The smoke suite expanded to eighteen passing tests, and live browser verification confirmed the intended flow without the earlier `Settings` runtime failure.
 
 ## Context and Orientation
 

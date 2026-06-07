@@ -51,3 +51,6 @@ class Settings:
 
     # Garmin FIT SDK (опционально) — путь к FitCSVTool.jar для сборки .fit из CSV
     FIT_SDK_JAR = os.getenv("FIT_SDK_JAR", "")
+
+    # Developer-only controls in the main product shell
+    SHOW_DEVELOPMENT_TOOLS = os.getenv("SHOW_DEVELOPMENT_TOOLS", "0") == "1"
