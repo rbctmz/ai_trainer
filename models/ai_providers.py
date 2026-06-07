@@ -233,6 +233,94 @@ class AnthropicProvider(AIProvider):
         ]
 
 
+class DeepSeekProvider(AIProvider):
+    """Провайдер DeepSeek через OpenAI-совместимый API."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        settings: Type[Settings] = Settings,
+    ) -> None:
+        self.settings = settings
+        self.api_key = api_key or settings.DEEPSEEK_API_KEY
+        self.model = model or settings.DEEPSEEK_MODEL
+        self.base_url = base_url or settings.DEEPSEEK_BASE_URL
+        self.client = None
+
+        if self.api_key:
+            try:
+                from openai import OpenAI
+                self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            except ImportError:
+                print("OpenAI библиотека не установлена")
+            except Exception as e:
+                print(f"Ошибка инициализации DeepSeek: {e}")
+
+    def generate_response(self, prompt: str, system_prompt: str = "") -> str:
+        if not self.client:
+            return "DeepSeek провайдер не настроен"
+
+        try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.7,
+            )
+
+            return response.choices[0].message.content
+
+        except Exception as e:
+            return f"Ошибка DeepSeek: {e}"
+
+    def is_available(self) -> bool:
+        return self.client is not None and self.api_key is not None
+
+    def get_model_name(self) -> str:
+        return f"DeepSeek {self.model}"
+
+    def test_connection(self) -> Dict[str, any]:
+        if not self.client:
+            return {
+                'success': False,
+                'error': 'Клиент не инициализирован. Проверьте API ключ.'
+            }
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": "Test"}],
+                max_tokens=5,
+            )
+            return {
+                'success': True,
+                'message': 'Подключение успешно',
+                'model': self.model,
+                'base_url': self.base_url,
+                'response_length': len(response.choices[0].message.content),
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Ошибка подключения: {str(e)}'
+            }
+
+    def get_available_models(self) -> List[str]:
+        return [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "deepseek-chat",
+            "deepseek-reasoner",
+        ]
+
+
 class GoogleGeminiProvider(AIProvider):
     """Провайдер Google Gemini с поддержкой новых моделей"""
     
@@ -463,7 +551,7 @@ class AIProviderFactory:
         Создать провайдер по типу
         
         Args:
-            provider_type: 'openai', 'anthropic', 'google', 'ollama'
+            provider_type: 'openai', 'anthropic', 'deepseek', 'google', 'ollama'
             **kwargs: параметры для конкретного провайдера
         """
         # Динамический импорт Mock провайдера
@@ -475,6 +563,7 @@ class AIProviderFactory:
         providers = {
             'openai': OpenAIProvider,
             'anthropic': AnthropicProvider,
+            'deepseek': DeepSeekProvider,
             'google': GoogleGeminiProvider,
             'ollama': OllamaProvider
         }
@@ -507,6 +596,7 @@ class AIProviderFactory:
         providers = {
             'OpenAI': OpenAIProvider(),
             'Anthropic': AnthropicProvider(),
+            'DeepSeek': DeepSeekProvider(),
             'Google Gemini': AIProviderFactory._google_probe_provider(),
             'Ollama': OllamaProvider(host=Settings.OLLAMA_HOST, model=Settings.OLLAMA_MODEL)
         }
@@ -529,10 +619,11 @@ class AIProviderFactory:
         except ImportError:
             mock_available = False
         
-        # Приоритет: OpenAI -> Anthropic -> Google -> Ollama -> Mock
+        # Приоритет: OpenAI -> Anthropic -> DeepSeek -> Google -> Ollama -> Mock
         providers = [
             OpenAIProvider(),
-            AnthropicProvider(), 
+            AnthropicProvider(),
+            DeepSeekProvider(),
             AIProviderFactory._google_probe_provider(),
             OllamaProvider(host=Settings.OLLAMA_HOST, model=Settings.OLLAMA_MODEL)
         ]

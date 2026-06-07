@@ -39,6 +39,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-07 16:36+03:00) Completed the sixth Iteration 3 polish slice: replaced runtime `use_container_width` calls in the active UI shell with the current `width="stretch"` contract, removed the repeated Streamlit deprecation noise from the core demo flow, and isolated the remaining startup noise to the separate Gemini/grpc issue.
 - [x] (2026-06-07 16:56+03:00) Completed the seventh Iteration 3 polish slice: made Google Gemini availability probes silent during ordinary startup and AI page rendering, preserved explicit Gemini error reporting for real use, and removed the repeated `grpc.StatusCode` initialization noise from the normal core flow.
 - [x] (2026-06-07 17:14+03:00) Completed the eighth Iteration 3 polish slice: turned real Garmin sync into a stateful dashboard handoff by persisting a structured sync outcome, redirecting successful syncs back to the dashboard, and surfacing one obvious follow-up CTA instead of leaving the result as a transient progress-only message.
+- [x] (2026-06-08 00:18+03:00) Completed a provider polish slice: wired DeepSeek into settings/UI, then fixed demo-mode provider switching so manual selection of a real provider clears stale `Mock AI`, auto-connects the selected real provider on demo data when configured, and allows the browser-verified `demo data -> DeepSeek -> real AI answer` path.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
 ## Surprises & Discoveries
@@ -126,6 +127,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: A successful Garmin sync still behaved like an ephemeral modal step rather than a handoff into the main product flow.
   Evidence: `app.py` rendered success and warning messages directly inside `sync_data()`, then cleared the progress container without preserving the result in session state. On the next dashboard render there was no durable indication of what changed or what the user should do next.
+
+- Observation: Demo mode could show a manually selected real provider in the sidebar while the chat still answered through `Mock AI`.
+  Evidence: A live browser run selected `DeepSeek` on the AI coaching page and showed the expected `.env`-backed endpoint/model fields, but the first response still came from the canned `Mock AI` path. The root cause was stale demo provider state surviving manual provider selection until the page explicitly cleared or replaced the existing `ai_coach`.
 
 ## Decision Log
 
@@ -219,6 +223,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Decision: Treat `Mock AI` as the official AI provider for demo mode and auto-connect it instead of asking first-run users to configure a real provider manually.
   Rationale: The roadmap goal is not merely to show the AI screen; it is to let a first-run user actually get to an answer. Since `Mock AI` already exists in the codebase and does not require secrets, using it as the demo default is the lowest-risk way to complete the onboarding-to-insight path.
+  Rationale: Demo mode must work without external API setup, so `Mock AI` remains the default. But manual provider switching must take precedence and clear any stale demo provider state, otherwise the UI can claim one provider while the chat still uses another.
   Date/Author: 2026-06-07 / Codex
 
 - Decision: Auto-connect only real non-mock AI providers on the standard path, but only when they are already available through existing configuration.

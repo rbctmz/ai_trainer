@@ -10,7 +10,15 @@ from config.settings import Settings
 from services import demo_mode as demo_mode_service
 from state import StateManager, get_state_manager
 
-REAL_PROVIDER_TYPES = ("openai", "anthropic", "google", "ollama")
+REAL_PROVIDER_TYPES = ("openai", "anthropic", "deepseek", "google", "ollama")
+PROVIDER_CLASS_NAMES = {
+    "openai": "OpenAIProvider",
+    "anthropic": "AnthropicProvider",
+    "deepseek": "DeepSeekProvider",
+    "google": "GoogleGeminiProvider",
+    "ollama": "OllamaProvider",
+    "mock": "MockAIProvider",
+}
 
 
 def _render_hidden_api_key_input(label: str, field_key: str, env_value: Optional[str]) -> str:
@@ -31,6 +39,7 @@ def _build_provider_options(demo_mode: bool) -> Dict[str, str]:
     provider_options = {
         "OpenAI (GPT)": "openai",
         "Anthropic (Claude)": "anthropic",
+        "DeepSeek": "deepseek",
         "Google (Gemini)": "google",
         "Ollama (Локально)": "ollama",
         "Mock AI (Demo)": "mock",
@@ -41,6 +50,7 @@ def _build_provider_options(demo_mode: bool) -> Dict[str, str]:
         "Mock AI (Demo)": "mock",
         "OpenAI (GPT)": "openai",
         "Anthropic (Claude)": "anthropic",
+        "DeepSeek": "deepseek",
         "Google (Gemini)": "google",
         "Ollama (Локально)": "ollama",
     }
@@ -84,6 +94,45 @@ def _ensure_demo_ai_coach(
     return True
 
 
+def _provider_matches_selection(state: StateManager, provider_type: str) -> bool:
+    """Return whether the current ai_coach provider matches the selected provider type."""
+    provider = getattr(getattr(state, "ai_coach", None), "provider", None)
+    if provider is None:
+        return False
+    return provider.__class__.__name__ == PROVIDER_CLASS_NAMES.get(provider_type)
+
+
+def _sync_provider_selection(state: StateManager, provider_type: str) -> bool:
+    """Persist manual provider selection and clear stale providers when it changes."""
+    selection_changed = getattr(state, "selected_provider", None) != provider_type
+    state.selected_provider = provider_type
+
+    if not selection_changed:
+        return False
+
+    if not _provider_matches_selection(state, provider_type):
+        state.ai_coach = None
+
+    return True
+
+
+def _connect_provider(
+    state: StateManager,
+    coach_class: Any,
+    provider_factory: Any,
+    provider_type: str,
+    provider_kwargs: Dict[str, Any],
+) -> Optional[str]:
+    """Create and store a provider-backed coach when the provider is available."""
+    provider = provider_factory.create_provider(provider_type, **provider_kwargs)
+    if not provider.is_available():
+        return None
+
+    state.ai_coach = coach_class(provider)
+    state.selected_provider = provider_type
+    return provider.get_model_name()
+
+
 def _default_provider_kwargs(provider_type: str) -> Dict[str, Any]:
     if provider_type == "ollama":
         return {
@@ -98,25 +147,32 @@ def _ensure_real_ai_coach(
     coach_class: Any,
     provider_factory: Any,
 ) -> Optional[str]:
-    if demo_mode_service.is_demo_mode(state):
+    preferred = state.selected_provider if state.selected_provider in REAL_PROVIDER_TYPES else None
+    demo_mode = demo_mode_service.is_demo_mode(state)
+
+    if demo_mode and preferred is None:
         return None
 
     current_provider = getattr(getattr(state, "ai_coach", None), "provider", None)
-    if current_provider is not None and current_provider.__class__.__name__ != "MockAIProvider":
+    if preferred and current_provider is not None and _provider_matches_selection(state, preferred):
         return None
 
-    preferred = state.selected_provider if state.selected_provider in REAL_PROVIDER_TYPES else Settings.DEFAULT_AI_PROVIDER
-    ordered_types = [preferred] + [provider_type for provider_type in REAL_PROVIDER_TYPES if provider_type != preferred]
+    if demo_mode:
+        ordered_types = [preferred]
+    else:
+        preferred = preferred or Settings.DEFAULT_AI_PROVIDER
+        ordered_types = [preferred] + [provider_type for provider_type in REAL_PROVIDER_TYPES if provider_type != preferred]
 
     for provider_type in ordered_types:
-        provider = provider_factory.create_provider(
+        connected_model = _connect_provider(
+            state,
+            coach_class,
+            provider_factory,
             provider_type,
-            **_default_provider_kwargs(provider_type),
+            _default_provider_kwargs(provider_type),
         )
-        if provider.is_available():
-            state.ai_coach = coach_class(provider)
-            state.selected_provider = provider_type
-            return provider.get_model_name()
+        if connected_model:
+            return connected_model
 
     return None
 
@@ -213,6 +269,7 @@ def render_ai_coaching_page(state: StateManager) -> None:
     )
     _ensure_demo_ai_coach(state, UniversalAICoach, AIProviderFactory)
     auto_connected_model = _ensure_real_ai_coach(state, UniversalAICoach, AIProviderFactory)
+    selection_auto_connected_model: Optional[str] = None
 
     with st.sidebar.expander("⚙️ Настройки AI", expanded=True):
         st.subheader("Выбор AI провайдера")
@@ -229,6 +286,7 @@ def render_ai_coaching_page(state: StateManager) -> None:
             index=list(provider_options.values()).index(state.selected_provider),
         )
         selected_provider = provider_options[selected_name]
+        provider_selection_changed = _sync_provider_selection(state, selected_provider)
 
         provider_kwargs = {}
 
@@ -295,6 +353,37 @@ def render_ai_coaching_page(state: StateManager) -> None:
             )
             provider_kwargs = {"api_key": api_key, "model": model}
 
+        elif selected_provider == "deepseek":
+            api_key = _render_hidden_api_key_input(
+                "API Key:",
+                "deepseek_api_key_override",
+                Settings.DEEPSEEK_API_KEY,
+            )
+            base_url = st.text_input(
+                "Base URL:",
+                value=Settings.DEEPSEEK_BASE_URL,
+                help="Оставьте стандартный DeepSeek endpoint, если не используете прокси.",
+            )
+            available_models = [
+                "deepseek-v4-flash",
+                "deepseek-v4-pro",
+                "deepseek-chat",
+                "deepseek-reasoner",
+            ]
+            current_model = Settings.DEEPSEEK_MODEL
+            try:
+                default_index = available_models.index(current_model)
+            except ValueError:
+                default_index = 0
+            model = st.selectbox(
+                f"Модель: ({len(available_models)} доступно)",
+                available_models,
+                index=default_index,
+                help="Для новых подключений предпочтительнее deepseek-v4-flash или deepseek-v4-pro.",
+            )
+            st.caption("Модели `deepseek-chat` и `deepseek-reasoner` оставлены для совместимости со старыми конфигурациями.")
+            provider_kwargs = {"api_key": api_key, "model": model, "base_url": base_url}
+
         elif selected_provider == "google":
             api_key = _render_hidden_api_key_input(
                 "API Key:",
@@ -353,6 +442,16 @@ def render_ai_coaching_page(state: StateManager) -> None:
             st.caption("Demo AI не требует API ключа и использует встроенные sample-ответы для first-run сценария.")
             provider_kwargs = {"model": model, "delay": 0.0}
 
+        if provider_selection_changed and selected_provider in REAL_PROVIDER_TYPES:
+            selection_auto_connected_model = _connect_provider(
+                state,
+                UniversalAICoach,
+                AIProviderFactory,
+                selected_provider,
+                provider_kwargs,
+            )
+            auto_connected_model = selection_auto_connected_model or auto_connected_model
+
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔍 Тест подключения", help="Проверить API ключ и подключение"):
@@ -373,11 +472,15 @@ def render_ai_coaching_page(state: StateManager) -> None:
         with col2:
             if st.button("🔌 Подключить AI", help="Подключиться к выбранному провайдеру"):
                 try:
-                    provider = AIProviderFactory.create_provider(selected_provider, **provider_kwargs)
-                    if provider.is_available():
-                        state.ai_coach = UniversalAICoach(provider)
-                        state.selected_provider = selected_provider
-                        st.success(f"✅ Подключено к {provider.get_model_name()}")
+                    connected_model = _connect_provider(
+                        state,
+                        UniversalAICoach,
+                        AIProviderFactory,
+                        selected_provider,
+                        provider_kwargs,
+                    )
+                    if connected_model:
+                        st.success(f"✅ Подключено к {connected_model}")
                         st.info(f"🎯 Выбранная модель: **{provider_kwargs.get('model')}**")
                     else:
                         st.error("❌ Не удалось подключиться к провайдеру")
@@ -385,7 +488,12 @@ def render_ai_coaching_page(state: StateManager) -> None:
                     st.error(f"❌ Ошибка: {exc}")
 
     if demo_mode:
-        st.info("🎮 В demo-режиме AI коуч уже готов к работе на Mock AI. Вы можете сразу задавать вопросы или переключиться на реальный провайдер вручную.")
+        if state.selected_provider == demo_mode_service.DEMO_PROVIDER and _provider_matches_selection(state, demo_mode_service.DEMO_PROVIDER):
+            st.info("🎮 В demo-режиме AI коуч уже готов к работе на Mock AI. Вы можете сразу задавать вопросы или переключиться на реальный провайдер вручную.")
+        elif auto_connected_model:
+            st.success(f"🎮 Demo-данные подключены к реальному AI провайдеру: {auto_connected_model}")
+        else:
+            st.info("🎮 Вы работаете на demo-данных. После выбора реального провайдера AI будет отвечать по sample dataset через выбранный API.")
     elif auto_connected_model:
         st.success(f"✅ AI коуч подключен автоматически: {auto_connected_model}")
 

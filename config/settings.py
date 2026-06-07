@@ -13,6 +13,10 @@ class Settings:
     
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
     ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-3-haiku-20240307")
+
+    DEEPSEEK_API_KEY = os.getenv("DEEPSEEK_API_KEY")
+    DEEPSEEK_MODEL = os.getenv("DEEPSEEK_MODEL", "deepseek-v4-flash")
+    DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
     GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "models/gemini-1.5-flash-latest")
