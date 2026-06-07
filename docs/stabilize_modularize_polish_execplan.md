@@ -33,6 +33,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [x] (2026-06-07 11:08+03:00) Completed the first Iteration 3 polish slice: added an official demo onboarding path, hid development tools behind `SHOW_DEVELOPMENT_TOOLS`, kept demo data isolated from real Garmin sync, and prevented AI provider API keys from being rendered back into the UI while preserving `.env` fallback behavior.
 - [x] (2026-06-07 15:54+03:00) Completed the second Iteration 3 polish slice: made AI coaching demo-friendly by auto-connecting `Mock AI` in demo mode, resetting stale AI/chat context on demo transitions, and creating a dedicated demo chat so the first-run path reaches a real answer without external API setup.
+- [x] (2026-06-07 16:08+03:00) Completed the third Iteration 3 polish slice: auto-connected real AI providers when `.env` or local runtime configuration already makes them available, preserved demo-mode isolation from `Mock AI`, and removed the extra manual `Подключить AI` step from the configured real-provider path.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
 ## Surprises & Discoveries
@@ -102,6 +103,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: Even after adding official demo onboarding, the AI coaching path still had first-run friction because the product defaulted to `OpenAI`, while the working `Mock AI` provider was not selectable from the UI and stale chats could leak into demo sessions.
   Evidence: The live browser flow reached `AI Коучинг` from demo mode but still opened on provider setup for `OpenAI` by default. The code confirmed that `ui/pages/ai_coaching.py` offered only OpenAI/Anthropic/Google/Ollama in `provider_options`, while `models/ai_providers.py` already exposed `Mock AI (Demo)`. The chat page also defaulted to the newest saved chat when `current_chat_id` was empty.
+
+- Observation: The real AI path still forced a redundant manual connect step even when a provider was already fully configured and available through environment or local runtime settings.
+  Evidence: `ui/pages/ai_coaching.py` required an explicit click on `🔌 Подключить AI` before setting `state.ai_coach`, even though provider classes in `models/ai_providers.py` already initialize themselves from `Settings.*` values and can report availability immediately through `is_available()`.
 
 ## Decision Log
 
@@ -197,6 +201,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The roadmap goal is not merely to show the AI screen; it is to let a first-run user actually get to an answer. Since `Mock AI` already exists in the codebase and does not require secrets, using it as the demo default is the lowest-risk way to complete the onboarding-to-insight path.
   Date/Author: 2026-06-07 / Codex
 
+- Decision: Auto-connect only real non-mock AI providers on the standard path, but only when they are already available through existing configuration.
+  Rationale: The product should remove unnecessary clicks for configured users, but it should not silently swap a real training workflow onto `Mock AI` outside demo mode. Restricting auto-connect to OpenAI, Anthropic, Google, and Ollama preserves user intent while still collapsing the redundant setup step.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -234,6 +242,8 @@ The final Iteration 2 slice completed the modularization goal. Moving planning i
 The first Iteration 3 slice validated the next phase of the roadmap. A user can now choose between Garmin onboarding and an explicit demo mode directly from the welcome screen, reach a populated dashboard without guessing, move on to AI coaching from that state, and leave demo mode cleanly without mixing sample data into real sync. The same slice also exposed and fixed a second secret-rendering problem on the AI settings page, where stored provider API keys were still being shown in password inputs. The smoke suite expanded to eighteen passing tests, and live browser verification confirmed the intended flow without the earlier `Settings` runtime failure.
 
 The second Iteration 3 slice completed the first truly end-to-end demo path. A demo user now enters AI coaching with `Mock AI` already connected, starts in a dedicated demo chat instead of inheriting a stale saved conversation, and can get a real answer from the quick-question buttons without touching provider settings. The smoke suite expanded to twenty-one passing tests, and live browser verification confirmed the concrete path `welcome -> demo mode -> AI coaching -> mock answer`.
+
+The third Iteration 3 slice improved the configured real-provider path without weakening the demo contract. If a contributor already has a valid provider in `.env` or a local AI runtime ready, `AI Коучинг` now enters with that provider connected automatically instead of stopping on a redundant `Подключить AI` step. The contributor-safe smoke suite expanded again to twenty-four passing tests, including new coverage that confirms the page prefers real providers outside demo mode and does not silently fall back to `Mock AI`.
 
 ## Context and Orientation
 

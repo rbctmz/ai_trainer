@@ -10,6 +10,8 @@ from config.settings import Settings
 from services import demo_mode as demo_mode_service
 from state import StateManager, get_state_manager
 
+REAL_PROVIDER_TYPES = ("openai", "anthropic", "google", "ollama")
+
 
 def _render_hidden_api_key_input(label: str, field_key: str, env_value: Optional[str]) -> str:
     """Render a secret input without pre-filling the underlying environment value."""
@@ -82,6 +84,43 @@ def _ensure_demo_ai_coach(
     return True
 
 
+def _default_provider_kwargs(provider_type: str) -> Dict[str, Any]:
+    if provider_type == "ollama":
+        return {
+            "host": Settings.OLLAMA_HOST,
+            "model": Settings.OLLAMA_MODEL,
+        }
+    return {}
+
+
+def _ensure_real_ai_coach(
+    state: StateManager,
+    coach_class: Any,
+    provider_factory: Any,
+) -> Optional[str]:
+    if demo_mode_service.is_demo_mode(state):
+        return None
+
+    current_provider = getattr(getattr(state, "ai_coach", None), "provider", None)
+    if current_provider is not None and current_provider.__class__.__name__ != "MockAIProvider":
+        return None
+
+    preferred = state.selected_provider if state.selected_provider in REAL_PROVIDER_TYPES else Settings.DEFAULT_AI_PROVIDER
+    ordered_types = [preferred] + [provider_type for provider_type in REAL_PROVIDER_TYPES if provider_type != preferred]
+
+    for provider_type in ordered_types:
+        provider = provider_factory.create_provider(
+            provider_type,
+            **_default_provider_kwargs(provider_type),
+        )
+        if provider.is_available():
+            state.ai_coach = coach_class(provider)
+            state.selected_provider = provider_type
+            return provider.get_model_name()
+
+    return None
+
+
 def render_ai_coaching_page(state: StateManager) -> None:
     """Render the AI coaching page with provider selection and chat."""
     st.header("🤖 AI Коучинг")
@@ -99,6 +138,7 @@ def render_ai_coaching_page(state: StateManager) -> None:
         provider_options,
     )
     _ensure_demo_ai_coach(state, UniversalAICoach, AIProviderFactory)
+    auto_connected_model = _ensure_real_ai_coach(state, UniversalAICoach, AIProviderFactory)
 
     with st.sidebar.expander("⚙️ Настройки AI", expanded=True):
         st.subheader("Выбор AI провайдера")
@@ -272,6 +312,8 @@ def render_ai_coaching_page(state: StateManager) -> None:
 
     if demo_mode:
         st.info("🎮 В demo-режиме AI коуч уже готов к работе на Mock AI. Вы можете сразу задавать вопросы или переключиться на реальный провайдер вручную.")
+    elif auto_connected_model:
+        st.success(f"✅ AI коуч подключен автоматически: {auto_connected_model}")
 
     if state.ai_coach is None:
         st.warning("👆 Настройте AI провайдера в боковой панели")
