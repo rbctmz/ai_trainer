@@ -27,6 +27,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 17:21+03:00) Extracted sidebar chat management into `ui/components/chat_management.py`, switched the shell to the new component contract, and expanded the smoke suite to nine passing tests.
 - [x] (2026-06-06 18:16+03:00) Extracted the dashboard bundle into `ui/pages/dashboard.py`, moved status/quick-actions/compact-analytics logic behind a page contract with sync callback, and expanded the smoke suite to ten passing tests.
 - [x] (2026-06-06 19:07+03:00) Extracted the AI coaching and chat bundle into `ui/pages/ai_coaching.py`, preserved legacy helper import contracts through `app.py`, reduced `app.py` to 2014 lines, and expanded the smoke suite to eleven passing tests.
+- [x] (2026-06-07 00:03+03:00) Extracted the HRV analysis page into `ui/pages/hrv.py`, switched page dispatch/export contracts, reduced `app.py` to 1532 lines, and expanded the smoke suite to twelve passing tests.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -79,6 +80,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The AI coaching surface was not just another page renderer; it also owned chat persistence glue, provider setup, tool-call formatting, speech output, and progress-report UX helpers.
   Evidence: The extraction to `ui/pages/ai_coaching.py` pulled almost two thousand lines as one cohesive bundle, while `app.py` still preserved old helper imports for tests via thin re-exports and dropped to 2014 lines.
+
+- Observation: The HRV page was a good extraction candidate because it was internally dense but still self-contained, with no external helper chain left behind in `app.py`.
+  Evidence: `show_hrv_analysis()` moved directly into `ui/pages/hrv.py` with its plotting, data filtering, correlation analysis, and CSV export intact, while `app.py` fell again to 1532 lines and the smoke suite increased to twelve passing tests.
 
 ## Decision Log
 
@@ -150,6 +154,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: If the extraction had moved only `show_ai_coaching()` while leaving chat orchestration and formatting helpers behind, the new page module would still depend back on `app.py` and the composition root would stay overloaded. A fuller move keeps the boundary coherent while preserving existing test imports through app-level re-exports.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Extract HRV as a full page renderer without first normalizing its internal helper logic.
+  Rationale: The main risk at this stage is still monolithic page ownership in `app.py`, not duplicated local formatting inside a page. Moving the page intact behind a stable renderer contract is lower risk and creates the next clear seam for future cleanup.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -177,6 +185,8 @@ The next Iteration 2 slice reinforced that the remaining shell clutter is still 
 That dashboard milestone also held. Moving the dashboard, status logic, quick actions, and compact analytics into `ui/pages/dashboard.py` reduced `app.py` to 4016 lines and pushed the smoke suite to ten passing tests. The app shell is now materially thinner, and the remaining large surfaces are more obviously page-sized units rather than shell clutter.
 
 The next Iteration 2 milestone validated the same principle on the largest remaining product surface. Moving the AI coaching page together with its chat, provider, and progress-helper bundle into `ui/pages/ai_coaching.py` reduced `app.py` to 2014 lines while preserving old helper imports that some existing tests still expect. The smoke suite expanded to eleven passing tests, and `app.py` now looks far more like a shell than a product monolith.
+
+The following slice confirmed that the remaining analytics pages can still be peeled off one by one. Moving HRV analysis into `ui/pages/hrv.py` reduced `app.py` further to 1532 lines and pushed the contributor-safe smoke suite to twelve passing tests. The remaining large product surfaces in `app.py` are now mainly sleep analysis and planning, plus a few shell/service actions.
 
 ## Context and Orientation
 
