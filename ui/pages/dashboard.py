@@ -232,6 +232,7 @@ def render_dashboard_page(
     if recommendations:
         ModernUI.ai_recommendation_panel(recommendations)
 
+    _render_primary_next_step(state, current_status, on_sync)
     _render_quick_actions(state, current_status, on_sync)
     ModernUI.show_weekly_training_calendar(activities_df)
     _render_compact_analytics(activities_df, latest_training_status)
@@ -524,6 +525,8 @@ def _render_quick_actions(
         description=intensity_desc,
     )
 
+    primary_action = _choose_primary_next_step(state, current_status)
+    primary_action_key = primary_action["action"]
     actions = []
 
     try:
@@ -570,6 +573,7 @@ def _render_quick_actions(
             {"icon": "📈", "title": "Планирование", "desc": "Настроить тренировки", "action": "planning"},
         ]
     )
+    actions = [action for action in actions if action["action"] != primary_action_key]
 
     st.markdown('<div class="quick-actions-grid">', unsafe_allow_html=True)
 
@@ -584,6 +588,80 @@ def _render_quick_actions(
                 _handle_quick_action(state, action["action"], on_sync)
 
     st.markdown("</div>", unsafe_allow_html=True)
+
+
+def _render_primary_next_step(
+    state: StateManager,
+    current_status: dict[str, Any],
+    on_sync: Callable[[int], None],
+) -> None:
+    next_step = _choose_primary_next_step(state, current_status)
+
+    st.markdown("### 🎯 Следующий шаг")
+    st.info(f"**{next_step['title']}**\n\n{next_step['desc']}\n\n{next_step['reason']}")
+    if st.button(
+        f"{next_step['icon']} {next_step['button']}",
+        key=f"primary_next_step_{next_step['action']}",
+        type="primary",
+        use_container_width=True,
+    ):
+        _handle_quick_action(state, next_step["action"], on_sync)
+
+
+def _choose_primary_next_step(
+    state: StateManager,
+    current_status: dict[str, Any],
+) -> dict[str, str]:
+    try:
+        tsb_val = float(current_status.get("tsb", 0))
+    except (ValueError, TypeError):
+        tsb_val = 0.0
+
+    try:
+        hrv_val = float(current_status.get("hrv", 0)) if current_status.get("hrv") else 0.0
+    except (ValueError, TypeError):
+        hrv_val = 0.0
+
+    ai_ready = getattr(state, "ai_coach", None) is not None
+
+    if tsb_val < -20:
+        return {
+            "icon": "😴",
+            "title": "Сначала разберите восстановление",
+            "button": "Открыть план восстановления",
+            "desc": "Показатели указывают на заметную усталость. Сейчас важнее скорректировать восстановление, чем добавлять нагрузку.",
+            "reason": "Dashboard уже видит риск перегруза, поэтому это самый полезный следующий шаг.",
+            "action": "recovery_plan",
+        }
+
+    if hrv_val > 0 and hrv_val < 30:
+        return {
+            "icon": "💓",
+            "title": "Проверьте HRV перед следующей нагрузкой",
+            "button": "Открыть HRV-анализ",
+            "desc": "HRV выглядит сниженным. Сначала стоит понять, это краткосрочная усталость или устойчивый сигнал к снижению нагрузки.",
+            "reason": "После этого вы точнее решите, нужен ли отдых, лёгкая сессия или нормальная работа.",
+            "action": "hrv_analysis",
+        }
+
+    if not ai_ready:
+        return {
+            "icon": "🤖",
+            "title": "Подготовьте AI коуча",
+            "button": "Открыть AI коучинг",
+            "desc": "Данные уже на месте. Следующий полезный шаг — открыть AI coaching и получить персональную интерпретацию текущего состояния.",
+            "reason": "Если провайдер уже настроен, коуч подключится автоматически. Иначе вы сразу попадёте в нужное место для настройки.",
+            "action": "ai_chat",
+        }
+
+    return {
+        "icon": "🤖",
+        "title": "Получите персональную рекомендацию",
+        "button": "Спросить AI коуча",
+        "desc": "У вас уже есть актуальные данные и рабочий AI коуч. Самый полезный следующий шаг — перейти к интерпретации формы, восстановления и ближайшей нагрузки.",
+        "reason": "Это быстрее всего превращает сырые метрики dashboard в конкретное решение на сегодня.",
+        "action": "ai_chat",
+    }
 
 
 def _handle_quick_action(
