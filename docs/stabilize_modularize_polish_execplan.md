@@ -38,6 +38,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-07 16:31+03:00) Completed the fifth Iteration 3 polish slice: added a context-aware `Рекомендованный старт` to the empty AI chat, derived the prompt from live recovery/readiness signals, and turned the first AI interaction into one primary guided action instead of a generic greeting plus equal quick buttons.
 - [x] (2026-06-07 16:36+03:00) Completed the sixth Iteration 3 polish slice: replaced runtime `use_container_width` calls in the active UI shell with the current `width="stretch"` contract, removed the repeated Streamlit deprecation noise from the core demo flow, and isolated the remaining startup noise to the separate Gemini/grpc issue.
 - [x] (2026-06-07 16:56+03:00) Completed the seventh Iteration 3 polish slice: made Google Gemini availability probes silent during ordinary startup and AI page rendering, preserved explicit Gemini error reporting for real use, and removed the repeated `grpc.StatusCode` initialization noise from the normal core flow.
+- [x] (2026-06-07 17:14+03:00) Completed the eighth Iteration 3 polish slice: turned real Garmin sync into a stateful dashboard handoff by persisting a structured sync outcome, redirecting successful syncs back to the dashboard, and surfacing one obvious follow-up CTA instead of leaving the result as a transient progress-only message.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
 ## Surprises & Discoveries
@@ -122,6 +123,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The Google Gemini provider was still emitting initialization noise during ordinary AI page rendering even when the user never selected Gemini explicitly.
   Evidence: `models/ai_providers.py` instantiated `GoogleGeminiProvider()` inside both `get_available_providers()` and `get_first_available()`. In the live flow, simply opening the AI page caused repeated terminal output with `Ошибка инициализации Google Gemini: module 'grpc' has no attribute 'StatusCode'`.
+
+- Observation: A successful Garmin sync still behaved like an ephemeral modal step rather than a handoff into the main product flow.
+  Evidence: `app.py` rendered success and warning messages directly inside `sync_data()`, then cleared the progress container without preserving the result in session state. On the next dashboard render there was no durable indication of what changed or what the user should do next.
 
 ## Decision Log
 
@@ -237,6 +241,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The problem was not that Gemini errors existed; it was that the application surfaced them during unrelated flows. Background checks should stay quiet, while explicit test/connect flows should still preserve actionable provider error details for the user.
   Date/Author: 2026-06-07 / Codex
 
+- Decision: Persist successful Garmin sync outcomes in session state and hand users back to the dashboard instead of leaving sync results as transient inline messages.
+  Rationale: The sync operation is a gateway into the rest of the product, not a dead end. A structured `last_sync_status` payload lets the dashboard explain what actually changed and attach one primary next action using the same product logic as the rest of the guided flow.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -284,6 +292,8 @@ The fifth Iteration 3 slice carried the same principle into AI coaching. An empt
 The sixth Iteration 3 slice improved runtime hygiene rather than product copy or navigation. Replacing the active `use_container_width` calls with `width="stretch"` removed the recurring Streamlit deprecation spam from the core local flow, which makes real operational problems easier to see during development and manual QA. After this cleanup, the repeated warning noise disappeared from the live run, and the remaining startup chatter narrowed back down to the known Gemini/grpc initialization issue.
 
 The seventh Iteration 3 slice removed that next noisy layer too. Ordinary startup and AI page rendering no longer trigger Gemini/grpc initialization errors just to compute provider availability badges or fallback choices. After the fix, the live core flow stayed clean of Gemini noise, and the remaining startup output narrowed further to an unrelated Python-version `FutureWarning` from `google.api_core`.
+
+The eighth Iteration 3 slice brought the same “one obvious next step” principle to the real Garmin path. A successful sync now stores a structured outcome in session state, returns the user to the dashboard, and shows a dedicated handoff block that explains what was updated before offering one follow-up CTA. The result is that real sync behaves less like a background maintenance action and more like a deliberate step into interpretation and planning.
 
 ## Context and Orientation
 

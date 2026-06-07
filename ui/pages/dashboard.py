@@ -232,6 +232,7 @@ def render_dashboard_page(
     if recommendations:
         ModernUI.ai_recommendation_panel(recommendations)
 
+    _render_last_sync_handoff(state, current_status, on_sync)
     _render_primary_next_step(state, current_status, on_sync)
     _render_quick_actions(state, current_status, on_sync)
     ModernUI.show_weekly_training_calendar(activities_df)
@@ -606,6 +607,88 @@ def _render_primary_next_step(
         width="stretch",
     ):
         _handle_quick_action(state, next_step["action"], on_sync)
+
+
+def _render_last_sync_handoff(
+    state: StateManager,
+    current_status: dict[str, Any],
+    on_sync: Callable[[int], None],
+) -> None:
+    sync_status = getattr(state, "last_sync_status", None)
+    if not isinstance(sync_status, dict) or not sync_status:
+        return
+
+    next_step = _choose_primary_next_step(state, current_status)
+    handoff = _build_sync_handoff_copy(sync_status, next_step)
+    severity = handoff["severity"]
+    message = f"**{handoff['title']}**\n\n{handoff['summary']}"
+
+    if severity == "warning":
+        st.warning(message)
+    elif severity == "error":
+        st.error(message)
+    elif severity == "success":
+        st.success(message)
+    else:
+        st.info(message)
+
+    highlights = handoff.get("highlights", [])
+    if highlights:
+        st.caption("Что обновилось")
+        for item in highlights:
+            st.markdown(f"- {item}")
+
+    notices = handoff.get("notices", [])
+    if notices:
+        st.caption("Замечания")
+        for item in notices:
+            st.markdown(f"- {item}")
+
+    synced_at_label = handoff.get("synced_at_label")
+    if synced_at_label:
+        st.caption(f"Последняя синхронизация: {synced_at_label}")
+
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        if st.button(
+            f"{next_step['icon']} {handoff['button_label']}",
+            key="post_sync_next_action",
+            type="primary",
+            width="stretch",
+        ):
+            state.last_sync_status = None
+            _handle_quick_action(state, next_step["action"], on_sync)
+    with col2:
+        if st.button(
+            "Скрыть",
+            key="dismiss_last_sync_status",
+            width="stretch",
+        ):
+            state.last_sync_status = None
+            st.rerun()
+
+
+def _build_sync_handoff_copy(
+    sync_status: dict[str, Any],
+    next_step: dict[str, str],
+) -> dict[str, Any]:
+    synced_at = sync_status.get("synced_at")
+    synced_at_label = None
+    if synced_at:
+        try:
+            synced_at_label = _format_date(datetime.fromisoformat(str(synced_at)), "display")
+        except ValueError:
+            synced_at_label = str(synced_at)
+
+    return {
+        "severity": sync_status.get("severity", "info"),
+        "title": sync_status.get("title", "Последняя синхронизация"),
+        "summary": sync_status.get("summary", "Данные Garmin обновлены."),
+        "highlights": sync_status.get("highlights", []),
+        "notices": sync_status.get("notices", []),
+        "synced_at_label": synced_at_label,
+        "button_label": next_step["button"],
+    }
 
 
 def _choose_primary_next_step(

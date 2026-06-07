@@ -53,6 +53,63 @@ class GarminSyncResult:
     success_messages: list[str] = field(default_factory=list)
 
 
+def build_sync_status_payload(result: GarminSyncResult, days: int) -> dict[str, Any]:
+    """Build a dashboard-friendly summary of the latest sync outcome."""
+    synced_at = datetime.now().isoformat(timespec="seconds")
+    activity_changes = result.activity_result["new"] + result.activity_result["updated"]
+    recovery_changes = (
+        result.hrv_result["new"]
+        + result.hrv_result["updated"]
+        + result.sleep_result["new"]
+        + result.sleep_result["updated"]
+        + result.health_result["new"]
+        + result.health_result["updated"]
+        + result.training_status_result["new"]
+        + result.training_status_result["updated"]
+    )
+
+    if activity_changes > 0:
+        title = "Синхронизация Garmin завершена"
+        summary = (
+            f"Загружены свежие тренировки и метрики за последние {days} дней. "
+            "Теперь можно сразу перейти к интерпретации формы и ближайшей нагрузки."
+        )
+        severity = "success"
+    elif recovery_changes > 0:
+        title = "Синхронизация Garmin обновила сигналы восстановления"
+        summary = (
+            f"Новых активностей за последние {days} дней не появилось, "
+            "но HRV, сон или статус тренированности обновились."
+        )
+        severity = "success"
+    elif result.warnings:
+        title = "Синхронизация Garmin завершена частично"
+        summary = (
+            f"За последние {days} дней удалось получить не все данные. "
+            "Проверьте замечания ниже, затем решите, нужен ли повторный запуск."
+        )
+        severity = "warning"
+    else:
+        title = "Новых Garmin данных не найдено"
+        summary = (
+            f"За последние {days} дней новых записей не появилось. "
+            "Можно продолжить анализ по уже сохранённым данным."
+        )
+        severity = "info"
+
+    return {
+        "severity": severity,
+        "title": title,
+        "summary": summary,
+        "synced_at": synced_at,
+        "days": days,
+        "activity_changes": activity_changes,
+        "recovery_changes": recovery_changes,
+        "highlights": list(result.success_messages[:4]),
+        "notices": list((result.warnings + result.details)[:4]),
+    }
+
+
 def sync_garmin_data(
     state: StateManager,
     days: int = 30,
@@ -391,5 +448,6 @@ def _build_success_messages(result: GarminSyncResult) -> list[str]:
 __all__ = [
     "GarminSyncResult",
     "SyncProgressUpdate",
+    "build_sync_status_payload",
     "sync_garmin_data",
 ]

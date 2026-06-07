@@ -149,3 +149,30 @@ def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.Monke
     assert state.database.health
     assert state.database.training_status is None
     assert cache_cleared is True
+
+
+def test_sync_status_payload_summarizes_fresh_training_data():
+    result = sync_service.GarminSyncResult(
+        activity_result={"new": 2, "updated": 1, "skipped": 0},
+        hrv_result={"new": 3, "updated": 0},
+        sleep_result={"new": 2, "updated": 0},
+        health_result={"new": 2, "updated": 0},
+        training_status_result={"new": 1, "updated": 0},
+        success_messages=[
+            "🆕 2 новых активностей",
+            "🔄 1 активность обновлена",
+            "💓 3 новых HRV записей",
+        ],
+        details=["🎯 Статус тренированности обновлён"],
+    )
+
+    payload = sync_service.build_sync_status_payload(result, days=30)
+
+    assert payload["severity"] == "success"
+    assert "Синхронизация Garmin завершена" == payload["title"]
+    assert payload["activity_changes"] == 3
+    assert payload["recovery_changes"] == 8
+    assert payload["highlights"][:2] == [
+        "🆕 2 новых активностей",
+        "🔄 1 активность обновлена",
+    ]

@@ -153,8 +153,10 @@ def main():
 def sync_data(days=30, state=None):
     """Синхронизация данных с Garmin Connect"""
     state = state or get_state_manager()
+    state.syncing_in_progress = True
 
     if demo_mode_service.is_demo_mode(state) and not garmin_service.is_authenticated(state):
+        state.syncing_in_progress = False
         st.info("🎮 Демо-режим использует временный локальный набор данных. Подключите Garmin, чтобы заменить демо-данные реальной синхронизацией.")
         return
 
@@ -162,8 +164,11 @@ def sync_data(days=30, state=None):
         demo_mode_service.deactivate_demo_mode(state)
 
     if not garmin_service.is_authenticated(state):
+        state.syncing_in_progress = False
         st.error("Не подключен к Garmin Connect")
         return
+
+    state.last_sync_status = None
 
     progress_container = st.empty()
     with progress_container.container():
@@ -183,26 +188,20 @@ def sync_data(days=30, state=None):
 
     try:
         result = sync_service.sync_garmin_data(state, days=days, on_progress=render_progress)
+        state.last_sync_status = sync_service.build_sync_status_payload(result, days=days)
+        state.selected_page = "📊 Дашборд"
         status_text.empty()
         sync_stats.empty()
 
-        for warning in result.warnings:
-            st.error(warning)
-
-        if result.details:
-            st.info("ℹ️ **Информация о данных:**\n" + "\n".join([f"• {detail}" for detail in result.details]))
-
-        if result.success_messages:
-            st.success("✅ " + " | ".join(result.success_messages))
-        else:
-            st.info("ℹ️ Новых данных не найдено")
-
         import time
-        time.sleep(2)
+        time.sleep(1)
         progress_container.empty()
+        state.syncing_in_progress = False
+        st.rerun()
 
     except Exception as e:
         progress_container.empty()
+        state.syncing_in_progress = False
         st.error(f"❌ Ошибка синхронизации: {e}")
 
 def clear_database():
