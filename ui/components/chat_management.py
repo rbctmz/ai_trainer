@@ -18,7 +18,7 @@ def render_chat_management(state: "StateManager") -> None:
 
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("➕ Новый чат", use_container_width=True, type="primary"):
+            if st.button("➕ Новый чат", width="stretch", type="primary"):
                 new_chat_id = chat_manager.create_new_chat()
                 state.current_chat_id = new_chat_id
                 state.switch_to_chat_tab = True
@@ -26,7 +26,7 @@ def render_chat_management(state: "StateManager") -> None:
                 st.rerun()
 
         with col2:
-            if state.current_chat_id and st.button("🧹 Очистить", use_container_width=True):
+            if state.current_chat_id and st.button("🧹 Очистить", width="stretch"):
                 if chat_manager.clear_chat(state.current_chat_id):
                     st.success("Чат очищен")
                     st.rerun()
@@ -48,7 +48,7 @@ def render_chat_management(state: "StateManager") -> None:
                     if st.button(
                         button_text,
                         key=f"chat_{chat['id']}",
-                        use_container_width=True,
+                        width="stretch",
                         help=f"Сообщений: {chat['message_count']} • {chat['updated_at'][:16].replace('T', ' ')}",
                     ):
                         state.current_chat_id = chat["id"]

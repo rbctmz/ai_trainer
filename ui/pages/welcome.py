@@ -53,7 +53,7 @@ def render_welcome_page(state: "StateManager") -> None:
             if st.button(
                 "🎮 Запустить демо-режим",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
                 key="start_demo_mode_btn",
             ):
                 result = demo_mode_service.activate_demo_mode(state)

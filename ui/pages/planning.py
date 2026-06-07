@@ -63,7 +63,7 @@ def render_planning_page(state: StateManager) -> None:
 
     if dates_full and ctl_values:
         fig_banister = Visualizations.create_banister_chart(dates_full, ctl_values, atl_values, tsb_values)
-        st.plotly_chart(fig_banister, use_container_width=True)
+        st.plotly_chart(fig_banister, width="stretch")
 
     st.subheader("💡 Рекомендации по тренировкам")
     recommendation = banister.get_training_recommendation(current_metrics)
@@ -128,7 +128,7 @@ def render_planning_page(state: StateManager) -> None:
                 future_dates, future_ctl, future_atl, future_tsb
             )
             fig_future.update_layout(title="Прогноз при планируемой нагрузке")
-            st.plotly_chart(fig_future, use_container_width=True)
+            st.plotly_chart(fig_future, width="stretch")
 
             final_tsb = future_tsb[-1]
             if final_tsb > 5:
@@ -349,13 +349,13 @@ def render_planning_page(state: StateManager) -> None:
             future_dates, future_ctl, future_atl, future_tsb
         )
         fig_future.update_layout(title=f"Прогноз до старта ({goal_type} • {distance})")
-        st.plotly_chart(fig_future, use_container_width=True)
+        st.plotly_chart(fig_future, width="stretch")
 
         df_plan = pd.DataFrame(weekly_summary)
         df_plan["Неделя от"] = df_plan["week_start"].apply(lambda d: d.strftime("%d.%m"))
         df_plan = df_plan[["Неделя от", "phase", "weekly_tss", "bike", "run", "swim"]]
         df_plan.rename(columns={"phase": "Фаза", "weekly_tss": "Weekly TSS", "bike": "Bike", "run": "Run", "swim": "Swim"}, inplace=True)
-        st.dataframe(df_plan, use_container_width=True, hide_index=True)
+        st.dataframe(df_plan, width="stretch", hide_index=True)
 
         csv_weekly = df_plan.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -413,13 +413,13 @@ def render_planning_page(state: StateManager) -> None:
             future_dates, future_ctl, future_atl, future_tsb
         )
         fig_future.update_layout(title=f"Прогноз до старта ({goal_type_cached} • {distance_cached})")
-        st.plotly_chart(fig_future, use_container_width=True)
+        st.plotly_chart(fig_future, width="stretch")
 
         df_plan = pd.DataFrame(weekly_summary)
         df_plan["Неделя от"] = df_plan["week_start"].apply(lambda d: d.strftime("%d.%m"))
         df_plan = df_plan[["Неделя от", "phase", "weekly_tss", "bike", "run", "swim"]]
         df_plan.rename(columns={"phase": "Фаза", "weekly_tss": "Weekly TSS", "bike": "Bike", "run": "Run", "swim": "Swim"}, inplace=True)
-        st.dataframe(df_plan, use_container_width=True, hide_index=True)
+        st.dataframe(df_plan, width="stretch", hide_index=True)
 
         csv_weekly = df_plan.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -613,9 +613,9 @@ def render_planning_page(state: StateManager) -> None:
     with col1:
         if not activities_df.empty and "tss" in activities_df.columns:
             fig_tss_dist = Visualizations.create_tss_distribution_chart(activities_df)
-            st.plotly_chart(fig_tss_dist, use_container_width=True)
+            st.plotly_chart(fig_tss_dist, width="stretch")
 
     with col2:
         if not activities_df.empty:
             fig_weekly = Visualizations.create_weekly_tss_chart(activities_df)
-            st.plotly_chart(fig_weekly, use_container_width=True)
+            st.plotly_chart(fig_weekly, width="stretch")

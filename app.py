@@ -97,7 +97,7 @@ def main():
         if state.use_custom_theme:
             if st.button("🌙" if not state.dark_mode else "☀️",
                          help="Переключить тему",
-                         use_container_width=True,
+                         width="stretch",
                          key="theme_toggle"):
                 state.toggle_dark_mode()
                 st.rerun()

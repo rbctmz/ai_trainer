@@ -144,7 +144,7 @@ def _render_daily_chart(filtered_df: pd.DataFrame, state: StateManager) -> None:
         )
         fig_tss.update_layout(height=400)
 
-    st.plotly_chart(fig_tss, use_container_width=True)
+    st.plotly_chart(fig_tss, width="stretch")
 
 
 def _render_activity_table(filtered_df: pd.DataFrame, state: StateManager) -> pd.DataFrame:
@@ -161,7 +161,7 @@ def _render_activity_table(filtered_df: pd.DataFrame, state: StateManager) -> pd
     if state.use_custom_theme and state.dark_mode:
         st.markdown(create_dark_table_html(table_df), unsafe_allow_html=True)
     else:
-        st.dataframe(table_df, use_container_width=True, hide_index=True)
+        st.dataframe(table_df, width="stretch", hide_index=True)
 
     return table_df
 

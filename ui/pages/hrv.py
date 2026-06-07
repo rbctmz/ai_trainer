@@ -226,7 +226,7 @@ def render_hrv_page(state: StateManager) -> None:
             }
         )
 
-        st.plotly_chart(fig_rmssd, use_container_width=True)
+        st.plotly_chart(fig_rmssd, width="stretch")
 
     if not hrv_df.empty:
         st.subheader("🔍 Анализ взаимосвязей")
@@ -308,7 +308,7 @@ def render_hrv_page(state: StateManager) -> None:
                 hovermode="x unified",
             )
 
-            st.plotly_chart(fig_correlation, use_container_width=True)
+            st.plotly_chart(fig_correlation, width="stretch")
 
             if len(combined_df) > 5:
                 st.write("**📊 Анализ корреляции HRV и нагрузки:**")
@@ -388,7 +388,7 @@ def render_hrv_page(state: StateManager) -> None:
         if state.use_custom_theme and state.dark_mode:
             st.markdown(create_dark_table_html(table_df), unsafe_allow_html=True)
         else:
-            st.dataframe(table_df, use_container_width=True, hide_index=True)
+            st.dataframe(table_df, width="stretch", hide_index=True)
 
     st.subheader("💡 Рекомендации по HRV")
 

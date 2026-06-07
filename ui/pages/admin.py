@@ -140,7 +140,7 @@ def render_data_management_page(
         )
 
     with col2:
-        if st.button("🔄 Синхронизировать данные", use_container_width=True):
+        if st.button("🔄 Синхронизировать данные", width="stretch"):
             on_sync(sync_days)
 
     st.divider()

@@ -246,7 +246,7 @@ def render_sleep_page(state: StateManager) -> None:
                 ticktext=tick_text,
             )
 
-            st.plotly_chart(fig_weekday, use_container_width=True)
+            st.plotly_chart(fig_weekday, width="stretch")
             st.caption("Столбики показывают средний интервал сна по дням. Чем ровнее высота, тем стабильнее режим.")
 
         st.subheader("🌀 Фазы сна")
@@ -488,7 +488,7 @@ def render_sleep_page(state: StateManager) -> None:
         fig.update_xaxes(showgrid=True, gridwidth=1, gridcolor="rgba(156, 163, 175, 0.2)")
         fig.update_yaxes(showgrid=True, gridwidth=1, gridcolor="rgba(156, 163, 175, 0.2)")
 
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         st.subheader("📊 Статистика за период")
 
@@ -601,7 +601,7 @@ def render_sleep_page(state: StateManager) -> None:
                 ),
             )
 
-            st.plotly_chart(fig_pie, use_container_width=True)
+            st.plotly_chart(fig_pie, width="stretch")
 
         st.subheader("💡 Рекомендации по сну")
 

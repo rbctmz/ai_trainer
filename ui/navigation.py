@@ -34,7 +34,7 @@ def render_primary_navigation(state: StateManager) -> str:
         with cols[idx]:
             is_active = selected_page == full_name
             button_type = "primary" if is_active else "secondary"
-            if st.button(f"{icon}\n{short_name}", key=f"nav_{idx}", help=full_name, use_container_width=True, type=button_type):
+            if st.button(f"{icon}\n{short_name}", key=f"nav_{idx}", help=full_name, width="stretch", type=button_type):
                 state.selected_page = full_name
                 st.rerun()
 

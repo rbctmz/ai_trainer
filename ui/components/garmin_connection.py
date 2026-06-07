@@ -36,7 +36,7 @@ def render_garmin_connection(
         if demo_mode and not authenticated:
             st.info("🎮 Демо-режим активен")
             st.caption("Сейчас приложение работает на временном sample dataset. Подключение Garmin отключит демо-режим и очистит временные данные.")
-            if st.button("🚪 Выйти из демо-режима", use_container_width=True, key="exit_demo_mode_btn"):
+            if st.button("🚪 Выйти из демо-режима", width="stretch", key="exit_demo_mode_btn"):
                 demo_mode_service.deactivate_demo_mode(state)
                 _clear_form_state()
                 st.rerun()

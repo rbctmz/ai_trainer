@@ -133,7 +133,7 @@ def render_dashboard_page(
     with col1:
         tsb_value = current_status.get("tsb", 0)
         fig_tsb = ModernUI.create_circular_indicator(tsb_value, 100, "TSB", f"{tsb_value:.1f}", "#10B981")
-        st.plotly_chart(fig_tsb, use_container_width=True)
+        st.plotly_chart(fig_tsb, width="stretch")
         badge_bg = badge_bg_dark if theme["is_dark"] else badge_bg_light
         badge_style = (
             f"background: {badge_bg};"
@@ -150,7 +150,7 @@ def render_dashboard_page(
     with col2:
         ctl_value = current_status.get("ctl", 0)
         fig_ctl = ModernUI.create_circular_indicator(ctl_value, 150, "CTL", f"{ctl_value:.1f}", "#10B981")
-        st.plotly_chart(fig_ctl, use_container_width=True)
+        st.plotly_chart(fig_ctl, width="stretch")
         st.markdown(
             f'<div style="text-align: center;"><span style="{badge_style}">Chronic Training Load<br>Хроническая тренировочная нагрузка</span></div>',
             unsafe_allow_html=True,
@@ -213,7 +213,7 @@ def render_dashboard_page(
             readiness_subtitle,
             readiness_color,
         )
-        st.plotly_chart(fig_readiness, use_container_width=True)
+        st.plotly_chart(fig_readiness, width="stretch")
         readiness_bg = badge_bg_dark if theme["is_dark"] else "rgba(59,130,246,0.85)"
         readiness_style = (
             f"background: {readiness_bg}; color: {badge_text_color if theme['is_dark'] else '#FFFFFF'};"
@@ -251,7 +251,7 @@ def _render_empty_dashboard_state(state: StateManager, on_sync: Callable[[int], 
         st.markdown("3. **Изучите метрики** - TSS, HRV, сон")
         st.markdown("4. **Получите рекомендации** от AI коуча")
 
-        if st.button("🔄 Синхронизировать данные", type="primary", use_container_width=True):
+        if st.button("🔄 Синхронизировать данные", type="primary", width="stretch"):
             on_sync(30)
 
     with col2:
@@ -263,7 +263,7 @@ def _render_empty_dashboard_state(state: StateManager, on_sync: Callable[[int], 
         st.markdown("- 🤖 Персональные рекомендации AI")
         st.markdown("- 📈 Планирование тренировок")
 
-        if st.button("🎮 Запустить демо-режим", use_container_width=True):
+        if st.button("🎮 Запустить демо-режим", width="stretch"):
             result = demo_mode_service.activate_demo_mode(state)
             st.success(
                 "✅ Демо-режим активирован: "
@@ -583,7 +583,7 @@ def _render_quick_actions(
             if st.button(
                 f"{action['icon']} {action['title']}",
                 help=action["desc"],
-                use_container_width=True,
+                width="stretch",
             ):
                 _handle_quick_action(state, action["action"], on_sync)
 
@@ -603,7 +603,7 @@ def _render_primary_next_step(
         f"{next_step['icon']} {next_step['button']}",
         key=f"primary_next_step_{next_step['action']}",
         type="primary",
-        use_container_width=True,
+        width="stretch",
     ):
         _handle_quick_action(state, next_step["action"], on_sync)
 
@@ -729,7 +729,7 @@ def _render_compact_analytics(
                 daily_stats["duration_minutes"].tolist(),
                 "Время тренировок",
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         with col2:
             sport_dist = activities_df["sport"].value_counts()
@@ -748,7 +748,7 @@ def _render_compact_analytics(
                 font_color=theme["font_color"],
                 showlegend=False,
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         st.markdown("**Последние тренировки:**")
         display_df = activities_df.head(5)[["date", "sport", "duration_minutes", "distance_km", "tss"]].copy()
@@ -762,7 +762,7 @@ def _render_compact_analytics(
         display_df["distance_km"] = display_df["distance_km"].round(1)
         display_df.columns = ["Дата", "Спорт", "Мин", "Км", "TSS"]
 
-        st.dataframe(display_df, use_container_width=True, height=200)
+        st.dataframe(display_df, width="stretch", height=200)
 
         if training_status_info:
             monthly_rows = []
@@ -809,7 +809,7 @@ def _render_compact_analytics(
             if monthly_rows:
                 st.markdown("**Баланс нагрузки Garmin:**")
                 monthly_df = pd.DataFrame(monthly_rows)
-                st.dataframe(monthly_df, use_container_width=True, hide_index=True)
+                st.dataframe(monthly_df, width="stretch", hide_index=True)
                 balance_feedback = training_status_info.get("training_balance_feedback")
                 if balance_feedback:
                     st.caption(balance_feedback)

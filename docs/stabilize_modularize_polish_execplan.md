@@ -36,6 +36,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-07 16:08+03:00) Completed the third Iteration 3 polish slice: auto-connected real AI providers when `.env` or local runtime configuration already makes them available, preserved demo-mode isolation from `Mock AI`, and removed the extra manual `Подключить AI` step from the configured real-provider path.
 - [x] (2026-06-07 16:13+03:00) Completed the fourth Iteration 3 polish slice: added a primary `Следующий шаг` CTA on the dashboard, made it adapt to recovery/HRV/AI-readiness signals, and demoted the remaining quick actions so the first synced dashboard no longer presents every path as equally important.
 - [x] (2026-06-07 16:31+03:00) Completed the fifth Iteration 3 polish slice: added a context-aware `Рекомендованный старт` to the empty AI chat, derived the prompt from live recovery/readiness signals, and turned the first AI interaction into one primary guided action instead of a generic greeting plus equal quick buttons.
+- [x] (2026-06-07 16:36+03:00) Completed the sixth Iteration 3 polish slice: replaced runtime `use_container_width` calls in the active UI shell with the current `width="stretch"` contract, removed the repeated Streamlit deprecation noise from the core demo flow, and isolated the remaining startup noise to the separate Gemini/grpc issue.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
 ## Surprises & Discoveries
@@ -114,6 +115,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The AI coaching page still opened empty chats with a strong generic introduction but no single recommended first question, even though the page had already loaded enough context to prioritize one starting prompt.
   Evidence: `ui/pages/ai_coaching.py` showed a static welcome message plus four peer quick-question buttons. The same page already loaded `state.data_context` containing Banister metrics, HRV recovery state, sleep quality, and Garmin readiness, but did not use those signals to guide the first user action.
+
+- Observation: Repeated `use_container_width` deprecation warnings were polluting every normal local run even when the product flow itself was healthy.
+  Evidence: A live `run.sh` session printed the same Streamlit warning many times during standard welcome, dashboard, and AI coaching navigation. Repository search showed active runtime uses of `use_container_width=True` across `app.py`, `ui/navigation.py`, `ui/components/*`, and multiple `ui/pages/*` modules.
 
 ## Decision Log
 
@@ -221,6 +225,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The product already has useful canned follow-up prompts, so the highest-value change is not to replace them but to rank one of them more intelligently on first entry. This keeps the chat UX familiar while removing the “where do I start?” moment.
   Date/Author: 2026-06-07 / Codex
 
+- Decision: Treat the `use_container_width` cleanup as a single mechanical runtime slice across active UI modules instead of fixing warnings piecemeal by page.
+  Rationale: The warning was cross-cutting and low-risk: the new Streamlit API provides a direct like-for-like replacement with `width="stretch"`. Doing it in one pass removes noisy operational signal more effectively than waiting for page-by-page incidental edits.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -264,6 +272,8 @@ The third Iteration 3 slice improved the configured real-provider path without w
 The fourth Iteration 3 slice made the dashboard more opinionated without making it narrower. Users still have the familiar quick actions, but the product now surfaces one explicit next move based on their current state: recovery when fatigue is high, HRV analysis when recovery signal is weak, AI setup when coaching is not ready, and AI recommendations when it is. The smoke suite expanded to twenty-seven passing tests, and live browser verification confirmed that the primary CTA rendered and navigated correctly from the dashboard.
 
 The fifth Iteration 3 slice carried the same principle into AI coaching. An empty chat now opens with a `Рекомендованный старт` action derived from the current data context, such as a recovery-first question when fatigue is high or a planning-first question when readiness is strong. The contributor-safe smoke suite expanded to thirty passing tests, and live browser verification confirmed that the recommended CTA rendered and sent a real prompt through the chat flow.
+
+The sixth Iteration 3 slice improved runtime hygiene rather than product copy or navigation. Replacing the active `use_container_width` calls with `width="stretch"` removed the recurring Streamlit deprecation spam from the core local flow, which makes real operational problems easier to see during development and manual QA. After this cleanup, the repeated warning noise disappeared from the live run, and the remaining startup chatter narrowed back down to the known Gemini/grpc initialization issue.
 
 ## Context and Orientation
 

@@ -782,7 +782,7 @@ def render_ai_chat_page(state: StateManager) -> None:
                 f"{recommended_prompt['icon']} {recommended_prompt['button']}",
                 key="recommended_ai_first_prompt",
                 type="primary",
-                use_container_width=True,
+                width="stretch",
             ):
                 process_modern_chat_message(recommended_prompt["prompt"])
 
