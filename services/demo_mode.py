@@ -7,6 +7,8 @@ from typing import Any
 from services.data_cache import clear_data_caches
 from state import StateManager
 
+DEMO_PROVIDER = "mock"
+
 
 def is_demo_mode(state: StateManager) -> bool:
     """Return whether the current session is using demo data."""
@@ -33,6 +35,12 @@ def activate_demo_mode(state: StateManager) -> dict[str, int]:
     database.sync_training_status(training_status)
     clear_data_caches()
 
+    state.clear_cached_context()
+    state.current_chat_id = None
+    state.chat_messages = []
+    state.switch_to_chat_tab = False
+    state.selected_provider = DEMO_PROVIDER
+    state.ai_coach = None
     state.demo_mode = True
     state.selected_page = "📊 Дашборд"
 
@@ -51,8 +59,22 @@ def deactivate_demo_mode(state: StateManager) -> None:
     database.clear_all_data()
     clear_data_caches()
     state.reset_planner_overrides()
+    state.clear_cached_context()
+    state.current_chat_id = None
+    state.chat_messages = []
+    state.switch_to_chat_tab = False
+    if getattr(state, "selected_provider", None) == DEMO_PROVIDER:
+        state.selected_provider = None
+    if _uses_demo_ai_coach(state):
+        state.ai_coach = None
     state.demo_mode = False
     state.selected_page = "📊 Дашборд"
+
+
+def _uses_demo_ai_coach(state: StateManager) -> bool:
+    ai_coach = getattr(state, "ai_coach", None)
+    provider = getattr(ai_coach, "provider", None)
+    return provider is not None and provider.__class__.__name__ == "MockAIProvider"
 
 
 def _build_demo_activities() -> list[dict[str, Any]]:
@@ -210,4 +232,4 @@ def _format_clock(total_minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
-__all__ = ["activate_demo_mode", "deactivate_demo_mode", "is_demo_mode"]
+__all__ = ["DEMO_PROVIDER", "activate_demo_mode", "deactivate_demo_mode", "is_demo_mode"]

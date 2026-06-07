@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from config.settings import Settings
+from services import demo_mode as demo_mode_service
 from state import StateManager, get_state_manager
 
 
@@ -24,6 +25,63 @@ def _render_hidden_api_key_input(label: str, field_key: str, env_value: Optional
     return typed_value or env_value or ""
 
 
+def _build_provider_options(demo_mode: bool) -> Dict[str, str]:
+    provider_options = {
+        "OpenAI (GPT)": "openai",
+        "Anthropic (Claude)": "anthropic",
+        "Google (Gemini)": "google",
+        "Ollama (Локально)": "ollama",
+        "Mock AI (Demo)": "mock",
+    }
+    if not demo_mode:
+        return provider_options
+    return {
+        "Mock AI (Demo)": "mock",
+        "OpenAI (GPT)": "openai",
+        "Anthropic (Claude)": "anthropic",
+        "Google (Gemini)": "google",
+        "Ollama (Локально)": "ollama",
+    }
+
+
+def _resolve_selected_provider(
+    selected_provider: Optional[str],
+    demo_mode: bool,
+    provider_options: Dict[str, str],
+) -> str:
+    valid_providers = set(provider_options.values())
+    if selected_provider in valid_providers:
+        return selected_provider
+    if demo_mode:
+        return demo_mode_service.DEMO_PROVIDER
+    if Settings.DEFAULT_AI_PROVIDER in valid_providers:
+        return Settings.DEFAULT_AI_PROVIDER
+    return next(iter(provider_options.values()))
+
+
+def _ensure_demo_ai_coach(
+    state: StateManager,
+    coach_class: Any,
+    provider_factory: Any,
+) -> bool:
+    if not demo_mode_service.is_demo_mode(state):
+        return False
+    if state.selected_provider != demo_mode_service.DEMO_PROVIDER:
+        return False
+
+    current_provider = getattr(getattr(state, "ai_coach", None), "provider", None)
+    if current_provider is not None and current_provider.__class__.__name__ == "MockAIProvider":
+        return False
+
+    provider = provider_factory.create_provider(
+        demo_mode_service.DEMO_PROVIDER,
+        model="MockGPT-Demo",
+        delay=0.0,
+    )
+    state.ai_coach = coach_class(provider)
+    return True
+
+
 def render_ai_coaching_page(state: StateManager) -> None:
     """Render the AI coaching page with provider selection and chat."""
     st.header("🤖 AI Коучинг")
@@ -31,10 +89,16 @@ def render_ai_coaching_page(state: StateManager) -> None:
     from models.ai_coach_universal import UniversalAICoach
     from models.ai_providers import AIProviderFactory
 
+    demo_mode = demo_mode_service.is_demo_mode(state)
     if not getattr(state, "ai_coach", None):
         state.ai_coach = None
-    if not state.selected_provider:
-        state.selected_provider = Settings.DEFAULT_AI_PROVIDER
+    provider_options = _build_provider_options(demo_mode)
+    state.selected_provider = _resolve_selected_provider(
+        state.selected_provider,
+        demo_mode,
+        provider_options,
+    )
+    _ensure_demo_ai_coach(state, UniversalAICoach, AIProviderFactory)
 
     with st.sidebar.expander("⚙️ Настройки AI", expanded=True):
         st.subheader("Выбор AI провайдера")
@@ -44,13 +108,6 @@ def render_ai_coaching_page(state: StateManager) -> None:
                 st.success(f"✅ {name}")
             else:
                 st.error(f"❌ {name}")
-
-        provider_options = {
-            "OpenAI (GPT)": "openai",
-            "Anthropic (Claude)": "anthropic",
-            "Google (Gemini)": "google",
-            "Ollama (Локально)": "ollama",
-        }
 
         selected_name = st.selectbox(
             "Провайдер:",
@@ -172,6 +229,16 @@ def render_ai_coaching_page(state: StateManager) -> None:
                 st.warning("⚠️ Не удалось загрузить список моделей Ollama. Убедитесь, что Ollama запущен.")
             provider_kwargs = {"host": host, "model": model}
 
+        elif selected_provider == "mock":
+            model = st.selectbox(
+                "Режим demo AI:",
+                ["MockGPT-Demo", "CoachSim-Recovery", "CoachSim-Planning"],
+                index=0,
+                help="Локальный demo-провайдер для знакомства с AI коучем без внешнего API ключа.",
+            )
+            st.caption("Demo AI не требует API ключа и использует встроенные sample-ответы для first-run сценария.")
+            provider_kwargs = {"model": model, "delay": 0.0}
+
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔍 Тест подключения", help="Проверить API ключ и подключение"):
@@ -203,6 +270,9 @@ def render_ai_coaching_page(state: StateManager) -> None:
                 except Exception as exc:
                     st.error(f"❌ Ошибка: {exc}")
 
+    if demo_mode:
+        st.info("🎮 В demo-режиме AI коуч уже готов к работе на Mock AI. Вы можете сразу задавать вопросы или переключиться на реальный провайдер вручную.")
+
     if state.ai_coach is None:
         st.warning("👆 Настройте AI провайдера в боковой панели")
         return
@@ -233,9 +303,12 @@ def render_ai_chat_page(state: StateManager) -> None:
         state.current_chat_id = None
 
     if state.current_chat_id is None:
-        existing_chats = state.chat_manager.get_chat_list()
-        if existing_chats:
-            state.current_chat_id = existing_chats[0]["id"]
+        if demo_mode_service.is_demo_mode(state):
+            state.current_chat_id = state.chat_manager.create_new_chat(title="Демо AI коуч")
+        else:
+            existing_chats = state.chat_manager.get_chat_list()
+            if existing_chats:
+                state.current_chat_id = existing_chats[0]["id"]
 
     st.markdown(
         """

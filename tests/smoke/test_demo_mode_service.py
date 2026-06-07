@@ -39,12 +39,23 @@ class _StubDatabase:
 class _StubState:
     def __init__(self):
         self.database = _StubDatabase()
+        self.ai_coach = object()
+        self.chat_messages = ["old-message"]
+        self.context_loaded = True
+        self.current_chat_id = "existing-chat"
         self.demo_mode = False
         self.selected_page = "🤖 AI Коучинг"
+        self.selected_provider = "openai"
         self.reset_calls = 0
+        self.switch_to_chat_tab = True
+        self.clear_context_calls = 0
 
     def reset_planner_overrides(self):
         self.reset_calls += 1
+
+    def clear_cached_context(self):
+        self.clear_context_calls += 1
+        self.context_loaded = False
 
 
 def test_activate_demo_mode_seeds_temporary_dataset(monkeypatch: pytest.MonkeyPatch):
@@ -57,6 +68,12 @@ def test_activate_demo_mode_seeds_temporary_dataset(monkeypatch: pytest.MonkeyPa
 
     assert state.demo_mode is True
     assert state.selected_page == "📊 Дашборд"
+    assert state.selected_provider == demo_mode.DEMO_PROVIDER
+    assert state.ai_coach is None
+    assert state.current_chat_id is None
+    assert state.chat_messages == []
+    assert state.switch_to_chat_tab is False
+    assert state.clear_context_calls == 1
     assert state.reset_calls == 1
     assert state.database.clear_calls == 1
     assert len(state.database.activities) == result["activities"] > 0
@@ -70,6 +87,7 @@ def test_activate_demo_mode_seeds_temporary_dataset(monkeypatch: pytest.MonkeyPa
 def test_deactivate_demo_mode_clears_dataset(monkeypatch: pytest.MonkeyPatch):
     state = _StubState()
     state.demo_mode = True
+    state.selected_provider = demo_mode.DEMO_PROVIDER
     cache_clears: list[str] = []
 
     monkeypatch.setattr(demo_mode, "clear_data_caches", lambda: cache_clears.append("cleared"))
@@ -78,6 +96,11 @@ def test_deactivate_demo_mode_clears_dataset(monkeypatch: pytest.MonkeyPatch):
 
     assert state.demo_mode is False
     assert state.selected_page == "📊 Дашборд"
+    assert state.selected_provider is None
+    assert state.current_chat_id is None
+    assert state.chat_messages == []
+    assert state.switch_to_chat_tab is False
+    assert state.clear_context_calls == 1
     assert state.reset_calls == 1
     assert state.database.clear_calls == 1
     assert cache_clears == ["cleared"]
