@@ -241,9 +241,12 @@ class GoogleGeminiProvider(AIProvider):
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         settings: Type[Settings] = Settings,
+        emit_warnings: bool = True,
     ) -> None:
         self.settings = settings
         self.api_key = api_key or settings.GOOGLE_API_KEY
+        self.emit_warnings = emit_warnings
+        self.init_error: Optional[str] = None
         self.model_name = model or settings.GOOGLE_MODEL
         self.model = None
         
@@ -254,7 +257,7 @@ class GoogleGeminiProvider(AIProvider):
                     import google.protobuf
                     version = google.protobuf.__version__
                     major_version = int(version.split('.')[0])
-                    if major_version >= 5:
+                    if major_version >= 5 and self.emit_warnings:
                         print(f"Предупреждение: protobuf версии {version} может вызывать проблемы с Google AI")
                         print("Рекомендуется: pip install protobuf==4.24.0")
                 except:
@@ -264,15 +267,21 @@ class GoogleGeminiProvider(AIProvider):
                 genai.configure(api_key=self.api_key)
                 self.model = genai.GenerativeModel(self.model_name)
             except ImportError:
-                print("Google Generative AI библиотека не установлена")
+                self.init_error = "Google Generative AI библиотека не установлена"
+                self._emit_init_warning(self.init_error)
             except Exception as e:
-                print(f"Ошибка инициализации Google Gemini: {e}")
-                print("Попробуйте: pip install protobuf==4.24.0")
+                self.init_error = f"Ошибка инициализации Google Gemini: {e}"
+                self._emit_init_warning(self.init_error)
+                self._emit_init_warning("Попробуйте: pip install protobuf==4.24.0")
                 self.model = None
+
+    def _emit_init_warning(self, message: str) -> None:
+        if self.emit_warnings:
+            print(message)
     
     def generate_response(self, prompt: str, system_prompt: str = "") -> str:
         if not self.model:
-            return "Google Gemini провайдер не настроен"
+            return self.init_error or "Google Gemini провайдер не настроен"
         
         try:
             # Gemini не имеет отдельного system prompt, объединяем
@@ -295,7 +304,7 @@ class GoogleGeminiProvider(AIProvider):
         if not self.model:
             return {
                 'success': False,
-                'error': 'Модель не инициализирована. Проверьте API ключ и настройки protobuf.'
+                'error': self.init_error or 'Модель не инициализирована. Проверьте API ключ и настройки protobuf.'
             }
         
         try:
@@ -443,6 +452,10 @@ class OllamaProvider(AIProvider):
 
 class AIProviderFactory:
     """Фабрика для создания AI провайдеров"""
+
+    @staticmethod
+    def _google_probe_provider() -> GoogleGeminiProvider:
+        return GoogleGeminiProvider(emit_warnings=False)
     
     @staticmethod
     def create_provider(provider_type: str, **kwargs) -> Optional[AIProvider]:
@@ -494,7 +507,7 @@ class AIProviderFactory:
         providers = {
             'OpenAI': OpenAIProvider(),
             'Anthropic': AnthropicProvider(),
-            'Google Gemini': GoogleGeminiProvider(),
+            'Google Gemini': AIProviderFactory._google_probe_provider(),
             'Ollama': OllamaProvider(host=Settings.OLLAMA_HOST, model=Settings.OLLAMA_MODEL)
         }
         
@@ -520,7 +533,7 @@ class AIProviderFactory:
         providers = [
             OpenAIProvider(),
             AnthropicProvider(), 
-            GoogleGeminiProvider(),
+            AIProviderFactory._google_probe_provider(),
             OllamaProvider(host=Settings.OLLAMA_HOST, model=Settings.OLLAMA_MODEL)
         ]
         
