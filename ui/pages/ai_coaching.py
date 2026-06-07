@@ -121,6 +121,80 @@ def _ensure_real_ai_coach(
     return None
 
 
+def _choose_recommended_first_prompt(data_context: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    if not data_context or not data_context.get("summary", {}).get("has_data", False):
+        return {
+            "icon": "🧭",
+            "title": "Начните с обзора доступных данных",
+            "button": "Спросить, что AI уже видит",
+            "description": "Если данных пока мало или контекст ещё пустой, лучший стартовый вопрос — уточнить, какие метрики уже доступны и что стоит загрузить дальше.",
+            "reason": "Это быстрее всего проясняет, на чём AI может строить рекомендации прямо сейчас.",
+            "prompt": "Какие данные у меня уже доступны для анализа, каких данных не хватает и с какого вопроса лучше начать работу с AI тренером?",
+        }
+
+    performance_metrics = data_context.get("performance_metrics", {})
+    banister_model = performance_metrics.get("banister_model", {}) if performance_metrics.get("has_data") else {}
+    hrv_context = data_context.get("hrv", {})
+    hrv_stats = hrv_context.get("stats", {}) if hrv_context.get("has_data") else {}
+    sleep_context = data_context.get("sleep", {})
+    training_status = data_context.get("training_status", {})
+    training_latest = training_status.get("latest", {}) if training_status.get("has_data") else {}
+
+    tsb = banister_model.get("tsb")
+    recovery_state = hrv_stats.get("recovery_state")
+    sleep_quality = sleep_context.get("sleep_quality")
+    readiness = training_latest.get("training_readiness")
+
+    try:
+        tsb_val = float(tsb) if tsb is not None else None
+    except (TypeError, ValueError):
+        tsb_val = None
+
+    try:
+        readiness_val = float(readiness) if readiness is not None else None
+    except (TypeError, ValueError):
+        readiness_val = None
+
+    if tsb_val is not None and tsb_val < -20:
+        return {
+            "icon": "😴",
+            "title": "Сначала разберите восстановление",
+            "button": "Спросить про восстановление",
+            "description": "Ваш текущий training balance выглядит тяжёлым. Логичный первый вопрос — что делать с усталостью сегодня и как не усугубить её ближайшей нагрузкой.",
+            "reason": "Это самый полезный старт, когда риск перегруза важнее плана прогрессии.",
+            "prompt": "Проанализируй мое состояние восстановления: TSB, HRV, качество сна и недавнюю нагрузку. Дай конкретную рекомендацию, что делать сегодня и в ближайшие 2-3 дня.",
+        }
+
+    if recovery_state == "poor" or sleep_quality == "poor":
+        return {
+            "icon": "💓",
+            "title": "Проверьте сигнал восстановления",
+            "button": "Спросить про HRV и сон",
+            "description": "HRV или сон выглядят слабо. Лучший первый шаг — понять, это краткосрочный сбой или знак, что нагрузку уже пора снижать.",
+            "reason": "Этот вопрос быстрее всего превращает recovery-сигналы в понятное решение по тренировке.",
+            "prompt": "Проанализируй мое восстановление по HRV, качеству сна и последним тренировкам. Объясни, насколько это критично и как скорректировать следующую нагрузку.",
+        }
+
+    if readiness_val is not None and readiness_val >= 75:
+        return {
+            "icon": "📈",
+            "title": "Составьте план на ближайшие 7 дней",
+            "button": "Спросить про план недели",
+            "description": "Readiness выглядит сильным. Самый полезный первый запрос — не общий обзор, а конкретный план, как использовать это окно готовности.",
+            "reason": "Так вы сразу превращаете метрики в практический недельный план.",
+            "prompt": "На основе моего текущего readiness, TSB, HRV и недавних тренировок составь конкретный план тренировок на ближайшие 7 дней с распределением по дням и интенсивности.",
+        }
+
+    return {
+        "icon": "🤖",
+        "title": "Начните с оценки текущей формы",
+        "button": "Спросить про форму сегодня",
+        "description": "Когда нет явного recovery-риска или очевидного окна под план недели, лучший старт — получить краткую интерпретацию текущей формы и готовности к нагрузке.",
+        "reason": "Это даёт базовую опору для всех следующих вопросов про план, прогресс и интенсивность.",
+        "prompt": "Проанализируй мою текущую форму: TSB, CTL, ATL, HRV, readiness и недавнюю нагрузку. Дай краткую оценку состояния и самый важный следующий шаг.",
+    }
+
+
 def render_ai_coaching_page(state: StateManager) -> None:
     """Render the AI coaching page with provider selection and chat."""
     st.header("🤖 AI Коучинг")
@@ -696,6 +770,21 @@ def render_ai_chat_page(state: StateManager) -> None:
                 Начните диалог! 🚀
                 """
                 )
+
+            recommended_prompt = _choose_recommended_first_prompt(state.data_context)
+            st.markdown("### 🎯 Рекомендованный старт")
+            st.info(
+                f"**{recommended_prompt['title']}**\n\n"
+                f"{recommended_prompt['description']}\n\n"
+                f"{recommended_prompt['reason']}"
+            )
+            if st.button(
+                f"{recommended_prompt['icon']} {recommended_prompt['button']}",
+                key="recommended_ai_first_prompt",
+                type="primary",
+                use_container_width=True,
+            ):
+                process_modern_chat_message(recommended_prompt["prompt"])
 
         st.markdown("</div>", unsafe_allow_html=True)
 

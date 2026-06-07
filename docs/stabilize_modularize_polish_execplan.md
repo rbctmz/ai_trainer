@@ -35,6 +35,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-07 15:54+03:00) Completed the second Iteration 3 polish slice: made AI coaching demo-friendly by auto-connecting `Mock AI` in demo mode, resetting stale AI/chat context on demo transitions, and creating a dedicated demo chat so the first-run path reaches a real answer without external API setup.
 - [x] (2026-06-07 16:08+03:00) Completed the third Iteration 3 polish slice: auto-connected real AI providers when `.env` or local runtime configuration already makes them available, preserved demo-mode isolation from `Mock AI`, and removed the extra manual `Подключить AI` step from the configured real-provider path.
 - [x] (2026-06-07 16:13+03:00) Completed the fourth Iteration 3 polish slice: added a primary `Следующий шаг` CTA on the dashboard, made it adapt to recovery/HRV/AI-readiness signals, and demoted the remaining quick actions so the first synced dashboard no longer presents every path as equally important.
+- [x] (2026-06-07 16:31+03:00) Completed the fifth Iteration 3 polish slice: added a context-aware `Рекомендованный старт` to the empty AI chat, derived the prompt from live recovery/readiness signals, and turned the first AI interaction into one primary guided action instead of a generic greeting plus equal quick buttons.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
 ## Surprises & Discoveries
@@ -110,6 +111,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The dashboard still presented several equally weighted actions after sync, even though the product already had enough signal to recommend one next move more strongly than the others.
   Evidence: `ui/pages/dashboard.py` rendered a flat quick-action grid containing recovery, sync, AI coaching, and planning buttons together. In the live demo dashboard, this meant a fatigued state still showed multiple peers instead of foregrounding recovery first.
+
+- Observation: The AI coaching page still opened empty chats with a strong generic introduction but no single recommended first question, even though the page had already loaded enough context to prioritize one starting prompt.
+  Evidence: `ui/pages/ai_coaching.py` showed a static welcome message plus four peer quick-question buttons. The same page already loaded `state.data_context` containing Banister metrics, HRV recovery state, sleep quality, and Garmin readiness, but did not use those signals to guide the first user action.
 
 ## Decision Log
 
@@ -213,6 +217,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The problem in this slice was prioritization, not feature absence. A `Следующий шаг` layer gives the user a clear default path immediately after sync while preserving the existing quick actions for exploration and keeping regression risk low.
   Date/Author: 2026-06-07 / Codex
 
+- Decision: Keep the AI quick-question grid, but prepend one context-aware `Рекомендованный старт` action for empty chats.
+  Rationale: The product already has useful canned follow-up prompts, so the highest-value change is not to replace them but to rank one of them more intelligently on first entry. This keeps the chat UX familiar while removing the “where do I start?” moment.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -254,6 +262,8 @@ The second Iteration 3 slice completed the first truly end-to-end demo path. A d
 The third Iteration 3 slice improved the configured real-provider path without weakening the demo contract. If a contributor already has a valid provider in `.env` or a local AI runtime ready, `AI Коучинг` now enters with that provider connected automatically instead of stopping on a redundant `Подключить AI` step. The contributor-safe smoke suite expanded again to twenty-four passing tests, including new coverage that confirms the page prefers real providers outside demo mode and does not silently fall back to `Mock AI`.
 
 The fourth Iteration 3 slice made the dashboard more opinionated without making it narrower. Users still have the familiar quick actions, but the product now surfaces one explicit next move based on their current state: recovery when fatigue is high, HRV analysis when recovery signal is weak, AI setup when coaching is not ready, and AI recommendations when it is. The smoke suite expanded to twenty-seven passing tests, and live browser verification confirmed that the primary CTA rendered and navigated correctly from the dashboard.
+
+The fifth Iteration 3 slice carried the same principle into AI coaching. An empty chat now opens with a `Рекомендованный старт` action derived from the current data context, such as a recovery-first question when fatigue is high or a planning-first question when readiness is strong. The contributor-safe smoke suite expanded to thirty passing tests, and live browser verification confirmed that the recommended CTA rendered and sent a real prompt through the chat flow.
 
 ## Context and Orientation
 
