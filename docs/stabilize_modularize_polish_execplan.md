@@ -29,7 +29,8 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 19:07+03:00) Extracted the AI coaching and chat bundle into `ui/pages/ai_coaching.py`, preserved legacy helper import contracts through `app.py`, reduced `app.py` to 2014 lines, and expanded the smoke suite to eleven passing tests.
 - [x] (2026-06-07 00:03+03:00) Extracted the HRV analysis page into `ui/pages/hrv.py`, switched page dispatch/export contracts, reduced `app.py` to 1532 lines, and expanded the smoke suite to twelve passing tests.
 - [x] (2026-06-07 09:39+03:00) Extracted the sleep analysis page into `ui/pages/sleep.py`, switched page dispatch/export contracts, reduced `app.py` to 870 lines, and expanded the smoke suite to thirteen passing tests.
-- [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
+- [x] (2026-06-07 09:52+03:00) Extracted the planning page into `ui/pages/planning.py`, reduced `app.py` to 233 lines, and expanded the smoke suite to fourteen passing tests.
+- [x] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
 ## Surprises & Discoveries
@@ -87,6 +88,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The sleep page was also self-contained enough to move intact once date formatting and regularity helpers were localized to the page module.
   Evidence: `show_sleep_analysis()` moved into `ui/pages/sleep.py` with its period filter, regularity analysis, trend charts, recommendations, and CSV export preserved, while `app.py` dropped again to 870 lines and the smoke suite increased to thirteen passing tests.
+
+- Observation: The planning page was the last product-sized surface in `app.py`; once it moved, the remaining file became a true Streamlit shell plus a small number of orchestration helpers.
+  Evidence: `show_planning()` moved into `ui/pages/planning.py`, `app.py` dropped to 233 lines, and the contributor-safe smoke suite increased to fourteen passing tests.
 
 ## Decision Log
 
@@ -166,6 +170,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The main value of this slice is reducing the composition root to orchestration-only concerns. A small page-local `_format_date()` is cheaper and safer than keeping `app.py` as a shared utility host for one remaining page.
   Date/Author: 2026-06-07 / Codex
 
+- Decision: Finish Iteration 2 by moving the planning surface intact before touching any planning-specific product cleanup.
+  Rationale: The architectural milestone was to remove page ownership from `app.py`, not to redesign planning behavior. Moving the page as-is behind a stable renderer contract closes the modularization phase with lower risk than a combined extraction-plus-feature refactor.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -197,6 +205,8 @@ The next Iteration 2 milestone validated the same principle on the largest remai
 The following slice confirmed that the remaining analytics pages can still be peeled off one by one. Moving HRV analysis into `ui/pages/hrv.py` reduced `app.py` further to 1532 lines and pushed the contributor-safe smoke suite to twelve passing tests. The remaining large product surfaces in `app.py` are now mainly sleep analysis and planning, plus a few shell/service actions.
 
 The next slice held the same pattern. Moving sleep analysis into `ui/pages/sleep.py` reduced `app.py` again to 870 lines and pushed the contributor-safe smoke suite to thirteen passing tests. At this point, the remaining product-sized surface in `app.py` is mainly planning, while the rest of the file is much closer to a true Streamlit shell.
+
+The final Iteration 2 slice completed the modularization goal. Moving planning into `ui/pages/planning.py` reduced `app.py` to 233 lines and pushed the contributor-safe smoke suite to fourteen passing tests. At this point, `app.py` is substantially a composition root: page config, theme bootstrap, Garmin auth gate, navigation, dispatch, and a few orchestration callbacks.
 
 ## Context and Orientation
 
@@ -301,7 +311,7 @@ Open `http://localhost:8501`, verify that the Garmin path and demo path are clea
 
 Iteration 1 is accepted when a new contributor can follow the committed setup instructions, install dependencies from the committed manifests, and run the documented default test command successfully. The landing screen must show empty credential fields by default. Startup must no longer depend on silently editing files inside `site-packages` during every run. Live tests must be opt-in rather than part of the implied default path.
 
-Iteration 2 is accepted when `app.py` is reduced to orchestration responsibilities: page config, theme bootstrap, authentication gate, navigation, and page dispatch. The implementations of dashboard, activities, HRV, sleep, planning, AI coaching, sync logs, data management, and welcome screens must live outside `app.py` in dedicated modules. `data/garmin_client.py` and `data/garth_client.py` must no longer render Streamlit UI messages directly.
+Iteration 2 is accepted when `app.py` is reduced to orchestration responsibilities: page config, theme bootstrap, authentication gate, navigation, dispatch, and a small number of shell callbacks. The implementations of dashboard, activities, HRV, sleep, planning, AI coaching, sync logs, data management, and welcome screens must live outside `app.py` under `ui/pages/*`. `data/garmin_client.py` and `data/garth_client.py` must no longer render Streamlit UI messages directly.
 
 Iteration 3 is accepted when the first-run user journey is coherent. A user must be able to distinguish between real Garmin onboarding and demo onboarding without reading code or documentation. After data is available, the dashboard must explain the next best step and provide an obvious path to AI coaching. Developer-only controls must be hidden or separated from the default user flow.
 
@@ -332,7 +342,7 @@ The existing `StateManager` in `state/manager.py` remains the preferred entry po
 
     def render(state: StateManager) -> None:
 
-At the end of Iteration 2, the repository should contain these render modules:
+At the end of Iteration 2, the repository should contain page renderers under `ui/pages/*`, including the modules now used by the application shell:
 
     ui/pages/dashboard.py
     ui/pages/activities.py
@@ -340,8 +350,7 @@ At the end of Iteration 2, the repository should contain these render modules:
     ui/pages/sleep.py
     ui/pages/planning.py
     ui/pages/ai_coaching.py
-    ui/pages/sync_logs.py
-    ui/pages/data_management.py
+    ui/pages/admin.py
     ui/pages/welcome.py
 
 The Garmin connection widget should move into a dedicated UI component with a stable function signature:
