@@ -26,6 +26,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 17:07+03:00) Extracted the activities page into `ui/pages/activities.py`, switched page dispatch to the new renderer contract, and expanded the smoke suite to eight passing tests.
 - [x] (2026-06-06 17:21+03:00) Extracted sidebar chat management into `ui/components/chat_management.py`, switched the shell to the new component contract, and expanded the smoke suite to nine passing tests.
 - [x] (2026-06-06 18:16+03:00) Extracted the dashboard bundle into `ui/pages/dashboard.py`, moved status/quick-actions/compact-analytics logic behind a page contract with sync callback, and expanded the smoke suite to ten passing tests.
+- [x] (2026-06-06 19:07+03:00) Extracted the AI coaching and chat bundle into `ui/pages/ai_coaching.py`, preserved legacy helper import contracts through `app.py`, reduced `app.py` to 2014 lines, and expanded the smoke suite to eleven passing tests.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -75,6 +76,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The dashboard needed to move as a whole bundle rather than as isolated tiny functions, because status computation, quick actions, and compact analytics all share live state and navigation side effects.
   Evidence: `ui/pages/dashboard.py` now owns the dashboard renderer plus its helpers and sync callback contract, `app.py` dropped sharply to 4016 lines, and `ai_trainer_env/bin/python -m pytest tests/smoke -q` reports `10 passed`.
+
+- Observation: The AI coaching surface was not just another page renderer; it also owned chat persistence glue, provider setup, tool-call formatting, speech output, and progress-report UX helpers.
+  Evidence: The extraction to `ui/pages/ai_coaching.py` pulled almost two thousand lines as one cohesive bundle, while `app.py` still preserved old helper imports for tests via thin re-exports and dropped to 2014 lines.
 
 ## Decision Log
 
@@ -142,6 +146,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The main value of the dashboard extraction was reducing `app.py` meaningfully, not just shuffling one renderer while leaving its orchestration logic behind. Passing an `on_sync` callback keeps the page independent from `app.py` while preserving the existing sync flow.
   Date/Author: 2026-06-06 / Codex
 
+- Decision: Move AI coaching as a full feature bundle, including chat helpers and progress-report formatting, instead of leaving page-adjacent helper functions inside `app.py`.
+  Rationale: If the extraction had moved only `show_ai_coaching()` while leaving chat orchestration and formatting helpers behind, the new page module would still depend back on `app.py` and the composition root would stay overloaded. A fuller move keeps the boundary coherent while preserving existing test imports through app-level re-exports.
+  Date/Author: 2026-06-06 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -167,6 +175,8 @@ The following Iteration 2 slice confirmed that low-risk page-by-page extraction 
 The next Iteration 2 slice reinforced that the remaining shell clutter is still worth attacking directly. Moving chat management into `ui/components/chat_management.py` reduced `app.py` again to 4769 lines and pushed the smoke suite to nine passing tests. The next worthwhile milestone is now the larger dashboard bundle rather than more sidebar trivia.
 
 That dashboard milestone also held. Moving the dashboard, status logic, quick actions, and compact analytics into `ui/pages/dashboard.py` reduced `app.py` to 4016 lines and pushed the smoke suite to ten passing tests. The app shell is now materially thinner, and the remaining large surfaces are more obviously page-sized units rather than shell clutter.
+
+The next Iteration 2 milestone validated the same principle on the largest remaining product surface. Moving the AI coaching page together with its chat, provider, and progress-helper bundle into `ui/pages/ai_coaching.py` reduced `app.py` to 2014 lines while preserving old helper imports that some existing tests still expect. The smoke suite expanded to eleven passing tests, and `app.py` now looks far more like a shell than a product monolith.
 
 ## Context and Orientation
 

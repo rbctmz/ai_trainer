@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from ui.pages import render_activities_page, render_dashboard_page
+from ui.pages import render_activities_page, render_ai_coaching_page, render_dashboard_page
 
 
 pytestmark = pytest.mark.smoke
@@ -10,6 +10,10 @@ pytestmark = pytest.mark.smoke
 
 def test_ui_pages_export_activities_renderer():
     assert callable(render_activities_page)
+
+
+def test_ui_pages_export_ai_coaching_renderer():
+    assert callable(render_ai_coaching_page)
 
 
 def test_ui_pages_export_dashboard_renderer():
