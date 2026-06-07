@@ -28,6 +28,7 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-06 18:16+03:00) Extracted the dashboard bundle into `ui/pages/dashboard.py`, moved status/quick-actions/compact-analytics logic behind a page contract with sync callback, and expanded the smoke suite to ten passing tests.
 - [x] (2026-06-06 19:07+03:00) Extracted the AI coaching and chat bundle into `ui/pages/ai_coaching.py`, preserved legacy helper import contracts through `app.py`, reduced `app.py` to 2014 lines, and expanded the smoke suite to eleven passing tests.
 - [x] (2026-06-07 00:03+03:00) Extracted the HRV analysis page into `ui/pages/hrv.py`, switched page dispatch/export contracts, reduced `app.py` to 1532 lines, and expanded the smoke suite to twelve passing tests.
+- [x] (2026-06-07 09:39+03:00) Extracted the sleep analysis page into `ui/pages/sleep.py`, switched page dispatch/export contracts, reduced `app.py` to 870 lines, and expanded the smoke suite to thirteen passing tests.
 - [ ] Iteration 2 — Modularize page rendering and UI boundaries around `app.py`.
 - [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
@@ -83,6 +84,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: The HRV page was a good extraction candidate because it was internally dense but still self-contained, with no external helper chain left behind in `app.py`.
   Evidence: `show_hrv_analysis()` moved directly into `ui/pages/hrv.py` with its plotting, data filtering, correlation analysis, and CSV export intact, while `app.py` fell again to 1532 lines and the smoke suite increased to twelve passing tests.
+
+- Observation: The sleep page was also self-contained enough to move intact once date formatting and regularity helpers were localized to the page module.
+  Evidence: `show_sleep_analysis()` moved into `ui/pages/sleep.py` with its period filter, regularity analysis, trend charts, recommendations, and CSV export preserved, while `app.py` dropped again to 870 lines and the smoke suite increased to thirteen passing tests.
 
 ## Decision Log
 
@@ -158,6 +162,10 @@ After this plan is complete, a contributor should be able to create a clean virt
   Rationale: The main risk at this stage is still monolithic page ownership in `app.py`, not duplicated local formatting inside a page. Moving the page intact behind a stable renderer contract is lower risk and creates the next clear seam for future cleanup.
   Date/Author: 2026-06-07 / Codex
 
+- Decision: Extract sleep as a full page renderer with a page-local date helper instead of leaving shared formatting utilities in `app.py`.
+  Rationale: The main value of this slice is reducing the composition root to orchestration-only concerns. A small page-local `_format_date()` is cheaper and safer than keeping `app.py` as a shared utility host for one remaining page.
+  Date/Author: 2026-06-07 / Codex
+
 ## Outcomes & Retrospective
 
 The outcome of this planning milestone is not code movement; it is a precise execution sequence. The repository already proves that the product concept is viable, but it also proves that the next bottleneck is execution quality rather than ideation. This roadmap therefore does not propose a new product direction. It proposes a disciplined path to make the existing product safe to run, easier to change, and easier to trust.
@@ -187,6 +195,8 @@ That dashboard milestone also held. Moving the dashboard, status logic, quick ac
 The next Iteration 2 milestone validated the same principle on the largest remaining product surface. Moving the AI coaching page together with its chat, provider, and progress-helper bundle into `ui/pages/ai_coaching.py` reduced `app.py` to 2014 lines while preserving old helper imports that some existing tests still expect. The smoke suite expanded to eleven passing tests, and `app.py` now looks far more like a shell than a product monolith.
 
 The following slice confirmed that the remaining analytics pages can still be peeled off one by one. Moving HRV analysis into `ui/pages/hrv.py` reduced `app.py` further to 1532 lines and pushed the contributor-safe smoke suite to twelve passing tests. The remaining large product surfaces in `app.py` are now mainly sleep analysis and planning, plus a few shell/service actions.
+
+The next slice held the same pattern. Moving sleep analysis into `ui/pages/sleep.py` reduced `app.py` again to 870 lines and pushed the contributor-safe smoke suite to thirteen passing tests. At this point, the remaining product-sized surface in `app.py` is mainly planning, while the rest of the file is much closer to a true Streamlit shell.
 
 ## Context and Orientation
 
