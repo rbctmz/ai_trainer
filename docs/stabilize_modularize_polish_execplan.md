@@ -40,7 +40,8 @@ After this plan is complete, a contributor should be able to create a clean virt
 - [x] (2026-06-07 16:56+03:00) Completed the seventh Iteration 3 polish slice: made Google Gemini availability probes silent during ordinary startup and AI page rendering, preserved explicit Gemini error reporting for real use, and removed the repeated `grpc.StatusCode` initialization noise from the normal core flow.
 - [x] (2026-06-07 17:14+03:00) Completed the eighth Iteration 3 polish slice: turned real Garmin sync into a stateful dashboard handoff by persisting a structured sync outcome, redirecting successful syncs back to the dashboard, and surfacing one obvious follow-up CTA instead of leaving the result as a transient progress-only message.
 - [x] (2026-06-08 00:18+03:00) Completed a provider polish slice: wired DeepSeek into settings/UI, then fixed demo-mode provider switching so manual selection of a real provider clears stale `Mock AI`, auto-connects the selected real provider on demo data when configured, and allows the browser-verified `demo data -> DeepSeek -> real AI answer` path.
-- [ ] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
+- [x] (2026-06-08 00:32+03:00) Completed the final Iteration 3 acceptance pass: verified a real Garmin-authenticated dashboard on live data, confirmed the real AI coaching page auto-selected DeepSeek, and observed a fresh AI response on real Garmin context through the in-app browser.
+- [x] Iteration 3 — Polish the core user flow from entry to insight and AI recommendation.
 
 ## Surprises & Discoveries
 
@@ -130,6 +131,9 @@ After this plan is complete, a contributor should be able to create a clean virt
 
 - Observation: Demo mode could show a manually selected real provider in the sidebar while the chat still answered through `Mock AI`.
   Evidence: A live browser run selected `DeepSeek` on the AI coaching page and showed the expected `.env`-backed endpoint/model fields, but the first response still came from the canned `Mock AI` path. The root cause was stale demo provider state surviving manual provider selection until the page explicitly cleared or replaced the existing `ai_coach`.
+
+- Observation: The final real Garmin acceptance path currently succeeds through the `garminconnect` fallback, while the `garth` path still emits login failures and Garmin rate-limit noise during authentication attempts.
+  Evidence: The live terminal run on 2026-06-08 showed `module 'garth' has no attribute 'login'` plus mobile/portal 429/403 login failures before a successful fallback login through `garminconnect`. Despite that noise, the dashboard rendered real Garmin data and AI coaching produced a live DeepSeek answer on that context.
 
 ## Decision Log
 
@@ -299,6 +303,8 @@ The sixth Iteration 3 slice improved runtime hygiene rather than product copy or
 The seventh Iteration 3 slice removed that next noisy layer too. Ordinary startup and AI page rendering no longer trigger Gemini/grpc initialization errors just to compute provider availability badges or fallback choices. After the fix, the live core flow stayed clean of Gemini noise, and the remaining startup output narrowed further to an unrelated Python-version `FutureWarning` from `google.api_core`.
 
 The eighth Iteration 3 slice brought the same “one obvious next step” principle to the real Garmin path. A successful sync now stores a structured outcome in session state, returns the user to the dashboard, and shows a dedicated handoff block that explains what was updated before offering one follow-up CTA. The result is that real sync behaves less like a background maintenance action and more like a deliberate step into interpretation and planning.
+
+The final Iteration 3 acceptance pass closed the loop on the real path as well. With live Garmin authentication active, the app rendered a real dashboard, entered AI coaching with DeepSeek selected, and produced a fresh AI response on live Garmin context from the in-app browser. That is enough to treat the product-flow milestone as complete, even though Garmin authentication still has residual operational noise that belongs to future hardening rather than core-flow polish.
 
 ## Context and Orientation
 
