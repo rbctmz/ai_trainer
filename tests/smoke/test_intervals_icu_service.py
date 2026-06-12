@@ -91,5 +91,6 @@ def test_push_planned_events_uses_basic_auth_and_events_endpoint(monkeypatch):
     assert captured["url"] == "https://intervals.icu/api/v1/athlete/0/events"
     assert captured["headers"]["Authorization"].startswith("Basic ")
     assert captured["headers"]["Content-type"] == "application/json"
+    assert captured["headers"]["User-agent"].startswith("AI-Trainer/")
     assert captured["body"]["icu_training_load"] == 60
     assert captured["timeout"] == 15

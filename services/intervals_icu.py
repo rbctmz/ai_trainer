@@ -12,6 +12,8 @@ from urllib import request as urlrequest
 
 from config.settings import Settings
 
+DEFAULT_USER_AGENT = "AI-Trainer/1.0 (+https://github.com/rbctmz/ai_trainer)"
+
 
 class IntervalsICUError(RuntimeError):
     """Base Intervals.icu integration error."""
@@ -154,6 +156,7 @@ class IntervalsICUClient:
         headers = {
             "Accept": "application/json",
             "Authorization": _basic_auth_header(self.api_key),
+            "User-Agent": DEFAULT_USER_AGENT,
         }
         body = None
         if payload is not None:

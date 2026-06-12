@@ -53,6 +53,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-12 13:50+04:00) Started Hardening Sprint by validating `matin/garth` against its upstream repository and docs, then hardening the local runtime so a broken or deprecated `garth` install no longer masquerades as a normal login failure.
 - [x] (2026-06-12 14:05+04:00) Completed the first product-facing hardening slice: removed `garth` from the normal fresh-login path, kept it as a legacy diagnostic surface in Garmin connection info/UI, and expanded the smoke suite around the new auth contract.
 - [x] (2026-06-12 14:10+04:00) Completed the first Planning V2 slice: added an `Intervals.icu` personal API-key adapter, wired planning-page sync controls for day/week event export, and covered the new boundary with smoke tests plus a real browser check.
+- [x] (2026-06-12 14:41+04:00) Completed the first live-provider fix for that slice: added an explicit adapter `User-Agent`, re-ran smoke tests, and verified in the real UI that `Intervals.icu подключён. Найдено календарей: 1.`
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -78,6 +79,9 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Observation: the new planning sync section is resilient even before the user adds Intervals credentials.
   Evidence: browser verification on `http://localhost:8501` after generating a goal plan shows a visible `📤 Intervals.icu` section and, without an API key in `.env`, an explanatory non-blocking message instead of an exception or broken layout.
+
+- Observation: `Intervals.icu` accepts the same API-key request via `curl`, but rejects the default Python `urllib` fingerprint with a Cloudflare-style `403`.
+  Evidence: `curl -u API_KEY:*** https://intervals.icu/api/v1/athlete/0/calendars` returned `HTTP/2 200`, while the same endpoint via `urllib.request.urlopen(...)` returned `HTTP Error 403: Forbidden` until a normal `User-Agent` header was added. The adapter therefore needs an explicit `User-Agent`, not different auth logic.
 
 ## Decision Log
 
@@ -157,4 +161,6 @@ The next hardening slice turned that into a real product contract. Fresh Garmin 
 
 The first Planning V2 slice is now real, not hypothetical. The planning page can export its generated daily plan to `Intervals.icu` through a dedicated service adapter, the environment contract is documented in `.env.example`, and the UI behaves sensibly even when the integration is not configured yet. That is the correct shape for this phase: additive, testable, and useful before the larger adaptive-planning work begins.
 
-Revision note (2026-06-12 14:10+04:00): completed the first Planning V2 implementation slice and captured the verified behavior of the new `Intervals.icu` planning sync surface.
+The first live user verification also revealed a useful production detail: `Intervals.icu` is not rejecting the API key or the endpoint shape, but it does reject the default `urllib` client signature. That bug belongs in the adapter boundary, not in the planning UI. Fixing it there keeps the integration predictable for both connection checks and future event creation.
+
+Revision note (2026-06-12 14:41+04:00): closed the live `Intervals.icu` verification loop by confirming the `User-Agent` fix in the real planning UI and recording the verified acceptance signal.
