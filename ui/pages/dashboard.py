@@ -9,6 +9,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from models.coach_explainability import build_coach_explainability_summary
 from services import demo_mode as demo_mode_service
 from services.data_cache import load_activities, load_hrv, load_sleep
 from state import StateManager
@@ -232,6 +233,7 @@ def render_dashboard_page(
     if recommendations:
         ModernUI.ai_recommendation_panel(recommendations)
 
+    _render_coach_briefing(state, current_status)
     _render_last_sync_handoff(state, current_status, on_sync)
     _render_primary_next_step(state, current_status, on_sync)
     _render_quick_actions(state, current_status, on_sync)
@@ -309,6 +311,7 @@ def _calculate_current_status() -> dict[str, Any]:
         current_metrics = banister.get_current_metrics(tss_data, dates)
         status["tsb"] = current_metrics.get("tsb", 0)
         status["ctl"] = current_metrics.get("ctl", 0)
+        status["atl"] = current_metrics.get("atl", 0)
 
         if status["tsb"] < -30:
             status["critical_status"] = "Критическое переутомление"
@@ -609,6 +612,21 @@ def _render_primary_next_step(
         _handle_quick_action(state, next_step["action"], on_sync)
 
 
+def _render_coach_briefing(
+    state: StateManager,
+    current_status: dict[str, Any],
+) -> None:
+    briefing = _build_dashboard_explainability_summary(state, current_status)
+
+    st.markdown("### 🧠 Почему сегодня такой фокус")
+    with st.container(border=True):
+        st.markdown(f"**{briefing['short_title']}**")
+        st.write(briefing["description"])
+        st.caption(briefing["reason"])
+        for signal in briefing["signals"][:5]:
+            st.write(f"• {signal}")
+
+
 def _render_last_sync_handoff(
     state: StateManager,
     current_status: dict[str, Any],
@@ -695,36 +713,17 @@ def _choose_primary_next_step(
     state: StateManager,
     current_status: dict[str, Any],
 ) -> dict[str, str]:
-    try:
-        tsb_val = float(current_status.get("tsb", 0))
-    except (ValueError, TypeError):
-        tsb_val = 0.0
-
-    try:
-        hrv_val = float(current_status.get("hrv", 0)) if current_status.get("hrv") else 0.0
-    except (ValueError, TypeError):
-        hrv_val = 0.0
-
+    summary = _build_dashboard_explainability_summary(state, current_status)
     ai_ready = getattr(state, "ai_coach", None) is not None
 
-    if tsb_val < -20:
+    if summary["focus"] == "recovery":
         return {
-            "icon": "😴",
-            "title": "Сначала разберите восстановление",
-            "button": "Открыть план восстановления",
-            "desc": "Показатели указывают на заметную усталость. Сейчас важнее скорректировать восстановление, чем добавлять нагрузку.",
-            "reason": "Dashboard уже видит риск перегруза, поэтому это самый полезный следующий шаг.",
+            "icon": summary["icon"],
+            "title": summary["title"],
+            "button": summary["dashboard_button"],
+            "desc": summary["description"],
+            "reason": summary["reason"],
             "action": "recovery_plan",
-        }
-
-    if hrv_val > 0 and hrv_val < 30:
-        return {
-            "icon": "💓",
-            "title": "Проверьте HRV перед следующей нагрузкой",
-            "button": "Открыть HRV-анализ",
-            "desc": "HRV выглядит сниженным. Сначала стоит понять, это краткосрочная усталость или устойчивый сигнал к снижению нагрузки.",
-            "reason": "После этого вы точнее решите, нужен ли отдых, лёгкая сессия или нормальная работа.",
-            "action": "hrv_analysis",
         }
 
     if not ai_ready:
@@ -738,13 +737,35 @@ def _choose_primary_next_step(
         }
 
     return {
-        "icon": "🤖",
-        "title": "Получите персональную рекомендацию",
+        "icon": summary["icon"],
+        "title": "Получите персональную рекомендацию" if summary["focus"] == "form_today" else summary["title"],
         "button": "Спросить AI коуча",
-        "desc": "У вас уже есть актуальные данные и рабочий AI коуч. Самый полезный следующий шаг — перейти к интерпретации формы, восстановления и ближайшей нагрузки.",
-        "reason": "Это быстрее всего превращает сырые метрики dashboard в конкретное решение на сегодня.",
+        "desc": summary["description"],
+        "reason": summary["reason"],
         "action": "ai_chat",
     }
+
+
+def _build_dashboard_explainability_summary(
+    state: StateManager,
+    current_status: dict[str, Any],
+) -> dict[str, Any]:
+    hrv_val = current_status.get("hrv")
+    recovery_state = None
+    try:
+        if hrv_val and float(hrv_val) < 30:
+            recovery_state = "poor"
+    except (TypeError, ValueError):
+        recovery_state = None
+
+    return build_coach_explainability_summary(
+        tsb=current_status.get("tsb"),
+        ctl=current_status.get("ctl"),
+        atl=current_status.get("atl"),
+        readiness=current_status.get("readiness"),
+        recovery_state=recovery_state,
+        goal_plan=getattr(state, "goal_plan", None),
+    )
 
 
 def _handle_quick_action(

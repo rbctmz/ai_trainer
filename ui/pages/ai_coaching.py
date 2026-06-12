@@ -7,6 +7,7 @@ import pandas as pd
 import streamlit as st
 
 from config.settings import Settings
+from models.coach_explainability import build_coach_explainability_summary
 from services import demo_mode as demo_mode_service
 from state import StateManager, get_state_manager
 
@@ -177,16 +178,12 @@ def _ensure_real_ai_coach(
     return None
 
 
-def _choose_recommended_first_prompt(data_context: Optional[Dict[str, Any]]) -> Dict[str, str]:
+def _build_ai_coach_explainability_summary(
+    data_context: Optional[Dict[str, Any]],
+    goal_plan: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
     if not data_context or not data_context.get("summary", {}).get("has_data", False):
-        return {
-            "icon": "🧭",
-            "title": "Начните с обзора доступных данных",
-            "button": "Спросить, что AI уже видит",
-            "description": "Если данных пока мало или контекст ещё пустой, лучший стартовый вопрос — уточнить, какие метрики уже доступны и что стоит загрузить дальше.",
-            "reason": "Это быстрее всего проясняет, на чём AI может строить рекомендации прямо сейчас.",
-            "prompt": "Какие данные у меня уже доступны для анализа, каких данных не хватает и с какого вопроса лучше начать работу с AI тренером?",
-        }
+        return None
 
     performance_metrics = data_context.get("performance_metrics", {})
     banister_model = performance_metrics.get("banister_model", {}) if performance_metrics.get("has_data") else {}
@@ -201,53 +198,39 @@ def _choose_recommended_first_prompt(data_context: Optional[Dict[str, Any]]) -> 
     sleep_quality = sleep_context.get("sleep_quality")
     readiness = training_latest.get("training_readiness")
 
-    try:
-        tsb_val = float(tsb) if tsb is not None else None
-    except (TypeError, ValueError):
-        tsb_val = None
+    return build_coach_explainability_summary(
+        tsb=banister_model.get("tsb"),
+        ctl=banister_model.get("ctl"),
+        atl=banister_model.get("atl"),
+        readiness=readiness,
+        recovery_state=hrv_stats.get("recovery_state"),
+        sleep_quality=sleep_context.get("sleep_quality"),
+        goal_plan=goal_plan,
+    )
 
-    try:
-        readiness_val = float(readiness) if readiness is not None else None
-    except (TypeError, ValueError):
-        readiness_val = None
 
-    if tsb_val is not None and tsb_val < -20:
+def _choose_recommended_first_prompt(
+    data_context: Optional[Dict[str, Any]],
+    goal_plan: Optional[Dict[str, Any]] = None,
+) -> Dict[str, str]:
+    summary = _build_ai_coach_explainability_summary(data_context, goal_plan)
+    if summary is None:
         return {
-            "icon": "😴",
-            "title": "Сначала разберите восстановление",
-            "button": "Спросить про восстановление",
-            "description": "Ваш текущий training balance выглядит тяжёлым. Логичный первый вопрос — что делать с усталостью сегодня и как не усугубить её ближайшей нагрузкой.",
-            "reason": "Это самый полезный старт, когда риск перегруза важнее плана прогрессии.",
-            "prompt": "Проанализируй мое состояние восстановления: TSB, HRV, качество сна и недавнюю нагрузку. Дай конкретную рекомендацию, что делать сегодня и в ближайшие 2-3 дня.",
-        }
-
-    if recovery_state == "poor" or sleep_quality == "poor":
-        return {
-            "icon": "💓",
-            "title": "Проверьте сигнал восстановления",
-            "button": "Спросить про HRV и сон",
-            "description": "HRV или сон выглядят слабо. Лучший первый шаг — понять, это краткосрочный сбой или знак, что нагрузку уже пора снижать.",
-            "reason": "Этот вопрос быстрее всего превращает recovery-сигналы в понятное решение по тренировке.",
-            "prompt": "Проанализируй мое восстановление по HRV, качеству сна и последним тренировкам. Объясни, насколько это критично и как скорректировать следующую нагрузку.",
-        }
-
-    if readiness_val is not None and readiness_val >= 75:
-        return {
-            "icon": "📈",
-            "title": "Составьте план на ближайшие 7 дней",
-            "button": "Спросить про план недели",
-            "description": "Readiness выглядит сильным. Самый полезный первый запрос — не общий обзор, а конкретный план, как использовать это окно готовности.",
-            "reason": "Так вы сразу превращаете метрики в практический недельный план.",
-            "prompt": "На основе моего текущего readiness, TSB, HRV и недавних тренировок составь конкретный план тренировок на ближайшие 7 дней с распределением по дням и интенсивности.",
+            "icon": "🧭",
+            "title": "Начните с обзора доступных данных",
+            "button": "Спросить, что AI уже видит",
+            "description": "Если данных пока мало или контекст ещё пустой, лучший стартовый вопрос — уточнить, какие метрики уже доступны и что стоит загрузить дальше.",
+            "reason": "Это быстрее всего проясняет, на чём AI может строить рекомендации прямо сейчас.",
+            "prompt": "Какие данные у меня уже доступны для анализа, каких данных не хватает и с какого вопроса лучше начать работу с AI тренером?",
         }
 
     return {
-        "icon": "🤖",
-        "title": "Начните с оценки текущей формы",
-        "button": "Спросить про форму сегодня",
-        "description": "Когда нет явного recovery-риска или очевидного окна под план недели, лучший старт — получить краткую интерпретацию текущей формы и готовности к нагрузке.",
-        "reason": "Это даёт базовую опору для всех следующих вопросов про план, прогресс и интенсивность.",
-        "prompt": "Проанализируй мою текущую форму: TSB, CTL, ATL, HRV, readiness и недавнюю нагрузку. Дай краткую оценку состояния и самый важный следующий шаг.",
+        "icon": summary["icon"],
+        "title": summary["title"],
+        "button": summary["button"],
+        "description": summary["description"],
+        "reason": summary["reason"],
+        "prompt": summary["prompt"],
     }
 
 
@@ -879,7 +862,23 @@ def render_ai_chat_page(state: StateManager) -> None:
                 """
                 )
 
-            recommended_prompt = _choose_recommended_first_prompt(state.data_context)
+            explain_summary = _build_ai_coach_explainability_summary(
+                state.data_context,
+                getattr(state, "goal_plan", None),
+            )
+            if explain_summary is not None:
+                st.markdown("### 🧠 Почему такой старт")
+                with st.container(border=True):
+                    st.markdown(f"**{explain_summary['short_title']}**")
+                    st.write(explain_summary["description"])
+                    st.caption(explain_summary["reason"])
+                    for signal in explain_summary["signals"][:5]:
+                        st.write(f"• {signal}")
+
+            recommended_prompt = _choose_recommended_first_prompt(
+                state.data_context,
+                getattr(state, "goal_plan", None),
+            )
             st.markdown("### 🎯 Рекомендованный старт")
             st.info(
                 f"**{recommended_prompt['title']}**\n\n"

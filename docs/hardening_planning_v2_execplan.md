@@ -60,6 +60,8 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-12 23:59+04:00) Re-ran the smoke suite after the explainability refactor (`54 passed`) and browser-verified the updated planning flow on a separate local Streamlit instance at `http://localhost:8502` so the user's long-running `8501` session was not disturbed.
 - [x] (2026-06-13 00:20+04:00) Completed the next Planning V2 slice: the planner now interprets start-state load (`CTL/ATL/TSB`) as `fresh / balanced / fatigued / deep_fatigue`, softens risky early weeks when the athlete starts tired, and allows more catch-up after holiday/limited-availability scenarios when the athlete starts fresh.
 - [x] (2026-06-13 00:20+04:00) Hardened the planning UI around degenerate target-TSS ranges by replacing the collapsed `500..500` slider case with a fixed-value control, then re-ran the smoke suite (`58 passed`).
+- [x] (2026-06-13 00:46+04:00) Started the Coach Explainability slice by introducing a shared readiness/explainability helper and routing both dashboard next-step guidance and the AI coaching recommended first prompt through the same reasoning contract.
+- [x] (2026-06-13 00:46+04:00) Added the first user-facing explainability surfaces for that slice: a `Почему сегодня такой фокус` briefing on the dashboard and a matching `Почему такой старт` block on the AI coaching page, then re-ran the smoke suite (`61 passed`).
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -104,6 +106,9 @@ This repository should borrow those product patterns while staying faithful to t
 - Observation: explicit `illness` and `injury` interruption scenarios already apply a strong first-week reduction, so layering a generic fatigue guard on top creates an unrealistic double penalty.
   Evidence: the first implementation of the load-aware slice pushed the existing illness test from week-one `60` TSS down to `50` TSS, which was technically consistent with the added start-load guard but product-wise too punitive. The fix was to skip the extra load-guard layer when an illness/injury interruption is already active.
 
+- Observation: dashboard and AI coaching were both already using the same raw signals, but with different branching rules and different wording, which made the product feel less coherent than the underlying data actually was.
+  Evidence: `ui/pages/dashboard.py` had its own `TSB/HRV` next-step logic, while `ui/pages/ai_coaching.py` separately chose a recommended first prompt from `TSB/readiness/recovery_state`. The new shared helper replaced that duplication and the smoke suite still passed afterward.
+
 ## Decision Log
 
 - Decision: treat the next phase as a new ExecPlan instead of extending the previous three-iteration roadmap indefinitely.
@@ -144,6 +149,10 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Decision: do not stack the generic start-fatigue guard on top of explicit `illness` or `injury` interruption blocks.
   Rationale: illness and injury already encode a severe near-term reduction pattern. Adding another first-week fatigue cut on top overstates caution and makes the plan harder to trust. Availability/holiday/limited scenarios still benefit from the separate start-load interpretation, but sickness/injury should use the dedicated interruption path alone.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: start Coach Explainability with a shared reasoning helper instead of directly rewriting prompts or UI copy in place.
+  Rationale: the biggest current risk is divergence, not missing text. If dashboard and AI coaching continue to branch independently, any new wording polish will drift again. A shared helper creates one contract for `recovery / plan_week / form_today` and lets both surfaces explain the same signals consistently.
   Date/Author: 2026-06-13 / Codex
 
 ## Plan of Work
@@ -219,3 +228,11 @@ That slice also exposed an important boundary condition in the UI contract. When
 The validation evidence is again strong enough to keep moving forward without reopening older work. The adaptive-planning smoke tests now cover deep-fatigue start states and fresh-start catch-up behavior, the planning-page explainability tests cover the collapsed target-TSS control, and the full smoke suite passes at `58 passed`.
 
 Revision note (2026-06-13 00:20+04:00): recorded the load-aware planning slice and the fixed-value target-TSS control after re-running the full smoke suite (`58 passed`).
+
+The first Coach Explainability slice is intentionally modest but strategically important. Instead of trying to make the AI sound better through prompt edits alone, it introduces a shared reasoning layer that turns the same signals — `TSB`, `CTL`, `ATL`, readiness, recovery state, and recent plan constraints — into one explainability summary. The dashboard now uses that summary to frame `Следующий шаг`, while AI coaching uses the same summary to decide what the recommended first question should be.
+
+That immediately improves product coherence. A user who sees `Сначала разберите восстановление` on the dashboard will now encounter the same underlying logic when opening AI coaching, along with a short `Почему такой старт` block that lists the key signals behind the suggestion. This is not yet the full daily briefing vision, but it is the first moment where multiple surfaces in the product start speaking the same language about readiness.
+
+The validation evidence is straightforward and sufficient for this slice. New smoke coverage now exercises the shared explainability helper directly, while the existing dashboard and AI-coaching smoke tests still pass on top of the refactor. The full smoke suite passes at `61 passed`.
+
+Revision note (2026-06-13 00:46+04:00): recorded the first Coach Explainability slice after adding the shared readiness helper, wiring it into dashboard and AI coaching, and re-running the full smoke suite (`61 passed`).
