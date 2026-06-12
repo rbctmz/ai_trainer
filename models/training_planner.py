@@ -4,6 +4,224 @@ from datetime import datetime, timedelta, date
 from math import ceil
 from typing import List, Dict, Tuple
 
+WEEKDAY_LABELS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+
+
+def _round_to_5(value: float) -> int:
+    return int(round(float(value) / 5.0) * 5)
+
+
+def recommended_training_days(goal_type: str) -> int:
+    g = (goal_type or '').lower()
+    if 'триатлон' in g or 'tri' in g:
+        return 6
+    if 'бег' in g or 'run' in g:
+        return 5
+    if 'вело' in g or 'bike' in g or 'cycle' in g:
+        return 5
+    return 5
+
+
+def estimated_tss_per_hour(goal_type: str) -> int:
+    g = (goal_type or '').lower()
+    if 'триатлон' in g or 'tri' in g:
+        return 42
+    if 'бег' in g or 'run' in g:
+        return 50
+    if 'вело' in g or 'bike' in g or 'cycle' in g:
+        return 45
+    return 45
+
+
+def normalize_available_day_indices(available_day_indices: List[int] | None) -> List[int]:
+    if not available_day_indices:
+        return list(range(7))
+    valid = sorted({int(idx) for idx in available_day_indices if 0 <= int(idx) <= 6})
+    return valid or list(range(7))
+
+
+def available_day_density_factor(available_day_count: int, goal_type: str) -> float:
+    recommended = max(1, recommended_training_days(goal_type))
+    raw_ratio = available_day_count / recommended
+    # Смягчаем штраф за меньшее число тренировочных дней, чтобы план не становился чрезмерно консервативным.
+    return max(0.45, min(1.0, raw_ratio * 0.7 + 0.3))
+
+
+def summarize_availability(
+    goal_type: str,
+    available_hours: float,
+    available_day_indices: List[int] | None = None,
+) -> Dict[str, object]:
+    day_indices = normalize_available_day_indices(available_day_indices)
+    tss_per_hour = estimated_tss_per_hour(goal_type)
+    density_factor = available_day_density_factor(len(day_indices), goal_type)
+    weekly_capacity_tss = max(50, _round_to_5(max(0.0, float(available_hours or 0.0)) * tss_per_hour * density_factor))
+    return {
+        'available_hours': round(float(available_hours or 0.0), 1),
+        'available_day_indices': day_indices,
+        'available_day_labels': [WEEKDAY_LABELS_RU[idx] for idx in day_indices],
+        'available_day_count': len(day_indices),
+        'recommended_days': recommended_training_days(goal_type),
+        'density_factor': round(density_factor, 2),
+        'tss_per_hour': tss_per_hour,
+        'weekly_capacity_tss': weekly_capacity_tss,
+    }
+
+
+def constrain_weights_to_available_days(
+    weights: Dict[str, List[float]],
+    available_day_indices: List[int] | None = None,
+) -> Dict[str, List[float]]:
+    allowed_days = set(normalize_available_day_indices(available_day_indices))
+    constrained: Dict[str, List[float]] = {}
+    for sport, values in weights.items():
+        masked = [
+            float(values[idx] if idx < len(values) else 0.0) if idx in allowed_days else 0.0
+            for idx in range(7)
+        ]
+        constrained[sport] = _normalize_weights(masked)
+    return constrained
+
+
+def _interruption_label(interruption_type: str) -> str:
+    mapping = {
+        'limited': 'Ограниченная доступность',
+        'holiday': 'Отпуск',
+        'illness': 'Болезнь',
+        'injury': 'Травма',
+        'none': 'Нет',
+    }
+    return mapping.get((interruption_type or 'none').lower(), 'Нет')
+
+
+def _interruption_week_factor(interruption_type: str, week_index: int) -> float:
+    schedules = {
+        'limited': [0.75, 0.85, 0.95, 1.0],
+        'holiday': [0.60, 0.70, 0.85, 0.95],
+        'illness': [0.35, 0.50, 0.70, 0.85],
+        'injury': [0.20, 0.35, 0.55, 0.75],
+        'none': [1.0],
+    }
+    factors = schedules.get((interruption_type or 'none').lower(), [1.0])
+    return factors[min(max(0, week_index), len(factors) - 1)]
+
+
+def apply_planning_constraints(
+    weekly_tss: List[int],
+    phases: List[str],
+    goal_type: str,
+    available_hours: float,
+    available_day_indices: List[int] | None = None,
+    interruption_type: str = 'none',
+    interruption_weeks: int = 0,
+    catch_up_strategy: str = 'protect_recovery',
+    current_tsb: float | None = None,
+) -> Tuple[List[int], List[Dict[str, object]], Dict[str, object]]:
+    """Ограничивает недельный план доступностью и корректирует первые недели под interruption-сценарии."""
+    availability = summarize_availability(goal_type, available_hours, available_day_indices)
+    weekly_capacity_tss = int(availability['weekly_capacity_tss'])
+
+    adjusted_plan = [max(0, int(round(value))) for value in weekly_tss]
+    details: List[Dict[str, object]] = []
+    capacity_loss = 0
+
+    for week_index, value in enumerate(adjusted_plan):
+        note_parts: List[str] = []
+        if value > weekly_capacity_tss:
+            capacity_loss += value - weekly_capacity_tss
+            value = weekly_capacity_tss
+            note_parts.append(f"cap {weekly_capacity_tss} TSS")
+        adjusted_plan[week_index] = value
+        details.append({
+            'week_index': week_index,
+            'phase': phases[week_index] if week_index < len(phases) else 'Base',
+            'capacity_tss': weekly_capacity_tss,
+            'adjustment_note': '',
+            'notes': note_parts,
+        })
+
+    interruption_type = (interruption_type or 'none').lower()
+    interruption_weeks = min(max(0, int(interruption_weeks)), len(adjusted_plan))
+    interruption_loss = 0
+
+    for week_index in range(interruption_weeks):
+        factor = _interruption_week_factor(interruption_type, week_index)
+        before = adjusted_plan[week_index]
+        after = min(before, max(0, _round_to_5(before * factor)))
+        if after != before:
+            interruption_loss += before - after
+            adjusted_plan[week_index] = after
+            details[week_index]['notes'].append(
+                f"{_interruption_label(interruption_type)} {int(round((1.0 - factor) * 100))}%"
+            )
+
+    catch_up_strategy = (catch_up_strategy or 'protect_recovery').lower()
+    recoverable_loss = 0
+    recovered_tss = 0
+
+    if catch_up_strategy == 'catch_up' and interruption_loss > 0:
+        recovery_share = 0.60
+        if interruption_type in {'illness', 'injury'}:
+            recovery_share = min(recovery_share, 0.40)
+        if current_tsb is not None and current_tsb <= -15:
+            recovery_share = min(recovery_share, 0.35)
+        recoverable_loss = _round_to_5(interruption_loss * recovery_share)
+        remaining = recoverable_loss
+
+        for week_index in range(interruption_weeks, len(adjusted_plan)):
+            phase = (phases[week_index] if week_index < len(phases) else '').lower()
+            if phase == 'taper':
+                continue
+            current_value = adjusted_plan[week_index]
+            extra_capacity = max(0, weekly_capacity_tss - current_value)
+            ramp_room = max(10, _round_to_5(current_value * 0.08))
+            add = _round_to_5(min(extra_capacity, ramp_room, remaining))
+            if add <= 0:
+                continue
+            adjusted_plan[week_index] += add
+            remaining -= add
+            recovered_tss += add
+            details[week_index]['notes'].append(f"catch-up +{add} TSS")
+            if remaining <= 0:
+                break
+
+    if catch_up_strategy != 'catch_up' and interruption_loss > 0 and interruption_weeks > 0:
+        details[interruption_weeks - 1]['notes'].append("без компенсации нагрузки")
+
+    for week_index, value in enumerate(adjusted_plan):
+        details[week_index]['adjusted_tss'] = value
+        details[week_index]['adjustment_note'] = ' · '.join(details[week_index]['notes']) or '—'
+
+    summary_notes = [
+        f"Доступно {availability['available_hours']} ч/нед ≈ потолок {weekly_capacity_tss} TSS",
+        f"Дни: {', '.join(availability['available_day_labels'])}",
+    ]
+    if capacity_loss > 0:
+        summary_notes.append(f"Ограничение по доступности сняло ~{capacity_loss} TSS относительно базового плана")
+    if interruption_type != 'none' and interruption_weeks > 0:
+        summary_notes.append(f"{_interruption_label(interruption_type)} на {interruption_weeks} нед.")
+    if interruption_loss > 0 and catch_up_strategy == 'catch_up':
+        summary_notes.append(f"Стратегия catch up вернула {recovered_tss} из {recoverable_loss} TSS")
+    elif interruption_loss > 0:
+        summary_notes.append("Стратегия protect recovery не догоняет пропущенный объём автоматически")
+    if current_tsb is not None and current_tsb <= -15 and catch_up_strategy == 'catch_up':
+        summary_notes.append("Текущий TSB низкий — catch up ограничен, чтобы не усиливать усталость")
+
+    summary = {
+        **availability,
+        'interruption_type': interruption_type,
+        'interruption_label': _interruption_label(interruption_type),
+        'interruption_weeks': interruption_weeks,
+        'catch_up_strategy': catch_up_strategy,
+        'capacity_loss_tss': capacity_loss,
+        'interruption_loss_tss': interruption_loss,
+        'recoverable_loss_tss': recoverable_loss,
+        'recovered_tss': recovered_tss,
+        'current_tsb': current_tsb,
+        'notes': summary_notes,
+    }
+    return adjusted_plan, details, summary
+
 
 def triathlon_target_weekly_tss(distance: str) -> Tuple[int, int]:
     """Грубые целевые диапазоны недельного TSS по типу дистанции.
@@ -277,6 +495,7 @@ def expand_weekly_to_daily_triathlon(
     start_date: date,
     mix_overrides: Dict[str, Dict[str, float]] | None = None,
     weights_overrides: Dict[str, Dict[str, List[float]]] | None = None,
+    available_day_indices: List[int] | None = None,
 ) -> Tuple[List[Tuple[datetime, float, Dict[str, float]]], List[Dict[str, object]]]:
     """Разворачивает недельный triathlon-план в поминутную ленту по дням с разбивкой по видам спорта.
     Возвращает:
@@ -308,6 +527,7 @@ def expand_weekly_to_daily_triathlon(
             }
         else:
             weights = daily_weights_for_phase(phase)
+        weights = constrain_weights_to_available_days(weights, available_day_indices)
 
         # Сумма по видам на неделю
         run_week = w_tss * mix['run']

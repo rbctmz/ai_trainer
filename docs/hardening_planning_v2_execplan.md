@@ -55,6 +55,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-12 14:10+04:00) Completed the first Planning V2 slice: added an `Intervals.icu` personal API-key adapter, wired planning-page sync controls for day/week event export, and covered the new boundary with smoke tests plus a real browser check.
 - [x] (2026-06-12 14:41+04:00) Completed the first live-provider fix for that slice: added an explicit adapter `User-Agent`, re-ran smoke tests, and verified in the real UI that `Intervals.icu подключён. Найдено календарей: 1.`
 - [x] (2026-06-12 14:42+04:00) Closed the real end-to-end acceptance loop: sent one planned workout day from the planning page, then confirmed through live API read-back that event `Триатлон Олимпийка — 2026-06-08` exists in `Intervals.icu` with `icu_training_load=14`.
+- [x] (2026-06-12 23:33+04:00) Completed the next Planning V2 slice: the planner now accepts weekly hours, available training days, interruption type/duration, and catch-up vs protect-recovery strategy; smoke tests pass and the real planning page renders the new adaptive controls plus constraint summary.
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -87,6 +88,12 @@ This repository should borrow those product patterns while staying faithful to t
 - Observation: the first real provider-side event created by the planning page preserved the expected shape of the AI Trainer payload.
   Evidence: a live read-back from `GET /api/v1/athlete/0/events?oldest=2026-06-08&newest=2026-06-08` returned event id `115757268` with name `Триатлон Олимпийка — 2026-06-08`, `type=\"Ride\"`, `start_date_local=\"2026-06-08T07:00:00\"`, `icu_training_load=14`, and the exported description block from AI Trainer.
 
+- Observation: availability-aware planning can be added without rewriting the existing Banister forecast or export surfaces.
+  Evidence: the planner model now constrains weekly TSS, redistributes load onto selected days, and annotates weekly adjustments before the existing daily expansion, forecast chart, CSV export, ICS export, and `Intervals.icu` sync all continue to work against the adjusted plan shape.
+
+- Observation: a small set of explicit user inputs gives a meaningfully more adaptive plan without demanding a full calendar UI.
+  Evidence: the real planning page now renders weekly available hours, available weekdays, interruption type, interruption duration, and `Беречь восстановление` vs `Наверстать аккуратно`; after building a plan, the UI shows a human-readable summary of which constraints were applied.
+
 ## Decision Log
 
 - Decision: treat the next phase as a new ExecPlan instead of extending the previous three-iteration roadmap indefinitely.
@@ -111,6 +118,10 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Decision: start Planning V2 with a single-user `Intervals.icu` API-key adapter that creates calendar events from the existing daily plan.
   Rationale: the current product is a local single-athlete Streamlit app, not a multi-user SaaS. The simplest valuable slice is therefore personal API-key sync for planned workouts, which reuses the existing daily planner and export semantics without introducing OAuth or multi-tenant state.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: make the next Planning V2 slice availability-aware through weekly hours, selected training days, and near-term interruption inputs instead of attempting a full calendar scheduler.
+  Rationale: that input set is small enough to implement safely in the current Streamlit page, but rich enough to produce materially different plans. It also aligns directly with the product patterns seen in `IntervalCoach`: limited availability, missed time, and careful catch-up decisions.
   Date/Author: 2026-06-12 / Codex
 
 ## Plan of Work
@@ -169,4 +180,6 @@ The first live user verification also revealed a useful production detail: `Inte
 
 The real acceptance loop is now closed for this slice. The app can discover the configured `Intervals.icu` account, validate the connection from the planning page, send at least one planned workout event, and confirm that event through provider-side read-back. That is enough evidence to treat the integration as production-shaped rather than prototype-shaped.
 
-Revision note (2026-06-12 14:42+04:00): recorded the first full real-provider acceptance proof, including successful event creation and provider-side read-back.
+The next Planning V2 slice changed the planner from a pure target-and-ramp calculator into a constrained planner. It still uses the same Banister forecasting and export surfaces, but now the user can express how much training time actually exists, which weekdays are usable, whether the next block is affected by illness, holiday, or limited availability, and whether missed load should be protected or partially caught up. That is the first real step toward adaptive planning rather than static load projection.
+
+Revision note (2026-06-12 23:33+04:00): recorded the availability-and-interruption slice after verifying the new controls and constraint summary in the real planning UI and re-running the smoke suite (`52 passed`).
