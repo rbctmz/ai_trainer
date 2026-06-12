@@ -106,6 +106,67 @@ def _interruption_week_factor(interruption_type: str, week_index: int) -> float:
     return factors[min(max(0, week_index), len(factors) - 1)]
 
 
+def _metric_or_none(value: float | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def assess_start_load_state(
+    current_ctl: float | None = None,
+    current_atl: float | None = None,
+    current_tsb: float | None = None,
+) -> Dict[str, object]:
+    """Оценивает стартовое состояние спортсмена перед построением плана."""
+    ctl = _metric_or_none(current_ctl)
+    atl = _metric_or_none(current_atl)
+    tsb = _metric_or_none(current_tsb)
+    atl_ratio = None
+    if ctl is not None and ctl > 0 and atl is not None:
+        atl_ratio = atl / ctl
+
+    state = "balanced"
+    label = "Нейтральный старт"
+    guard_factors: List[float] = []
+    catch_up_share_cap: float | None = None
+    catch_up_share_floor: float | None = None
+    catch_up_ramp_rate = 0.08
+
+    if (tsb is not None and tsb <= -25) or (atl_ratio is not None and atl_ratio >= 1.6):
+        state = "deep_fatigue"
+        label = "Глубокая усталость"
+        guard_factors = [0.75, 0.85, 0.95]
+        catch_up_share_cap = 0.25
+        catch_up_ramp_rate = 0.05
+    elif (tsb is not None and tsb <= -10) or (atl_ratio is not None and atl_ratio >= 1.25):
+        state = "fatigued"
+        label = "Накопленная усталость"
+        guard_factors = [0.90, 0.95]
+        catch_up_share_cap = 0.45
+        catch_up_ramp_rate = 0.07
+    elif (tsb is not None and tsb >= 10) and (atl_ratio is None or atl_ratio <= 0.9):
+        state = "fresh"
+        label = "Свежий старт"
+        catch_up_share_floor = 0.70
+        catch_up_ramp_rate = 0.10
+
+    return {
+        "state": state,
+        "label": label,
+        "guard_factors": guard_factors,
+        "catch_up_share_cap": catch_up_share_cap,
+        "catch_up_share_floor": catch_up_share_floor,
+        "catch_up_ramp_rate": catch_up_ramp_rate,
+        "atl_ratio": round(atl_ratio, 2) if atl_ratio is not None else None,
+        "ctl": ctl,
+        "atl": atl,
+        "tsb": tsb,
+    }
+
+
 def apply_planning_constraints(
     weekly_tss: List[int],
     phases: List[str],
@@ -116,10 +177,17 @@ def apply_planning_constraints(
     interruption_weeks: int = 0,
     catch_up_strategy: str = 'protect_recovery',
     current_tsb: float | None = None,
+    current_ctl: float | None = None,
+    current_atl: float | None = None,
 ) -> Tuple[List[int], List[Dict[str, object]], Dict[str, object]]:
     """Ограничивает недельный план доступностью и корректирует первые недели под сценарии ограничений."""
     availability = summarize_availability(goal_type, available_hours, available_day_indices)
     weekly_capacity_tss = int(availability['weekly_capacity_tss'])
+    load_state = assess_start_load_state(
+        current_ctl=current_ctl,
+        current_atl=current_atl,
+        current_tsb=current_tsb,
+    )
 
     adjusted_plan = [max(0, int(round(value))) for value in weekly_tss]
     details: List[Dict[str, object]] = []
@@ -142,6 +210,24 @@ def apply_planning_constraints(
 
     interruption_type = (interruption_type or 'none').lower()
     interruption_weeks = min(max(0, int(interruption_weeks)), len(adjusted_plan))
+    apply_load_guard = not (interruption_type in {'illness', 'injury'} and interruption_weeks > 0)
+    load_guard_loss = 0
+    if apply_load_guard:
+        for week_index, factor in enumerate(load_state['guard_factors']):
+            if week_index >= len(adjusted_plan):
+                break
+            phase = (phases[week_index] if week_index < len(phases) else '').lower()
+            if phase == 'taper':
+                continue
+            before = adjusted_plan[week_index]
+            after = min(before, max(0, _round_to_5(before * factor)))
+            if after != before:
+                load_guard_loss += before - after
+                adjusted_plan[week_index] = after
+                details[week_index]['notes'].append(
+                    f"{load_state['label']} {int(round((1.0 - factor) * 100))}%"
+                )
+
     interruption_loss = 0
 
     for week_index in range(interruption_weeks):
@@ -165,6 +251,10 @@ def apply_planning_constraints(
             recovery_share = min(recovery_share, 0.40)
         if current_tsb is not None and current_tsb <= -15:
             recovery_share = min(recovery_share, 0.35)
+        if load_state['catch_up_share_cap'] is not None:
+            recovery_share = min(recovery_share, float(load_state['catch_up_share_cap']))
+        if load_state['catch_up_share_floor'] is not None and interruption_type in {'limited', 'holiday'}:
+            recovery_share = max(recovery_share, float(load_state['catch_up_share_floor']))
         recoverable_loss = _round_to_5(interruption_loss * recovery_share)
         remaining = recoverable_loss
 
@@ -174,7 +264,7 @@ def apply_planning_constraints(
                 continue
             current_value = adjusted_plan[week_index]
             extra_capacity = max(0, weekly_capacity_tss - current_value)
-            ramp_room = max(10, _round_to_5(current_value * 0.08))
+            ramp_room = max(10, _round_to_5(current_value * float(load_state['catch_up_ramp_rate'])))
             add = _round_to_5(min(extra_capacity, ramp_room, remaining))
             if add <= 0:
                 continue
@@ -196,6 +286,14 @@ def apply_planning_constraints(
         f"Доступно {availability['available_hours']} ч/нед ≈ потолок {weekly_capacity_tss} TSS",
         f"Дни: {', '.join(availability['available_day_labels'])}",
     ]
+    if load_state['state'] == 'deep_fatigue':
+        summary_notes.append("Стартовое состояние: глубокая усталость — первые недели дополнительно смягчены")
+    elif load_state['state'] == 'fatigued':
+        summary_notes.append("Стартовое состояние: накопленная усталость — старт плана сделан мягче")
+    elif load_state['state'] == 'fresh':
+        summary_notes.append("Стартовое состояние: свежесть — план не ограничен дополнительно и может вернуть больше нагрузки после отпуска")
+    if load_guard_loss > 0:
+        summary_notes.append(f"Стартовая усталость дополнительно сняла ~{load_guard_loss} TSS в первые недели")
     if capacity_loss > 0:
         summary_notes.append(f"Ограничение по доступности сняло ~{capacity_loss} TSS относительно базового плана")
     if interruption_type != 'none' and interruption_weeks > 0:
@@ -220,6 +318,11 @@ def apply_planning_constraints(
         'recoverable_loss_tss': recoverable_loss,
         'recovered_tss': recovered_tss,
         'current_tsb': current_tsb,
+        'current_ctl': current_ctl,
+        'current_atl': current_atl,
+        'load_state': load_state['state'],
+        'load_state_label': load_state['label'],
+        'load_guard_loss_tss': load_guard_loss,
         'notes': summary_notes,
     }
     return adjusted_plan, details, summary

@@ -18,6 +18,38 @@ def _strategy_label(strategy: str) -> str:
     return "Наверстать аккуратно" if strategy == "catch_up" else "Беречь восстановление"
 
 
+def _resolve_target_weekly_tss_control(
+    auto_suggested: int | float | None,
+    t_min: int,
+    t_max: int,
+    availability_cap_tss: int,
+) -> Dict[str, Any]:
+    """Resolve a safe UI state for the target weekly TSS control."""
+    distance_floor = max(100, int(t_min))
+    distance_ceiling = max(distance_floor, int(t_max))
+    effective_cap = max(100, int(availability_cap_tss))
+    default_target = int(auto_suggested or int((distance_floor + distance_ceiling) / 2))
+    resolved_value = max(100, min(default_target, effective_cap, distance_ceiling))
+    slider_max = min(max(300, distance_ceiling), effective_cap)
+
+    if slider_max <= distance_floor:
+        return {
+            "is_fixed": True,
+            "value": resolved_value,
+            "slider_min": distance_floor,
+            "slider_max": slider_max,
+            "reason": "availability_cap" if resolved_value < distance_floor else "single_value",
+        }
+
+    return {
+        "is_fixed": False,
+        "value": max(distance_floor, min(slider_max, resolved_value)),
+        "slider_min": distance_floor,
+        "slider_max": slider_max,
+        "reason": "range",
+    }
+
+
 def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     """Build a concise, UI-friendly explanation for the generated plan."""
     adjusted = [int(round(value)) for value in goal_plan.get("weekly_tss_plan", [])]
@@ -395,9 +427,12 @@ def render_planning_page(state: StateManager) -> None:
     catch_up_strategy = "catch_up" if catch_up_label == "Наверстать аккуратно" else "protect_recovery"
     availability_preview = summarize_availability(goal_type, available_hours, selected_day_indices)
     availability_cap_tss = int(availability_preview["weekly_capacity_tss"])
-    default_target = min(int(auto["suggested"] or int((t_min + t_max) / 2)), availability_cap_tss, max(100, t_max))
-    slider_min = max(100, t_min)
-    slider_max = max(slider_min, min(max(300, t_max), max(slider_min, availability_cap_tss)))
+    target_control = _resolve_target_weekly_tss_control(
+        auto_suggested=auto["suggested"],
+        t_min=t_min,
+        t_max=t_max,
+        availability_cap_tss=availability_cap_tss,
+    )
 
     with st.container(border=True):
         preview_cols = st.columns(4)
@@ -421,14 +456,25 @@ def render_planning_page(state: StateManager) -> None:
             "Пик выше этого значения будет автоматически урезан."
         )
 
-    target_weekly_tss = st.slider(
-        "Целевой недельный TSS к пику:",
-        min_value=slider_min,
-        max_value=slider_max,
-        value=max(slider_min, min(slider_max, default_target)),
-        step=25,
-        help="Ориентир под дистанцию и доступность; фактический план дальше дополнительно учитывает ограничения и стратегию возврата нагрузки.",
-    )
+    if target_control["is_fixed"]:
+        target_weekly_tss = int(target_control["value"])
+        st.metric("Целевой недельный TSS к пику", target_weekly_tss)
+        if target_control["reason"] == "availability_cap":
+            st.caption(
+                "Под текущую доступность реалистичный пик уже зафиксирован. "
+                "Он ниже типового диапазона для этой цели, поэтому план будет строиться от достижимого потолка."
+            )
+        else:
+            st.caption("Для этой цели и текущей доступности доступен один реалистичный пик нагрузки.")
+    else:
+        target_weekly_tss = st.slider(
+            "Целевой недельный TSS к пику:",
+            min_value=int(target_control["slider_min"]),
+            max_value=int(target_control["slider_max"]),
+            value=int(target_control["value"]),
+            step=25,
+            help="Ориентир под дистанцию и доступность; фактический план дальше дополнительно учитывает ограничения и стратегию возврата нагрузки.",
+        )
 
     with st.expander("⚙️ Продвинутые настройки распределения", expanded=False):
         st.caption("Обычно этот блок не нужен. Используйте его, только если хотите вручную управлять миксом дисциплин и днями внутри недели.")
@@ -567,6 +613,8 @@ def render_planning_page(state: StateManager) -> None:
             interruption_weeks=interruption_weeks if interruption_label != "Нет" else 0,
             catch_up_strategy=catch_up_strategy,
             current_tsb=float(current_metrics.get("tsb", 0.0)) if current_metrics.get("tsb") is not None else None,
+            current_ctl=float(current_metrics.get("ctl", 0.0)) if current_metrics.get("ctl") is not None else None,
+            current_atl=float(current_metrics.get("atl", 0.0)) if current_metrics.get("atl") is not None else None,
         )
         weights_overrides = state.planner_weights or None
         daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(

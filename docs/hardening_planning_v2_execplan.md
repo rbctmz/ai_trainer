@@ -58,6 +58,8 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-12 23:33+04:00) Completed the next Planning V2 slice: the planner now accepts weekly hours, available training days, interruption type/duration, and catch-up vs protect-recovery strategy; smoke tests pass and the real planning page renders the new adaptive controls plus constraint summary.
 - [x] (2026-06-12 23:58+04:00) Completed the Planning UX + Explainability slice: the planning page now presents a scenario preview before generation, a post-build reasoning section with scenario/planner cards, a before/after weekly comparison table, and split CSV exports for comparison, weekly detail, and daily detail.
 - [x] (2026-06-12 23:59+04:00) Re-ran the smoke suite after the explainability refactor (`54 passed`) and browser-verified the updated planning flow on a separate local Streamlit instance at `http://localhost:8502` so the user's long-running `8501` session was not disturbed.
+- [x] (2026-06-13 00:20+04:00) Completed the next Planning V2 slice: the planner now interprets start-state load (`CTL/ATL/TSB`) as `fresh / balanced / fatigued / deep_fatigue`, softens risky early weeks when the athlete starts tired, and allows more catch-up after holiday/limited-availability scenarios when the athlete starts fresh.
+- [x] (2026-06-13 00:20+04:00) Hardened the planning UI around degenerate target-TSS ranges by replacing the collapsed `500..500` slider case with a fixed-value control, then re-ran the smoke suite (`58 passed`).
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -99,6 +101,9 @@ This repository should borrow those product patterns while staying faithful to t
 - Observation: `run.sh` intentionally disables Streamlit file watching, so browser verification against an already running app can silently show stale UI even when the repository code is newer.
   Evidence: the original `8501` session continued to show the old heading `Ограничения и interruptions` and the old expander copy until a fresh Streamlit process was started, while the current working tree only contained `🧭 Сценарий и ограничения` and `⚙️ Продвинутые настройки распределения`.
 
+- Observation: explicit `illness` and `injury` interruption scenarios already apply a strong first-week reduction, so layering a generic fatigue guard on top creates an unrealistic double penalty.
+  Evidence: the first implementation of the load-aware slice pushed the existing illness test from week-one `60` TSS down to `50` TSS, which was technically consistent with the added start-load guard but product-wise too punitive. The fix was to skip the extra load-guard layer when an illness/injury interruption is already active.
+
 ## Decision Log
 
 - Decision: treat the next phase as a new ExecPlan instead of extending the previous three-iteration roadmap indefinitely.
@@ -132,6 +137,14 @@ This repository should borrow those product patterns while staying faithful to t
 - Decision: verify the explainability slice on a second local Streamlit instance instead of restarting the user's existing `8501` process.
   Rationale: `run.sh` starts Streamlit with `--server.fileWatcherType none`, which made the already running instance stale. Launching a temporary `8502` server from the current worktree provided clean acceptance evidence without interrupting the user's live session.
   Date/Author: 2026-06-12 / Codex
+
+- Decision: interpret start-state load inside the planner model itself, not in the page layer.
+  Rationale: the load-aware behavior belongs to the planning contract, not to Streamlit. Keeping the readiness classification and its rules in `models/training_planner.py` lets the same logic drive UI summaries, tests, and future non-UI integrations without duplicating thresholds.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: do not stack the generic start-fatigue guard on top of explicit `illness` or `injury` interruption blocks.
+  Rationale: illness and injury already encode a severe near-term reduction pattern. Adding another first-week fatigue cut on top overstates caution and makes the plan harder to trust. Availability/holiday/limited scenarios still benefit from the separate start-load interpretation, but sickness/injury should use the dedicated interruption path alone.
+  Date/Author: 2026-06-13 / Codex
 
 ## Plan of Work
 
@@ -198,3 +211,11 @@ The explainability slice turned that adaptive logic into something a user can ac
 The acceptance evidence for that slice is strong enough to treat it as complete. The smoke suite now passes at `54 passed`, and a fresh Streamlit instance launched from the current worktree on `http://localhost:8502` shows the updated `🧭 Сценарий и ограничения` pre-plan section and, after pressing `🧭 Построить план до старта`, the new `🧠 Почему план такой` and `↔️ До / После По Неделям` sections. That closes the loop for this sprint: the planning UI is now aligned with the adaptive engine already added in the previous slice.
 
 Revision note (2026-06-12 23:59+04:00): recorded the Planning UX + Explainability slice after browser-verifying the new planning page on a temporary `8502` Streamlit instance and re-running the smoke suite (`54 passed`).
+
+The next Planning V2 slice made the planner sensitive to the athlete's starting load state, not just the event target and calendar constraints. `apply_planning_constraints(...)` now receives live `CTL`, `ATL`, and `TSB`, classifies the starting state as `fresh`, `balanced`, `fatigued`, or `deep_fatigue`, and uses that state to soften the first weeks when the athlete is already carrying too much fatigue. In the opposite direction, the same state can make `catch up` slightly more permissive after holiday or limited-availability blocks when the athlete starts fresh instead of stale.
+
+That slice also exposed an important boundary condition in the UI contract. When the realistic target weekly TSS collapsed to a single allowed value, Streamlit rejected the `slider(min=500, max=500)` call outright. The fix was to treat that as a fixed-value control instead of trying to force a degenerate slider. That keeps Planning V2 stable when availability caps the target harder than the nominal distance range.
+
+The validation evidence is again strong enough to keep moving forward without reopening older work. The adaptive-planning smoke tests now cover deep-fatigue start states and fresh-start catch-up behavior, the planning-page explainability tests cover the collapsed target-TSS control, and the full smoke suite passes at `58 passed`.
+
+Revision note (2026-06-13 00:20+04:00): recorded the load-aware planning slice and the fixed-value target-TSS control after re-running the full smoke suite (`58 passed`).

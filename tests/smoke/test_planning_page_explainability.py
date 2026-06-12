@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from ui.pages.planning import _build_plan_explainability
+from ui.pages.planning import _build_plan_explainability, _resolve_target_weekly_tss_control
 
 
 pytestmark = pytest.mark.smoke
@@ -79,3 +79,29 @@ def test_build_plan_explainability_detects_nearly_unchanged_plan():
     assert "почти не менять базовый план" in explain["headline"]
     assert explain["changed_weeks"] == 0
     assert explain["total_delta"] == 0
+
+
+def test_target_tss_control_avoids_equal_slider_bounds():
+    control = _resolve_target_weekly_tss_control(
+        auto_suggested=500,
+        t_min=500,
+        t_max=700,
+        availability_cap_tss=500,
+    )
+
+    assert control["is_fixed"] is True
+    assert control["value"] == 500
+    assert control["reason"] == "single_value"
+
+
+def test_target_tss_control_can_lock_to_achievable_cap_below_goal_floor():
+    control = _resolve_target_weekly_tss_control(
+        auto_suggested=620,
+        t_min=500,
+        t_max=700,
+        availability_cap_tss=400,
+    )
+
+    assert control["is_fixed"] is True
+    assert control["value"] == 400
+    assert control["reason"] == "availability_cap"
