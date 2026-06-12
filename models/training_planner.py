@@ -117,7 +117,7 @@ def apply_planning_constraints(
     catch_up_strategy: str = 'protect_recovery',
     current_tsb: float | None = None,
 ) -> Tuple[List[int], List[Dict[str, object]], Dict[str, object]]:
-    """Ограничивает недельный план доступностью и корректирует первые недели под interruption-сценарии."""
+    """Ограничивает недельный план доступностью и корректирует первые недели под сценарии ограничений."""
     availability = summarize_availability(goal_type, available_hours, available_day_indices)
     weekly_capacity_tss = int(availability['weekly_capacity_tss'])
 
@@ -130,7 +130,7 @@ def apply_planning_constraints(
         if value > weekly_capacity_tss:
             capacity_loss += value - weekly_capacity_tss
             value = weekly_capacity_tss
-            note_parts.append(f"cap {weekly_capacity_tss} TSS")
+            note_parts.append(f"потолок {weekly_capacity_tss} TSS")
         adjusted_plan[week_index] = value
         details.append({
             'week_index': week_index,
@@ -181,7 +181,7 @@ def apply_planning_constraints(
             adjusted_plan[week_index] += add
             remaining -= add
             recovered_tss += add
-            details[week_index]['notes'].append(f"catch-up +{add} TSS")
+            details[week_index]['notes'].append(f"возврат +{add} TSS")
             if remaining <= 0:
                 break
 
@@ -201,11 +201,13 @@ def apply_planning_constraints(
     if interruption_type != 'none' and interruption_weeks > 0:
         summary_notes.append(f"{_interruption_label(interruption_type)} на {interruption_weeks} нед.")
     if interruption_loss > 0 and catch_up_strategy == 'catch_up':
-        summary_notes.append(f"Стратегия catch up вернула {recovered_tss} из {recoverable_loss} TSS")
+        summary_notes.append(
+            f"Стратегия «Наверстать аккуратно» вернула {recovered_tss} из {recoverable_loss} TSS"
+        )
     elif interruption_loss > 0:
-        summary_notes.append("Стратегия protect recovery не догоняет пропущенный объём автоматически")
+        summary_notes.append("Стратегия «Беречь восстановление» не догоняет пропущенный объём автоматически")
     if current_tsb is not None and current_tsb <= -15 and catch_up_strategy == 'catch_up':
-        summary_notes.append("Текущий TSB низкий — catch up ограничен, чтобы не усиливать усталость")
+        summary_notes.append("Текущий TSB низкий — возврат объёма дополнительно ограничен, чтобы не усиливать усталость")
 
     summary = {
         **availability,

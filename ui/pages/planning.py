@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+from typing import Any, Dict, List
 
 import pandas as pd
 import streamlit as st
@@ -11,6 +12,144 @@ from services.data_cache import load_activities
 from services import intervals_icu
 from state import StateManager
 from utils.visualizations import Visualizations
+
+
+def _strategy_label(strategy: str) -> str:
+    return "Наверстать аккуратно" if strategy == "catch_up" else "Беречь восстановление"
+
+
+def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Build a concise, UI-friendly explanation for the generated plan."""
+    adjusted = [int(round(value)) for value in goal_plan.get("weekly_tss_plan", [])]
+    base = [int(round(value)) for value in goal_plan.get("base_weekly_tss_plan", adjusted)]
+    phases = goal_plan.get("phases", [])
+    weekly_summary = goal_plan.get("weekly_summary", [])
+    constraint_summary = goal_plan.get("constraint_summary", {}) or {}
+
+    comparison_rows: List[Dict[str, Any]] = []
+    changed_weeks = 0
+    for idx, adjusted_value in enumerate(adjusted):
+        base_value = base[idx] if idx < len(base) else adjusted_value
+        delta = adjusted_value - base_value
+        if delta != 0:
+            changed_weeks += 1
+        phase = phases[idx] if idx < len(phases) else "Base"
+        week_start = ""
+        if idx < len(weekly_summary):
+            week_start_value = weekly_summary[idx].get("week_start")
+            if week_start_value is not None:
+                week_start = week_start_value.strftime("%d.%m")
+        note = "—"
+        if idx < len(weekly_summary):
+            note = weekly_summary[idx].get("adjustment_note", "—")
+        comparison_rows.append(
+            {
+                "Неделя": f"{idx + 1} • {week_start}" if week_start else str(idx + 1),
+                "Фаза": phase,
+                "Базовый TSS": base_value,
+                "Адаптивный TSS": adjusted_value,
+                "Δ TSS": f"{delta:+d}",
+                "Почему": note,
+            }
+        )
+
+    peak_before = max(base) if base else 0
+    peak_after = max(adjusted) if adjusted else 0
+    total_before = sum(base)
+    total_after = sum(adjusted)
+    capacity_tss = int(constraint_summary.get("weekly_capacity_tss", peak_after or 0))
+    availability_days = ", ".join(constraint_summary.get("available_day_labels", [])) or "Все дни"
+    interruption_label = constraint_summary.get("interruption_label", "Нет")
+    catch_up_strategy = constraint_summary.get("catch_up_strategy", "protect_recovery")
+    recovered_tss = int(constraint_summary.get("recovered_tss", 0))
+    capacity_loss = int(constraint_summary.get("capacity_loss_tss", 0))
+    interruption_loss = int(constraint_summary.get("interruption_loss_tss", 0))
+    interruption_weeks = int(constraint_summary.get("interruption_weeks", 0))
+    available_day_count = int(constraint_summary.get("available_day_count", 0))
+    recommended_days = int(constraint_summary.get("recommended_days", 0))
+    summary_notes = list(constraint_summary.get("notes", []))
+
+    if interruption_loss > 0 and catch_up_strategy == "catch_up":
+        headline = "План сначала снижает нагрузку из-за ограничения, затем возвращает только безопасную часть объёма."
+    elif interruption_loss > 0:
+        headline = "План защищает восстановление: первые недели упрощены, а пропущенный объём не догоняется автоматически."
+    elif capacity_loss > 0:
+        headline = "План подрезает пик под ваш реальный календарь, чтобы нагрузка оставалась выполнимой."
+    else:
+        headline = "Текущая доступность позволяет почти не менять базовый план — ограничения скорее подтверждают цель, чем режут её."
+
+    return {
+        "headline": headline,
+        "peak_before": peak_before,
+        "peak_after": peak_after,
+        "peak_delta": peak_after - peak_before,
+        "total_before": total_before,
+        "total_after": total_after,
+        "total_delta": total_after - total_before,
+        "changed_weeks": changed_weeks,
+        "capacity_tss": capacity_tss,
+        "availability_days": availability_days,
+        "available_hours": constraint_summary.get("available_hours", 0.0),
+        "available_day_count": available_day_count,
+        "recommended_days": recommended_days,
+        "interruption_label": interruption_label,
+        "interruption_weeks": interruption_weeks,
+        "catch_up_label": _strategy_label(catch_up_strategy),
+        "recovered_tss": recovered_tss,
+        "summary_notes": summary_notes,
+        "comparison_rows": comparison_rows,
+    }
+
+
+def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
+    explain = _build_plan_explainability(goal_plan)
+
+    st.markdown("### 🧠 Почему план такой")
+    with st.container(border=True):
+        st.markdown(f"**{explain['headline']}**")
+        for note in explain["summary_notes"]:
+            st.write(f"• {note}")
+
+    metric_cols = st.columns(4)
+    with metric_cols[0]:
+        st.metric("Пик TSS", explain["peak_after"], delta=f"{explain['peak_delta']:+d} к базе")
+    with metric_cols[1]:
+        st.metric("Сумма TSS", explain["total_after"], delta=f"{explain['total_delta']:+d} к базе")
+    with metric_cols[2]:
+        st.metric("Недель с коррекцией", explain["changed_weeks"])
+    with metric_cols[3]:
+        st.metric("Стратегия", explain["catch_up_label"])
+
+    scenario_col, planner_col = st.columns(2)
+    with scenario_col:
+        with st.container(border=True):
+            st.markdown("#### Сценарий")
+            st.write(f"• Доступно часов: {explain['available_hours']:.1f}")
+            st.write(
+                f"• Дни: {explain['availability_days']} "
+                f"({explain['available_day_count']} из {explain['recommended_days']})"
+            )
+            if explain["interruption_weeks"] > 0 and explain["interruption_label"] != "Нет":
+                st.write(
+                    f"• Ограничение: {explain['interruption_label']} "
+                    f"на {explain['interruption_weeks']} нед."
+                )
+            else:
+                st.write("• Ограничение: нет")
+    with planner_col:
+        with st.container(border=True):
+            st.markdown("#### Решение Планировщика")
+            st.write(f"• Мягкий потолок: {explain['capacity_tss']} TSS/нед")
+            if explain["recovered_tss"] > 0:
+                st.write(f"• Возвращено нагрузки: {explain['recovered_tss']} TSS")
+            else:
+                st.write("• Возврат нагрузки: не применялся")
+            st.write(f"• Пик базового плана: {explain['peak_before']} → {explain['peak_after']}")
+
+    comparison_df = pd.DataFrame(explain["comparison_rows"])
+    st.markdown("### ↔️ До / После По Неделям")
+    st.dataframe(comparison_df, width="stretch", hide_index=True)
+    return comparison_df
 
 
 def render_planning_page(state: StateManager) -> None:
@@ -197,7 +336,7 @@ def render_planning_page(state: StateManager) -> None:
         ),
     )
 
-    st.markdown("#### Ограничения и interruptions")
+    st.markdown("#### 🧭 Сценарий и ограничения")
     cola1, cola2, cola3 = st.columns([1, 1.3, 1])
     with cola1:
         available_hours = st.slider(
@@ -250,7 +389,7 @@ def render_planning_page(state: StateManager) -> None:
             "После пропуска:",
             ["Беречь восстановление", "Наверстать аккуратно"],
             horizontal=True,
-            help="Protect recovery не пытается автоматически вернуть весь пропущенный объём. Catch up возвращает только часть и с ограничением по усталости.",
+            help="«Беречь восстановление» не пытается автоматически вернуть весь пропущенный объём. «Наверстать аккуратно» возвращает только часть нагрузки и с ограничением по усталости.",
         )
 
     catch_up_strategy = "catch_up" if catch_up_label == "Наверстать аккуратно" else "protect_recovery"
@@ -260,12 +399,22 @@ def render_planning_page(state: StateManager) -> None:
     slider_min = max(100, t_min)
     slider_max = max(slider_min, min(max(300, t_max), max(slider_min, availability_cap_tss)))
 
-    st.caption(
-        "Доступность сейчас ≈ "
-        f"{availability_preview['available_hours']} ч/нед, "
-        f"{availability_preview['available_day_count']} дн. из рекомендованных {availability_preview['recommended_days']} "
-        f"→ мягкий потолок около {availability_cap_tss} TSS/нед."
-    )
+    with st.container(border=True):
+        preview_cols = st.columns(4)
+        with preview_cols[0]:
+            st.metric("Часы / нед", f"{availability_preview['available_hours']}")
+        with preview_cols[1]:
+            st.metric("Доступных дней", availability_preview["available_day_count"])
+        with preview_cols[2]:
+            st.metric("Ограничение", interruption_label)
+        with preview_cols[3]:
+            st.metric("Реакция", _strategy_label(catch_up_strategy))
+        st.caption(
+            "Доступность сейчас ≈ "
+            f"{availability_preview['available_hours']} ч/нед, "
+            f"{availability_preview['available_day_count']} дн. из рекомендованных {availability_preview['recommended_days']} "
+            f"→ мягкий потолок около {availability_cap_tss} TSS/нед."
+        )
     if availability_cap_tss < int(auto["suggested"] or 0):
         st.warning(
             f"Текущая доступность ограничивает план примерно до {availability_cap_tss} TSS/нед. "
@@ -278,10 +427,11 @@ def render_planning_page(state: StateManager) -> None:
         max_value=slider_max,
         value=max(slider_min, min(slider_max, default_target)),
         step=25,
-        help="Ориентир под дистанцию и доступность; фактический план дальше дополнительно учитывает interruptions и стратегию возврата нагрузки.",
+        help="Ориентир под дистанцию и доступность; фактический план дальше дополнительно учитывает ограничения и стратегию возврата нагрузки.",
     )
 
-    with st.expander("⚙️ Настроить распределение (фазы, проценты, дни)", expanded=False):
+    with st.expander("⚙️ Продвинутые настройки распределения", expanded=False):
+        st.caption("Обычно этот блок не нужен. Используйте его, только если хотите вручную управлять миксом дисциплин и днями внутри недели.")
         phases_all = ["Base", "Build", "Peak", "Taper"]
         if "planner_mix" not in state:
             state.planner_mix = {}
@@ -445,93 +595,15 @@ def render_planning_page(state: StateManager) -> None:
             "weekly_summary": weekly_summary,
             "constraint_summary": constraint_summary,
         }
-        state._just_built_plan = True
-
-        future_dates, future_ctl, future_atl, future_tsb = banister.simulate_variable_load(
-            current_metrics, daily_seq, start_date=datetime.combine(start_week, datetime.min.time())
-        )
-
-        fig_future = Visualizations.create_banister_chart(
-            future_dates, future_ctl, future_atl, future_tsb
-        )
-        fig_future.update_layout(title=f"Прогноз до старта ({goal_type} • {distance})")
-        st.plotly_chart(fig_future, width="stretch")
-
-        df_plan = pd.DataFrame(weekly_summary)
-        constraint_summary = state.goal_plan.get("constraint_summary", {})
-        constraint_notes = constraint_summary.get("notes", []) if isinstance(constraint_summary, dict) else []
-        if constraint_notes:
-            st.info("План скорректирован под реальную доступность:\n\n" + "\n".join(f"• {note}" for note in constraint_notes))
-        df_plan["Неделя от"] = df_plan["week_start"].apply(lambda d: d.strftime("%d.%m"))
-        plan_columns = ["Неделя от", "phase", "weekly_tss", "bike", "run", "swim"]
-        if "capacity_tss" in df_plan.columns:
-            plan_columns.append("capacity_tss")
-        if "adjustment_note" in df_plan.columns:
-            plan_columns.append("adjustment_note")
-        df_plan = df_plan[plan_columns]
-        df_plan.rename(
-            columns={
-                "phase": "Фаза",
-                "weekly_tss": "Weekly TSS",
-                "bike": "Bike",
-                "run": "Run",
-                "swim": "Swim",
-                "capacity_tss": "Потолок TSS",
-                "adjustment_note": "Коррекция",
-            },
-            inplace=True,
-        )
-        st.dataframe(df_plan, width="stretch", hide_index=True)
-
-        csv_weekly = df_plan.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="💾 Экспорт недельного плана (CSV)",
-            data=csv_weekly,
-            file_name="weekly_plan.csv",
-            mime="text/csv",
-        )
-
-        daily_rows = []
-        for dt, total, parts in daily_plan:
-            daily_rows.append(
-                {
-                    "date": dt.strftime("%Y-%m-%d"),
-                    "total_tss": total,
-                    "run_tss": parts.get("run", 0.0),
-                    "bike_tss": parts.get("bike", 0.0),
-                    "swim_tss": parts.get("swim", 0.0),
-                }
-            )
-        df_daily = pd.DataFrame(daily_rows)
-        csv_daily = df_daily.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="💾 Экспорт дневного плана (CSV)",
-            data=csv_daily,
-            file_name="daily_plan.csv",
-            mime="text/csv",
-        )
-
-        from models.training_planner import create_ics_from_daily
-
-        ics_content = create_ics_from_daily(daily_plan, title_prefix=f"{goal_type} {distance}")
-        st.download_button(
-            label="📅 Экспорт в календарь (ICS)",
-            data=ics_content,
-            file_name="training_plan.ics",
-            mime="text/calendar",
-        )
-
         st.rerun()
 
     if state.goal_plan:
-        state.pop("_just_built_plan", None)
         goal_plan = state.goal_plan
         daily_plan = goal_plan["daily_plan"]
         weekly_summary = goal_plan["weekly_summary"]
         start_week = goal_plan["start_week"]
         goal_type_cached = goal_plan.get("goal_type", goal_type)
         distance_cached = goal_plan.get("distance", distance)
-        constraint_summary = goal_plan.get("constraint_summary", {})
 
         future_dates, future_ctl, future_atl, future_tsb = banister.simulate_variable_load(
             current_metrics, flatten_daily_total(daily_plan), start_date=datetime.combine(start_week, datetime.min.time())
@@ -542,10 +614,7 @@ def render_planning_page(state: StateManager) -> None:
         fig_future.update_layout(title=f"Прогноз до старта ({goal_type_cached} • {distance_cached})")
         st.plotly_chart(fig_future, width="stretch")
 
-        constraint_notes = constraint_summary.get("notes", []) if isinstance(constraint_summary, dict) else []
-        if constraint_notes:
-            st.info("План скорректирован под реальную доступность:\n\n" + "\n".join(f"• {note}" for note in constraint_notes))
-
+        comparison_df = _render_plan_explainability(goal_plan)
         df_plan = pd.DataFrame(weekly_summary)
         df_plan["Неделя от"] = df_plan["week_start"].apply(lambda d: d.strftime("%d.%m"))
         plan_columns = ["Неделя от", "phase", "weekly_tss", "bike", "run", "swim"]
@@ -566,15 +635,26 @@ def render_planning_page(state: StateManager) -> None:
             },
             inplace=True,
         )
-        st.dataframe(df_plan, width="stretch", hide_index=True)
+        with st.expander("📋 Подробная Разбивка По Неделям И Дисциплинам", expanded=False):
+            st.dataframe(df_plan, width="stretch", hide_index=True)
 
-        csv_weekly = df_plan.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="💾 Экспорт недельного плана (CSV)",
-            data=csv_weekly,
-            file_name="weekly_plan.csv",
-            mime="text/csv",
-        )
+        export_cols = st.columns(3)
+        with export_cols[0]:
+            csv_weekly = comparison_df.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="💾 Сравнение до/после (CSV)",
+                data=csv_weekly,
+                file_name="weekly_plan_comparison.csv",
+                mime="text/csv",
+            )
+        with export_cols[1]:
+            weekly_detail_csv = df_plan.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="💾 Детали по неделям (CSV)",
+                data=weekly_detail_csv,
+                file_name="weekly_plan.csv",
+                mime="text/csv",
+            )
 
         daily_rows = []
         for dt, total, parts in daily_plan:
@@ -588,13 +668,14 @@ def render_planning_page(state: StateManager) -> None:
                 }
             )
         df_daily = pd.DataFrame(daily_rows)
-        csv_daily = df_daily.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            label="💾 Экспорт дневного плана (CSV)",
-            data=csv_daily,
-            file_name="daily_plan.csv",
-            mime="text/csv",
-        )
+        with export_cols[2]:
+            csv_daily = df_daily.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                label="💾 Дневной план (CSV)",
+                data=csv_daily,
+                file_name="daily_plan.csv",
+                mime="text/csv",
+            )
 
         from models.training_planner import create_ics_from_daily
 

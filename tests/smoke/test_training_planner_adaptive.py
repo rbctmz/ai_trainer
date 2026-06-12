@@ -77,4 +77,4 @@ def test_apply_planning_constraints_can_catch_up_after_holiday():
 
     assert plan[0] < 160
     assert summary["recovered_tss"] > 0
-    assert any("catch-up +" in detail["adjustment_note"] for detail in details[1:3])
+    assert any("возврат +" in detail["adjustment_note"] for detail in details[1:3])
