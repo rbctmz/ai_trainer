@@ -30,6 +30,11 @@ class Settings:
     # Garmin Connect
     GARMIN_EMAIL = os.getenv("GARMIN_EMAIL")
     GARMIN_PASSWORD = os.getenv("GARMIN_PASSWORD")
+
+    # Intervals.icu (опционально) — персональный API key для sync planned workouts
+    INTERVALS_ICU_API_KEY = os.getenv("INTERVALS_ICU_API_KEY")
+    INTERVALS_ICU_ATHLETE_ID = os.getenv("INTERVALS_ICU_ATHLETE_ID", "0")
+    INTERVALS_ICU_BASE_URL = os.getenv("INTERVALS_ICU_BASE_URL", "https://intervals.icu")
     
     # База данных
     DATABASE_PATH = os.getenv("DATABASE_PATH", "ai_trainer.db")

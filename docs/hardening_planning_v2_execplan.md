@@ -52,6 +52,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-12 11:00+04:00) Reviewed `IntervalCoach` changelog themes as a product reference and mapped them into three concrete workstreams for AI Trainer.
 - [x] (2026-06-12 13:50+04:00) Started Hardening Sprint by validating `matin/garth` against its upstream repository and docs, then hardening the local runtime so a broken or deprecated `garth` install no longer masquerades as a normal login failure.
 - [x] (2026-06-12 14:05+04:00) Completed the first product-facing hardening slice: removed `garth` from the normal fresh-login path, kept it as a legacy diagnostic surface in Garmin connection info/UI, and expanded the smoke suite around the new auth contract.
+- [x] (2026-06-12 14:10+04:00) Completed the first Planning V2 slice: added an `Intervals.icu` personal API-key adapter, wired planning-page sync controls for day/week event export, and covered the new boundary with smoke tests plus a real browser check.
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -71,6 +72,12 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Observation: the next differentiator is more likely to come from adaptive planning and explainability than from adding yet another AI provider.
   Evidence: the provider layer already supports OpenAI, Anthropic, Gemini, Ollama, DeepSeek, and Mock AI. By contrast, planning still lacks first-class concepts such as illness, holiday, or constrained availability, and the changelog patterns in IntervalCoach emphasize those areas.
+
+- Observation: the repository does not currently declare a dedicated HTTP client dependency for general-purpose outbound integrations.
+  Evidence: `requirements.txt` lists Streamlit, pandas, AI SDKs, and Garmin-specific packages, but neither `requests` nor `httpx` is declared as an app-level dependency. The first `Intervals.icu` slice should therefore prefer the Python standard library for HTTP transport instead of adding a new dependency just for one small adapter.
+
+- Observation: the new planning sync section is resilient even before the user adds Intervals credentials.
+  Evidence: browser verification on `http://localhost:8501` after generating a goal plan shows a visible `📤 Intervals.icu` section and, without an API key in `.env`, an explanatory non-blocking message instead of an exception or broken layout.
 
 ## Decision Log
 
@@ -92,6 +99,10 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Decision: use `IntervalCoach` as a product-pattern reference, not as a roadmap to copy.
   Rationale: the right lesson is not "implement every feature they shipped." The useful lesson is where a mature coaching product keeps investing: adaptive planning, explicit interruption handling, better daily guidance, and more truthful explanations.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: start Planning V2 with a single-user `Intervals.icu` API-key adapter that creates calendar events from the existing daily plan.
+  Rationale: the current product is a local single-athlete Streamlit app, not a multi-user SaaS. The simplest valuable slice is therefore personal API-key sync for planned workouts, which reuses the existing daily planner and export semantics without introducing OAuth or multi-tenant state.
   Date/Author: 2026-06-12 / Codex
 
 ## Plan of Work
@@ -143,3 +154,7 @@ This section starts empty on purpose. The previous plan ended with a working pro
 The first hardening slice immediately justified the new plan. The upstream `garth` project itself now says that new logins are broken and the library is deprecated, while the local virtual environment adds an extra layer of corruption on top by shipping a namespace package with missing public API exports. The right response was not to add more retries, but to make AI Trainer stop treating `garth` fresh login as a normal path and to fail soft into `garminconnect` instead.
 
 The next hardening slice turned that into a real product contract. Fresh Garmin authentication now belongs solely to `garminconnect`, while `garth` remains available only as legacy diagnostics and optional runtime context. That is a more honest user-facing model and a better base for future integrations such as `Intervals.icu`, which fits the planning/export side of the product better than the primary ingestion path.
+
+The first Planning V2 slice is now real, not hypothetical. The planning page can export its generated daily plan to `Intervals.icu` through a dedicated service adapter, the environment contract is documented in `.env.example`, and the UI behaves sensibly even when the integration is not configured yet. That is the correct shape for this phase: additive, testable, and useful before the larger adaptive-planning work begins.
+
+Revision note (2026-06-12 14:10+04:00): completed the first Planning V2 implementation slice and captured the verified behavior of the new `Intervals.icu` planning sync surface.

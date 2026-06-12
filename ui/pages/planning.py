@@ -8,6 +8,7 @@ import streamlit as st
 
 from models.banister import BanisterModel
 from services.data_cache import load_activities
+from services import intervals_icu
 from state import StateManager
 from utils.visualizations import Visualizations
 
@@ -459,6 +460,88 @@ def render_planning_page(state: StateManager) -> None:
             mime="text/calendar",
         )
 
+        total_days = len(daily_plan)
+        total_weeks = max(1, (total_days + 6) // 7)
+
+        st.markdown("### 📤 Intervals.icu")
+        intervals_info = intervals_icu.connection_info()
+        if intervals_info.get("configured"):
+            st.caption(
+                "Personal API key найден: "
+                f"athlete_id={intervals_info.get('athlete_id', '0')} · {intervals_info.get('base_url', 'https://intervals.icu')}"
+            )
+
+            col_int_1, col_int_2, col_int_3 = st.columns([1.2, 1, 1])
+            with col_int_1:
+                if st.button("🔎 Проверить подключение", key="intervals_test_connection"):
+                    try:
+                        result = intervals_icu.test_connection()
+                        calendar_count = result.get("calendar_count")
+                        if calendar_count is None:
+                            st.success("Intervals.icu ответил корректно.")
+                        else:
+                            st.success(f"Intervals.icu подключён. Найдено календарей: {calendar_count}.")
+                    except intervals_icu.IntervalsICUError as exc:
+                        st.error(str(exc))
+
+            with col_int_2:
+                intervals_day_number = st.number_input(
+                    "День плана",
+                    min_value=1,
+                    max_value=total_days,
+                    value=1,
+                    key="intervals_day_number",
+                )
+
+            with col_int_3:
+                intervals_week_number = st.number_input(
+                    "Неделя плана",
+                    min_value=1,
+                    max_value=total_weeks,
+                    value=1,
+                    key="intervals_week_number",
+                )
+
+            col_int_4, col_int_5 = st.columns(2)
+
+            with col_int_4:
+                if st.button("📤 Отправить день в Intervals.icu", key="intervals_push_day"):
+                    selected_day = [daily_plan[int(intervals_day_number) - 1]]
+                    events = intervals_icu.build_planned_events(selected_day, goal_type_cached, distance_cached)
+                    if not events:
+                        st.warning("Выбранный день не содержит достаточной тренировочной нагрузки для отправки.")
+                    else:
+                        try:
+                            created = intervals_icu.push_planned_events(events)
+                            event_name = events[0].get("name", "planned workout")
+                            created_count = len(created)
+                            st.success(f"Отправлено {created_count} событие: {event_name}.")
+                        except intervals_icu.IntervalsICUError as exc:
+                            st.error(str(exc))
+
+            with col_int_5:
+                if st.button("📤 Отправить неделю в Intervals.icu", key="intervals_push_week"):
+                    start_idx = (int(intervals_week_number) - 1) * 7
+                    end_idx = min(start_idx + 7, total_days)
+                    selected_days = daily_plan[start_idx:end_idx]
+                    events = intervals_icu.build_planned_events(selected_days, goal_type_cached, distance_cached)
+                    if not events:
+                        st.warning("В выбранной неделе нет дней с достаточной нагрузкой для отправки.")
+                    else:
+                        try:
+                            created = intervals_icu.push_planned_events(events)
+                            st.success(
+                                f"Отправлено {len(created)} planned workouts в Intervals.icu "
+                                f"за неделю {int(intervals_week_number)}."
+                            )
+                        except intervals_icu.IntervalsICUError as exc:
+                            st.error(str(exc))
+        else:
+            st.info(
+                "Чтобы отправлять planned workouts в Intervals.icu, укажите "
+                "`INTERVALS_ICU_API_KEY` в `.env`. `INTERVALS_ICU_ATHLETE_ID=0` подходит для персонального аккаунта."
+            )
+
         st.markdown("### 🧩 Экспорт тренировки (FIT-CSV / FIT / TCX)")
         day_idx = st.number_input("День недели (1=Пн … 7=Вс)", min_value=1, max_value=7, value=1, key="fit_day")
         if st.button("⬇️ Экспортировать выбранный день в FIT-CSV / FIT", key="export_fit_day"):
@@ -525,8 +608,6 @@ def render_planning_page(state: StateManager) -> None:
                 )
 
         with st.expander("📦 Экспорт всей недели (ZIP)", expanded=False):
-            total_days = len(daily_plan)
-            total_weeks = max(1, (total_days + 6) // 7)
             week_idx = st.number_input("Номер недели (1=первая)", min_value=1, max_value=total_weeks, value=1, key="fit_week_idx")
             if st.button("⬇️ Собрать ZIP с FIT-CSV/FIT/TCX", key="export_fit_week_zip"):
                 import io
