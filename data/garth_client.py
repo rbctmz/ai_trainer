@@ -83,6 +83,18 @@ class GarthClient:
             self.is_authenticated = False
             garmin_logger.error(f"❌ Ошибка авторизации через garth: {e}")
             return False
+
+    def get_runtime_info(self) -> Dict[str, Any]:
+        """Return diagnostic information about the local garth runtime."""
+        return {
+            "available": self.available,
+            "authenticated": self.is_authenticated,
+            "username": self.username,
+            "mode": "legacy_diagnostic",
+            "fresh_login_supported": GARTH_FRESH_LOGIN_SUPPORTED,
+            "fresh_login_reason": GARTH_FRESH_LOGIN_DISABLED_REASON,
+            "unavailable_reason": self.unavailable_reason,
+        }
     
     def get_sleep_data_garth(self, date):
         """Получение данных сна через garth API"""
@@ -741,8 +753,15 @@ class GarthClient:
     
     def test_connection(self):
         """Тестирование подключения и доступных данных"""
+        if not self.available:
+            info = self.get_runtime_info()
+            info["error"] = self.unavailable_reason or "garth unavailable"
+            return info
+
         if not self.is_authenticated:
-            return {"error": "Не авторизован"}
+            info = self.get_runtime_info()
+            info["error"] = "Не авторизован"
+            return info
         
         results = {
             "authenticated": True,

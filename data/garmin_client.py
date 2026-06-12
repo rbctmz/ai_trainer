@@ -57,21 +57,7 @@ class GarminClient:
         return error
     
     def authenticate(self, email, password):
-        """Аутентификация в Garmin Connect с поддержкой garth"""
-        # Сначала пробуем garth
-        if self.garth_client and GARTH_AVAILABLE:
-            try:
-                if self.garth_client.authenticate(email, password):
-                    self.is_authenticated = True
-                    self.auth_error = None
-                    self._clear_last_error()
-                    self.use_garth = True
-                    print("DEBUG: Авторизация через garth успешна")
-                    return True
-            except Exception as e:
-                print(f"DEBUG: Ошибка авторизации через garth: {e}")
-        
-        # Если garth не сработал, используем garminconnect
+        """Authenticate through garminconnect. garth remains diagnostics-only."""
         try:
             self.client = Garmin(email, password)
             self.client.login()
@@ -486,18 +472,25 @@ class GarminClient:
         return comprehensive_data
     
     def test_garth_connection(self):
-        """Тестирование подключения через garth"""
-        if not self.use_garth or not self.garth_client:
-            return {"available": False, "reason": "garth не используется"}
-        
+        """Return legacy garth diagnostic info and, when possible, live checks."""
+        if not self.garth_client:
+            return {
+                "available": False,
+                "mode": "legacy_diagnostic",
+                "error": "garth клиент недоступен в окружении",
+            }
+
         return self.garth_client.test_connection()
     
     def get_connection_info(self):
         """Информация о типе подключения"""
+        garth_runtime = self.garth_client.get_runtime_info() if self.garth_client else None
         return {
             "authenticated": self.is_authenticated,
             "using_garth": self.use_garth,
-            "garth_available": GARTH_AVAILABLE,
+            "garth_available": bool(garth_runtime and garth_runtime.get("available")),
+            "garth_mode": "legacy_diagnostic",
+            "garth_runtime": garth_runtime,
             "auth_error": self.auth_error,
             "last_error": self.last_error,
         }

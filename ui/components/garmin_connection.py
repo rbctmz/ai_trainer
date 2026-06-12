@@ -76,6 +76,15 @@ def render_garmin_connection(
             st.info("🚀 Используется garth (улучшенный API)")
         else:
             st.info("📡 Используется garminconnect")
+            garth_runtime = connection_info.get("garth_runtime") or {}
+            if connection_info.get("garth_mode") == "legacy_diagnostic":
+                reason = garth_runtime.get("unavailable_reason") or garth_runtime.get("fresh_login_reason")
+                st.caption(
+                    "Legacy-диагностика `garth` сохранена отдельно от обычного логина. "
+                    "Свежая авторизация идёт через `garminconnect`."
+                )
+                if reason:
+                    st.caption(f"Причина: {reason}")
 
         profile, profile_error = garmin_service.user_profile_with_error(state)
         if profile is not None:
@@ -83,8 +92,8 @@ def render_garmin_connection(
         elif profile_error:
             st.error(profile_error["message"])
 
-        if connection_info.get("garth_available") and connection_info.get("using_garth"):
-            if st.button("🔍 Тест garth", help="Проверить расширенные возможности garth"):
+        if connection_info.get("garth_mode") == "legacy_diagnostic":
+            if st.button("🔍 Диагностика garth (legacy)", help="Проверить legacy-runtime и доступные garth возможности"):
                 with st.spinner("Тестирование garth..."):
                     test_results = garmin_service.test_garth_connection(state)
                     if test_results.get("authenticated"):
@@ -93,7 +102,9 @@ def render_garmin_connection(
                             for method, status in test_results.get("test_results", {}).items():
                                 st.write(f"• **{method}**: {status}")
                     else:
-                        st.warning(f"⚠️ Проблема с garth: {test_results.get('error', 'Неизвестно')}")
+                        st.info(f"ℹ️ Состояние garth: {test_results.get('error', 'Неизвестно')}")
+                        with st.expander("📋 Детали legacy-диагностики garth"):
+                            st.json(test_results)
 
         if st.button("🔌 Отключиться"):
             _clear_form_state()

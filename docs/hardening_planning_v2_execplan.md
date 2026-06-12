@@ -51,6 +51,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-12 11:00+04:00) Re-audited the current repository after Iteration 3, including branch state, smoke-suite status, module sizes, and the remaining operational risks.
 - [x] (2026-06-12 11:00+04:00) Reviewed `IntervalCoach` changelog themes as a product reference and mapped them into three concrete workstreams for AI Trainer.
 - [x] (2026-06-12 13:50+04:00) Started Hardening Sprint by validating `matin/garth` against its upstream repository and docs, then hardening the local runtime so a broken or deprecated `garth` install no longer masquerades as a normal login failure.
+- [x] (2026-06-12 14:05+04:00) Completed the first product-facing hardening slice: removed `garth` from the normal fresh-login path, kept it as a legacy diagnostic surface in Garmin connection info/UI, and expanded the smoke suite around the new auth contract.
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -61,6 +62,9 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Observation: even a healthy `garth` install is no longer a valid fresh-login strategy according to the upstream project itself.
   Evidence: the upstream repository is explicitly marked deprecated, states that Garmin changed the auth flow, and says that new logins no longer work. The preserved docs still show `garth.login(...)` as the historical API, but the front page and getting-started guide now describe it as a reference-only surface for existing saved sessions.
+
+- Observation: `Intervals.icu` is a realistic next integration target for Planning V2 because it already exposes workout, calendar-event, and activity endpoints that line up with the current planning and export surfaces.
+  Evidence: the public API guide describes API-key access for personal use, athlete-id `0` shortcuts, calendar event CRUD, workout CRUD, downloadable planned workout formats, and activity detail endpoints with interval data. Those fit naturally with the current planning page and future explainability/export work.
 
 - Observation: the product is now modular at the shell level, but some page modules are already large enough to need a second wave of internal decomposition.
   Evidence: `ui/pages/ai_coaching.py` is above 2200 lines, `ui/pages/dashboard.py` is near 1000 lines, and `ui/pages/planning.py` is above 600 lines.
@@ -80,6 +84,10 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Decision: treat `garth` as an optional legacy acceleration path, not as the default fresh-auth mechanism.
   Rationale: upstream `matin/garth` now states that Garmin's auth changes broke new logins. Continuing to try `garth.login(email, password)` on every fresh login attempt adds noise and delay while providing no supported success path. The hardening target is therefore graceful detection plus clean fallback, not heroic retries.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: keep `Intervals.icu` in scope as a planning/export integration candidate, not as a replacement for Garmin ingestion.
+  Rationale: Garmin remains the primary source for personal activity, readiness, and recovery signals in this product. `Intervals.icu` is more interesting as a second-system integration for planned workouts, calendar sync, and richer workout/export semantics.
   Date/Author: 2026-06-12 / Codex
 
 - Decision: use `IntervalCoach` as a product-pattern reference, not as a roadmap to copy.
@@ -133,3 +141,5 @@ Coach Explainability is accepted when the dashboard and AI coaching can surface 
 This section starts empty on purpose. The previous plan ended with a working product flow. This plan begins at the moment where the product needs to become a durable system rather than a successful sequence of flows.
 
 The first hardening slice immediately justified the new plan. The upstream `garth` project itself now says that new logins are broken and the library is deprecated, while the local virtual environment adds an extra layer of corruption on top by shipping a namespace package with missing public API exports. The right response was not to add more retries, but to make AI Trainer stop treating `garth` fresh login as a normal path and to fail soft into `garminconnect` instead.
+
+The next hardening slice turned that into a real product contract. Fresh Garmin authentication now belongs solely to `garminconnect`, while `garth` remains available only as legacy diagnostics and optional runtime context. That is a more honest user-facing model and a better base for future integrations such as `Intervals.icu`, which fits the planning/export side of the product better than the primary ingestion path.
