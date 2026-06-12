@@ -589,7 +589,7 @@ def _render_quick_actions(
                 help=action["desc"],
                 width="stretch",
             ):
-                _handle_quick_action(state, action["action"], on_sync)
+                _handle_quick_action(state, action["action"], on_sync, current_status)
 
     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -609,7 +609,7 @@ def _render_primary_next_step(
         type="primary",
         width="stretch",
     ):
-        _handle_quick_action(state, next_step["action"], on_sync)
+        _handle_quick_action(state, next_step["action"], on_sync, current_status)
 
 
 def _render_coach_briefing(
@@ -622,6 +622,11 @@ def _render_coach_briefing(
     with st.container(border=True):
         st.markdown(f"**{briefing['short_title']}**")
         st.write(briefing["description"])
+        st.write(f"**Сегодня:** {briefing['today_action']}")
+        st.write(f"**Ближайшие 2-3 дня:** {briefing['next_window']}")
+        st.write(f"**Следить за:** {briefing['watchout']}")
+        if briefing.get("plan_context"):
+            st.caption(briefing["plan_context"])
         st.caption(briefing["reason"])
         for signal in briefing["signals"][:5]:
             st.write(f"• {signal}")
@@ -675,7 +680,7 @@ def _render_last_sync_handoff(
             width="stretch",
         ):
             state.last_sync_status = None
-            _handle_quick_action(state, next_step["action"], on_sync)
+            _handle_quick_action(state, next_step["action"], on_sync, current_status)
     with col2:
         if st.button(
             "Скрыть",
@@ -739,7 +744,7 @@ def _choose_primary_next_step(
     return {
         "icon": summary["icon"],
         "title": "Получите персональную рекомендацию" if summary["focus"] == "form_today" else summary["title"],
-        "button": "Спросить AI коуча",
+        "button": summary["dashboard_button"],
         "desc": summary["description"],
         "reason": summary["reason"],
         "action": "ai_chat",
@@ -768,12 +773,37 @@ def _build_dashboard_explainability_summary(
     )
 
 
+def _build_dashboard_ai_handoff(
+    state: StateManager,
+    current_status: dict[str, Any],
+) -> dict[str, Any]:
+    summary = _build_dashboard_explainability_summary(state, current_status)
+    return {
+        "source": "dashboard",
+        "icon": summary["icon"],
+        "title": summary["title"],
+        "button": summary["button"],
+        "description": summary["description"],
+        "reason": summary["reason"],
+        "prompt": summary["prompt"],
+        "today_action": summary["today_action"],
+        "next_window": summary["next_window"],
+        "watchout": summary["watchout"],
+        "plan_context": summary.get("plan_context"),
+        "signals": list(summary["signals"][:5]),
+    }
+
+
 def _handle_quick_action(
     state: StateManager,
     action: str,
     on_sync: Callable[[int], None],
+    current_status: dict[str, Any] | None = None,
 ) -> None:
     if action == "recovery_plan":
+        if current_status is not None:
+            state.ai_coach_handoff = _build_dashboard_ai_handoff(state, current_status)
+            state.switch_to_chat_tab = True
         state.selected_page = "🤖 AI Коучинг"
         st.rerun()
     elif action == "intense_workout":
@@ -785,6 +815,9 @@ def _handle_quick_action(
     elif action == "sync":
         on_sync(7)
     elif action == "ai_chat":
+        if current_status is not None:
+            state.ai_coach_handoff = _build_dashboard_ai_handoff(state, current_status)
+            state.switch_to_chat_tab = True
         state.selected_page = "🤖 AI Коучинг"
         st.rerun()
     elif action == "planning":

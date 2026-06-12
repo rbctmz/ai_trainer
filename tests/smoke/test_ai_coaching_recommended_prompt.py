@@ -46,3 +46,23 @@ def test_recommended_prompt_has_safe_fallback_without_data():
 
     assert "данн" in prompt["title"].lower() or "доступ" in prompt["title"].lower()
     assert "какие данные" in prompt["prompt"].lower()
+
+
+def test_entry_prompt_prefers_dashboard_handoff_when_available():
+    prompt = ai_coaching._resolve_ai_coach_entry_prompt(
+        {"summary": {"has_data": False}},
+        None,
+        {
+            "source": "dashboard",
+            "icon": "📈",
+            "title": "План недели из дашборда",
+            "button": "Отправить в AI",
+            "description": "Дашборд уже подготовил лучший стартовый вопрос.",
+            "reason": "Следующий шаг уже определён по текущим метрикам.",
+            "prompt": "Составь мне план недели по окну Вт, Чт, Сб.",
+        },
+    )
+
+    assert prompt["source"] == "dashboard"
+    assert prompt["title"] == "План недели из дашборда"
+    assert prompt["prompt"] == "Составь мне план недели по окну Вт, Чт, Сб."

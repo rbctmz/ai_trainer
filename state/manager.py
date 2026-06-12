@@ -34,6 +34,7 @@ class StateManager:
         return key in self._session
 
     _PRIMITIVE_DEFAULTS: Dict[str, Any] = {
+        "ai_coach_handoff": None,
         "dark_mode": False,
         "demo_mode": False,
         "selected_page": "📊 Дашборд",
@@ -268,6 +269,14 @@ class StateManager:
     @switch_to_chat_tab.setter
     def switch_to_chat_tab(self, value: bool) -> None:
         self._session["switch_to_chat_tab"] = value
+
+    @property
+    def ai_coach_handoff(self):
+        return self._session.get("ai_coach_handoff")
+
+    @ai_coach_handoff.setter
+    def ai_coach_handoff(self, value) -> None:
+        self._session["ai_coach_handoff"] = value
 
     # ------------------------------------------------------------------
     # Snapshot helpers

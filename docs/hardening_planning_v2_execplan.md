@@ -62,6 +62,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-13 00:20+04:00) Hardened the planning UI around degenerate target-TSS ranges by replacing the collapsed `500..500` slider case with a fixed-value control, then re-ran the smoke suite (`58 passed`).
 - [x] (2026-06-13 00:46+04:00) Started the Coach Explainability slice by introducing a shared readiness/explainability helper and routing both dashboard next-step guidance and the AI coaching recommended first prompt through the same reasoning contract.
 - [x] (2026-06-13 00:46+04:00) Added the first user-facing explainability surfaces for that slice: a `Почему сегодня такой фокус` briefing on the dashboard and a matching `Почему такой старт` block on the AI coaching page, then re-ran the smoke suite (`61 passed`).
+- [x] (2026-06-13 01:09+04:00) Completed the next Coach Explainability slice: the shared helper now produces a richer daily briefing (`Сегодня / Ближайшие 2-3 дня / Следить за`) plus plan-aware prompt context, the dashboard now stores a concrete AI-coach handoff, and the AI coaching page renders that handoff as an actionable top-of-chat checkpoint.
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -236,3 +237,11 @@ That immediately improves product coherence. A user who sees `Сначала р�
 The validation evidence is straightforward and sufficient for this slice. New smoke coverage now exercises the shared explainability helper directly, while the existing dashboard and AI-coaching smoke tests still pass on top of the refactor. The full smoke suite passes at `61 passed`.
 
 Revision note (2026-06-13 00:46+04:00): recorded the first Coach Explainability slice after adding the shared readiness helper, wiring it into dashboard and AI coaching, and re-running the full smoke suite (`61 passed`).
+
+The next Coach Explainability slice makes the shared reasoning contract meaningfully more product-like. Instead of stopping at `что спросить у AI`, the helper now also emits a concrete daily briefing with `Сегодня`, `Ближайшие 2-3 дня`, and `Следить за`, while weaving planning constraints back into both the visible explanation and the AI prompt itself. That closes an important gap: readiness guidance is no longer detached from the adaptive plan the user just built.
+
+The dashboard-to-coach transition is now also a real handoff rather than a navigation hint. Pressing the primary AI action on the dashboard stores a specific recommended question, its reasoning, and the short operational briefing in session state; the AI coaching page then surfaces that package at the top of the chat so the user can either send it immediately or dismiss it. This makes `Следующий шаг` behave like an actual workflow continuation instead of a generic link.
+
+The acceptance evidence is again clear enough to keep moving. New smoke coverage now validates the richer explainability payload, the dashboard handoff state, and the AI entry-point override, while the full smoke suite passes at `64 passed`.
+
+Revision note (2026-06-13 01:09+04:00): recorded the richer daily-briefing and dashboard-to-AI handoff slice after re-running the full smoke suite (`64 passed`).

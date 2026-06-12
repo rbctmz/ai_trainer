@@ -234,6 +234,96 @@ def _choose_recommended_first_prompt(
     }
 
 
+def _normalize_ai_coach_handoff(handoff: Any) -> Optional[Dict[str, Any]]:
+    if not isinstance(handoff, dict):
+        return None
+
+    prompt = str(handoff.get("prompt") or "").strip()
+    if not prompt:
+        return None
+
+    raw_signals = handoff.get("signals", [])
+    signals = []
+    if isinstance(raw_signals, list):
+        signals = [str(signal) for signal in raw_signals if signal]
+
+    return {
+        "source": str(handoff.get("source") or "dashboard"),
+        "icon": str(handoff.get("icon") or "🤖"),
+        "title": str(handoff.get("title") or "Рекомендация с дашборда"),
+        "button": str(handoff.get("button") or "Отправить вопрос"),
+        "description": str(handoff.get("description") or ""),
+        "reason": str(handoff.get("reason") or ""),
+        "prompt": prompt,
+        "today_action": str(handoff.get("today_action") or ""),
+        "next_window": str(handoff.get("next_window") or ""),
+        "watchout": str(handoff.get("watchout") or ""),
+        "plan_context": str(handoff.get("plan_context") or ""),
+        "signals": signals[:5],
+    }
+
+
+def _resolve_ai_coach_entry_prompt(
+    data_context: Optional[Dict[str, Any]],
+    goal_plan: Optional[Dict[str, Any]] = None,
+    handoff: Any = None,
+) -> Dict[str, str]:
+    normalized_handoff = _normalize_ai_coach_handoff(handoff)
+    if normalized_handoff is not None:
+        return {
+            "icon": normalized_handoff["icon"],
+            "title": normalized_handoff["title"],
+            "button": normalized_handoff["button"],
+            "description": normalized_handoff["description"] or normalized_handoff["today_action"],
+            "reason": normalized_handoff["reason"] or "Этот старт уже выбран на дашборде как следующий логичный шаг.",
+            "prompt": normalized_handoff["prompt"],
+            "source": normalized_handoff["source"],
+        }
+
+    prompt = _choose_recommended_first_prompt(data_context, goal_plan)
+    prompt["source"] = "default"
+    return prompt
+
+
+def _render_dashboard_handoff(state: StateManager, handoff: Dict[str, Any]) -> None:
+    st.markdown("### 📥 Переход с дашборда")
+    with st.container(border=True):
+        st.markdown(f"**{handoff['title']}**")
+        if handoff["description"]:
+            st.write(handoff["description"])
+        if handoff["today_action"]:
+            st.write(f"**Сегодня:** {handoff['today_action']}")
+        if handoff["next_window"]:
+            st.write(f"**Ближайшие 2-3 дня:** {handoff['next_window']}")
+        if handoff["watchout"]:
+            st.write(f"**Следить за:** {handoff['watchout']}")
+        if handoff["plan_context"]:
+            st.caption(handoff["plan_context"])
+        if handoff["reason"]:
+            st.caption(handoff["reason"])
+        for signal in handoff["signals"]:
+            st.write(f"• {signal}")
+
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            if st.button(
+                f"{handoff['icon']} {handoff['button']}",
+                key="dashboard_handoff_prompt",
+                type="primary",
+                width="stretch",
+            ):
+                state.ai_coach_handoff = None
+                process_modern_chat_message(handoff["prompt"])
+        with col2:
+            if st.button(
+                "Скрыть",
+                key="dismiss_dashboard_handoff",
+                width="stretch",
+            ):
+                state.ai_coach_handoff = None
+                st.rerun()
+
+
 def render_ai_coaching_page(state: StateManager) -> None:
     """Render the AI coaching page with provider selection and chat."""
     st.header("🤖 AI Коучинг")
@@ -824,6 +914,12 @@ def render_ai_chat_page(state: StateManager) -> None:
         st.markdown('<div class="chat-container">', unsafe_allow_html=True)
         st.caption(f"ID текущего чата: {state.current_chat_id or '—'}")
 
+        dashboard_handoff = _normalize_ai_coach_handoff(
+            getattr(state, "ai_coach_handoff", None)
+        )
+        if dashboard_handoff is not None:
+            _render_dashboard_handoff(state, dashboard_handoff)
+
         current_messages = []
         if state.current_chat_id:
             current_messages = state.chat_manager.get_chat_messages(state.current_chat_id)
@@ -871,27 +967,34 @@ def render_ai_chat_page(state: StateManager) -> None:
                 with st.container(border=True):
                     st.markdown(f"**{explain_summary['short_title']}**")
                     st.write(explain_summary["description"])
+                    st.write(f"**Сегодня:** {explain_summary['today_action']}")
+                    st.write(f"**Ближайшие 2-3 дня:** {explain_summary['next_window']}")
+                    st.write(f"**Следить за:** {explain_summary['watchout']}")
+                    if explain_summary.get("plan_context"):
+                        st.caption(explain_summary["plan_context"])
                     st.caption(explain_summary["reason"])
                     for signal in explain_summary["signals"][:5]:
                         st.write(f"• {signal}")
 
-            recommended_prompt = _choose_recommended_first_prompt(
+            recommended_prompt = _resolve_ai_coach_entry_prompt(
                 state.data_context,
                 getattr(state, "goal_plan", None),
+                dashboard_handoff,
             )
-            st.markdown("### 🎯 Рекомендованный старт")
-            st.info(
-                f"**{recommended_prompt['title']}**\n\n"
-                f"{recommended_prompt['description']}\n\n"
-                f"{recommended_prompt['reason']}"
-            )
-            if st.button(
-                f"{recommended_prompt['icon']} {recommended_prompt['button']}",
-                key="recommended_ai_first_prompt",
-                type="primary",
-                width="stretch",
-            ):
-                process_modern_chat_message(recommended_prompt["prompt"])
+            if dashboard_handoff is None:
+                st.markdown("### 🎯 Рекомендованный старт")
+                st.info(
+                    f"**{recommended_prompt['title']}**\n\n"
+                    f"{recommended_prompt['description']}\n\n"
+                    f"{recommended_prompt['reason']}"
+                )
+                if st.button(
+                    f"{recommended_prompt['icon']} {recommended_prompt['button']}",
+                    key="recommended_ai_first_prompt",
+                    type="primary",
+                    width="stretch",
+                ):
+                    process_modern_chat_message(recommended_prompt["prompt"])
 
         st.markdown("</div>", unsafe_allow_html=True)
 
