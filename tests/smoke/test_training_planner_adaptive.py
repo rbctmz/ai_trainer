@@ -42,6 +42,31 @@ def test_expand_weekly_plan_respects_available_days_only():
     assert totals[5] > 0.0
 
 
+def test_expand_weekly_plan_adds_recovery_aware_structure_metadata():
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        [280],
+        ["Build"],
+        "Полумарафон",
+        date(2026, 6, 8),
+        mix_overrides={"Build": {"run": 1.0, "bike": 0.0, "swim": 0.0}},
+        available_day_indices=[0, 1, 2, 3, 4, 5, 6],
+        goal_type="Бег",
+        load_state="fatigued",
+    )
+
+    roles = weekly_summary[0]["day_roles"]
+    totals = [day_total for _dt, day_total, _parts in daily_plan]
+    long_day = roles.index("long")
+    recovery_days = [idx for idx, role in enumerate(roles) if role == "recovery"]
+
+    assert roles.count("long") == 1
+    assert roles.count("quality") == 1
+    assert len(recovery_days) >= 1
+    assert weekly_summary[0]["structure_summary"]
+    assert "длительная" in weekly_summary[0]["key_sessions"]
+    assert totals[long_day] > max(totals[idx] for idx in recovery_days)
+
+
 def test_apply_planning_constraints_protects_recovery_after_illness():
     plan, details, summary = apply_planning_constraints(
         [300, 320, 340, 280],

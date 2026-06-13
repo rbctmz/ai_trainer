@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
-from ui.pages.planning import _build_plan_explainability, _resolve_target_weekly_tss_control
+from ui.pages.planning import (
+    _build_daily_session_rows,
+    _build_plan_explainability,
+    _resolve_target_weekly_tss_control,
+)
 
 
 pytestmark = pytest.mark.smoke
@@ -17,7 +21,11 @@ def test_build_plan_explainability_summarizes_adaptive_changes():
             "base_weekly_tss_plan": [240, 240, 240],
             "phases": ["Base", "Build", "Peak"],
             "weekly_summary": [
-                {"week_start": date(2026, 6, 15), "adjustment_note": "потолок 220 TSS"},
+                {
+                    "week_start": date(2026, 6, 15),
+                    "adjustment_note": "потолок 220 TSS",
+                    "structure_summary": "1 качеств. дн., 1 восстановит. дн., длительная: Сб",
+                },
                 {"week_start": date(2026, 6, 22), "adjustment_note": "возврат +20 TSS"},
                 {"week_start": date(2026, 6, 29), "adjustment_note": "—"},
             ],
@@ -39,6 +47,7 @@ def test_build_plan_explainability_summarizes_adaptive_changes():
     )
 
     assert explain["headline"].startswith("План сначала снижает нагрузку")
+    assert explain["summary_notes"][0].startswith("Структура первой недели:")
     assert explain["peak_before"] == 240
     assert explain["peak_after"] == 240
     assert explain["total_delta"] == -80
@@ -105,3 +114,32 @@ def test_target_tss_control_can_lock_to_achievable_cap_below_goal_floor():
     assert control["is_fixed"] is True
     assert control["value"] == 400
     assert control["reason"] == "availability_cap"
+
+
+def test_build_daily_session_rows_uses_week_structure_metadata():
+    rows = _build_daily_session_rows(
+        {
+            "daily_plan": [
+                (datetime(2026, 6, 15), 0.0, {"run": 0.0, "bike": 0.0, "swim": 0.0}),
+                (datetime(2026, 6, 16), 55.0, {"run": 55.0, "bike": 0.0, "swim": 0.0}),
+            ],
+            "weekly_summary": [
+                {
+                    "day_roles": ["off", "quality", "easy", "easy", "recovery", "long", "easy"],
+                    "day_focuses": [
+                        "Отдых",
+                        "Качество • бег",
+                        "Легкая • бег",
+                        "Легкая • бег",
+                        "Восстановление • бег",
+                        "Длительная • бег",
+                        "Легкая • бег",
+                    ],
+                }
+            ],
+        }
+    )
+
+    assert rows[0]["session_role"] == "off"
+    assert rows[1]["session_role"] == "quality"
+    assert rows[1]["session_focus"] == "Качество • бег"

@@ -100,6 +100,11 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     available_day_count = int(constraint_summary.get("available_day_count", 0))
     recommended_days = int(constraint_summary.get("recommended_days", 0))
     summary_notes = list(constraint_summary.get("notes", []))
+    first_week_structure = ""
+    if weekly_summary:
+        first_week_structure = str(weekly_summary[0].get("structure_summary", "") or "")
+        if first_week_structure:
+            summary_notes = [f"Структура первой недели: {first_week_structure}"] + summary_notes
 
     if interruption_loss > 0 and catch_up_strategy == "catch_up":
         headline = "План сначала снижает нагрузку из-за ограничения, затем возвращает только безопасную часть объёма."
@@ -131,6 +136,34 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "summary_notes": summary_notes,
         "comparison_rows": comparison_rows,
     }
+
+
+def _build_daily_session_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Build a daily session breakdown with recovery-aware roles and focuses."""
+    daily_plan = goal_plan.get("daily_plan", [])
+    weekly_summary = goal_plan.get("weekly_summary", [])
+    rows: List[Dict[str, Any]] = []
+
+    for idx, (dt, total, parts) in enumerate(daily_plan):
+        week_idx = idx // 7
+        day_idx = idx % 7
+        week_meta = weekly_summary[week_idx] if week_idx < len(weekly_summary) else {}
+        day_roles = week_meta.get("day_roles") or ["—"] * 7
+        day_focuses = week_meta.get("day_focuses") or ["—"] * 7
+
+        rows.append(
+            {
+                "date": dt.strftime("%Y-%m-%d"),
+                "session_role": day_roles[day_idx] if day_idx < len(day_roles) else "—",
+                "session_focus": day_focuses[day_idx] if day_idx < len(day_focuses) else "—",
+                "total_tss": total,
+                "run_tss": parts.get("run", 0.0),
+                "bike_tss": parts.get("bike", 0.0),
+                "swim_tss": parts.get("swim", 0.0),
+            }
+        )
+
+    return rows
 
 
 def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
@@ -625,6 +658,8 @@ def render_planning_page(state: StateManager) -> None:
             mix_overrides=mix_overrides,
             weights_overrides=weights_overrides,
             available_day_indices=selected_day_indices,
+            goal_type=goal_type,
+            load_state=str(constraint_summary.get("load_state", "balanced")),
         )
         daily_seq = flatten_daily_total(daily_plan)
         for week_row, detail in zip(weekly_summary, constraint_details):
@@ -663,6 +698,7 @@ def render_planning_page(state: StateManager) -> None:
         st.plotly_chart(fig_future, width="stretch")
 
         comparison_df = _render_plan_explainability(goal_plan)
+        daily_session_rows = _build_daily_session_rows(goal_plan)
         df_plan = pd.DataFrame(weekly_summary)
         df_plan["Неделя от"] = df_plan["week_start"].apply(lambda d: d.strftime("%d.%m"))
         plan_columns = ["Неделя от", "phase", "weekly_tss", "bike", "run", "swim"]
@@ -670,6 +706,12 @@ def render_planning_page(state: StateManager) -> None:
             plan_columns.append("capacity_tss")
         if "adjustment_note" in df_plan.columns:
             plan_columns.append("adjustment_note")
+        if "structure_summary" in df_plan.columns:
+            plan_columns.append("structure_summary")
+        if "key_sessions" in df_plan.columns:
+            plan_columns.append("key_sessions")
+        if "recovery_days" in df_plan.columns:
+            plan_columns.append("recovery_days")
         df_plan = df_plan[plan_columns]
         df_plan.rename(
             columns={
@@ -680,11 +722,18 @@ def render_planning_page(state: StateManager) -> None:
                 "swim": "Swim",
                 "capacity_tss": "Потолок TSS",
                 "adjustment_note": "Коррекция",
+                "structure_summary": "Структура недели",
+                "key_sessions": "Ключевые сессии",
+                "recovery_days": "Восстановление",
             },
             inplace=True,
         )
         with st.expander("📋 Подробная Разбивка По Неделям И Дисциплинам", expanded=False):
             st.dataframe(df_plan, width="stretch", hide_index=True)
+
+        df_daily = pd.DataFrame(daily_session_rows)
+        with st.expander("🗓️ Структура Дней И Восстановления", expanded=False):
+            st.dataframe(df_daily, width="stretch", hide_index=True)
 
         export_cols = st.columns(3)
         with export_cols[0]:
@@ -704,18 +753,6 @@ def render_planning_page(state: StateManager) -> None:
                 mime="text/csv",
             )
 
-        daily_rows = []
-        for dt, total, parts in daily_plan:
-            daily_rows.append(
-                {
-                    "date": dt.strftime("%Y-%m-%d"),
-                    "total_tss": total,
-                    "run_tss": parts.get("run", 0.0),
-                    "bike_tss": parts.get("bike", 0.0),
-                    "swim_tss": parts.get("swim", 0.0),
-                }
-            )
-        df_daily = pd.DataFrame(daily_rows)
         with export_cols[2]:
             csv_daily = df_daily.to_csv(index=False).encode("utf-8")
             st.download_button(

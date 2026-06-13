@@ -5,6 +5,19 @@ from math import ceil
 from typing import List, Dict, Tuple
 
 WEEKDAY_LABELS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+SESSION_ROLE_LABELS_RU = {
+    "off": "Отдых",
+    "recovery": "Восстановление",
+    "easy": "Легкая",
+    "quality": "Качество",
+    "long": "Длительная",
+}
+SPORT_LABELS_RU = {
+    "run": "бег",
+    "bike": "вело",
+    "swim": "плавание",
+    "off": "отдых",
+}
 
 
 def _round_to_5(value: float) -> int:
@@ -582,6 +595,252 @@ def _normalize_weights(weights: List[float]) -> List[float]:
     return [max(0.0, x) / s for x in weights]
 
 
+def _prefer_sunday_long_day(goal_type: str) -> bool:
+    del goal_type
+    return False
+
+
+def _pick_preferred_day(preferred: List[int], allowed_days: List[int], excluded: set[int] | None = None) -> int | None:
+    excluded = excluded or set()
+    for day_idx in preferred:
+        if day_idx in allowed_days and day_idx not in excluded:
+            return day_idx
+    for day_idx in allowed_days:
+        if day_idx not in excluded:
+            return day_idx
+    return None
+
+
+def _session_quality_count(phase: str, active_day_count: int, load_state: str) -> int:
+    p = (phase or "Base").lower()
+    if active_day_count < 3:
+        return 0
+
+    if p in {"build", "peak"}:
+        count = 2 if active_day_count >= 5 else 1
+    elif p == "taper":
+        count = 1 if active_day_count >= 4 else 0
+    else:
+        count = 1 if active_day_count >= 4 else 0
+
+    if load_state == "fatigued":
+        count = max(0, count - 1)
+    elif load_state == "deep_fatigue":
+        count = max(0, count - 1)
+
+    if load_state == "fresh" and p in {"build", "peak"} and active_day_count >= 6:
+        count = max(count, 2)
+
+    return min(count, max(0, active_day_count - 1))
+
+
+def _session_recovery_count(active_day_count: int, quality_count: int, load_state: str, phase: str) -> int:
+    if active_day_count < 4:
+        return 0
+
+    recovery_count = 1
+    if load_state in {"fatigued", "deep_fatigue"} and active_day_count >= 5:
+        recovery_count = 2
+    elif (phase or "").lower() == "taper" and active_day_count >= 5:
+        recovery_count = 2
+
+    max_recovery = max(0, active_day_count - quality_count - 1)
+    return min(recovery_count, max_recovery)
+
+
+def _build_recovery_aware_day_roles(
+    active_days: List[int],
+    phase: str,
+    goal_type: str,
+    load_state: str,
+) -> List[str]:
+    roles = ["off"] * 7
+    if not active_days:
+        return roles
+
+    for day_idx in active_days:
+        roles[day_idx] = "easy"
+
+    preferred_long = [6, 5, 4, 3, 2, 1, 0] if _prefer_sunday_long_day(goal_type) else [5, 6, 4, 3, 2, 1, 0]
+    long_day = _pick_preferred_day(preferred_long, active_days)
+    if long_day is not None:
+        roles[long_day] = "long"
+
+    quality_count = _session_quality_count(phase, len(active_days), load_state)
+    quality_preferred = [1, 3, 2, 4, 0, 6, 5]
+    reserved = {long_day} if long_day is not None else set()
+    quality_days: List[int] = []
+    for _ in range(quality_count):
+        quality_day = _pick_preferred_day(quality_preferred, active_days, reserved | set(quality_days))
+        if quality_day is None:
+            break
+        quality_days.append(quality_day)
+        roles[quality_day] = "quality"
+
+    recovery_target = _session_recovery_count(len(active_days), len(quality_days), load_state, phase)
+    recovery_days: List[int] = []
+    key_days = sorted([day for day in quality_days if day is not None] + ([long_day] if long_day is not None else []))
+    for key_day in key_days:
+        next_active = next(
+            (
+                day_idx
+                for day_idx in active_days
+                if day_idx > key_day and roles[day_idx] == "easy" and day_idx not in recovery_days
+            ),
+            None,
+        )
+        if next_active is not None:
+            recovery_days.append(next_active)
+            if len(recovery_days) >= recovery_target:
+                break
+        prev_active = next(
+            (
+                day_idx
+                for day_idx in reversed(active_days)
+                if day_idx < key_day and roles[day_idx] == "easy" and day_idx not in recovery_days
+            ),
+            None,
+        )
+        if prev_active is not None:
+            recovery_days.append(prev_active)
+            if len(recovery_days) >= recovery_target:
+                break
+
+    if len(recovery_days) < recovery_target:
+        for day_idx in [0, 2, 4, 6, 1, 3, 5]:
+            if day_idx in active_days and roles[day_idx] == "easy" and day_idx not in recovery_days:
+                recovery_days.append(day_idx)
+                if len(recovery_days) >= recovery_target:
+                    break
+
+    for day_idx in recovery_days[:recovery_target]:
+        roles[day_idx] = "recovery"
+
+    return roles
+
+
+def _role_multipliers_for_week(phase: str, load_state: str) -> Dict[str, float]:
+    p = (phase or "Base").lower()
+    if p == "build":
+        multipliers = {"off": 0.0, "recovery": 0.55, "easy": 0.92, "quality": 1.18, "long": 1.30}
+    elif p == "peak":
+        multipliers = {"off": 0.0, "recovery": 0.55, "easy": 0.88, "quality": 1.22, "long": 1.25}
+    elif p == "taper":
+        multipliers = {"off": 0.0, "recovery": 0.65, "easy": 0.95, "quality": 1.05, "long": 1.05}
+    else:
+        multipliers = {"off": 0.0, "recovery": 0.58, "easy": 0.95, "quality": 1.10, "long": 1.25}
+
+    if load_state == "fresh":
+        multipliers["quality"] += 0.05
+        multipliers["long"] += 0.05
+    elif load_state == "fatigued":
+        multipliers["recovery"] += 0.15
+        multipliers["easy"] += 0.03
+        multipliers["quality"] = max(0.75, multipliers["quality"] - 0.12)
+        multipliers["long"] = max(0.85, multipliers["long"] - 0.10)
+    elif load_state == "deep_fatigue":
+        multipliers["recovery"] += 0.20
+        multipliers["easy"] += 0.08
+        multipliers["quality"] = max(0.70, multipliers["quality"] - 0.20)
+        multipliers["long"] = max(0.80, multipliers["long"] - 0.15)
+
+    return multipliers
+
+
+def _dominant_sport(parts: Dict[str, float]) -> str:
+    active = {sport: float(value or 0.0) for sport, value in parts.items() if float(value or 0.0) > 0.0}
+    if not active:
+        return "off"
+    return max(active.items(), key=lambda item: item[1])[0]
+
+
+def _build_day_focus_label(role: str, sport: str) -> str:
+    if role == "off":
+        return "Отдых"
+    role_label = SESSION_ROLE_LABELS_RU.get(role, role.title())
+    sport_label = SPORT_LABELS_RU.get(sport, sport)
+    return f"{role_label} • {sport_label}"
+
+
+def _apply_recovery_aware_day_structure(
+    week_parts: List[Dict[str, float]],
+    week_total_tss: int,
+    phase: str,
+    goal_type: str,
+    load_state: str,
+) -> Tuple[List[Dict[str, float]], List[str], List[str]]:
+    active_days = [idx for idx, parts in enumerate(week_parts) if sum(float(value or 0.0) for value in parts.values()) > 0.0]
+    roles = _build_recovery_aware_day_roles(active_days, phase, goal_type, load_state)
+    multipliers = _role_multipliers_for_week(phase, load_state)
+
+    base_totals = [sum(float(value or 0.0) for value in parts.values()) for parts in week_parts]
+    weighted_totals = [base_totals[idx] * multipliers.get(roles[idx], 1.0) for idx in range(7)]
+    weighted_sum = sum(weighted_totals)
+
+    if weighted_sum <= 0:
+        focuses = [_build_day_focus_label(roles[idx], _dominant_sport(week_parts[idx])) for idx in range(7)]
+        return week_parts, roles, focuses
+
+    scale = float(week_total_tss) / weighted_sum
+    adjusted_parts: List[Dict[str, float]] = []
+    for idx, parts in enumerate(week_parts):
+        day_total = base_totals[idx]
+        if day_total <= 0:
+            adjusted_parts.append({"run": 0.0, "bike": 0.0, "swim": 0.0})
+            continue
+
+        scaled_total = weighted_totals[idx] * scale
+        ratio = scaled_total / day_total if day_total > 0 else 0.0
+        adjusted_parts.append(
+            {
+                "run": round(float(parts.get("run", 0.0)) * ratio, 1),
+                "bike": round(float(parts.get("bike", 0.0)) * ratio, 1),
+                "swim": round(float(parts.get("swim", 0.0)) * ratio, 1),
+            }
+        )
+
+    total_after = round(sum(sum(parts.values()) for parts in adjusted_parts), 1)
+    diff = round(float(week_total_tss) - total_after, 1)
+    if abs(diff) >= 0.1 and active_days:
+        target_day = _pick_preferred_day(
+            [idx for idx, role in enumerate(roles) if role == "long"] + list(reversed(active_days)),
+            active_days,
+        )
+        if target_day is not None:
+            sport = _dominant_sport(adjusted_parts[target_day])
+            if sport == "off":
+                sport = "run"
+            adjusted_parts[target_day][sport] = round(max(0.0, adjusted_parts[target_day].get(sport, 0.0) + diff), 1)
+
+    focuses = [_build_day_focus_label(roles[idx], _dominant_sport(adjusted_parts[idx])) for idx in range(7)]
+    return adjusted_parts, roles, focuses
+
+
+def _build_week_structure_metadata(
+    roles: List[str],
+    focuses: List[str],
+) -> Dict[str, object]:
+    long_days = [idx for idx, role in enumerate(roles) if role == "long"]
+    quality_days = [idx for idx, role in enumerate(roles) if role == "quality"]
+    recovery_days = [idx for idx, role in enumerate(roles) if role == "recovery"]
+
+    key_labels = [f"{WEEKDAY_LABELS_RU[idx]} {focuses[idx].lower()}" for idx in quality_days + long_days]
+    recovery_labels = [WEEKDAY_LABELS_RU[idx] for idx in recovery_days]
+    structure_summary = (
+        f"{len(quality_days)} качеств. дн., "
+        f"{len(recovery_days)} восстановит. дн., "
+        f"длительная: {WEEKDAY_LABELS_RU[long_days[0]] if long_days else '—'}"
+    )
+
+    return {
+        "day_roles": roles,
+        "day_focuses": focuses,
+        "key_sessions": "; ".join(key_labels) if key_labels else "—",
+        "recovery_days": ", ".join(recovery_labels) if recovery_labels else "—",
+        "structure_summary": structure_summary,
+    }
+
+
 def goal_weekly_mix(goal_type: str, distance: str, phase: str) -> Dict[str, float]:
     g = (goal_type or '').lower()
     if 'триатлон' in g or 'tri' in g:
@@ -601,6 +860,8 @@ def expand_weekly_to_daily_triathlon(
     mix_overrides: Dict[str, Dict[str, float]] | None = None,
     weights_overrides: Dict[str, Dict[str, List[float]]] | None = None,
     available_day_indices: List[int] | None = None,
+    goal_type: str = "Триатлон",
+    load_state: str = "balanced",
 ) -> Tuple[List[Tuple[datetime, float, Dict[str, float]]], List[Dict[str, object]]]:
     """Разворачивает недельный triathlon-план в поминутную ленту по дням с разбивкой по видам спорта.
     Возвращает:
@@ -638,23 +899,39 @@ def expand_weekly_to_daily_triathlon(
         run_week = w_tss * mix['run']
         bike_week = w_tss * mix['bike']
         swim_week = w_tss * mix['swim']
-
-        # Запись в сводку по неделе
-        weekly_summary.append({
-            'week_start': current.date(),
-            'phase': phase,
-            'weekly_tss': int(round(w_tss)),
-            'bike': round(bike_week, 1),
-            'run': round(run_week, 1),
-            'swim': round(swim_week, 1),
-        })
-
+        week_parts: List[Dict[str, float]] = []
         for i in range(7):
             run_d = round(run_week * weights['run'][i], 1)
             bike_d = round(bike_week * weights['bike'][i], 1)
             swim_d = round(swim_week * weights['swim'][i], 1)
-            total = round(run_d + bike_d + swim_d, 1)
-            daily.append((current, total, {'run': run_d, 'bike': bike_d, 'swim': swim_d}))
+            week_parts.append({'run': run_d, 'bike': bike_d, 'swim': swim_d})
+
+        adjusted_week_parts, day_roles, day_focuses = _apply_recovery_aware_day_structure(
+            week_parts,
+            int(round(w_tss)),
+            phase,
+            goal_type,
+            load_state,
+        )
+
+        bike_total = round(sum(parts.get('bike', 0.0) for parts in adjusted_week_parts), 1)
+        run_total = round(sum(parts.get('run', 0.0) for parts in adjusted_week_parts), 1)
+        swim_total = round(sum(parts.get('swim', 0.0) for parts in adjusted_week_parts), 1)
+        structure_meta = _build_week_structure_metadata(day_roles, day_focuses)
+
+        weekly_summary.append({
+            'week_start': current.date(),
+            'phase': phase,
+            'weekly_tss': int(round(w_tss)),
+            'bike': bike_total,
+            'run': run_total,
+            'swim': swim_total,
+            **structure_meta,
+        })
+
+        for parts in adjusted_week_parts:
+            total = round(parts.get('run', 0.0) + parts.get('bike', 0.0) + parts.get('swim', 0.0), 1)
+            daily.append((current, total, parts))
             current += timedelta(days=1)
 
     return daily, weekly_summary

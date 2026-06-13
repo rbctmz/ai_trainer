@@ -68,6 +68,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-13 19:54+04:00) Completed the next Hardening Sprint slice: extracted the monthly progress-report assembly and filtering logic into `models/ai_coach_progress.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper for existing callers, added focused smoke coverage for the progress boundary, and re-ran the full smoke suite (`70 passed`).
 - [x] (2026-06-13 20:01+04:00) Completed the next Hardening Sprint slice: extracted prompt construction, tool-call resolution, and the core response-execution turn into `models/ai_coach_runtime.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper around the new runtime, added focused smoke coverage for the execution boundary, and re-ran the full smoke suite (`73 passed`).
 - [x] (2026-06-13 20:12+04:00) Completed the next Hardening Sprint slice: extracted markdown tool-result formatting and browser-side speech/streaming helpers into `ui/components/ai_coach_output.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper for `app.py` and older tests, fixed the streaming helper so final text preserves sentence spacing, and re-ran the full smoke suite (`76 passed`).
+- [x] (2026-06-13 23:11+04:00) Completed the next Planning V2 slice: the planner now applies recovery-aware day roles (`off / recovery / easy / quality / long`) inside the daily expansion step, exposes weekly structure metadata plus daily session focus rows on the planning page, preserves the existing export/sync contract, and re-ran the full smoke suite (`78 passed`).
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -129,6 +130,9 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Observation: the last AI coaching page seam was not just extractable; it also exposed a small real UX defect in the legacy helper.
   Evidence: after moving markdown-formatting and browser-side helpers into `ui/components/ai_coach_output.py`, a focused smoke test showed that the old streaming implementation was dropping the space between streamed sentences because the split pattern discarded separators. Fixing that inside the new output module preserved the final text exactly while keeping the same cursor-style streaming behavior, and the full smoke suite increased to `76 passed`.
+
+- Observation: the planner's existing per-sport day weights were good enough for export fidelity, but not good enough on their own to imply a believable training week.
+  Evidence: before the new slice, the planner could already constrain and redistribute weekly TSS, yet it had no explicit concept of `recovery`, `quality`, or `long` days. Adding a recovery-aware role layer on top of the existing daily expansion preserved the daily export shape while finally letting the product explain why one day is easy and another is key.
 
 ## Decision Log
 
@@ -194,6 +198,10 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Decision: move `format_tool_result(...)`, `simulate_streaming_response(...)`, and `speak_text(...)` into `ui/components/ai_coach_output.py`, not into `models/`.
   Rationale: those helpers are output-oriented rather than reasoning-oriented. They render markdown for people and emit browser-side JavaScript for Streamlit, so they belong with the UI layer even though the page should not own them directly. Keeping page-level wrappers preserves the old import contract while making `ui/pages/ai_coaching.py` a genuinely thin adapter.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: add recovery-aware week structure as a separate role layer on top of the current daily TSS expansion, instead of replacing the existing mix/weight planner with a brand-new scheduler.
+  Rationale: the current planner already has valuable constraints, per-sport mix overrides, export integrations, and smoke coverage. Replacing it wholesale would be high-risk. A role layer (`off / recovery / easy / quality / long`) gives the product a much more believable weekly structure, preserves the daily tuple contract used by exports and `Intervals.icu`, and creates a clean stepping stone toward richer session planning later.
   Date/Author: 2026-06-13 / Codex
 
 ## Plan of Work
@@ -267,6 +275,10 @@ The latest hardening slices confirm that `ui/pages/ai_coaching.py` can now be de
 The new runtime split is especially important because it clarifies what the product actually considers reusable coaching logic. Prompt construction, conversation-history assembly, tool-call parsing, and final response post-processing now live in `models/ai_coach_runtime.py`, while the page retains only UI concerns such as placeholder copy, `st.chat_message(...)`, persistence, reruns, and optional speech playback. That gives the repository a much cleaner base for the next extraction wave around result formatting and any future non-UI AI-coach integrations.
 
 The final AI coaching hardening slice finished that decomposition cleanly. Markdown tool formatting plus speech/streaming helpers now live in `ui/components/ai_coach_output.py`, `ui/pages/ai_coaching.py` is down to `356` lines, and the old import surface used by `app.py` and legacy tests still works unchanged. The focused smoke added for this boundary also surfaced a subtle pre-existing bug where streamed sentences were concatenated without a space; fixing it inside the new output module improved UX while the full smoke suite moved up to `76 passed`.
+
+The next Planning V2 slice finally makes the weekly plan feel more like coaching and less like arithmetic. The planner still starts from the existing weekly TSS target, constraint handling, and per-sport expansion, but it now overlays explicit day roles such as `off`, `recovery`, `easy`, `quality`, and `long`, then rebalances the daily totals accordingly. That keeps the established export and simulation surfaces intact while making the weekly shape much more believable.
+
+That slice also created a useful new explainability seam. The planning page can now show not just `сколько TSS` falls on each day, but what that day is supposed to be for: a recovery slot, a key quality session, or the week's long session. Focused smoke coverage caught a real product-level inconsistency during implementation: a running plan had accidentally placed the `long` label on a lighter day than a recovery slot because the old weekly weights and weekend preference disagreed. Fixing that inside the new role layer made the planner's structure more truthful instead of merely more verbose, and the full smoke suite moved up to `78 passed`.
 
 The next Planning V2 slice made the planner sensitive to the athlete's starting load state, not just the event target and calendar constraints. `apply_planning_constraints(...)` now receives live `CTL`, `ATL`, and `TSB`, classifies the starting state as `fresh`, `balanced`, `fatigued`, or `deep_fatigue`, and uses that state to soften the first weeks when the athlete is already carrying too much fatigue. In the opposite direction, the same state can make `catch up` slightly more permissive after holiday or limited-availability blocks when the athlete starts fresh instead of stale.
 
