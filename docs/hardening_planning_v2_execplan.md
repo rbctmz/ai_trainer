@@ -31,7 +31,7 @@ The current weak points are operational rather than conceptual:
 
 - Garmin authentication still succeeds through `garminconnect` fallback, but the `garth` path is noisy and brittle.
 - The worktree still contains unrelated local environment noise in `ai_trainer_env/*`.
-- A few large feature modules, especially the chat/tooling half of `ui/pages/ai_coaching.py`, still need a second wave of decomposition even after the provider and entry/handoff slices were extracted into `ui/components/*`.
+- A few large feature modules, especially the tool-calling and progress-reporting half of `ui/pages/ai_coaching.py`, still need a final wave of decomposition even after the provider, entry/handoff, and chat-shell slices were extracted into `ui/components/*`.
 - The planning engine is useful, but still much closer to a TSS simulator than to a constraint-aware adaptive coach.
 
 ## Reference Signals
@@ -64,6 +64,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-13 00:46+04:00) Added the first user-facing explainability surfaces for that slice: a `Почему сегодня такой фокус` briefing on the dashboard and a matching `Почему такой старт` block on the AI coaching page, then re-ran the smoke suite (`61 passed`).
 - [x] (2026-06-13 01:09+04:00) Completed the next Coach Explainability slice: the shared helper now produces a richer daily briefing (`Сегодня / Ближайшие 2-3 дня / Следить за`) plus plan-aware prompt context, the dashboard now stores a concrete AI-coach handoff, and the AI coaching page renders that handoff as an actionable top-of-chat checkpoint.
 - [x] (2026-06-13 11:51+04:00) Completed the next Hardening Sprint slice: extracted AI provider setup/status and first-run entry/handoff guidance out of `ui/pages/ai_coaching.py` into dedicated `ui/components/ai_coach_provider.py` and `ui/components/ai_coach_entry.py`, preserved the existing `ui.pages.ai_coaching` helper contract for smoke tests and callers, and re-ran the full smoke suite (`64 passed`).
+- [x] (2026-06-13 19:38+04:00) Completed the next Hardening Sprint slice: extracted the remaining AI chat shell (state bootstrap, sidebar diagnostics, conversation surface, quick-question bar, and free-form input) into `ui/components/ai_coach_chat.py`, added focused smoke coverage for the new state bootstrap and quick-question contract, and re-ran the full smoke suite (`67 passed`).
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -114,6 +115,9 @@ This repository should borrow those product patterns while staying faithful to t
 - Observation: the safest way to modularize `ui/pages/ai_coaching.py` was to preserve its old helper names as import-level re-exports instead of forcing every smoke test and caller to learn the new component paths immediately.
   Evidence: after extracting provider and entry/handoff code into `ui/components/*`, the existing smoke tests for demo flow, real-provider flow, recommended prompt selection, and dashboard handoff all continued to run unchanged and the full suite still passed at `64 passed`.
 
+- Observation: the next safe extraction boundary was the chat shell, not the tool-calling engine.
+  Evidence: moving state bootstrap, sidebar diagnostics, conversation rendering, quick prompts, and the free-form input bar into `ui/components/ai_coach_chat.py` reduced `ui/pages/ai_coaching.py` from `1818` lines to `1440` lines while the full smoke suite increased to `67 passed` after adding focused coverage for the new boundary.
+
 ## Decision Log
 
 - Decision: treat the next phase as a new ExecPlan instead of extending the previous three-iteration roadmap indefinitely.
@@ -162,6 +166,10 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Decision: modularize `ui/pages/ai_coaching.py` by extracting provider setup/status and entry/handoff guidance first, while keeping the old helper names importable from `ui.pages.ai_coaching`.
   Rationale: those two areas were the clearest UI-facing seams and the lowest-risk extraction targets. Preserving the old import contract let the repository keep its existing smoke tests and page callers while still shrinking the monolith and creating clearer reuse boundaries in `ui/components/*`.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: make the next extraction target the chat shell around `render_ai_chat_page(...)`, not the AI/tool-calling engine.
+  Rationale: the shell owns page-local concerns such as Streamlit layout, sidebar diagnostics, message history presentation, and quick-question actions, which are easier to isolate than the lower-level response pipeline. That gives another meaningful size reduction and cleaner boundaries without risking the more complex tool execution path yet.
   Date/Author: 2026-06-13 / Codex
 
 ## Plan of Work
@@ -259,3 +267,9 @@ The next hardening slice attacked a different kind of risk: page-level sprawl. `
 That is not the end of modularization, but it is a meaningful hardening checkpoint. The page file is now materially smaller, the explainability handoff logic has a dedicated home, and the provider selection flow is isolated enough to change independently of the chat engine. Just as importantly, the smoke suite stayed green without forcing a simultaneous test rewrite, which means the extraction improved structure without destabilizing the product.
 
 Revision note (2026-06-13 11:51+04:00): recorded the AI coaching modularization slice after extracting provider and entry/handoff helpers into `ui/components/*` and re-running the full smoke suite (`64 passed`).
+
+The next hardening slice continued the same refactor one layer deeper by targeting the chat shell instead of the provider setup. The page-level responsibilities around state bootstrap, sidebar diagnostics, message rendering, first-run empty state, quick questions, and chat input now live in `ui/components/ai_coach_chat.py`, while `ui/pages/ai_coaching.py` mostly orchestrates page entry and the lower-level chat/tooling functions that still remain.
+
+That is a useful structural checkpoint because it separates Streamlit page chrome from the response engine. The file is still large, but the remaining size is now concentrated more honestly in tool calling, prompt construction, and progress-report generation rather than in repetitive UI scaffolding. Focused smoke coverage for the new chat-shell state bootstrap also means this slice improved both maintainability and test visibility instead of just moving code around.
+
+Revision note (2026-06-13 19:38+04:00): recorded the AI coaching chat-shell modularization slice after extracting the chat UI/state helpers into `ui/components/ai_coach_chat.py`, adding focused smoke coverage, and re-running the full smoke suite (`67 passed`).
