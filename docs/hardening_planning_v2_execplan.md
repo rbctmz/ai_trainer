@@ -69,6 +69,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-13 20:01+04:00) Completed the next Hardening Sprint slice: extracted prompt construction, tool-call resolution, and the core response-execution turn into `models/ai_coach_runtime.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper around the new runtime, added focused smoke coverage for the execution boundary, and re-ran the full smoke suite (`73 passed`).
 - [x] (2026-06-13 20:12+04:00) Completed the next Hardening Sprint slice: extracted markdown tool-result formatting and browser-side speech/streaming helpers into `ui/components/ai_coach_output.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper for `app.py` and older tests, fixed the streaming helper so final text preserves sentence spacing, and re-ran the full smoke suite (`76 passed`).
 - [x] (2026-06-13 23:11+04:00) Completed the next Planning V2 slice: the planner now applies recovery-aware day roles (`off / recovery / easy / quality / long`) inside the daily expansion step, exposes weekly structure metadata plus daily session focus rows on the planning page, preserves the existing export/sync contract, and re-ran the full smoke suite (`78 passed`).
+- [x] (2026-06-13 23:27+04:00) Completed the next Planning V2 slice: added planner-owned `session_templates` metadata aligned to the existing daily tuple contract, surfaced phase/sport/session naming/duration on the planning page, upgraded ICS / Intervals.icu / FIT / TCX exports to consume the richer metadata when available, and re-ran the full smoke suite (`84 passed`).
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -133,6 +134,12 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Observation: the planner's existing per-sport day weights were good enough for export fidelity, but not good enough on their own to imply a believable training week.
   Evidence: before the new slice, the planner could already constrain and redistribute weekly TSS, yet it had no explicit concept of `recovery`, `quality`, or `long` days. Adding a recovery-aware role layer on top of the existing daily expansion preserved the daily export shape while finally letting the product explain why one day is easy and another is key.
+
+- Observation: the next safe planning improvement after recovery-aware roles is a metadata layer, not a rewrite of the daily tuple contract.
+  Evidence: the new `session_templates` list can carry `phase / sport / role / focus / duration / export_name / description` for every day while `daily_plan` still stays as `(datetime, total_tss, parts)`. After wiring the metadata into CSV/ICS/Intervals/FIT/TCX paths, the full smoke suite still passed at `84 passed`, which would have been much riskier with a broad planner/export contract change.
+
+- Observation: local browser verification of this repository now has two separate operational gates: Streamlit port binding and onboarding state.
+  Evidence: starting `./run.sh` inside the sandbox failed with `PermissionError: [Errno 1] Operation not permitted` when binding port `8501`, but the same command succeeded once run unsandboxed. After that, the browser verified the onboarding page on `http://localhost:8501/`; proceeding to demo-mode clickthrough would have replaced the local cache, so the safe verification stopped at app boot for this slice.
 
 ## Decision Log
 
@@ -204,6 +211,10 @@ This repository should borrow those product patterns while staying faithful to t
   Rationale: the current planner already has valuable constraints, per-sport mix overrides, export integrations, and smoke coverage. Replacing it wholesale would be high-risk. A role layer (`off / recovery / easy / quality / long`) gives the product a much more believable weekly structure, preserves the daily tuple contract used by exports and `Intervals.icu`, and creates a clean stepping stone toward richer session planning later.
   Date/Author: 2026-06-13 / Codex
 
+- Decision: implement the first session-template slice as planner-owned aligned metadata, and treat export/sync consumers as optional adopters of that metadata.
+  Rationale: the product needed richer per-day semantics than `total_tss + sport parts`, but the current planner/export stack already had many consumers that assume the old tuple shape. A parallel metadata list is the lowest-risk way to add `phase`, `session role`, `focus`, `duration`, and human-readable naming now, while keeping every old integration path backward-compatible until a later, larger planning rewrite is justified.
+  Date/Author: 2026-06-13 / Codex
+
 ## Plan of Work
 
 ### Hardening Sprint
@@ -257,6 +268,10 @@ The next hardening slice turned that into a real product contract. Fresh Garmin 
 The first Planning V2 slice is now real, not hypothetical. The planning page can export its generated daily plan to `Intervals.icu` through a dedicated service adapter, the environment contract is documented in `.env.example`, and the UI behaves sensibly even when the integration is not configured yet. That is the correct shape for this phase: additive, testable, and useful before the larger adaptive-planning work begins.
 
 The first live user verification also revealed a useful production detail: `Intervals.icu` is not rejecting the API key or the endpoint shape, but it does reject the default `urllib` client signature. That bug belongs in the adapter boundary, not in the planning UI. Fixing it there keeps the integration predictable for both connection checks and future event creation.
+
+The next Planning V2 slice keeps that same additive pattern. The planner still emits the old aligned daily tuples for forecast and load simulation, but now also emits explicit session metadata that explains what each day is meant to be. That immediately improves the planning page table and makes exports less generic: a `quality` bike day can now carry a meaningful name, a better Intervals.icu description, and a different FIT/TCX step structure from a `recovery` run.
+
+This slice also clarified the safe boundary for real browser verification in this repository. Booting the app from the current worktree is now verified again, but a full demo-mode clickthrough would mutate the local cache and therefore should be treated as an explicit acceptance step, not as a silent background check. For day-to-day coding, the full smoke suite plus a boot-level browser sanity check is the right default checkpoint unless the user wants to spend a fresh demo or real-provider session on product acceptance.
 
 The real acceptance loop is now closed for this slice. The app can discover the configured `Intervals.icu` account, validate the connection from the planning page, send at least one planned workout event, and confirm that event through provider-side read-back. That is enough evidence to treat the integration as production-shaped rather than prototype-shaped.
 

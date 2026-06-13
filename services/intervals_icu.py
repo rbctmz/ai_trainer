@@ -43,8 +43,11 @@ def build_planned_workout_description(
     distance: str,
     total_tss: float,
     parts: Mapping[str, float],
+    session_template: Mapping[str, Any] | None = None,
 ) -> str:
     """Build a compact event description for planned Intervals.icu workouts."""
+    if session_template and session_template.get("description"):
+        return str(session_template["description"])
     return (
         "План из AI Trainer\n"
         f"Цель: {goal_type} / {distance}\n"
@@ -61,12 +64,13 @@ def build_planned_event_payload(
     parts: Mapping[str, float],
     goal_type: str,
     distance: str,
+    session_template: Mapping[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Convert one daily plan entry into an Intervals.icu event payload."""
     if float(total_tss or 0.0) <= 0:
         raise ValueError("Нельзя отправить в Intervals.icu день без тренировочной нагрузки.")
 
-    sport = dominant_sport(parts)
+    sport = str(session_template.get("sport") or dominant_sport(parts)) if session_template else dominant_sport(parts)
     sport_type = {
         "bike": "Ride",
         "run": "Run",
@@ -76,8 +80,8 @@ def build_planned_event_payload(
     return {
         "start_date_local": start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
         "category": "WORKOUT",
-        "name": f"{goal_type} {distance} — {dt.strftime('%Y-%m-%d')}",
-        "description": build_planned_workout_description(goal_type, distance, total_tss, parts),
+        "name": str(session_template.get("export_name")) if session_template and session_template.get("export_name") else f"{goal_type} {distance} — {dt.strftime('%Y-%m-%d')}",
+        "description": build_planned_workout_description(goal_type, distance, total_tss, parts, session_template=session_template),
         "type": sport_type,
         "icu_training_load": int(round(float(total_tss))),
     }
@@ -88,13 +92,24 @@ def build_planned_events(
     goal_type: str,
     distance: str,
     minimum_tss: float = 1.0,
+    session_templates: Sequence[Mapping[str, Any]] | None = None,
 ) -> List[Dict[str, Any]]:
     """Convert a slice of the daily plan into Intervals.icu event payloads."""
     events: List[Dict[str, Any]] = []
-    for dt, total_tss, parts in days:
+    for idx, (dt, total_tss, parts) in enumerate(days):
         if float(total_tss or 0.0) < minimum_tss:
             continue
-        events.append(build_planned_event_payload(dt, total_tss, parts, goal_type, distance))
+        session_template = session_templates[idx] if session_templates and idx < len(session_templates) else None
+        events.append(
+            build_planned_event_payload(
+                dt,
+                total_tss,
+                parts,
+                goal_type,
+                distance,
+                session_template=session_template,
+            )
+        )
     return events
 
 

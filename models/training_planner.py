@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, date
 from math import ceil
-from typing import List, Dict, Tuple
+from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
 WEEKDAY_LABELS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 SESSION_ROLE_LABELS_RU = {
@@ -942,15 +942,127 @@ def flatten_daily_total(daily: List[Tuple[datetime, float, Dict[str, float]]]) -
     return [(dt, total) for dt, total, _ in daily]
 
 
+def _estimate_session_duration_minutes(total_tss: float, sport: str, session_role: str) -> int:
+    base_minutes_per_tss = {
+        "run": 1.0,
+        "bike": 1.8,
+        "swim": 1.4,
+        "off": 0.8,
+    }
+    role_multiplier = {
+        "off": 0.75,
+        "recovery": 1.25,
+        "easy": 1.10,
+        "quality": 0.95,
+        "long": 1.35,
+    }
+    sport_key = sport if sport in base_minutes_per_tss else "run"
+    role_key = session_role if session_role in role_multiplier else "easy"
+    total = max(0.0, float(total_tss or 0.0))
+    estimated = total * base_minutes_per_tss[sport_key] * role_multiplier[role_key]
+    if total <= 0:
+        estimated = 30 if role_key == "off" else 45
+    return max(30, min(240, int(round(estimated / 5.0) * 5)))
+
+
+def _build_session_export_name(goal_type: str, distance: str, session_focus: str) -> str:
+    goal_label = " ".join(part for part in [str(goal_type or "").strip(), str(distance or "").strip()] if part)
+    focus_label = str(session_focus or "").strip()
+    if focus_label and focus_label != "—":
+        return f"{goal_label} — {focus_label}" if goal_label else focus_label
+    return goal_label or "План тренировки"
+
+
+def _build_session_description(
+    goal_type: str,
+    distance: str,
+    phase: str,
+    session_role: str,
+    session_focus: str,
+    sport: str,
+    total_tss: float,
+    parts: Mapping[str, float],
+    duration_minutes: int,
+) -> str:
+    lines = [
+        "План из AI Trainer",
+        f"Цель: {goal_type} / {distance}",
+        f"Фаза: {phase or 'Base'}",
+    ]
+    if session_focus and session_focus != "—":
+        lines.append(f"Фокус: {session_focus}")
+    lines.append(f"Роль дня: {SESSION_ROLE_LABELS_RU.get(session_role, session_role)}")
+    lines.append(f"Основной спорт: {SPORT_LABELS_RU.get(sport, sport)}")
+    lines.append(f"Оценка длительности: {duration_minutes} мин")
+    lines.append(f"Total TSS: {round(float(total_tss or 0.0), 1)}")
+    lines.append(f"Run: {round(float(parts.get('run', 0.0) or 0.0), 1)}")
+    lines.append(f"Bike: {round(float(parts.get('bike', 0.0) or 0.0), 1)}")
+    lines.append(f"Swim: {round(float(parts.get('swim', 0.0) or 0.0), 1)}")
+    return "\n".join(lines)
+
+
+def build_daily_session_templates(
+    daily: List[Tuple[datetime, float, Dict[str, float]]],
+    weekly_summary: Sequence[Mapping[str, object]],
+    goal_type: str,
+    distance: str,
+) -> List[Dict[str, Any]]:
+    """Строит метаданные сессий, выровненные с daily plan без смены его контракта."""
+    templates: List[Dict[str, Any]] = []
+
+    for idx, (dt, total, parts) in enumerate(daily):
+        week_idx = idx // 7
+        day_idx = idx % 7
+        week_meta = weekly_summary[week_idx] if week_idx < len(weekly_summary) else {}
+        day_roles = list(week_meta.get("day_roles") or ["easy"] * 7)
+        day_focuses = list(week_meta.get("day_focuses") or ["—"] * 7)
+        session_role = str(day_roles[day_idx] if day_idx < len(day_roles) else "easy")
+        session_focus = str(day_focuses[day_idx] if day_idx < len(day_focuses) else "—")
+        sport = _dominant_sport(parts)
+        phase = str(week_meta.get("phase", "Base") or "Base")
+        duration_minutes = _estimate_session_duration_minutes(total, sport, session_role)
+        export_name = _build_session_export_name(goal_type, distance, session_focus)
+        description = _build_session_description(
+            goal_type=goal_type,
+            distance=distance,
+            phase=phase,
+            session_role=session_role,
+            session_focus=session_focus,
+            sport=sport,
+            total_tss=total,
+            parts=parts,
+            duration_minutes=duration_minutes,
+        )
+
+        templates.append(
+            {
+                "date": dt.strftime("%Y-%m-%d"),
+                "week_index": week_idx,
+                "day_index": day_idx,
+                "phase": phase,
+                "session_role": session_role,
+                "session_focus": session_focus,
+                "sport": sport,
+                "sport_label": SPORT_LABELS_RU.get(sport, sport),
+                "duration_minutes": duration_minutes,
+                "template_key": f"{phase.lower()}:{session_role}:{sport}",
+                "export_name": export_name,
+                "description": description,
+            }
+        )
+
+    return templates
+
+
 def create_ics_from_daily(
     daily: List[Tuple[datetime, float, Dict[str, float]]],
     title_prefix: str = "Planned Training",
     duration_minutes: int = 60,
+    session_templates: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
     """Генерирует ICS календарь из дневного плана.
     Создаёт по одному событию в день с суммарным TSS и разбивкой в описании.
     """
-    from datetime import timezone
     import uuid
 
     def fmt_dt(dt: datetime) -> str:
@@ -963,13 +1075,20 @@ def create_ics_from_daily(
         'VERSION:2.0',
         'PRODID:-//AI Trainer//Goal Planner//EN'
     ]
-    for dt, total, parts in daily:
+    for idx, (dt, total, parts) in enumerate(daily):
+        session_template = session_templates[idx] if session_templates and idx < len(session_templates) else {}
+        resolved_duration = int(session_template.get("duration_minutes", duration_minutes) or duration_minutes)
+        resolved_duration = max(30, resolved_duration)
         start = fmt_dt(dt)
-        end_dt = dt.replace(hour=8, minute=0, second=0, microsecond=0)
+        end_dt = dt.replace(hour=7, minute=0, second=0, microsecond=0) + timedelta(minutes=resolved_duration)
         end = end_dt.strftime('%Y%m%dT%H%M%S')
         uid = uuid.uuid4().hex
-        desc = f"Total TSS: {total}\nRun: {parts.get('run',0)}\nBike: {parts.get('bike',0)}\nSwim: {parts.get('swim',0)}"
-        title = f"{title_prefix} (TSS {int(round(total))})"
+        desc = str(
+            session_template.get("description")
+            or f"Total TSS: {total}\nRun: {parts.get('run',0)}\nBike: {parts.get('bike',0)}\nSwim: {parts.get('swim',0)}"
+        )
+        base_title = str(session_template.get("export_name") or title_prefix)
+        title = f"{base_title} (TSS {int(round(total))})"
         lines += [
             'BEGIN:VEVENT',
             f'UID:{uid}',

@@ -143,3 +143,36 @@ def test_build_daily_session_rows_uses_week_structure_metadata():
     assert rows[0]["session_role"] == "off"
     assert rows[1]["session_role"] == "quality"
     assert rows[1]["session_focus"] == "Качество • бег"
+
+
+def test_build_daily_session_rows_prefers_session_templates_when_present():
+    rows = _build_daily_session_rows(
+        {
+            "daily_plan": [
+                (datetime(2026, 6, 15), 55.0, {"run": 0.0, "bike": 55.0, "swim": 0.0}),
+            ],
+            "weekly_summary": [
+                {
+                    "phase": "Build",
+                    "day_roles": ["quality", "easy", "easy", "easy", "recovery", "long", "off"],
+                    "day_focuses": ["Качество • бег", "—", "—", "—", "—", "—", "—"],
+                }
+            ],
+            "session_templates": [
+                {
+                    "phase": "Build",
+                    "sport": "bike",
+                    "session_role": "quality",
+                    "session_focus": "Качество • вело",
+                    "export_name": "Триатлон Олимпийка — Качество • вело",
+                    "duration_minutes": 90,
+                }
+            ],
+        }
+    )
+
+    assert rows[0]["phase"] == "Build"
+    assert rows[0]["sport"] == "bike"
+    assert rows[0]["session_focus"] == "Качество • вело"
+    assert rows[0]["session_name"] == "Триатлон Олимпийка — Качество • вело"
+    assert rows[0]["duration_minutes"] == 90

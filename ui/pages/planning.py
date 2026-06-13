@@ -18,6 +18,20 @@ def _strategy_label(strategy: str) -> str:
     return "Наверстать аккуратно" if strategy == "catch_up" else "Беречь восстановление"
 
 
+def _infer_sport_for_export(parts: Dict[str, Any], session_template: Dict[str, Any] | None = None) -> str:
+    sport = str((session_template or {}).get("sport") or "").strip().lower()
+    if sport and sport != "off":
+        return sport
+    bike = float(parts.get("bike", 0.0) or 0.0)
+    run = float(parts.get("run", 0.0) or 0.0)
+    swim = float(parts.get("swim", 0.0) or 0.0)
+    if bike >= max(run, swim):
+        return "bike"
+    if swim >= max(run, bike):
+        return "swim"
+    return "run"
+
+
 def _resolve_target_weekly_tss_control(
     auto_suggested: int | float | None,
     t_min: int,
@@ -142,6 +156,7 @@ def _build_daily_session_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]
     """Build a daily session breakdown with recovery-aware roles and focuses."""
     daily_plan = goal_plan.get("daily_plan", [])
     weekly_summary = goal_plan.get("weekly_summary", [])
+    session_templates = goal_plan.get("session_templates", [])
     rows: List[Dict[str, Any]] = []
 
     for idx, (dt, total, parts) in enumerate(daily_plan):
@@ -150,12 +165,17 @@ def _build_daily_session_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]
         week_meta = weekly_summary[week_idx] if week_idx < len(weekly_summary) else {}
         day_roles = week_meta.get("day_roles") or ["—"] * 7
         day_focuses = week_meta.get("day_focuses") or ["—"] * 7
+        session_template = session_templates[idx] if idx < len(session_templates) else {}
 
         rows.append(
             {
                 "date": dt.strftime("%Y-%m-%d"),
-                "session_role": day_roles[day_idx] if day_idx < len(day_roles) else "—",
-                "session_focus": day_focuses[day_idx] if day_idx < len(day_focuses) else "—",
+                "phase": session_template.get("phase", week_meta.get("phase", "—")),
+                "sport": session_template.get("sport", "—"),
+                "session_role": session_template.get("session_role", day_roles[day_idx] if day_idx < len(day_roles) else "—"),
+                "session_focus": session_template.get("session_focus", day_focuses[day_idx] if day_idx < len(day_focuses) else "—"),
+                "session_name": session_template.get("export_name", "—"),
+                "duration_minutes": session_template.get("duration_minutes", 0),
                 "total_tss": total,
                 "run_tss": parts.get("run", 0.0),
                 "bike_tss": parts.get("bike", 0.0),
@@ -618,6 +638,8 @@ def render_planning_page(state: StateManager) -> None:
                 state.planner_weights[phase] = {"run": run_vals, "bike": bike_vals, "swim": swim_vals}
 
     if st.button("🧭 Построить план до старта"):
+        from models.training_planner import build_daily_session_templates
+
         base_weekly_tss_plan = create_weekly_tss_plan(
             start_weekly_tss=start_weekly_tss_guess,
             weeks_total=weeks_to_race,
@@ -665,6 +687,12 @@ def render_planning_page(state: StateManager) -> None:
         for week_row, detail in zip(weekly_summary, constraint_details):
             week_row["capacity_tss"] = detail.get("capacity_tss")
             week_row["adjustment_note"] = detail.get("adjustment_note", "—")
+        session_templates = build_daily_session_templates(
+            daily_plan,
+            weekly_summary,
+            goal_type=goal_type,
+            distance=distance,
+        )
 
         state.goal_plan = {
             "goal_type": goal_type,
@@ -675,6 +703,7 @@ def render_planning_page(state: StateManager) -> None:
             "base_weekly_tss_plan": base_weekly_tss_plan,
             "phases": phases,
             "daily_plan": daily_plan,
+            "session_templates": session_templates,
             "weekly_summary": weekly_summary,
             "constraint_summary": constraint_summary,
         }
@@ -687,6 +716,7 @@ def render_planning_page(state: StateManager) -> None:
         start_week = goal_plan["start_week"]
         goal_type_cached = goal_plan.get("goal_type", goal_type)
         distance_cached = goal_plan.get("distance", distance)
+        session_templates = goal_plan.get("session_templates", [])
 
         future_dates, future_ctl, future_atl, future_tsb = banister.simulate_variable_load(
             current_metrics, flatten_daily_total(daily_plan), start_date=datetime.combine(start_week, datetime.min.time())
@@ -764,7 +794,11 @@ def render_planning_page(state: StateManager) -> None:
 
         from models.training_planner import create_ics_from_daily
 
-        ics_content = create_ics_from_daily(daily_plan, title_prefix=f"{goal_type_cached} {distance_cached}")
+        ics_content = create_ics_from_daily(
+            daily_plan,
+            title_prefix=f"{goal_type_cached} {distance_cached}",
+            session_templates=session_templates,
+        )
         st.download_button(
             label="📅 Экспорт в календарь (ICS)",
             data=ics_content,
@@ -818,8 +852,15 @@ def render_planning_page(state: StateManager) -> None:
 
             with col_int_4:
                 if st.button("📤 Отправить день в Intervals.icu", key="intervals_push_day"):
-                    selected_day = [daily_plan[int(intervals_day_number) - 1]]
-                    events = intervals_icu.build_planned_events(selected_day, goal_type_cached, distance_cached)
+                    day_index = int(intervals_day_number) - 1
+                    selected_day = [daily_plan[day_index]]
+                    selected_templates = session_templates[day_index:day_index + 1]
+                    events = intervals_icu.build_planned_events(
+                        selected_day,
+                        goal_type_cached,
+                        distance_cached,
+                        session_templates=selected_templates,
+                    )
                     if not events:
                         st.warning("Выбранный день не содержит достаточной тренировочной нагрузки для отправки.")
                     else:
@@ -836,7 +877,13 @@ def render_planning_page(state: StateManager) -> None:
                     start_idx = (int(intervals_week_number) - 1) * 7
                     end_idx = min(start_idx + 7, total_days)
                     selected_days = daily_plan[start_idx:end_idx]
-                    events = intervals_icu.build_planned_events(selected_days, goal_type_cached, distance_cached)
+                    selected_templates = session_templates[start_idx:end_idx]
+                    events = intervals_icu.build_planned_events(
+                        selected_days,
+                        goal_type_cached,
+                        distance_cached,
+                        session_templates=selected_templates,
+                    )
                     if not events:
                         st.warning("В выбранной неделе нет дней с достаточной нагрузкой для отправки.")
                     else:
@@ -862,15 +909,21 @@ def render_planning_page(state: StateManager) -> None:
             from models.tcx_activity_export import generate_tcx_activity
             from models.tcx_export import generate_tcx_workout
 
-            day = daily_plan[day_idx - 1]
+            day_index = day_idx - 1
+            day = daily_plan[day_index]
             dt, total, parts = day
-            sport = "run"
-            if parts.get("bike", 0) >= max(parts.get("run", 0), parts.get("swim", 0)):
-                sport = "bike"
-            elif parts.get("swim", 0) >= max(parts.get("run", 0), parts.get("bike", 0)):
-                sport = "swim"
-            steps = build_steps_for_sport(total, sport)
-            workout_name = f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}"
+            session_template = session_templates[day_index] if day_index < len(session_templates) else {}
+            sport = _infer_sport_for_export(parts, session_template)
+            steps = build_steps_for_sport(
+                total,
+                sport,
+                session_role=str(session_template.get("session_role", "easy")),
+                phase=session_template.get("phase"),
+            )
+            workout_name = str(
+                session_template.get("export_name")
+                or f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}"
+            )
             csv_text = generate_fit_csv(workout_name, sport, steps, created=dt)
             csv_bytes = csv_text.encode("utf-8")
 
@@ -934,22 +987,29 @@ def render_planning_page(state: StateManager) -> None:
                 start = (week_idx - 1) * 7
                 end = min(start + 7, total_days)
                 week_days = daily_plan[start:end]
+                week_templates = session_templates[start:end]
 
                 csv_zip = io.BytesIO()
                 tcx_zip = io.BytesIO()
                 with zipfile.ZipFile(csv_zip, "w", zipfile.ZIP_DEFLATED) as csv_archive, zipfile.ZipFile(
                     tcx_zip, "w", zipfile.ZIP_DEFLATED
                 ) as tcx_archive:
-                    for dt, total, parts in week_days:
-                        sport = "run"
-                        if parts.get("bike", 0) >= max(parts.get("run", 0), parts.get("swim", 0)):
-                            sport = "bike"
-                        elif parts.get("swim", 0) >= max(parts.get("run", 0), parts.get("bike", 0)):
-                            sport = "swim"
-                        steps = build_steps_for_sport(total, sport)
-                        csv_text = generate_fit_csv(f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}", sport, steps, created=dt)
+                    for day_offset, (dt, total, parts) in enumerate(week_days):
+                        session_template = week_templates[day_offset] if day_offset < len(week_templates) else {}
+                        sport = _infer_sport_for_export(parts, session_template)
+                        steps = build_steps_for_sport(
+                            total,
+                            sport,
+                            session_role=str(session_template.get("session_role", "easy")),
+                            phase=session_template.get("phase"),
+                        )
+                        workout_name = str(
+                            session_template.get("export_name")
+                            or f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}"
+                        )
+                        csv_text = generate_fit_csv(workout_name, sport, steps, created=dt)
                         csv_archive.writestr(f"workout_{dt.strftime('%Y%m%d')}.csv", csv_text)
-                        tcx_text = generate_tcx_workout(f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}", sport, steps, created=dt)
+                        tcx_text = generate_tcx_workout(workout_name, sport, steps, created=dt)
                         tcx_archive.writestr(f"workout_{dt.strftime('%Y%m%d')}.tcx", tcx_text)
                 st.download_button(
                     label="💾 Скачать все FIT-CSV (ZIP)",
@@ -970,14 +1030,20 @@ def render_planning_page(state: StateManager) -> None:
                     fit_zip = io.BytesIO()
                     failed_days = 0
                     with zipfile.ZipFile(fit_zip, "w", zipfile.ZIP_DEFLATED) as fit_archive:
-                        for dt, total, parts in week_days:
-                            sport = "run"
-                            if parts.get("bike", 0) >= max(parts.get("run", 0), parts.get("swim", 0)):
-                                sport = "bike"
-                            elif parts.get("swim", 0) >= max(parts.get("run", 0), parts.get("bike", 0)):
-                                sport = "swim"
-                            steps = build_steps_for_sport(total, sport)
-                            csv_text = generate_fit_csv(f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}", sport, steps, created=dt)
+                        for day_offset, (dt, total, parts) in enumerate(week_days):
+                            session_template = week_templates[day_offset] if day_offset < len(week_templates) else {}
+                            sport = _infer_sport_for_export(parts, session_template)
+                            steps = build_steps_for_sport(
+                                total,
+                                sport,
+                                session_role=str(session_template.get("session_role", "easy")),
+                                phase=session_template.get("phase"),
+                            )
+                            workout_name = str(
+                                session_template.get("export_name")
+                                or f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}"
+                            )
+                            csv_text = generate_fit_csv(workout_name, sport, steps, created=dt)
                             fit_bytes, _, _, rc = try_convert_fit_verbose(csv_text.encode("utf-8"), "java", jar)
                             if fit_bytes and rc == 0:
                                 fit_archive.writestr(f"workout_{dt.strftime('%Y%m%d')}.fit", fit_bytes)

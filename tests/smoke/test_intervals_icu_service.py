@@ -56,6 +56,33 @@ def test_build_planned_events_maps_daily_plan_to_intervals_payload():
     assert "AI Trainer" in event["description"]
 
 
+def test_build_planned_events_uses_session_template_metadata_when_available():
+    day = (
+        datetime(2026, 6, 16, 0, 0, 0),
+        58.0,
+        {"run": 58.0, "bike": 0.0, "swim": 0.0},
+    )
+
+    events = intervals_icu.build_planned_events(
+        [day],
+        "Бег",
+        "Полумарафон",
+        session_templates=[
+            {
+                "sport": "run",
+                "export_name": "Бег Полумарафон — Качество • бег",
+                "description": "План из AI Trainer\nФаза: Build\nФокус: Качество • бег",
+            }
+        ],
+    )
+
+    assert len(events) == 1
+    event = events[0]
+    assert event["name"] == "Бег Полумарафон — Качество • бег"
+    assert event["type"] == "Run"
+    assert "Фокус: Качество • бег" in event["description"]
+
+
 def test_push_planned_events_uses_basic_auth_and_events_endpoint(monkeypatch):
     monkeypatch.setattr(Settings, "INTERVALS_ICU_API_KEY", "secret-key")
     monkeypatch.setattr(Settings, "INTERVALS_ICU_ATHLETE_ID", "0")

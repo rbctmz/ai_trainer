@@ -1,11 +1,13 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 
 import pytest
 
 from models.training_planner import (
     apply_planning_constraints,
+    build_daily_session_templates,
+    create_ics_from_daily,
     expand_weekly_to_daily_triathlon,
     summarize_availability,
 )
@@ -65,6 +67,48 @@ def test_expand_weekly_plan_adds_recovery_aware_structure_metadata():
     assert weekly_summary[0]["structure_summary"]
     assert "длительная" in weekly_summary[0]["key_sessions"]
     assert totals[long_day] > max(totals[idx] for idx in recovery_days)
+
+
+def test_build_daily_session_templates_aligns_metadata_with_daily_plan():
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        [220],
+        ["Build"],
+        "Олимпийка",
+        date(2026, 6, 8),
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+
+    templates = build_daily_session_templates(daily_plan, weekly_summary, "Триатлон", "Олимпийка")
+
+    assert len(templates) == len(daily_plan)
+    quality_idx = weekly_summary[0]["day_roles"].index("quality")
+    template = templates[quality_idx]
+    assert template["session_role"] == "quality"
+    assert template["phase"] == "Build"
+    assert template["sport"] in {"run", "bike", "swim"}
+    assert template["duration_minutes"] >= 30
+    assert "Триатлон —" in template["export_name"] or "Триатлон Олимпийка" in template["export_name"]
+    assert "Фокус:" in template["description"]
+
+
+def test_create_ics_from_daily_uses_session_template_metadata():
+    daily_plan = [
+        (datetime(2026, 6, 15), 72.0, {"run": 18.0, "bike": 54.0, "swim": 0.0}),
+    ]
+    session_templates = [
+        {
+            "export_name": "Триатлон Олимпийка — Качество • вело",
+            "description": "План из AI Trainer\nФокус: Качество • вело",
+            "duration_minutes": 95,
+        }
+    ]
+
+    ics = create_ics_from_daily(daily_plan, session_templates=session_templates)
+
+    assert "SUMMARY:Триатлон Олимпийка — Качество • вело (TSS 72)" in ics
+    assert "DESCRIPTION:План из AI Trainer" in ics
+    assert "DTEND:20260615T083500" in ics
 
 
 def test_apply_planning_constraints_protects_recovery_after_illness():
