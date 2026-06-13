@@ -31,7 +31,7 @@ The current weak points are operational rather than conceptual:
 
 - Garmin authentication still succeeds through `garminconnect` fallback, but the `garth` path is noisy and brittle.
 - The worktree still contains unrelated local environment noise in `ai_trainer_env/*`.
-- A few large feature modules, especially the tool-calling and progress-reporting half of `ui/pages/ai_coaching.py`, still need a final wave of decomposition even after the provider, entry/handoff, and chat-shell slices were extracted into `ui/components/*`.
+- The remaining large AI coaching boundary is now the tool-calling and response-execution engine in `ui/pages/ai_coaching.py`; the monthly progress-report core has been moved into `models/ai_coach_progress.py`, but the execution pipeline still needs the final decomposition wave.
 - The planning engine is useful, but still much closer to a TSS simulator than to a constraint-aware adaptive coach.
 
 ## Reference Signals
@@ -65,6 +65,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-13 01:09+04:00) Completed the next Coach Explainability slice: the shared helper now produces a richer daily briefing (`Сегодня / Ближайшие 2-3 дня / Следить за`) plus plan-aware prompt context, the dashboard now stores a concrete AI-coach handoff, and the AI coaching page renders that handoff as an actionable top-of-chat checkpoint.
 - [x] (2026-06-13 11:51+04:00) Completed the next Hardening Sprint slice: extracted AI provider setup/status and first-run entry/handoff guidance out of `ui/pages/ai_coaching.py` into dedicated `ui/components/ai_coach_provider.py` and `ui/components/ai_coach_entry.py`, preserved the existing `ui.pages.ai_coaching` helper contract for smoke tests and callers, and re-ran the full smoke suite (`64 passed`).
 - [x] (2026-06-13 19:38+04:00) Completed the next Hardening Sprint slice: extracted the remaining AI chat shell (state bootstrap, sidebar diagnostics, conversation surface, quick-question bar, and free-form input) into `ui/components/ai_coach_chat.py`, added focused smoke coverage for the new state bootstrap and quick-question contract, and re-ran the full smoke suite (`67 passed`).
+- [x] (2026-06-13 19:54+04:00) Completed the next Hardening Sprint slice: extracted the monthly progress-report assembly and filtering logic into `models/ai_coach_progress.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper for existing callers, added focused smoke coverage for the progress boundary, and re-ran the full smoke suite (`70 passed`).
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -118,6 +119,9 @@ This repository should borrow those product patterns while staying faithful to t
 - Observation: the next safe extraction boundary was the chat shell, not the tool-calling engine.
   Evidence: moving state bootstrap, sidebar diagnostics, conversation rendering, quick prompts, and the free-form input bar into `ui/components/ai_coach_chat.py` reduced `ui/pages/ai_coaching.py` from `1818` lines to `1440` lines while the full smoke suite increased to `67 passed` after adding focused coverage for the new boundary.
 
+- Observation: the progress-report boundary is safe to move into `models/` even though the final rendered markdown still belongs to the page layer.
+  Evidence: extracting the report assembly, recovery/sleep summaries, and monthly-progress filtering into `models/ai_coach_progress.py` reduced `ui/pages/ai_coaching.py` again to `1168` lines, while preserving the old page-level helper names through thin wrappers and keeping the full smoke suite green at `70 passed`.
+
 ## Decision Log
 
 - Decision: treat the next phase as a new ExecPlan instead of extending the previous three-iteration roadmap indefinitely.
@@ -170,6 +174,10 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Decision: make the next extraction target the chat shell around `render_ai_chat_page(...)`, not the AI/tool-calling engine.
   Rationale: the shell owns page-local concerns such as Streamlit layout, sidebar diagnostics, message history presentation, and quick-question actions, which are easier to isolate than the lower-level response pipeline. That gives another meaningful size reduction and cleaner boundaries without risking the more complex tool execution path yet.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: move the monthly progress-report core into `models/ai_coach_progress.py`, but keep markdown presentation wiring and public helper compatibility in `ui.pages.ai_coaching`.
+  Rationale: the progress report is mostly data interpretation and recommendation logic, which belongs with the coaching model layer rather than a Streamlit page. The page still owns the existing `format_tool_result(...)` presentation contract, so the safest extraction is a model-level core that accepts a formatter callback while preserving the old page imports for current callers and smoke tests.
   Date/Author: 2026-06-13 / Codex
 
 ## Plan of Work
@@ -237,6 +245,8 @@ The explainability slice turned that adaptive logic into something a user can ac
 The acceptance evidence for that slice is strong enough to treat it as complete. The smoke suite now passes at `54 passed`, and a fresh Streamlit instance launched from the current worktree on `http://localhost:8502` shows the updated `🧭 Сценарий и ограничения` pre-plan section and, after pressing `🧭 Построить план до старта`, the new `🧠 Почему план такой` and `↔️ До / После По Неделям` sections. That closes the loop for this sprint: the planning UI is now aligned with the adaptive engine already added in the previous slice.
 
 Revision note (2026-06-12 23:59+04:00): recorded the Planning UX + Explainability slice after browser-verifying the new planning page on a temporary `8502` Streamlit instance and re-running the smoke suite (`54 passed`).
+
+The latest hardening slice confirms that `ui/pages/ai_coaching.py` can now be decomposed by responsibility rather than by file-size panic. Provider setup, entry/handoff, chat shell, and monthly progress reporting now each have a dedicated boundary, and the page has dropped to `1168` lines without breaking the legacy helper contract expected by `app.py` and the smoke suite. That is the right pattern for the final lap: the remaining tool-calling engine is now isolated as the last major seam instead of being tangled together with unrelated UI and reporting logic.
 
 The next Planning V2 slice made the planner sensitive to the athlete's starting load state, not just the event target and calendar constraints. `apply_planning_constraints(...)` now receives live `CTL`, `ATL`, and `TSB`, classifies the starting state as `fresh`, `balanced`, `fatigued`, or `deep_fatigue`, and uses that state to soften the first weeks when the athlete is already carrying too much fatigue. In the opposite direction, the same state can make `catch up` slightly more permissive after holiday or limited-availability blocks when the athlete starts fresh instead of stale.
 
