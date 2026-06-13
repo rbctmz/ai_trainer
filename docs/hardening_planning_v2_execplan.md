@@ -31,7 +31,7 @@ The current weak points are operational rather than conceptual:
 
 - Garmin authentication still succeeds through `garminconnect` fallback, but the `garth` path is noisy and brittle.
 - The worktree still contains unrelated local environment noise in `ai_trainer_env/*`.
-- A few large feature modules, especially `ui/pages/ai_coaching.py`, are already becoming their own monoliths.
+- A few large feature modules, especially the chat/tooling half of `ui/pages/ai_coaching.py`, still need a second wave of decomposition even after the provider and entry/handoff slices were extracted into `ui/components/*`.
 - The planning engine is useful, but still much closer to a TSS simulator than to a constraint-aware adaptive coach.
 
 ## Reference Signals
@@ -63,6 +63,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-13 00:46+04:00) Started the Coach Explainability slice by introducing a shared readiness/explainability helper and routing both dashboard next-step guidance and the AI coaching recommended first prompt through the same reasoning contract.
 - [x] (2026-06-13 00:46+04:00) Added the first user-facing explainability surfaces for that slice: a `Почему сегодня такой фокус` briefing on the dashboard and a matching `Почему такой старт` block on the AI coaching page, then re-ran the smoke suite (`61 passed`).
 - [x] (2026-06-13 01:09+04:00) Completed the next Coach Explainability slice: the shared helper now produces a richer daily briefing (`Сегодня / Ближайшие 2-3 дня / Следить за`) plus plan-aware prompt context, the dashboard now stores a concrete AI-coach handoff, and the AI coaching page renders that handoff as an actionable top-of-chat checkpoint.
+- [x] (2026-06-13 11:51+04:00) Completed the next Hardening Sprint slice: extracted AI provider setup/status and first-run entry/handoff guidance out of `ui/pages/ai_coaching.py` into dedicated `ui/components/ai_coach_provider.py` and `ui/components/ai_coach_entry.py`, preserved the existing `ui.pages.ai_coaching` helper contract for smoke tests and callers, and re-ran the full smoke suite (`64 passed`).
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -110,6 +111,9 @@ This repository should borrow those product patterns while staying faithful to t
 - Observation: dashboard and AI coaching were both already using the same raw signals, but with different branching rules and different wording, which made the product feel less coherent than the underlying data actually was.
   Evidence: `ui/pages/dashboard.py` had its own `TSB/HRV` next-step logic, while `ui/pages/ai_coaching.py` separately chose a recommended first prompt from `TSB/readiness/recovery_state`. The new shared helper replaced that duplication and the smoke suite still passed afterward.
 
+- Observation: the safest way to modularize `ui/pages/ai_coaching.py` was to preserve its old helper names as import-level re-exports instead of forcing every smoke test and caller to learn the new component paths immediately.
+  Evidence: after extracting provider and entry/handoff code into `ui/components/*`, the existing smoke tests for demo flow, real-provider flow, recommended prompt selection, and dashboard handoff all continued to run unchanged and the full suite still passed at `64 passed`.
+
 ## Decision Log
 
 - Decision: treat the next phase as a new ExecPlan instead of extending the previous three-iteration roadmap indefinitely.
@@ -154,6 +158,10 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Decision: start Coach Explainability with a shared reasoning helper instead of directly rewriting prompts or UI copy in place.
   Rationale: the biggest current risk is divergence, not missing text. If dashboard and AI coaching continue to branch independently, any new wording polish will drift again. A shared helper creates one contract for `recovery / plan_week / form_today` and lets both surfaces explain the same signals consistently.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: modularize `ui/pages/ai_coaching.py` by extracting provider setup/status and entry/handoff guidance first, while keeping the old helper names importable from `ui.pages.ai_coaching`.
+  Rationale: those two areas were the clearest UI-facing seams and the lowest-risk extraction targets. Preserving the old import contract let the repository keep its existing smoke tests and page callers while still shrinking the monolith and creating clearer reuse boundaries in `ui/components/*`.
   Date/Author: 2026-06-13 / Codex
 
 ## Plan of Work
@@ -245,3 +253,9 @@ The dashboard-to-coach transition is now also a real handoff rather than a navig
 The acceptance evidence is again clear enough to keep moving. New smoke coverage now validates the richer explainability payload, the dashboard handoff state, and the AI entry-point override, while the full smoke suite passes at `64 passed`.
 
 Revision note (2026-06-13 01:09+04:00): recorded the richer daily-briefing and dashboard-to-AI handoff slice after re-running the full smoke suite (`64 passed`).
+
+The next hardening slice attacked a different kind of risk: page-level sprawl. `ui/pages/ai_coaching.py` had grown into one large file responsible for provider selection, provider status, first-run recommendations, dashboard handoff UI, chat rendering, tool calling, and progress reporting. The refactor pulled the provider boundary into `ui/components/ai_coach_provider.py` and the first-run entry boundary into `ui/components/ai_coach_entry.py`, while keeping the existing helper names visible from `ui.pages.ai_coaching` so the rest of the repository did not need to change all at once.
+
+That is not the end of modularization, but it is a meaningful hardening checkpoint. The page file is now materially smaller, the explainability handoff logic has a dedicated home, and the provider selection flow is isolated enough to change independently of the chat engine. Just as importantly, the smoke suite stayed green without forcing a simultaneous test rewrite, which means the extraction improved structure without destabilizing the product.
+
+Revision note (2026-06-13 11:51+04:00): recorded the AI coaching modularization slice after extracting provider and entry/handoff helpers into `ui/components/*` and re-running the full smoke suite (`64 passed`).
