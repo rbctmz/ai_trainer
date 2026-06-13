@@ -31,7 +31,7 @@ The current weak points are operational rather than conceptual:
 
 - Garmin authentication still succeeds through `garminconnect` fallback, but the `garth` path is noisy and brittle.
 - The worktree still contains unrelated local environment noise in `ai_trainer_env/*`.
-- The remaining large AI coaching boundary is now the tool-calling and response-execution engine in `ui/pages/ai_coaching.py`; the monthly progress-report core has been moved into `models/ai_coach_progress.py`, but the execution pipeline still needs the final decomposition wave.
+- The remaining large AI coaching boundary is now mostly presentation-oriented: `format_tool_result(...)` and speech/streaming helpers still live in `ui/pages/ai_coaching.py`, even though the execution pipeline itself has been moved into `models/ai_coach_runtime.py`.
 - The planning engine is useful, but still much closer to a TSS simulator than to a constraint-aware adaptive coach.
 
 ## Reference Signals
@@ -66,6 +66,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-13 11:51+04:00) Completed the next Hardening Sprint slice: extracted AI provider setup/status and first-run entry/handoff guidance out of `ui/pages/ai_coaching.py` into dedicated `ui/components/ai_coach_provider.py` and `ui/components/ai_coach_entry.py`, preserved the existing `ui.pages.ai_coaching` helper contract for smoke tests and callers, and re-ran the full smoke suite (`64 passed`).
 - [x] (2026-06-13 19:38+04:00) Completed the next Hardening Sprint slice: extracted the remaining AI chat shell (state bootstrap, sidebar diagnostics, conversation surface, quick-question bar, and free-form input) into `ui/components/ai_coach_chat.py`, added focused smoke coverage for the new state bootstrap and quick-question contract, and re-ran the full smoke suite (`67 passed`).
 - [x] (2026-06-13 19:54+04:00) Completed the next Hardening Sprint slice: extracted the monthly progress-report assembly and filtering logic into `models/ai_coach_progress.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper for existing callers, added focused smoke coverage for the progress boundary, and re-ran the full smoke suite (`70 passed`).
+- [x] (2026-06-13 20:01+04:00) Completed the next Hardening Sprint slice: extracted prompt construction, tool-call resolution, and the core response-execution turn into `models/ai_coach_runtime.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper around the new runtime, added focused smoke coverage for the execution boundary, and re-ran the full smoke suite (`73 passed`).
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -121,6 +122,9 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Observation: the progress-report boundary is safe to move into `models/` even though the final rendered markdown still belongs to the page layer.
   Evidence: extracting the report assembly, recovery/sleep summaries, and monthly-progress filtering into `models/ai_coach_progress.py` reduced `ui/pages/ai_coaching.py` again to `1168` lines, while preserving the old page-level helper names through thin wrappers and keeping the full smoke suite green at `70 passed`.
+
+- Observation: the AI coaching execution pipeline can be moved into `models/` without sacrificing the current Streamlit UX states around generation, tool processing, and chat persistence.
+  Evidence: `models/ai_coach_runtime.py` now owns prompt construction, conversation-history assembly, tool-call parsing, and final-response post-processing, while the page still controls placeholder copy and message persistence. `ui/pages/ai_coaching.py` dropped again to `1045` lines and the full smoke suite increased to `73 passed`.
 
 ## Decision Log
 
@@ -178,6 +182,10 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Decision: move the monthly progress-report core into `models/ai_coach_progress.py`, but keep markdown presentation wiring and public helper compatibility in `ui.pages.ai_coaching`.
   Rationale: the progress report is mostly data interpretation and recommendation logic, which belongs with the coaching model layer rather than a Streamlit page. The page still owns the existing `format_tool_result(...)` presentation contract, so the safest extraction is a model-level core that accepts a formatter callback while preserving the old page imports for current callers and smoke tests.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: extract the tool-calling and response-execution turn into `models/ai_coach_runtime.py`, but keep `process_modern_chat_message(...)` and `process_chat_message(...)` in the page layer as Streamlit adapters.
+  Rationale: the runtime logic is provider- and tool-oriented, not UI-oriented, so it belongs in `models/`. The page still has to own placeholder states, `st.chat_message(...)`, reruns, and persistence side effects, so the safest split is a reusable runtime core with page-level wrappers instead of trying to eliminate the page handlers entirely in one step.
   Date/Author: 2026-06-13 / Codex
 
 ## Plan of Work
@@ -246,7 +254,9 @@ The acceptance evidence for that slice is strong enough to treat it as complete.
 
 Revision note (2026-06-12 23:59+04:00): recorded the Planning UX + Explainability slice after browser-verifying the new planning page on a temporary `8502` Streamlit instance and re-running the smoke suite (`54 passed`).
 
-The latest hardening slice confirms that `ui/pages/ai_coaching.py` can now be decomposed by responsibility rather than by file-size panic. Provider setup, entry/handoff, chat shell, and monthly progress reporting now each have a dedicated boundary, and the page has dropped to `1168` lines without breaking the legacy helper contract expected by `app.py` and the smoke suite. That is the right pattern for the final lap: the remaining tool-calling engine is now isolated as the last major seam instead of being tangled together with unrelated UI and reporting logic.
+The latest hardening slices confirm that `ui/pages/ai_coaching.py` can now be decomposed by responsibility rather than by file-size panic. Provider setup, entry/handoff, chat shell, monthly progress reporting, and now the execution runtime each have a dedicated boundary, and the page has dropped further to `1045` lines without breaking the legacy helper contract expected by `app.py` and the smoke suite. That is the right pattern for the final lap: the execution engine is no longer tangled together with unrelated Streamlit scaffolding, so the remaining page weight is increasingly honest and presentation-focused.
+
+The new runtime split is especially important because it clarifies what the product actually considers reusable coaching logic. Prompt construction, conversation-history assembly, tool-call parsing, and final response post-processing now live in `models/ai_coach_runtime.py`, while the page retains only UI concerns such as placeholder copy, `st.chat_message(...)`, persistence, reruns, and optional speech playback. That gives the repository a much cleaner base for the next extraction wave around result formatting and any future non-UI AI-coach integrations.
 
 The next Planning V2 slice made the planner sensitive to the athlete's starting load state, not just the event target and calendar constraints. `apply_planning_constraints(...)` now receives live `CTL`, `ATL`, and `TSB`, classifies the starting state as `fresh`, `balanced`, `fatigued`, or `deep_fatigue`, and uses that state to soften the first weeks when the athlete is already carrying too much fatigue. In the opposite direction, the same state can make `catch up` slightly more permissive after holiday or limited-availability blocks when the athlete starts fresh instead of stale.
 
