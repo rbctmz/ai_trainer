@@ -26,7 +26,12 @@ from ui.pages.ai_coaching import (
     format_tool_result,
     simulate_streaming_response,
 )
-from services import demo_mode as demo_mode_service, garmin as garmin_service, sync as sync_service
+from services import (
+    acceptance_mode as acceptance_mode_service,
+    demo_mode as demo_mode_service,
+    garmin as garmin_service,
+    sync as sync_service,
+)
 
 st.set_page_config(
     page_title="AI Trainer",
@@ -81,7 +86,16 @@ def render_garmin_profile(profile: Dict[str, Any]) -> None:
 
 def main():
     state = get_state_manager()
+    acceptance_info = acceptance_mode_service.bootstrap_session(state)
     st.title("🏃‍♂️ Персональный AI Тренер")
+
+    if acceptance_info.get("enabled"):
+        st.info(
+            "🧪 Acceptance mode активен. "
+            "Приложение работает на изолированной временной БД, demo dataset может безопасно переинициализироваться, "
+            "а реальный Garmin login отключён."
+        )
+        st.caption(f"Isolated DB: `{acceptance_info.get('database_path', Settings.DATABASE_PATH)}`")
 
     from utils.modern_ui import ModernUI
     if state.use_custom_theme:

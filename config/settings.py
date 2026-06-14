@@ -4,6 +4,11 @@ from dotenv import load_dotenv
 # Загрузка переменных окружения
 load_dotenv()
 
+
+def _env_flag(name: str, default: str = "0") -> bool:
+    raw_value = os.getenv(name, default)
+    return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
+
 class Settings:
     """Настройки приложения"""
     
@@ -38,6 +43,18 @@ class Settings:
     
     # База данных
     DATABASE_PATH = os.getenv("DATABASE_PATH", "ai_trainer.db")
+
+    # Acceptance mode: isolated runtime for safe browser verification
+    ACCEPTANCE_MODE = _env_flag("ACCEPTANCE_MODE", "0")
+    ACCEPTANCE_AUTO_DEMO = _env_flag(
+        "ACCEPTANCE_AUTO_DEMO",
+        "1" if ACCEPTANCE_MODE else "0",
+    )
+    ACCEPTANCE_DISABLE_GARMIN = _env_flag(
+        "ACCEPTANCE_DISABLE_GARMIN",
+        "1" if ACCEPTANCE_MODE else "0",
+    )
+    ACCEPTANCE_LABEL = os.getenv("ACCEPTANCE_LABEL", "Acceptance Mode")
     
     # Пороги пользователя
     USER_FTP = int(os.getenv("USER_FTP", 250))

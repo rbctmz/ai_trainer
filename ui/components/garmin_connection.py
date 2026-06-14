@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Any, Callable, Dict
 import streamlit as st
 
 from config.settings import Settings
-from services import demo_mode as demo_mode_service, garmin as garmin_service
+from services import acceptance_mode as acceptance_mode_service, demo_mode as demo_mode_service, garmin as garmin_service
 
 if TYPE_CHECKING:
     from state import StateManager
@@ -31,8 +31,27 @@ def render_garmin_connection(
     connection_info = garmin_service.connection_info(state)
     authenticated = connection_info.get("authenticated", False)
     demo_mode = demo_mode_service.is_demo_mode(state)
+    acceptance_info = acceptance_mode_service.runtime_info(state)
 
     with st.sidebar.expander("🔗 Garmin Connect", expanded=not authenticated):
+        if acceptance_info.get("enabled") and acceptance_info.get("garmin_disabled"):
+            st.info("🧪 Acceptance mode активен")
+            st.caption(
+                "Этот runtime использует изолированную временную БД для browser acceptance checks. "
+                "Реальный Garmin login здесь отключён специально, чтобы не затронуть ваши данные."
+            )
+            st.caption(f"DB: `{acceptance_info.get('database_path', Settings.DATABASE_PATH)}`")
+            if st.button("♻️ Переинициализировать acceptance dataset", width="stretch", key="reset_acceptance_dataset_btn"):
+                result = acceptance_mode_service.reset_acceptance_dataset(state)
+                st.success(
+                    "Acceptance dataset пересоздан: "
+                    f"{result['activities']} активностей, {result['hrv_days']} дней HRV, "
+                    f"{result['sleep_days']} дней сна."
+                )
+                _clear_form_state()
+                st.rerun()
+            return
+
         if demo_mode and not authenticated:
             st.info("🎮 Демо-режим активен")
             st.caption("Сейчас приложение работает на временном sample dataset. Подключение Garmin отключит демо-режим и очистит временные данные.")

@@ -70,6 +70,8 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-13 20:12+04:00) Completed the next Hardening Sprint slice: extracted markdown tool-result formatting and browser-side speech/streaming helpers into `ui/components/ai_coach_output.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper for `app.py` and older tests, fixed the streaming helper so final text preserves sentence spacing, and re-ran the full smoke suite (`76 passed`).
 - [x] (2026-06-13 23:11+04:00) Completed the next Planning V2 slice: the planner now applies recovery-aware day roles (`off / recovery / easy / quality / long`) inside the daily expansion step, exposes weekly structure metadata plus daily session focus rows on the planning page, preserves the existing export/sync contract, and re-ran the full smoke suite (`78 passed`).
 - [x] (2026-06-13 23:27+04:00) Completed the next Planning V2 slice: added planner-owned `session_templates` metadata aligned to the existing daily tuple contract, surfaced phase/sport/session naming/duration on the planning page, upgraded ICS / Intervals.icu / FIT / TCX exports to consume the richer metadata when available, and re-ran the full smoke suite (`84 passed`).
+- [x] (2026-06-13 23:40+04:00) Completed the next Hardening Sprint slice: added an isolated acceptance runtime with `./run_acceptance.sh`, auto-seeded demo data into a unique temporary SQLite database, disabled real Garmin login inside that runtime, surfaced acceptance-mode reset/status messaging in the UI shell, and re-ran the full smoke suite (`88 passed`).
+- [x] (2026-06-14 03:35+04:00) Closed the isolated acceptance checkpoint: browser-verified a fresh `./run_acceptance.sh` session at `http://localhost:8510`, confirmed the unique temporary DB path and disabled Garmin login, exercised planning and AI coaching on the seeded dataset, fixed the narrow target-TSS slider step so the real `500..505` range stays interactive, and re-ran the full smoke suite (`89 passed`).
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -140,6 +142,12 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Observation: local browser verification of this repository now has two separate operational gates: Streamlit port binding and onboarding state.
   Evidence: starting `./run.sh` inside the sandbox failed with `PermissionError: [Errno 1] Operation not permitted` when binding port `8501`, but the same command succeeded once run unsandboxed. After that, the browser verified the onboarding page on `http://localhost:8501/`; proceeding to demo-mode clickthrough would have replaced the local cache, so the safe verification stopped at app boot for this slice.
+
+- Observation: acceptance verification needs a runtime boundary, not just a warning in the onboarding copy.
+  Evidence: the old demo path already warned that it would replace the local cache, but that still made browser acceptance awkward because the warning was true. The new `./run_acceptance.sh` launcher instead points Streamlit at a unique temporary SQLite file, turns on acceptance flags, and lets the app auto-seed a deterministic demo dataset there. After the change, the smoke suite increased to `88 passed` while the main `ai_trainer.db` path stayed untouched.
+
+- Observation: the in-app browser dev-log feed is noisy across local Streamlit restarts and cannot be treated as a strict per-run console transcript.
+  Evidence: after restarting the acceptance app on `http://localhost:8510`, the browser log feed still showed earlier `8501` health-check noise and one pre-fix narrow-slider warning timestamped `2026-06-14T03:21:55.972Z`, even though the fresh acceptance session displayed a new temporary DB path and the real `500..505` TSS control moved from `500` to `501` during direct interaction.
 
 ## Decision Log
 
@@ -215,6 +223,14 @@ This repository should borrow those product patterns while staying faithful to t
   Rationale: the product needed richer per-day semantics than `total_tss + sport parts`, but the current planner/export stack already had many consumers that assume the old tuple shape. A parallel metadata list is the lowest-risk way to add `phase`, `session role`, `focus`, `duration`, and human-readable naming now, while keeping every old integration path backward-compatible until a later, larger planning rewrite is justified.
   Date/Author: 2026-06-13 / Codex
 
+- Decision: make acceptance mode a separate launcher and runtime contract instead of overloading the normal `run.sh` path.
+  Rationale: the repository now has two distinct intents. Normal `./run.sh` should keep representing the user's real local app state, including `ai_trainer.db` and optional Garmin connections. Acceptance verification needs the opposite: a deterministic, disposable runtime on a dedicated port with demo data and no chance of touching the real account or database. A dedicated `./run_acceptance.sh` script plus app-side acceptance guards keeps those intents explicit and safer.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: treat the acceptance checkpoint as `smoke suite + functional browser proof`, not as `empty dev console`, in this local Codex environment.
+  Rationale: the in-app browser retains stale log history across local restarts, so the reliable acceptance signal is a fresh isolated DB, visible runtime markers, successful planning/AI navigation, and direct widget interaction on the current session rather than zero historical console lines.
+  Date/Author: 2026-06-14 / Codex
+
 ## Plan of Work
 
 ### Hardening Sprint
@@ -273,7 +289,13 @@ The next Planning V2 slice keeps that same additive pattern. The planner still e
 
 This slice also clarified the safe boundary for real browser verification in this repository. Booting the app from the current worktree is now verified again, but a full demo-mode clickthrough would mutate the local cache and therefore should be treated as an explicit acceptance step, not as a silent background check. For day-to-day coding, the full smoke suite plus a boot-level browser sanity check is the right default checkpoint unless the user wants to spend a fresh demo or real-provider session on product acceptance.
 
+The new acceptance-mode slice turns that boundary into an actual contributor tool. Instead of tiptoeing around the normal demo-mode button, a contributor can now run `./run_acceptance.sh`, which launches the app on a dedicated port against a unique temporary SQLite database, auto-loads the deterministic demo dataset, disables real Garmin login, and provides an explicit UI reset path for reseeding the dataset mid-session. That is a much better base for future browser-based acceptance checks on planning features because the runtime itself is now safe by construction.
+
 The real acceptance loop is now closed for this slice. The app can discover the configured `Intervals.icu` account, validate the connection from the planning page, send at least one planned workout event, and confirm that event through provider-side read-back. That is enough evidence to treat the integration as production-shaped rather than prototype-shaped.
+
+The isolated acceptance runtime is now also proven as a contributor checkpoint, not just as an implementation detail. A fresh `8510` session showed a new temporary SQLite path in the UI, disabled the real Garmin login path, rendered both the planning and AI coaching pages against seeded data, and exposed the existing export/sync surfaces after building a plan. Restarting that runtime and interacting with the narrow `500..505` target-TSS control then confirmed the last planning regression fix directly in the real browser: the value advanced from `500` to `501`, which would have been impossible with the old hardcoded `step=25`.
+
+The remaining nuance is verification hygiene rather than product behavior. The Codex in-app browser's dev-log feed kept stale entries from earlier local sessions, including old port-`8501` noise and a pre-fix slider warning, so a strict "console must be empty" rule would misclassify a healthy acceptance run. The correct hardening standard for this repository is therefore a green smoke suite plus functional browser proof on a fresh isolated runtime, not raw log emptiness.
 
 The next Planning V2 slice changed the planner from a pure target-and-ramp calculator into a constrained planner. It still uses the same Banister forecasting and export surfaces, but now the user can express how much training time actually exists, which weekdays are usable, whether the next block is affected by illness, holiday, or limited availability, and whether missed load should be protected or partially caught up. That is the first real step toward adaptive planning rather than static load projection.
 
@@ -310,6 +332,8 @@ That immediately improves product coherence. A user who sees `Сначала р�
 The validation evidence is straightforward and sufficient for this slice. New smoke coverage now exercises the shared explainability helper directly, while the existing dashboard and AI-coaching smoke tests still pass on top of the refactor. The full smoke suite passes at `61 passed`.
 
 Revision note (2026-06-13 00:46+04:00): recorded the first Coach Explainability slice after adding the shared readiness helper, wiring it into dashboard and AI coaching, and re-running the full smoke suite (`61 passed`).
+
+Revision note (2026-06-14 03:35+04:00): recorded the final isolated acceptance checkpoint after real browser verification on `http://localhost:8510`, direct validation of the narrow target-TSS slider fix, and a full smoke re-run (`89 passed`).
 
 The next Coach Explainability slice makes the shared reasoning contract meaningfully more product-like. Instead of stopping at `что спросить у AI`, the helper now also emits a concrete daily briefing with `Сегодня`, `Ближайшие 2-3 дня`, and `Следить за`, while weaving planning constraints back into both the visible explanation and the AI prompt itself. That closes an important gap: readiness guidance is no longer detached from the adaptive plan the user just built.
 

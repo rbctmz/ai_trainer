@@ -8,6 +8,7 @@ from ui.pages.planning import (
     _build_daily_session_rows,
     _build_plan_explainability,
     _resolve_target_weekly_tss_control,
+    _resolve_target_weekly_tss_step,
 )
 
 
@@ -114,6 +115,12 @@ def test_target_tss_control_can_lock_to_achievable_cap_below_goal_floor():
     assert control["is_fixed"] is True
     assert control["value"] == 400
     assert control["reason"] == "availability_cap"
+
+
+def test_target_tss_slider_step_softens_for_narrow_ranges():
+    assert _resolve_target_weekly_tss_step(500, 505) == 1
+    assert _resolve_target_weekly_tss_step(500, 520) == 5
+    assert _resolve_target_weekly_tss_step(500, 600) == 25
 
 
 def test_build_daily_session_rows_uses_week_structure_metadata():

@@ -64,6 +64,16 @@ def _resolve_target_weekly_tss_control(
     }
 
 
+def _resolve_target_weekly_tss_step(slider_min: int, slider_max: int) -> int:
+    """Choose a slider step that remains valid for narrow achievable ranges."""
+    span = max(0, int(slider_max) - int(slider_min))
+    if span <= 10:
+        return 1
+    if span <= 25:
+        return 5
+    return 25
+
+
 def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     """Build a concise, UI-friendly explanation for the generated plan."""
     adjusted = [int(round(value)) for value in goal_plan.get("weekly_tss_plan", [])]
@@ -520,12 +530,16 @@ def render_planning_page(state: StateManager) -> None:
         else:
             st.caption("Для этой цели и текущей доступности доступен один реалистичный пик нагрузки.")
     else:
+        target_slider_step = _resolve_target_weekly_tss_step(
+            int(target_control["slider_min"]),
+            int(target_control["slider_max"]),
+        )
         target_weekly_tss = st.slider(
             "Целевой недельный TSS к пику:",
             min_value=int(target_control["slider_min"]),
             max_value=int(target_control["slider_max"]),
             value=int(target_control["value"]),
-            step=25,
+            step=target_slider_step,
             help="Ориентир под дистанцию и доступность; фактический план дальше дополнительно учитывает ограничения и стратегию возврата нагрузки.",
         )
 

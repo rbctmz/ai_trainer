@@ -34,6 +34,7 @@ class StateManager:
         return key in self._session
 
     _PRIMITIVE_DEFAULTS: Dict[str, Any] = {
+        "acceptance_bootstrapped": False,
         "ai_coach_handoff": None,
         "dark_mode": False,
         "demo_mode": False,

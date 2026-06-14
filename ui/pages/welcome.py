@@ -4,7 +4,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 import streamlit as st
-from services import demo_mode as demo_mode_service
+from services import acceptance_mode as acceptance_mode_service, demo_mode as demo_mode_service
 
 if TYPE_CHECKING:
     from state import StateManager
@@ -14,9 +14,17 @@ def render_welcome_page(state: "StateManager") -> None:
     """Экран приветствия для неподключённых пользователей."""
     stats = state.database.get_database_stats()
     has_local_cache = any(stats.values())
+    acceptance_info = acceptance_mode_service.runtime_info(state)
+    acceptance_enabled = acceptance_info.get("enabled", False)
 
     st.markdown("## Добро пожаловать в персональный AI тренер!")
     st.markdown("Выберите, как хотите войти в продукт: с реальными данными Garmin или на временном демо-наборе.")
+
+    if acceptance_enabled:
+        st.info(
+            "🧪 Acceptance mode активен: этот запуск использует изолированную временную БД и предназначен "
+            "для безопасного browser clickthrough. Реальный Garmin login здесь отключён."
+        )
 
     feature_col, path_col = st.columns([1, 2])
 
@@ -33,36 +41,57 @@ def render_welcome_page(state: "StateManager") -> None:
 
         with garmin_col:
             st.markdown("### 🔗 Garmin Connect")
-            st.markdown("Для реального сценария:")
-            st.markdown("1. Введите email и пароль Garmin в боковой панели")
-            st.markdown("2. Подключитесь и синхронизируйте последние 30 дней")
-            st.markdown("3. Откройте dashboard и AI coaching на своих данных")
-            st.caption("Подходит, если вы хотите сразу работать со своей историей тренировок.")
+            if acceptance_enabled:
+                st.markdown("Acceptance instance отключает реальный Garmin path.")
+                st.markdown("1. Используйте изолированный demo dataset")
+                st.markdown("2. Прогоняйте dashboard, planning и exports")
+                st.markdown("3. При необходимости переинициализируйте dataset из sidebar")
+                st.caption("Этот запуск нужен для безопасной регрессии, а не для работы с реальным аккаунтом.")
+            else:
+                st.markdown("Для реального сценария:")
+                st.markdown("1. Введите email и пароль Garmin в боковой панели")
+                st.markdown("2. Подключитесь и синхронизируйте последние 30 дней")
+                st.markdown("3. Откройте dashboard и AI coaching на своих данных")
+                st.caption("Подходит, если вы хотите сразу работать со своей историей тренировок.")
 
         with demo_col:
-            st.markdown("### 🎮 Демо-режим")
-            st.markdown("Для быстрого знакомства:")
-            st.markdown("1. Загрузится временный локальный набор sample data")
-            st.markdown("2. Сразу откроется dashboard с метриками, сном и планированием")
-            st.markdown("3. AI coaching будет доступен без подключения Garmin")
-            st.caption("Демо-режим очищает локальный кэш и не смешивается с реальными данными.")
+            st.markdown("### 🎮 Демо-режим" if not acceptance_enabled else "### 🧪 Acceptance dataset")
+            if acceptance_enabled:
+                st.markdown("Для стандартного acceptance checkpoint:")
+                st.markdown("1. Сбросится только изолированная acceptance БД")
+                st.markdown("2. Сразу откроется dashboard с planning и AI coaching")
+                st.markdown("3. Можно безопасно прогонять реальный browser clickthrough")
+                st.caption("Основная локальная БД не затрагивается, потому что acceptance runtime уже изолирован.")
+            else:
+                st.markdown("Для быстрого знакомства:")
+                st.markdown("1. Загрузится временный локальный набор sample data")
+                st.markdown("2. Сразу откроется dashboard с метриками, сном и планированием")
+                st.markdown("3. AI coaching будет доступен без подключения Garmin")
+                st.caption("Демо-режим очищает локальный кэш и не смешивается с реальными данными.")
 
-            if has_local_cache:
+            if has_local_cache and not acceptance_enabled:
                 st.warning("Запуск демо-режима заменит текущий локальный кэш данных на временный sample dataset.")
 
             if st.button(
-                "🎮 Запустить демо-режим",
+                "🎮 Запустить демо-режим" if not acceptance_enabled else "🧪 Восстановить acceptance dataset",
                 type="primary",
                 width="stretch",
                 key="start_demo_mode_btn",
             ):
-                result = demo_mode_service.activate_demo_mode(state)
+                if acceptance_enabled:
+                    result = acceptance_mode_service.reset_acceptance_dataset(state)
+                else:
+                    result = demo_mode_service.activate_demo_mode(state)
                 st.success(
-                    "✅ Демо-режим активирован: "
+                    ("✅ Демо-режим активирован: " if not acceptance_enabled else "✅ Acceptance dataset готов: ")
+                    +
                     f"{result['activities']} активностей, {result['hrv_days']} дней HRV, "
                     f"{result['sleep_days']} дней сна."
                 )
                 st.rerun()
 
     st.markdown("---")
-    st.caption("Garmin onboarding требует аккаунт Garmin Connect. Демо-режим использует временные локальные данные и подходит для первого знакомства с интерфейсом.")
+    if acceptance_enabled:
+        st.caption("Acceptance mode запускается на отдельной временной БД и нужен для безопасной регрессии UI/product flow.")
+    else:
+        st.caption("Garmin onboarding требует аккаунт Garmin Connect. Демо-режим использует временные локальные данные и подходит для первого знакомства с интерфейсом.")
