@@ -79,6 +79,11 @@ def _sample_goal_plan() -> dict[str, object]:
                 "horizon_days": 7,
                 "total_delta_tss": -15,
                 "label": "Ручная правка ближнего горизонта",
+                "post_edit_strategy": "catch_up",
+                "future_target_tss": 10,
+                "future_delta_tss": 10,
+                "future_weeks": 2,
+                "future_week_count": 1,
             },
             "current_tsb": -12.0,
             "current_ctl": 55.0,
@@ -122,6 +127,8 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     assert summary["peak_tss"] == 240
     assert summary["near_term_edit"]["edited_day_count"] == 3
     assert summary["near_term_edit"]["total_delta_tss"] == -15
+    assert summary["near_term_edit"]["strategy_label"] == "Наверстать аккуратно"
+    assert summary["near_term_edit"]["future_delta_tss"] == 10
 
 
 def test_rebuild_goal_plan_with_adjustment_from_checkpoint_context():

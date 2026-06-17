@@ -121,6 +121,11 @@ def test_coach_explainability_mentions_manual_near_term_edit():
                     "horizon_days": 7,
                     "total_delta_tss": -15,
                     "label": "Ручная правка ближнего горизонта",
+                    "post_edit_strategy": "catch_up",
+                    "future_target_tss": 10,
+                    "future_delta_tss": 10,
+                    "future_weeks": 2,
+                    "future_week_count": 1,
                 },
             }
         },
@@ -129,6 +134,7 @@ def test_coach_explainability_mentions_manual_near_term_edit():
     assert any("правился вручную" in signal for signal in summary["signals"])
     assert "ручную правку ближнего горизонта" in summary["plan_context"]
     assert "Δ -15 TSS" in summary["plan_context"]
+    assert "Наверстать аккуратно" in summary["plan_context"]
 
 
 def test_coach_explainability_prefers_execution_review_after_actionable_checkpoint():

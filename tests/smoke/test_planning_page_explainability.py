@@ -287,6 +287,71 @@ def test_build_near_term_draft_preview_summarizes_weekly_effect_before_apply():
     assert preview["near_term_edit"] is not None
     assert preview["near_term_edit"]["edited_day_count"] == 1
     assert preview["near_term_edit"]["total_delta_tss"] == 15
+    assert preview["near_term_edit"]["post_edit_strategy"] == "keep"
     assert preview["weekly_rows"][0]["Неделя"].startswith("1 • 08.06")
     assert preview["weekly_rows"][0]["Δ TSS"] == "+15"
     assert "ручная правка: 1 дн." in preview["weekly_rows"][0]["Почему"]
+
+
+def test_build_near_term_draft_preview_carries_follow_up_strategy_into_future_weeks():
+    weekly_tss_plan = [220, 240, 180]
+    phases = ["Base", "Build", "Taper"]
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        weekly_tss_plan,
+        phases,
+        "Олимпийка",
+        date(2026, 6, 8),
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+    goal_plan = {
+        "goal_type": "Триатлон",
+        "distance": "Олимпийка",
+        "weeks_to_race": len(weekly_tss_plan),
+        "start_week": date(2026, 6, 8),
+        "weekly_tss_plan": weekly_tss_plan,
+        "base_weekly_tss_plan": [220, 240, 180],
+        "phases": phases,
+        "daily_plan": daily_plan,
+        "session_templates": build_daily_session_templates(
+            daily_plan,
+            weekly_summary,
+            goal_type="Триатлон",
+            distance="Олимпийка",
+        ),
+        "weekly_summary": weekly_summary,
+        "constraint_summary": {
+            "catch_up_strategy": "catch_up",
+            "current_tsb": -4.0,
+            "load_state": "balanced",
+            "notes": ["Базовый план под текущую доступность."],
+        },
+    }
+    edit_rows = build_near_term_edit_rows(goal_plan, horizon_days=7)
+    draft_rows = build_near_term_edit_draft_rows(
+        edit_rows,
+        goal_type=goal_plan["goal_type"],
+        distance=goal_plan["distance"],
+        overrides_by_index={
+            int(edit_rows[1]["index"]): {
+                "session_role": "off",
+                "sport": "off",
+                "total_tss": 0,
+            }
+        },
+    )
+    draft_goal_plan = apply_near_term_day_edits(
+        goal_plan,
+        draft_rows,
+        horizon_days=7,
+        post_edit_strategy="catch_up",
+    )
+
+    preview = _build_near_term_draft_preview(goal_plan, draft_goal_plan)
+
+    assert preview["changed_week_count"] >= 2
+    assert preview["near_term_edit"] is not None
+    assert preview["near_term_edit"]["post_edit_strategy"] == "catch_up"
+    assert preview["near_term_edit"]["future_delta_tss"] > 0
+    assert "Наверстать аккуратно" in preview["near_term_edit"]["follow_up_description"]
+    assert any("ручной возврат" in row["Почему"] for row in preview["weekly_rows"])

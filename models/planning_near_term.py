@@ -2,8 +2,13 @@
 from __future__ import annotations
 
 from datetime import datetime
+from math import ceil
 from typing import Any, Dict, List, Mapping, Sequence
 
+from models.planning_summary import (
+    NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU,
+    normalize_near_term_edit_post_strategy,
+)
 from models.training_planner import (
     SESSION_ROLE_LABELS_RU,
     SPORT_LABELS_RU,
@@ -14,12 +19,17 @@ from models.training_planner import (
     _build_week_structure_metadata,
     _dominant_sport,
     _estimate_session_duration_minutes,
+    _round_to_5,
 )
 
 EDITABLE_NEAR_TERM_HORIZON_MIN = 7
 EDITABLE_NEAR_TERM_HORIZON_MAX = 10
 EDITABLE_SESSION_ROLES = ["off", "recovery", "easy", "quality", "long"]
 EDITABLE_SPORTS = ["run", "bike", "swim", "off"]
+
+
+def _normalize_post_edit_strategy(value: Any) -> str:
+    return normalize_near_term_edit_post_strategy(value)
 
 
 def _normalize_session_role(value: Any) -> str:
@@ -116,6 +126,159 @@ def _build_day_summary(role: str, sport: str, total_tss: float) -> str:
         return f"{role_label} · {total_label} TSS"
     sport_label = SPORT_LABELS_RU.get(sport, sport)
     return f"{role_label} • {sport_label} · {total_label} TSS"
+
+
+def _append_adjustment_note(
+    existing_note: Any,
+    extra_note: str,
+    removable_prefixes: Sequence[str] | None = None,
+) -> str:
+    removable = tuple(removable_prefixes or ())
+    parts = [
+        str(part).strip()
+        for part in str(existing_note or "—").split(";")
+        if (
+            str(part).strip()
+            and str(part).strip() != "—"
+            and not any(str(part).strip().startswith(prefix) for prefix in removable)
+        )
+    ]
+    if extra_note not in parts:
+        parts.append(extra_note)
+    return "; ".join(parts) if parts else extra_note
+
+
+def _resolve_post_edit_target_delta(
+    strategy: str,
+    horizon_delta: int,
+    constraint_summary: Mapping[str, Any],
+) -> int:
+    if horizon_delta == 0 or strategy == "keep":
+        return 0
+
+    load_state = str(constraint_summary.get("load_state", "balanced") or "balanced").lower()
+    current_tsb = constraint_summary.get("current_tsb")
+    try:
+        current_tsb = float(current_tsb) if current_tsb is not None else None
+    except (TypeError, ValueError):
+        current_tsb = None
+
+    if horizon_delta < 0:
+        if strategy == "protect_recovery":
+            return 0
+        share = 0.50
+        if current_tsb is not None and current_tsb <= -15:
+            share = min(share, 0.30)
+        if load_state == "deep_fatigue":
+            share = min(share, 0.25)
+        elif load_state == "fatigued":
+            share = min(share, 0.35)
+        elif load_state == "fresh":
+            share = max(share, 0.55)
+        return _round_to_5(abs(horizon_delta) * share)
+
+    if strategy == "catch_up":
+        share = 0.35
+        if current_tsb is not None and current_tsb <= -15:
+            share = max(share, 0.45)
+        if load_state == "deep_fatigue":
+            share = max(share, 0.70)
+        elif load_state == "fatigued":
+            share = max(share, 0.55)
+    else:
+        share = 0.60
+        if current_tsb is not None and current_tsb <= -15:
+            share = max(share, 0.75)
+        if load_state == "deep_fatigue":
+            share = max(share, 0.80)
+        elif load_state == "fatigued":
+            share = max(share, 0.65)
+    return -_round_to_5(abs(horizon_delta) * share)
+
+
+def _apply_week_total_delta(
+    daily_plan: List[tuple[datetime, float, Dict[str, float]]],
+    session_templates: List[Dict[str, Any]],
+    week_index: int,
+    week_delta: int,
+    goal_type: str,
+    distance: str,
+) -> float:
+    start = week_index * 7
+    end = min(start + 7, len(daily_plan))
+    week_slice = daily_plan[start:end]
+    current_week_total = round(sum(total for _dt, total, _parts in week_slice), 1)
+    target_week_total = round(max(0.0, current_week_total + float(week_delta)), 1)
+    if current_week_total <= 0 or abs(target_week_total - current_week_total) < 0.1:
+        return 0.0
+
+    factor = target_week_total / current_week_total
+    updated_totals: List[float] = []
+    for _dt, total, _parts in week_slice:
+        updated_totals.append(round(float(total or 0.0) * factor, 1))
+
+    rounded_total = round(sum(updated_totals), 1)
+    diff = round(target_week_total - rounded_total, 1)
+    if abs(diff) >= 0.1:
+        candidate_indices = [
+            idx
+            for idx, value in enumerate(updated_totals)
+            if value > 0 or week_slice[idx][1] > 0
+        ]
+        if candidate_indices:
+            preferred_idx = max(candidate_indices, key=lambda idx: week_slice[idx][1])
+            updated_totals[preferred_idx] = round(max(0.0, updated_totals[preferred_idx] + diff), 1)
+
+    actual_week_total = 0.0
+    for offset, day_total in enumerate(updated_totals):
+        day_index = start + offset
+        dt, current_total, current_parts = daily_plan[day_index]
+        current_template = session_templates[day_index]
+        sport = _normalize_sport(current_template.get("sport") or _dominant_sport(current_parts))
+        role = _normalize_session_role(
+            current_template.get("session_role") or ("off" if current_total <= 0 else "easy")
+        )
+
+        if day_total <= 0:
+            day_total = 0.0
+            if sport == "off" or current_total <= 0:
+                role = "off"
+                sport = "off"
+
+        if day_total > 0 and sport != "off":
+            new_parts = _scale_parts_to_total(current_parts, day_total, sport)
+        else:
+            new_parts = _single_sport_parts(day_total, sport)
+
+        focus = str(current_template.get("session_focus") or _build_day_focus_label(role, sport))
+        duration_minutes = _estimate_session_duration_minutes(day_total, sport, role)
+        description = _build_session_description(
+            goal_type=goal_type,
+            distance=distance,
+            phase=str(current_template.get("phase", "Base") or "Base"),
+            session_role=role,
+            session_focus=focus,
+            sport=sport,
+            total_tss=day_total,
+            parts=new_parts,
+            duration_minutes=duration_minutes,
+        )
+        daily_plan[day_index] = (dt, day_total, new_parts)
+        session_templates[day_index] = {
+            **current_template,
+            "date": dt.strftime("%Y-%m-%d"),
+            "week_index": day_index // 7,
+            "day_index": day_index % 7,
+            "sport": sport,
+            "sport_label": SPORT_LABELS_RU.get(sport, sport),
+            "session_role": role,
+            "session_focus": focus,
+            "duration_minutes": duration_minutes,
+            "description": description,
+        }
+        actual_week_total += day_total
+
+    return round(actual_week_total - current_week_total, 1)
 
 
 def build_near_term_edit_rows(
@@ -268,6 +431,7 @@ def apply_near_term_day_edits(
     goal_plan: Mapping[str, Any],
     edited_rows: Sequence[Mapping[str, Any]],
     horizon_days: int = EDITABLE_NEAR_TERM_HORIZON_MIN,
+    post_edit_strategy: str = "keep",
 ) -> Dict[str, Any]:
     """Apply in-place daily edits to the next 7-10 days of an existing goal plan."""
     updated_goal_plan = dict(goal_plan)
@@ -277,6 +441,8 @@ def apply_near_term_day_edits(
     resolved_horizon = _normalize_horizon_days(horizon_days, len(daily_plan))
     goal_type = str(goal_plan.get("goal_type") or "")
     distance = str(goal_plan.get("distance") or "")
+    normalized_post_edit_strategy = _normalize_post_edit_strategy(post_edit_strategy)
+    post_edit_strategy_label = NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU[normalized_post_edit_strategy]
 
     original_horizon_total = round(sum(total for _dt, total, _parts in daily_plan[:resolved_horizon]), 1)
     changed_day_count = 0
@@ -388,24 +554,144 @@ def apply_near_term_day_edits(
     updated_weekly_tss_plan = [int(row.get("weekly_tss", 0) or 0) for row in refreshed_weekly_summary]
     new_horizon_total = round(sum(total for _dt, total, _parts in daily_plan[:resolved_horizon]), 1)
     horizon_delta = int(round(new_horizon_total - original_horizon_total))
+    future_target_tss = _resolve_post_edit_target_delta(
+        normalized_post_edit_strategy,
+        horizon_delta,
+        goal_plan.get("constraint_summary", {}) or {},
+    )
+    future_delta_tss = 0
+    future_week_count = 0
+    affected_week_count = max(1, int(ceil(resolved_horizon / 7)))
+
+    if future_target_tss != 0:
+        remaining = abs(future_target_tss)
+        for week_index in range(affected_week_count, min(len(refreshed_weekly_summary), affected_week_count + 2)):
+            week_row = refreshed_weekly_summary[week_index]
+            phase = str(week_row.get("phase", "") or "").lower()
+            if phase == "taper":
+                continue
+
+            current_week_total = int(updated_weekly_tss_plan[week_index] or 0)
+            if current_week_total <= 0:
+                continue
+
+            if future_target_tss > 0:
+                weekly_capacity_tss = int(
+                    week_row.get("capacity_tss")
+                    or (goal_plan.get("constraint_summary", {}) or {}).get("weekly_capacity_tss")
+                    or current_week_total + remaining
+                )
+                extra_capacity = max(0, weekly_capacity_tss - current_week_total)
+                ramp_room = max(10, _round_to_5(current_week_total * 0.08))
+                week_delta = int(_round_to_5(min(extra_capacity, ramp_room, remaining)))
+            else:
+                ramp_rate = 0.08 if normalized_post_edit_strategy == "catch_up" else 0.12
+                removable_room = max(10, _round_to_5(current_week_total * ramp_rate))
+                week_delta = -int(_round_to_5(min(removable_room, remaining)))
+
+            if week_delta == 0:
+                continue
+
+            actual_week_delta = _apply_week_total_delta(
+                daily_plan,
+                session_templates,
+                week_index,
+                week_delta,
+                goal_type,
+                distance,
+            )
+            actual_week_delta_int = int(round(actual_week_delta))
+            if actual_week_delta_int == 0:
+                continue
+
+            future_delta_tss += actual_week_delta_int
+            remaining = max(0, remaining - abs(actual_week_delta_int))
+            future_week_count += 1
+            week_start = week_index * 7
+            week_end = min(week_start + 7, len(daily_plan))
+            week_days = daily_plan[week_start:week_end]
+            week_templates = session_templates[week_start:week_end]
+            roles = [_normalize_session_role(template.get("session_role")) for template in week_templates]
+            focuses = [
+                str(
+                    template.get("session_focus")
+                    or _build_day_focus_label(
+                        _normalize_session_role(template.get("session_role")),
+                        _normalize_sport(template.get("sport")),
+                    )
+                )
+                for template in week_templates
+            ]
+            structure_meta = _build_week_structure_metadata(roles, focuses)
+            refreshed_weekly_summary[week_index] = {
+                **refreshed_weekly_summary[week_index],
+                "weekly_tss": int(round(sum(total for _dt, total, _parts in week_days))),
+                "bike": round(sum(parts.get("bike", 0.0) for _dt, _total, parts in week_days), 1),
+                "run": round(sum(parts.get("run", 0.0) for _dt, _total, parts in week_days), 1),
+                "swim": round(sum(parts.get("swim", 0.0) for _dt, _total, parts in week_days), 1),
+                **structure_meta,
+            }
+            updated_weekly_tss_plan[week_index] = int(refreshed_weekly_summary[week_index]["weekly_tss"])
+            future_note = (
+                f"ручной возврат +{actual_week_delta_int} TSS"
+                if actual_week_delta_int > 0
+                else f"ручная разгрузка {actual_week_delta_int:+d} TSS"
+            )
+            refreshed_weekly_summary[week_index]["adjustment_note"] = _append_adjustment_note(
+                refreshed_weekly_summary[week_index].get("adjustment_note", "—"),
+                future_note,
+                removable_prefixes=("ручной возврат ", "ручная разгрузка "),
+            )
+            if remaining <= 0:
+                break
 
     constraint_summary = dict(goal_plan.get("constraint_summary", {}) or {})
     existing_notes = [
         str(note)
         for note in constraint_summary.get("notes", [])
-        if note and not str(note).startswith("Ручная правка ближнего горизонта:")
+        if (
+            note
+            and not str(note).startswith("Ручная правка ближнего горизонта:")
+            and not str(note).startswith("После ручной правки:")
+        )
     ]
     manual_note = (
         f"Ручная правка ближнего горизонта: {changed_day_count} дн. "
         f"в ближайших {resolved_horizon} дн., Δ {horizon_delta:+d} TSS."
     )
-    constraint_summary["notes"] = existing_notes + [manual_note]
+    follow_up_note = ""
+    if normalized_post_edit_strategy == "keep":
+        follow_up_note = "После ручной правки: следующие 1-2 недели оставлены без автокоррекции."
+    elif horizon_delta < 0 and future_delta_tss > 0:
+        follow_up_note = (
+            f"После ручной правки: стратегия «{post_edit_strategy_label}» вернула "
+            f"{future_delta_tss} из {future_target_tss} TSS в следующих {future_week_count or 2} нед."
+        )
+    elif horizon_delta < 0:
+        follow_up_note = "После ручной правки: стратегия «Беречь восстановление» не догоняет снятый объём автоматически."
+    elif horizon_delta > 0 and future_delta_tss < 0:
+        follow_up_note = (
+            f"После ручной правки: стратегия «{post_edit_strategy_label}» сняла "
+            f"{abs(future_delta_tss)} из {abs(future_target_tss)} TSS со следующих {future_week_count or 2} нед."
+        )
+    elif horizon_delta > 0 and normalized_post_edit_strategy == "catch_up":
+        follow_up_note = "После ручной правки: добавленный объём оставлен локально и не перераспределяется автоматически."
+    else:
+        follow_up_note = f"После ручной правки: стратегия «{post_edit_strategy_label}» не потребовала автокоррекции."
+
+    constraint_summary["notes"] = existing_notes + [manual_note, follow_up_note]
     constraint_summary["near_term_edit"] = {
         "is_active": changed_day_count > 0,
         "edited_day_count": changed_day_count,
         "horizon_days": resolved_horizon,
         "total_delta_tss": horizon_delta,
         "label": "Ручная правка ближнего горизонта",
+        "post_edit_strategy": normalized_post_edit_strategy,
+        "post_edit_strategy_label": post_edit_strategy_label,
+        "future_target_tss": future_target_tss,
+        "future_delta_tss": future_delta_tss,
+        "future_weeks": 2,
+        "future_week_count": future_week_count,
     }
 
     updated_goal_plan["daily_plan"] = daily_plan

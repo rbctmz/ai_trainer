@@ -46,6 +46,9 @@ def _sample_goal_plan():
         "session_templates": session_templates,
         "weekly_summary": weekly_summary,
         "constraint_summary": {
+            "catch_up_strategy": "catch_up",
+            "current_tsb": -4.0,
+            "load_state": "balanced",
             "notes": ["Базовый план под текущую доступность."],
         },
     }
@@ -103,6 +106,7 @@ def test_apply_near_term_day_edits_updates_daily_plan_templates_and_weekly_total
     assert updated_goal_plan["weekly_tss_plan"][1] == original_week_two_total
     assert updated_goal_plan["constraint_summary"]["near_term_edit"]["is_active"] is True
     assert updated_goal_plan["constraint_summary"]["near_term_edit"]["horizon_days"] == 7
+    assert updated_goal_plan["constraint_summary"]["near_term_edit"]["post_edit_strategy"] == "keep"
     assert updated_goal_plan["near_term_edit_version"] == 1
 
 
@@ -215,3 +219,61 @@ def test_apply_near_term_day_edits_updates_checkpoint_totals():
     assert checkpoint["total_tss"] == sum(updated_goal_plan["weekly_tss_plan"])
     assert checkpoint["peak_tss"] == max(updated_goal_plan["weekly_tss_plan"])
     assert checkpoint["goal_plan_snapshot"]["constraint_summary"]["near_term_edit"]["is_active"] is True
+
+
+def test_apply_near_term_day_edits_can_return_removed_load_into_next_weeks():
+    goal_plan = _sample_goal_plan()
+    edit_rows = build_near_term_edit_rows(goal_plan, horizon_days=7)
+    original_week_two_total = goal_plan["weekly_tss_plan"][1]
+
+    updated_goal_plan = apply_near_term_day_edits(
+        goal_plan,
+        [
+            {
+                **edit_rows[1],
+                "session_role": "off",
+                "sport": "off",
+                "total_tss": 0,
+            }
+        ],
+        horizon_days=7,
+        post_edit_strategy="catch_up",
+    )
+
+    near_term_edit = updated_goal_plan["constraint_summary"]["near_term_edit"]
+
+    assert near_term_edit["post_edit_strategy"] == "catch_up"
+    assert near_term_edit["future_target_tss"] > 0
+    assert near_term_edit["future_delta_tss"] > 0
+    assert updated_goal_plan["weekly_tss_plan"][1] > original_week_two_total
+    assert "ручной возврат" in updated_goal_plan["weekly_summary"][1]["adjustment_note"]
+    assert any("вернула" in note for note in updated_goal_plan["constraint_summary"]["notes"])
+
+
+def test_apply_near_term_day_edits_can_soften_following_weeks_after_manual_overload():
+    goal_plan = _sample_goal_plan()
+    edit_rows = build_near_term_edit_rows(goal_plan, horizon_days=7)
+    original_week_two_total = goal_plan["weekly_tss_plan"][1]
+
+    updated_goal_plan = apply_near_term_day_edits(
+        goal_plan,
+        [
+            {
+                **edit_rows[1],
+                "session_role": edit_rows[1]["current_role"],
+                "sport": edit_rows[1]["current_sport"],
+                "total_tss": edit_rows[1]["current_total_tss"] + 40,
+            }
+        ],
+        horizon_days=7,
+        post_edit_strategy="protect_recovery",
+    )
+
+    near_term_edit = updated_goal_plan["constraint_summary"]["near_term_edit"]
+
+    assert near_term_edit["post_edit_strategy"] == "protect_recovery"
+    assert near_term_edit["future_target_tss"] < 0
+    assert near_term_edit["future_delta_tss"] < 0
+    assert updated_goal_plan["weekly_tss_plan"][1] < original_week_two_total
+    assert "ручная разгрузка" in updated_goal_plan["weekly_summary"][1]["adjustment_note"]
+    assert any("сняла" in note for note in updated_goal_plan["constraint_summary"]["notes"])

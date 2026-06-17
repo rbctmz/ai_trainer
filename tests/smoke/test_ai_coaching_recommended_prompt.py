@@ -98,6 +98,11 @@ def test_recommended_prompt_carries_manual_near_term_edit_into_prompt_context():
                     "horizon_days": 7,
                     "total_delta_tss": -15,
                     "label": "Ручная правка ближнего горизонта",
+                    "post_edit_strategy": "catch_up",
+                    "future_target_tss": 10,
+                    "future_delta_tss": 10,
+                    "future_weeks": 2,
+                    "future_week_count": 1,
                 },
             }
         },
@@ -105,6 +110,7 @@ def test_recommended_prompt_carries_manual_near_term_edit_into_prompt_context():
 
     assert "ручную правку ближнего горизонта" in prompt["prompt"]
     assert "Δ -15 TSS" in prompt["prompt"]
+    assert "Наверстать аккуратно" in prompt["prompt"]
 
 
 def test_recommended_prompt_has_safe_fallback_without_data():

@@ -17,7 +17,11 @@ from models.planning_near_term import (
     build_near_term_edit_rows,
     summarize_near_term_draft_rows,
 )
-from models.planning_summary import summarize_near_term_edit
+from models.planning_summary import (
+    NEAR_TERM_EDIT_POST_STRATEGIES,
+    NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU,
+    summarize_near_term_edit,
+)
 
 if TYPE_CHECKING:
     from state import StateManager
@@ -137,6 +141,7 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     plan_adjustment_weeks = int(plan_adjustment.get("weeks", 0) or 0)
     plan_adjustment_loss = int(constraint_summary.get("plan_adjustment_loss_tss", 0))
     plan_adjustment_recovered = int(constraint_summary.get("plan_adjustment_recovered_tss", 0))
+    near_term_edit = summarize_near_term_edit(constraint_summary)
     summary_notes = list(constraint_summary.get("notes", []))
     first_week_structure = ""
     if weekly_summary:
@@ -179,6 +184,7 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "plan_adjustment_weeks": plan_adjustment_weeks,
         "plan_adjustment_loss_tss": plan_adjustment_loss,
         "plan_adjustment_recovered_tss": plan_adjustment_recovered,
+        "near_term_edit": near_term_edit,
         "summary_notes": summary_notes,
         "comparison_rows": comparison_rows,
     }
@@ -285,6 +291,11 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
     }
     role_labels_reverse = {label: code for code, label in role_labels.items()}
     sport_labels_reverse = {label: code for code, label in sport_labels.items()}
+    strategy_labels = {
+        code: NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU[code]
+        for code in NEAR_TERM_EDIT_POST_STRATEGIES
+    }
+    strategy_labels_reverse = {label: code for code, label in strategy_labels.items()}
 
     st.markdown("### ✍️ Редактировать ближайшие 7-10 дней")
     with st.expander("Открыть редактор ближайших дней", expanded=False):
@@ -298,6 +309,13 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                 "Сейчас в сохранённом checkpoint уже есть ручная правка: "
                 f"{saved_summary['compact_label']}."
             )
+        default_strategy = "keep"
+        if saved_summary is not None:
+            default_strategy = str(saved_summary.get("post_edit_strategy") or "keep")
+        st.session_state.setdefault(
+            f"near_term_strategy_{key_prefix}",
+            strategy_labels.get(default_strategy, strategy_labels["keep"]),
+        )
         horizon_days = st.slider(
             "Сколько дней открыть для правки:",
             min_value=EDITABLE_NEAR_TERM_HORIZON_MIN,
@@ -344,6 +362,13 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
             for row in draft_rows
         }
         draft_summary = summarize_near_term_draft_rows(draft_rows)
+        selected_strategy_label = st.selectbox(
+            "Что делать с этой дельтой в следующих 1-2 нед.:",
+            options=[strategy_labels[code] for code in NEAR_TERM_EDIT_POST_STRATEGIES],
+            key=f"near_term_strategy_{key_prefix}",
+            disabled=not draft_summary["has_changes"],
+        )
+        selected_post_edit_strategy = strategy_labels_reverse[selected_strategy_label]
         draft_preview = None
         if draft_summary["has_changes"]:
             draft_preview = _build_near_term_draft_preview(
@@ -352,6 +377,7 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                     goal_plan,
                     draft_rows,
                     horizon_days=horizon_days,
+                    post_edit_strategy=selected_post_edit_strategy,
                 ),
             )
 
@@ -384,6 +410,7 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                     "После применения сохранённый checkpoint покажет: "
                     f"{draft_preview['near_term_edit']['compact_label']}."
                 )
+                st.caption(draft_preview["near_term_edit"]["follow_up_description"])
             if draft_preview and draft_preview["weekly_rows"]:
                 st.markdown("##### Как изменятся недели")
                 st.dataframe(
@@ -466,6 +493,7 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                 goal_plan,
                 draft_rows,
                 horizon_days=horizon_days,
+                post_edit_strategy=selected_post_edit_strategy,
             )
 
     return None
@@ -527,6 +555,9 @@ def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
                 st.write(f"• Локально возвращено: {explain['plan_adjustment_recovered_tss']} TSS")
             elif explain["plan_adjustment_loss_tss"] > 0:
                 st.write("• Локальный возврат: не применялся")
+            if explain["near_term_edit"] is not None:
+                st.write(f"• Ручная правка: {explain['near_term_edit']['compact_label']}")
+                st.write(f"• После окна: {explain['near_term_edit']['follow_up_description']}")
             st.write(f"• Пик базового плана: {explain['peak_before']} → {explain['peak_after']}")
 
     comparison_df = pd.DataFrame(explain["comparison_rows"])
@@ -1119,12 +1150,14 @@ def render_planning_page(state: "StateManager") -> None:
             )
             state.latest_planning_checkpoint = saved_checkpoint
             state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=3)
-            near_term_summary = updated_goal_plan.get("constraint_summary", {}).get("near_term_edit", {})
-            st.session_state["planning_near_term_flash"] = (
-                "Ближний горизонт обновлён: "
-                f"{int(near_term_summary.get('edited_day_count', 0) or 0)} дн., "
-                f"Δ {int(near_term_summary.get('total_delta_tss', 0) or 0):+d} TSS."
-            )
+            near_term_summary = summarize_near_term_edit(updated_goal_plan.get("constraint_summary", {}))
+            if near_term_summary is not None:
+                st.session_state["planning_near_term_flash"] = (
+                    "Ближний горизонт обновлён: "
+                    f"{near_term_summary['compact_label']}."
+                )
+            else:
+                st.session_state["planning_near_term_flash"] = "Ближний горизонт обновлён."
             st.rerun()
             return
 
