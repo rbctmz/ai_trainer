@@ -1,21 +1,9 @@
 from garminconnect import Garmin
 from datetime import datetime, timedelta
+import logging
 import pandas as pd
-import sys
-import os
 
-# Добавляем путь к логгеру
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-try:
-    from utils.logger import garmin_logger
-except ImportError:
-    # Fallback если логгер недоступен
-    class DummyLogger:
-        def info(self, msg): print(f"INFO: {msg}")
-        def debug(self, msg): print(f"DEBUG: {msg}")
-        def warning(self, msg): print(f"WARNING: {msg}")
-        def error(self, msg): print(f"ERROR: {msg}")
-    garmin_logger = DummyLogger()
+garmin_logger = logging.getLogger("garmin_sync")
 
 # Импорт garth клиента
 try:
@@ -247,6 +235,21 @@ class GarminClient:
         if self.client:
             try:
                 profile = self.client.get_user_profile()
+                if isinstance(profile, dict):
+                    normalized_profile = dict(profile)
+                    display_name = getattr(self.client, "display_name", None)
+                    full_name = getattr(self.client, "full_name", None)
+
+                    if display_name:
+                        normalized_profile.setdefault('displayName', display_name)
+                        normalized_profile.setdefault('display_name', display_name)
+                    if full_name:
+                        normalized_profile.setdefault('fullName', full_name)
+                        normalized_profile.setdefault('full_name', full_name)
+
+                    self._clear_last_error()
+                    return normalized_profile
+
                 self._clear_last_error()
                 return profile
             except Exception as e:

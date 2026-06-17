@@ -15,6 +15,15 @@ def is_demo_mode(state: StateManager) -> bool:
     return bool(getattr(state, "demo_mode", False))
 
 
+def restore_demo_mode_session(state: StateManager) -> None:
+    """Hydrate session-only demo flags without rewriting the underlying dataset."""
+    state.switch_to_chat_tab = False
+    state.selected_provider = DEMO_PROVIDER
+    state.ai_coach = None
+    state.demo_mode = True
+    state.selected_page = "📊 Дашборд"
+
+
 def activate_demo_mode(state: StateManager) -> dict[str, int]:
     """Replace local cache with a deterministic demo dataset and enable demo mode."""
     database = state.database
@@ -38,11 +47,11 @@ def activate_demo_mode(state: StateManager) -> dict[str, int]:
     state.clear_cached_context()
     state.current_chat_id = None
     state.chat_messages = []
-    state.switch_to_chat_tab = False
-    state.selected_provider = DEMO_PROVIDER
-    state.ai_coach = None
-    state.demo_mode = True
-    state.selected_page = "📊 Дашборд"
+    state.pending_ai_response_contract = None
+    state.last_execution_feedback_result = None
+    state.latest_planning_checkpoint = None
+    state.planning_checkpoint_history = []
+    restore_demo_mode_session(state)
 
     return {
         "activities": len(activities),
@@ -62,6 +71,10 @@ def deactivate_demo_mode(state: StateManager) -> None:
     state.clear_cached_context()
     state.current_chat_id = None
     state.chat_messages = []
+    state.pending_ai_response_contract = None
+    state.last_execution_feedback_result = None
+    state.latest_planning_checkpoint = None
+    state.planning_checkpoint_history = []
     state.switch_to_chat_tab = False
     if getattr(state, "selected_provider", None) == DEMO_PROVIDER:
         state.selected_provider = None
@@ -232,4 +245,10 @@ def _format_clock(total_minutes: int) -> str:
     return f"{minutes // 60:02d}:{minutes % 60:02d}"
 
 
-__all__ = ["DEMO_PROVIDER", "activate_demo_mode", "deactivate_demo_mode", "is_demo_mode"]
+__all__ = [
+    "DEMO_PROVIDER",
+    "activate_demo_mode",
+    "deactivate_demo_mode",
+    "is_demo_mode",
+    "restore_demo_mode_session",
+]

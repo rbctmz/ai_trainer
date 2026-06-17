@@ -2,16 +2,25 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
-from typing import Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List
 
 import pandas as pd
 import streamlit as st
 
-from models.banister import BanisterModel
-from services.data_cache import load_activities
-from services import intervals_icu
-from state import StateManager
-from utils.visualizations import Visualizations
+from models.planning_near_term import (
+    EDITABLE_NEAR_TERM_HORIZON_MAX,
+    EDITABLE_NEAR_TERM_HORIZON_MIN,
+    EDITABLE_SESSION_ROLES,
+    EDITABLE_SPORTS,
+    apply_near_term_day_edits,
+    build_near_term_edit_draft_rows,
+    build_near_term_edit_rows,
+    summarize_near_term_draft_rows,
+)
+from models.planning_summary import summarize_near_term_edit
+
+if TYPE_CHECKING:
+    from state import StateManager
 
 
 def _strategy_label(strategy: str) -> str:
@@ -81,6 +90,7 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     phases = goal_plan.get("phases", [])
     weekly_summary = goal_plan.get("weekly_summary", [])
     constraint_summary = goal_plan.get("constraint_summary", {}) or {}
+    plan_adjustment = constraint_summary.get("plan_adjustment", {}) or {}
 
     comparison_rows: List[Dict[str, Any]] = []
     changed_weeks = 0
@@ -123,6 +133,10 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     interruption_weeks = int(constraint_summary.get("interruption_weeks", 0))
     available_day_count = int(constraint_summary.get("available_day_count", 0))
     recommended_days = int(constraint_summary.get("recommended_days", 0))
+    plan_adjustment_label = str(plan_adjustment.get("label", "Нет") or "Нет")
+    plan_adjustment_weeks = int(plan_adjustment.get("weeks", 0) or 0)
+    plan_adjustment_loss = int(constraint_summary.get("plan_adjustment_loss_tss", 0))
+    plan_adjustment_recovered = int(constraint_summary.get("plan_adjustment_recovered_tss", 0))
     summary_notes = list(constraint_summary.get("notes", []))
     first_week_structure = ""
     if weekly_summary:
@@ -130,7 +144,11 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         if first_week_structure:
             summary_notes = [f"Структура первой недели: {first_week_structure}"] + summary_notes
 
-    if interruption_loss > 0 and catch_up_strategy == "catch_up":
+    if plan_adjustment_loss > 0 and plan_adjustment_recovered > 0:
+        headline = "План локально пересчитывает ближайшие недели после сбоя: сначала снимает объём, затем возвращает только безопасную часть в коротком окне."
+    elif plan_adjustment_loss > 0:
+        headline = "План локально упрощает ближайшие недели после сбоя и не размазывает пропущенный объём по всему циклу."
+    elif interruption_loss > 0 and catch_up_strategy == "catch_up":
         headline = "План сначала снижает нагрузку из-за ограничения, затем возвращает только безопасную часть объёма."
     elif interruption_loss > 0:
         headline = "План защищает восстановление: первые недели упрощены, а пропущенный объём не догоняется автоматически."
@@ -157,6 +175,10 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "interruption_weeks": interruption_weeks,
         "catch_up_label": _strategy_label(catch_up_strategy),
         "recovered_tss": recovered_tss,
+        "plan_adjustment_label": plan_adjustment_label,
+        "plan_adjustment_weeks": plan_adjustment_weeks,
+        "plan_adjustment_loss_tss": plan_adjustment_loss,
+        "plan_adjustment_recovered_tss": plan_adjustment_recovered,
         "summary_notes": summary_notes,
         "comparison_rows": comparison_rows,
     }
@@ -196,6 +218,196 @@ def _build_daily_session_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]
     return rows
 
 
+def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None:
+    """Render an in-place editor for the next 7-10 days of the current plan."""
+    daily_plan = list(goal_plan.get("daily_plan", []) or [])
+    if len(daily_plan) < EDITABLE_NEAR_TERM_HORIZON_MIN:
+        return None
+
+    max_horizon = min(EDITABLE_NEAR_TERM_HORIZON_MAX, len(daily_plan))
+    plan_revision = str(goal_plan.get("plan_revision") or goal_plan.get("start_week") or "current-plan")
+    edit_version = int(goal_plan.get("near_term_edit_version", 0) or 0)
+    key_prefix = f"{plan_revision}:{edit_version}"
+
+    role_labels = {
+        "off": "Отдых",
+        "recovery": "Восстановление",
+        "easy": "Лёгкая",
+        "quality": "Качество",
+        "long": "Длительная",
+    }
+    sport_labels = {
+        "run": "бег",
+        "bike": "вело",
+        "swim": "плавание",
+        "off": "отдых",
+    }
+    role_labels_reverse = {label: code for code, label in role_labels.items()}
+    sport_labels_reverse = {label: code for code, label in sport_labels.items()}
+
+    st.markdown("### ✍️ Редактировать ближайшие 7-10 дней")
+    with st.expander("Открыть редактор ближайших дней", expanded=False):
+        st.caption(
+            "Этот редактор меняет только ближайшие дни текущего плана. Остальной цикл не перестраивается, "
+            "а checkpoint, explainability и экспорты обновятся только после явного применения черновика."
+        )
+        saved_summary = summarize_near_term_edit(goal_plan.get("constraint_summary", {}))
+        if saved_summary is not None:
+            st.info(
+                "Сейчас в сохранённом checkpoint уже есть ручная правка: "
+                f"{saved_summary['compact_label']}."
+            )
+        horizon_days = st.slider(
+            "Сколько дней открыть для правки:",
+            min_value=EDITABLE_NEAR_TERM_HORIZON_MIN,
+            max_value=max_horizon,
+            value=min(EDITABLE_NEAR_TERM_HORIZON_MIN, max_horizon),
+            step=1,
+            key=f"near_term_horizon_{key_prefix}",
+        )
+        editable_rows = build_near_term_edit_rows(goal_plan, horizon_days=horizon_days)
+        for row in editable_rows:
+            st.session_state.setdefault(
+                f"near_term_role_{key_prefix}_{row['index']}",
+                role_labels[row["current_role"]],
+            )
+            st.session_state.setdefault(
+                f"near_term_sport_{key_prefix}_{row['index']}",
+                sport_labels[row["current_sport"]],
+            )
+            st.session_state.setdefault(
+                f"near_term_tss_{key_prefix}_{row['index']}",
+                int(round(row["current_total_tss"])),
+            )
+
+        overrides_by_index = {
+            int(row["index"]): {
+                "session_role": role_labels_reverse[
+                    st.session_state[f"near_term_role_{key_prefix}_{row['index']}"]
+                ],
+                "sport": sport_labels_reverse[
+                    st.session_state[f"near_term_sport_{key_prefix}_{row['index']}"]
+                ],
+                "total_tss": st.session_state[f"near_term_tss_{key_prefix}_{row['index']}"],
+            }
+            for row in editable_rows
+        }
+        draft_rows = build_near_term_edit_draft_rows(
+            editable_rows,
+            goal_type=str(goal_plan.get("goal_type") or ""),
+            distance=str(goal_plan.get("distance") or ""),
+            overrides_by_index=overrides_by_index,
+        )
+        draft_rows_by_index = {
+            int(row["index"]): row
+            for row in draft_rows
+        }
+        draft_summary = summarize_near_term_draft_rows(draft_rows)
+
+        st.markdown("#### Черновик правок")
+        if draft_summary["has_changes"]:
+            metric_cols = st.columns(4)
+            with metric_cols[0]:
+                st.metric("Правок дней", draft_summary["changed_day_count"])
+            with metric_cols[1]:
+                st.metric(
+                    "TSS окна",
+                    draft_summary["target_total_tss"],
+                    delta=f"{draft_summary['total_delta_tss']:+d}",
+                )
+            with metric_cols[2]:
+                st.metric("Дней отдыха", draft_summary["off_day_count"])
+            with metric_cols[3]:
+                st.metric("Качественных дней", draft_summary["quality_day_count"])
+            st.caption(
+                "Это пока только черновик. Сохранённый checkpoint, explainability и экспорты "
+                "обновятся после нажатия «Применить правки ближнего горизонта»."
+            )
+            st.dataframe(
+                pd.DataFrame(draft_summary["changed_rows"]),
+                width="stretch",
+                hide_index=True,
+            )
+        else:
+            st.info(
+                "Черновик совпадает с текущим ближним горизонтом: "
+                f"{draft_summary['horizon_days']} дн. · {draft_summary['current_total_tss']} TSS."
+            )
+
+        for row in editable_rows:
+            draft_row = draft_rows_by_index[int(row["index"])]
+            with st.container(border=True):
+                st.markdown(f"**{row['date_label']} • {row['phase']}**")
+                st.caption(
+                    f"Сейчас: {draft_row['current_summary']} · ~{row['current_duration_minutes']} мин"
+                )
+                if draft_row["changed"]:
+                    st.caption(
+                        f"Черновик: {draft_row['target_summary']} · "
+                        f"~{draft_row['target_duration_minutes']} мин · "
+                        f"Δ {int(round(float(draft_row['delta_tss'] or 0.0))):+d} TSS"
+                    )
+                else:
+                    st.caption("Черновик пока совпадает с сохранённым днём.")
+                col1, col2, col3 = st.columns([1.2, 1, 1])
+                with col1:
+                    st.selectbox(
+                        "Роль дня",
+                        options=[role_labels[role] for role in EDITABLE_SESSION_ROLES],
+                        index=EDITABLE_SESSION_ROLES.index(draft_row["session_role"]),
+                        key=f"near_term_role_{key_prefix}_{row['index']}",
+                    )
+                with col2:
+                    st.selectbox(
+                        "Основной спорт",
+                        options=[sport_labels[sport] for sport in EDITABLE_SPORTS],
+                        index=EDITABLE_SPORTS.index(draft_row["sport"]),
+                        key=f"near_term_sport_{key_prefix}_{row['index']}",
+                    )
+                with col3:
+                    st.number_input(
+                        "TSS",
+                        min_value=0,
+                        max_value=max(180, int(round(row["current_total_tss"])) + 80),
+                        value=int(round(float(draft_row["total_tss"] or 0.0))),
+                        step=5,
+                        key=f"near_term_tss_{key_prefix}_{row['index']}",
+                    )
+
+        action_cols = st.columns([1, 1.4])
+        with action_cols[0]:
+            reset_clicked = st.button(
+                "↺ Сбросить черновик",
+                key=f"near_term_reset_{key_prefix}",
+                disabled=not draft_summary["has_changes"],
+                use_container_width=True,
+            )
+        with action_cols[1]:
+            apply_clicked = st.button(
+                "💾 Применить правки ближнего горизонта",
+                key=f"near_term_apply_{key_prefix}",
+                type="primary",
+                disabled=not draft_summary["has_changes"],
+                use_container_width=True,
+            )
+
+        if reset_clicked:
+            for row in editable_rows:
+                st.session_state[f"near_term_role_{key_prefix}_{row['index']}"] = role_labels[row["current_role"]]
+                st.session_state[f"near_term_sport_{key_prefix}_{row['index']}"] = sport_labels[row["current_sport"]]
+                st.session_state[f"near_term_tss_{key_prefix}_{row['index']}"] = int(round(row["current_total_tss"]))
+            st.rerun()
+
+        if apply_clicked:
+            return apply_near_term_day_edits(
+                goal_plan,
+                draft_rows,
+                horizon_days=horizon_days,
+            )
+
+    return None
+
+
 def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
     explain = _build_plan_explainability(goal_plan)
 
@@ -231,6 +443,15 @@ def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
                 )
             else:
                 st.write("• Ограничение: нет")
+            if explain["plan_adjustment_label"] != "Нет":
+                weeks_suffix = (
+                    f" на {explain['plan_adjustment_weeks']} нед."
+                    if explain["plan_adjustment_weeks"] > 0
+                    else ""
+                )
+                st.write(f"• Checkpoint: {explain['plan_adjustment_label']}{weeks_suffix}")
+            else:
+                st.write("• Checkpoint: без локальной перепланировки")
     with planner_col:
         with st.container(border=True):
             st.markdown("#### Решение Планировщика")
@@ -239,6 +460,10 @@ def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
                 st.write(f"• Возвращено нагрузки: {explain['recovered_tss']} TSS")
             else:
                 st.write("• Возврат нагрузки: не применялся")
+            if explain["plan_adjustment_recovered_tss"] > 0:
+                st.write(f"• Локально возвращено: {explain['plan_adjustment_recovered_tss']} TSS")
+            elif explain["plan_adjustment_loss_tss"] > 0:
+                st.write("• Локальный возврат: не применялся")
             st.write(f"• Пик базового плана: {explain['peak_before']} → {explain['peak_after']}")
 
     comparison_df = pd.DataFrame(explain["comparison_rows"])
@@ -247,8 +472,13 @@ def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
     return comparison_df
 
 
-def render_planning_page(state: StateManager) -> None:
+def render_planning_page(state: "StateManager") -> None:
     """Render the training planning page."""
+    from models.banister import BanisterModel
+    from services import intervals_icu
+    from services.data_cache import load_activities
+    from utils.visualizations import Visualizations
+
     st.header("📈 Планирование тренировок")
 
     activities_df = load_activities(90)
@@ -463,6 +693,13 @@ def render_planning_page(state: StateManager) -> None:
         "Болезнь": "illness",
         "Травма": "injury",
     }
+    plan_adjustment_key_map = {
+        "Нет": "none",
+        "Выполнено по плану": "completed",
+        "Пропущены сессии": "skipped",
+        "Нагрузка урезана": "reduced",
+        "Неделя ограничена": "unavailable",
+    }
     selected_day_indices = [
         WEEKDAY_LABELS_RU.index(label)
         for label in available_day_labels
@@ -490,6 +727,65 @@ def render_planning_page(state: StateManager) -> None:
     catch_up_strategy = "catch_up" if catch_up_label == "Наверстать аккуратно" else "protect_recovery"
     availability_preview = summarize_availability(goal_type, available_hours, selected_day_indices)
     availability_cap_tss = int(availability_preview["weekly_capacity_tss"])
+
+    st.markdown("#### ♻️ Локальная перепланировка")
+    adjustment_col1, adjustment_col2, adjustment_col3 = st.columns([1.3, 1, 1])
+    with adjustment_col1:
+        plan_adjustment_label = st.selectbox(
+            "Что произошло в реальном выполнении:",
+            ["Нет", "Выполнено по плану", "Пропущены сессии", "Нагрузка урезана", "Неделя ограничена"],
+            index=0,
+            help="Этот checkpoint меняет только ближайший горизонт, а не перестраивает весь цикл вслепую.",
+        )
+
+    plan_adjustment_status = plan_adjustment_key_map.get(plan_adjustment_label, "none")
+    max_adjustment_weeks = min(2, max(1, weeks_to_race))
+    with adjustment_col2:
+        plan_adjustment_weeks = st.slider(
+            "Горизонт пересчёта:",
+            min_value=1,
+            max_value=max_adjustment_weeks,
+            value=1,
+            step=1,
+            disabled=plan_adjustment_status in {"none", "completed"},
+            help="План меняет только ближайшие 7-14 дней и короткое окно safe catch-up после них.",
+        )
+
+    plan_adjustment_missed_sessions = 0
+    plan_adjustment_reduced_share = 0.70
+    with adjustment_col3:
+        if plan_adjustment_status == "skipped":
+            max_missed_sessions = max(1, min(4, int(availability_preview["available_day_count"])))
+            plan_adjustment_missed_sessions = st.slider(
+                "Сколько сессий выпало:",
+                min_value=1,
+                max_value=max_missed_sessions,
+                value=min(2, max_missed_sessions),
+                step=1,
+            )
+        elif plan_adjustment_status == "reduced":
+            reduced_percent = st.slider(
+                "Сколько % нагрузки реально осталось:",
+                min_value=35,
+                max_value=95,
+                value=70,
+                step=5,
+            )
+            plan_adjustment_reduced_share = reduced_percent / 100.0
+        elif plan_adjustment_status == "unavailable":
+            st.caption("План временно упростит 1-2 недели и вернёт нагрузку только в коротком безопасном окне.")
+        elif plan_adjustment_status == "completed":
+            st.caption("Checkpoint фиксирует, что неделя закрыта по плану. Дополнительная коррекция не нужна.")
+        else:
+            st.caption("Если реальная неделя пошла не по плану, отметьте это здесь — локально, без полной перестройки цикла.")
+
+    plan_adjustment_payload = {
+        "status": plan_adjustment_status,
+        "weeks": 0 if plan_adjustment_status == "none" else plan_adjustment_weeks,
+        "missed_sessions": plan_adjustment_missed_sessions,
+        "reduced_load_share": plan_adjustment_reduced_share,
+    }
+
     target_control = _resolve_target_weekly_tss_control(
         auto_suggested=auto["suggested"],
         t_min=t_min,
@@ -498,7 +794,7 @@ def render_planning_page(state: StateManager) -> None:
     )
 
     with st.container(border=True):
-        preview_cols = st.columns(4)
+        preview_cols = st.columns(5)
         with preview_cols[0]:
             st.metric("Часы / нед", f"{availability_preview['available_hours']}")
         with preview_cols[1]:
@@ -506,6 +802,8 @@ def render_planning_page(state: StateManager) -> None:
         with preview_cols[2]:
             st.metric("Ограничение", interruption_label)
         with preview_cols[3]:
+            st.metric("Checkpoint", plan_adjustment_label)
+        with preview_cols[4]:
             st.metric("Реакция", _strategy_label(catch_up_strategy))
         st.caption(
             "Доступность сейчас ≈ "
@@ -513,6 +811,11 @@ def render_planning_page(state: StateManager) -> None:
             f"{availability_preview['available_day_count']} дн. из рекомендованных {availability_preview['recommended_days']} "
             f"→ мягкий потолок около {availability_cap_tss} TSS/нед."
         )
+        if plan_adjustment_status in {"skipped", "reduced", "unavailable"}:
+            st.caption(
+                f"Локальная перепланировка активна: {plan_adjustment_label.lower()} "
+                f"на {plan_adjustment_weeks} нед. План изменит только ближайший горизонт и короткое окно возврата нагрузки."
+            )
     if availability_cap_tss < int(auto["suggested"] or 0):
         st.warning(
             f"Текущая доступность ограничивает план примерно до {availability_cap_tss} TSS/нед. "
@@ -652,6 +955,7 @@ def render_planning_page(state: StateManager) -> None:
                 state.planner_weights[phase] = {"run": run_vals, "bike": bike_vals, "swim": swim_vals}
 
     if st.button("🧭 Построить план до старта"):
+        from models.planning_checkpoints import build_planning_checkpoint
         from models.training_planner import build_daily_session_templates
 
         base_weekly_tss_plan = create_weekly_tss_plan(
@@ -684,6 +988,7 @@ def render_planning_page(state: StateManager) -> None:
             current_tsb=float(current_metrics.get("tsb", 0.0)) if current_metrics.get("tsb") is not None else None,
             current_ctl=float(current_metrics.get("ctl", 0.0)) if current_metrics.get("ctl") is not None else None,
             current_atl=float(current_metrics.get("atl", 0.0)) if current_metrics.get("atl") is not None else None,
+            plan_adjustment=plan_adjustment_payload,
         )
         weights_overrides = state.planner_weights or None
         daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
@@ -708,7 +1013,7 @@ def render_planning_page(state: StateManager) -> None:
             distance=distance,
         )
 
-        state.goal_plan = {
+        goal_plan_payload = {
             "goal_type": goal_type,
             "distance": distance,
             "weeks_to_race": weeks_to_race,
@@ -720,10 +1025,46 @@ def render_planning_page(state: StateManager) -> None:
             "session_templates": session_templates,
             "weekly_summary": weekly_summary,
             "constraint_summary": constraint_summary,
+            "planner_mix": mix_overrides,
+            "planner_weights": weights_overrides,
+            "plan_revision": datetime.now().isoformat(),
+            "near_term_edit_version": 0,
         }
+        state.goal_plan = goal_plan_payload
+        state.last_execution_feedback_result = None
+        saved_checkpoint = state.database.save_planning_checkpoint(
+            build_planning_checkpoint(goal_plan_payload)
+        )
+        state.latest_planning_checkpoint = saved_checkpoint
+        state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=3)
         st.rerun()
 
     if state.goal_plan:
+        goal_plan = state.goal_plan
+        flash_message = st.session_state.pop("planning_near_term_flash", None)
+        if flash_message:
+            st.success(flash_message)
+
+        updated_goal_plan = _render_near_term_editor(goal_plan)
+        if updated_goal_plan is not None:
+            from models.planning_checkpoints import build_planning_checkpoint
+
+            state.goal_plan = updated_goal_plan
+            state.last_execution_feedback_result = None
+            saved_checkpoint = state.database.save_planning_checkpoint(
+                build_planning_checkpoint(updated_goal_plan)
+            )
+            state.latest_planning_checkpoint = saved_checkpoint
+            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=3)
+            near_term_summary = updated_goal_plan.get("constraint_summary", {}).get("near_term_edit", {})
+            st.session_state["planning_near_term_flash"] = (
+                "Ближний горизонт обновлён: "
+                f"{int(near_term_summary.get('edited_day_count', 0) or 0)} дн., "
+                f"Δ {int(near_term_summary.get('total_delta_tss', 0) or 0):+d} TSS."
+            )
+            st.rerun()
+            return
+
         goal_plan = state.goal_plan
         daily_plan = goal_plan["daily_plan"]
         weekly_summary = goal_plan["weekly_summary"]
@@ -778,6 +1119,13 @@ def render_planning_page(state: StateManager) -> None:
         df_daily = pd.DataFrame(daily_session_rows)
         with st.expander("🗓️ Структура Дней И Восстановления", expanded=False):
             st.dataframe(df_daily, width="stretch", hide_index=True)
+
+        near_term_export_summary = summarize_near_term_edit(goal_plan.get("constraint_summary", {}))
+        if near_term_export_summary is not None:
+            st.caption(
+                "Экспорты и sync уже используют вручную обновлённый ближний горизонт: "
+                f"{near_term_export_summary['compact_label']}."
+            )
 
         export_cols = st.columns(3)
         with export_cols[0]:

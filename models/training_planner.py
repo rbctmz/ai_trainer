@@ -119,6 +119,86 @@ def _interruption_week_factor(interruption_type: str, week_index: int) -> float:
     return factors[min(max(0, week_index), len(factors) - 1)]
 
 
+def _plan_adjustment_label(status: str) -> str:
+    mapping = {
+        'completed': 'Выполнено по плану',
+        'skipped': 'Пропущены сессии',
+        'reduced': 'Нагрузка урезана',
+        'unavailable': 'Неделя ограничена',
+        'none': 'Нет',
+    }
+    return mapping.get((status or 'none').lower(), 'Нет')
+
+
+def normalize_plan_adjustment(
+    plan_adjustment: Mapping[str, Any] | None,
+    available_day_count: int,
+) -> Dict[str, Any]:
+    raw = dict(plan_adjustment or {})
+    status = str(raw.get('status', 'none') or 'none').strip().lower()
+    if status not in {'none', 'completed', 'skipped', 'reduced', 'unavailable'}:
+        status = 'none'
+
+    weeks_default = 1 if status != 'none' else 0
+    try:
+        weeks = int(raw.get('weeks', weeks_default))
+    except (TypeError, ValueError):
+        weeks = weeks_default
+    weeks = min(max(0, weeks), 2)
+
+    day_count = max(1, int(available_day_count or 0))
+    try:
+        missed_sessions = int(raw.get('missed_sessions', 0))
+    except (TypeError, ValueError):
+        missed_sessions = 0
+    missed_sessions = min(max(0, missed_sessions), day_count)
+
+    try:
+        reduced_load_share = float(raw.get('reduced_load_share', 0.70))
+    except (TypeError, ValueError):
+        reduced_load_share = 0.70
+    reduced_load_share = max(0.35, min(0.95, reduced_load_share))
+
+    return {
+        'status': status,
+        'label': _plan_adjustment_label(status),
+        'weeks': weeks,
+        'missed_sessions': missed_sessions,
+        'reduced_load_share': reduced_load_share,
+        'available_day_count': day_count,
+        'is_active': status in {'skipped', 'reduced', 'unavailable'} and weeks > 0,
+    }
+
+
+def _plan_adjustment_week_factor(plan_adjustment: Mapping[str, Any], week_index: int) -> float:
+    status = str(plan_adjustment.get('status', 'none') or 'none').lower()
+    if status == 'skipped':
+        day_count = max(1, int(plan_adjustment.get('available_day_count', 1) or 1))
+        missed_sessions = max(1, int(plan_adjustment.get('missed_sessions', 1) or 1))
+        completion_share = max(0.45, 1.0 - (missed_sessions / day_count) * 0.85)
+        return min(1.0, completion_share + 0.10 * max(0, week_index))
+    if status == 'reduced':
+        reduced_load_share = float(plan_adjustment.get('reduced_load_share', 0.70) or 0.70)
+        return min(0.95, max(0.35, reduced_load_share + 0.10 * max(0, week_index)))
+    if status == 'unavailable':
+        factors = [0.45, 0.70]
+        return factors[min(max(0, week_index), len(factors) - 1)]
+    return 1.0
+
+
+def _plan_adjustment_note(plan_adjustment: Mapping[str, Any], factor: float) -> str:
+    status = str(plan_adjustment.get('status', 'none') or 'none').lower()
+    percent = int(round(float(factor) * 100))
+    if status == 'skipped':
+        missed_sessions = max(1, int(plan_adjustment.get('missed_sessions', 1) or 1))
+        return f"checkpoint: пропущено {missed_sessions} сесс. → {percent}%"
+    if status == 'reduced':
+        return f"checkpoint: урезанная неделя → {percent}%"
+    if status == 'unavailable':
+        return f"checkpoint: ограниченная неделя → {percent}%"
+    return f"checkpoint: {percent}%"
+
+
 def _metric_or_none(value: float | None) -> float | None:
     if value is None:
         return None
@@ -192,14 +272,19 @@ def apply_planning_constraints(
     current_tsb: float | None = None,
     current_ctl: float | None = None,
     current_atl: float | None = None,
+    plan_adjustment: Mapping[str, Any] | None = None,
 ) -> Tuple[List[int], List[Dict[str, object]], Dict[str, object]]:
-    """Ограничивает недельный план доступностью и корректирует первые недели под сценарии ограничений."""
+    """Ограничивает недельный план доступностью и локально перепланирует ближайшие недели при сбое."""
     availability = summarize_availability(goal_type, available_hours, available_day_indices)
     weekly_capacity_tss = int(availability['weekly_capacity_tss'])
     load_state = assess_start_load_state(
         current_ctl=current_ctl,
         current_atl=current_atl,
         current_tsb=current_tsb,
+    )
+    normalized_adjustment = normalize_plan_adjustment(
+        plan_adjustment,
+        int(availability['available_day_count']),
     )
 
     adjusted_plan = [max(0, int(round(value))) for value in weekly_tss]
@@ -291,6 +376,56 @@ def apply_planning_constraints(
     if catch_up_strategy != 'catch_up' and interruption_loss > 0 and interruption_weeks > 0:
         details[interruption_weeks - 1]['notes'].append("без компенсации нагрузки")
 
+    plan_adjustment_loss = 0
+    plan_adjustment_recoverable = 0
+    plan_adjustment_recovered = 0
+    if normalized_adjustment['is_active']:
+        affected_weeks = min(int(normalized_adjustment['weeks']), len(adjusted_plan))
+        for week_index in range(affected_weeks):
+            factor = _plan_adjustment_week_factor(normalized_adjustment, week_index)
+            before = adjusted_plan[week_index]
+            after = min(before, max(0, _round_to_5(before * factor)))
+            if after == before:
+                continue
+            plan_adjustment_loss += before - after
+            adjusted_plan[week_index] = after
+            details[week_index]['notes'].append(_plan_adjustment_note(normalized_adjustment, factor))
+
+        if catch_up_strategy == 'catch_up' and plan_adjustment_loss > 0:
+            recovery_share_by_status = {
+                'skipped': 0.50,
+                'reduced': 0.40,
+                'unavailable': 0.35,
+            }
+            recovery_share = recovery_share_by_status.get(normalized_adjustment['status'], 0.0)
+            if current_tsb is not None and current_tsb <= -15:
+                recovery_share = min(recovery_share, 0.30)
+            if load_state['catch_up_share_cap'] is not None:
+                recovery_share = min(recovery_share, float(load_state['catch_up_share_cap']))
+            plan_adjustment_recoverable = _round_to_5(plan_adjustment_loss * recovery_share)
+            remaining = plan_adjustment_recoverable
+            recovery_window_end = min(len(adjusted_plan), affected_weeks + 2)
+
+            for week_index in range(affected_weeks, recovery_window_end):
+                phase = (phases[week_index] if week_index < len(phases) else '').lower()
+                if phase == 'taper':
+                    continue
+                current_value = adjusted_plan[week_index]
+                extra_capacity = max(0, weekly_capacity_tss - current_value)
+                ramp_room = max(10, _round_to_5(current_value * min(float(load_state['catch_up_ramp_rate']), 0.08)))
+                add = _round_to_5(min(extra_capacity, ramp_room, remaining))
+                if add <= 0:
+                    continue
+                adjusted_plan[week_index] += add
+                remaining -= add
+                plan_adjustment_recovered += add
+                details[week_index]['notes'].append(f"локальный возврат +{add} TSS")
+                if remaining <= 0:
+                    break
+
+        if catch_up_strategy != 'catch_up' and plan_adjustment_loss > 0 and affected_weeks > 0:
+            details[affected_weeks - 1]['notes'].append("локальный объём не догоняется автоматически")
+
     for week_index, value in enumerate(adjusted_plan):
         details[week_index]['adjusted_tss'] = value
         details[week_index]['adjustment_note'] = ' · '.join(details[week_index]['notes']) or '—'
@@ -317,6 +452,18 @@ def apply_planning_constraints(
         )
     elif interruption_loss > 0:
         summary_notes.append("Стратегия «Беречь восстановление» не догоняет пропущенный объём автоматически")
+    if normalized_adjustment['status'] == 'completed':
+        summary_notes.append("Checkpoint: неделя выполнена по плану — локальная перепланировка не потребовалась")
+    elif normalized_adjustment['is_active']:
+        summary_notes.append(
+            f"Checkpoint: {normalized_adjustment['label']} на {normalized_adjustment['weeks']} нед."
+        )
+        if plan_adjustment_loss > 0 and catch_up_strategy == 'catch_up':
+            summary_notes.append(
+                f"Локальная перепланировка вернула {plan_adjustment_recovered} из {plan_adjustment_recoverable} TSS в ближайшем окне"
+            )
+        elif plan_adjustment_loss > 0:
+            summary_notes.append("Локальная перепланировка не размазывает пропущенный объём по всему циклу")
     if current_tsb is not None and current_tsb <= -15 and catch_up_strategy == 'catch_up':
         summary_notes.append("Текущий TSB низкий — возврат объёма дополнительно ограничен, чтобы не усиливать усталость")
 
@@ -330,6 +477,10 @@ def apply_planning_constraints(
         'interruption_loss_tss': interruption_loss,
         'recoverable_loss_tss': recoverable_loss,
         'recovered_tss': recovered_tss,
+        'plan_adjustment': normalized_adjustment,
+        'plan_adjustment_loss_tss': plan_adjustment_loss,
+        'plan_adjustment_recoverable_tss': plan_adjustment_recoverable,
+        'plan_adjustment_recovered_tss': plan_adjustment_recovered,
         'current_tsb': current_tsb,
         'current_ctl': current_ctl,
         'current_atl': current_atl,
@@ -959,9 +1110,9 @@ def _estimate_session_duration_minutes(total_tss: float, sport: str, session_rol
     sport_key = sport if sport in base_minutes_per_tss else "run"
     role_key = session_role if session_role in role_multiplier else "easy"
     total = max(0.0, float(total_tss or 0.0))
-    estimated = total * base_minutes_per_tss[sport_key] * role_multiplier[role_key]
     if total <= 0:
-        estimated = 30 if role_key == "off" else 45
+        return 0
+    estimated = total * base_minutes_per_tss[sport_key] * role_multiplier[role_key]
     return max(30, min(240, int(round(estimated / 5.0) * 5)))
 
 

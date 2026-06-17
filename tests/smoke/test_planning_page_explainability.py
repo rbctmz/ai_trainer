@@ -91,6 +91,50 @@ def test_build_plan_explainability_detects_nearly_unchanged_plan():
     assert explain["total_delta"] == 0
 
 
+def test_build_plan_explainability_prioritizes_local_replan_story():
+    explain = _build_plan_explainability(
+        {
+            "weekly_tss_plan": [130, 215, 215, 180],
+            "base_weekly_tss_plan": [200, 200, 200, 180],
+            "phases": ["Base", "Build", "Build", "Taper"],
+            "weekly_summary": [
+                {"week_start": date(2026, 7, 6), "adjustment_note": "checkpoint: пропущено 2 сесс. → 65%"},
+                {"week_start": date(2026, 7, 13), "adjustment_note": "локальный возврат +15 TSS"},
+                {"week_start": date(2026, 7, 20), "adjustment_note": "локальный возврат +15 TSS"},
+                {"week_start": date(2026, 7, 27), "adjustment_note": "—"},
+            ],
+            "constraint_summary": {
+                "weekly_capacity_tss": 500,
+                "available_hours": 10.0,
+                "available_day_labels": ["Пн", "Вт", "Ср", "Чт", "Пт"],
+                "available_day_count": 5,
+                "recommended_days": 5,
+                "interruption_label": "Нет",
+                "interruption_weeks": 0,
+                "catch_up_strategy": "catch_up",
+                "recovered_tss": 0,
+                "capacity_loss_tss": 0,
+                "interruption_loss_tss": 0,
+                "plan_adjustment": {
+                    "status": "skipped",
+                    "label": "Пропущены сессии",
+                    "weeks": 1,
+                },
+                "plan_adjustment_loss_tss": 70,
+                "plan_adjustment_recovered_tss": 30,
+                "notes": ["Checkpoint: Пропущены сессии на 1 нед."],
+            },
+        }
+    )
+
+    assert explain["headline"].startswith("План локально пересчитывает ближайшие недели")
+    assert explain["plan_adjustment_label"] == "Пропущены сессии"
+    assert explain["plan_adjustment_weeks"] == 1
+    assert explain["plan_adjustment_loss_tss"] == 70
+    assert explain["plan_adjustment_recovered_tss"] == 30
+    assert explain["comparison_rows"][1]["Почему"] == "локальный возврат +15 TSS"
+
+
 def test_target_tss_control_avoids_equal_slider_bounds():
     control = _resolve_target_weekly_tss_control(
         auto_suggested=500,

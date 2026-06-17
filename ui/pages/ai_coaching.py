@@ -203,6 +203,13 @@ def handle_speechcore_command(args: str, state) -> str:
 Используйте `/speechcore help` для списка доступных команд."""
 
 
+def _consume_pending_ai_response_contract(state):
+    """Возвращает и очищает одноразовый контракт стартового ответа AI."""
+    response_contract = getattr(state, "pending_ai_response_contract", None)
+    state.pending_ai_response_contract = None
+    return response_contract
+
+
 def process_modern_chat_message(user_input):
     """Обрабатывает сообщение в современном чате с сохранением."""
     state = get_state_manager()
@@ -226,6 +233,7 @@ def process_modern_chat_message(user_input):
 
         try:
             chat_messages = state.chat_manager.get_chat_messages(state.current_chat_id)
+            response_contract = _consume_pending_ai_response_contract(state)
             response_placeholder.markdown("🤖 *Генерирую ответ...*")
 
             ai_response = _generate_ai_chat_response_core(
@@ -233,6 +241,7 @@ def process_modern_chat_message(user_input):
                 ai_tools=state.ai_tools,
                 user_input=user_input,
                 history_messages=chat_messages[:-1],
+                response_contract=response_contract,
             )
 
             response_placeholder.markdown("🔧 *Обрабатываю данные...*")
@@ -242,6 +251,7 @@ def process_modern_chat_message(user_input):
                 state.ai_tools,
                 format_tool_result,
                 response_post_processor=lambda response: maybe_append_progress_report(state, user_input, response),
+                response_contract=response_contract,
             )
 
             simulate_streaming_response(response_placeholder, final_response)
@@ -274,11 +284,13 @@ def process_chat_message(user_input):
     with st.chat_message("assistant"):
         with st.spinner("AI тренер анализирует данные..."):
             try:
+                response_contract = _consume_pending_ai_response_contract(state)
                 ai_response = _generate_ai_chat_response_core(
                     provider=state.ai_coach.provider,
                     ai_tools=state.ai_tools,
                     user_input=user_input,
                     history_messages=state.chat_messages[:-1],
+                    response_contract=response_contract,
                 )
 
                 final_response = _finalize_ai_chat_response_core(
@@ -286,6 +298,7 @@ def process_chat_message(user_input):
                     state.ai_tools,
                     format_tool_result,
                     response_post_processor=lambda response: maybe_append_progress_report(state, user_input, response),
+                    response_contract=response_contract,
                 )
 
                 st.markdown(final_response)

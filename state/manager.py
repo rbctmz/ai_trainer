@@ -43,8 +43,12 @@ class StateManager:
         "context_loaded": False,
         "current_chat_id": None,
         "goal_plan": None,
+        "last_execution_feedback_result": None,
         "last_ai_weekly_plan_text": None,
+        "latest_planning_checkpoint": None,
         "page": "📊 Дашборд",
+        "pending_ai_response_contract": None,
+        "planning_checkpoint_cache_loaded": False,
         "planner_goal_type": None,
         "selected_provider": None,
         "switch_to_chat_tab": False,
@@ -53,6 +57,7 @@ class StateManager:
 
     _MUTABLE_DEFAULT_FACTORIES: Dict[str, Callable[[], Any]] = {
         "chat_messages": list,
+        "planning_checkpoint_history": list,
         "planner_mix": dict,
         "planner_weights": dict,
     }
@@ -224,6 +229,48 @@ class StateManager:
         self._session["goal_plan"] = value
 
     @property
+    def latest_planning_checkpoint(self):
+        if not self._session.get("planning_checkpoint_cache_loaded", False):
+            self.refresh_planning_checkpoint_cache()
+        return self._session.get("latest_planning_checkpoint")
+
+    @latest_planning_checkpoint.setter
+    def latest_planning_checkpoint(self, value) -> None:
+        self._session["latest_planning_checkpoint"] = value
+        self._session["planning_checkpoint_cache_loaded"] = True
+
+    @property
+    def planning_checkpoint_history(self):
+        if not self._session.get("planning_checkpoint_cache_loaded", False):
+            self.refresh_planning_checkpoint_cache()
+        return self._session.get("planning_checkpoint_history", [])
+
+    @planning_checkpoint_history.setter
+    def planning_checkpoint_history(self, value) -> None:
+        self._session["planning_checkpoint_history"] = value
+        self._session["planning_checkpoint_cache_loaded"] = True
+
+    @property
+    def resolved_goal_plan_context(self):
+        from models.planning_checkpoints import resolve_goal_plan_context
+
+        return resolve_goal_plan_context(
+            self.goal_plan,
+            self.latest_planning_checkpoint,
+        )
+
+    @property
+    def latest_execution_feedback(self):
+        from models.planning_checkpoints import summarize_execution_feedback_transition
+
+        history = self.planning_checkpoint_history
+        previous_checkpoint = history[1] if len(history) > 1 else None
+        return summarize_execution_feedback_transition(
+            previous_checkpoint,
+            self.latest_planning_checkpoint,
+        )
+
+    @property
     def planner_goal_type(self):
         return self._session.get("planner_goal_type")
 
@@ -310,6 +357,14 @@ class StateManager:
     # ------------------------------------------------------------------
     # Convenience helpers for transient data
     # ------------------------------------------------------------------
+    def refresh_planning_checkpoint_cache(self, limit: int = 3):
+        latest = self.database.get_latest_planning_checkpoint()
+        history = self.database.get_recent_planning_checkpoints(limit=limit)
+        self._session["latest_planning_checkpoint"] = latest
+        self._session["planning_checkpoint_history"] = history
+        self._session["planning_checkpoint_cache_loaded"] = True
+        return history
+
     def reset_planner_overrides(self) -> None:
         self._session.pop("planner_mix", None)
         self._session.pop("planner_weights", None)

@@ -3,6 +3,7 @@ from typing import Any, Dict
 
 from config.settings import Settings
 from state import get_state_manager
+from utils.streamlit_compat import apply_streamlit_width_compat
 from ui.components import render_chat_management, render_development_tools, render_garmin_connection
 from ui.theme import apply_theme
 from ui.navigation import (
@@ -32,6 +33,8 @@ from services import (
     garmin as garmin_service,
     sync as sync_service,
 )
+
+apply_streamlit_width_compat()
 
 st.set_page_config(
     page_title="AI Trainer",
@@ -77,6 +80,8 @@ def render_garmin_profile(profile: Dict[str, Any]) -> None:
         for index, (label, value) in enumerate(info_pairs):
             target_col = col_left if index % 2 == 0 else col_right
             target_col.markdown(f"**{label}:** {value}")
+    elif profile:
+        st.caption("Основные поля профиля не распознаны. Подробности доступны ниже.")
     else:
         st.caption("Garmin не вернул дополнительных данных профиля.")
 

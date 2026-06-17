@@ -12,6 +12,14 @@ else
     STREAMLIT_BIN="${STREAMLIT_BIN:-streamlit}"
 fi
 
+function run_streamlit() {
+    if "$PYTHON_BIN" -m streamlit --version >/dev/null 2>&1; then
+        "$PYTHON_BIN" -m streamlit "$@"
+        return
+    fi
+    "$STREAMLIT_BIN" "$@"
+}
+
 echo "🚀 Запуск AI Trainer..."
 echo "📌 Применение исправления для Google Gemini API..."
 
@@ -26,8 +34,16 @@ if ! "$PYTHON_BIN" "$SCRIPT_DIR/scripts/doctor_env.py" check --runtime; then
     exit 1
 fi
 
+echo "📁 Проверка локальной доступности workspace..."
+if ! "$PYTHON_BIN" "$SCRIPT_DIR/scripts/doctor_env.py" check --workspace; then
+    echo "❌ Workspace не полностью доступен локально."
+    echo "💡 Если проект находится в iCloud/~/Documents, выполните Download Now или Keep Downloaded."
+    echo "💡 Надежный вариант: переместите репозиторий в локальную папку вроде ~/Code или ~/GitHub."
+    exit 1
+fi
+
 # Запускаем приложение
 echo "🏃 Запуск Streamlit..."
-"$STREAMLIT_BIN" run "$SCRIPT_DIR/app.py" --server.fileWatcherType none
+run_streamlit run "$SCRIPT_DIR/app.py" --server.fileWatcherType none
 
 echo "👋 Приложение остановлено"

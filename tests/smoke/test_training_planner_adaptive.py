@@ -200,3 +200,29 @@ def test_apply_planning_constraints_recovers_more_after_holiday_when_starting_fr
     assert tired_summary["load_state"] == "fatigued"
     assert fresh_summary["recovered_tss"] > tired_summary["recovered_tss"]
     assert sum(fresh_plan) > sum(tired_plan)
+
+
+def test_apply_planning_constraints_locally_replans_after_skipped_sessions():
+    plan, details, summary = apply_planning_constraints(
+        [200, 200, 200, 180],
+        ["Base", "Build", "Build", "Taper"],
+        "Бег",
+        available_hours=10.0,
+        available_day_indices=[0, 1, 2, 3, 4],
+        catch_up_strategy="catch_up",
+        current_tsb=2.0,
+        plan_adjustment={
+            "status": "skipped",
+            "weeks": 1,
+            "missed_sessions": 2,
+        },
+    )
+
+    assert plan[0] == 130
+    assert plan[1] == 215
+    assert plan[2] == 215
+    assert summary["plan_adjustment"]["status"] == "skipped"
+    assert summary["plan_adjustment_loss_tss"] == 70
+    assert summary["plan_adjustment_recovered_tss"] == 30
+    assert "checkpoint: пропущено 2 сесс." in details[0]["adjustment_note"]
+    assert any("локальный возврат +" in detail["adjustment_note"] for detail in details[1:3])

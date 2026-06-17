@@ -6,6 +6,8 @@ from typing import Any, Callable, Dict, Optional
 import streamlit as st
 
 from models.coach_explainability import build_coach_explainability_summary
+from models.coach_explainability import build_operational_response_contract
+from models.planning_checkpoints import summarize_planning_checkpoint
 from state import StateManager
 
 
@@ -34,6 +36,7 @@ WELCOME_MESSAGE = """
 def _build_ai_coach_explainability_summary(
     data_context: Optional[Dict[str, Any]],
     goal_plan: Optional[Dict[str, Any]] = None,
+    execution_feedback: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
     if not data_context or not data_context.get("summary", {}).get("has_data", False):
         return None
@@ -54,14 +57,20 @@ def _build_ai_coach_explainability_summary(
         recovery_state=hrv_stats.get("recovery_state"),
         sleep_quality=sleep_context.get("sleep_quality"),
         goal_plan=goal_plan,
+        execution_feedback=execution_feedback,
     )
 
 
 def _choose_recommended_first_prompt(
     data_context: Optional[Dict[str, Any]],
     goal_plan: Optional[Dict[str, Any]] = None,
+    execution_feedback: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, str]:
-    summary = _build_ai_coach_explainability_summary(data_context, goal_plan)
+    summary = _build_ai_coach_explainability_summary(
+        data_context,
+        goal_plan,
+        execution_feedback,
+    )
     if summary is None:
         return {
             "icon": "🧭",
@@ -79,6 +88,7 @@ def _choose_recommended_first_prompt(
         "description": summary["description"],
         "reason": summary["reason"],
         "prompt": summary["prompt"],
+        "response_contract": build_operational_response_contract(summary),
     }
 
 
@@ -108,6 +118,7 @@ def _normalize_ai_coach_handoff(handoff: Any) -> Optional[Dict[str, Any]]:
         "watchout": str(handoff.get("watchout") or ""),
         "plan_context": str(handoff.get("plan_context") or ""),
         "signals": signals[:5],
+        "response_contract": handoff.get("response_contract") if isinstance(handoff.get("response_contract"), dict) else None,
     }
 
 
@@ -115,6 +126,7 @@ def _resolve_ai_coach_entry_prompt(
     data_context: Optional[Dict[str, Any]],
     goal_plan: Optional[Dict[str, Any]] = None,
     handoff: Any = None,
+    execution_feedback: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, str]:
     normalized_handoff = _normalize_ai_coach_handoff(handoff)
     if normalized_handoff is not None:
@@ -126,9 +138,14 @@ def _resolve_ai_coach_entry_prompt(
             "reason": normalized_handoff["reason"] or "Этот старт уже выбран на дашборде как следующий логичный шаг.",
             "prompt": normalized_handoff["prompt"],
             "source": normalized_handoff["source"],
+            "response_contract": normalized_handoff.get("response_contract"),
         }
 
-    prompt = _choose_recommended_first_prompt(data_context, goal_plan)
+    prompt = _choose_recommended_first_prompt(
+        data_context,
+        goal_plan,
+        execution_feedback,
+    )
     prompt["source"] = "default"
     return prompt
 
@@ -154,6 +171,8 @@ def render_dashboard_handoff(
             st.caption(handoff["plan_context"])
         if handoff["reason"]:
             st.caption(handoff["reason"])
+        if isinstance(handoff.get("response_contract"), dict) and handoff["response_contract"].get("preview_label"):
+            st.caption(handoff["response_contract"]["preview_label"])
         for signal in handoff["signals"]:
             st.write(f"• {signal}")
 
@@ -165,6 +184,7 @@ def render_dashboard_handoff(
                 type="primary",
                 width="stretch",
             ):
+                state.pending_ai_response_contract = handoff.get("response_contract")
                 state.ai_coach_handoff = None
                 on_prompt_selected(handoff["prompt"])
         with col2:
@@ -186,9 +206,29 @@ def render_empty_ai_chat_guidance(
     with st.chat_message("assistant"):
         st.markdown(WELCOME_MESSAGE)
 
+    goal_plan_context = getattr(state, "resolved_goal_plan_context", None)
+    execution_feedback = getattr(state, "latest_execution_feedback", None)
+    checkpoint_summary = summarize_planning_checkpoint(getattr(state, "latest_planning_checkpoint", None))
+
+    if checkpoint_summary is not None:
+        st.markdown("### 🗂️ Последний planning checkpoint")
+        with st.container(border=True):
+            st.markdown(f"**{checkpoint_summary['title']}**")
+            if checkpoint_summary["headline"]:
+                st.write(checkpoint_summary["headline"])
+            if checkpoint_summary["created_at_label"]:
+                st.caption(f"Сохранён: {checkpoint_summary['created_at_label']}")
+            st.write(
+                f"**Checkpoint:** {checkpoint_summary['plan_adjustment_label']} · "
+                f"Пик {checkpoint_summary['peak_tss']} TSS · Сумма {checkpoint_summary['total_tss']} TSS"
+            )
+            if checkpoint_summary.get("near_term_edit"):
+                st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
+
     explain_summary = _build_ai_coach_explainability_summary(
         state.data_context,
-        getattr(state, "goal_plan", None),
+        goal_plan_context,
+        execution_feedback,
     )
     if explain_summary is not None:
         st.markdown("### 🧠 Почему такой старт")
@@ -206,8 +246,9 @@ def render_empty_ai_chat_guidance(
 
     recommended_prompt = _resolve_ai_coach_entry_prompt(
         state.data_context,
-        getattr(state, "goal_plan", None),
+        goal_plan_context,
         dashboard_handoff,
+        execution_feedback,
     )
     if dashboard_handoff is None:
         st.markdown("### 🎯 Рекомендованный старт")
@@ -216,12 +257,15 @@ def render_empty_ai_chat_guidance(
             f"{recommended_prompt['description']}\n\n"
             f"{recommended_prompt['reason']}"
         )
+        if isinstance(recommended_prompt.get("response_contract"), dict) and recommended_prompt["response_contract"].get("preview_label"):
+            st.caption(recommended_prompt["response_contract"]["preview_label"])
         if st.button(
             f"{recommended_prompt['icon']} {recommended_prompt['button']}",
             key="recommended_ai_first_prompt",
             type="primary",
             width="stretch",
         ):
+            state.pending_ai_response_contract = recommended_prompt.get("response_contract")
             on_prompt_selected(recommended_prompt["prompt"])
 
 

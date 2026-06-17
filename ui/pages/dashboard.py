@@ -9,7 +9,16 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from models.coach_explainability import build_coach_explainability_summary
+from models.coach_explainability import (
+    build_coach_explainability_summary,
+    build_operational_response_contract,
+)
+from models.planning_checkpoints import (
+    build_planning_checkpoint,
+    summarize_execution_feedback_transition,
+    summarize_planning_checkpoint,
+)
+from models.planning_execution import rebuild_goal_plan_with_adjustment
 from services import demo_mode as demo_mode_service
 from services.data_cache import load_activities, load_hrv, load_sleep
 from state import StateManager
@@ -50,6 +59,13 @@ ACWR_STATUS_STYLES = {
     "VERY_LOW": {"label": "Сильно ниже нормы", "color": "#F97316"},
     "HIGH": {"label": "Выше нормы", "color": "#F97316"},
     "VERY_HIGH": {"label": "Сильно выше нормы", "color": "#EF4444"},
+}
+
+EXECUTION_FEEDBACK_LABELS = {
+    "completed": "Выполнено по плану",
+    "skipped": "Пропущены сессии",
+    "reduced": "Нагрузка урезана",
+    "unavailable": "Неделя ограничена",
 }
 
 
@@ -234,6 +250,8 @@ def render_dashboard_page(
         ModernUI.ai_recommendation_panel(recommendations)
 
     _render_coach_briefing(state, current_status)
+    _render_recent_planning_checkpoint(state)
+    _render_execution_feedback_loop(state)
     _render_last_sync_handoff(state, current_status, on_sync)
     _render_primary_next_step(state, current_status, on_sync)
     _render_quick_actions(state, current_status, on_sync)
@@ -632,6 +650,150 @@ def _render_coach_briefing(
             st.write(f"• {signal}")
 
 
+def _render_recent_planning_checkpoint(state: StateManager) -> None:
+    checkpoint_summary = summarize_planning_checkpoint(getattr(state, "latest_planning_checkpoint", None))
+    if checkpoint_summary is None:
+        return
+
+    st.markdown("### 🗂️ Последний planning checkpoint")
+    with st.container(border=True):
+        st.markdown(f"**{checkpoint_summary['title']}**")
+        if checkpoint_summary["headline"]:
+            st.write(checkpoint_summary["headline"])
+        if checkpoint_summary["created_at_label"]:
+            st.caption(f"Сохранён: {checkpoint_summary['created_at_label']}")
+        st.write(
+            f"**Checkpoint:** {checkpoint_summary['plan_adjustment_label']} · "
+            f"Пик {checkpoint_summary['peak_tss']} TSS · Сумма {checkpoint_summary['total_tss']} TSS"
+        )
+        if checkpoint_summary.get("near_term_edit"):
+            st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
+        if checkpoint_summary["plan_adjustment_weeks"] > 0:
+            st.write(f"**Горизонт:** {checkpoint_summary['plan_adjustment_weeks']} нед.")
+        if checkpoint_summary["interruption_label"] != "Нет":
+            st.write(f"**Ограничение:** {checkpoint_summary['interruption_label']}")
+        if checkpoint_summary["load_state_label"]:
+            st.write(f"**Стартовое состояние:** {checkpoint_summary['load_state_label']}")
+        history = [
+            item
+            for item in (
+                summarize_planning_checkpoint(record)
+                for record in getattr(state, "planning_checkpoint_history", [])[1:3]
+            )
+            if item is not None
+        ]
+        if history:
+            st.caption("Недавние checkpoints")
+            for item in history:
+                when = f" ({item['created_at_label']})" if item["created_at_label"] else ""
+                suffix = ""
+                if item.get("near_term_edit"):
+                    suffix = f" · ручная правка: {item['near_term_edit']['delta_label']}"
+                st.write(f"• {item['title']}: {item['plan_adjustment_label']}{suffix}{when}")
+
+
+def _build_execution_feedback_result(
+    previous_checkpoint: dict[str, Any] | None,
+    current_checkpoint: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    return summarize_execution_feedback_transition(
+        previous_checkpoint,
+        current_checkpoint,
+    )
+
+
+def _render_execution_feedback_loop(state: StateManager) -> None:
+    checkpoint_summary = summarize_planning_checkpoint(getattr(state, "latest_planning_checkpoint", None))
+    goal_plan_context = getattr(state, "resolved_goal_plan_context", None)
+    if checkpoint_summary is None or not isinstance(goal_plan_context, dict) or not goal_plan_context:
+        return
+
+    status_options = list(EXECUTION_FEEDBACK_LABELS.values())
+    reverse_labels = {label: key for key, label in EXECUTION_FEEDBACK_LABELS.items()}
+
+    st.markdown("### ♻️ Факт выполнения")
+    with st.container(border=True):
+        st.caption("Зафиксируйте, как неделя прошла в реальности. AI Trainer локально пересчитает ближайший горизонт и сохранит новый planning checkpoint.")
+        status_label = st.selectbox(
+            "Что произошло по факту",
+            options=status_options,
+            index=0,
+            key="dashboard_execution_feedback_status",
+        )
+        status = reverse_labels.get(status_label, "completed")
+        weeks = st.slider(
+            "Горизонт локального пересчёта",
+            min_value=1,
+            max_value=2,
+            value=1,
+            disabled=status == "completed",
+            key="dashboard_execution_feedback_weeks",
+        )
+
+        missed_sessions = 0
+        reduced_load_share = 0.70
+        if status == "skipped":
+            missed_sessions = st.slider(
+                "Сколько сессий реально выпало",
+                min_value=1,
+                max_value=max(1, int(goal_plan_context.get("constraint_summary", {}).get("available_day_count", 1) or 1)),
+                value=1,
+                key="dashboard_execution_feedback_missed_sessions",
+            )
+        elif status == "reduced":
+            reduced_percent = st.slider(
+                "Сколько % нагрузки реально осталось",
+                min_value=35,
+                max_value=95,
+                value=70,
+                step=5,
+                key="dashboard_execution_feedback_reduced_percent",
+            )
+            reduced_load_share = reduced_percent / 100.0
+        elif status == "unavailable":
+            st.caption("Используйте этот вариант, если неделя фактически сжалась из-за поездки, болезни или жёсткого внешнего ограничения.")
+        else:
+            st.caption("План сохранит execution checkpoint «выполнено по плану» без дополнительного снижения нагрузки.")
+
+        result = getattr(state, "last_execution_feedback_result", None)
+        if isinstance(result, dict):
+            st.success(
+                f"Последний execution checkpoint: {result['plan_adjustment_label']} · "
+                f"Сумма {result['total_tss']} TSS ({result['total_delta']:+d}) · "
+                f"Пик {result['peak_tss']} TSS ({result['peak_delta']:+d})"
+            )
+            if result.get("created_at_label"):
+                st.caption(f"Сохранён: {result['created_at_label']}")
+
+        if st.button(
+            "♻️ Применить локальный replan",
+            key="dashboard_apply_execution_feedback",
+            type="primary",
+            width="stretch",
+        ):
+            previous_checkpoint = getattr(state, "latest_planning_checkpoint", None)
+            updated_goal_plan = rebuild_goal_plan_with_adjustment(
+                goal_plan_context,
+                {
+                    "status": status,
+                    "weeks": weeks if status != "completed" else 1,
+                    "missed_sessions": missed_sessions,
+                    "reduced_load_share": reduced_load_share,
+                },
+            )
+            state.goal_plan = updated_goal_plan
+            saved_checkpoint = state.database.save_planning_checkpoint(
+                build_planning_checkpoint(updated_goal_plan)
+            )
+            state.latest_planning_checkpoint = saved_checkpoint
+            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=3)
+            state.last_execution_feedback_result = _build_execution_feedback_result(
+                previous_checkpoint,
+                saved_checkpoint,
+            )
+            st.rerun()
+
+
 def _render_last_sync_handoff(
     state: StateManager,
     current_status: dict[str, Any],
@@ -769,7 +931,8 @@ def _build_dashboard_explainability_summary(
         atl=current_status.get("atl"),
         readiness=current_status.get("readiness"),
         recovery_state=recovery_state,
-        goal_plan=getattr(state, "goal_plan", None),
+        goal_plan=getattr(state, "resolved_goal_plan_context", None),
+        execution_feedback=getattr(state, "latest_execution_feedback", None),
     )
 
 
@@ -791,6 +954,7 @@ def _build_dashboard_ai_handoff(
         "watchout": summary["watchout"],
         "plan_context": summary.get("plan_context"),
         "signals": list(summary["signals"][:5]),
+        "response_contract": build_operational_response_contract(summary),
     }
 
 

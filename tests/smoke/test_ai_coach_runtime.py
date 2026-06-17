@@ -33,6 +33,22 @@ class _DummyProvider:
         return self.response
 
 
+class _DummyContext:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+
+class _DummyPlaceholder:
+    def __init__(self):
+        self.messages = []
+
+    def markdown(self, text: str) -> None:
+        self.messages.append(text)
+
+
 def test_runtime_builds_prompt_from_history_and_tools():
     ai_tools = _DummyAiTools()
     provider = _DummyProvider("raw ai response")
@@ -54,6 +70,26 @@ def test_runtime_builds_prompt_from_history_and_tools():
     assert "USER: Как форма сегодня?" in prompt
     assert "ASSISTANT: Форма стабильная." in prompt
     assert "НОВЫЙ ВОПРОС ПОЛЬЗОВАТЕЛЯ: Что делать на следующей неделе?" in prompt
+
+
+def test_runtime_appends_response_contract_suffix_to_prompt():
+    ai_tools = _DummyAiTools()
+    provider = _DummyProvider("raw ai response")
+
+    ai_coach_runtime.generate_ai_chat_response(
+        provider=provider,
+        ai_tools=ai_tools,
+        user_input="Что делать после облегчённой недели?",
+        history_messages=[],
+        response_contract={
+            "mode": "operational_brief",
+            "prompt_suffix": "Верни ответ строго в формате: Сегодня / Ближайшие 2-3 дня / Не делать / Почему.",
+        },
+    )
+
+    prompt = provider.calls[0]
+    assert "Что делать после облегчённой недели?" in prompt
+    assert "Верни ответ строго в формате" in prompt
 
 
 def test_runtime_finalizes_tool_calls_and_applies_post_processing():
@@ -79,6 +115,30 @@ def test_runtime_finalizes_tool_calls_and_applies_post_processing():
     ]
 
 
+def test_runtime_wraps_final_response_into_operational_brief():
+    final = ai_coach_runtime.finalize_ai_chat_response(
+        "Нагрузку стоит возвращать аккуратно и следить за восстановлением.",
+        _DummyAiTools(),
+        tool_result_formatter=lambda name, data: f"{name}:{data}",
+        response_contract={
+            "mode": "operational_brief",
+            "today_action": "Сделайте только лёгкую сессию восстановления.",
+            "next_window": "Два дня держите лёгкий объём и только потом возвращайте качество.",
+            "watchout": "Не компенсируйте пропуск резким скачком интенсивности.",
+            "reason": "Checkpoint уже показал, что безопаснее удержать сниженную верхнюю границу.",
+        },
+    )
+
+    assert "## 🎯 Operational Brief" in final
+    assert "### Сегодня" in final
+    assert "Сделайте только лёгкую сессию восстановления." in final
+    assert "### Ближайшие 2-3 дня" in final
+    assert "### Не делать" in final
+    assert "### Почему" in final
+    assert "### Разбор AI" in final
+    assert "Нагрузку стоит возвращать аккуратно" in final
+
+
 def test_page_wrappers_preserve_runtime_contract(monkeypatch: pytest.MonkeyPatch):
     state = type("State", (), {"ai_tools": _DummyAiTools(responses={"sample_tool": {"success": True, "result": {"value": 99}}})})()
 
@@ -91,3 +151,78 @@ def test_page_wrappers_preserve_runtime_contract(monkeypatch: pytest.MonkeyPatch
     assert "TEST TOOL" in prompt
     assert processed == "Ответ: FMT:sample_tool:99"
     assert state.ai_tools.calls == [("sample_tool", {"days": 14})]
+
+
+def test_modern_chat_consumes_pending_response_contract_once(monkeypatch: pytest.MonkeyPatch):
+    class _DummyChatManager:
+        def __init__(self):
+            self.messages = []
+
+        def create_new_chat(self):
+            return "chat-1"
+
+        def add_message(self, chat_id, role, content):
+            self.messages.append({"chat_id": chat_id, "role": role, "content": content})
+            return True
+
+        def get_chat_messages(self, chat_id):
+            return [
+                {"role": message["role"], "content": message["content"]}
+                for message in self.messages
+                if message["chat_id"] == chat_id
+            ]
+
+    state = type(
+        "State",
+        (),
+        {
+            "current_chat_id": "chat-1",
+            "chat_manager": _DummyChatManager(),
+            "ai_tools": _DummyAiTools(),
+            "ai_coach": type("Coach", (), {"provider": object()})(),
+            "pending_ai_response_contract": {
+                "mode": "operational_brief",
+                "prompt_suffix": "suffix",
+            },
+            "_session": {"speechcore_enabled": False},
+            "selected_page": "📊 Дашборд",
+            "switch_to_chat_tab": False,
+        },
+    )()
+
+    captured = {"generate": [], "finalize": []}
+    placeholder = _DummyPlaceholder()
+
+    monkeypatch.setattr(ai_coaching, "get_state_manager", lambda: state)
+    monkeypatch.setattr(ai_coaching.st, "chat_message", lambda _role: _DummyContext())
+    monkeypatch.setattr(ai_coaching.st, "write", lambda _text: None)
+    monkeypatch.setattr(ai_coaching.st, "empty", lambda: placeholder)
+    monkeypatch.setattr(ai_coaching.st, "rerun", lambda: None)
+    monkeypatch.setattr(ai_coaching, "simulate_streaming_response", lambda _placeholder, _text: None)
+    monkeypatch.setattr(ai_coaching, "maybe_append_progress_report", lambda _state, _user_input, response: response)
+
+    def _capture_generate(**kwargs):
+        captured["generate"].append(kwargs.get("response_contract"))
+        return "raw"
+
+    def _capture_finalize(*args, **kwargs):
+        captured["finalize"].append(kwargs.get("response_contract"))
+        return "final"
+
+    monkeypatch.setattr(ai_coaching, "_generate_ai_chat_response_core", _capture_generate)
+    monkeypatch.setattr(ai_coaching, "_finalize_ai_chat_response_core", _capture_finalize)
+
+    ai_coaching.process_modern_chat_message("Что делать сегодня?")
+    ai_coaching.process_modern_chat_message("А завтра?")
+
+    assert captured["generate"] == [
+        {"mode": "operational_brief", "prompt_suffix": "suffix"},
+        None,
+    ]
+    assert captured["finalize"] == [
+        {"mode": "operational_brief", "prompt_suffix": "suffix"},
+        None,
+    ]
+    assert state.pending_ai_response_contract is None
+    assert state.selected_page == "🤖 AI Коучинг"
+    assert state.switch_to_chat_tab is True

@@ -10,7 +10,12 @@ pytestmark = pytest.mark.smoke
 
 
 class _StubDatabase:
-    def __init__(self, db_path: str = "/tmp/acceptance.db", stats: dict[str, int] | None = None):
+    def __init__(
+        self,
+        db_path: str = "/tmp/acceptance.db",
+        stats: dict[str, int] | None = None,
+        latest_checkpoint: dict[str, object] | None = None,
+    ):
         self.db_path = db_path
         self._stats = stats or {
             "activities": 0,
@@ -20,17 +25,28 @@ class _StubDatabase:
             "daily_health": 0,
             "training_status": 0,
         }
+        self._latest_checkpoint = latest_checkpoint
 
     def get_database_stats(self) -> dict[str, int]:
         return dict(self._stats)
 
+    def get_latest_planning_checkpoint(self) -> dict[str, object] | None:
+        return self._latest_checkpoint
+
 
 class _StubState:
-    def __init__(self, stats: dict[str, int] | None = None):
-        self.database = _StubDatabase(stats=stats)
+    def __init__(
+        self,
+        stats: dict[str, int] | None = None,
+        latest_checkpoint: dict[str, object] | None = None,
+    ):
+        self.database = _StubDatabase(stats=stats, latest_checkpoint=latest_checkpoint)
         self.acceptance_bootstrapped = False
         self.demo_mode = False
         self.selected_page = "📊 Дашборд"
+        self.selected_provider = None
+        self.ai_coach = object()
+        self.switch_to_chat_tab = True
 
 
 def test_runtime_info_reports_isolated_database_path(monkeypatch: pytest.MonkeyPatch):
@@ -91,6 +107,60 @@ def test_bootstrap_session_can_run_without_auto_demo(monkeypatch: pytest.MonkeyP
 
     assert info["seeded"] is False
     assert activated == []
+
+
+def test_bootstrap_session_preserves_existing_isolated_dataset(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(Settings, "ACCEPTANCE_MODE", True)
+    monkeypatch.setattr(Settings, "ACCEPTANCE_AUTO_DEMO", True)
+    monkeypatch.setattr(Settings, "ACCEPTANCE_DISABLE_GARMIN", True)
+
+    state = _StubState(stats={"activities": 12, "hrv_data": 21, "sleep_data": 14, "daily_health": 14, "training_status": 1})
+    activated: list[str] = []
+    monkeypatch.setattr(
+        acceptance_mode.demo_mode_service,
+        "activate_demo_mode",
+        lambda _state: activated.append("activated"),
+    )
+    restored: list[str] = []
+    monkeypatch.setattr(
+        acceptance_mode.demo_mode_service,
+        "restore_demo_mode_session",
+        lambda _state: restored.append("restored"),
+    )
+
+    info = acceptance_mode.bootstrap_session(state)
+
+    assert info["seeded"] is False
+    assert info["preserved_existing_data"] is True
+    assert activated == []
+    assert restored == ["restored"]
+
+
+def test_bootstrap_session_preserves_checkpoint_only_database(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(Settings, "ACCEPTANCE_MODE", True)
+    monkeypatch.setattr(Settings, "ACCEPTANCE_AUTO_DEMO", True)
+    monkeypatch.setattr(Settings, "ACCEPTANCE_DISABLE_GARMIN", True)
+
+    state = _StubState(latest_checkpoint={"id": 1, "goal_type": "Триатлон"})
+    activated: list[str] = []
+    monkeypatch.setattr(
+        acceptance_mode.demo_mode_service,
+        "activate_demo_mode",
+        lambda _state: activated.append("activated"),
+    )
+    restored: list[str] = []
+    monkeypatch.setattr(
+        acceptance_mode.demo_mode_service,
+        "restore_demo_mode_session",
+        lambda _state: restored.append("restored"),
+    )
+
+    info = acceptance_mode.bootstrap_session(state)
+
+    assert info["seeded"] is False
+    assert info["preserved_existing_data"] is True
+    assert activated == []
+    assert restored == ["restored"]
 
 
 def test_reset_acceptance_dataset_requires_acceptance_mode(monkeypatch: pytest.MonkeyPatch):

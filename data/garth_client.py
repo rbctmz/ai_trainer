@@ -3,6 +3,7 @@
 """
 
 from datetime import datetime, timedelta
+import logging
 import sys
 import os
 from typing import Any, Dict
@@ -16,9 +17,7 @@ except Exception as garth_import_error:  # pragma: no cover - depends on local e
 else:
     _GARTH_IMPORT_ERROR = None
 
-# Добавляем путь к логгеру
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.logger import garmin_logger
+garmin_logger = logging.getLogger("garmin_sync")
 
 
 def _probe_garth_support(module: Any) -> tuple[bool, str | None]:

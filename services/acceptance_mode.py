@@ -1,12 +1,15 @@
 """Helpers for isolated acceptance-mode launches."""
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
 from typing import Any
 
 from config.settings import Settings
-from state import StateManager
 
 from . import demo_mode as demo_mode_service
+
+if TYPE_CHECKING:
+    from state import StateManager
 
 
 def is_acceptance_mode() -> bool:
@@ -42,10 +45,37 @@ def runtime_info(state: StateManager | None = None) -> dict[str, Any]:
     }
 
 
+def _has_existing_isolated_data(state: StateManager) -> bool:
+    """Return whether the isolated database already contains seeded or user-generated data."""
+    database = state.database
+    stats = {}
+
+    try:
+        stats = database.get_database_stats()
+    except Exception:
+        stats = {}
+
+    tracked_counts = [
+        int(stats.get("activities", 0) or 0),
+        int(stats.get("hrv_data", 0) or 0),
+        int(stats.get("sleep_data", 0) or 0),
+        int(stats.get("daily_health", 0) or 0),
+        int(stats.get("training_status", 0) or 0),
+    ]
+    if any(count > 0 for count in tracked_counts):
+        return True
+
+    try:
+        return database.get_latest_planning_checkpoint() is not None
+    except Exception:
+        return False
+
+
 def bootstrap_session(state: StateManager) -> dict[str, Any]:
     """Seed the isolated acceptance dataset once per browser session."""
     info = runtime_info(state)
     info["seeded"] = False
+    info["preserved_existing_data"] = False
 
     if not info["enabled"]:
         return info
@@ -56,6 +86,11 @@ def bootstrap_session(state: StateManager) -> dict[str, Any]:
     state.acceptance_bootstrapped = True
 
     if not info["auto_demo"]:
+        return info
+
+    if _has_existing_isolated_data(state):
+        demo_mode_service.restore_demo_mode_session(state)
+        info["preserved_existing_data"] = True
         return info
 
     info["seed_result"] = demo_mode_service.activate_demo_mode(state)

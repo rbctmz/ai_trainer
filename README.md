@@ -96,6 +96,16 @@ python scripts/doctor_env.py check --runtime
 python scripts/doctor_env.py repair --runtime
 ```
 
+#### Если проект лежит в iCloud/`~/Documents` и Streamlit/pytest подвисают
+```bash
+# Проверка локальной доступности workspace
+python scripts/doctor_env.py check --workspace
+```
+
+Если проверка сообщает про `dataless/offloaded workspace files` или iCloud-backed workspace:
+- В Finder выполните `Download Now` или `Keep Downloaded` для папки репозитория.
+- Лучше перенесите проект в локальную директорию вроде `~/Code/ai_trainer` или `~/GitHub/ai_trainer`.
+
 Приложение откроется в браузере по адресу: http://localhost:8501
 
 ## 📊 Возможности

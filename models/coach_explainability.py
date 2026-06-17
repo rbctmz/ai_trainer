@@ -2,6 +2,11 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from models.planning_checkpoints import NON_ACTIONABLE_PLAN_ADJUSTMENTS
+from models.planning_summary import summarize_near_term_edit
+
+OPERATIONAL_RESPONSE_PREVIEW = "Первый ответ вернётся в формате: Сегодня / Ближайшие 2-3 дня / Не делать / Почему."
+
 
 def _float_or_none(value: Any) -> float | None:
     if value is None:
@@ -36,6 +41,8 @@ def _extract_planning_context(goal_plan: Dict[str, Any] | None) -> Dict[str, Any
         for label in constraint_summary.get("available_day_labels", [])
         if label
     ]
+    plan_adjustment = constraint_summary.get("plan_adjustment", {}) or {}
+    near_term_edit = summarize_near_term_edit(constraint_summary)
 
     return {
         "load_state_label": constraint_summary.get("load_state_label"),
@@ -47,6 +54,10 @@ def _extract_planning_context(goal_plan: Dict[str, Any] | None) -> Dict[str, Any
         "recommended_days": _int_or_zero(constraint_summary.get("recommended_days")),
         "catch_up_strategy": str(constraint_summary.get("catch_up_strategy", "protect_recovery")),
         "catch_up_label": _strategy_label(constraint_summary.get("catch_up_strategy")),
+        "plan_adjustment_label": str(plan_adjustment.get("label", "Нет")),
+        "plan_adjustment_weeks": _int_or_zero(plan_adjustment.get("weeks")),
+        "plan_adjustment_recovered_tss": _int_or_zero(constraint_summary.get("plan_adjustment_recovered_tss")),
+        "near_term_edit": near_term_edit,
         "notes": [
             str(note)
             for note in constraint_summary.get("notes", [])
@@ -84,6 +95,25 @@ def _collect_planning_signals(goal_plan: Dict[str, Any] | None) -> List[str]:
             f"«{interruption_label}» на {interruption_weeks} нед."
         )
 
+    plan_adjustment_label = planning_context.get("plan_adjustment_label", "Нет")
+    plan_adjustment_weeks = _int_or_zero(planning_context.get("plan_adjustment_weeks"))
+    if plan_adjustment_label != "Нет" and plan_adjustment_weeks > 0:
+        signal = (
+            "Последний checkpoint уже учтён в плане: "
+            f"«{plan_adjustment_label}» на {plan_adjustment_weeks} нед."
+        )
+        recovered_tss = _int_or_zero(planning_context.get("plan_adjustment_recovered_tss"))
+        if recovered_tss > 0:
+            signal += f" Локально возвращено {recovered_tss} TSS."
+        signals.append(signal)
+
+    near_term_edit = planning_context.get("near_term_edit")
+    if isinstance(near_term_edit, dict):
+        signals.append(
+            "Ближайший горизонт уже правился вручную: "
+            f"{near_term_edit['description']}."
+        )
+
     for note in planning_context.get("notes", []):
         if "Стартовое состояние:" in note:
             signals.append(note)
@@ -117,6 +147,19 @@ def _build_plan_context_line(goal_plan: Dict[str, Any] | None) -> str | None:
         interruption_text += f", стратегия «{planning_context['catch_up_label']}»"
         fragments.append(interruption_text)
 
+    plan_adjustment_label = planning_context.get("plan_adjustment_label", "Нет")
+    plan_adjustment_weeks = _int_or_zero(planning_context.get("plan_adjustment_weeks"))
+    if plan_adjustment_label != "Нет" and plan_adjustment_weeks > 0:
+        checkpoint_text = f"checkpoint «{plan_adjustment_label}» на {plan_adjustment_weeks} нед."
+        recovered_tss = _int_or_zero(planning_context.get("plan_adjustment_recovered_tss"))
+        if recovered_tss > 0:
+            checkpoint_text += f", локально возвращено {recovered_tss} TSS"
+        fragments.append(checkpoint_text)
+
+    near_term_edit = planning_context.get("near_term_edit")
+    if isinstance(near_term_edit, dict):
+        fragments.append(f"ручную правку ближнего горизонта: {near_term_edit['description']}")
+
     load_state_label = planning_context.get("load_state_label")
     if not fragments and load_state_label and load_state_label != "Нейтральный старт":
         fragments.append(f"стартовое состояние «{load_state_label}»")
@@ -130,16 +173,120 @@ def _build_plan_context_line(goal_plan: Dict[str, Any] | None) -> str | None:
 def _append_plan_context_to_prompt(
     prompt: str,
     goal_plan: Dict[str, Any] | None,
+    execution_feedback: Dict[str, Any] | None = None,
 ) -> str:
+    context_fragments: List[str] = []
+
     plan_context = _build_plan_context_line(goal_plan)
-    if not plan_context:
+    if plan_context:
+        context_fragments.append(plan_context)
+
+    execution_context = _build_execution_feedback_context_line(execution_feedback)
+    if execution_context:
+        context_fragments.append(execution_context)
+
+    if not context_fragments:
         return prompt
 
     return (
         f"{prompt}\n\n"
-        f"Учти контекст текущего плана: {plan_context} "
+        f"Учти контекст текущего плана: {' '.join(context_fragments)} "
         "Если текущее состояние конфликтует с планом, выбери более безопасный вариант и явно объясни компромисс."
     )
+
+
+def _normalize_execution_feedback(execution_feedback: Dict[str, Any] | None) -> Dict[str, Any]:
+    if not isinstance(execution_feedback, dict):
+        return {}
+
+    plan_adjustment_label = str(execution_feedback.get("plan_adjustment_label") or "Нет").strip()
+    return {
+        "title": str(execution_feedback.get("title") or "").strip(),
+        "created_at_label": str(execution_feedback.get("created_at_label") or "").strip(),
+        "plan_adjustment_label": plan_adjustment_label,
+        "plan_adjustment_weeks": _int_or_zero(execution_feedback.get("plan_adjustment_weeks")),
+        "peak_tss": _int_or_zero(execution_feedback.get("peak_tss")),
+        "peak_delta": _int_or_zero(execution_feedback.get("peak_delta")),
+        "total_tss": _int_or_zero(execution_feedback.get("total_tss")),
+        "total_delta": _int_or_zero(execution_feedback.get("total_delta")),
+        "is_actionable": plan_adjustment_label not in NON_ACTIONABLE_PLAN_ADJUSTMENTS,
+    }
+
+
+def _build_execution_feedback_context_line(
+    execution_feedback: Dict[str, Any] | None,
+) -> str | None:
+    feedback = _normalize_execution_feedback(execution_feedback)
+    if not feedback.get("is_actionable"):
+        return None
+
+    fragments = [
+        f"Последний execution checkpoint: «{feedback['plan_adjustment_label']}»",
+    ]
+    if feedback["plan_adjustment_weeks"] > 0:
+        fragments[-1] += f" на {feedback['plan_adjustment_weeks']} нед."
+    delta_parts: List[str] = []
+    if feedback["total_delta"] != 0:
+        delta_parts.append(f"сумма {feedback['total_delta']:+d} TSS")
+    if feedback["peak_delta"] != 0:
+        delta_parts.append(f"пик {feedback['peak_delta']:+d} TSS")
+    if delta_parts:
+        fragments.append("Изменение: " + ", ".join(delta_parts) + ".")
+    return " ".join(fragments)
+
+
+def _collect_execution_feedback_signals(
+    execution_feedback: Dict[str, Any] | None,
+) -> List[str]:
+    feedback = _normalize_execution_feedback(execution_feedback)
+    if not feedback.get("is_actionable"):
+        return []
+
+    signals = [
+        f"Execution checkpoint: {feedback['plan_adjustment_label']}.",
+    ]
+    delta_parts: List[str] = []
+    if feedback["total_delta"] != 0:
+        delta_parts.append(f"сумма {feedback['total_delta']:+d} TSS")
+    if feedback["peak_delta"] != 0:
+        delta_parts.append(f"пик {feedback['peak_delta']:+d} TSS")
+    if delta_parts:
+        signals.append("Локальный replan изменил " + " и ".join(delta_parts) + ".")
+    return signals
+
+
+def _build_execution_feedback_guardrail(
+    execution_feedback: Dict[str, Any] | None,
+) -> Dict[str, str]:
+    feedback = _normalize_execution_feedback(execution_feedback)
+    if not feedback.get("is_actionable"):
+        return {}
+
+    label = feedback["plan_adjustment_label"]
+    total_delta = feedback["total_delta"]
+    delta_text = (
+        f" Локальный replan уже изменил объём на {total_delta:+d} TSS."
+        if total_delta
+        else ""
+    )
+
+    if label == "Пропущены сессии":
+        return {
+            "today": "Считайте пропущенные сессии уже учтёнными в новом потолке недели, а не долгом на завтра.",
+            "next_window": "После пропущенных сессий не втискивайте объём обратно в ближайшие 1-2 дня." + delta_text,
+            "watchout": "Не пытайтесь закрыть выпавший объём одним перегруженным блоком.",
+        }
+    if label == "Нагрузка урезана":
+        return {
+            "today": "Считайте облегчённую неделю новой верхней границей до следующей оценки формы.",
+            "next_window": "После урезанной недели возвращайте нагрузку только ступенчато, а не одним скачком." + delta_text,
+            "watchout": "Не компенсируйте урезанный объём резким ростом интенсивности.",
+        }
+    return {
+        "today": "Сначала примите ограниченное окно недели как факт и стройте решение от него.",
+        "next_window": "Не расширяйте ближайшие 2-3 дня сверх фактически доступного окна." + delta_text,
+        "watchout": "Не уплотняйте неделю только потому, что календарно хочется вернуться в исходный план.",
+    }
 
 
 def build_coach_explainability_summary(
@@ -151,6 +298,7 @@ def build_coach_explainability_summary(
     recovery_state: str | None = None,
     sleep_quality: str | None = None,
     goal_plan: Dict[str, Any] | None = None,
+    execution_feedback: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     """Build a shared reasoning summary for dashboard and AI coaching surfaces."""
     tsb_val = _float_or_none(tsb)
@@ -158,6 +306,7 @@ def build_coach_explainability_summary(
     atl_val = _float_or_none(atl)
     readiness_val = _float_or_none(readiness)
     planning_context = _extract_planning_context(goal_plan)
+    feedback_context = _normalize_execution_feedback(execution_feedback)
     available_day_labels = planning_context.get("available_day_labels", [])
     available_days_text = ", ".join(available_day_labels)
     atl_ratio = None
@@ -209,6 +358,60 @@ def build_coach_explainability_summary(
             watchout = "Даже если план допускает аккуратный catch-up, не догоняйте объём, пока сигналы усталости ещё красные."
         else:
             watchout = "Не пытайтесь наверстать пропущенный объём, пока сигналы усталости ещё красные."
+    elif feedback_context.get("is_actionable"):
+        label = feedback_context["plan_adjustment_label"]
+        focus = "execution_review"
+        icon = "♻️"
+        title = "Разберите execution checkpoint и ближайший план"
+        short_title = "Checkpoint требует разбора"
+        description = (
+            "Последняя неделя уже изменила план через execution checkpoint. "
+            "Сейчас полезнее сверить этот локальный replan с текущей формой, чем сразу возвращаться к обычной интерпретации readiness."
+        )
+        reason = (
+            "После пропуска, урезания или ограничения недели главный риск — "
+            "не неверная метрика, а попытка слишком быстро вернуть объём в ближайшие 1-2 дня."
+        )
+        button = "Разобрать checkpoint"
+        dashboard_button = "Открыть разбор checkpoint"
+        action = "ai_chat"
+        prompt = (
+            "Проанализируй мой последний execution checkpoint, текущие метрики формы и ближайший план. "
+            "Объясни, что делать сегодня, что менять в ближайшие 2-3 дня и какой объём точно не нужно пытаться вернуть сразу."
+        )
+        if label == "Пропущены сессии":
+            today_action = "Не втискивайте выпавшие сессии в ближайшие 1-2 дня; сначала решите, какую часть нагрузки стоит вернуть, а какую отпустить."
+            watchout = "Не превращайте пропущенный объём в долг, который нужно закрыть одним перегруженным блоком."
+        elif label == "Нагрузка урезана":
+            today_action = "Примите облегчённую неделю как новый baseline и проверьте, что ближайшая ключевая сессия всё ещё уместна."
+            watchout = "Не компенсируйте урезанную нагрузку резким скачком уже на следующий день."
+        else:
+            today_action = "Сначала перестройте ближайшие дни под реальное окно доступности, а уже потом решайте, что из объёма безопасно вернуть."
+            watchout = "Не уплотняйте неделю сверх фактически доступных дней, даже если хочется быстро вернуться к исходному плану."
+
+        checkpoint_horizon = feedback_context.get("plan_adjustment_weeks", 0)
+        total_delta = feedback_context.get("total_delta", 0)
+        total_delta_text = (
+            f" Локальный replan уже изменил краткосрочный объём на {total_delta:+d} TSS."
+            if total_delta
+            else ""
+        )
+        if checkpoint_horizon > 0 and available_days_text:
+            next_window = (
+                f"Пересоберите ближайшие {checkpoint_horizon} нед. вокруг реального окна {available_days_text} "
+                "и проверьте, что safe catch-up не спорит с восстановлением."
+                f"{total_delta_text}"
+            )
+        elif checkpoint_horizon > 0:
+            next_window = (
+                f"Пересоберите ближайшие {checkpoint_horizon} нед. вокруг фактической готовности и не возвращайте объём автоматически."
+                f"{total_delta_text}"
+            )
+        else:
+            next_window = (
+                "Сверьте ближайшие 2-3 дня с фактическим объёмом недели и уберите автоматическое желание 'добить план'."
+                f"{total_delta_text}"
+            )
     elif (
         readiness_val is not None
         and readiness_val >= 75
@@ -242,7 +445,16 @@ def build_coach_explainability_summary(
         else:
             watchout = "Даже при хорошем readiness не ставьте тяжёлые дни подряд и контролируйте, чтобы ATL не рос быстрее формы."
 
-    prompt = _append_plan_context_to_prompt(prompt, goal_plan)
+    if feedback_context.get("is_actionable") and focus != "execution_review":
+        guardrail = _build_execution_feedback_guardrail(feedback_context)
+        if guardrail.get("today"):
+            today_action = f"{today_action} {guardrail['today']}"
+        if guardrail.get("next_window"):
+            next_window = f"{next_window} {guardrail['next_window']}"
+        if guardrail.get("watchout"):
+            watchout = f"{watchout} {guardrail['watchout']}"
+
+    prompt = _append_plan_context_to_prompt(prompt, goal_plan, feedback_context)
 
     signals: List[str] = []
     if tsb_val is not None:
@@ -260,6 +472,7 @@ def build_coach_explainability_summary(
     if sleep_quality:
         signals.append(f"Сон: {sleep_quality}")
 
+    signals.extend(_collect_execution_feedback_signals(feedback_context))
     signals.extend(_collect_planning_signals(goal_plan))
 
     return {
@@ -278,4 +491,34 @@ def build_coach_explainability_summary(
         "watchout": watchout,
         "plan_context": _build_plan_context_line(goal_plan),
         "signals": signals,
+    }
+
+
+def build_operational_response_contract(summary: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    """Build a deterministic first-response contract for dashboard/entry coaching flows."""
+    if not isinstance(summary, dict):
+        return None
+
+    today_action = str(summary.get("today_action") or "").strip()
+    next_window = str(summary.get("next_window") or "").strip()
+    watchout = str(summary.get("watchout") or "").strip()
+    reason = str(summary.get("reason") or "").strip()
+    if not any([today_action, next_window, watchout, reason]):
+        return None
+
+    return {
+        "mode": "operational_brief",
+        "preview_label": OPERATIONAL_RESPONSE_PREVIEW,
+        "today_action": today_action,
+        "next_window": next_window,
+        "watchout": watchout,
+        "reason": reason,
+        "prompt_suffix": (
+            "Верни первый ответ в строгом operational формате:\n"
+            "1. Сегодня — одно короткое действие на сегодня.\n"
+            "2. Ближайшие 2-3 дня — как вести себя в ближайшем окне.\n"
+            "3. Не делать — один главный запрет или риск.\n"
+            "4. Почему — коротко объясни логику через текущие сигналы и план.\n"
+            "После этих 4 пунктов можешь добавить короткий раздел «Разбор AI», если он реально нужен."
+        ),
     }
