@@ -4,8 +4,15 @@ from datetime import date, datetime
 
 import pytest
 
+from models.planning_near_term import (
+    apply_near_term_day_edits,
+    build_near_term_edit_draft_rows,
+    build_near_term_edit_rows,
+)
+from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
 from ui.pages.planning import (
     _build_daily_session_rows,
+    _build_near_term_draft_preview,
     _build_plan_explainability,
     _resolve_target_weekly_tss_control,
     _resolve_target_weekly_tss_step,
@@ -227,3 +234,59 @@ def test_build_daily_session_rows_prefers_session_templates_when_present():
     assert rows[0]["session_focus"] == "Качество • вело"
     assert rows[0]["session_name"] == "Триатлон Олимпийка — Качество • вело"
     assert rows[0]["duration_minutes"] == 90
+
+
+def test_build_near_term_draft_preview_summarizes_weekly_effect_before_apply():
+    weekly_tss_plan = [220, 240, 180]
+    phases = ["Base", "Build", "Taper"]
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        weekly_tss_plan,
+        phases,
+        "Олимпийка",
+        date(2026, 6, 8),
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+    goal_plan = {
+        "goal_type": "Триатлон",
+        "distance": "Олимпийка",
+        "weeks_to_race": len(weekly_tss_plan),
+        "start_week": date(2026, 6, 8),
+        "weekly_tss_plan": weekly_tss_plan,
+        "base_weekly_tss_plan": [220, 240, 180],
+        "phases": phases,
+        "daily_plan": daily_plan,
+        "session_templates": build_daily_session_templates(
+            daily_plan,
+            weekly_summary,
+            goal_type="Триатлон",
+            distance="Олимпийка",
+        ),
+        "weekly_summary": weekly_summary,
+        "constraint_summary": {"notes": ["Базовый план под текущую доступность."]},
+    }
+    edit_rows = build_near_term_edit_rows(goal_plan, horizon_days=7)
+    current_row = edit_rows[1]
+    draft_rows = build_near_term_edit_draft_rows(
+        edit_rows,
+        goal_type=goal_plan["goal_type"],
+        distance=goal_plan["distance"],
+        overrides_by_index={
+            int(current_row["index"]): {
+                "session_role": current_row["current_role"],
+                "sport": current_row["current_sport"],
+                "total_tss": current_row["current_total_tss"] + 15,
+            }
+        },
+    )
+    draft_goal_plan = apply_near_term_day_edits(goal_plan, draft_rows, horizon_days=7)
+
+    preview = _build_near_term_draft_preview(goal_plan, draft_goal_plan)
+
+    assert preview["changed_week_count"] == 1
+    assert preview["near_term_edit"] is not None
+    assert preview["near_term_edit"]["edited_day_count"] == 1
+    assert preview["near_term_edit"]["total_delta_tss"] == 15
+    assert preview["weekly_rows"][0]["Неделя"].startswith("1 • 08.06")
+    assert preview["weekly_rows"][0]["Δ TSS"] == "+15"
+    assert "ручная правка: 1 дн." in preview["weekly_rows"][0]["Почему"]

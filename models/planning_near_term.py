@@ -307,6 +307,10 @@ def apply_near_term_day_edits(
         )
         if changed:
             changed_day_count += 1
+            week_index = day_index // 7
+            week_stat = touched_week_stats.setdefault(week_index, {"delta_tss": 0.0, "edited_days": 0.0})
+            week_stat["delta_tss"] += round(target_total_tss - float(current_total or 0.0), 1)
+            week_stat["edited_days"] += 1.0
 
         if target_sport == current_sport and target_total_tss > 0 and current_sport != "off":
             new_parts = _scale_parts_to_total(current_parts, target_total_tss, current_sport)
@@ -345,11 +349,6 @@ def apply_near_term_day_edits(
             "export_name": export_name,
             "description": description,
         }
-
-        week_index = day_index // 7
-        week_stat = touched_week_stats.setdefault(week_index, {"delta_tss": 0.0, "edited_days": 0.0})
-        week_stat["delta_tss"] += round(target_total_tss - float(current_total or 0.0), 1)
-        week_stat["edited_days"] += 1.0
 
     refreshed_weekly_summary: List[Dict[str, Any]] = []
     for week_index, week_row in enumerate(weekly_summary):

@@ -56,3 +56,27 @@ def test_apply_streamlit_width_compat_preserves_non_stretch_width_values():
     fake_streamlit.dataframe("rows", width=640, hide_index=True)
 
     assert calls == [{"width": 640, "hide_index": True}]
+
+
+def test_apply_streamlit_width_compat_skips_native_width_implementations():
+    calls: list[tuple[str, tuple[object, ...], dict[str, object]]] = []
+
+    def make_stub(name: str):
+        def stub(*args, width=None, **kwargs):
+            payload = dict(kwargs)
+            payload["width"] = width
+            calls.append((name, args, payload))
+            return name
+
+        return stub
+
+    fake_streamlit = SimpleNamespace(
+        button=make_stub("button"),
+        dataframe=make_stub("dataframe"),
+        plotly_chart=make_stub("plotly_chart"),
+    )
+
+    apply_streamlit_width_compat(fake_streamlit)
+    fake_streamlit.button("CTA", width="stretch")
+
+    assert calls == [("button", ("CTA",), {"width": "stretch"})]

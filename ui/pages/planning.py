@@ -218,6 +218,47 @@ def _build_daily_session_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]
     return rows
 
 
+def _build_near_term_draft_preview(
+    current_goal_plan: Dict[str, Any],
+    draft_goal_plan: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Summarize week-level impact and the persisted label for the current draft."""
+    current_weekly_summary = list(current_goal_plan.get("weekly_summary", []) or [])
+    draft_weekly_summary = list(draft_goal_plan.get("weekly_summary", []) or [])
+    weekly_rows: List[Dict[str, Any]] = []
+
+    for idx, draft_row in enumerate(draft_weekly_summary):
+        current_row = current_weekly_summary[idx] if idx < len(current_weekly_summary) else {}
+        current_tss = int(current_row.get("weekly_tss", 0) or 0)
+        draft_tss = int(draft_row.get("weekly_tss", current_tss) or 0)
+        current_note = str(current_row.get("adjustment_note", "—") or "—")
+        draft_note = str(draft_row.get("adjustment_note", current_note) or "—")
+
+        if current_tss == draft_tss and current_note == draft_note:
+            continue
+
+        week_start_value = draft_row.get("week_start") or current_row.get("week_start")
+        week_label = str(idx + 1)
+        if week_start_value is not None:
+            week_label = f"{idx + 1} • {week_start_value.strftime('%d.%m')}"
+
+        weekly_rows.append(
+            {
+                "Неделя": week_label,
+                "Было TSS": current_tss,
+                "Станет TSS": draft_tss,
+                "Δ TSS": f"{draft_tss - current_tss:+d}",
+                "Почему": draft_note,
+            }
+        )
+
+    return {
+        "near_term_edit": summarize_near_term_edit(draft_goal_plan.get("constraint_summary", {})),
+        "changed_week_count": len(weekly_rows),
+        "weekly_rows": weekly_rows,
+    }
+
+
 def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None:
     """Render an in-place editor for the next 7-10 days of the current plan."""
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
@@ -303,6 +344,16 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
             for row in draft_rows
         }
         draft_summary = summarize_near_term_draft_rows(draft_rows)
+        draft_preview = None
+        if draft_summary["has_changes"]:
+            draft_preview = _build_near_term_draft_preview(
+                goal_plan,
+                apply_near_term_day_edits(
+                    goal_plan,
+                    draft_rows,
+                    horizon_days=horizon_days,
+                ),
+            )
 
         st.markdown("#### Черновик правок")
         if draft_summary["has_changes"]:
@@ -328,6 +379,18 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                 width="stretch",
                 hide_index=True,
             )
+            if draft_preview and draft_preview["near_term_edit"] is not None:
+                st.caption(
+                    "После применения сохранённый checkpoint покажет: "
+                    f"{draft_preview['near_term_edit']['compact_label']}."
+                )
+            if draft_preview and draft_preview["weekly_rows"]:
+                st.markdown("##### Как изменятся недели")
+                st.dataframe(
+                    pd.DataFrame(draft_preview["weekly_rows"]),
+                    width="stretch",
+                    hide_index=True,
+                )
         else:
             st.info(
                 "Черновик совпадает с текущим ближним горизонтом: "
@@ -380,7 +443,7 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                 "↺ Сбросить черновик",
                 key=f"near_term_reset_{key_prefix}",
                 disabled=not draft_summary["has_changes"],
-                use_container_width=True,
+                width="stretch",
             )
         with action_cols[1]:
             apply_clicked = st.button(
@@ -388,7 +451,7 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                 key=f"near_term_apply_{key_prefix}",
                 type="primary",
                 disabled=not draft_summary["has_changes"],
-                use_container_width=True,
+                width="stretch",
             )
 
         if reset_clicked:

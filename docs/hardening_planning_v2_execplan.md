@@ -82,6 +82,7 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-14 22:32+04:00) Completed the next Planning V2 slice: added an in-place near-term editor for the next 7-10 plan days, wired manual edits into `daily_plan`, `session_templates`, weekly summaries, explainability notes, and persisted planning checkpoints, added focused smoke coverage for both manual day edits and unchanged-sport rescaling behavior, and re-ran the full smoke suite (`110 passed`).
 - [x] (2026-06-14 22:58+04:00) Completed the next Planning V2 + Coach Explainability bridge slice: extracted a shared persisted `near_term_edit` summary, surfaced that manual-edit signal in dashboard checkpoint/history UI, AI coaching entry/explainability, and planning export/sync messaging, re-ran focused smoke coverage (`21 passed`) plus the full smoke suite (`112 passed`), and browser-verified on a fresh isolated acceptance runtime at `http://localhost:8513` that a cold-reloaded saved checkpoint visibly carries `Ручная правка` into both dashboard and AI coaching.
 - [x] (2026-06-16 23:38+04:00) Completed the Planning UX hardening slice around the near-term editor: replaced the submit-only form flow with a live draft that shows `Черновик правок`, explicit `Было → Станет` diffs, reset/apply controls, and clearer saved-vs-draft messaging, fixed `off`-day duration so zero-load days now stay at `0` minutes, and made `ui.pages` imports lazy so planning helper tests no longer pull the whole page shell during collection. Focused validation passed on system Python for `test_planning_near_term`, `test_planning_page_explainability`, `test_training_planner_adaptive`, `test_planning_checkpoint_history`, `test_dashboard_ai_handoff`, `test_ai_coaching_recommended_prompt`, `test_coach_explainability`, and `test_ui_page_exports` (`51 passed` total). A full `tests/smoke` run and a fresh acceptance runtime were both blocked by separate pre-existing environment issues in `services/__init__.py` and `ai_trainer_env` runtime checks rather than by the planning UX code itself.
+- [x] (2026-06-17 19:40+04:00) Closed the workspace-move hardening loop and the next Planning UX slice together: `python3 -m pytest tests/smoke -q` is green again at `124 passed`, `./run_acceptance.sh` starts cleanly again from the moved workspace by launching Streamlit through `python -m streamlit`, the near-term editor now previews touched weeks plus the future persisted `Ручная правка` label before apply, the weekly manual-edit note now counts only truly changed days, and the Streamlit width-compat layer no longer forces deprecated `use_container_width` on modern runtimes. Acceptance startup, `HTTP 200`, and `/_stcore/health -> ok` all passed on a fresh isolated `http://localhost:8510` runtime without the earlier width warnings.
 - [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
@@ -191,6 +192,15 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Observation: the near-term editor had a subtle zero-load inconsistency before this slice: a day turned into `off` could still preview and persist a non-zero duration.
   Evidence: the new draft summary test first failed with `assert 30 == 0` for an `off` day, which traced back to `_estimate_session_duration_minutes(...)` returning a floor duration even when `total_tss <= 0`. Returning `0` for zero-load days fixed both the draft preview and persisted session-template metadata.
+
+- Observation: after the workspace move, the acceptance launcher failure was not in `streamlit` importability, but in the virtualenv wrapper script itself.
+  Evidence: `./run_acceptance.sh` passed `doctor_env.py check --runtime` and `import streamlit`, but then crashed with `ai_trainer_env/bin/streamlit: .../Documents/GitHub/ai_trainer/.../python3: bad interpreter`. Switching launchers to `python -m streamlit` fixed startup without depending on a rewritten shebang.
+
+- Observation: the first weekly draft-preview test exposed that manual-edit week notes were overstating the number of edited days.
+  Evidence: a draft that changed only one row still produced `ручная правка: 7 дн., Δ +15 TSS` because `apply_near_term_day_edits(...)` incremented `edited_days` for every row in the horizon, not only changed rows. Moving the counter update inside the `changed` branch made both the preview and persisted checkpoint truthful.
+
+- Observation: the initial width-compat layer solved old Streamlit support but reintroduced warnings on modern Streamlit by backporting too aggressively.
+  Evidence: acceptance boot on Streamlit `1.57.0` emitted repeated `Please replace use_container_width with width` warnings even after the planning page itself switched to `width="stretch"`. The root cause was `utils/streamlit_compat.py` always translating `width='stretch'` into `use_container_width=True`; making that translation conditional on the target function lacking a native `width` parameter removed the warnings while keeping backward compatibility tests green.
 
 ## Decision Log
 
@@ -313,6 +323,18 @@ This repository should borrow those product patterns while staying faithful to t
 - Decision: make `ui.pages` exports lazy at the package boundary instead of requiring every test that touches one page helper to import all page modules up front.
   Rationale: planning helper tests only need `ui.pages.planning`, but the eager `ui.pages.__init__` path still pulled unrelated pages and their heavy service imports into collection. Lazy wrappers preserve the public import surface used by `app.py` and the smoke suite while keeping page-local helper imports cheap and predictable.
   Date/Author: 2026-06-16 / Codex
+
+- Decision: launch Streamlit through `python -m streamlit` in both `run.sh` and `run_acceptance.sh` instead of trusting the checked-in `ai_trainer_env/bin/streamlit` wrapper.
+  Rationale: after the workspace move, the Python interpreter inside the virtualenv still worked and `import streamlit` still passed, but the wrapper script carried a stale absolute shebang from the old checkout path. Module-based launch keeps both virtualenv and system-runtime flows working without depending on wrapper regeneration.
+  Date/Author: 2026-06-17 / Codex
+
+- Decision: extend the near-term draft UX with week-level preview and the future persisted `near_term_edit` label before apply.
+  Rationale: the live draft already showed day-level diffs, but it still made the user infer how those edits would change weekly totals and what checkpoint signal the rest of the product would see afterward. Showing the touched weeks and projected persisted label before apply makes the editor more trustworthy without changing the underlying planning model.
+  Date/Author: 2026-06-17 / Codex
+
+- Decision: make the Streamlit width-compat layer signature-aware so it only backports `width='stretch'` when the runtime truly lacks native `width` support.
+  Rationale: unconditional translation to `use_container_width=True` kept older versions working but polluted modern acceptance runs with deprecation warnings. Signature-aware patching preserves old-runtime compatibility while letting new Streamlit builds use the native `width` API directly.
+  Date/Author: 2026-06-17 / Codex
 
 ## Plan of Work
 
@@ -491,3 +513,9 @@ The next hardening slice continued the same refactor one layer deeper by targeti
 That is a useful structural checkpoint because it separates Streamlit page chrome from the response engine. The file is still large, but the remaining size is now concentrated more honestly in tool calling, prompt construction, and progress-report generation rather than in repetitive UI scaffolding. Focused smoke coverage for the new chat-shell state bootstrap also means this slice improved both maintainability and test visibility instead of just moving code around.
 
 Revision note (2026-06-13 19:38+04:00): recorded the AI coaching chat-shell modularization slice after extracting the chat UI/state helpers into `ui/components/ai_coach_chat.py`, adding focused smoke coverage, and re-running the full smoke suite (`67 passed`).
+
+The workspace-move follow-up closed two classes of risk at once. Operationally, the repository is back to a reproducible local checkpoint: the full smoke suite now passes again on system Python, the acceptance launcher survives a moved checkout because it runs Streamlit through `python -m streamlit`, and the clean acceptance boot on `http://localhost:8510` proves the runtime path instead of only the tests. Product-wise, the next Planning UX slice is now more honest: the near-term editor previews touched weeks plus the future persisted `Ручная правка` label before apply, and the saved weekly note no longer exaggerates how many days were really edited.
+
+That changes what the next contributor should focus on. The immediate blockers are no longer environment drift or draft-trustworthiness inside the near-term editor. The remaining Planning V2 work can move back up a level toward richer adaptive behavior and explanation rather than spending another cycle on basic launcher reliability or draft-state honesty.
+
+Revision note (2026-06-17 19:40+04:00): recorded the workspace-move hardening closure plus the next Planning UX hardening slice after re-running the full smoke suite (`124 passed`), verifying acceptance startup/health on a fresh isolated `http://localhost:8510` runtime, adding week-level draft preview, fixing overstated manual-edit day counts, and making the width-compat layer quiet on modern Streamlit.

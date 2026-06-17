@@ -1,6 +1,7 @@
 """Compatibility helpers for running the app across Streamlit minor versions."""
 from __future__ import annotations
 
+import inspect
 from typing import Any
 
 import streamlit as st
@@ -9,9 +10,18 @@ _STRETCH_WIDTH = "stretch"
 _PATCHED_ATTR = "_ai_trainer_width_compat"
 
 
+def _supports_width_argument(func: Any) -> bool:
+    try:
+        return "width" in inspect.signature(func).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def _wrap_stretch_width(func_name: str, streamlit_module: Any) -> None:
     original = getattr(streamlit_module, func_name)
     if getattr(original, _PATCHED_ATTR, False):
+        return
+    if _supports_width_argument(original):
         return
 
     def wrapped(*args, **kwargs):
