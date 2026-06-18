@@ -265,6 +265,30 @@ def _build_near_term_draft_preview(
     }
 
 
+def _render_near_term_risk_callout(near_term_edit: Dict[str, Any], *, prefix: str) -> None:
+    risk_level = str(near_term_edit.get("risk_level") or "low").lower()
+    risk_badge = str(near_term_edit.get("risk_badge") or "Риск низкий")
+    risk_guardrail = str(near_term_edit.get("risk_guardrail") or "").strip()
+    risk_reasons = [
+        str(reason).strip()
+        for reason in near_term_edit.get("risk_reasons", [])
+        if str(reason).strip()
+    ]
+    body = f"**{prefix}: {risk_badge}.**"
+    if risk_guardrail:
+        body += f" {risk_guardrail}"
+
+    if risk_level == "high":
+        st.error(body)
+    elif risk_level == "medium":
+        st.warning(body)
+    else:
+        st.info(body)
+
+    for reason in risk_reasons[:3]:
+        st.write(f"• {reason}")
+
+
 def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None:
     """Render an in-place editor for the next 7-10 days of the current plan."""
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
@@ -411,6 +435,10 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                     f"{draft_preview['near_term_edit']['compact_label']}."
                 )
                 st.caption(draft_preview["near_term_edit"]["follow_up_description"])
+                _render_near_term_risk_callout(
+                    draft_preview["near_term_edit"],
+                    prefix="Оценка правки",
+                )
             if draft_preview and draft_preview["weekly_rows"]:
                 st.markdown("##### Как изменятся недели")
                 st.dataframe(
@@ -558,6 +586,8 @@ def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
             if explain["near_term_edit"] is not None:
                 st.write(f"• Ручная правка: {explain['near_term_edit']['compact_label']}")
                 st.write(f"• После окна: {explain['near_term_edit']['follow_up_description']}")
+                st.write(f"• Оценка правки: {explain['near_term_edit']['risk_badge']}")
+                st.write(f"• Guardrail: {explain['near_term_edit']['risk_guardrail']}")
             st.write(f"• Пик базового плана: {explain['peak_before']} → {explain['peak_after']}")
 
     comparison_df = pd.DataFrame(explain["comparison_rows"])
@@ -1156,6 +1186,10 @@ def render_planning_page(state: "StateManager") -> None:
                     "Ближний горизонт обновлён: "
                     f"{near_term_summary['compact_label']}."
                 )
+                if near_term_summary["risk_level"] != "low":
+                    st.session_state["planning_near_term_flash"] += (
+                        f" Оценка: {near_term_summary['risk_badge']}."
+                    )
             else:
                 st.session_state["planning_near_term_flash"] = "Ближний горизонт обновлён."
             st.rerun()

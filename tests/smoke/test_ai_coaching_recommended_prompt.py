@@ -113,6 +113,46 @@ def test_recommended_prompt_carries_manual_near_term_edit_into_prompt_context():
     assert "Наверстать аккуратно" in prompt["prompt"]
 
 
+def test_recommended_prompt_mentions_manual_edit_risk_guardrail():
+    prompt = ai_coaching._choose_recommended_first_prompt(
+        {
+            "summary": {"has_data": True},
+            "performance_metrics": {"has_data": True, "banister_model": {"tsb": -8}},
+            "hrv": {"has_data": True, "stats": {"recovery_state": "normal"}},
+            "sleep": {"has_data": True, "sleep_quality": "average"},
+            "training_status": {"has_data": True, "latest": {"training_readiness": 61}},
+        },
+        {
+            "constraint_summary": {
+                "available_hours": 8.0,
+                "available_day_labels": ["Вт", "Чт", "Сб"],
+                "near_term_edit": {
+                    "is_active": True,
+                    "edited_day_count": 2,
+                    "horizon_days": 7,
+                    "total_delta_tss": 40,
+                    "label": "Ручная правка ближнего горизонта",
+                    "post_edit_strategy": "keep",
+                    "future_target_tss": 0,
+                    "future_delta_tss": 0,
+                    "future_weeks": 2,
+                    "future_week_count": 0,
+                    "risk_level": "high",
+                    "risk_focus": "overload",
+                    "risk_reasons": [
+                        "в ближайшие 7 дн. добавлено +40 TSS",
+                        "убран день полного отдыха",
+                    ],
+                    "risk_guardrail": "Верните часть TSS или оставьте один явный лёгкий день.",
+                },
+            }
+        },
+    )
+
+    assert "Высокий риск перегруза" in prompt["prompt"]
+    assert "лёгкий день" in prompt["prompt"]
+
+
 def test_recommended_prompt_has_safe_fallback_without_data():
     prompt = ai_coaching._choose_recommended_first_prompt(
         {"summary": {"has_data": False}}

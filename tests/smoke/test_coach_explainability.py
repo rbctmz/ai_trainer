@@ -137,6 +137,43 @@ def test_coach_explainability_mentions_manual_near_term_edit():
     assert "Наверстать аккуратно" in summary["plan_context"]
 
 
+def test_coach_explainability_mentions_manual_edit_risk_guardrail():
+    summary = build_coach_explainability_summary(
+        tsb=-8,
+        ctl=66,
+        atl=74,
+        readiness=61,
+        goal_plan={
+            "constraint_summary": {
+                "available_day_labels": ["Вт", "Чт", "Сб"],
+                "near_term_edit": {
+                    "is_active": True,
+                    "edited_day_count": 2,
+                    "horizon_days": 7,
+                    "total_delta_tss": 40,
+                    "label": "Ручная правка ближнего горизонта",
+                    "post_edit_strategy": "keep",
+                    "future_target_tss": 0,
+                    "future_delta_tss": 0,
+                    "future_weeks": 2,
+                    "future_week_count": 0,
+                    "risk_level": "high",
+                    "risk_focus": "overload",
+                    "risk_reasons": [
+                        "в ближайшие 7 дн. добавлено +40 TSS",
+                        "убран день полного отдыха",
+                    ],
+                    "risk_guardrail": "Верните часть TSS или оставьте один явный лёгкий день.",
+                },
+            }
+        },
+    )
+
+    assert any("Риск ручной правки" in signal for signal in summary["signals"])
+    assert "Высокий риск перегруза" in summary["plan_context"]
+    assert "лёгкий день" in summary["plan_context"]
+
+
 def test_coach_explainability_prefers_execution_review_after_actionable_checkpoint():
     summary = build_coach_explainability_summary(
         tsb=3,

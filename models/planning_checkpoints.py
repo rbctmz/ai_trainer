@@ -87,6 +87,8 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "near_term_edit_horizon_days": near_term_edit.get("horizon_days", 0) if near_term_edit else 0,
         "near_term_edit_total_delta_tss": near_term_edit.get("total_delta_tss", 0) if near_term_edit else 0,
         "near_term_edit_future_delta_tss": near_term_edit.get("future_delta_tss", 0) if near_term_edit else 0,
+        "near_term_edit_risk_level": near_term_edit.get("risk_level", "") if near_term_edit else "",
+        "near_term_edit_risk_badge": near_term_edit.get("risk_badge", "") if near_term_edit else "",
         "interruption_label": constraint_summary.get("interruption_label", "Нет"),
         "load_state_label": constraint_summary.get("load_state_label"),
         "goal_plan_snapshot": goal_plan_snapshot,

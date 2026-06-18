@@ -50,6 +50,13 @@ def _normalize_total_tss(value: Any) -> float:
     return round(max(0.0, total_tss), 1)
 
 
+def _normalize_metric_or_none(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _normalize_horizon_days(horizon_days: int | None, daily_count: int) -> int:
     if daily_count <= 0:
         return 0
@@ -194,6 +201,138 @@ def _resolve_post_edit_target_delta(
         elif load_state == "fatigued":
             share = max(share, 0.65)
     return -_round_to_5(abs(horizon_delta) * share)
+
+
+def _evaluate_near_term_edit_risk(
+    *,
+    original_horizon_total: float,
+    new_horizon_total: float,
+    resolved_horizon: int,
+    original_roles: Sequence[str],
+    updated_roles: Sequence[str],
+    current_tsb: float | None,
+    load_state: str,
+    load_state_label: str,
+    future_delta_tss: int,
+    post_edit_strategy: str,
+    max_added_day_tss: float,
+    max_removed_day_tss: float,
+) -> Dict[str, Any]:
+    total_delta_tss = int(round(new_horizon_total - original_horizon_total))
+    current_off_days = sum(1 for role in original_roles if role == "off")
+    updated_off_days = sum(1 for role in updated_roles if role == "off")
+    current_quality_days = sum(1 for role in original_roles if role == "quality")
+    updated_quality_days = sum(1 for role in updated_roles if role == "quality")
+    removed_off_days = max(0, current_off_days - updated_off_days)
+    added_quality_days = max(0, updated_quality_days - current_quality_days)
+    removed_quality_days = max(0, current_quality_days - updated_quality_days)
+    delta_share = abs(float(total_delta_tss)) / max(float(original_horizon_total or 0.0), 1.0)
+
+    focus = "balanced"
+    score = 0
+    reasons: List[str] = []
+
+    tired_state = load_state in {"fatigued", "deep_fatigue"} or (
+        current_tsb is not None and current_tsb <= -10
+    )
+    deeply_tired = load_state == "deep_fatigue" or (
+        current_tsb is not None and current_tsb <= -20
+    )
+
+    if total_delta_tss > 0 or (total_delta_tss == 0 and (removed_off_days > 0 or added_quality_days > 0)):
+        focus = "overload"
+        if total_delta_tss > 0:
+            reasons.append(f"в ближайшие {resolved_horizon} дн. добавлено {total_delta_tss:+d} TSS")
+            if total_delta_tss >= 25 or delta_share >= 0.12:
+                score += 1
+            if total_delta_tss >= 40 or delta_share >= 0.18:
+                score += 1
+        if removed_off_days > 0:
+            reasons.append("убран день полного отдыха")
+            score += 1
+        if added_quality_days > 0:
+            reasons.append("в окне стало больше качественных дней")
+            score += 1
+        if max_added_day_tss >= 25:
+            reasons.append(f"один из дней вырос сразу на +{int(round(max_added_day_tss))} TSS")
+            score += 1
+        if deeply_tired:
+            reasons.append(f"стартовое состояние уже «{load_state_label or 'Глубокая усталость'}»")
+            score += 2
+        elif tired_state:
+            reasons.append(f"стартовое состояние уже «{load_state_label or 'Накопленная усталость'}»")
+            score += 1
+        if post_edit_strategy == "keep" and future_delta_tss == 0 and total_delta_tss > 0:
+            reasons.append("добавленный объём остаётся локально без разгрузки следующих недель")
+            score += 1
+        elif (
+            future_delta_tss < 0
+            and score > 0
+            and total_delta_tss < 35
+            and removed_off_days == 0
+            and added_quality_days == 0
+        ):
+            score -= 1
+        guardrail = "Верните часть TSS или оставьте один явный лёгкий день, если утреннее самочувствие уже просело."
+    elif total_delta_tss < 0 or removed_quality_days > 0:
+        if tired_state:
+            reasons.append("правка разгружает уже уставшее окно")
+            focus = "balanced"
+            if future_delta_tss > 0 and abs(future_delta_tss) >= max(15, int(round(abs(total_delta_tss) * 0.6))):
+                focus = "overload"
+                reasons.append("большая часть снятого объёма быстро возвращается в следующих неделях")
+                score += 2
+            guardrail = "Сохраняйте разгрузку, пока не увидите нормализацию самочувствия, а возврат объёма делайте ступенчато."
+        else:
+            focus = "underload"
+            reasons.append(f"из ближайших {resolved_horizon} дн. снято {total_delta_tss:+d} TSS")
+            if abs(total_delta_tss) >= 25 or delta_share >= 0.12:
+                score += 1
+            if abs(total_delta_tss) >= 45 or delta_share >= 0.20:
+                score += 1
+            if removed_quality_days > 0 and updated_quality_days == 0:
+                reasons.append("из окна ушёл весь качественный стимул")
+                score += 1
+            if abs(max_removed_day_tss) >= 25:
+                reasons.append(f"один из дней стал легче сразу на {int(round(abs(max_removed_day_tss)))} TSS")
+                score += 1
+            if post_edit_strategy == "keep" and future_delta_tss == 0:
+                reasons.append("снятый объём не планируется вернуть в безопасном окне")
+                score += 1
+            elif future_delta_tss > 0 and score > 0:
+                recovered_share = abs(float(future_delta_tss)) / max(abs(float(total_delta_tss)), 1.0)
+                score -= 2 if recovered_share >= 0.35 else 1
+                score = max(0, score)
+            guardrail = "Если это не вынужденная разгрузка, верните хотя бы один качественный стимул позже в безопасном окне."
+    else:
+        if added_quality_days > 0 and tired_state:
+            focus = "overload"
+            score = 2
+            reasons = [
+                "структура окна стала жёстче без прироста общего TSS",
+                f"стартовое состояние уже «{load_state_label or 'Накопленная усталость'}»",
+            ]
+            guardrail = "Не ставьте второй жёсткий стимул подряд, пока самочувствие не стабилизировалось."
+        elif removed_quality_days > 0:
+            focus = "underload"
+            score = 1
+            reasons = ["качественный стимул убран, хотя общий объём почти не изменился"]
+            guardrail = "Проверьте, что в окне остаётся хотя бы один ключевой стимул под цель недели."
+        else:
+            guardrail = "После применения просто сверяйте самочувствие и не компенсируйте следующий день автоматически."
+
+    level = "low"
+    if score >= 4:
+        level = "high"
+    elif score >= 2:
+        level = "medium"
+
+    return {
+        "risk_level": level,
+        "risk_focus": focus,
+        "risk_reasons": reasons,
+        "risk_guardrail": guardrail,
+    }
 
 
 def _apply_week_total_delta(
@@ -436,6 +575,7 @@ def apply_near_term_day_edits(
     """Apply in-place daily edits to the next 7-10 days of an existing goal plan."""
     updated_goal_plan = dict(goal_plan)
     daily_plan = _clone_daily_plan(goal_plan)
+    original_daily_plan = _clone_daily_plan(goal_plan)
     session_templates = _clone_session_templates(goal_plan, daily_plan)
     weekly_summary = [dict(row or {}) for row in list(goal_plan.get("weekly_summary", []) or [])]
     resolved_horizon = _normalize_horizon_days(horizon_days, len(daily_plan))
@@ -443,6 +583,10 @@ def apply_near_term_day_edits(
     distance = str(goal_plan.get("distance") or "")
     normalized_post_edit_strategy = _normalize_post_edit_strategy(post_edit_strategy)
     post_edit_strategy_label = NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU[normalized_post_edit_strategy]
+    original_session_templates = list(session_templates)
+    current_tsb = _normalize_metric_or_none((goal_plan.get("constraint_summary", {}) or {}).get("current_tsb"))
+    load_state = str((goal_plan.get("constraint_summary", {}) or {}).get("load_state", "balanced") or "balanced").lower()
+    load_state_label = str((goal_plan.get("constraint_summary", {}) or {}).get("load_state_label") or "").strip()
 
     original_horizon_total = round(sum(total for _dt, total, _parts in daily_plan[:resolved_horizon]), 1)
     changed_day_count = 0
@@ -646,6 +790,42 @@ def apply_near_term_day_edits(
                 break
 
     constraint_summary = dict(goal_plan.get("constraint_summary", {}) or {})
+    original_roles = [
+        _normalize_session_role(template.get("session_role") or ("off" if original_daily_plan[day_index][1] <= 0 else "easy"))
+        for day_index, template in enumerate(original_session_templates[:resolved_horizon])
+    ]
+    updated_roles = [
+        _normalize_session_role(template.get("session_role") or ("off" if daily_plan[day_index][1] <= 0 else "easy"))
+        for day_index, template in enumerate(session_templates[:resolved_horizon])
+    ]
+    max_added_day_tss = max(
+        [0.0]
+        + [
+            round(daily_plan[day_index][1] - original_daily_plan[day_index][1], 1)
+            for day_index in range(resolved_horizon)
+        ]
+    )
+    max_removed_day_tss = min(
+        [0.0]
+        + [
+            round(daily_plan[day_index][1] - original_daily_plan[day_index][1], 1)
+            for day_index in range(resolved_horizon)
+        ]
+    )
+    risk_summary = _evaluate_near_term_edit_risk(
+        original_horizon_total=original_horizon_total,
+        new_horizon_total=new_horizon_total,
+        resolved_horizon=resolved_horizon,
+        original_roles=original_roles,
+        updated_roles=updated_roles,
+        current_tsb=current_tsb,
+        load_state=load_state,
+        load_state_label=load_state_label,
+        future_delta_tss=future_delta_tss,
+        post_edit_strategy=normalized_post_edit_strategy,
+        max_added_day_tss=max_added_day_tss,
+        max_removed_day_tss=max_removed_day_tss,
+    )
     existing_notes = [
         str(note)
         for note in constraint_summary.get("notes", [])
@@ -653,6 +833,7 @@ def apply_near_term_day_edits(
             note
             and not str(note).startswith("Ручная правка ближнего горизонта:")
             and not str(note).startswith("После ручной правки:")
+            and not str(note).startswith("Оценка ручной правки:")
         )
     ]
     manual_note = (
@@ -678,8 +859,13 @@ def apply_near_term_day_edits(
         follow_up_note = "После ручной правки: добавленный объём оставлен локально и не перераспределяется автоматически."
     else:
         follow_up_note = f"После ручной правки: стратегия «{post_edit_strategy_label}» не потребовала автокоррекции."
+    risk_note = (
+        f"Оценка ручной правки: {risk_summary['risk_guardrail']}"
+        if risk_summary["risk_level"] != "low"
+        else "Оценка ручной правки: риск низкий, достаточно обычного контроля самочувствия."
+    )
 
-    constraint_summary["notes"] = existing_notes + [manual_note, follow_up_note]
+    constraint_summary["notes"] = existing_notes + [manual_note, follow_up_note, risk_note]
     constraint_summary["near_term_edit"] = {
         "is_active": changed_day_count > 0,
         "edited_day_count": changed_day_count,
@@ -692,6 +878,7 @@ def apply_near_term_day_edits(
         "future_delta_tss": future_delta_tss,
         "future_weeks": 2,
         "future_week_count": future_week_count,
+        **risk_summary,
     }
 
     updated_goal_plan["daily_plan"] = daily_plan

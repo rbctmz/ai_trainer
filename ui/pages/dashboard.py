@@ -668,6 +668,9 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
         )
         if checkpoint_summary.get("near_term_edit"):
             st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
+            st.write(f"**Оценка правки:** {checkpoint_summary['near_term_edit']['risk_badge']}")
+            if checkpoint_summary["near_term_edit"].get("risk_level") != "low":
+                st.caption(checkpoint_summary["near_term_edit"]["risk_guardrail"])
         if checkpoint_summary["plan_adjustment_weeks"] > 0:
             st.write(f"**Горизонт:** {checkpoint_summary['plan_adjustment_weeks']} нед.")
         if checkpoint_summary["interruption_label"] != "Нет":
@@ -689,6 +692,8 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
                 suffix = ""
                 if item.get("near_term_edit"):
                     suffix = f" · ручная правка: {item['near_term_edit']['delta_label']}"
+                    if item["near_term_edit"].get("risk_level") != "low":
+                        suffix += f" · {item['near_term_edit']['risk_badge']}"
                 st.write(f"• {item['title']}: {item['plan_adjustment_label']}{suffix}{when}")
 
 

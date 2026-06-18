@@ -79,6 +79,7 @@ def test_ai_chat_action_primes_dashboard_handoff(monkeypatch: pytest.MonkeyPatch
     assert "Вт, Чт, Сб" in state.ai_coach_handoff["prompt"]
     assert "ручную правку ближнего горизонта" in state.ai_coach_handoff["prompt"]
     assert "Наверстать аккуратно" in state.ai_coach_handoff["prompt"]
+    assert "Риск низкий" in state.ai_coach_handoff["prompt"]
     assert state.ai_coach_handoff["response_contract"]["mode"] == "operational_brief"
     assert "Сегодня / Ближайшие 2-3 дня / Не делать / Почему" in state.ai_coach_handoff["response_contract"]["preview_label"]
 

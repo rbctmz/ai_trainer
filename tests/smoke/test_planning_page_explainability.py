@@ -288,6 +288,7 @@ def test_build_near_term_draft_preview_summarizes_weekly_effect_before_apply():
     assert preview["near_term_edit"]["edited_day_count"] == 1
     assert preview["near_term_edit"]["total_delta_tss"] == 15
     assert preview["near_term_edit"]["post_edit_strategy"] == "keep"
+    assert preview["near_term_edit"]["risk_level"] in {"low", "medium", "high"}
     assert preview["weekly_rows"][0]["Неделя"].startswith("1 • 08.06")
     assert preview["weekly_rows"][0]["Δ TSS"] == "+15"
     assert "ручная правка: 1 дн." in preview["weekly_rows"][0]["Почему"]
@@ -353,5 +354,48 @@ def test_build_near_term_draft_preview_carries_follow_up_strategy_into_future_we
     assert preview["near_term_edit"] is not None
     assert preview["near_term_edit"]["post_edit_strategy"] == "catch_up"
     assert preview["near_term_edit"]["future_delta_tss"] > 0
+    assert preview["near_term_edit"]["risk_badge"] == "Риск низкий"
     assert "Наверстать аккуратно" in preview["near_term_edit"]["follow_up_description"]
     assert any("ручной возврат" in row["Почему"] for row in preview["weekly_rows"])
+
+
+def test_build_plan_explainability_carries_manual_edit_risk_signal():
+    explain = _build_plan_explainability(
+        {
+            "weekly_tss_plan": [220, 215, 180],
+            "base_weekly_tss_plan": [220, 240, 180],
+            "phases": ["Base", "Build", "Taper"],
+            "weekly_summary": [
+                {"week_start": date(2026, 6, 8), "adjustment_note": "ручная правка: 2 дн., Δ +40 TSS"},
+                {"week_start": date(2026, 6, 15), "adjustment_note": "ручная разгрузка -15 TSS"},
+                {"week_start": date(2026, 6, 22), "adjustment_note": "—"},
+            ],
+            "constraint_summary": {
+                "notes": ["Базовый план под текущую доступность."],
+                "near_term_edit": {
+                    "is_active": True,
+                    "edited_day_count": 2,
+                    "horizon_days": 7,
+                    "total_delta_tss": 40,
+                    "label": "Ручная правка ближнего горизонта",
+                    "post_edit_strategy": "keep",
+                    "future_target_tss": 0,
+                    "future_delta_tss": 0,
+                    "future_weeks": 2,
+                    "future_week_count": 0,
+                    "risk_level": "high",
+                    "risk_focus": "overload",
+                    "risk_reasons": [
+                        "в ближайшие 7 дн. добавлено +40 TSS",
+                        "убран день полного отдыха",
+                    ],
+                    "risk_guardrail": "Верните часть TSS или оставьте один явный лёгкий день.",
+                },
+            },
+        }
+    )
+
+    assert explain["near_term_edit"] is not None
+    assert explain["near_term_edit"]["risk_level"] == "high"
+    assert explain["near_term_edit"]["risk_badge"] == "Высокий риск перегруза"
+    assert "лёгкий день" in explain["near_term_edit"]["risk_guardrail"]

@@ -129,6 +129,8 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     assert summary["near_term_edit"]["total_delta_tss"] == -15
     assert summary["near_term_edit"]["strategy_label"] == "Наверстать аккуратно"
     assert summary["near_term_edit"]["future_delta_tss"] == 10
+    assert summary["near_term_edit"]["risk_level"] == "low"
+    assert checkpoint["near_term_edit_risk_level"] == "low"
 
 
 def test_rebuild_goal_plan_with_adjustment_from_checkpoint_context():

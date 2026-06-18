@@ -224,6 +224,9 @@ def render_empty_ai_chat_guidance(
             )
             if checkpoint_summary.get("near_term_edit"):
                 st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
+                st.write(f"**Оценка правки:** {checkpoint_summary['near_term_edit']['risk_badge']}")
+                if checkpoint_summary["near_term_edit"].get("risk_level") != "low":
+                    st.caption(checkpoint_summary["near_term_edit"]["risk_guardrail"])
 
     explain_summary = _build_ai_coach_explainability_summary(
         state.data_context,

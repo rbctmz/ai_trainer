@@ -113,6 +113,11 @@ def _collect_planning_signals(goal_plan: Dict[str, Any] | None) -> List[str]:
             "Ближайший горизонт уже правился вручную: "
             f"{near_term_edit['description']}."
         )
+        if near_term_edit.get("risk_level") != "low":
+            signals.append(
+                "Риск ручной правки: "
+                f"{near_term_edit['risk_badge']}. {near_term_edit['risk_guardrail']}"
+            )
 
     for note in planning_context.get("notes", []):
         if "Стартовое состояние:" in note:
@@ -159,6 +164,10 @@ def _build_plan_context_line(goal_plan: Dict[str, Any] | None) -> str | None:
     near_term_edit = planning_context.get("near_term_edit")
     if isinstance(near_term_edit, dict):
         fragments.append(f"ручную правку ближнего горизонта: {near_term_edit['description']}")
+        if near_term_edit.get("risk_level") != "low":
+            fragments.append(
+                f"guardrail этой правки: {near_term_edit['risk_badge']}, {near_term_edit['risk_guardrail']}"
+            )
 
     load_state_label = planning_context.get("load_state_label")
     if not fragments and load_state_label and load_state_label != "Нейтральный старт":

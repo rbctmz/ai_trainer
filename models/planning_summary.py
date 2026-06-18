@@ -8,6 +8,16 @@ NEAR_TERM_EDIT_POST_STRATEGIES = (
     "catch_up",
     "protect_recovery",
 )
+NEAR_TERM_EDIT_RISK_LEVELS = (
+    "low",
+    "medium",
+    "high",
+)
+NEAR_TERM_EDIT_RISK_FOCUSES = (
+    "balanced",
+    "overload",
+    "underload",
+)
 NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU = {
     "keep": "Оставить как есть",
     "catch_up": "Наверстать аккуратно",
@@ -27,6 +37,20 @@ def normalize_near_term_edit_post_strategy(value: Any) -> str:
     if strategy in NEAR_TERM_EDIT_POST_STRATEGIES:
         return strategy
     return "keep"
+
+
+def normalize_near_term_edit_risk_level(value: Any) -> str:
+    level = str(value or "").strip().lower()
+    if level in NEAR_TERM_EDIT_RISK_LEVELS:
+        return level
+    return "low"
+
+
+def normalize_near_term_edit_risk_focus(value: Any) -> str:
+    focus = str(value or "").strip().lower()
+    if focus in NEAR_TERM_EDIT_RISK_FOCUSES:
+        return focus
+    return "balanced"
 
 
 def _build_follow_up_summary(
@@ -104,6 +128,61 @@ def _build_follow_up_summary(
     }
 
 
+def _normalize_reason_list(value: Any) -> list[str]:
+    if isinstance(value, str):
+        value = [value]
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [
+        str(item).strip()
+        for item in value
+        if str(item).strip()
+    ]
+
+
+def _build_risk_summary(
+    raw: Dict[str, Any],
+    total_delta_tss: int,
+) -> Dict[str, Any]:
+    level = normalize_near_term_edit_risk_level(raw.get("risk_level"))
+    focus = normalize_near_term_edit_risk_focus(raw.get("risk_focus"))
+    reasons = _normalize_reason_list(raw.get("risk_reasons"))
+    guardrail = str(raw.get("risk_guardrail") or "").strip()
+
+    if not reasons:
+        if total_delta_tss < 0:
+            reasons = ["правка разгружает ближайшее окно без агрессивной компенсации"]
+        elif total_delta_tss > 0:
+            reasons = ["объём в ближайшем окне изменён умеренно и остаётся контролируемым"]
+        else:
+            reasons = ["структура ближайшего окна меняется без заметного сдвига по объёму"]
+
+    if level == "low":
+        badge = "Риск низкий"
+    elif focus == "underload":
+        badge = "Высокий риск просадки ритма" if level == "high" else "Риск просадки ритма"
+    else:
+        badge = "Высокий риск перегруза" if level == "high" else "Повышенный риск перегруза"
+
+    if not guardrail:
+        if level == "low":
+            guardrail = "После применения просто сверяйте самочувствие и не компенсируйте следующий день автоматически."
+        elif focus == "underload":
+            guardrail = "Если это не вынужденная разгрузка, верните один качественный стимул позже вместо резкого отката к пику."
+        else:
+            guardrail = "Сохраните явный лёгкий день и не компенсируйте усталость дополнительной интенсивностью."
+
+    description = f"{badge}: {'; '.join(reasons[:3])}."
+    return {
+        "level": level,
+        "focus": focus,
+        "badge": badge,
+        "reasons": reasons,
+        "guardrail": guardrail,
+        "description": description,
+    }
+
+
 def summarize_near_term_edit(constraint_summary: Dict[str, Any] | None) -> Dict[str, Any] | None:
     """Normalize the persisted/manual near-term edit signal for UI and explainability."""
     if not isinstance(constraint_summary, dict):
@@ -135,9 +214,12 @@ def summarize_near_term_edit(constraint_summary: Dict[str, Any] | None) -> Dict[
         future_weeks,
         future_week_count,
     )
+    risk = _build_risk_summary(raw, total_delta_tss)
     compact_label = f"{edited_day_count} дн. / {horizon_days} дн. · Δ {total_delta_tss:+d} TSS"
     if post_edit_strategy != "keep":
         compact_label += f" · {follow_up['follow_up_compact_label']}"
+    if risk["level"] != "low":
+        compact_label += f" · {risk['badge']}"
 
     return {
         "is_active": True,
@@ -155,10 +237,17 @@ def summarize_near_term_edit(constraint_summary: Dict[str, Any] | None) -> Dict[
         "future_delta_label": follow_up["future_delta_label"],
         "follow_up_compact_label": follow_up["follow_up_compact_label"],
         "follow_up_description": follow_up["follow_up_description"],
+        "risk_level": risk["level"],
+        "risk_focus": risk["focus"],
+        "risk_badge": risk["badge"],
+        "risk_reasons": risk["reasons"],
+        "risk_guardrail": risk["guardrail"],
+        "risk_description": risk["description"],
         "compact_label": compact_label,
         "description": (
             f"{edited_day_count} дн. в ближайших {horizon_days} дн., "
-            f"Δ {total_delta_tss:+d} TSS; {follow_up['follow_up_description']}"
+            f"Δ {total_delta_tss:+d} TSS; {follow_up['follow_up_description']}; "
+            f"{risk['description']}"
         ),
     }
 
@@ -166,6 +255,10 @@ def summarize_near_term_edit(constraint_summary: Dict[str, Any] | None) -> Dict[
 __all__ = [
     "NEAR_TERM_EDIT_POST_STRATEGIES",
     "NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU",
+    "NEAR_TERM_EDIT_RISK_FOCUSES",
+    "NEAR_TERM_EDIT_RISK_LEVELS",
+    "normalize_near_term_edit_risk_focus",
+    "normalize_near_term_edit_risk_level",
     "normalize_near_term_edit_post_strategy",
     "summarize_near_term_edit",
 ]
