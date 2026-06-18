@@ -9,6 +9,7 @@ from models.planning_near_term import (
     apply_near_term_day_edits,
     build_near_term_edit_draft_rows,
     build_near_term_edit_rows,
+    build_safer_near_term_draft,
     summarize_near_term_draft_rows,
 )
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
@@ -315,3 +316,68 @@ def test_apply_near_term_day_edits_marks_aggressive_manual_overload_as_high_risk
     assert near_term_edit["risk_focus"] == "overload"
     assert any("устал" in reason for reason in near_term_edit["risk_reasons"])
     assert "Верните" in near_term_edit["risk_guardrail"]
+
+
+def test_build_safer_near_term_draft_softens_high_risk_overload_and_switches_strategy():
+    goal_plan = _sample_goal_plan()
+    goal_plan["constraint_summary"]["current_tsb"] = -18.0
+    goal_plan["constraint_summary"]["load_state"] = "fatigued"
+    goal_plan["constraint_summary"]["load_state_label"] = "Накопленная усталость"
+    edit_rows = build_near_term_edit_rows(goal_plan, horizon_days=7)
+    draft_rows = build_near_term_edit_draft_rows(
+        edit_rows,
+        goal_type=goal_plan["goal_type"],
+        distance=goal_plan["distance"],
+        overrides_by_index={
+            int(edit_rows[0]["index"]): {
+                "session_role": "quality",
+                "sport": "run",
+                "total_tss": 95,
+            },
+            int(edit_rows[1]["index"]): {
+                "session_role": "quality",
+                "sport": "run",
+                "total_tss": edit_rows[1]["current_total_tss"] + 35,
+            },
+        },
+    )
+
+    safer_draft = build_safer_near_term_draft(
+        goal_plan,
+        draft_rows,
+        horizon_days=7,
+        post_edit_strategy="keep",
+    )
+
+    assert safer_draft is not None
+    assert safer_draft["post_edit_strategy"] == "protect_recovery"
+    assert safer_draft["near_term_edit"]["risk_level"] in {"low", "medium"}
+    assert safer_draft["near_term_edit"]["risk_level"] != "high"
+    assert safer_draft["draft_summary"]["changed_day_count"] >= 1
+    assert any("стратегию" in action or "снизить" in action or "вернуть" in action for action in safer_draft["actions"])
+
+
+def test_build_safer_near_term_draft_returns_none_for_low_risk_cutback():
+    goal_plan = _sample_goal_plan()
+    edit_rows = build_near_term_edit_rows(goal_plan, horizon_days=7)
+    draft_rows = build_near_term_edit_draft_rows(
+        edit_rows,
+        goal_type=goal_plan["goal_type"],
+        distance=goal_plan["distance"],
+        overrides_by_index={
+            int(edit_rows[1]["index"]): {
+                "session_role": "off",
+                "sport": "off",
+                "total_tss": 0,
+            }
+        },
+    )
+
+    safer_draft = build_safer_near_term_draft(
+        goal_plan,
+        draft_rows,
+        horizon_days=7,
+        post_edit_strategy="catch_up",
+    )
+
+    assert safer_draft is None

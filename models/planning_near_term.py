@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Mapping, Sequence
 from models.planning_summary import (
     NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU,
     normalize_near_term_edit_post_strategy,
+    summarize_near_term_edit,
 )
 from models.training_planner import (
     SESSION_ROLE_LABELS_RU,
@@ -26,6 +27,7 @@ EDITABLE_NEAR_TERM_HORIZON_MIN = 7
 EDITABLE_NEAR_TERM_HORIZON_MAX = 10
 EDITABLE_SESSION_ROLES = ["off", "recovery", "easy", "quality", "long"]
 EDITABLE_SPORTS = ["run", "bike", "swim", "off"]
+RISK_LEVEL_RANK = {"low": 0, "medium": 1, "high": 2}
 
 
 def _normalize_post_edit_strategy(value: Any) -> str:
@@ -555,6 +557,285 @@ def summarize_near_term_draft_rows(
     }
 
 
+def _draft_rows_to_overrides_by_index(
+    draft_rows: Sequence[Mapping[str, Any]],
+) -> Dict[int, Dict[str, Any]]:
+    return {
+        int(row.get("index", -1)): {
+            "session_role": _normalize_session_role(row.get("session_role")),
+            "sport": _normalize_sport(row.get("sport")),
+            "total_tss": _normalize_total_tss(row.get("total_tss", row.get("current_total_tss"))),
+        }
+        for row in draft_rows
+        if int(row.get("index", -1)) >= 0
+    }
+
+
+def _rebuild_draft_rows(
+    base_rows: Sequence[Mapping[str, Any]],
+    goal_plan: Mapping[str, Any],
+    overrides_by_index: Mapping[int, Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    return build_near_term_edit_draft_rows(
+        base_rows,
+        goal_type=str(goal_plan.get("goal_type") or ""),
+        distance=str(goal_plan.get("distance") or ""),
+        overrides_by_index=overrides_by_index,
+    )
+
+
+def _apply_draft_and_summarize(
+    goal_plan: Mapping[str, Any],
+    draft_rows: Sequence[Mapping[str, Any]],
+    horizon_days: int,
+    post_edit_strategy: str,
+) -> tuple[Dict[str, Any], Dict[str, Any] | None]:
+    updated_goal_plan = apply_near_term_day_edits(
+        goal_plan,
+        draft_rows,
+        horizon_days=horizon_days,
+        post_edit_strategy=post_edit_strategy,
+    )
+    near_term_edit = summarize_near_term_edit(updated_goal_plan.get("constraint_summary", {}))
+    return updated_goal_plan, near_term_edit
+
+
+def _risk_rank(summary: Mapping[str, Any] | None) -> int:
+    if not isinstance(summary, Mapping):
+        return -1
+    return RISK_LEVEL_RANK.get(str(summary.get("risk_level") or "low"), -1)
+
+
+def _is_safer_near_term_summary(
+    candidate: Mapping[str, Any] | None,
+    baseline: Mapping[str, Any] | None,
+) -> bool:
+    candidate_rank = _risk_rank(candidate)
+    baseline_rank = _risk_rank(baseline)
+    if candidate_rank < 0:
+        return False
+    if baseline_rank < 0:
+        return True
+    if candidate_rank != baseline_rank:
+        return candidate_rank < baseline_rank
+
+    candidate_penalty = abs(int(candidate.get("total_delta_tss", 0) or 0)) + abs(int(candidate.get("future_delta_tss", 0) or 0))
+    baseline_penalty = abs(int(baseline.get("total_delta_tss", 0) or 0)) + abs(int(baseline.get("future_delta_tss", 0) or 0))
+    return candidate_penalty < baseline_penalty
+
+
+def _pick_overload_softening_override(
+    draft_rows: Sequence[Mapping[str, Any]],
+) -> tuple[int, Dict[str, Any], str] | None:
+    removed_rest_candidates = [
+        row
+        for row in draft_rows
+        if _normalize_session_role(row.get("current_role")) == "off"
+        and _normalize_session_role(row.get("session_role")) != "off"
+    ]
+    if removed_rest_candidates:
+        row = max(removed_rest_candidates, key=lambda item: float(item.get("delta_tss", 0.0) or 0.0))
+        return (
+            int(row["index"]),
+            {
+                "session_role": row["current_role"],
+                "sport": row["current_sport"],
+                "total_tss": row["current_total_tss"],
+            },
+            f"вернуть исходный отдых {row['date_label']}",
+        )
+
+    added_quality_candidates = [
+        row
+        for row in draft_rows
+        if _normalize_session_role(row.get("session_role")) == "quality"
+        and _normalize_session_role(row.get("current_role")) != "quality"
+    ]
+    if added_quality_candidates:
+        row = max(added_quality_candidates, key=lambda item: float(item.get("delta_tss", 0.0) or 0.0))
+        return (
+            int(row["index"]),
+            {
+                "session_role": row["current_role"],
+                "sport": row["current_sport"],
+                "total_tss": row["current_total_tss"],
+            },
+            f"убрать лишний качественный стимул {row['date_label']}",
+        )
+
+    positive_delta_candidates = [
+        row
+        for row in draft_rows
+        if float(row.get("delta_tss", 0.0) or 0.0) > 0
+    ]
+    if not positive_delta_candidates:
+        return None
+
+    row = max(positive_delta_candidates, key=lambda item: float(item.get("delta_tss", 0.0) or 0.0))
+    current_total = _normalize_total_tss(row.get("current_total_tss"))
+    target_total = _normalize_total_tss(row.get("total_tss"))
+    reduction = max(10.0, float(_round_to_5(max(10.0, (target_total - current_total) / 2.0))))
+    new_total = round(max(current_total, target_total - reduction), 1)
+    new_role = _normalize_session_role(row.get("session_role"))
+    if new_role == "quality" and new_total <= current_total + 5:
+        new_role = _normalize_session_role(row.get("current_role"))
+    return (
+        int(row["index"]),
+        {
+            "session_role": new_role,
+            "sport": row["sport"],
+            "total_tss": new_total,
+        },
+        f"снизить нагрузку {row['date_label']} на {int(round(target_total - new_total))} TSS",
+    )
+
+
+def _pick_underload_softening_override(
+    draft_rows: Sequence[Mapping[str, Any]],
+) -> tuple[int, Dict[str, Any], str] | None:
+    removed_quality_candidates = [
+        row
+        for row in draft_rows
+        if _normalize_session_role(row.get("current_role")) == "quality"
+        and _normalize_session_role(row.get("session_role")) != "quality"
+    ]
+    if removed_quality_candidates:
+        row = max(
+            removed_quality_candidates,
+            key=lambda item: abs(float(item.get("delta_tss", 0.0) or 0.0)),
+        )
+        return (
+            int(row["index"]),
+            {
+                "session_role": row["current_role"],
+                "sport": row["current_sport"],
+                "total_tss": row["current_total_tss"],
+            },
+            f"вернуть ключевой стимул {row['date_label']}",
+        )
+
+    removed_load_candidates = [
+        row
+        for row in draft_rows
+        if float(row.get("delta_tss", 0.0) or 0.0) < 0
+    ]
+    if not removed_load_candidates:
+        return None
+
+    row = min(removed_load_candidates, key=lambda item: float(item.get("delta_tss", 0.0) or 0.0))
+    current_total = _normalize_total_tss(row.get("current_total_tss"))
+    target_total = _normalize_total_tss(row.get("total_tss"))
+    increase = max(10.0, float(_round_to_5(max(10.0, (current_total - target_total) / 2.0))))
+    new_total = round(min(current_total, target_total + increase), 1)
+    new_role = _normalize_session_role(row.get("session_role"))
+    if _normalize_session_role(row.get("current_role")) in {"quality", "long"} and new_total >= current_total - 5:
+        new_role = _normalize_session_role(row.get("current_role"))
+    return (
+        int(row["index"]),
+        {
+            "session_role": new_role,
+            "sport": row["sport"] if _normalize_sport(row.get("sport")) != "off" else row["current_sport"],
+            "total_tss": new_total,
+        },
+        f"вернуть часть нагрузки в {row['date_label']} (+{int(round(new_total - target_total))} TSS)",
+    )
+
+
+def build_safer_near_term_draft(
+    goal_plan: Mapping[str, Any],
+    draft_rows: Sequence[Mapping[str, Any]],
+    horizon_days: int = EDITABLE_NEAR_TERM_HORIZON_MIN,
+    post_edit_strategy: str = "keep",
+) -> Dict[str, Any] | None:
+    """Suggest a safer one-click variant for a risky near-term draft."""
+    base_rows = [dict(row or {}) for row in draft_rows]
+    if not base_rows:
+        return None
+
+    normalized_strategy = _normalize_post_edit_strategy(post_edit_strategy)
+    _, baseline_summary = _apply_draft_and_summarize(
+        goal_plan,
+        base_rows,
+        horizon_days,
+        normalized_strategy,
+    )
+    if not isinstance(baseline_summary, dict) or _risk_rank(baseline_summary) <= RISK_LEVEL_RANK["low"]:
+        return None
+
+    working_rows = base_rows
+    working_strategy = normalized_strategy
+    best_rows = working_rows
+    best_strategy = working_strategy
+    best_summary = baseline_summary
+    best_actions: List[str] = []
+    accumulated_actions: List[str] = []
+
+    for _ in range(5):
+        risk_focus = str(best_summary.get("risk_focus") or "balanced")
+        total_delta_tss = int(best_summary.get("total_delta_tss", 0) or 0)
+        changed = False
+
+        if risk_focus == "overload" or total_delta_tss > 0:
+            if working_strategy == "keep":
+                working_strategy = "protect_recovery"
+                accumulated_actions.append("переключить стратегию после окна на «Беречь восстановление»")
+                changed = True
+            else:
+                overload_override = _pick_overload_softening_override(working_rows)
+                if overload_override is not None:
+                    row_index, override, action = overload_override
+                    overrides_by_index = _draft_rows_to_overrides_by_index(working_rows)
+                    if overrides_by_index.get(row_index) != override:
+                        overrides_by_index[row_index] = override
+                        working_rows = _rebuild_draft_rows(base_rows, goal_plan, overrides_by_index)
+                        accumulated_actions.append(action)
+                        changed = True
+        else:
+            if working_strategy == "keep":
+                working_strategy = "catch_up"
+                accumulated_actions.append("переключить стратегию после окна на «Наверстать аккуратно»")
+                changed = True
+            else:
+                underload_override = _pick_underload_softening_override(working_rows)
+                if underload_override is not None:
+                    row_index, override, action = underload_override
+                    overrides_by_index = _draft_rows_to_overrides_by_index(working_rows)
+                    if overrides_by_index.get(row_index) != override:
+                        overrides_by_index[row_index] = override
+                        working_rows = _rebuild_draft_rows(base_rows, goal_plan, overrides_by_index)
+                        accumulated_actions.append(action)
+                        changed = True
+
+        if not changed:
+            break
+
+        _, candidate_summary = _apply_draft_and_summarize(
+            goal_plan,
+            working_rows,
+            horizon_days,
+            working_strategy,
+        )
+        if _is_safer_near_term_summary(candidate_summary, best_summary):
+            best_rows = working_rows
+            best_strategy = working_strategy
+            best_summary = candidate_summary
+            best_actions = list(accumulated_actions)
+            if _risk_rank(best_summary) <= RISK_LEVEL_RANK["low"]:
+                break
+
+    if not _is_safer_near_term_summary(best_summary, baseline_summary):
+        return None
+
+    return {
+        "draft_rows": best_rows,
+        "draft_summary": summarize_near_term_draft_rows(best_rows),
+        "post_edit_strategy": best_strategy,
+        "near_term_edit": best_summary,
+        "actions": best_actions,
+        "description": "; ".join(best_actions[:3]),
+    }
+
+
 def _merge_adjustment_note(existing_note: Any, manual_note: str) -> str:
     parts = [
         str(part).strip()
@@ -902,6 +1183,7 @@ __all__ = [
     "EDITABLE_SPORTS",
     "build_near_term_edit_draft_rows",
     "build_near_term_edit_rows",
+    "build_safer_near_term_draft",
     "apply_near_term_day_edits",
     "summarize_near_term_draft_rows",
 ]

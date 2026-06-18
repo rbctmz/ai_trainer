@@ -15,6 +15,7 @@ from models.planning_near_term import (
     apply_near_term_day_edits,
     build_near_term_edit_draft_rows,
     build_near_term_edit_rows,
+    build_safer_near_term_draft,
     summarize_near_term_draft_rows,
 )
 from models.planning_summary import (
@@ -404,6 +405,8 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                     post_edit_strategy=selected_post_edit_strategy,
                 ),
             )
+        safer_draft = None
+        soften_clicked = False
 
         st.markdown("#### Черновик правок")
         if draft_summary["has_changes"]:
@@ -439,6 +442,30 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                     draft_preview["near_term_edit"],
                     prefix="Оценка правки",
                 )
+                safer_draft = build_safer_near_term_draft(
+                    goal_plan,
+                    draft_rows,
+                    horizon_days=horizon_days,
+                    post_edit_strategy=selected_post_edit_strategy,
+                )
+                if safer_draft is not None:
+                    st.caption(
+                        "Можно смягчить черновик одним кликом: "
+                        f"{safer_draft['description']}."
+                    )
+                    st.caption(
+                        "Более безопасный вариант даст: "
+                        f"{safer_draft['near_term_edit']['compact_label']}."
+                    )
+                    _render_near_term_risk_callout(
+                        safer_draft["near_term_edit"],
+                        prefix="Если смягчить",
+                    )
+                    soften_clicked = st.button(
+                        "🛟 Смягчить черновик",
+                        key=f"near_term_soften_{key_prefix}",
+                        width="stretch",
+                    )
             if draft_preview and draft_preview["weekly_rows"]:
                 st.markdown("##### Как изменятся недели")
                 st.dataframe(
@@ -514,6 +541,15 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                 st.session_state[f"near_term_role_{key_prefix}_{row['index']}"] = role_labels[row["current_role"]]
                 st.session_state[f"near_term_sport_{key_prefix}_{row['index']}"] = sport_labels[row["current_sport"]]
                 st.session_state[f"near_term_tss_{key_prefix}_{row['index']}"] = int(round(row["current_total_tss"]))
+            st.rerun()
+
+        if soften_clicked and safer_draft is not None:
+            st.session_state[f"near_term_strategy_{key_prefix}"] = strategy_labels[safer_draft["post_edit_strategy"]]
+            for row in safer_draft["draft_rows"]:
+                row_index = int(row["index"])
+                st.session_state[f"near_term_role_{key_prefix}_{row_index}"] = role_labels[row["session_role"]]
+                st.session_state[f"near_term_sport_{key_prefix}_{row_index}"] = sport_labels[row["sport"]]
+                st.session_state[f"near_term_tss_{key_prefix}_{row_index}"] = int(round(float(row["total_tss"] or 0.0)))
             st.rerun()
 
         if apply_clicked:
