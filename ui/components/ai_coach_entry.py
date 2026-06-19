@@ -251,6 +251,10 @@ def render_empty_ai_chat_guidance(
                 corrective_microcycle = checkpoint_summary["execution_corrective_microcycle"]
                 st.write(f"**Microcycle:** {corrective_microcycle['headline']}")
                 st.caption(corrective_microcycle["today_action"])
+            if checkpoint_summary.get("execution_adaptation_pressure"):
+                adaptation_pressure = checkpoint_summary["execution_adaptation_pressure"]
+                st.write(f"**После окна:** {adaptation_pressure['compact_label']}")
+                st.caption(adaptation_pressure["follow_up_window_description"])
             if checkpoint_summary.get("near_term_edit"):
                 st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
                 if checkpoint_summary["near_term_edit"].get("origin_description"):

@@ -4,6 +4,10 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Dict, List, Mapping
 
+from models.planning_summary import (
+    EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU,
+    summarize_execution_adaptation_pressure,
+)
 from models.training_planner import (
     SESSION_ROLE_LABELS_RU,
     apply_planning_constraints,
@@ -236,6 +240,119 @@ def summarize_execution_weekly_review(
         "key_session_loss_count": _coerce_int(execution_weekly_review.get("key_session_loss_count")),
         "long_session_loss_count": _coerce_int(execution_weekly_review.get("long_session_loss_count")),
         "compression_risk": bool(execution_weekly_review.get("compression_risk", False)),
+    }
+
+
+def build_execution_adaptation_pressure(
+    execution_reconciliation: Mapping[str, Any] | None,
+    execution_weekly_review: Mapping[str, Any] | None,
+) -> Dict[str, Any] | None:
+    """Turn execution drift into a compact next-1-2-week follow-up mode."""
+    summary = summarize_execution_reconciliation(execution_reconciliation)
+    review = summarize_execution_weekly_review(execution_weekly_review)
+    if not isinstance(summary, dict):
+        return None
+
+    changed_day_count = _coerce_int(summary.get("changed_day_count"))
+    reduced_day_count = _coerce_int(summary.get("reduced_day_count"))
+    unavailable_day_count = _coerce_int(summary.get("unavailable_day_count"))
+    completion_share = float(summary.get("completion_share", 1.0) or 1.0)
+    delta_tss = _coerce_int(summary.get("delta_tss"))
+    key_session_loss_count = _coerce_int((review or {}).get("key_session_loss_count"))
+    long_session_loss_count = _coerce_int((review or {}).get("long_session_loss_count"))
+    compression_risk = bool((review or {}).get("compression_risk"))
+    selected_response_strategy = _normalize_response_strategy(
+        (review or {}).get("selected_response_strategy")
+    )
+
+    score = 0
+    signals: List[str] = []
+
+    if changed_day_count >= 2:
+        score += 10
+        signals.append(f"изменено {changed_day_count} дн.")
+    if delta_tss <= -20:
+        score += 10
+        signals.append(f"Δ {delta_tss:+d} TSS")
+    if delta_tss <= -40:
+        score += 15
+    if completion_share < 0.90:
+        score += 10
+        signals.append(f"выполнено {int(round(completion_share * 100))}% окна")
+    if completion_share < 0.80:
+        score += 15
+    if reduced_day_count > 0:
+        score += 5
+    if unavailable_day_count > 0:
+        score += 15
+        signals.append(f"недоступно {unavailable_day_count} дн.")
+    if key_session_loss_count > 0:
+        score += 20
+        signals.append("потерян ключевой стимул")
+    if long_session_loss_count > 0:
+        score += 20
+        signals.append("сорвана длинная сессия")
+    if compression_risk:
+        score += 20
+        signals.append("есть риск компрессии недели")
+    score = max(0, min(100, score))
+
+    high_pressure = (
+        compression_risk
+        or (key_session_loss_count > 0 and long_session_loss_count > 0)
+        or completion_share < 0.75
+        or unavailable_day_count > 0
+        or score >= 60
+    )
+    low_pressure = (
+        not high_pressure
+        and selected_response_strategy == "catch_up"
+        and score <= 20
+        and key_session_loss_count <= 0
+        and long_session_loss_count <= 0
+        and not compression_risk
+    )
+    level = "high" if high_pressure else "low" if low_pressure else "medium"
+
+    if level == "high":
+        follow_up_mode = "protect_recovery"
+        growth_cap_tss_per_week = 15
+        recovery_share_cap = 0.0
+    elif level == "low":
+        follow_up_mode = "catch_up"
+        growth_cap_tss_per_week = 40
+        recovery_share_cap = 0.35
+    else:
+        follow_up_mode = "hold"
+        growth_cap_tss_per_week = 25
+        recovery_share_cap = 0.0
+
+    rebuild_horizon_weeks = 2 if changed_day_count > 0 else 1
+    follow_up_label = EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU[follow_up_mode]
+
+    if follow_up_mode == "protect_recovery":
+        reason = (
+            "Дрейф недели уже слишком велик: ближайшие 1-2 недели лучше держать мягче и не ускорять rebound."
+        )
+    elif follow_up_mode == "catch_up":
+        reason = (
+            "Отклонение умеренное: можно вернуть только малую часть объёма, но под явным weekly ceiling."
+        )
+    else:
+        reason = (
+            "Окно уже сдвинулось заметно: следующие 1-2 недели лучше удержать текущий потолок, а не сразу разгонять план."
+        )
+
+    return {
+        "level": level,
+        "score": score,
+        "follow_up_mode": follow_up_mode,
+        "follow_up_label": follow_up_label,
+        "rebuild_horizon_weeks": rebuild_horizon_weeks,
+        "growth_cap_tss_per_week": growth_cap_tss_per_week,
+        "recovery_share_cap": recovery_share_cap,
+        "signals": signals,
+        "reason": reason,
     }
 
 
@@ -724,6 +841,7 @@ def build_execution_plan_adjustment(
     )
     weekly_review["selected_response_strategy"] = selected_response_strategy
     weekly_review["selected_response_label"] = _response_strategy_label(selected_response_strategy)
+    adaptation_pressure = build_execution_adaptation_pressure(summary, weekly_review)
     status = str(summary["status"] or "completed")
     available_day_count = _coerce_int((goal_plan.get("constraint_summary", {}) or {}).get("available_day_count"), 0)
     missed_sessions = summary["missed_day_count"] + summary["unavailable_day_count"]
@@ -738,6 +856,7 @@ def build_execution_plan_adjustment(
         "available_day_count": max(1, available_day_count),
         "execution_reconciliation": summary,
         "execution_weekly_review": weekly_review,
+        "execution_adaptation_pressure": adaptation_pressure,
         "catch_up_strategy_override": selected_response_strategy,
     }
 
@@ -867,10 +986,12 @@ def rebuild_goal_plan_with_adjustment(
 __all__ = [
     "EXECUTION_DAY_OUTCOME_LABELS",
     "EXECUTION_RESPONSE_STRATEGY_LABELS",
+    "build_execution_adaptation_pressure",
     "build_execution_plan_adjustment",
     "build_execution_corrective_microcycle",
     "build_execution_reconciliation_rows",
     "rebuild_goal_plan_with_adjustment",
+    "summarize_execution_adaptation_pressure",
     "summarize_execution_corrective_microcycle",
     "summarize_execution_reconciliation",
     "summarize_execution_reconciliation_rows",

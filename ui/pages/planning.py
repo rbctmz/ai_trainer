@@ -24,6 +24,7 @@ from models.planning_execution import summarize_execution_corrective_microcycle
 from models.planning_summary import (
     NEAR_TERM_EDIT_POST_STRATEGIES,
     NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU,
+    summarize_execution_adaptation_pressure,
     summarize_near_term_edit,
 )
 
@@ -149,6 +150,9 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     execution_corrective_microcycle = summarize_execution_corrective_microcycle(
         plan_adjustment.get("execution_corrective_microcycle")
     )
+    execution_adaptation_pressure = summarize_execution_adaptation_pressure(
+        plan_adjustment.get("execution_adaptation_pressure")
+    )
     summary_notes = list(constraint_summary.get("notes", []))
     first_week_structure = ""
     if weekly_summary:
@@ -192,6 +196,7 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "plan_adjustment_loss_tss": plan_adjustment_loss,
         "plan_adjustment_recovered_tss": plan_adjustment_recovered,
         "execution_corrective_microcycle": execution_corrective_microcycle,
+        "execution_adaptation_pressure": execution_adaptation_pressure,
         "near_term_edit": near_term_edit,
         "summary_notes": summary_notes,
         "comparison_rows": comparison_rows,
@@ -731,6 +736,12 @@ def _render_planning_version_history(
             corrective_microcycle = current_summary["execution_corrective_microcycle"]
             st.caption(f"Microcycle: {corrective_microcycle['headline']}")
             st.caption(corrective_microcycle["today_action"])
+        if current_summary.get("execution_adaptation_pressure"):
+            adaptation_pressure = current_summary["execution_adaptation_pressure"]
+            st.caption(
+                f"Execution drift pressure: {adaptation_pressure['compact_label']}"
+            )
+            st.caption(adaptation_pressure["follow_up_window_description"])
         if current_summary.get("near_term_edit") and current_summary["near_term_edit"].get("origin_description"):
             st.caption(current_summary["near_term_edit"]["origin_description"])
 
@@ -772,6 +783,12 @@ def _render_planning_version_history(
                 corrective_microcycle = summary["execution_corrective_microcycle"]
                 st.caption(f"Microcycle: {corrective_microcycle['headline']}")
                 st.caption(corrective_microcycle["today_action"])
+            if summary.get("execution_adaptation_pressure"):
+                adaptation_pressure = summary["execution_adaptation_pressure"]
+                st.caption(
+                    f"Execution drift pressure: {adaptation_pressure['compact_label']}"
+                )
+                st.caption(adaptation_pressure["follow_up_window_description"])
             if summary.get("near_term_edit"):
                 st.caption(f"Ручная правка: {summary['near_term_edit']['compact_label']}")
                 if summary["near_term_edit"].get("origin_description"):
@@ -858,6 +875,13 @@ def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
                 st.write(f"• Corrective microcycle: {explain['execution_corrective_microcycle']['headline']}")
                 st.write(f"• Сегодня: {explain['execution_corrective_microcycle']['today_action']}")
                 st.write(f"• Guardrail: {explain['execution_corrective_microcycle']['guardrail']}")
+            if explain["execution_adaptation_pressure"] is not None:
+                st.write(
+                    f"• Execution drift pressure: {explain['execution_adaptation_pressure']['compact_label']}"
+                )
+                st.write(
+                    f"• После окна: {explain['execution_adaptation_pressure']['follow_up_window_description']}"
+                )
             if explain["near_term_edit"] is not None:
                 st.write(f"• Ручная правка: {explain['near_term_edit']['compact_label']}")
                 if explain["near_term_edit"].get("origin_description"):
@@ -1534,6 +1558,7 @@ def render_planning_page(state: "StateManager") -> None:
             )
             execution_reconciliation = execution_feedback_result["plan_adjustment"].get("execution_reconciliation")
             execution_weekly_review = execution_feedback_result["plan_adjustment"].get("execution_weekly_review")
+            execution_adaptation_pressure = execution_feedback_result.get("execution_adaptation_pressure")
             execution_corrective_microcycle = (
                 (
                     (
@@ -1555,6 +1580,10 @@ def render_planning_page(state: "StateManager") -> None:
                     f"{execution_weekly_review['selected_response_label']} · "
                     f"{execution_corrective_microcycle['headline']}."
                 )
+                if isinstance(execution_adaptation_pressure, dict):
+                    st.session_state["planning_near_term_flash"] += (
+                        f" После окна: {execution_adaptation_pressure['follow_up_label']}."
+                    )
             elif (
                 isinstance(execution_reconciliation, dict)
                 and execution_reconciliation.get("changed_day_count", 0) > 0
@@ -1566,11 +1595,19 @@ def render_planning_page(state: "StateManager") -> None:
                     f"{execution_weekly_review['headline']} · "
                     f"{execution_weekly_review['selected_response_label']}."
                 )
+                if isinstance(execution_adaptation_pressure, dict):
+                    st.session_state["planning_near_term_flash"] += (
+                        f" После окна: {execution_adaptation_pressure['follow_up_label']}."
+                    )
             elif isinstance(execution_reconciliation, dict) and execution_reconciliation.get("changed_day_count", 0) > 0:
                 st.session_state["planning_near_term_flash"] = (
                     "Execution checkpoint сохранён: "
                     f"{execution_reconciliation['compact_label']}."
                 )
+                if isinstance(execution_adaptation_pressure, dict):
+                    st.session_state["planning_near_term_flash"] += (
+                        f" После окна: {execution_adaptation_pressure['follow_up_label']}."
+                    )
             else:
                 st.session_state["planning_near_term_flash"] = "Execution checkpoint сохранён."
             st.rerun()

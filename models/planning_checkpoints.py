@@ -9,7 +9,10 @@ from models.planning_execution import (
     summarize_execution_reconciliation,
     summarize_execution_weekly_review,
 )
-from models.planning_summary import summarize_near_term_edit
+from models.planning_summary import (
+    summarize_execution_adaptation_pressure,
+    summarize_near_term_edit,
+)
 
 NON_ACTIONABLE_PLAN_ADJUSTMENTS = {"", "Нет", "Выполнено по плану"}
 CHECKPOINT_SOURCE_LABELS = {
@@ -239,6 +242,9 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     }
 
     plan_adjustment = constraint_summary.get("plan_adjustment", {}) or {}
+    execution_adaptation_pressure = summarize_execution_adaptation_pressure(
+        plan_adjustment.get("execution_adaptation_pressure")
+    )
     adjusted = [int(round(value)) for value in goal_plan_snapshot["weekly_tss_plan"]]
     base = [int(round(value)) for value in goal_plan_snapshot["base_weekly_tss_plan"]]
 
@@ -265,6 +271,9 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "near_term_edit_origin_checkpoint_id": near_term_edit.get("origin_checkpoint_id") if near_term_edit else None,
         "near_term_edit_origin_label": near_term_edit.get("origin_label", "") if near_term_edit else "",
         "near_term_edit_rollback_target_checkpoint_id": goal_plan_snapshot.get("near_term_edit_rollback_target_checkpoint_id"),
+        "execution_adaptation_pressure_level": execution_adaptation_pressure.get("level", "") if execution_adaptation_pressure else "",
+        "execution_adaptation_follow_up_mode": execution_adaptation_pressure.get("follow_up_mode", "") if execution_adaptation_pressure else "",
+        "execution_adaptation_follow_up_label": execution_adaptation_pressure.get("follow_up_label", "") if execution_adaptation_pressure else "",
         "checkpoint_source": checkpoint_source,
         "checkpoint_parent_id": checkpoint_parent_id,
         "checkpoint_restored_from_checkpoint_id": checkpoint_restored_from_id,
@@ -422,6 +431,9 @@ def summarize_planning_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str
     execution_corrective_microcycle = summarize_execution_corrective_microcycle(
         plan_adjustment.get("execution_corrective_microcycle")
     )
+    execution_adaptation_pressure = summarize_execution_adaptation_pressure(
+        plan_adjustment.get("execution_adaptation_pressure")
+    )
     provenance = summarize_checkpoint_provenance(checkpoint)
 
     return {
@@ -439,6 +451,7 @@ def summarize_planning_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str
         "execution_reconciliation": execution_reconciliation,
         "execution_weekly_review": execution_weekly_review,
         "execution_corrective_microcycle": execution_corrective_microcycle,
+        "execution_adaptation_pressure": execution_adaptation_pressure,
         "provenance": provenance,
     }
 
@@ -483,6 +496,7 @@ def summarize_execution_feedback_transition(
         "execution_reconciliation": current.get("execution_reconciliation"),
         "execution_weekly_review": current.get("execution_weekly_review"),
         "execution_corrective_microcycle": current.get("execution_corrective_microcycle"),
+        "execution_adaptation_pressure": current.get("execution_adaptation_pressure"),
     }
 
 

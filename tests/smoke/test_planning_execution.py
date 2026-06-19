@@ -7,6 +7,7 @@ import pytest
 from models.planning_execution import (
     build_execution_plan_adjustment,
     summarize_execution_corrective_microcycle,
+    summarize_execution_adaptation_pressure,
     build_execution_reconciliation_rows,
     rebuild_goal_plan_with_adjustment,
     summarize_execution_reconciliation_rows,
@@ -100,6 +101,7 @@ def test_day_level_execution_rows_can_build_reduced_local_replan_payload():
     assert summary["delta_tss"] < 0
     assert payload["execution_reconciliation"]["changed_day_count"] == 2
     assert payload["completion_share"] < 1.0
+    assert payload["execution_adaptation_pressure"]["follow_up_mode"] in {"hold", "protect_recovery", "catch_up"}
     assert "checkpoint: факт" in rebuilt["weekly_summary"][0]["adjustment_note"]
     corrective_microcycle = summarize_execution_corrective_microcycle(
         rebuilt["constraint_summary"]["plan_adjustment"].get("execution_corrective_microcycle")
@@ -161,6 +163,7 @@ def test_execution_weekly_review_detects_lost_key_and_long_sessions():
     assert payload["execution_weekly_review"]["headline"] == weekly_review["headline"]
     assert payload["execution_weekly_review"]["selected_response_strategy"] == "catch_up"
     assert payload["catch_up_strategy_override"] == "catch_up"
+    assert payload["execution_adaptation_pressure"]["follow_up_mode"] == "protect_recovery"
 
 
 def test_rebuild_goal_plan_honors_execution_response_strategy_override():
@@ -187,6 +190,68 @@ def test_rebuild_goal_plan_honors_execution_response_strategy_override():
     corrective_microcycle = rebuilt["constraint_summary"]["plan_adjustment"]["execution_corrective_microcycle"]
     assert corrective_microcycle["selected_response_strategy"] == "catch_up"
     assert corrective_microcycle["window_day_count"] >= 1
+
+
+def test_execution_adaptation_pressure_can_hold_next_week_even_with_catch_up_choice():
+    goal_plan = _sample_goal_plan()
+    rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    quality_idx = next(
+        index
+        for index, row in enumerate(rows)
+        if row.get("session_role") == "quality" and int(row.get("planned_total_tss", 0) or 0) > 0
+    )
+    rows[quality_idx]["outcome"] = "reduced"
+    rows[quality_idx]["actual_total_tss"] = max(
+        0,
+        int(rows[quality_idx]["planned_total_tss"]) - 15,
+    )
+
+    payload = build_execution_plan_adjustment(
+        goal_plan,
+        rows,
+        weeks=1,
+        response_strategy_override="catch_up",
+    )
+    pressure = summarize_execution_adaptation_pressure(payload["execution_adaptation_pressure"])
+    rebuilt = rebuild_goal_plan_with_adjustment(goal_plan, payload)
+
+    assert pressure is not None
+    assert pressure["follow_up_mode"] == "hold"
+    assert pressure["growth_cap_tss_per_week"] == 25
+    assert rebuilt["constraint_summary"]["execution_adaptation_pressure"]["follow_up_mode"] == "hold"
+    assert rebuilt["weekly_tss_plan"][1] <= rebuilt["weekly_tss_plan"][0] + 25
+    assert "Execution drift pressure:" in " ".join(rebuilt["constraint_summary"]["notes"])
+
+
+def test_execution_adaptation_pressure_can_force_protective_rebound_cap():
+    goal_plan = _sample_goal_plan()
+    rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    quality_idx = next(
+        index
+        for index, row in enumerate(rows)
+        if row.get("session_role") == "quality" and int(row.get("planned_total_tss", 0) or 0) > 0
+    )
+    long_idx = next(
+        index
+        for index, row in enumerate(rows)
+        if row.get("session_role") == "long" and int(row.get("planned_total_tss", 0) or 0) > 0
+    )
+    rows[quality_idx]["outcome"] = "missed"
+    rows[long_idx]["outcome"] = "unavailable"
+
+    payload = build_execution_plan_adjustment(
+        goal_plan,
+        rows,
+        weeks=1,
+        response_strategy_override="catch_up",
+    )
+    pressure = summarize_execution_adaptation_pressure(payload["execution_adaptation_pressure"])
+    rebuilt = rebuild_goal_plan_with_adjustment(goal_plan, payload)
+
+    assert pressure is not None
+    assert pressure["follow_up_mode"] == "protect_recovery"
+    assert pressure["growth_cap_tss_per_week"] == 15
+    assert rebuilt["weekly_tss_plan"][1] <= rebuilt["weekly_tss_plan"][0] + 15
 
 
 def test_execution_replan_can_open_corrective_microcycle_as_near_term_draft():

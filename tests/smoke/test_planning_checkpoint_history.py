@@ -96,6 +96,16 @@ def _sample_goal_plan() -> dict[str, object]:
                 "status": "skipped",
                 "label": "Пропущены сессии",
                 "weeks": 1,
+                "execution_adaptation_pressure": {
+                    "level": "medium",
+                    "score": 40,
+                    "follow_up_mode": "hold",
+                    "follow_up_label": "Удержать текущий потолок",
+                    "rebuild_horizon_weeks": 2,
+                    "growth_cap_tss_per_week": 25,
+                    "recovery_share_cap": 0.0,
+                    "reason": "Окно уже сдвинулось заметно: следующие 1-2 недели лучше удержать текущий потолок.",
+                },
                 "execution_weekly_review": {
                     "headline": "Пропущена ключевая сессия",
                     "review_badge": "Потеря качества",
@@ -232,7 +242,10 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     assert summary["execution_weekly_review"]["selected_response_label"] == "Наверстать аккуратно"
     assert summary["execution_corrective_microcycle"]["headline"].startswith("Ближайшие 2-3 дня")
     assert summary["execution_corrective_microcycle"]["sessions"][0]["action_label"] == "Сделать контролируемо"
+    assert summary["execution_adaptation_pressure"]["follow_up_mode"] == "hold"
+    assert summary["execution_adaptation_pressure"]["follow_up_label"] == "Удержать текущий потолок"
     assert checkpoint["near_term_edit_risk_level"] == "low"
+    assert checkpoint["execution_adaptation_pressure_level"] == "medium"
 
 
 def test_restore_goal_plan_from_legacy_checkpoint_rebuilds_daily_details():

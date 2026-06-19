@@ -18,10 +18,30 @@ NEAR_TERM_EDIT_RISK_FOCUSES = (
     "overload",
     "underload",
 )
+EXECUTION_ADAPTATION_PRESSURE_LEVELS = (
+    "low",
+    "medium",
+    "high",
+)
+EXECUTION_ADAPTATION_FOLLOW_UP_MODES = (
+    "protect_recovery",
+    "hold",
+    "catch_up",
+)
 NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU = {
     "keep": "Оставить как есть",
     "catch_up": "Наверстать аккуратно",
     "protect_recovery": "Беречь восстановление",
+}
+EXECUTION_ADAPTATION_PRESSURE_LEVEL_LABELS_RU = {
+    "low": "Низкое давление адаптации",
+    "medium": "Повышенное давление адаптации",
+    "high": "Высокое давление адаптации",
+}
+EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU = {
+    "protect_recovery": "Беречь восстановление",
+    "hold": "Удержать текущий потолок",
+    "catch_up": "Наверстать аккуратно",
 }
 
 
@@ -51,6 +71,20 @@ def normalize_near_term_edit_risk_focus(value: Any) -> str:
     if focus in NEAR_TERM_EDIT_RISK_FOCUSES:
         return focus
     return "balanced"
+
+
+def normalize_execution_adaptation_pressure_level(value: Any) -> str:
+    level = str(value or "").strip().lower()
+    if level in EXECUTION_ADAPTATION_PRESSURE_LEVELS:
+        return level
+    return "low"
+
+
+def normalize_execution_adaptation_follow_up_mode(value: Any) -> str:
+    mode = str(value or "").strip().lower()
+    if mode in EXECUTION_ADAPTATION_FOLLOW_UP_MODES:
+        return mode
+    return "hold"
 
 
 def _build_follow_up_summary(
@@ -232,6 +266,96 @@ def _build_near_term_edit_origin(raw: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def summarize_execution_adaptation_pressure(
+    execution_adaptation_pressure: Dict[str, Any] | None,
+) -> Dict[str, Any] | None:
+    """Normalize the persisted execution-drift pressure signal for UI and explainability."""
+    if not isinstance(execution_adaptation_pressure, dict):
+        return None
+
+    level = normalize_execution_adaptation_pressure_level(
+        execution_adaptation_pressure.get("level")
+    )
+    score = max(0, min(100, _int_or_zero(execution_adaptation_pressure.get("score"))))
+    follow_up_mode = normalize_execution_adaptation_follow_up_mode(
+        execution_adaptation_pressure.get("follow_up_mode")
+    )
+    rebuild_horizon_weeks = max(
+        1,
+        min(2, _int_or_zero(execution_adaptation_pressure.get("rebuild_horizon_weeks")) or 1),
+    )
+    growth_cap_tss_per_week = max(
+        0,
+        _int_or_zero(execution_adaptation_pressure.get("growth_cap_tss_per_week")),
+    )
+    try:
+        recovery_share_cap = float(execution_adaptation_pressure.get("recovery_share_cap", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        recovery_share_cap = 0.0
+    recovery_share_cap = max(0.0, min(1.0, recovery_share_cap))
+    raw_signals = execution_adaptation_pressure.get("signals", [])
+    signals = []
+    if isinstance(raw_signals, (list, tuple)):
+        signals = [
+            str(item).strip()
+            for item in raw_signals
+            if str(item).strip()
+        ][:4]
+
+    badge = str(execution_adaptation_pressure.get("badge") or "").strip()
+    if not badge:
+        badge = EXECUTION_ADAPTATION_PRESSURE_LEVEL_LABELS_RU[level]
+
+    follow_up_label = str(execution_adaptation_pressure.get("follow_up_label") or "").strip()
+    if not follow_up_label:
+        follow_up_label = EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU[follow_up_mode]
+
+    reason = str(execution_adaptation_pressure.get("reason") or "").strip()
+    if not reason:
+        if follow_up_mode == "protect_recovery":
+            reason = "Сначала удерживайте восстановление, а не пытайтесь вернуть потерянный объём ближайшим rebound."
+        elif follow_up_mode == "catch_up":
+            reason = "Окно отклонилось умеренно, поэтому можно вернуть только малую часть объёма под явным ceiling."
+        else:
+            reason = "Окно уже сдвинулось достаточно, чтобы на 1-2 недели удержать текущий потолок без нового разгона."
+
+    follow_up_window_description = str(
+        execution_adaptation_pressure.get("follow_up_window_description") or ""
+    ).strip()
+    if not follow_up_window_description:
+        if growth_cap_tss_per_week > 0:
+            follow_up_window_description = (
+                f"Следующие {rebuild_horizon_weeks} нед.: "
+                f"не расти быстрее +{growth_cap_tss_per_week} TSS/нед."
+            )
+        else:
+            follow_up_window_description = (
+                f"Следующие {rebuild_horizon_weeks} нед.: "
+                "возврат объёма не ускоряется автоматически."
+            )
+
+    description = str(execution_adaptation_pressure.get("description") or "").strip()
+    if not description:
+        description = f"{badge} · {follow_up_label}. {follow_up_window_description} {reason}"
+
+    return {
+        "level": level,
+        "level_label": EXECUTION_ADAPTATION_PRESSURE_LEVEL_LABELS_RU[level],
+        "score": score,
+        "badge": badge,
+        "follow_up_mode": follow_up_mode,
+        "follow_up_label": follow_up_label,
+        "rebuild_horizon_weeks": rebuild_horizon_weeks,
+        "growth_cap_tss_per_week": growth_cap_tss_per_week,
+        "recovery_share_cap": recovery_share_cap,
+        "signals": signals,
+        "reason": reason,
+        "follow_up_window_description": follow_up_window_description,
+        "compact_label": f"{badge} · {follow_up_label}",
+        "description": description,
+    }
+
+
 def summarize_near_term_edit(constraint_summary: Dict[str, Any] | None) -> Dict[str, Any] | None:
     """Normalize the persisted/manual near-term edit signal for UI and explainability."""
     if not isinstance(constraint_summary, dict):
@@ -312,12 +436,19 @@ def summarize_near_term_edit(constraint_summary: Dict[str, Any] | None) -> Dict[
 
 
 __all__ = [
+    "EXECUTION_ADAPTATION_FOLLOW_UP_MODES",
+    "EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU",
+    "EXECUTION_ADAPTATION_PRESSURE_LEVELS",
+    "EXECUTION_ADAPTATION_PRESSURE_LEVEL_LABELS_RU",
     "NEAR_TERM_EDIT_POST_STRATEGIES",
     "NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU",
     "NEAR_TERM_EDIT_RISK_FOCUSES",
     "NEAR_TERM_EDIT_RISK_LEVELS",
+    "normalize_execution_adaptation_follow_up_mode",
+    "normalize_execution_adaptation_pressure_level",
     "normalize_near_term_edit_risk_focus",
     "normalize_near_term_edit_risk_level",
     "normalize_near_term_edit_post_strategy",
+    "summarize_execution_adaptation_pressure",
     "summarize_near_term_edit",
 ]

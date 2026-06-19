@@ -16,6 +16,7 @@ from models.planning_execution import (
     summarize_execution_reconciliation_rows,
     summarize_execution_weekly_review_rows,
 )
+from models.planning_summary import summarize_execution_adaptation_pressure
 
 QUICK_EXECUTION_LABELS = {
     "completed": "Выполнено по плану",
@@ -119,6 +120,7 @@ def render_execution_feedback_editor(
 
         projected_goal_plan: Dict[str, Any] | None = None
         corrective_microcycle: Dict[str, Any] | None = None
+        adaptation_pressure: Dict[str, Any] | None = None
 
         if mode == "Быстро":
             status_label = st.selectbox(
@@ -337,6 +339,9 @@ def render_execution_feedback_editor(
                 weeks=weeks,
                 response_strategy_override=selected_response_strategy,
             )
+            adaptation_pressure = summarize_execution_adaptation_pressure(
+                plan_adjustment_payload.get("execution_adaptation_pressure")
+            )
             projected_goal_plan = rebuild_goal_plan_with_adjustment(
                 goal_plan,
                 plan_adjustment_payload,
@@ -366,6 +371,12 @@ def render_execution_feedback_editor(
                         )
                     if corrective_microcycle["guardrail"]:
                         st.caption(corrective_microcycle["guardrail"])
+            if adaptation_pressure:
+                with st.container(border=True):
+                    st.markdown(f"**{adaptation_pressure['badge']}** · {adaptation_pressure['follow_up_label']}")
+                    st.caption(adaptation_pressure["follow_up_window_description"])
+                    if adaptation_pressure["reason"]:
+                        st.caption(adaptation_pressure["reason"])
 
         if projected_goal_plan is None:
             projected_goal_plan = rebuild_goal_plan_with_adjustment(
@@ -381,6 +392,21 @@ def render_execution_feedback_editor(
                     ).get("execution_corrective_microcycle")
                 )
             )
+        if adaptation_pressure is None:
+            adaptation_pressure = summarize_execution_adaptation_pressure(
+                (
+                    (
+                        (projected_goal_plan.get("constraint_summary", {}) or {}).get("plan_adjustment", {})
+                        or {}
+                    ).get("execution_adaptation_pressure")
+                )
+            )
+        if mode == "Быстро" and adaptation_pressure:
+            with st.container(border=True):
+                st.markdown(f"**{adaptation_pressure['badge']}** · {adaptation_pressure['follow_up_label']}")
+                st.caption(adaptation_pressure["follow_up_window_description"])
+                if adaptation_pressure["reason"]:
+                    st.caption(adaptation_pressure["reason"])
 
         is_actionable = str(plan_adjustment_payload.get("label") or "Нет").strip() not in {
             "Нет",
@@ -397,6 +423,7 @@ def render_execution_feedback_editor(
                 return {
                     "plan_adjustment": plan_adjustment_payload,
                     "execution_summary": execution_summary,
+                    "execution_adaptation_pressure": adaptation_pressure,
                     "weeks": weeks,
                     "mode": "apply_replan",
                     "source_mode": mode,
@@ -411,6 +438,7 @@ def render_execution_feedback_editor(
                     return {
                         "plan_adjustment": plan_adjustment_payload,
                         "execution_summary": execution_summary,
+                        "execution_adaptation_pressure": adaptation_pressure,
                         "weeks": weeks,
                         "mode": "open_near_term_draft",
                         "source_mode": mode,

@@ -62,6 +62,16 @@ def test_recommended_prompt_prefers_execution_review_when_checkpoint_is_actionab
                 "plan_adjustment": {
                     "label": "Нагрузка урезана",
                     "weeks": 1,
+                    "execution_adaptation_pressure": {
+                        "level": "medium",
+                        "score": 45,
+                        "follow_up_mode": "hold",
+                        "follow_up_label": "Удержать текущий потолок",
+                        "rebuild_horizon_weeks": 2,
+                        "growth_cap_tss_per_week": 25,
+                        "recovery_share_cap": 0.0,
+                        "reason": "Окно уже сдвинулось заметно: следующие 1-2 недели лучше удержать текущий потолок.",
+                    },
                     "execution_weekly_review": {
                         "headline": "Нагрузка сжалась в меньшее число дней",
                         "review_badge": "Риск компрессии",
@@ -114,6 +124,16 @@ def test_recommended_prompt_prefers_execution_review_when_checkpoint_is_actionab
                 "selected_response_strategy": "protect_recovery",
                 "selected_response_label": "Беречь восстановление",
             },
+            "execution_adaptation_pressure": {
+                "level": "medium",
+                "score": 45,
+                "follow_up_mode": "hold",
+                "follow_up_label": "Удержать текущий потолок",
+                "rebuild_horizon_weeks": 2,
+                "growth_cap_tss_per_week": 25,
+                "recovery_share_cap": 0.0,
+                "reason": "Окно уже сдвинулось заметно: следующие 1-2 недели лучше удержать текущий потолок.",
+            },
             "execution_corrective_microcycle": {
                 "headline": "Ближайшие 2-3 дня: удержать объём без компрессии недели",
                 "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
@@ -134,6 +154,8 @@ def test_recommended_prompt_prefers_execution_review_when_checkpoint_is_actionab
     assert "Нагрузка сжалась в меньшее число дней" in prompt["prompt"]
     assert "Беречь восстановление" in prompt["prompt"]
     assert "Execution microcycle" in prompt["prompt"]
+    assert "Execution drift pressure" in prompt["prompt"]
+    assert "Удержать текущий потолок" in prompt["prompt"]
     assert "Ближайшие 2-3 дня: удержать объём без компрессии недели" in prompt["prompt"]
     assert prompt["response_contract"]["mode"] == "operational_brief"
     assert "Сегодня / Ближайшие 2-3 дня / Не делать / Почему" in prompt["response_contract"]["preview_label"]

@@ -4,6 +4,8 @@ from datetime import datetime, timedelta, date
 from math import ceil
 from typing import Any, Dict, List, Mapping, Sequence, Tuple
 
+from models.planning_summary import summarize_execution_adaptation_pressure
+
 WEEKDAY_LABELS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 SESSION_ROLE_LABELS_RU = {
     "off": "Отдых",
@@ -168,6 +170,9 @@ def normalize_plan_adjustment(
     execution_corrective_microcycle = raw.get('execution_corrective_microcycle')
     if not isinstance(execution_corrective_microcycle, Mapping):
         execution_corrective_microcycle = None
+    execution_adaptation_pressure = summarize_execution_adaptation_pressure(
+        raw.get('execution_adaptation_pressure')
+    )
 
     catch_up_strategy_override = str(raw.get('catch_up_strategy_override') or '').strip().lower()
     if catch_up_strategy_override not in {'catch_up', 'protect_recovery'}:
@@ -266,6 +271,7 @@ def normalize_plan_adjustment(
         } if execution_reconciliation else None,
         'execution_weekly_review': dict(execution_weekly_review) if execution_weekly_review else None,
         'execution_corrective_microcycle': dict(execution_corrective_microcycle) if execution_corrective_microcycle else None,
+        'execution_adaptation_pressure': dict(execution_adaptation_pressure) if execution_adaptation_pressure else None,
         'catch_up_strategy_override': catch_up_strategy_override or None,
         'is_active': status in {'skipped', 'reduced', 'unavailable'} and weeks > 0,
     }
@@ -507,6 +513,21 @@ def apply_planning_constraints(
     plan_adjustment_recovered = 0
     if normalized_adjustment['is_active']:
         affected_weeks = min(int(normalized_adjustment['weeks']), len(adjusted_plan))
+        adaptation_pressure = normalized_adjustment.get('execution_adaptation_pressure')
+        follow_up_mode = ''
+        follow_up_label = ''
+        growth_cap_tss_per_week = 0
+        rebuild_horizon_weeks = 0
+        recovery_share_cap = 0.0
+        if isinstance(adaptation_pressure, Mapping):
+            follow_up_mode = str(adaptation_pressure.get('follow_up_mode') or '').strip().lower()
+            follow_up_label = str(adaptation_pressure.get('follow_up_label') or '').strip()
+            growth_cap_tss_per_week = int(adaptation_pressure.get('growth_cap_tss_per_week', 0) or 0)
+            rebuild_horizon_weeks = int(adaptation_pressure.get('rebuild_horizon_weeks', 0) or 0)
+            try:
+                recovery_share_cap = float(adaptation_pressure.get('recovery_share_cap', 0.0) or 0.0)
+            except (TypeError, ValueError):
+                recovery_share_cap = 0.0
         for week_index in range(affected_weeks):
             factor = _plan_adjustment_week_factor(normalized_adjustment, week_index)
             before = adjusted_plan[week_index]
@@ -517,7 +538,11 @@ def apply_planning_constraints(
             adjusted_plan[week_index] = after
             details[week_index]['notes'].append(_plan_adjustment_note(normalized_adjustment, factor))
 
-        if catch_up_strategy == 'catch_up' and plan_adjustment_loss > 0:
+        if (
+            catch_up_strategy == 'catch_up'
+            and plan_adjustment_loss > 0
+            and follow_up_mode in {'', 'catch_up'}
+        ):
             recovery_share_by_status = {
                 'skipped': 0.50,
                 'reduced': 0.40,
@@ -528,6 +553,8 @@ def apply_planning_constraints(
                 recovery_share = min(recovery_share, 0.30)
             if load_state['catch_up_share_cap'] is not None:
                 recovery_share = min(recovery_share, float(load_state['catch_up_share_cap']))
+            if recovery_share_cap > 0:
+                recovery_share = min(recovery_share, recovery_share_cap)
             plan_adjustment_recoverable = _round_to_5(plan_adjustment_loss * recovery_share)
             remaining = plan_adjustment_recoverable
             recovery_window_end = min(len(adjusted_plan), affected_weeks + 2)
@@ -549,8 +576,26 @@ def apply_planning_constraints(
                 if remaining <= 0:
                     break
 
-        if catch_up_strategy != 'catch_up' and plan_adjustment_loss > 0 and affected_weeks > 0:
-            details[affected_weeks - 1]['notes'].append("локальный объём не догоняется автоматически")
+        if plan_adjustment_loss > 0 and affected_weeks > 0:
+            if follow_up_mode == 'hold':
+                details[affected_weeks - 1]['notes'].append("режим hold: удержать текущий потолок")
+            elif follow_up_mode == 'protect_recovery':
+                details[affected_weeks - 1]['notes'].append("режим protect_recovery: объём не догоняется автоматически")
+            elif catch_up_strategy != 'catch_up':
+                details[affected_weeks - 1]['notes'].append("локальный объём не догоняется автоматически")
+
+        if growth_cap_tss_per_week > 0 and rebuild_horizon_weeks > 0 and affected_weeks > 0:
+            rebound_window_end = min(len(adjusted_plan), affected_weeks + rebuild_horizon_weeks)
+            for week_index in range(affected_weeks, rebound_window_end):
+                previous_value = adjusted_plan[week_index - 1]
+                allowed_value = max(previous_value, previous_value + growth_cap_tss_per_week)
+                if adjusted_plan[week_index] <= allowed_value:
+                    continue
+                adjusted_plan[week_index] = allowed_value
+                mode_note = follow_up_label or "режим после execution drift"
+                details[week_index]['notes'].append(
+                    f"{mode_note.lower()} · ceiling +{growth_cap_tss_per_week} TSS/нед."
+                )
 
     for week_index, value in enumerate(adjusted_plan):
         details[week_index]['adjusted_tss'] = value
@@ -604,7 +649,21 @@ def apply_planning_constraints(
             microcycle_headline = str(execution_corrective_microcycle.get('headline') or '').strip()
             if microcycle_headline:
                 summary_notes.append(f"Execution microcycle: {microcycle_headline}.")
-        if plan_adjustment_loss > 0 and catch_up_strategy == 'catch_up':
+        execution_adaptation_pressure = normalized_adjustment.get('execution_adaptation_pressure')
+        if isinstance(execution_adaptation_pressure, Mapping):
+            compact_label = str(execution_adaptation_pressure.get('compact_label') or '').strip()
+            follow_up_window_description = str(
+                execution_adaptation_pressure.get('follow_up_window_description') or ''
+            ).strip()
+            reason = str(execution_adaptation_pressure.get('reason') or '').strip()
+            if compact_label:
+                note = f"Execution drift pressure: {compact_label}."
+                if follow_up_window_description:
+                    note += f" {follow_up_window_description}"
+                if reason:
+                    note += f" {reason}"
+                summary_notes.append(note)
+        if plan_adjustment_loss > 0 and catch_up_strategy == 'catch_up' and plan_adjustment_recoverable > 0:
             summary_notes.append(
                 f"Локальная перепланировка вернула {plan_adjustment_recovered} из {plan_adjustment_recoverable} TSS в ближайшем окне"
             )
@@ -627,6 +686,7 @@ def apply_planning_constraints(
         'plan_adjustment_loss_tss': plan_adjustment_loss,
         'plan_adjustment_recoverable_tss': plan_adjustment_recoverable,
         'plan_adjustment_recovered_tss': plan_adjustment_recovered,
+        'execution_adaptation_pressure': normalized_adjustment.get('execution_adaptation_pressure'),
         'current_tsb': current_tsb,
         'current_ctl': current_ctl,
         'current_atl': current_atl,

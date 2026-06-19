@@ -95,6 +95,16 @@ def test_coach_explainability_mentions_persisted_checkpoint_adjustment():
                 "plan_adjustment": {
                     "label": "Пропущены сессии",
                     "weeks": 1,
+                    "execution_adaptation_pressure": {
+                        "level": "medium",
+                        "score": 40,
+                        "follow_up_mode": "hold",
+                        "follow_up_label": "Удержать текущий потолок",
+                        "rebuild_horizon_weeks": 2,
+                        "growth_cap_tss_per_week": 25,
+                        "recovery_share_cap": 0.0,
+                        "reason": "Окно уже сдвинулось заметно: следующие 1-2 недели лучше удержать текущий потолок.",
+                    },
                     "execution_weekly_review": {
                         "headline": "Пропущена ключевая сессия",
                         "review_badge": "Потеря качества",
@@ -136,6 +146,8 @@ def test_coach_explainability_mentions_persisted_checkpoint_adjustment():
     assert any("Weekly review:" in signal for signal in summary["signals"])
     assert "execution microcycle" in summary["plan_context"].lower()
     assert any("Execution microcycle:" in signal for signal in summary["signals"])
+    assert "Удержать текущий потолок" in summary["plan_context"]
+    assert any("Execution drift pressure:" in signal for signal in summary["signals"])
 
 
 def test_coach_explainability_mentions_manual_near_term_edit():
@@ -282,6 +294,16 @@ def test_coach_explainability_prefers_execution_review_after_actionable_checkpoi
                 "selected_response_strategy": "protect_recovery",
                 "selected_response_label": "Беречь восстановление",
             },
+            "execution_adaptation_pressure": {
+                "level": "medium",
+                "score": 40,
+                "follow_up_mode": "hold",
+                "follow_up_label": "Удержать текущий потолок",
+                "rebuild_horizon_weeks": 2,
+                "growth_cap_tss_per_week": 25,
+                "recovery_share_cap": 0.0,
+                "reason": "Окно уже сдвинулось заметно: следующие 1-2 недели лучше удержать текущий потолок.",
+            },
             "execution_corrective_microcycle": {
                 "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
                 "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
@@ -305,11 +327,13 @@ def test_coach_explainability_prefers_execution_review_after_actionable_checkpoi
     assert "Беречь восстановление" in summary["prompt"]
     assert summary["today_action"].startswith("Thu 18.06: Сделать контролируемо")
     assert summary["next_window"].startswith("Fri 19.06: Оставить лёгкой")
-    assert summary["watchout"] == "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией."
+    assert "не расти быстрее +25 TSS/нед." in summary["next_window"]
+    assert "лучше удержать текущий потолок" in summary["watchout"]
     assert any("Execution checkpoint" in signal for signal in summary["signals"])
     assert any("140/180 TSS" in signal for signal in summary["signals"])
     assert any("Weekly review:" in signal for signal in summary["signals"])
     assert any("Execution microcycle:" in signal for signal in summary["signals"])
+    assert any("Execution drift pressure:" in signal for signal in summary["signals"])
 
 
 def test_coach_explainability_keeps_checkpoint_guardrails_visible_during_recovery_focus():

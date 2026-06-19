@@ -127,6 +127,16 @@ def test_build_plan_explainability_prioritizes_local_replan_story():
                     "status": "skipped",
                     "label": "Пропущены сессии",
                     "weeks": 1,
+                    "execution_adaptation_pressure": {
+                        "level": "medium",
+                        "score": 40,
+                        "follow_up_mode": "hold",
+                        "follow_up_label": "Удержать текущий потолок",
+                        "rebuild_horizon_weeks": 2,
+                        "growth_cap_tss_per_week": 25,
+                        "recovery_share_cap": 0.0,
+                        "reason": "Окно уже сдвинулось заметно: следующие 1-2 недели лучше удержать текущий потолок.",
+                    },
                     "execution_corrective_microcycle": {
                         "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
                         "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
@@ -153,6 +163,9 @@ def test_build_plan_explainability_prioritizes_local_replan_story():
     assert explain["plan_adjustment_loss_tss"] == 70
     assert explain["plan_adjustment_recovered_tss"] == 30
     assert explain["execution_corrective_microcycle"] is not None
+    assert explain["execution_adaptation_pressure"] is not None
+    assert explain["execution_adaptation_pressure"]["follow_up_mode"] == "hold"
+    assert "не расти быстрее +25 TSS/нед." in explain["execution_adaptation_pressure"]["follow_up_window_description"]
     assert explain["execution_corrective_microcycle"]["headline"].startswith("Ближайшие 2-3 дня")
     assert explain["execution_corrective_microcycle"]["today_action"].startswith("Thu 18.06")
     assert explain["comparison_rows"][1]["Почему"] == "локальный возврат +15 TSS"
