@@ -301,6 +301,7 @@ def _render_near_term_risk_callout(near_term_edit: Dict[str, Any], *, prefix: st
 def _render_near_term_editor(
     goal_plan: Dict[str, Any],
     rollback_goal_plan: Dict[str, Any] | None = None,
+    rollback_checkpoint_id: int | None = None,
 ) -> Dict[str, Any] | None:
     """Render an in-place editor for the next 7-10 days of the current plan."""
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
@@ -589,6 +590,7 @@ def _render_near_term_editor(
             restored_goal_plan = dict(rollback_goal_plan)
             restored_goal_plan["plan_revision"] = datetime.now().isoformat()
             restored_goal_plan["_transient_planning_action"] = "rollback_near_term_edit"
+            restored_goal_plan["_transient_restore_checkpoint_id"] = rollback_checkpoint_id
             return restored_goal_plan
 
         if soften_clicked and safer_draft is not None:
@@ -607,6 +609,92 @@ def _render_near_term_editor(
                 horizon_days=horizon_days,
                 post_edit_strategy=selected_post_edit_strategy,
             )
+
+    return None
+
+
+def _render_planning_version_history(
+    goal_plan: Dict[str, Any],
+    latest_checkpoint: Dict[str, Any] | None,
+    checkpoint_history: List[Dict[str, Any]] | None,
+) -> Dict[str, Any] | None:
+    """Render recent saved plan versions with compare + restore actions."""
+    from models.planning_checkpoints import (
+        restore_goal_plan_from_checkpoint,
+        summarize_planning_checkpoint,
+    )
+
+    current_summary = summarize_planning_checkpoint(latest_checkpoint)
+    if current_summary is None:
+        return None
+
+    latest_checkpoint_id = current_summary.get("checkpoint_id")
+    history_records = [
+        record
+        for record in (checkpoint_history or [])
+        if isinstance(record, dict) and record.get("id") != latest_checkpoint_id
+    ][:4]
+    if not history_records:
+        return None
+
+    st.markdown("### 🗂️ История версий плана")
+    st.caption("Сравните текущую версию с недавними checkpoint и при необходимости восстановите любую из них.")
+
+    current_provenance = current_summary.get("provenance") or {}
+    with st.container(border=True):
+        st.markdown(
+            f"**Сейчас активна:** checkpoint #{current_summary['checkpoint_id']} · "
+            f"{current_provenance.get('label', 'Текущая версия')}"
+        )
+        if current_summary["created_at_label"]:
+            st.caption(f"Сохранён: {current_summary['created_at_label']}")
+        if current_provenance.get("detail"):
+            st.caption(current_provenance["detail"])
+        st.write(
+            f"**Checkpoint:** {current_summary['plan_adjustment_label']} · "
+            f"Пик {current_summary['peak_tss']} TSS · Сумма {current_summary['total_tss']} TSS"
+        )
+
+    for record in history_records:
+        summary = summarize_planning_checkpoint(record)
+        restored_goal_plan = restore_goal_plan_from_checkpoint(record)
+        if summary is None or not isinstance(restored_goal_plan, dict) or not restored_goal_plan.get("daily_plan"):
+            continue
+
+        preview = _build_goal_plan_transition_preview(goal_plan, restored_goal_plan)
+        provenance = summary.get("provenance") or {}
+        with st.container(border=True):
+            st.markdown(
+                f"**Checkpoint #{summary['checkpoint_id']} · {provenance.get('label', 'Сохранённая версия')}**"
+            )
+            if summary["created_at_label"]:
+                st.caption(f"Сохранён: {summary['created_at_label']}")
+            if provenance.get("detail"):
+                st.caption(provenance["detail"])
+            st.write(
+                f"**Checkpoint:** {summary['plan_adjustment_label']} · "
+                f"Пик {summary['peak_tss']} TSS · Сумма {summary['total_tss']} TSS"
+            )
+            if summary.get("near_term_edit"):
+                st.caption(f"Ручная правка: {summary['near_term_edit']['compact_label']}")
+            if preview["weekly_rows"]:
+                st.dataframe(
+                    pd.DataFrame(preview["weekly_rows"]),
+                    width="stretch",
+                    hide_index=True,
+                )
+            else:
+                st.caption("По недельной структуре эта версия совпадает с текущей.")
+            if st.button(
+                "↩️ Восстановить эту версию",
+                key=f"restore_planning_checkpoint_{summary['checkpoint_id']}",
+                width="stretch",
+            ):
+                restored_goal_plan = dict(restored_goal_plan)
+                restored_goal_plan["plan_revision"] = datetime.now().isoformat()
+                restored_goal_plan["_transient_planning_action"] = "restore_checkpoint_version"
+                restored_goal_plan["_transient_restore_checkpoint_id"] = summary["checkpoint_id"]
+                return restored_goal_plan
 
     return None
 
@@ -1163,7 +1251,7 @@ def render_planning_page(state: "StateManager") -> None:
                 state.planner_weights[phase] = {"run": run_vals, "bike": bike_vals, "swim": swim_vals}
 
     if st.button("🧭 Построить план до старта"):
-        from models.planning_checkpoints import build_planning_checkpoint
+        from models.planning_checkpoints import build_planning_checkpoint, with_checkpoint_provenance
         from models.training_planner import build_daily_session_templates
 
         base_weekly_tss_plan = create_weekly_tss_plan(
@@ -1221,7 +1309,8 @@ def render_planning_page(state: "StateManager") -> None:
             distance=distance,
         )
 
-        goal_plan_payload = {
+        goal_plan_payload = with_checkpoint_provenance(
+            {
             "goal_type": goal_type,
             "distance": distance,
             "weeks_to_race": weeks_to_race,
@@ -1238,14 +1327,16 @@ def render_planning_page(state: "StateManager") -> None:
             "plan_revision": datetime.now().isoformat(),
             "near_term_edit_version": 0,
             "near_term_edit_rollback_target_checkpoint_id": None,
-        }
+            },
+            source="initial_plan",
+        )
         state.goal_plan = goal_plan_payload
         state.last_execution_feedback_result = None
         saved_checkpoint = state.database.save_planning_checkpoint(
             build_planning_checkpoint(goal_plan_payload)
         )
         state.latest_planning_checkpoint = saved_checkpoint
-        state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=3)
+        state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
         st.rerun()
 
     if state.goal_plan:
@@ -1253,6 +1344,7 @@ def render_planning_page(state: "StateManager") -> None:
             build_planning_checkpoint,
             get_near_term_edit_rollback_target_checkpoint_id,
             restore_goal_plan_from_checkpoint,
+            with_checkpoint_provenance,
         )
 
         goal_plan = state.goal_plan
@@ -1269,12 +1361,35 @@ def render_planning_page(state: "StateManager") -> None:
             if not isinstance(rollback_goal_plan, dict) or not rollback_goal_plan.get("daily_plan"):
                 rollback_goal_plan = None
 
-        updated_goal_plan = _render_near_term_editor(goal_plan, rollback_goal_plan=rollback_goal_plan)
+        updated_goal_plan = _render_near_term_editor(
+            goal_plan,
+            rollback_goal_plan=rollback_goal_plan,
+            rollback_checkpoint_id=rollback_target_checkpoint_id,
+        )
+        if updated_goal_plan is None:
+            updated_goal_plan = _render_planning_version_history(
+                goal_plan,
+                latest_checkpoint,
+                getattr(state, "planning_checkpoint_history", []),
+            )
         if updated_goal_plan is not None:
             planning_action = str(updated_goal_plan.pop("_transient_planning_action", "") or "")
+            restored_from_checkpoint_id = updated_goal_plan.pop("_transient_restore_checkpoint_id", None)
             near_term_summary = summarize_near_term_edit(updated_goal_plan.get("constraint_summary", {}))
-            if planning_action != "rollback_near_term_edit":
-                latest_checkpoint_id = (latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None
+            latest_checkpoint_id = (latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None
+            if planning_action in {"rollback_near_term_edit", "restore_checkpoint_version"}:
+                updated_goal_plan = with_checkpoint_provenance(
+                    updated_goal_plan,
+                    source="restore_version",
+                    parent_checkpoint_id=latest_checkpoint_id,
+                    restored_from_checkpoint_id=restored_from_checkpoint_id,
+                )
+            else:
+                updated_goal_plan = with_checkpoint_provenance(
+                    updated_goal_plan,
+                    source="manual_edit",
+                    parent_checkpoint_id=latest_checkpoint_id,
+                )
                 if near_term_summary is not None and latest_checkpoint_id is not None:
                     updated_goal_plan["near_term_edit_rollback_target_checkpoint_id"] = latest_checkpoint_id
                 elif near_term_summary is None:
@@ -1286,7 +1401,7 @@ def render_planning_page(state: "StateManager") -> None:
                 build_planning_checkpoint(updated_goal_plan)
             )
             state.latest_planning_checkpoint = saved_checkpoint
-            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=3)
+            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
             if planning_action == "rollback_near_term_edit":
                 if near_term_summary is not None:
                     st.session_state["planning_near_term_flash"] = (
@@ -1295,6 +1410,13 @@ def render_planning_page(state: "StateManager") -> None:
                     )
                 else:
                     st.session_state["planning_near_term_flash"] = "Последняя ручная правка ближнего горизонта откатана."
+            elif planning_action == "restore_checkpoint_version":
+                if restored_from_checkpoint_id is not None:
+                    st.session_state["planning_near_term_flash"] = (
+                        f"Версия checkpoint #{int(restored_from_checkpoint_id)} восстановлена."
+                    )
+                else:
+                    st.session_state["planning_near_term_flash"] = "Сохранённая версия плана восстановлена."
             else:
                 if near_term_summary is not None:
                     st.session_state["planning_near_term_flash"] = (

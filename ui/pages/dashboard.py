@@ -17,6 +17,7 @@ from models.planning_checkpoints import (
     build_planning_checkpoint,
     summarize_execution_feedback_transition,
     summarize_planning_checkpoint,
+    with_checkpoint_provenance,
 )
 from models.planning_execution import rebuild_goal_plan_with_adjustment
 from services import demo_mode as demo_mode_service
@@ -655,6 +656,7 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
     if checkpoint_summary is None:
         return
 
+    provenance = checkpoint_summary.get("provenance") or {}
     st.markdown("### 🗂️ Последний planning checkpoint")
     with st.container(border=True):
         st.markdown(f"**{checkpoint_summary['title']}**")
@@ -662,6 +664,13 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
             st.write(checkpoint_summary["headline"])
         if checkpoint_summary["created_at_label"]:
             st.caption(f"Сохранён: {checkpoint_summary['created_at_label']}")
+        if provenance.get("label"):
+            st.write(
+                f"**Версия:** checkpoint #{checkpoint_summary['checkpoint_id']} · "
+                f"{provenance['label']}"
+            )
+        if provenance.get("detail"):
+            st.caption(provenance["detail"])
         st.write(
             f"**Checkpoint:** {checkpoint_summary['plan_adjustment_label']} · "
             f"Пик {checkpoint_summary['peak_tss']} TSS · Сумма {checkpoint_summary['total_tss']} TSS"
@@ -689,12 +698,19 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
             st.caption("Недавние checkpoints")
             for item in history:
                 when = f" ({item['created_at_label']})" if item["created_at_label"] else ""
-                suffix = ""
-                if item.get("near_term_edit"):
-                    suffix = f" · ручная правка: {item['near_term_edit']['delta_label']}"
+                provenance = item.get("provenance") or {}
+                provenance_source = provenance.get("source")
+                version_label = provenance.get("label", "Сохранённая версия")
+                detail = provenance.get("detail", "")
+                suffix = f" · checkpoint: {item['plan_adjustment_label']}"
+                if item.get("near_term_edit") and provenance_source != "manual_edit":
+                    suffix += f" · ручная правка: {item['near_term_edit']['delta_label']}"
                     if item["near_term_edit"].get("risk_level") != "low":
                         suffix += f" · {item['near_term_edit']['risk_badge']}"
-                st.write(f"• {item['title']}: {item['plan_adjustment_label']}{suffix}{when}")
+                detail_text = f" — {detail}" if detail else ""
+                st.write(
+                    f"• #{item['checkpoint_id']} · {version_label}{detail_text}{suffix}{when}"
+                )
 
 
 def _build_execution_feedback_result(
@@ -786,12 +802,17 @@ def _render_execution_feedback_loop(state: StateManager) -> None:
                     "reduced_load_share": reduced_load_share,
                 },
             )
+            updated_goal_plan = with_checkpoint_provenance(
+                updated_goal_plan,
+                source="execution_feedback",
+                parent_checkpoint_id=(previous_checkpoint or {}).get("id") if isinstance(previous_checkpoint, dict) else None,
+            )
             state.goal_plan = updated_goal_plan
             saved_checkpoint = state.database.save_planning_checkpoint(
                 build_planning_checkpoint(updated_goal_plan)
             )
             state.latest_planning_checkpoint = saved_checkpoint
-            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=3)
+            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
             state.last_execution_feedback_result = _build_execution_feedback_result(
                 previous_checkpoint,
                 saved_checkpoint,

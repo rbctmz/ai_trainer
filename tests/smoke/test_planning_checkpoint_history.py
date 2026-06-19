@@ -11,8 +11,10 @@ from models.planning_checkpoints import (
     get_near_term_edit_rollback_target_checkpoint_id,
     resolve_goal_plan_context,
     restore_goal_plan_from_checkpoint,
+    summarize_checkpoint_provenance,
     summarize_execution_feedback_transition,
     summarize_planning_checkpoint,
+    with_checkpoint_provenance,
 )
 from models.planning_execution import rebuild_goal_plan_with_adjustment
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
@@ -117,6 +119,9 @@ def _sample_goal_plan() -> dict[str, object]:
         "near_term_edit_version": 1,
         "near_term_edit_horizon_days": 7,
         "near_term_edit_rollback_target_checkpoint_id": 41,
+        "checkpoint_source": "manual_edit",
+        "checkpoint_parent_id": 40,
+        "checkpoint_restored_from_checkpoint_id": None,
     }
 
 
@@ -155,7 +160,11 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     assert get_near_term_edit_rollback_target_checkpoint_id(checkpoint) == 41
     assert resolved["constraint_summary"]["plan_adjustment"]["label"] == "Пропущены сессии"
     assert summary["plan_adjustment_label"] == "Пропущены сессии"
+    assert summary["checkpoint_id"] is None
     assert summary["peak_tss"] == 240
+    assert summary["provenance"]["source"] == "manual_edit"
+    assert summary["provenance"]["label"] == "Ручная правка"
+    assert "3 дн." in summary["provenance"]["detail"]
     assert summary["near_term_edit"]["edited_day_count"] == 3
     assert summary["near_term_edit"]["total_delta_tss"] == -15
     assert summary["near_term_edit"]["strategy_label"] == "Наверстать аккуратно"
@@ -176,6 +185,24 @@ def test_restore_goal_plan_from_legacy_checkpoint_rebuilds_daily_details():
     assert restored["daily_plan"]
     assert restored["session_templates"]
     assert restored["weekly_tss_plan"] == legacy_goal_plan["weekly_tss_plan"]
+
+
+def test_summarize_checkpoint_provenance_describes_restored_version():
+    restored_goal_plan = with_checkpoint_provenance(
+        _sample_goal_plan(),
+        source="restore_version",
+        parent_checkpoint_id=55,
+        restored_from_checkpoint_id=41,
+    )
+    checkpoint = build_planning_checkpoint(restored_goal_plan)
+
+    provenance = summarize_checkpoint_provenance(checkpoint)
+
+    assert provenance is not None
+    assert provenance["source"] == "restore_version"
+    assert provenance["parent_checkpoint_id"] == 55
+    assert provenance["restored_from_checkpoint_id"] == 41
+    assert provenance["detail"] == "Восстановлен checkpoint #41"
 
 
 def test_rebuild_goal_plan_with_adjustment_from_checkpoint_context():
@@ -199,6 +226,14 @@ def test_rebuild_goal_plan_with_adjustment_from_checkpoint_context():
     assert len(rebuilt["session_templates"]) == len(rebuilt["daily_plan"])
 
 
+def test_execution_feedback_summary_ignores_manual_edit_checkpoint_versions():
+    checkpoint = build_planning_checkpoint(_sample_goal_plan())
+
+    summary = summarize_execution_feedback_transition(None, checkpoint)
+
+    assert summary is None
+
+
 def test_summarize_execution_feedback_transition_from_persisted_checkpoints():
     previous_checkpoint = build_planning_checkpoint(_sample_goal_plan())
     rebuilt = rebuild_goal_plan_with_adjustment(
@@ -209,7 +244,13 @@ def test_summarize_execution_feedback_transition_from_persisted_checkpoints():
             "reduced_load_share": 0.60,
         },
     )
-    current_checkpoint = build_planning_checkpoint(rebuilt)
+    current_checkpoint = build_planning_checkpoint(
+        with_checkpoint_provenance(
+            rebuilt,
+            source="execution_feedback",
+            parent_checkpoint_id=previous_checkpoint["id"] if "id" in previous_checkpoint else None,
+        )
+    )
 
     summary = summarize_execution_feedback_transition(
         previous_checkpoint,

@@ -211,6 +211,7 @@ def render_empty_ai_chat_guidance(
     checkpoint_summary = summarize_planning_checkpoint(getattr(state, "latest_planning_checkpoint", None))
 
     if checkpoint_summary is not None:
+        provenance = checkpoint_summary.get("provenance") or {}
         st.markdown("### 🗂️ Последний planning checkpoint")
         with st.container(border=True):
             st.markdown(f"**{checkpoint_summary['title']}**")
@@ -218,6 +219,13 @@ def render_empty_ai_chat_guidance(
                 st.write(checkpoint_summary["headline"])
             if checkpoint_summary["created_at_label"]:
                 st.caption(f"Сохранён: {checkpoint_summary['created_at_label']}")
+            if provenance.get("label"):
+                st.write(
+                    f"**Версия:** checkpoint #{checkpoint_summary['checkpoint_id']} · "
+                    f"{provenance['label']}"
+                )
+            if provenance.get("detail"):
+                st.caption(provenance["detail"])
             st.write(
                 f"**Checkpoint:** {checkpoint_summary['plan_adjustment_label']} · "
                 f"Пик {checkpoint_summary['peak_tss']} TSS · Сумма {checkpoint_summary['total_tss']} TSS"

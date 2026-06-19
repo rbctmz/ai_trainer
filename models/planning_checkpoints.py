@@ -7,6 +7,13 @@ from typing import Any, Dict, List, Optional
 from models.planning_summary import summarize_near_term_edit
 
 NON_ACTIONABLE_PLAN_ADJUSTMENTS = {"", "Нет", "Выполнено по плану"}
+CHECKPOINT_SOURCE_LABELS = {
+    "initial_plan": "Базовая версия",
+    "manual_edit": "Ручная правка",
+    "execution_feedback": "Execution replan",
+    "restore_version": "Восстановленная версия",
+    "legacy_checkpoint": "Сохранённая версия",
+}
 
 
 def _isoformat_date(value: Any) -> Optional[str]:
@@ -35,6 +42,13 @@ def _parse_datetime(value: Any) -> Any:
         return datetime.fromisoformat(str(value))
     except ValueError:
         return value
+
+
+def _coerce_int(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _serialize_daily_plan(daily_plan: List[Any] | None) -> List[Dict[str, Any]]:
@@ -68,6 +82,101 @@ def _restore_daily_plan(rows: List[Any] | None) -> List[tuple[Any, float, Dict[s
     return restored
 
 
+def with_checkpoint_provenance(
+    goal_plan: Dict[str, Any],
+    *,
+    source: str,
+    parent_checkpoint_id: Any = None,
+    restored_from_checkpoint_id: Any = None,
+) -> Dict[str, Any]:
+    """Attach checkpoint lineage metadata to a goal plan before persistence."""
+    return {
+        **goal_plan,
+        "checkpoint_source": str(source or "").strip() or "initial_plan",
+        "checkpoint_parent_id": _coerce_int(parent_checkpoint_id),
+        "checkpoint_restored_from_checkpoint_id": _coerce_int(restored_from_checkpoint_id),
+    }
+
+
+def _resolve_checkpoint_source(
+    source: Any,
+    near_term_edit: Dict[str, Any] | None,
+    near_term_edit_version: Any,
+) -> str:
+    normalized = str(source or "").strip()
+    if normalized:
+        return normalized
+    if near_term_edit is not None and int(near_term_edit_version or 0) > 0:
+        return "manual_edit"
+    return "legacy_checkpoint"
+
+
+def summarize_checkpoint_provenance(checkpoint: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    """Describe how a persisted checkpoint version was produced."""
+    if not isinstance(checkpoint, dict):
+        return None
+
+    snapshot = checkpoint.get("goal_plan_snapshot")
+    snapshot_constraint_summary = {}
+    if isinstance(snapshot, dict):
+        snapshot_constraint_summary = snapshot.get("constraint_summary", {}) or {}
+    near_term_edit = summarize_near_term_edit(snapshot_constraint_summary)
+
+    source_candidate = checkpoint.get("checkpoint_source")
+    parent_id = _coerce_int(checkpoint.get("checkpoint_parent_id"))
+    restored_from_id = _coerce_int(checkpoint.get("checkpoint_restored_from_checkpoint_id"))
+    near_term_edit_version = checkpoint.get("near_term_edit_version")
+    if isinstance(snapshot, dict):
+        if source_candidate is None:
+            source_candidate = snapshot.get("checkpoint_source")
+        if parent_id is None:
+            parent_id = _coerce_int(snapshot.get("checkpoint_parent_id"))
+        if restored_from_id is None:
+            restored_from_id = _coerce_int(snapshot.get("checkpoint_restored_from_checkpoint_id"))
+        if near_term_edit_version is None:
+            near_term_edit_version = snapshot.get("near_term_edit_version")
+
+    source = _resolve_checkpoint_source(
+        source_candidate,
+        near_term_edit,
+        near_term_edit_version,
+    )
+    label = CHECKPOINT_SOURCE_LABELS.get(source, CHECKPOINT_SOURCE_LABELS["legacy_checkpoint"])
+    plan_adjustment_label = str(checkpoint.get("plan_adjustment_label") or "Нет")
+    plan_adjustment_weeks = int(checkpoint.get("plan_adjustment_weeks", 0) or 0)
+
+    detail = ""
+    if source == "manual_edit":
+        detail = (
+            near_term_edit.get("compact_label")
+            if isinstance(near_term_edit, dict)
+            else "Ближайший горизонт изменён вручную"
+        )
+    elif source == "execution_feedback":
+        detail = plan_adjustment_label
+        if plan_adjustment_label not in NON_ACTIONABLE_PLAN_ADJUSTMENTS and plan_adjustment_weeks > 0:
+            detail += f" на {plan_adjustment_weeks} нед."
+    elif source == "restore_version":
+        detail = (
+            f"Восстановлен checkpoint #{restored_from_id}"
+            if restored_from_id is not None
+            else "Восстановлена сохранённая версия"
+        )
+    elif source == "initial_plan":
+        detail = "Новый расчёт плана"
+    else:
+        detail = "Checkpoint без явной provenance-метки"
+
+    return {
+        "source": source,
+        "label": label,
+        "detail": detail,
+        "parent_checkpoint_id": parent_id,
+        "restored_from_checkpoint_id": restored_from_id,
+        "is_execution_feedback": source == "execution_feedback",
+    }
+
+
 def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     """Build a compact persisted snapshot from the current goal plan."""
     weekly_summary_rows: List[Dict[str, Any]] = []
@@ -91,6 +200,13 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     ]
 
     near_term_edit = summarize_near_term_edit(constraint_summary)
+    checkpoint_source = _resolve_checkpoint_source(
+        goal_plan.get("checkpoint_source"),
+        near_term_edit,
+        goal_plan.get("near_term_edit_version"),
+    )
+    checkpoint_parent_id = _coerce_int(goal_plan.get("checkpoint_parent_id"))
+    checkpoint_restored_from_id = _coerce_int(goal_plan.get("checkpoint_restored_from_checkpoint_id"))
 
     goal_plan_snapshot = {
         "goal_type": goal_plan.get("goal_type"),
@@ -110,6 +226,9 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "near_term_edit_version": int(goal_plan.get("near_term_edit_version", 0) or 0),
         "near_term_edit_horizon_days": int(goal_plan.get("near_term_edit_horizon_days", 0) or 0),
         "near_term_edit_rollback_target_checkpoint_id": goal_plan.get("near_term_edit_rollback_target_checkpoint_id"),
+        "checkpoint_source": checkpoint_source,
+        "checkpoint_parent_id": checkpoint_parent_id,
+        "checkpoint_restored_from_checkpoint_id": checkpoint_restored_from_id,
     }
 
     plan_adjustment = constraint_summary.get("plan_adjustment", {}) or {}
@@ -136,6 +255,9 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "near_term_edit_risk_level": near_term_edit.get("risk_level", "") if near_term_edit else "",
         "near_term_edit_risk_badge": near_term_edit.get("risk_badge", "") if near_term_edit else "",
         "near_term_edit_rollback_target_checkpoint_id": goal_plan_snapshot.get("near_term_edit_rollback_target_checkpoint_id"),
+        "checkpoint_source": checkpoint_source,
+        "checkpoint_parent_id": checkpoint_parent_id,
+        "checkpoint_restored_from_checkpoint_id": checkpoint_restored_from_id,
         "interruption_label": constraint_summary.get("interruption_label", "Нет"),
         "load_state_label": constraint_summary.get("load_state_label"),
         "goal_plan_snapshot": goal_plan_snapshot,
@@ -257,6 +379,7 @@ def summarize_planning_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str
     if not isinstance(checkpoint, dict):
         return None
 
+    checkpoint_id = _coerce_int(checkpoint.get("id"))
     goal_type = str(checkpoint.get("goal_type") or "").strip()
     distance = str(checkpoint.get("distance") or "").strip()
     created_at = checkpoint.get("created_at")
@@ -279,8 +402,10 @@ def summarize_planning_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str
     if isinstance(snapshot, dict):
         snapshot_constraint_summary = snapshot.get("constraint_summary", {}) or {}
     near_term_edit = summarize_near_term_edit(snapshot_constraint_summary)
+    provenance = summarize_checkpoint_provenance(checkpoint)
 
     return {
+        "checkpoint_id": checkpoint_id,
         "title": title,
         "created_at_label": created_at_label,
         "headline": headline,
@@ -291,6 +416,7 @@ def summarize_planning_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str
         "interruption_label": interruption_label,
         "load_state_label": load_state_label,
         "near_term_edit": near_term_edit,
+        "provenance": provenance,
     }
 
 
@@ -301,6 +427,10 @@ def summarize_execution_feedback_transition(
     """Summarize the latest persisted execution checkpoint against its previous baseline."""
     current = summarize_planning_checkpoint(current_checkpoint)
     if current is None:
+        return None
+
+    provenance = current.get("provenance") or {}
+    if provenance.get("source") not in {"execution_feedback", "legacy_checkpoint"}:
         return None
 
     plan_adjustment_label = str(current.get("plan_adjustment_label") or "Нет")
@@ -331,12 +461,15 @@ def summarize_execution_feedback_transition(
 
 
 __all__ = [
+    "CHECKPOINT_SOURCE_LABELS",
     "NON_ACTIONABLE_PLAN_ADJUSTMENTS",
     "build_planning_checkpoint",
     "checkpoint_to_goal_plan_context",
     "get_near_term_edit_rollback_target_checkpoint_id",
     "resolve_goal_plan_context",
     "restore_goal_plan_from_checkpoint",
+    "summarize_checkpoint_provenance",
     "summarize_execution_feedback_transition",
     "summarize_planning_checkpoint",
+    "with_checkpoint_provenance",
 ]

@@ -137,6 +137,27 @@ def test_coach_explainability_mentions_manual_near_term_edit():
     assert "Наверстать аккуратно" in summary["plan_context"]
 
 
+def test_coach_explainability_mentions_restored_plan_version():
+    summary = build_coach_explainability_summary(
+        tsb=2,
+        ctl=66,
+        atl=58,
+        readiness=74,
+        goal_plan={
+            "checkpoint_source": "restore_version",
+            "checkpoint_restored_from_checkpoint_id": 41,
+            "constraint_summary": {
+                "available_hours": 8.0,
+                "available_day_labels": ["Вт", "Чт", "Сб"],
+            },
+        },
+    )
+
+    assert any("восстановлена" in signal.lower() for signal in summary["signals"])
+    assert "checkpoint #41" in summary["plan_context"]
+    assert "checkpoint #41" in summary["prompt"]
+
+
 def test_coach_explainability_mentions_manual_edit_risk_guardrail():
     summary = build_coach_explainability_summary(
         tsb=-8,

@@ -28,6 +28,16 @@ def _strategy_label(strategy: str | None) -> str:
     return "Наверстать аккуратно" if (strategy or "").lower() == "catch_up" else "Беречь восстановление"
 
 
+def _checkpoint_source_label(source: str | None) -> str:
+    mapping = {
+        "initial_plan": "базовая версия",
+        "manual_edit": "ручная правка",
+        "execution_feedback": "execution replan",
+        "restore_version": "восстановленная версия",
+    }
+    return mapping.get(str(source or "").strip(), "")
+
+
 def _extract_planning_context(goal_plan: Dict[str, Any] | None) -> Dict[str, Any]:
     if not isinstance(goal_plan, dict):
         return {}
@@ -45,6 +55,9 @@ def _extract_planning_context(goal_plan: Dict[str, Any] | None) -> Dict[str, Any
     near_term_edit = summarize_near_term_edit(constraint_summary)
 
     return {
+        "checkpoint_source": str(goal_plan.get("checkpoint_source") or "").strip(),
+        "checkpoint_source_label": _checkpoint_source_label(goal_plan.get("checkpoint_source")),
+        "checkpoint_restored_from_checkpoint_id": _int_or_zero(goal_plan.get("checkpoint_restored_from_checkpoint_id")),
         "load_state_label": constraint_summary.get("load_state_label"),
         "interruption_label": constraint_summary.get("interruption_label", "Нет"),
         "interruption_weeks": _int_or_zero(constraint_summary.get("interruption_weeks")),
@@ -72,6 +85,14 @@ def _collect_planning_signals(goal_plan: Dict[str, Any] | None) -> List[str]:
         return []
 
     signals: List[str] = []
+    checkpoint_source = planning_context.get("checkpoint_source")
+    restored_from_checkpoint_id = _int_or_zero(planning_context.get("checkpoint_restored_from_checkpoint_id"))
+    if checkpoint_source == "restore_version":
+        if restored_from_checkpoint_id > 0:
+            signals.append(f"Активная версия плана восстановлена из checkpoint #{restored_from_checkpoint_id}.")
+        else:
+            signals.append("Активная версия плана восстановлена из прошлой сохранённой версии.")
+
     load_state_label = planning_context.get("load_state_label")
     if load_state_label and load_state_label != "Нейтральный старт":
         signals.append(f"Последний план учитывает состояние: {load_state_label}.")
@@ -135,6 +156,14 @@ def _build_plan_context_line(goal_plan: Dict[str, Any] | None) -> str | None:
     fragments: List[str] = []
     available_hours = planning_context.get("available_hours")
     available_day_labels = planning_context.get("available_day_labels", [])
+    checkpoint_source = planning_context.get("checkpoint_source")
+    restored_from_checkpoint_id = _int_or_zero(planning_context.get("checkpoint_restored_from_checkpoint_id"))
+
+    if checkpoint_source == "restore_version":
+        if restored_from_checkpoint_id > 0:
+            fragments.append(f"восстановленную версию checkpoint #{restored_from_checkpoint_id}")
+        else:
+            fragments.append("восстановленную версию плана")
 
     if available_hours and available_day_labels:
         fragments.append(

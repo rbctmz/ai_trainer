@@ -357,7 +357,7 @@ class StateManager:
     # ------------------------------------------------------------------
     # Convenience helpers for transient data
     # ------------------------------------------------------------------
-    def refresh_planning_checkpoint_cache(self, limit: int = 3):
+    def refresh_planning_checkpoint_cache(self, limit: int = 6):
         latest = self.database.get_latest_planning_checkpoint()
         history = self.database.get_recent_planning_checkpoints(limit=limit)
         self._session["latest_planning_checkpoint"] = latest
