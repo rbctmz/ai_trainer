@@ -227,6 +227,11 @@ def _collect_planning_signals(goal_plan: Dict[str, Any] | None) -> List[str]:
             "Ближайший горизонт уже правился вручную: "
             f"{near_term_edit['description']}."
         )
+        if near_term_edit.get("origin_description"):
+            signals.append(
+                "Эта ручная правка выросла из execution-развилки: "
+                f"{near_term_edit['origin_description']}."
+            )
         if near_term_edit.get("risk_level") != "low":
             signals.append(
                 "Риск ручной правки: "
@@ -303,6 +308,8 @@ def _build_plan_context_line(goal_plan: Dict[str, Any] | None) -> str | None:
     near_term_edit = planning_context.get("near_term_edit")
     if isinstance(near_term_edit, dict):
         fragments.append(f"ручную правку ближнего горизонта: {near_term_edit['description']}")
+        if near_term_edit.get("origin_description"):
+            fragments.append(f"источник этой правки: {near_term_edit['origin_description']}")
         if near_term_edit.get("risk_level") != "low":
             fragments.append(
                 f"guardrail этой правки: {near_term_edit['risk_badge']}, {near_term_edit['risk_guardrail']}"

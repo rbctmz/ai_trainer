@@ -17,6 +17,7 @@ from models.training_planner import build_daily_session_templates, expand_weekly
 from ui.components.execution_feedback import (
     _resolve_actual_tss_value,
     _sanitize_actual_tss_value,
+    _sync_pending_widget_value,
 )
 
 
@@ -237,3 +238,17 @@ def test_execution_feedback_actual_tss_value_tracks_selected_outcome():
     assert _resolve_actual_tss_value(35, "unavailable", 35) == 0
     assert _resolve_actual_tss_value(35, "reduced", 41) == 35
     assert _resolve_actual_tss_value(0, "reduced", 41) == 0
+
+
+def test_execution_feedback_pending_widget_value_applies_before_widget_init():
+    session_state = {"dashboard_execution_feedback_response_strategy_pending": "Беречь восстановление"}
+
+    resolved = _sync_pending_widget_value(
+        session_state,
+        "dashboard_execution_feedback_response_strategy",
+        default_value="Наверстать аккуратно",
+    )
+
+    assert resolved == "Беречь восстановление"
+    assert session_state["dashboard_execution_feedback_response_strategy"] == "Беречь восстановление"
+    assert "dashboard_execution_feedback_response_strategy_pending" not in session_state

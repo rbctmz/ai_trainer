@@ -163,12 +163,19 @@ def test_recommended_prompt_carries_manual_near_term_edit_into_prompt_context():
                     "future_delta_tss": 10,
                     "future_weeks": 2,
                     "future_week_count": 1,
+                    "origin_kind": "execution_microcycle_override",
+                    "origin_checkpoint_id": 40,
+                    "origin_checkpoint_source": "execution_feedback",
+                    "origin_plan_adjustment_label": "Пропущены сессии",
+                    "origin_weekly_review_headline": "Пропущена ключевая сессия",
+                    "origin_microcycle_headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
                 },
             }
         },
     )
 
     assert "ручную правку ближнего горизонта" in prompt["prompt"]
+    assert "execution microcycle" in prompt["prompt"].lower()
     assert "Δ -15 TSS" in prompt["prompt"]
     assert "Наверстать аккуратно" in prompt["prompt"]
 

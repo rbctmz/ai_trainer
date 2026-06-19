@@ -436,6 +436,12 @@ def test_build_plan_explainability_carries_manual_edit_risk_signal():
                     "future_delta_tss": 0,
                     "future_weeks": 2,
                     "future_week_count": 0,
+                    "origin_kind": "execution_microcycle_override",
+                    "origin_checkpoint_id": 44,
+                    "origin_checkpoint_source": "execution_feedback",
+                    "origin_plan_adjustment_label": "Нагрузка урезана",
+                    "origin_weekly_review_headline": "Пропущена ключевая сессия",
+                    "origin_microcycle_headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
                     "risk_level": "high",
                     "risk_focus": "overload",
                     "risk_reasons": [
@@ -451,4 +457,6 @@ def test_build_plan_explainability_carries_manual_edit_risk_signal():
     assert explain["near_term_edit"] is not None
     assert explain["near_term_edit"]["risk_level"] == "high"
     assert explain["near_term_edit"]["risk_badge"] == "Высокий риск перегруза"
+    assert explain["near_term_edit"]["origin_checkpoint_id"] == 44
+    assert "execution microcycle" in explain["near_term_edit"]["origin_label"].lower()
     assert "лёгкий день" in explain["near_term_edit"]["risk_guardrail"]

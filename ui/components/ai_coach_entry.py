@@ -253,6 +253,8 @@ def render_empty_ai_chat_guidance(
                 st.caption(corrective_microcycle["today_action"])
             if checkpoint_summary.get("near_term_edit"):
                 st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
+                if checkpoint_summary["near_term_edit"].get("origin_description"):
+                    st.caption(checkpoint_summary["near_term_edit"]["origin_description"])
                 st.write(f"**Оценка правки:** {checkpoint_summary['near_term_edit']['risk_badge']}")
                 if checkpoint_summary["near_term_edit"].get("risk_level") != "low":
                     st.caption(checkpoint_summary["near_term_edit"]["risk_guardrail"])

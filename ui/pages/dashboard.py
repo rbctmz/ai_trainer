@@ -692,6 +692,8 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
                 st.caption(corrective_microcycle["today_action"])
         if checkpoint_summary.get("near_term_edit"):
             st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
+            if checkpoint_summary["near_term_edit"].get("origin_description"):
+                st.caption(checkpoint_summary["near_term_edit"]["origin_description"])
             st.write(f"**Оценка правки:** {checkpoint_summary['near_term_edit']['risk_badge']}")
             if checkpoint_summary["near_term_edit"].get("risk_level") != "low":
                 st.caption(checkpoint_summary["near_term_edit"]["risk_guardrail"])
@@ -726,6 +728,8 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
                     suffix += f" · ручная правка: {item['near_term_edit']['delta_label']}"
                     if item["near_term_edit"].get("risk_level") != "low":
                         suffix += f" · {item['near_term_edit']['risk_badge']}"
+                elif item.get("near_term_edit") and item["near_term_edit"].get("origin_label"):
+                    suffix += " · override from execution microcycle"
                 detail_text = f" — {detail}" if detail else ""
                 st.write(
                     f"• #{item['checkpoint_id']} · {version_label}{detail_text}{suffix}{when}"

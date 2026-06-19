@@ -157,6 +157,8 @@ def summarize_checkpoint_provenance(checkpoint: Dict[str, Any] | None) -> Dict[s
             if isinstance(near_term_edit, dict)
             else "Ближайший горизонт изменён вручную"
         )
+        if isinstance(near_term_edit, dict) and near_term_edit.get("origin_label"):
+            detail += f" · {near_term_edit['origin_label']}"
     elif source == "execution_feedback":
         detail = plan_adjustment_label
         if plan_adjustment_label not in NON_ACTIONABLE_PLAN_ADJUSTMENTS and plan_adjustment_weeks > 0:
@@ -259,6 +261,9 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "near_term_edit_future_delta_tss": near_term_edit.get("future_delta_tss", 0) if near_term_edit else 0,
         "near_term_edit_risk_level": near_term_edit.get("risk_level", "") if near_term_edit else "",
         "near_term_edit_risk_badge": near_term_edit.get("risk_badge", "") if near_term_edit else "",
+        "near_term_edit_origin_kind": near_term_edit.get("origin_kind", "") if near_term_edit else "",
+        "near_term_edit_origin_checkpoint_id": near_term_edit.get("origin_checkpoint_id") if near_term_edit else None,
+        "near_term_edit_origin_label": near_term_edit.get("origin_label", "") if near_term_edit else "",
         "near_term_edit_rollback_target_checkpoint_id": goal_plan_snapshot.get("near_term_edit_rollback_target_checkpoint_id"),
         "checkpoint_source": checkpoint_source,
         "checkpoint_parent_id": checkpoint_parent_id,

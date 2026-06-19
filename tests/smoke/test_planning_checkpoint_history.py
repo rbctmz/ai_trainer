@@ -153,6 +153,12 @@ def _sample_goal_plan() -> dict[str, object]:
                 "future_delta_tss": 10,
                 "future_weeks": 2,
                 "future_week_count": 1,
+                "origin_kind": "execution_microcycle_override",
+                "origin_checkpoint_id": 40,
+                "origin_checkpoint_source": "execution_feedback",
+                "origin_plan_adjustment_label": "Пропущены сессии",
+                "origin_weekly_review_headline": "Пропущена ключевая сессия",
+                "origin_microcycle_headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
             },
             "current_tsb": -12.0,
             "current_ctl": 55.0,
@@ -213,11 +219,15 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     assert summary["provenance"]["source"] == "manual_edit"
     assert summary["provenance"]["label"] == "Ручная правка"
     assert "3 дн." in summary["provenance"]["detail"]
+    assert "Override после execution microcycle" in summary["provenance"]["detail"]
     assert summary["near_term_edit"]["edited_day_count"] == 3
     assert summary["near_term_edit"]["total_delta_tss"] == -15
     assert summary["near_term_edit"]["strategy_label"] == "Наверстать аккуратно"
     assert summary["near_term_edit"]["future_delta_tss"] == 10
     assert summary["near_term_edit"]["risk_level"] == "low"
+    assert summary["near_term_edit"]["origin_checkpoint_id"] == 40
+    assert summary["near_term_edit"]["origin_label"].startswith("Override после execution microcycle")
+    assert "Пропущены сессии" in summary["near_term_edit"]["origin_description"]
     assert summary["execution_weekly_review"]["headline"] == "Пропущена ключевая сессия"
     assert summary["execution_weekly_review"]["selected_response_label"] == "Наверстать аккуратно"
     assert summary["execution_corrective_microcycle"]["headline"].startswith("Ближайшие 2-3 дня")

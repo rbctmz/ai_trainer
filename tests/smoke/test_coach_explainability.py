@@ -158,13 +158,21 @@ def test_coach_explainability_mentions_manual_near_term_edit():
                     "future_delta_tss": 10,
                     "future_weeks": 2,
                     "future_week_count": 1,
+                    "origin_kind": "execution_microcycle_override",
+                    "origin_checkpoint_id": 40,
+                    "origin_checkpoint_source": "execution_feedback",
+                    "origin_plan_adjustment_label": "Пропущены сессии",
+                    "origin_weekly_review_headline": "Пропущена ключевая сессия",
+                    "origin_microcycle_headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
                 },
             }
         },
     )
 
     assert any("правился вручную" in signal for signal in summary["signals"])
+    assert any("execution-развилки" in signal for signal in summary["signals"])
     assert "ручную правку ближнего горизонта" in summary["plan_context"]
+    assert "источник этой правки" in summary["plan_context"]
     assert "Δ -15 TSS" in summary["plan_context"]
     assert "Наверстать аккуратно" in summary["plan_context"]
 

@@ -48,6 +48,7 @@ This repository should borrow those product patterns while staying faithful to t
 
 ## Progress
 
+- [x] (2026-06-19 22:40+04:00) Completed the next Planning UX hardening v2 slice: execution-derived near-term overrides now persist explicit origin lineage (`execution_microcycle_override` plus checkpoint/review/microcycle context) instead of collapsing into a generic manual edit, and that same origin story now survives Planning version history, Dashboard checkpoint cards, and AI Coaching explainability/prompt context. The shared execution editor also finished its Streamlit-state hardening by applying response-strategy presets through a pending-key sync and by letting the `actual_tss` widgets use session state as the single source of truth, which removes the last widget-state warning without regressing the day-level execution flow. Validation passed on focused smoke coverage (`46 passed`), the full smoke suite (`148 passed`), and a fresh isolated acceptance boot on `http://localhost:8520` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
 - [x] (2026-06-19 22:05+04:00) Completed the next Planning UX hardening v2 slice: the Planning page no longer forces the execution corrective microcycle through a single blind apply path. The shared execution editor can now either persist the local replan as-is or open the derived microcycle as a seeded near-term draft, and the existing near-term editor now consumes that one-shot draft seed with the same diff, risk, safer-variant, and follow-up-strategy workflow used by ordinary manual overrides.
 - [x] (2026-06-19 20:35+04:00) Completed the next Planning UX hardening v2 slice: execution checkpoints now derive a compact `execution_corrective_microcycle` from day-level reconciliation plus weekly review, persist it next to the existing execution summary, preview it before apply in the execution editor, and surface the same next-2-3-day action story on Planning, Dashboard, and AI Coaching. Smoke coverage was extended across planning explainability, checkpoint history, dashboard handoff, recommended AI entry prompts, and coach explainability before moving to final validation.
 - [x] (2026-06-12 11:00+04:00) Re-audited the current repository after Iteration 3, including branch state, smoke-suite status, module sizes, and the remaining operational risks.
@@ -96,6 +97,12 @@ This repository should borrow those product patterns while staying faithful to t
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
 ## Surprises & Discoveries
+
+- Observation: execution-derived short-horizon drafts need persisted origin metadata or they immediately collapse into indistinguishable generic manual edits after save.
+  Evidence: once the corrective microcycle could open inside the ordinary near-term editor, the saved checkpoint still rendered only `Ручная правка` on Planning history, Dashboard, and AI Coaching because the manual-edit summary had no durable link back to the originating execution checkpoint, weekly review, or microcycle headline. Persisting `near_term_edit.origin_*` closed that explainability gap without inventing a parallel checkpoint type.
+
+- Observation: the remaining `number_input` warning in the shared execution editor was caused by two competing state sources, not by another execution-math bug.
+  Evidence: after the earlier max-value crash was fixed, the live runtime still logged that `dashboard_execution_feedback_actual_tss_0_widget` had both a default value and a Session State value. Removing the explicit `value=` argument and syncing pending widget presets before instantiation made session state the only source of truth and eliminated the warning.
 
 - Observation: a derived corrective microcycle still is not a real planning decision until the user can route it through the same draft-safety machinery as any other near-term change.
   Evidence: once the microcycle existed, the remaining trust gap was not “what would the next 2-3 days be?” but “can I inspect and override that short horizon before it becomes the new saved plan?” Reusing the near-term draft editor closed that gap without inventing a second editing system.
@@ -258,6 +265,10 @@ This repository should borrow those product patterns while staying faithful to t
 
 - Decision: persist the execution-driven next-step as `execution_corrective_microcycle` inside `constraint_summary.plan_adjustment` rather than as a separate planning mode or top-level checkpoint type.
   Rationale: the microcycle is not an independent source of truth; it is the concrete follow-up generated from the already persisted execution facts and weekly review. Keeping it adjacent to `execution_reconciliation` and `execution_weekly_review` preserves one execution-feedback contract that can be summarized, versioned, and re-explained consistently across Planning, Dashboard, and AI Coaching.
+  Date/Author: 2026-06-19 / Codex
+
+- Decision: keep the saved checkpoint source as `manual_edit` when an execution-derived draft is opened and edited, and store the execution lineage inside `near_term_edit.origin_*` instead of inventing a fifth checkpoint provenance.
+  Rationale: once the user opens the corrective microcycle as a draft, the saved result really is a manual override of the short horizon, not the untouched execution checkpoint. The missing contract was not a new checkpoint type; it was durable traceability back to the originating execution checkpoint, weekly review, and microcycle headline. Persisting that trace inside `near_term_edit` lets version history, dashboard summaries, and AI coaching explain both truths at once: this is a manual override, and it grew out of a specific execution correction path.
   Date/Author: 2026-06-19 / Codex
 
 - Decision: treat the next phase as a new ExecPlan instead of extending the previous three-iteration roadmap indefinitely.
@@ -474,6 +485,12 @@ Coach Explainability is accepted when the dashboard and AI coaching can surface 
 
 This section starts empty on purpose. The previous plan ended with a working product flow. This plan begins at the moment where the product needs to become a durable system rather than a successful sequence of flows.
 
+The latest slice makes the execution-to-planning handoff durable instead of ephemeral. Opening a corrective microcycle as a near-term draft no longer loses its origin once the user saves an override: the persisted `near_term_edit` summary now remembers that it grew out of an execution checkpoint, which checkpoint it came from, and which weekly-review/microcycle story triggered it. That gives Planning history, Dashboard checkpoint cards, and AI Coaching the same truthful lineage instead of flattening everything into a generic manual edit.
+
+That was the right boundary to preserve. The saved result should still read as a manual override because the athlete explicitly changed the short horizon before saving, but downstream surfaces also need to explain why that override exists in the first place. Keeping checkpoint provenance as `manual_edit` while attaching execution lineage inside `near_term_edit.origin_*` preserves both sides of that contract without multiplying checkpoint types or branching the explainability model.
+
+The final widget-state hardening in the shared execution editor was equally important because it removed the last noisy runtime seam in the new feedback loop. The earlier crash fix solved the hard failure when a stale positive value outlived a zero-max row, but the runtime still warned that `actual_tss` inputs were being initialized from both `value=` and Session State, and response-strategy acceptance was still one direct session-state write away from another post-instantiation exception. Moving those presets through pending-key sync before widget creation and letting the widget key own its value eliminated the remaining warning while keeping the execution-editing UX unchanged.
+
 The latest slice turns the corrective microcycle from a recommendation into a decision surface. Planning no longer asks the user to either trust the execution replan blindly or abandon it and start manual editing from scratch. The product can now open the projected microcycle directly inside the existing near-term draft editor, where the same `Было → Станет`, risk, safer-variant, and follow-up-strategy workflow already exists.
 
 That keeps the contract intentionally explicit. Applying the execution checkpoint as-is still preserves the exact execution-driven replan; opening the microcycle as a draft is now clearly labeled as a manual override path. This is a better product boundary than silently merging the two behaviors, because it preserves the difference between “accept the coaching adjustment” and “override the short horizon after inspecting it”.
@@ -649,3 +666,5 @@ Revision note (2026-06-17 20:01+04:00): recorded the post-edit-strategy slice af
 Revision note (2026-06-19 20:35+04:00): recorded the execution-driven corrective-microcycle slice after deriving and persisting `execution_corrective_microcycle`, propagating it through Planning, Dashboard, and AI Coaching explainability surfaces, and extending smoke coverage across checkpoint, handoff, and prompt-generation boundaries before final validation.
 
 Revision note (2026-06-19 22:05+04:00): recorded the microcycle decision-path slice after adding the `apply as-is` versus `open as seeded near-term draft` workflow on Planning, reusing the existing near-term draft safety rails for execution-derived short-horizon overrides, and extending smoke coverage around the new seed bridge before final validation.
+
+Revision note (2026-06-19 22:40+04:00): recorded the execution-lineage persistence slice after teaching manual near-term overrides to retain their originating execution checkpoint/review/microcycle story, finishing the remaining shared-execution-editor widget-state hotfix, re-running focused smoke coverage (`46 passed`) plus the full smoke suite (`148 passed`), and verifying a fresh isolated acceptance boot on `http://localhost:8520` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.

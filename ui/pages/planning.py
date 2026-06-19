@@ -659,7 +659,14 @@ def _render_near_term_editor(
             )
             if seed_source_label:
                 updated_goal_plan["_transient_planning_action"] = "override_execution_microcycle"
-                updated_goal_plan["_transient_execution_microcycle_headline"] = seed_source_label
+                updated_goal_plan["_transient_near_term_edit_origin"] = {
+                    "origin_kind": str(draft_seed.get("origin_kind") or "execution_microcycle_override"),
+                    "origin_checkpoint_id": draft_seed.get("origin_checkpoint_id"),
+                    "origin_checkpoint_source": draft_seed.get("origin_checkpoint_source"),
+                    "origin_plan_adjustment_label": draft_seed.get("origin_plan_adjustment_label"),
+                    "origin_weekly_review_headline": draft_seed.get("origin_weekly_review_headline"),
+                    "origin_microcycle_headline": draft_seed.get("origin_microcycle_headline") or seed_source_label,
+                }
             return updated_goal_plan
 
     return None
@@ -724,6 +731,8 @@ def _render_planning_version_history(
             corrective_microcycle = current_summary["execution_corrective_microcycle"]
             st.caption(f"Microcycle: {corrective_microcycle['headline']}")
             st.caption(corrective_microcycle["today_action"])
+        if current_summary.get("near_term_edit") and current_summary["near_term_edit"].get("origin_description"):
+            st.caption(current_summary["near_term_edit"]["origin_description"])
 
     for record in history_records:
         summary = summarize_planning_checkpoint(record)
@@ -765,6 +774,8 @@ def _render_planning_version_history(
                 st.caption(corrective_microcycle["today_action"])
             if summary.get("near_term_edit"):
                 st.caption(f"Ручная правка: {summary['near_term_edit']['compact_label']}")
+                if summary["near_term_edit"].get("origin_description"):
+                    st.caption(summary["near_term_edit"]["origin_description"])
             if preview["weekly_rows"]:
                 st.dataframe(
                     pd.DataFrame(preview["weekly_rows"]),
@@ -849,6 +860,8 @@ def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
                 st.write(f"• Guardrail: {explain['execution_corrective_microcycle']['guardrail']}")
             if explain["near_term_edit"] is not None:
                 st.write(f"• Ручная правка: {explain['near_term_edit']['compact_label']}")
+                if explain["near_term_edit"].get("origin_description"):
+                    st.write(f"• Источник override: {explain['near_term_edit']['origin_description']}")
                 st.write(f"• После окна: {explain['near_term_edit']['follow_up_description']}")
                 st.write(f"• Оценка правки: {explain['near_term_edit']['risk_badge']}")
                 st.write(f"• Guardrail: {explain['near_term_edit']['risk_guardrail']}")
@@ -1453,6 +1466,7 @@ def render_planning_page(state: "StateManager") -> None:
             allow_open_as_draft=True,
         )
         if execution_feedback_result is not None:
+            latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
             if execution_feedback_result.get("mode") == "open_near_term_draft":
                 projected_goal_plan = execution_feedback_result.get("projected_goal_plan")
                 corrective_microcycle = execution_feedback_result.get("execution_corrective_microcycle") or {}
@@ -1470,6 +1484,27 @@ def render_planning_page(state: "StateManager") -> None:
                         "Это override-path для ближайших 7 дней: сначала проверьте diff, risk и follow-up strategy, "
                         "а уже потом сохраняйте manual override."
                     )
+                    draft_seed["origin_kind"] = "execution_microcycle_override"
+                    draft_seed["origin_checkpoint_id"] = (
+                        (latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None
+                    )
+                    draft_seed["origin_checkpoint_source"] = (
+                        (latest_checkpoint or {}).get("checkpoint_source")
+                        if isinstance(latest_checkpoint, dict)
+                        else None
+                    )
+                    draft_seed["origin_plan_adjustment_label"] = str(
+                        execution_feedback_result["plan_adjustment"].get("label") or ""
+                    )
+                    draft_seed["origin_weekly_review_headline"] = str(
+                        (
+                            execution_feedback_result["plan_adjustment"].get("execution_weekly_review") or {}
+                        ).get("headline")
+                        or ""
+                    )
+                    draft_seed["origin_microcycle_headline"] = str(
+                        corrective_microcycle.get("headline") or ""
+                    )
                     st.session_state["planning_near_term_prefill"] = draft_seed
                     st.session_state["planning_near_term_flash"] = (
                         "Execution microcycle открыт как черновик ручной правки. "
@@ -1478,7 +1513,6 @@ def render_planning_page(state: "StateManager") -> None:
                     st.rerun()
                 st.warning("Не удалось открыть microcycle как черновик: в ближнем горизонте нет видимого diff.")
                 return
-            latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
             updated_goal_plan = rebuild_goal_plan_with_adjustment(
                 goal_plan,
                 execution_feedback_result["plan_adjustment"],
@@ -1565,9 +1599,16 @@ def render_planning_page(state: "StateManager") -> None:
         if updated_goal_plan is not None:
             planning_action = str(updated_goal_plan.pop("_transient_planning_action", "") or "")
             restored_from_checkpoint_id = updated_goal_plan.pop("_transient_restore_checkpoint_id", None)
-            execution_microcycle_headline = str(
-                updated_goal_plan.pop("_transient_execution_microcycle_headline", "") or ""
-            )
+            near_term_edit_origin = updated_goal_plan.pop("_transient_near_term_edit_origin", None)
+            if (
+                planning_action == "override_execution_microcycle"
+                and isinstance(updated_goal_plan.get("constraint_summary"), dict)
+                and isinstance((updated_goal_plan.get("constraint_summary") or {}).get("near_term_edit"), dict)
+                and isinstance(near_term_edit_origin, dict)
+            ):
+                updated_goal_plan["constraint_summary"]["near_term_edit"].update(
+                    {key: value for key, value in near_term_edit_origin.items() if value not in (None, "")}
+                )
             near_term_summary = summarize_near_term_edit(updated_goal_plan.get("constraint_summary", {}))
             latest_checkpoint_id = (latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None
             if planning_action in {"rollback_near_term_edit", "restore_checkpoint_version"}:
@@ -1616,9 +1657,9 @@ def render_planning_page(state: "StateManager") -> None:
                         "Execution microcycle переопределён вручную: "
                         f"{near_term_summary['compact_label']}."
                     )
-                    if execution_microcycle_headline:
+                    if near_term_summary.get("origin_microcycle_headline"):
                         st.session_state["planning_near_term_flash"] += (
-                            f" База override: {execution_microcycle_headline}."
+                            f" База override: {near_term_summary['origin_microcycle_headline']}."
                         )
                     if near_term_summary["risk_level"] != "low":
                         st.session_state["planning_near_term_flash"] += (

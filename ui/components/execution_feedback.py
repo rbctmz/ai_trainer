@@ -1,7 +1,7 @@
 """Shared execution-feedback editor for planning and dashboard surfaces."""
 from __future__ import annotations
 
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, Mapping, MutableMapping
 
 import pandas as pd
 import streamlit as st
@@ -23,6 +23,26 @@ QUICK_EXECUTION_LABELS = {
     "reduced": "Нагрузка урезана",
     "unavailable": "Неделя ограничена",
 }
+
+
+def _sync_pending_widget_value(
+    session_state: MutableMapping[str, Any],
+    widget_key: str,
+    *,
+    default_value: str,
+) -> str:
+    """Apply a deferred widget value before the widget is instantiated."""
+    pending_key = f"{widget_key}_pending"
+    pending_value = str(session_state.pop(pending_key, "") or "").strip()
+    if pending_value:
+        session_state[widget_key] = pending_value
+    elif widget_key not in session_state:
+        session_state[widget_key] = default_value
+    current_value = str(session_state.get(widget_key) or "").strip()
+    if not current_value:
+        session_state[widget_key] = default_value
+        current_value = default_value
+    return current_value
 
 
 def _sanitize_actual_tss_value(planned_total_tss: Any, current_value: Any) -> int:
@@ -156,9 +176,10 @@ def render_execution_feedback_editor(
             if current_response_strategy not in EXECUTION_RESPONSE_STRATEGY_LABELS:
                 current_response_strategy = "protect_recovery"
             response_strategy_key = f"{key_prefix}_response_strategy"
-            st.session_state.setdefault(
+            _sync_pending_widget_value(
+                st.session_state,
                 response_strategy_key,
-                EXECUTION_RESPONSE_STRATEGY_LABELS[current_response_strategy],
+                default_value=EXECUTION_RESPONSE_STRATEGY_LABELS[current_response_strategy],
             )
             edited_rows = []
             for row in editable_rows:
@@ -226,7 +247,6 @@ def render_execution_feedback_editor(
                             "Факт TSS",
                             min_value=0,
                             max_value=int(row["planned_total_tss"]),
-                            value=int(resolved_actual_tss),
                             step=5,
                             key=actual_tss_widget_key,
                             disabled=outcome_code != "reduced",
@@ -300,7 +320,7 @@ def render_execution_feedback_editor(
                         key=f"{key_prefix}_accept_recommended_response",
                         width="stretch",
                     ):
-                        st.session_state[response_strategy_key] = weekly_review["recommended_response_label"]
+                        st.session_state[f"{response_strategy_key}_pending"] = weekly_review["recommended_response_label"]
                         st.rerun()
             if execution_summary["changed_rows"]:
                 st.dataframe(

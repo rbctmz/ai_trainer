@@ -183,6 +183,55 @@ def _build_risk_summary(
     }
 
 
+def _build_near_term_edit_origin(raw: Dict[str, Any]) -> Dict[str, Any]:
+    origin_kind = str(raw.get("origin_kind") or "").strip().lower()
+    origin_checkpoint_id = _int_or_zero(raw.get("origin_checkpoint_id"))
+    origin_checkpoint_source = str(raw.get("origin_checkpoint_source") or "").strip()
+    origin_plan_adjustment_label = str(raw.get("origin_plan_adjustment_label") or "").strip()
+    origin_weekly_review_headline = str(raw.get("origin_weekly_review_headline") or "").strip()
+    origin_microcycle_headline = str(raw.get("origin_microcycle_headline") or "").strip()
+
+    if origin_kind != "execution_microcycle_override":
+        return {
+            "kind": origin_kind,
+            "checkpoint_id": origin_checkpoint_id,
+            "checkpoint_source": origin_checkpoint_source,
+            "plan_adjustment_label": origin_plan_adjustment_label,
+            "weekly_review_headline": origin_weekly_review_headline,
+            "microcycle_headline": origin_microcycle_headline,
+            "label": "",
+            "description": "",
+            "is_execution_microcycle_override": False,
+        }
+
+    label = "Override после execution microcycle"
+    if origin_checkpoint_id > 0:
+        label += f" из checkpoint #{origin_checkpoint_id}"
+
+    details = [
+        item
+        for item in [
+            origin_plan_adjustment_label,
+            origin_weekly_review_headline,
+            origin_microcycle_headline,
+        ]
+        if item
+    ]
+    description = f"{label}: {' · '.join(details)}" if details else label
+
+    return {
+        "kind": origin_kind,
+        "checkpoint_id": origin_checkpoint_id,
+        "checkpoint_source": origin_checkpoint_source,
+        "plan_adjustment_label": origin_plan_adjustment_label,
+        "weekly_review_headline": origin_weekly_review_headline,
+        "microcycle_headline": origin_microcycle_headline,
+        "label": label,
+        "description": description,
+        "is_execution_microcycle_override": True,
+    }
+
+
 def summarize_near_term_edit(constraint_summary: Dict[str, Any] | None) -> Dict[str, Any] | None:
     """Normalize the persisted/manual near-term edit signal for UI and explainability."""
     if not isinstance(constraint_summary, dict):
@@ -215,6 +264,7 @@ def summarize_near_term_edit(constraint_summary: Dict[str, Any] | None) -> Dict[
         future_week_count,
     )
     risk = _build_risk_summary(raw, total_delta_tss)
+    origin = _build_near_term_edit_origin(raw)
     compact_label = f"{edited_day_count} дн. / {horizon_days} дн. · Δ {total_delta_tss:+d} TSS"
     if post_edit_strategy != "keep":
         compact_label += f" · {follow_up['follow_up_compact_label']}"
@@ -243,6 +293,15 @@ def summarize_near_term_edit(constraint_summary: Dict[str, Any] | None) -> Dict[
         "risk_reasons": risk["reasons"],
         "risk_guardrail": risk["guardrail"],
         "risk_description": risk["description"],
+        "origin_kind": origin["kind"],
+        "origin_checkpoint_id": origin["checkpoint_id"],
+        "origin_checkpoint_source": origin["checkpoint_source"],
+        "origin_plan_adjustment_label": origin["plan_adjustment_label"],
+        "origin_weekly_review_headline": origin["weekly_review_headline"],
+        "origin_microcycle_headline": origin["microcycle_headline"],
+        "origin_label": origin["label"],
+        "origin_description": origin["description"],
+        "is_execution_microcycle_override": origin["is_execution_microcycle_override"],
         "compact_label": compact_label,
         "description": (
             f"{edited_day_count} дн. в ближайших {horizon_days} дн., "
