@@ -8,6 +8,7 @@ from models.planning_checkpoints import build_planning_checkpoint
 from models.planning_near_term import (
     apply_near_term_day_edits,
     build_near_term_edit_draft_rows,
+    build_near_term_edit_seed_from_goal_plans,
     build_near_term_edit_rows,
     build_safer_near_term_draft,
     summarize_near_term_draft_rows,
@@ -173,6 +174,41 @@ def test_summarize_near_term_draft_rows_returns_compact_diff_summary():
     assert summary["changed_rows"][0]["День"].startswith("Пн")
     assert summary["changed_rows"][0]["Станет"]
     assert summary["changed_rows"][0]["Δ TSS"].startswith(("+", "-"))
+
+
+def test_build_near_term_edit_seed_from_goal_plans_projects_target_variant():
+    goal_plan = _sample_goal_plan()
+    edit_rows = build_near_term_edit_rows(goal_plan, horizon_days=7)
+    target_goal_plan = apply_near_term_day_edits(
+        goal_plan,
+        [
+            {
+                **edit_rows[1],
+                "session_role": "off",
+                "sport": "off",
+                "total_tss": 0,
+            }
+        ],
+        horizon_days=7,
+        post_edit_strategy="protect_recovery",
+    )
+
+    seed = build_near_term_edit_seed_from_goal_plans(
+        goal_plan,
+        target_goal_plan,
+        horizon_days=7,
+        post_edit_strategy="protect_recovery",
+        source_label="Execution microcycle",
+    )
+
+    assert seed is not None
+    assert seed["source_label"] == "Execution microcycle"
+    assert seed["post_edit_strategy"] == "protect_recovery"
+    assert seed["draft_summary"]["has_changes"] is True
+    assert seed["draft_summary"]["changed_day_count"] >= 1
+    assert seed["overrides_by_index"][1]["session_role"] == "off"
+    assert seed["overrides_by_index"][1]["sport"] == "off"
+    assert seed["overrides_by_index"][1]["total_tss"] == 0.0
 
 
 def test_apply_near_term_day_edits_preserves_existing_mix_when_sport_is_unchanged():

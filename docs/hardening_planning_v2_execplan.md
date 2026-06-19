@@ -48,6 +48,7 @@ This repository should borrow those product patterns while staying faithful to t
 
 ## Progress
 
+- [x] (2026-06-19 22:05+04:00) Completed the next Planning UX hardening v2 slice: the Planning page no longer forces the execution corrective microcycle through a single blind apply path. The shared execution editor can now either persist the local replan as-is or open the derived microcycle as a seeded near-term draft, and the existing near-term editor now consumes that one-shot draft seed with the same diff, risk, safer-variant, and follow-up-strategy workflow used by ordinary manual overrides.
 - [x] (2026-06-19 20:35+04:00) Completed the next Planning UX hardening v2 slice: execution checkpoints now derive a compact `execution_corrective_microcycle` from day-level reconciliation plus weekly review, persist it next to the existing execution summary, preview it before apply in the execution editor, and surface the same next-2-3-day action story on Planning, Dashboard, and AI Coaching. Smoke coverage was extended across planning explainability, checkpoint history, dashboard handoff, recommended AI entry prompts, and coach explainability before moving to final validation.
 - [x] (2026-06-12 11:00+04:00) Re-audited the current repository after Iteration 3, including branch state, smoke-suite status, module sizes, and the remaining operational risks.
 - [x] (2026-06-12 11:00+04:00) Reviewed `IntervalCoach` changelog themes as a product reference and mapped them into three concrete workstreams for AI Trainer.
@@ -95,6 +96,9 @@ This repository should borrow those product patterns while staying faithful to t
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
 ## Surprises & Discoveries
+
+- Observation: a derived corrective microcycle still is not a real planning decision until the user can route it through the same draft-safety machinery as any other near-term change.
+  Evidence: once the microcycle existed, the remaining trust gap was not “what would the next 2-3 days be?” but “can I inspect and override that short horizon before it becomes the new saved plan?” Reusing the near-term draft editor closed that gap without inventing a second editing system.
 
 - Observation: weekly review by itself was still too abstract to close the execution-feedback loop.
   Evidence: after the day-level reconciliation slice, the product could explain `140/180 TSS` and name the lost key or long session, but the next step still depended on the user inferring what the next 2-3 days should look like. Adding a derived `execution_corrective_microcycle` exposed the missing contract immediately in planning history, dashboard checkpoint cards, and the first AI-coach handoff prompt.
@@ -247,6 +251,10 @@ This repository should borrow those product patterns while staying faithful to t
   Evidence: the live dashboard hit `StreamlitValueAboveMaxError: The value 41 is greater than the max_value 0` after a row's current planned TSS collapsed to zero while the persisted widget key still held an earlier positive value. The stable fix was not just clamping a raw number, but separating logical `actual_tss` state from the widget key and resolving outcome-aware display values (`as_planned -> planned`, `missed/unavailable -> 0`, `reduced -> clamped custom value`) before rendering the input.
 
 ## Decision Log
+
+- Decision: implement the next microcycle UX step as `apply as-is` versus `open as near-term draft`, not as a separate post-checkpoint editor or a second execution-specific override system.
+  Rationale: the repository already has a trustworthy near-term editor with diff preview, risk assessment, safer alternatives, rollback, and explicit follow-up strategy. Seeding that editor from the projected microcycle reuses the existing safety rails and keeps the product honest about the difference between “save the exact execution replan” and “manually override that short horizon before saving”.
+  Date/Author: 2026-06-19 / Codex
 
 - Decision: persist the execution-driven next-step as `execution_corrective_microcycle` inside `constraint_summary.plan_adjustment` rather than as a separate planning mode or top-level checkpoint type.
   Rationale: the microcycle is not an independent source of truth; it is the concrete follow-up generated from the already persisted execution facts and weekly review. Keeping it adjacent to `execution_reconciliation` and `execution_weekly_review` preserves one execution-feedback contract that can be summarized, versioned, and re-explained consistently across Planning, Dashboard, and AI Coaching.
@@ -466,6 +474,10 @@ Coach Explainability is accepted when the dashboard and AI coaching can surface 
 
 This section starts empty on purpose. The previous plan ended with a working product flow. This plan begins at the moment where the product needs to become a durable system rather than a successful sequence of flows.
 
+The latest slice turns the corrective microcycle from a recommendation into a decision surface. Planning no longer asks the user to either trust the execution replan blindly or abandon it and start manual editing from scratch. The product can now open the projected microcycle directly inside the existing near-term draft editor, where the same `Было → Станет`, risk, safer-variant, and follow-up-strategy workflow already exists.
+
+That keeps the contract intentionally explicit. Applying the execution checkpoint as-is still preserves the exact execution-driven replan; opening the microcycle as a draft is now clearly labeled as a manual override path. This is a better product boundary than silently merging the two behaviors, because it preserves the difference between “accept the coaching adjustment” and “override the short horizon after inspecting it”.
+
 The latest slice closes the next abstraction gap in execution feedback. The product no longer stops at a persisted fact window plus a weekly headline; it now turns that evidence into an explicit corrective microcycle for the next 2-3 days, including one concrete action, the next-window expectation, and one guardrail that survive local replanning, checkpoint persistence, dashboard summary cards, planning version history, and AI-coach prompt context. That makes the handoff from “what happened” to “what do I do next” materially more coach-like.
 
 This was also the right level of scope for the next planning improvement. A separate planning mode would have fractured the checkpoint story and forced every downstream surface to decide whether to trust weekly review, day-level reconciliation, or a parallel follow-up entity. Keeping the microcycle inside the existing execution checkpoint contract means every surface now reads the same lineage: fact window, weekly review, then short corrective window.
@@ -635,3 +647,5 @@ The newest slice closes the remaining trust gap in that workflow: reversibility.
 Revision note (2026-06-17 20:01+04:00): recorded the post-edit-strategy slice after adding persisted `keep / catch_up / protect_recovery` behavior for manual near-term edits, re-running focused smoke coverage (`39 passed`) plus the full smoke suite (`127 passed`), and verifying fresh acceptance startup/health on the isolated `http://localhost:8510` runtime.
 
 Revision note (2026-06-19 20:35+04:00): recorded the execution-driven corrective-microcycle slice after deriving and persisting `execution_corrective_microcycle`, propagating it through Planning, Dashboard, and AI Coaching explainability surfaces, and extending smoke coverage across checkpoint, handoff, and prompt-generation boundaries before final validation.
+
+Revision note (2026-06-19 22:05+04:00): recorded the microcycle decision-path slice after adding the `apply as-is` versus `open as seeded near-term draft` workflow on Planning, reusing the existing near-term draft safety rails for execution-derived short-horizon overrides, and extending smoke coverage around the new seed bridge before final validation.

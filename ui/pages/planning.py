@@ -14,6 +14,7 @@ from models.planning_near_term import (
     EDITABLE_SPORTS,
     apply_near_term_day_edits,
     build_near_term_edit_draft_rows,
+    build_near_term_edit_seed_from_goal_plans,
     build_near_term_edit_rows,
     build_safer_near_term_draft,
     summarize_near_term_draft_rows,
@@ -308,6 +309,7 @@ def _render_near_term_editor(
     goal_plan: Dict[str, Any],
     rollback_goal_plan: Dict[str, Any] | None = None,
     rollback_checkpoint_id: int | None = None,
+    draft_seed: Dict[str, Any] | None = None,
 ) -> Dict[str, Any] | None:
     """Render an in-place editor for the next 7-10 days of the current plan."""
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
@@ -340,8 +342,24 @@ def _render_near_term_editor(
     }
     strategy_labels_reverse = {label: code for code, label in strategy_labels.items()}
 
+    seed_source_label = ""
+    seed_hint = ""
+    if isinstance(draft_seed, dict):
+        seed_source_label = str(draft_seed.get("source_label") or "").strip()
+        seed_hint = str(draft_seed.get("hint") or "").strip()
+        seeded_horizon = max(
+            EDITABLE_NEAR_TERM_HORIZON_MIN,
+            min(max_horizon, int(draft_seed.get("horizon_days") or EDITABLE_NEAR_TERM_HORIZON_MIN)),
+        )
+        st.session_state[f"near_term_horizon_{key_prefix}"] = seeded_horizon
+        seeded_strategy = str(draft_seed.get("post_edit_strategy") or "keep")
+        st.session_state[f"near_term_strategy_{key_prefix}"] = strategy_labels.get(
+            seeded_strategy,
+            strategy_labels["keep"],
+        )
+
     st.markdown("### ✍️ Редактировать ближайшие 7-10 дней")
-    with st.expander("Открыть редактор ближайших дней", expanded=False):
+    with st.expander("Открыть редактор ближайших дней", expanded=bool(draft_seed)):
         st.caption(
             "Этот редактор меняет только ближайшие дни текущего плана. Остальной цикл не перестраивается, "
             "а checkpoint, explainability и экспорты обновятся только после явного применения черновика."
@@ -368,6 +386,21 @@ def _render_near_term_editor(
             key=f"near_term_horizon_{key_prefix}",
         )
         editable_rows = build_near_term_edit_rows(goal_plan, horizon_days=horizon_days)
+        if isinstance(draft_seed, dict):
+            seeded_overrides = {
+                int(index): dict(value or {})
+                for index, value in (draft_seed.get("overrides_by_index") or {}).items()
+                if isinstance(value, dict)
+            }
+            for row in editable_rows:
+                override = seeded_overrides.get(int(row["index"]))
+                if not override:
+                    continue
+                st.session_state[f"near_term_role_{key_prefix}_{row['index']}"] = role_labels[override["session_role"]]
+                st.session_state[f"near_term_sport_{key_prefix}_{row['index']}"] = sport_labels[override["sport"]]
+                st.session_state[f"near_term_tss_{key_prefix}_{row['index']}"] = int(
+                    round(float(override["total_tss"] or 0.0))
+                )
         for row in editable_rows:
             st.session_state.setdefault(
                 f"near_term_role_{key_prefix}_{row['index']}",
@@ -381,6 +414,15 @@ def _render_near_term_editor(
                 f"near_term_tss_{key_prefix}_{row['index']}",
                 int(round(row["current_total_tss"])),
             )
+        if seed_source_label:
+            st.info(
+                "Черновик открыт из execution microcycle: "
+                f"{seed_source_label}. "
+                "Если примените эти правки здесь, они сохранятся как ручной override ближнего горизонта, "
+                "а не как прямое подтверждение execution checkpoint."
+            )
+            if seed_hint:
+                st.caption(seed_hint)
 
         overrides_by_index = {
             int(row["index"]): {
@@ -609,12 +651,16 @@ def _render_near_term_editor(
             st.rerun()
 
         if apply_clicked:
-            return apply_near_term_day_edits(
+            updated_goal_plan = apply_near_term_day_edits(
                 goal_plan,
                 draft_rows,
                 horizon_days=horizon_days,
                 post_edit_strategy=selected_post_edit_strategy,
             )
+            if seed_source_label:
+                updated_goal_plan["_transient_planning_action"] = "override_execution_microcycle"
+                updated_goal_plan["_transient_execution_microcycle_headline"] = seed_source_label
+            return updated_goal_plan
 
     return None
 
@@ -1404,8 +1450,34 @@ def render_planning_page(state: "StateManager") -> None:
             goal_plan,
             key_prefix="planning_execution_feedback",
             title="### ♻️ Факт выполнения по дням",
+            allow_open_as_draft=True,
         )
         if execution_feedback_result is not None:
+            if execution_feedback_result.get("mode") == "open_near_term_draft":
+                projected_goal_plan = execution_feedback_result.get("projected_goal_plan")
+                corrective_microcycle = execution_feedback_result.get("execution_corrective_microcycle") or {}
+                draft_seed = None
+                if isinstance(projected_goal_plan, dict):
+                    draft_seed = build_near_term_edit_seed_from_goal_plans(
+                        goal_plan,
+                        projected_goal_plan,
+                        horizon_days=7,
+                        post_edit_strategy=str(corrective_microcycle.get("selected_response_strategy") or "keep"),
+                        source_label=str(corrective_microcycle.get("headline") or "Execution microcycle"),
+                    )
+                if draft_seed is not None:
+                    draft_seed["hint"] = (
+                        "Это override-path для ближайших 7 дней: сначала проверьте diff, risk и follow-up strategy, "
+                        "а уже потом сохраняйте manual override."
+                    )
+                    st.session_state["planning_near_term_prefill"] = draft_seed
+                    st.session_state["planning_near_term_flash"] = (
+                        "Execution microcycle открыт как черновик ручной правки. "
+                        "Проверьте diff и risk перед сохранением override."
+                    )
+                    st.rerun()
+                st.warning("Не удалось открыть microcycle как черновик: в ближнем горизонте нет видимого diff.")
+                return
             latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
             updated_goal_plan = rebuild_goal_plan_with_adjustment(
                 goal_plan,
@@ -1482,6 +1554,7 @@ def render_planning_page(state: "StateManager") -> None:
             goal_plan,
             rollback_goal_plan=rollback_goal_plan,
             rollback_checkpoint_id=rollback_target_checkpoint_id,
+            draft_seed=st.session_state.pop("planning_near_term_prefill", None),
         )
         if updated_goal_plan is None:
             updated_goal_plan = _render_planning_version_history(
@@ -1492,6 +1565,9 @@ def render_planning_page(state: "StateManager") -> None:
         if updated_goal_plan is not None:
             planning_action = str(updated_goal_plan.pop("_transient_planning_action", "") or "")
             restored_from_checkpoint_id = updated_goal_plan.pop("_transient_restore_checkpoint_id", None)
+            execution_microcycle_headline = str(
+                updated_goal_plan.pop("_transient_execution_microcycle_headline", "") or ""
+            )
             near_term_summary = summarize_near_term_edit(updated_goal_plan.get("constraint_summary", {}))
             latest_checkpoint_id = (latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None
             if planning_action in {"rollback_near_term_edit", "restore_checkpoint_version"}:
@@ -1534,6 +1610,22 @@ def render_planning_page(state: "StateManager") -> None:
                     )
                 else:
                     st.session_state["planning_near_term_flash"] = "Сохранённая версия плана восстановлена."
+            elif planning_action == "override_execution_microcycle":
+                if near_term_summary is not None:
+                    st.session_state["planning_near_term_flash"] = (
+                        "Execution microcycle переопределён вручную: "
+                        f"{near_term_summary['compact_label']}."
+                    )
+                    if execution_microcycle_headline:
+                        st.session_state["planning_near_term_flash"] += (
+                            f" База override: {execution_microcycle_headline}."
+                        )
+                    if near_term_summary["risk_level"] != "low":
+                        st.session_state["planning_near_term_flash"] += (
+                            f" Оценка: {near_term_summary['risk_badge']}."
+                        )
+                else:
+                    st.session_state["planning_near_term_flash"] = "Execution microcycle переопределён вручную."
             else:
                 if near_term_summary is not None:
                     st.session_state["planning_near_term_flash"] = (

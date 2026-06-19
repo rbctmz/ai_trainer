@@ -12,6 +12,7 @@ from models.planning_execution import (
     summarize_execution_reconciliation_rows,
     summarize_execution_weekly_review_rows,
 )
+from models.planning_near_term import build_near_term_edit_seed_from_goal_plans
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
 from ui.components.execution_feedback import (
     _resolve_actual_tss_value,
@@ -185,6 +186,43 @@ def test_rebuild_goal_plan_honors_execution_response_strategy_override():
     corrective_microcycle = rebuilt["constraint_summary"]["plan_adjustment"]["execution_corrective_microcycle"]
     assert corrective_microcycle["selected_response_strategy"] == "catch_up"
     assert corrective_microcycle["window_day_count"] >= 1
+
+
+def test_execution_replan_can_open_corrective_microcycle_as_near_term_draft():
+    goal_plan = _sample_goal_plan()
+    rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    positive_rows = _positive_tss_row_indices(rows)
+    rows[positive_rows[0]]["outcome"] = "missed"
+    rows[positive_rows[1]]["outcome"] = "reduced"
+    rows[positive_rows[1]]["actual_total_tss"] = max(
+        0,
+        int(rows[positive_rows[1]]["planned_total_tss"]) - 15,
+    )
+
+    payload = build_execution_plan_adjustment(
+        goal_plan,
+        rows,
+        weeks=1,
+        response_strategy_override="protect_recovery",
+    )
+    rebuilt = rebuild_goal_plan_with_adjustment(goal_plan, payload)
+    corrective_microcycle = summarize_execution_corrective_microcycle(
+        rebuilt["constraint_summary"]["plan_adjustment"].get("execution_corrective_microcycle")
+    )
+
+    seed = build_near_term_edit_seed_from_goal_plans(
+        goal_plan,
+        rebuilt,
+        horizon_days=7,
+        post_edit_strategy=str(corrective_microcycle["selected_response_strategy"]),
+        source_label=str(corrective_microcycle["headline"]),
+    )
+
+    assert seed is not None
+    assert seed["source_label"] == corrective_microcycle["headline"]
+    assert seed["post_edit_strategy"] == corrective_microcycle["selected_response_strategy"]
+    assert seed["draft_summary"]["has_changes"] is True
+    assert seed["draft_summary"]["changed_day_count"] >= 1
 
 
 def test_execution_feedback_widget_state_is_clamped_to_current_planned_tss():

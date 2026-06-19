@@ -58,6 +58,7 @@ def render_execution_feedback_editor(
     *,
     key_prefix: str,
     title: str = "### ♻️ Факт выполнения",
+    allow_open_as_draft: bool = False,
 ) -> Dict[str, Any] | None:
     """Render a shared editor that converts execution facts into a local-replan payload."""
     if not isinstance(goal_plan, Mapping) or not goal_plan:
@@ -95,6 +96,9 @@ def render_execution_feedback_editor(
 
         plan_adjustment_payload: Dict[str, Any]
         execution_summary: Dict[str, Any] | None = None
+
+        projected_goal_plan: Dict[str, Any] | None = None
+        corrective_microcycle: Dict[str, Any] | None = None
 
         if mode == "Быстро":
             status_label = st.selectbox(
@@ -343,18 +347,56 @@ def render_execution_feedback_editor(
                     if corrective_microcycle["guardrail"]:
                         st.caption(corrective_microcycle["guardrail"])
 
-        if st.button(
-            "♻️ Применить локальный replan",
-            key=f"{key_prefix}_apply",
-            type="primary",
-            width="stretch",
-        ):
-            return {
-                "plan_adjustment": plan_adjustment_payload,
-                "execution_summary": execution_summary,
-                "weeks": weeks,
-                "mode": mode,
-            }
+        if projected_goal_plan is None:
+            projected_goal_plan = rebuild_goal_plan_with_adjustment(
+                goal_plan,
+                plan_adjustment_payload,
+            )
+        if corrective_microcycle is None:
+            corrective_microcycle = summarize_execution_corrective_microcycle(
+                (
+                    (
+                        (projected_goal_plan.get("constraint_summary", {}) or {}).get("plan_adjustment", {})
+                        or {}
+                    ).get("execution_corrective_microcycle")
+                )
+            )
+
+        is_actionable = str(plan_adjustment_payload.get("label") or "Нет").strip() not in {
+            "Нет",
+            "Выполнено по плану",
+        }
+        action_cols = st.columns(2 if allow_open_as_draft and corrective_microcycle and is_actionable else 1)
+        with action_cols[0]:
+            if st.button(
+                "♻️ Применить local replan как есть" if corrective_microcycle else "♻️ Применить локальный replan",
+                key=f"{key_prefix}_apply",
+                type="primary",
+                width="stretch",
+            ):
+                return {
+                    "plan_adjustment": plan_adjustment_payload,
+                    "execution_summary": execution_summary,
+                    "weeks": weeks,
+                    "mode": "apply_replan",
+                    "source_mode": mode,
+                }
+        if allow_open_as_draft and corrective_microcycle and is_actionable:
+            with action_cols[1]:
+                if st.button(
+                    "✍️ Открыть microcycle как черновик",
+                    key=f"{key_prefix}_open_as_draft",
+                    width="stretch",
+                ):
+                    return {
+                        "plan_adjustment": plan_adjustment_payload,
+                        "execution_summary": execution_summary,
+                        "weeks": weeks,
+                        "mode": "open_near_term_draft",
+                        "source_mode": mode,
+                        "projected_goal_plan": projected_goal_plan,
+                        "execution_corrective_microcycle": corrective_microcycle,
+                    }
 
     return None
 

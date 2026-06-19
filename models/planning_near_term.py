@@ -557,6 +557,69 @@ def summarize_near_term_draft_rows(
     }
 
 
+def build_near_term_edit_seed_from_goal_plans(
+    goal_plan: Mapping[str, Any],
+    target_goal_plan: Mapping[str, Any],
+    *,
+    horizon_days: int = EDITABLE_NEAR_TERM_HORIZON_MIN,
+    post_edit_strategy: str = "keep",
+    source_label: str | None = None,
+) -> Dict[str, Any] | None:
+    """Project a target plan variant into a near-term editable draft over the current plan."""
+    base_rows = build_near_term_edit_rows(goal_plan, horizon_days=horizon_days)
+    if not base_rows:
+        return None
+
+    target_daily_plan = _clone_daily_plan(target_goal_plan)
+    if not target_daily_plan:
+        return None
+
+    target_templates = _clone_session_templates(target_goal_plan, target_daily_plan)
+    resolved_horizon = min(len(base_rows), len(target_daily_plan), len(target_templates))
+    if resolved_horizon <= 0:
+        return None
+
+    overrides_by_index: Dict[int, Dict[str, Any]] = {}
+    for idx in range(resolved_horizon):
+        _target_dt, target_total_tss, target_parts = target_daily_plan[idx]
+        target_template = target_templates[idx]
+        normalized_total_tss = _normalize_total_tss(target_total_tss)
+        target_sport = _normalize_sport(
+            target_template.get("sport") or _dominant_sport(target_parts)
+        )
+        target_role = _normalize_session_role(
+            target_template.get("session_role") or ("off" if normalized_total_tss <= 0 else "easy")
+        )
+        if target_role == "off" or target_sport == "off" or normalized_total_tss <= 0:
+            target_role = "off"
+            target_sport = "off"
+            normalized_total_tss = 0.0
+        overrides_by_index[idx] = {
+            "session_role": target_role,
+            "sport": target_sport,
+            "total_tss": normalized_total_tss,
+        }
+
+    draft_rows = build_near_term_edit_draft_rows(
+        base_rows[:resolved_horizon],
+        goal_type=str(goal_plan.get("goal_type") or ""),
+        distance=str(goal_plan.get("distance") or ""),
+        overrides_by_index=overrides_by_index,
+    )
+    draft_summary = summarize_near_term_draft_rows(draft_rows)
+    if not draft_summary["has_changes"]:
+        return None
+
+    return {
+        "source_label": str(source_label or "").strip(),
+        "horizon_days": resolved_horizon,
+        "post_edit_strategy": _normalize_post_edit_strategy(post_edit_strategy),
+        "draft_rows": draft_rows,
+        "draft_summary": draft_summary,
+        "overrides_by_index": _draft_rows_to_overrides_by_index(draft_rows),
+    }
+
+
 def _draft_rows_to_overrides_by_index(
     draft_rows: Sequence[Mapping[str, Any]],
 ) -> Dict[int, Dict[str, Any]]:
@@ -1181,6 +1244,7 @@ __all__ = [
     "EDITABLE_NEAR_TERM_HORIZON_MIN",
     "EDITABLE_SESSION_ROLES",
     "EDITABLE_SPORTS",
+    "build_near_term_edit_seed_from_goal_plans",
     "build_near_term_edit_draft_rows",
     "build_near_term_edit_rows",
     "build_safer_near_term_draft",
