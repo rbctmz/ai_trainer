@@ -12,6 +12,7 @@ from models.planning_near_term import (
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
 from ui.pages.planning import (
     _build_daily_session_rows,
+    _build_goal_plan_transition_preview,
     _build_near_term_draft_preview,
     _build_plan_explainability,
     _resolve_target_weekly_tss_control,
@@ -357,6 +358,43 @@ def test_build_near_term_draft_preview_carries_follow_up_strategy_into_future_we
     assert preview["near_term_edit"]["risk_badge"] == "Риск низкий"
     assert "Наверстать аккуратно" in preview["near_term_edit"]["follow_up_description"]
     assert any("ручной возврат" in row["Почему"] for row in preview["weekly_rows"])
+
+
+def test_build_goal_plan_transition_preview_can_describe_rollback_to_previous_version():
+    current_goal_plan = {
+        "weekly_summary": [
+            {"week_start": date(2026, 6, 8), "weekly_tss": 260, "adjustment_note": "ручная правка: 2 дн., Δ +40 TSS"},
+            {"week_start": date(2026, 6, 15), "weekly_tss": 220, "adjustment_note": "ручная разгрузка -15 TSS"},
+        ],
+        "constraint_summary": {
+            "near_term_edit": {
+                "is_active": True,
+                "edited_day_count": 2,
+                "horizon_days": 7,
+                "total_delta_tss": 40,
+                "label": "Ручная правка ближнего горизонта",
+                "post_edit_strategy": "keep",
+                "future_target_tss": -15,
+                "future_delta_tss": -15,
+                "future_weeks": 2,
+                "future_week_count": 1,
+            }
+        },
+    }
+    previous_goal_plan = {
+        "weekly_summary": [
+            {"week_start": date(2026, 6, 8), "weekly_tss": 220, "adjustment_note": "—"},
+            {"week_start": date(2026, 6, 15), "weekly_tss": 240, "adjustment_note": "—"},
+        ],
+        "constraint_summary": {},
+    }
+
+    preview = _build_goal_plan_transition_preview(current_goal_plan, previous_goal_plan)
+
+    assert preview["changed_week_count"] == 2
+    assert preview["near_term_edit"] is None
+    assert preview["weekly_rows"][0]["Δ TSS"] == "-40"
+    assert preview["weekly_rows"][1]["Станет TSS"] == 240
 
 
 def test_build_plan_explainability_carries_manual_edit_risk_signal():

@@ -230,21 +230,29 @@ def _build_near_term_draft_preview(
     draft_goal_plan: Dict[str, Any],
 ) -> Dict[str, Any]:
     """Summarize week-level impact and the persisted label for the current draft."""
+    return _build_goal_plan_transition_preview(current_goal_plan, draft_goal_plan)
+
+
+def _build_goal_plan_transition_preview(
+    current_goal_plan: Dict[str, Any],
+    target_goal_plan: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Summarize week-level impact between two concrete goal plan versions."""
     current_weekly_summary = list(current_goal_plan.get("weekly_summary", []) or [])
-    draft_weekly_summary = list(draft_goal_plan.get("weekly_summary", []) or [])
+    target_weekly_summary = list(target_goal_plan.get("weekly_summary", []) or [])
     weekly_rows: List[Dict[str, Any]] = []
 
-    for idx, draft_row in enumerate(draft_weekly_summary):
+    for idx, target_row in enumerate(target_weekly_summary):
         current_row = current_weekly_summary[idx] if idx < len(current_weekly_summary) else {}
         current_tss = int(current_row.get("weekly_tss", 0) or 0)
-        draft_tss = int(draft_row.get("weekly_tss", current_tss) or 0)
+        target_tss = int(target_row.get("weekly_tss", current_tss) or 0)
         current_note = str(current_row.get("adjustment_note", "—") or "—")
-        draft_note = str(draft_row.get("adjustment_note", current_note) or "—")
+        target_note = str(target_row.get("adjustment_note", current_note) or "—")
 
-        if current_tss == draft_tss and current_note == draft_note:
+        if current_tss == target_tss and current_note == target_note:
             continue
 
-        week_start_value = draft_row.get("week_start") or current_row.get("week_start")
+        week_start_value = target_row.get("week_start") or current_row.get("week_start")
         week_label = str(idx + 1)
         if week_start_value is not None:
             week_label = f"{idx + 1} • {week_start_value.strftime('%d.%m')}"
@@ -253,14 +261,14 @@ def _build_near_term_draft_preview(
             {
                 "Неделя": week_label,
                 "Было TSS": current_tss,
-                "Станет TSS": draft_tss,
-                "Δ TSS": f"{draft_tss - current_tss:+d}",
-                "Почему": draft_note,
+                "Станет TSS": target_tss,
+                "Δ TSS": f"{target_tss - current_tss:+d}",
+                "Почему": target_note,
             }
         )
 
     return {
-        "near_term_edit": summarize_near_term_edit(draft_goal_plan.get("constraint_summary", {})),
+        "near_term_edit": summarize_near_term_edit(target_goal_plan.get("constraint_summary", {})),
         "changed_week_count": len(weekly_rows),
         "weekly_rows": weekly_rows,
     }
@@ -290,7 +298,10 @@ def _render_near_term_risk_callout(near_term_edit: Dict[str, Any], *, prefix: st
         st.write(f"• {reason}")
 
 
-def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None:
+def _render_near_term_editor(
+    goal_plan: Dict[str, Any],
+    rollback_goal_plan: Dict[str, Any] | None = None,
+) -> Dict[str, Any] | None:
     """Render an in-place editor for the next 7-10 days of the current plan."""
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
     if len(daily_plan) < EDITABLE_NEAR_TERM_HORIZON_MIN:
@@ -407,6 +418,10 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
             )
         safer_draft = None
         soften_clicked = False
+        rollback_clicked = False
+        rollback_preview = None
+        if rollback_goal_plan is not None:
+            rollback_preview = _build_goal_plan_transition_preview(goal_plan, rollback_goal_plan)
 
         st.markdown("#### Черновик правок")
         if draft_summary["has_changes"]:
@@ -479,6 +494,33 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                 f"{draft_summary['horizon_days']} дн. · {draft_summary['current_total_tss']} TSS."
             )
 
+        if rollback_goal_plan is not None:
+            st.markdown("#### ↩️ Откат последней сохранённой правки")
+            current_saved_edit = summarize_near_term_edit(goal_plan.get("constraint_summary", {}))
+            if current_saved_edit is not None:
+                st.caption(
+                    "Текущий checkpoint хранит ручную правку: "
+                    f"{current_saved_edit['compact_label']}."
+                )
+            if rollback_preview and rollback_preview["near_term_edit"] is not None:
+                st.caption(
+                    "После отката активной станет версия: "
+                    f"{rollback_preview['near_term_edit']['compact_label']}."
+                )
+            else:
+                st.caption("После отката ручная правка ближнего горизонта исчезнет из сохранённого checkpoint.")
+            if rollback_preview and rollback_preview["weekly_rows"]:
+                st.dataframe(
+                    pd.DataFrame(rollback_preview["weekly_rows"]),
+                    width="stretch",
+                    hide_index=True,
+                )
+            rollback_clicked = st.button(
+                "↩️ Откатить последнюю ручную правку",
+                key=f"near_term_rollback_{key_prefix}",
+                width="stretch",
+            )
+
         for row in editable_rows:
             draft_row = draft_rows_by_index[int(row["index"])]
             with st.container(border=True):
@@ -542,6 +584,12 @@ def _render_near_term_editor(goal_plan: Dict[str, Any]) -> Dict[str, Any] | None
                 st.session_state[f"near_term_sport_{key_prefix}_{row['index']}"] = sport_labels[row["current_sport"]]
                 st.session_state[f"near_term_tss_{key_prefix}_{row['index']}"] = int(round(row["current_total_tss"]))
             st.rerun()
+
+        if rollback_clicked and rollback_goal_plan is not None:
+            restored_goal_plan = dict(rollback_goal_plan)
+            restored_goal_plan["plan_revision"] = datetime.now().isoformat()
+            restored_goal_plan["_transient_planning_action"] = "rollback_near_term_edit"
+            return restored_goal_plan
 
         if soften_clicked and safer_draft is not None:
             st.session_state[f"near_term_strategy_{key_prefix}"] = strategy_labels[safer_draft["post_edit_strategy"]]
@@ -1189,6 +1237,7 @@ def render_planning_page(state: "StateManager") -> None:
             "planner_weights": weights_overrides,
             "plan_revision": datetime.now().isoformat(),
             "near_term_edit_version": 0,
+            "near_term_edit_rollback_target_checkpoint_id": None,
         }
         state.goal_plan = goal_plan_payload
         state.last_execution_feedback_result = None
@@ -1200,14 +1249,36 @@ def render_planning_page(state: "StateManager") -> None:
         st.rerun()
 
     if state.goal_plan:
+        from models.planning_checkpoints import (
+            build_planning_checkpoint,
+            get_near_term_edit_rollback_target_checkpoint_id,
+            restore_goal_plan_from_checkpoint,
+        )
+
         goal_plan = state.goal_plan
         flash_message = st.session_state.pop("planning_near_term_flash", None)
         if flash_message:
             st.success(flash_message)
 
-        updated_goal_plan = _render_near_term_editor(goal_plan)
+        rollback_goal_plan = None
+        latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
+        rollback_target_checkpoint_id = get_near_term_edit_rollback_target_checkpoint_id(latest_checkpoint)
+        if rollback_target_checkpoint_id is not None:
+            rollback_checkpoint = state.database.get_planning_checkpoint(rollback_target_checkpoint_id)
+            rollback_goal_plan = restore_goal_plan_from_checkpoint(rollback_checkpoint)
+            if not isinstance(rollback_goal_plan, dict) or not rollback_goal_plan.get("daily_plan"):
+                rollback_goal_plan = None
+
+        updated_goal_plan = _render_near_term_editor(goal_plan, rollback_goal_plan=rollback_goal_plan)
         if updated_goal_plan is not None:
-            from models.planning_checkpoints import build_planning_checkpoint
+            planning_action = str(updated_goal_plan.pop("_transient_planning_action", "") or "")
+            near_term_summary = summarize_near_term_edit(updated_goal_plan.get("constraint_summary", {}))
+            if planning_action != "rollback_near_term_edit":
+                latest_checkpoint_id = (latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None
+                if near_term_summary is not None and latest_checkpoint_id is not None:
+                    updated_goal_plan["near_term_edit_rollback_target_checkpoint_id"] = latest_checkpoint_id
+                elif near_term_summary is None:
+                    updated_goal_plan.pop("near_term_edit_rollback_target_checkpoint_id", None)
 
             state.goal_plan = updated_goal_plan
             state.last_execution_feedback_result = None
@@ -1216,18 +1287,26 @@ def render_planning_page(state: "StateManager") -> None:
             )
             state.latest_planning_checkpoint = saved_checkpoint
             state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=3)
-            near_term_summary = summarize_near_term_edit(updated_goal_plan.get("constraint_summary", {}))
-            if near_term_summary is not None:
-                st.session_state["planning_near_term_flash"] = (
-                    "Ближний горизонт обновлён: "
-                    f"{near_term_summary['compact_label']}."
-                )
-                if near_term_summary["risk_level"] != "low":
-                    st.session_state["planning_near_term_flash"] += (
-                        f" Оценка: {near_term_summary['risk_badge']}."
+            if planning_action == "rollback_near_term_edit":
+                if near_term_summary is not None:
+                    st.session_state["planning_near_term_flash"] = (
+                        "Откат выполнен. Активная версия: "
+                        f"{near_term_summary['compact_label']}."
                     )
+                else:
+                    st.session_state["planning_near_term_flash"] = "Последняя ручная правка ближнего горизонта откатана."
             else:
-                st.session_state["planning_near_term_flash"] = "Ближний горизонт обновлён."
+                if near_term_summary is not None:
+                    st.session_state["planning_near_term_flash"] = (
+                        "Ближний горизонт обновлён: "
+                        f"{near_term_summary['compact_label']}."
+                    )
+                    if near_term_summary["risk_level"] != "low":
+                        st.session_state["planning_near_term_flash"] += (
+                            f" Оценка: {near_term_summary['risk_badge']}."
+                        )
+                else:
+                    st.session_state["planning_near_term_flash"] = "Ближний горизонт обновлён."
             st.rerun()
             return
 

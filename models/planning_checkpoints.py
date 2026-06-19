@@ -28,6 +28,46 @@ def _parse_date(value: Any) -> Any:
         return value
 
 
+def _parse_datetime(value: Any) -> Any:
+    if not value:
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except ValueError:
+        return value
+
+
+def _serialize_daily_plan(daily_plan: List[Any] | None) -> List[Dict[str, Any]]:
+    rows: List[Dict[str, Any]] = []
+    for item in daily_plan or []:
+        if not isinstance(item, (list, tuple)) or len(item) < 3:
+            continue
+        dt, total_tss, parts = item
+        rows.append(
+            {
+                "date": _isoformat_date(dt),
+                "total_tss": float(total_tss or 0.0),
+                "parts": dict(parts or {}),
+            }
+        )
+    return rows
+
+
+def _restore_daily_plan(rows: List[Any] | None) -> List[tuple[Any, float, Dict[str, float]]]:
+    restored: List[tuple[Any, float, Dict[str, float]]] = []
+    for item in rows or []:
+        if not isinstance(item, dict):
+            continue
+        restored.append(
+            (
+                _parse_datetime(item.get("date")),
+                float(item.get("total_tss", 0.0) or 0.0),
+                dict(item.get("parts", {}) or {}),
+            )
+        )
+    return restored
+
+
 def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     """Build a compact persisted snapshot from the current goal plan."""
     weekly_summary_rows: List[Dict[str, Any]] = []
@@ -62,8 +102,14 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "phases": list(goal_plan.get("phases", []) or []),
         "planner_mix": goal_plan.get("planner_mix"),
         "planner_weights": goal_plan.get("planner_weights"),
+        "daily_plan": _serialize_daily_plan(goal_plan.get("daily_plan")),
+        "session_templates": list(goal_plan.get("session_templates", []) or []),
         "weekly_summary": weekly_summary_rows,
         "constraint_summary": constraint_summary,
+        "plan_revision": goal_plan.get("plan_revision"),
+        "near_term_edit_version": int(goal_plan.get("near_term_edit_version", 0) or 0),
+        "near_term_edit_horizon_days": int(goal_plan.get("near_term_edit_horizon_days", 0) or 0),
+        "near_term_edit_rollback_target_checkpoint_id": goal_plan.get("near_term_edit_rollback_target_checkpoint_id"),
     }
 
     plan_adjustment = constraint_summary.get("plan_adjustment", {}) or {}
@@ -89,6 +135,7 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "near_term_edit_future_delta_tss": near_term_edit.get("future_delta_tss", 0) if near_term_edit else 0,
         "near_term_edit_risk_level": near_term_edit.get("risk_level", "") if near_term_edit else "",
         "near_term_edit_risk_badge": near_term_edit.get("risk_badge", "") if near_term_edit else "",
+        "near_term_edit_rollback_target_checkpoint_id": goal_plan_snapshot.get("near_term_edit_rollback_target_checkpoint_id"),
         "interruption_label": constraint_summary.get("interruption_label", "Нет"),
         "load_state_label": constraint_summary.get("load_state_label"),
         "goal_plan_snapshot": goal_plan_snapshot,
@@ -106,6 +153,8 @@ def checkpoint_to_goal_plan_context(checkpoint: Dict[str, Any] | None) -> Dict[s
 
     goal_plan_snapshot = dict(snapshot)
     goal_plan_snapshot["start_week"] = _parse_date(goal_plan_snapshot.get("start_week"))
+    goal_plan_snapshot["daily_plan"] = _restore_daily_plan(goal_plan_snapshot.get("daily_plan"))
+    goal_plan_snapshot["session_templates"] = list(goal_plan_snapshot.get("session_templates", []) or [])
     weekly_summary: List[Dict[str, Any]] = []
     for row in goal_plan_snapshot.get("weekly_summary", []) or []:
         normalized_row = dict(row)
@@ -113,6 +162,84 @@ def checkpoint_to_goal_plan_context(checkpoint: Dict[str, Any] | None) -> Dict[s
         weekly_summary.append(normalized_row)
     goal_plan_snapshot["weekly_summary"] = weekly_summary
     return goal_plan_snapshot
+
+
+def restore_goal_plan_from_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    """Restore a full goal plan from checkpoint snapshot, rebuilding only if legacy snapshots lack daily details."""
+    goal_plan_snapshot = checkpoint_to_goal_plan_context(checkpoint)
+    if not isinstance(goal_plan_snapshot, dict):
+        return None
+
+    if goal_plan_snapshot.get("daily_plan") and goal_plan_snapshot.get("session_templates"):
+        return goal_plan_snapshot
+
+    from models.training_planner import (
+        build_daily_session_templates,
+        expand_weekly_to_daily_triathlon,
+    )
+
+    constraint_summary = goal_plan_snapshot.get("constraint_summary", {}) or {}
+    weekly_tss_plan = [
+        int(round(value))
+        for value in (goal_plan_snapshot.get("weekly_tss_plan") or [])
+    ]
+    phases = list(goal_plan_snapshot.get("phases", []) or [])
+    goal_type = str(goal_plan_snapshot.get("goal_type") or "Триатлон")
+    distance = str(goal_plan_snapshot.get("distance") or "")
+    start_week = goal_plan_snapshot.get("start_week")
+
+    daily_plan, rebuilt_weekly_summary = expand_weekly_to_daily_triathlon(
+        weekly_tss_plan,
+        phases,
+        distance,
+        start_week,
+        mix_overrides=goal_plan_snapshot.get("planner_mix") or None,
+        weights_overrides=goal_plan_snapshot.get("planner_weights") or None,
+        available_day_indices=list(constraint_summary.get("available_day_indices", []) or []),
+        goal_type=goal_type,
+        load_state=str(constraint_summary.get("load_state", "balanced")),
+    )
+    stored_weekly_summary = list(goal_plan_snapshot.get("weekly_summary", []) or [])
+    for idx, week_row in enumerate(rebuilt_weekly_summary):
+        stored_row = stored_weekly_summary[idx] if idx < len(stored_weekly_summary) else {}
+        week_row["capacity_tss"] = stored_row.get("capacity_tss")
+        week_row["adjustment_note"] = stored_row.get("adjustment_note", week_row.get("adjustment_note", "—"))
+        week_row["structure_summary"] = stored_row.get("structure_summary", week_row.get("structure_summary", ""))
+
+    session_templates = build_daily_session_templates(
+        daily_plan,
+        rebuilt_weekly_summary,
+        goal_type=goal_type,
+        distance=distance,
+    )
+
+    return {
+        **goal_plan_snapshot,
+        "daily_plan": daily_plan,
+        "session_templates": session_templates,
+        "weekly_summary": rebuilt_weekly_summary,
+        "weekly_tss_plan": weekly_tss_plan,
+        "goal_type": goal_type,
+        "distance": distance,
+        "constraint_summary": constraint_summary,
+        "phases": phases,
+    }
+
+
+def get_near_term_edit_rollback_target_checkpoint_id(checkpoint: Dict[str, Any] | None) -> int | None:
+    """Extract the rollback target checkpoint id for the latest manual near-term edit, if present."""
+    if not isinstance(checkpoint, dict):
+        return None
+
+    candidate = checkpoint.get("near_term_edit_rollback_target_checkpoint_id")
+    if candidate is None:
+        snapshot = checkpoint.get("goal_plan_snapshot")
+        if isinstance(snapshot, dict):
+            candidate = snapshot.get("near_term_edit_rollback_target_checkpoint_id")
+    try:
+        return int(candidate) if candidate is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def resolve_goal_plan_context(
@@ -207,7 +334,9 @@ __all__ = [
     "NON_ACTIONABLE_PLAN_ADJUSTMENTS",
     "build_planning_checkpoint",
     "checkpoint_to_goal_plan_context",
+    "get_near_term_edit_rollback_target_checkpoint_id",
     "resolve_goal_plan_context",
+    "restore_goal_plan_from_checkpoint",
     "summarize_execution_feedback_transition",
     "summarize_planning_checkpoint",
 ]

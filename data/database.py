@@ -283,6 +283,26 @@ class Database:
         conn.close()
         return self._deserialize_planning_checkpoint_row(row)
 
+    def get_planning_checkpoint(self, checkpoint_id):
+        """Возвращает planning checkpoint по id или None."""
+        if checkpoint_id is None:
+            return None
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at
+            FROM planning_checkpoints
+            WHERE id = ?
+            LIMIT 1
+            ''',
+            (int(checkpoint_id),),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return self._deserialize_planning_checkpoint_row(row)
+
     def get_recent_planning_checkpoints(self, limit=3):
         """Возвращает последние planning checkpoints для dashboard/AI surfaces."""
         conn = sqlite3.connect(self.db_path)

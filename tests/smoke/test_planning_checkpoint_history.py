@@ -8,17 +8,34 @@ from data.database import Database
 from models.planning_checkpoints import (
     build_planning_checkpoint,
     checkpoint_to_goal_plan_context,
+    get_near_term_edit_rollback_target_checkpoint_id,
     resolve_goal_plan_context,
+    restore_goal_plan_from_checkpoint,
     summarize_execution_feedback_transition,
     summarize_planning_checkpoint,
 )
 from models.planning_execution import rebuild_goal_plan_with_adjustment
+from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
 
 
 pytestmark = pytest.mark.smoke
 
 
 def _sample_goal_plan() -> dict[str, object]:
+    daily_plan, _generated_weekly_summary = expand_weekly_to_daily_triathlon(
+        [180, 220, 240],
+        ["Base", "Build", "Peak"],
+        "Олимпийка",
+        date(2026, 6, 15),
+        goal_type="Триатлон",
+        load_state="fatigued",
+    )
+    session_templates = build_daily_session_templates(
+        daily_plan,
+        _generated_weekly_summary,
+        "Триатлон",
+        "Олимпийка",
+    )
     return {
         "goal_type": "Триатлон",
         "distance": "Олимпийка",
@@ -27,6 +44,8 @@ def _sample_goal_plan() -> dict[str, object]:
         "weekly_tss_plan": [180, 220, 240],
         "base_weekly_tss_plan": [240, 240, 240],
         "phases": ["Base", "Build", "Peak"],
+        "daily_plan": daily_plan,
+        "session_templates": session_templates,
         "planner_mix": {
             "Base": {"run": 0.35, "bike": 0.47, "swim": 0.18},
             "Build": {"run": 0.37, "bike": 0.45, "swim": 0.18},
@@ -94,6 +113,10 @@ def _sample_goal_plan() -> dict[str, object]:
                 "Локальная перепланировка вернула 20 из 25 TSS в ближайшем окне",
             ],
         },
+        "plan_revision": "2026-06-15T08:00:00",
+        "near_term_edit_version": 1,
+        "near_term_edit_horizon_days": 7,
+        "near_term_edit_rollback_target_checkpoint_id": 41,
     }
 
 
@@ -104,10 +127,13 @@ def test_database_roundtrips_planning_checkpoint(tmp_path):
     saved = db.save_planning_checkpoint(checkpoint)
     latest = db.get_latest_planning_checkpoint()
     history = db.get_recent_planning_checkpoints(limit=3)
+    fetched = db.get_planning_checkpoint(saved["id"])
 
     assert saved["id"]
+    assert fetched["id"] == saved["id"]
     assert latest["goal_type"] == "Триатлон"
     assert latest["goal_plan_snapshot"]["constraint_summary"]["plan_adjustment"]["label"] == "Пропущены сессии"
+    assert latest["goal_plan_snapshot"]["daily_plan"]
     assert latest["goal_plan_snapshot"]["weekly_summary"][0]["adjustment_note"].startswith("checkpoint:")
     assert len(history) == 1
 
@@ -116,12 +142,17 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     checkpoint = build_planning_checkpoint(_sample_goal_plan())
 
     restored = checkpoint_to_goal_plan_context(checkpoint)
+    restored_full = restore_goal_plan_from_checkpoint(checkpoint)
     resolved = resolve_goal_plan_context(None, checkpoint)
     summary = summarize_planning_checkpoint(checkpoint)
 
     assert restored["constraint_summary"]["available_day_labels"] == ["Вт", "Чт", "Сб"]
     assert restored["start_week"] == date(2026, 6, 15)
     assert restored["weekly_summary"][0]["week_start"] == date(2026, 6, 15)
+    assert len(restored["daily_plan"]) == len(_sample_goal_plan()["daily_plan"])
+    assert restored_full is not None
+    assert len(restored_full["session_templates"]) == len(_sample_goal_plan()["session_templates"])
+    assert get_near_term_edit_rollback_target_checkpoint_id(checkpoint) == 41
     assert resolved["constraint_summary"]["plan_adjustment"]["label"] == "Пропущены сессии"
     assert summary["plan_adjustment_label"] == "Пропущены сессии"
     assert summary["peak_tss"] == 240
@@ -131,6 +162,20 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     assert summary["near_term_edit"]["future_delta_tss"] == 10
     assert summary["near_term_edit"]["risk_level"] == "low"
     assert checkpoint["near_term_edit_risk_level"] == "low"
+
+
+def test_restore_goal_plan_from_legacy_checkpoint_rebuilds_daily_details():
+    legacy_goal_plan = dict(_sample_goal_plan())
+    legacy_goal_plan.pop("daily_plan", None)
+    legacy_goal_plan.pop("session_templates", None)
+    checkpoint = build_planning_checkpoint(legacy_goal_plan)
+
+    restored = restore_goal_plan_from_checkpoint(checkpoint)
+
+    assert restored is not None
+    assert restored["daily_plan"]
+    assert restored["session_templates"]
+    assert restored["weekly_tss_plan"] == legacy_goal_plan["weekly_tss_plan"]
 
 
 def test_rebuild_goal_plan_with_adjustment_from_checkpoint_context():
