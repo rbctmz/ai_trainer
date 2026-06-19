@@ -162,6 +162,13 @@ def normalize_plan_adjustment(
     execution_reconciliation = raw.get('execution_reconciliation')
     if not isinstance(execution_reconciliation, Mapping):
         execution_reconciliation = None
+    execution_weekly_review = raw.get('execution_weekly_review')
+    if not isinstance(execution_weekly_review, Mapping):
+        execution_weekly_review = None
+
+    catch_up_strategy_override = str(raw.get('catch_up_strategy_override') or '').strip().lower()
+    if catch_up_strategy_override not in {'catch_up', 'protect_recovery'}:
+        catch_up_strategy_override = ''
 
     try:
         completion_share_default = None
@@ -254,6 +261,8 @@ def normalize_plan_adjustment(
             'description': description,
             'changed_rows': changed_rows,
         } if execution_reconciliation else None,
+        'execution_weekly_review': dict(execution_weekly_review) if execution_weekly_review else None,
+        'catch_up_strategy_override': catch_up_strategy_override or None,
         'is_active': status in {'skipped', 'reduced', 'unavailable'} and weeks > 0,
     }
 
@@ -577,6 +586,15 @@ def apply_planning_constraints(
                 f"{normalized_adjustment['actual_total_tss']} из {normalized_adjustment['planned_total_tss']} TSS, "
                 f"изменено {normalized_adjustment['changed_day_count']} дн."
             )
+        execution_weekly_review = normalized_adjustment.get('execution_weekly_review')
+        if isinstance(execution_weekly_review, Mapping):
+            weekly_headline = str(execution_weekly_review.get('headline') or '').strip()
+            selected_response_label = str(execution_weekly_review.get('selected_response_label') or '').strip()
+            if weekly_headline:
+                note = f"Weekly review: {weekly_headline}."
+                if selected_response_label:
+                    note += f" Ответ: {selected_response_label}."
+                summary_notes.append(note)
         if plan_adjustment_loss > 0 and catch_up_strategy == 'catch_up':
             summary_notes.append(
                 f"Локальная перепланировка вернула {plan_adjustment_recovered} из {plan_adjustment_recoverable} TSS в ближайшем окне"

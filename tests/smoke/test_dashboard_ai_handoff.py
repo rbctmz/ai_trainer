@@ -37,6 +37,22 @@ class _DummyState:
                 "plan_adjustment": {
                     "label": "Пропущены сессии",
                     "weeks": 1,
+                    "execution_weekly_review": {
+                        "headline": "Пропущена ключевая сессия",
+                        "review_badge": "Потеря качества",
+                        "deviations": [
+                            {
+                                "code": "missed_key_session",
+                                "label": "Пропущена ключевая сессия",
+                                "detail": "Ключевая работа недели",
+                            }
+                        ],
+                        "recommended_response_strategy": "protect_recovery",
+                        "recommended_response_label": "Беречь восстановление",
+                        "recommended_response_reason": "Сначала лучше вернуть структуру недели.",
+                        "selected_response_strategy": "catch_up",
+                        "selected_response_label": "Наверстать аккуратно",
+                    },
                 },
                 "plan_adjustment_recovered_tss": 20,
                 "near_term_edit": {
@@ -78,6 +94,7 @@ def test_ai_chat_action_primes_dashboard_handoff(monkeypatch: pytest.MonkeyPatch
     assert "checkpoint" in state.ai_coach_handoff["title"].lower()
     assert "Вт, Чт, Сб" in state.ai_coach_handoff["prompt"]
     assert "ручную правку ближнего горизонта" in state.ai_coach_handoff["prompt"]
+    assert "Пропущена ключевая сессия" in state.ai_coach_handoff["prompt"]
     assert "Наверстать аккуратно" in state.ai_coach_handoff["prompt"]
     assert "Риск низкий" in state.ai_coach_handoff["prompt"]
     assert state.ai_coach_handoff["response_contract"]["mode"] == "operational_brief"
@@ -112,7 +129,23 @@ def test_execution_feedback_result_compares_checkpoint_deltas():
                             "reduced_day_count": 1,
                             "unavailable_day_count": 0,
                             "completion_share": 0.78,
-                        }
+                        },
+                        "execution_weekly_review": {
+                            "headline": "Пропущена ключевая сессия",
+                            "review_badge": "Потеря качества",
+                            "deviations": [
+                                {
+                                    "code": "missed_key_session",
+                                    "label": "Пропущена ключевая сессия",
+                                    "detail": "Ключевая работа недели",
+                                }
+                            ],
+                            "recommended_response_strategy": "protect_recovery",
+                            "recommended_response_label": "Беречь восстановление",
+                            "recommended_response_reason": "Сначала лучше вернуть структуру недели.",
+                            "selected_response_strategy": "protect_recovery",
+                            "selected_response_label": "Беречь восстановление",
+                        },
                     }
                 }
             },
@@ -126,3 +159,4 @@ def test_execution_feedback_result_compares_checkpoint_deltas():
     assert result["total_delta"] == -60
     assert result["execution_reconciliation"]["planned_total_tss"] == 180
     assert result["execution_reconciliation"]["changed_day_count"] == 2
+    assert result["execution_weekly_review"]["headline"] == "Пропущена ключевая сессия"

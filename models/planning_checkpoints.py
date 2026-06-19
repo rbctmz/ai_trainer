@@ -4,7 +4,10 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
-from models.planning_execution import summarize_execution_reconciliation
+from models.planning_execution import (
+    summarize_execution_reconciliation,
+    summarize_execution_weekly_review,
+)
 from models.planning_summary import summarize_near_term_edit
 
 NON_ACTIONABLE_PLAN_ADJUSTMENTS = {"", "Нет", "Выполнено по плану"}
@@ -407,6 +410,9 @@ def summarize_planning_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str
     execution_reconciliation = summarize_execution_reconciliation(
         plan_adjustment.get("execution_reconciliation")
     )
+    execution_weekly_review = summarize_execution_weekly_review(
+        plan_adjustment.get("execution_weekly_review")
+    )
     provenance = summarize_checkpoint_provenance(checkpoint)
 
     return {
@@ -422,6 +428,7 @@ def summarize_planning_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str
         "load_state_label": load_state_label,
         "near_term_edit": near_term_edit,
         "execution_reconciliation": execution_reconciliation,
+        "execution_weekly_review": execution_weekly_review,
         "provenance": provenance,
     }
 
@@ -464,6 +471,7 @@ def summarize_execution_feedback_transition(
         "total_tss": current_total,
         "total_delta": current_total - previous_total,
         "execution_reconciliation": current.get("execution_reconciliation"),
+        "execution_weekly_review": current.get("execution_weekly_review"),
     }
 
 

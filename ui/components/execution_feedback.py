@@ -8,9 +8,11 @@ import streamlit as st
 
 from models.planning_execution import (
     EXECUTION_DAY_OUTCOME_LABELS,
+    EXECUTION_RESPONSE_STRATEGY_LABELS,
     build_execution_plan_adjustment,
     build_execution_reconciliation_rows,
     summarize_execution_reconciliation_rows,
+    summarize_execution_weekly_review_rows,
 )
 
 QUICK_EXECUTION_LABELS = {
@@ -34,6 +36,21 @@ def _sanitize_actual_tss_value(planned_total_tss: Any, current_value: Any) -> in
     return max(0, min(planned, value))
 
 
+def _resolve_actual_tss_value(
+    planned_total_tss: Any,
+    outcome: str,
+    current_value: Any,
+) -> int:
+    """Resolve the displayed/returned actual TSS for the current outcome."""
+    normalized_outcome = str(outcome or "as_planned").strip().lower()
+    planned = _sanitize_actual_tss_value(planned_total_tss, planned_total_tss)
+    if normalized_outcome == "as_planned":
+        return planned
+    if normalized_outcome in {"missed", "unavailable"}:
+        return 0
+    return _sanitize_actual_tss_value(planned_total_tss, current_value)
+
+
 def render_execution_feedback_editor(
     goal_plan: Mapping[str, Any] | None,
     *,
@@ -50,6 +67,7 @@ def render_execution_feedback_editor(
 
     max_weeks = min(2, max(1, (len(daily_plan) + 6) // 7))
     status_by_label = {label: code for code, label in QUICK_EXECUTION_LABELS.items()}
+    strategy_by_label = {label: code for code, label in EXECUTION_RESPONSE_STRATEGY_LABELS.items()}
 
     st.markdown(title)
     with st.container(border=True):
@@ -126,23 +144,45 @@ def render_execution_feedback_editor(
             }
         else:
             editable_rows = build_execution_reconciliation_rows(goal_plan, weeks=weeks)
+            current_response_strategy = str(
+                ((goal_plan.get("constraint_summary", {}) or {}).get("catch_up_strategy") or "protect_recovery")
+            ).strip().lower()
+            if current_response_strategy not in EXECUTION_RESPONSE_STRATEGY_LABELS:
+                current_response_strategy = "protect_recovery"
+            response_strategy_key = f"{key_prefix}_response_strategy"
+            st.session_state.setdefault(
+                response_strategy_key,
+                EXECUTION_RESPONSE_STRATEGY_LABELS[current_response_strategy],
+            )
             edited_rows = []
             for row in editable_rows:
                 row_index = int(row["index"])
                 outcome_key = f"{key_prefix}_outcome_{row_index}"
                 actual_tss_key = f"{key_prefix}_actual_tss_{row_index}"
+                actual_tss_widget_key = f"{actual_tss_key}_widget"
                 st.session_state.setdefault(
                     outcome_key,
                     EXECUTION_DAY_OUTCOME_LABELS["as_planned"],
                 )
-                st.session_state.setdefault(
-                    actual_tss_key,
-                    int(row["planned_total_tss"]),
+                outcome_label = str(st.session_state.get(outcome_key) or EXECUTION_DAY_OUTCOME_LABELS["as_planned"])
+                outcome_code = next(
+                    (
+                        code
+                        for code, label in EXECUTION_DAY_OUTCOME_LABELS.items()
+                        if label == outcome_label
+                    ),
+                    "as_planned",
                 )
-                st.session_state[actual_tss_key] = _sanitize_actual_tss_value(
+                resolved_actual_tss = _resolve_actual_tss_value(
                     row["planned_total_tss"],
-                    st.session_state.get(actual_tss_key),
+                    outcome_code,
+                    st.session_state.get(
+                        actual_tss_widget_key,
+                        st.session_state.get(actual_tss_key),
+                    ),
                 )
+                st.session_state[actual_tss_key] = resolved_actual_tss
+                st.session_state[actual_tss_widget_key] = resolved_actual_tss
 
                 with st.container(border=True):
                     st.markdown(f"**{row['date_label']} • {row['phase']}**")
@@ -157,30 +197,63 @@ def render_execution_feedback_editor(
                             options=list(EXECUTION_DAY_OUTCOME_LABELS.values()),
                             key=outcome_key,
                         )
+                    outcome_code = next(
+                        (
+                            code
+                            for code, label in EXECUTION_DAY_OUTCOME_LABELS.items()
+                            if label == outcome_label
+                        ),
+                        "as_planned",
+                    )
+                    resolved_actual_tss = _resolve_actual_tss_value(
+                        row["planned_total_tss"],
+                        outcome_code,
+                        st.session_state.get(
+                            actual_tss_widget_key,
+                            st.session_state.get(actual_tss_key),
+                        ),
+                    )
+                    st.session_state[actual_tss_key] = resolved_actual_tss
+                    st.session_state[actual_tss_widget_key] = resolved_actual_tss
                     with col2:
-                        st.number_input(
+                        actual_tss_value = st.number_input(
                             "Факт TSS",
                             min_value=0,
                             max_value=int(row["planned_total_tss"]),
-                            value=int(st.session_state[actual_tss_key]),
+                            value=int(resolved_actual_tss),
                             step=5,
-                            key=actual_tss_key,
-                            disabled=outcome_label != EXECUTION_DAY_OUTCOME_LABELS["reduced"],
+                            key=actual_tss_widget_key,
+                            disabled=outcome_code != "reduced",
                         )
+                    st.session_state[actual_tss_key] = _resolve_actual_tss_value(
+                        row["planned_total_tss"],
+                        outcome_code,
+                        actual_tss_value,
+                    )
 
                 edited_rows.append(
                     {
                         **row,
-                        "outcome": next(
-                            code
-                            for code, label in EXECUTION_DAY_OUTCOME_LABELS.items()
-                            if label == st.session_state[outcome_key]
-                        ),
+                        "outcome": outcome_code,
                         "actual_total_tss": int(st.session_state[actual_tss_key]),
                     }
                 )
 
             execution_summary = summarize_execution_reconciliation_rows(edited_rows)
+            selected_response_label = st.radio(
+                "Как реагировать после этого окна",
+                options=list(EXECUTION_RESPONSE_STRATEGY_LABELS.values()),
+                key=response_strategy_key,
+                horizontal=True,
+            )
+            selected_response_strategy = strategy_by_label.get(
+                selected_response_label,
+                current_response_strategy,
+            )
+            weekly_review = summarize_execution_weekly_review_rows(
+                edited_rows,
+                current_response_strategy=selected_response_strategy,
+            )
             metric_cols = st.columns(4)
             with metric_cols[0]:
                 st.metric("Правок дней", execution_summary["changed_day_count"])
@@ -199,6 +272,30 @@ def render_execution_feedback_editor(
                 st.metric("Статус", execution_summary["status_label"])
 
             st.caption(execution_summary["description"])
+            with st.container(border=True):
+                st.markdown(
+                    f"**{weekly_review['review_badge']}** · {weekly_review['headline']}"
+                )
+                if weekly_review["deviations"]:
+                    for item in weekly_review["deviations"]:
+                        detail = f": {item['detail']}" if item.get("detail") else ""
+                        st.write(f"• {item['label']}{detail}")
+                else:
+                    st.write("• Критичных отклонений в недельной структуре не видно.")
+                st.caption(
+                    "Рекомендуемая реакция: "
+                    f"{weekly_review['recommended_response_label']}."
+                )
+                if weekly_review["recommended_response_reason"]:
+                    st.caption(weekly_review["recommended_response_reason"])
+                if selected_response_strategy != weekly_review["recommended_response_strategy"]:
+                    if st.button(
+                        f"Принять рекомендацию: {weekly_review['recommended_response_label']}",
+                        key=f"{key_prefix}_accept_recommended_response",
+                        width="stretch",
+                    ):
+                        st.session_state[response_strategy_key] = weekly_review["recommended_response_label"]
+                        st.rerun()
             if execution_summary["changed_rows"]:
                 st.dataframe(
                     pd.DataFrame(execution_summary["changed_rows"]),
@@ -212,6 +309,7 @@ def render_execution_feedback_editor(
                 goal_plan,
                 edited_rows,
                 weeks=weeks,
+                response_strategy_override=selected_response_strategy,
             )
 
         if st.button(

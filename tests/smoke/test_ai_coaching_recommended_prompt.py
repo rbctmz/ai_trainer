@@ -62,6 +62,22 @@ def test_recommended_prompt_prefers_execution_review_when_checkpoint_is_actionab
                 "plan_adjustment": {
                     "label": "Нагрузка урезана",
                     "weeks": 1,
+                    "execution_weekly_review": {
+                        "headline": "Нагрузка сжалась в меньшее число дней",
+                        "review_badge": "Риск компрессии",
+                        "deviations": [
+                            {
+                                "code": "overload_compression",
+                                "label": "Нагрузка сжалась в меньшее число дней",
+                                "detail": "140/180 TSS осталось в 2 из 3 активных дней",
+                            }
+                        ],
+                        "recommended_response_strategy": "protect_recovery",
+                        "recommended_response_label": "Беречь восстановление",
+                        "recommended_response_reason": "Похожий объём в меньшем числе дней повышает риск компрессии.",
+                        "selected_response_strategy": "protect_recovery",
+                        "selected_response_label": "Беречь восстановление",
+                    },
                 },
             }
         },
@@ -70,11 +86,29 @@ def test_recommended_prompt_prefers_execution_review_when_checkpoint_is_actionab
             "plan_adjustment_weeks": 1,
             "total_delta": -40,
             "peak_delta": 0,
+            "execution_weekly_review": {
+                "headline": "Нагрузка сжалась в меньшее число дней",
+                "review_badge": "Риск компрессии",
+                "deviations": [
+                    {
+                        "code": "overload_compression",
+                        "label": "Нагрузка сжалась в меньшее число дней",
+                        "detail": "140/180 TSS осталось в 2 из 3 активных дней",
+                    }
+                ],
+                "recommended_response_strategy": "protect_recovery",
+                "recommended_response_label": "Беречь восстановление",
+                "recommended_response_reason": "Похожий объём в меньшем числе дней повышает риск компрессии.",
+                "selected_response_strategy": "protect_recovery",
+                "selected_response_label": "Беречь восстановление",
+            },
         },
     )
 
     assert "checkpoint" in prompt["title"].lower()
     assert "execution checkpoint" in prompt["prompt"].lower()
+    assert "Нагрузка сжалась в меньшее число дней" in prompt["prompt"]
+    assert "Беречь восстановление" in prompt["prompt"]
     assert prompt["response_contract"]["mode"] == "operational_brief"
     assert "Сегодня / Ближайшие 2-3 дня / Не делать / Почему" in prompt["response_contract"]["preview_label"]
 

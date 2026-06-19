@@ -675,6 +675,16 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
                 f"{execution_reconciliation['planned_total_tss']} TSS · "
                 f"{execution_reconciliation['changed_day_count']} дн. изменено"
             )
+        if checkpoint_summary.get("execution_weekly_review"):
+            execution_weekly_review = checkpoint_summary["execution_weekly_review"]
+            st.write(
+                f"**Weekly review:** {execution_weekly_review['review_badge']} · "
+                f"{execution_weekly_review['headline']}"
+            )
+            st.caption(
+                "Ответ после окна: "
+                f"{execution_weekly_review['selected_response_label']}"
+            )
         if checkpoint_summary.get("near_term_edit"):
             st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
             st.write(f"**Оценка правки:** {checkpoint_summary['near_term_edit']['risk_badge']}")
@@ -703,6 +713,8 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
                 version_label = provenance.get("label", "Сохранённая версия")
                 detail = provenance.get("detail", "")
                 suffix = f" · checkpoint: {item['plan_adjustment_label']}"
+                if item.get("execution_weekly_review"):
+                    suffix += f" · weekly review: {item['execution_weekly_review']['review_badge']}"
                 if item.get("near_term_edit") and provenance_source != "manual_edit":
                     suffix += f" · ручная правка: {item['near_term_edit']['delta_label']}"
                     if item["near_term_edit"].get("risk_level") != "low":
@@ -742,6 +754,12 @@ def _render_execution_feedback_loop(state: StateManager) -> None:
                 f"Факт окна: {execution_reconciliation['actual_total_tss']} из "
                 f"{execution_reconciliation['planned_total_tss']} TSS · "
                 f"{execution_reconciliation['changed_day_count']} дн. изменено"
+            )
+        if result.get("execution_weekly_review"):
+            execution_weekly_review = result["execution_weekly_review"]
+            st.caption(
+                f"Weekly review: {execution_weekly_review['headline']} · "
+                f"{execution_weekly_review['selected_response_label']}"
             )
         if result.get("created_at_label"):
             st.caption(f"Сохранён: {result['created_at_label']}")

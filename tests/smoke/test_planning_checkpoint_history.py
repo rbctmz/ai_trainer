@@ -96,6 +96,22 @@ def _sample_goal_plan() -> dict[str, object]:
                 "status": "skipped",
                 "label": "Пропущены сессии",
                 "weeks": 1,
+                "execution_weekly_review": {
+                    "headline": "Пропущена ключевая сессия",
+                    "review_badge": "Потеря качества",
+                    "deviations": [
+                        {
+                            "code": "missed_key_session",
+                            "label": "Пропущена ключевая сессия",
+                            "detail": "Триатлон Олимпийка — Качество • бег",
+                        }
+                    ],
+                    "recommended_response_strategy": "protect_recovery",
+                    "recommended_response_label": "Беречь восстановление",
+                    "recommended_response_reason": "После пропуска ключевой работы важнее вернуть структуру недели.",
+                    "selected_response_strategy": "catch_up",
+                    "selected_response_label": "Наверстать аккуратно",
+                },
             },
             "plan_adjustment_recovered_tss": 20,
             "near_term_edit": {
@@ -174,6 +190,8 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     assert summary["near_term_edit"]["strategy_label"] == "Наверстать аккуратно"
     assert summary["near_term_edit"]["future_delta_tss"] == 10
     assert summary["near_term_edit"]["risk_level"] == "low"
+    assert summary["execution_weekly_review"]["headline"] == "Пропущена ключевая сессия"
+    assert summary["execution_weekly_review"]["selected_response_label"] == "Наверстать аккуратно"
     assert checkpoint["near_term_edit_risk_level"] == "low"
 
 
@@ -282,3 +300,5 @@ def test_summarize_execution_feedback_transition_from_persisted_checkpoints():
     assert summary["peak_delta"] <= 0
     assert summary["execution_reconciliation"] is not None
     assert summary["execution_reconciliation"]["changed_day_count"] == 2
+    assert summary["execution_weekly_review"] is not None
+    assert summary["execution_weekly_review"]["headline"]

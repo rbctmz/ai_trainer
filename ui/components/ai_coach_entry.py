@@ -237,6 +237,16 @@ def render_empty_ai_chat_guidance(
                     f"{execution_reconciliation['planned_total_tss']} TSS · "
                     f"{execution_reconciliation['changed_day_count']} дн. изменено"
                 )
+            if checkpoint_summary.get("execution_weekly_review"):
+                execution_weekly_review = checkpoint_summary["execution_weekly_review"]
+                st.write(
+                    f"**Weekly review:** {execution_weekly_review['review_badge']} · "
+                    f"{execution_weekly_review['headline']}"
+                )
+                st.caption(
+                    "Ответ после окна: "
+                    f"{execution_weekly_review['selected_response_label']}"
+                )
             if checkpoint_summary.get("near_term_edit"):
                 st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
                 st.write(f"**Оценка правки:** {checkpoint_summary['near_term_edit']['risk_badge']}")

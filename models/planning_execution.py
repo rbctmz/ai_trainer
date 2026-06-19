@@ -16,6 +16,10 @@ EXECUTION_DAY_OUTCOME_LABELS = {
     "missed": "Пропущено",
     "unavailable": "Недоступно",
 }
+EXECUTION_RESPONSE_STRATEGY_LABELS = {
+    "protect_recovery": "Беречь восстановление",
+    "catch_up": "Наверстать аккуратно",
+}
 
 
 def _coerce_float(value: Any, default: float = 0.0) -> float:
@@ -45,6 +49,28 @@ def _plan_adjustment_label(status: str) -> str:
         "none": "Нет",
     }
     return mapping.get((status or "none").lower(), "Нет")
+
+
+def _normalize_response_strategy(strategy: Any) -> str:
+    normalized = str(strategy or "protect_recovery").strip().lower()
+    if normalized not in EXECUTION_RESPONSE_STRATEGY_LABELS:
+        return "protect_recovery"
+    return normalized
+
+
+def _response_strategy_label(strategy: Any) -> str:
+    normalized = _normalize_response_strategy(strategy)
+    return EXECUTION_RESPONSE_STRATEGY_LABELS[normalized]
+
+
+def _actual_tss_for_row(row: Mapping[str, Any]) -> int:
+    planned_tss = max(0, _round_int(_coerce_float(row.get("planned_total_tss"))))
+    outcome = str(row.get("outcome") or "as_planned").strip().lower()
+    if outcome == "reduced":
+        return min(planned_tss, max(0, _round_int(_coerce_float(row.get("actual_total_tss"), planned_tss))))
+    if outcome in {"missed", "unavailable"}:
+        return 0
+    return planned_tss
 
 
 def build_execution_reconciliation_rows(
@@ -157,6 +183,203 @@ def summarize_execution_reconciliation(
     }
 
 
+def summarize_execution_weekly_review(
+    execution_weekly_review: Mapping[str, Any] | None,
+) -> Dict[str, Any] | None:
+    """Normalize a compact weekly review derived from execution facts."""
+    if not isinstance(execution_weekly_review, Mapping):
+        return None
+
+    recommended_strategy = _normalize_response_strategy(
+        execution_weekly_review.get("recommended_response_strategy")
+    )
+    selected_strategy = _normalize_response_strategy(
+        execution_weekly_review.get(
+            "selected_response_strategy",
+            recommended_strategy,
+        )
+    )
+    deviations = [
+        {
+            "code": str(item.get("code") or "").strip(),
+            "label": str(item.get("label") or "").strip(),
+            "detail": str(item.get("detail") or "").strip(),
+        }
+        for item in execution_weekly_review.get("deviations", [])
+        if isinstance(item, Mapping)
+    ][:5]
+    return {
+        "headline": str(execution_weekly_review.get("headline") or "").strip(),
+        "review_badge": str(execution_weekly_review.get("review_badge") or "").strip(),
+        "deviations": [item for item in deviations if item["label"]],
+        "recommended_response_strategy": recommended_strategy,
+        "recommended_response_label": _response_strategy_label(recommended_strategy),
+        "recommended_response_reason": str(execution_weekly_review.get("recommended_response_reason") or "").strip(),
+        "selected_response_strategy": selected_strategy,
+        "selected_response_label": _response_strategy_label(selected_strategy),
+        "planned_active_day_count": _coerce_int(execution_weekly_review.get("planned_active_day_count")),
+        "actual_active_day_count": _coerce_int(execution_weekly_review.get("actual_active_day_count")),
+        "key_session_loss_count": _coerce_int(execution_weekly_review.get("key_session_loss_count")),
+        "long_session_loss_count": _coerce_int(execution_weekly_review.get("long_session_loss_count")),
+        "compression_risk": bool(execution_weekly_review.get("compression_risk", False)),
+    }
+
+
+def summarize_execution_weekly_review_rows(
+    rows: List[Mapping[str, Any]] | None,
+    *,
+    current_response_strategy: str = "protect_recovery",
+) -> Dict[str, Any]:
+    """Derive a compact weekly review from day-level execution facts."""
+    normalized_current_strategy = _normalize_response_strategy(current_response_strategy)
+    planned_total_tss = 0
+    actual_total_tss = 0
+    planned_active_day_count = 0
+    actual_active_day_count = 0
+    changed_day_count = 0
+    key_session_losses: List[str] = []
+    long_session_losses: List[str] = []
+    reduced_quality_sessions: List[str] = []
+    unavailable_days = 0
+    missed_days = 0
+
+    for row in rows or []:
+        planned_tss = max(0, _round_int(_coerce_float(row.get("planned_total_tss"))))
+        actual_tss = _actual_tss_for_row(row)
+        outcome = str(row.get("outcome") or "as_planned").strip().lower()
+        session_name = str(row.get("session_name") or "Сессия").strip()
+        session_role = str(row.get("session_role") or "").strip().lower()
+
+        planned_total_tss += planned_tss
+        actual_total_tss += actual_tss
+        if planned_tss > 0:
+            planned_active_day_count += 1
+        if actual_tss > 0:
+            actual_active_day_count += 1
+
+        if outcome != "as_planned" or actual_tss != planned_tss:
+            changed_day_count += 1
+        if outcome == "missed":
+            missed_days += 1
+        elif outcome == "unavailable":
+            unavailable_days += 1
+
+        if session_role == "quality":
+            if outcome in {"missed", "unavailable"}:
+                key_session_losses.append(session_name)
+            elif actual_tss < planned_tss:
+                reduced_quality_sessions.append(session_name)
+        if session_role == "long" and (outcome in {"missed", "unavailable"} or actual_tss * 2 < max(1, planned_tss)):
+            long_session_losses.append(session_name)
+
+    completion_share = (actual_total_tss / planned_total_tss) if planned_total_tss > 0 else 1.0
+    delta_tss = actual_total_tss - planned_total_tss
+    compression_risk = (
+        planned_active_day_count > 0
+        and actual_active_day_count > 0
+        and actual_active_day_count < planned_active_day_count
+        and completion_share >= 0.75
+        and changed_day_count > 0
+    )
+
+    deviations: List[Dict[str, str]] = []
+    if key_session_losses:
+        deviations.append(
+            {
+                "code": "missed_key_session",
+                "label": "Пропущена ключевая сессия",
+                "detail": ", ".join(key_session_losses[:2]),
+            }
+        )
+    if long_session_losses:
+        deviations.append(
+            {
+                "code": "lost_long_session",
+                "label": "Сорвана длинная сессия",
+                "detail": ", ".join(long_session_losses[:2]),
+            }
+        )
+    if reduced_quality_sessions:
+        deviations.append(
+            {
+                "code": "reduced_quality_session",
+                "label": "Ключевая работа сделана мягче",
+                "detail": ", ".join(reduced_quality_sessions[:2]),
+            }
+        )
+    if compression_risk:
+        deviations.append(
+            {
+                "code": "overload_compression",
+                "label": "Нагрузка сжалась в меньшее число дней",
+                "detail": (
+                    f"{actual_total_tss}/{planned_total_tss} TSS осталось в "
+                    f"{actual_active_day_count} из {planned_active_day_count} активных дней"
+                ),
+            }
+        )
+    if delta_tss <= -40 and not any(item["code"] == "overload_compression" for item in deviations):
+        deviations.append(
+            {
+                "code": "reduced_volume",
+                "label": "Объём недели заметно снижен",
+                "detail": f"Δ {delta_tss:+d} TSS",
+            }
+        )
+
+    recommended_strategy = normalized_current_strategy
+    recommended_reason = "Текущее окно близко к плану, поэтому можно сохранить исходную стратегию реакции."
+    review_badge = "Неделя близка к плану"
+    headline = "Окно выполнено близко к плану"
+
+    if long_session_losses and key_session_losses:
+        headline = "Потеряны длинная и ключевая сессии"
+        review_badge = "Сильное отклонение"
+        recommended_strategy = "protect_recovery"
+        recommended_reason = "Когда выпали и длинная, и ключевая работа, безопаснее не пытаться вернуть этот объём одним коротким блоком."
+    elif long_session_losses:
+        headline = "Сорвана длинная сессия недели"
+        review_badge = "Потеря длинной сессии"
+        recommended_strategy = "protect_recovery"
+        recommended_reason = "Длинную сессию лучше не догонять автоматически в ближайшие 1-2 дня, иначе неделя сожмётся."
+    elif key_session_losses:
+        headline = "Пропущена ключевая сессия"
+        review_badge = "Потеря качества"
+        recommended_strategy = "protect_recovery"
+        recommended_reason = "После пропуска ключевой работы важнее вернуть структуру недели, чем срочно добивать интенсивность."
+    elif compression_risk:
+        headline = "Нагрузка сжалась в меньшее число дней"
+        review_badge = "Риск компрессии"
+        recommended_strategy = "protect_recovery"
+        recommended_reason = "Похожий объём в меньшем числе дней повышает риск компрессии, поэтому лучше сохранить восстановление."
+    elif completion_share < 0.80 or unavailable_days > 0:
+        headline = "Неделя выполнена мягче запланированного"
+        review_badge = "Сниженный объём"
+        recommended_strategy = "protect_recovery"
+        recommended_reason = "Факт недели уже заметно легче плана; безопаснее принять это окно как новый baseline, а не догонять объём."
+    elif changed_day_count > 0 and completion_share >= 0.90:
+        headline = "Неделя почти сохранена несмотря на сдвиги"
+        review_badge = "Лёгкое отклонение"
+        recommended_strategy = "catch_up"
+        recommended_reason = "Ключевые сессии не потеряны, а отклонение умеренное, поэтому можно вернуть только небольшую часть объёма."
+
+    return {
+        "headline": headline,
+        "review_badge": review_badge,
+        "deviations": deviations,
+        "recommended_response_strategy": recommended_strategy,
+        "recommended_response_label": _response_strategy_label(recommended_strategy),
+        "recommended_response_reason": recommended_reason,
+        "selected_response_strategy": normalized_current_strategy,
+        "selected_response_label": _response_strategy_label(normalized_current_strategy),
+        "planned_active_day_count": planned_active_day_count,
+        "actual_active_day_count": actual_active_day_count,
+        "key_session_loss_count": len(key_session_losses) + len(reduced_quality_sessions),
+        "long_session_loss_count": len(long_session_losses),
+        "compression_risk": compression_risk,
+    }
+
+
 def summarize_execution_reconciliation_rows(
     rows: List[Mapping[str, Any]] | None,
 ) -> Dict[str, Any]:
@@ -173,11 +396,7 @@ def summarize_execution_reconciliation_rows(
         planned_tss = max(0, _round_int(_coerce_float(row.get("planned_total_tss"))))
         outcome = str(row.get("outcome") or "as_planned").strip().lower()
         planned_total_tss += planned_tss
-        actual_tss = planned_tss
-        if outcome == "reduced":
-            actual_tss = min(planned_tss, max(0, _round_int(_coerce_float(row.get("actual_total_tss"), planned_tss))))
-        elif outcome in {"missed", "unavailable"}:
-            actual_tss = 0
+        actual_tss = _actual_tss_for_row(row)
 
         actual_total_tss += actual_tss
         changed = outcome != "as_planned" or actual_tss != planned_tss
@@ -196,6 +415,7 @@ def summarize_execution_reconciliation_rows(
             {
                 "Дата": str(row.get("date_label") or row.get("date") or ""),
                 "Сессия": str(row.get("session_name") or "Сессия"),
+                "Роль": str(row.get("session_role") or "—"),
                 "План TSS": planned_tss,
                 "Факт TSS": actual_tss,
                 "Δ TSS": f"{actual_tss - planned_tss:+d}",
@@ -236,9 +456,22 @@ def build_execution_plan_adjustment(
     rows: List[Mapping[str, Any]] | None,
     *,
     weeks: int = 1,
+    response_strategy_override: str | None = None,
 ) -> Dict[str, Any]:
     """Convert day-level execution facts into a plan-adjustment payload."""
     summary = summarize_execution_reconciliation_rows(rows)
+    current_response_strategy = str(
+        ((goal_plan.get("constraint_summary", {}) or {}).get("catch_up_strategy") or "protect_recovery")
+    )
+    weekly_review = summarize_execution_weekly_review_rows(
+        rows,
+        current_response_strategy=response_strategy_override or current_response_strategy,
+    )
+    selected_response_strategy = _normalize_response_strategy(
+        response_strategy_override or weekly_review["recommended_response_strategy"]
+    )
+    weekly_review["selected_response_strategy"] = selected_response_strategy
+    weekly_review["selected_response_label"] = _response_strategy_label(selected_response_strategy)
     status = str(summary["status"] or "completed")
     available_day_count = _coerce_int((goal_plan.get("constraint_summary", {}) or {}).get("available_day_count"), 0)
     missed_sessions = summary["missed_day_count"] + summary["unavailable_day_count"]
@@ -252,6 +485,8 @@ def build_execution_plan_adjustment(
         "completion_share": float(summary["completion_share"]),
         "available_day_count": max(1, available_day_count),
         "execution_reconciliation": summary,
+        "execution_weekly_review": weekly_review,
+        "catch_up_strategy_override": selected_response_strategy,
     }
 
 
@@ -289,6 +524,13 @@ def rebuild_goal_plan_with_adjustment(
     start_week = _coerce_start_week(goal_plan)
     planner_mix = goal_plan.get("planner_mix") or None
     planner_weights = goal_plan.get("planner_weights") or None
+    effective_catch_up_strategy = str(
+        (
+            (plan_adjustment or {}).get("catch_up_strategy_override")
+            or constraint_summary.get("catch_up_strategy", "protect_recovery")
+            or "protect_recovery"
+        )
+    )
 
     weekly_tss_plan, constraint_details, rebuilt_constraint_summary = apply_planning_constraints(
         base_weekly_tss_plan,
@@ -298,7 +540,7 @@ def rebuild_goal_plan_with_adjustment(
         available_day_indices=list(constraint_summary.get("available_day_indices", []) or []),
         interruption_type=str(constraint_summary.get("interruption_type", "none") or "none"),
         interruption_weeks=int(constraint_summary.get("interruption_weeks", 0) or 0),
-        catch_up_strategy=str(constraint_summary.get("catch_up_strategy", "protect_recovery") or "protect_recovery"),
+        catch_up_strategy=effective_catch_up_strategy,
         current_tsb=float(constraint_summary.get("current_tsb", 0.0)) if constraint_summary.get("current_tsb") is not None else None,
         current_ctl=float(constraint_summary.get("current_ctl", 0.0)) if constraint_summary.get("current_ctl") is not None else None,
         current_atl=float(constraint_summary.get("current_atl", 0.0)) if constraint_summary.get("current_atl") is not None else None,
@@ -347,9 +589,12 @@ def rebuild_goal_plan_with_adjustment(
 
 __all__ = [
     "EXECUTION_DAY_OUTCOME_LABELS",
+    "EXECUTION_RESPONSE_STRATEGY_LABELS",
     "build_execution_plan_adjustment",
     "build_execution_reconciliation_rows",
     "rebuild_goal_plan_with_adjustment",
     "summarize_execution_reconciliation",
     "summarize_execution_reconciliation_rows",
+    "summarize_execution_weekly_review",
+    "summarize_execution_weekly_review_rows",
 ]

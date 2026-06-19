@@ -95,6 +95,22 @@ def test_coach_explainability_mentions_persisted_checkpoint_adjustment():
                 "plan_adjustment": {
                     "label": "Пропущены сессии",
                     "weeks": 1,
+                    "execution_weekly_review": {
+                        "headline": "Пропущена ключевая сессия",
+                        "review_badge": "Потеря качества",
+                        "deviations": [
+                            {
+                                "code": "missed_key_session",
+                                "label": "Пропущена ключевая сессия",
+                                "detail": "Ключевая работа недели",
+                            }
+                        ],
+                        "recommended_response_strategy": "protect_recovery",
+                        "recommended_response_label": "Беречь восстановление",
+                        "recommended_response_reason": "Сначала лучше вернуть структуру недели.",
+                        "selected_response_strategy": "catch_up",
+                        "selected_response_label": "Наверстать аккуратно",
+                    },
                 },
                 "plan_adjustment_recovered_tss": 20,
                 "catch_up_strategy": "catch_up",
@@ -104,6 +120,8 @@ def test_coach_explainability_mentions_persisted_checkpoint_adjustment():
 
     assert any("checkpoint уже учтён" in signal for signal in summary["signals"])
     assert "checkpoint «Пропущены сессии»" in summary["plan_context"]
+    assert "Пропущена ключевая сессия" in summary["plan_context"]
+    assert any("Weekly review:" in signal for signal in summary["signals"])
 
 
 def test_coach_explainability_mentions_manual_near_term_edit():
@@ -226,6 +244,22 @@ def test_coach_explainability_prefers_execution_review_after_actionable_checkpoi
                 "unavailable_day_count": 0,
                 "completion_share": 0.78,
             },
+            "execution_weekly_review": {
+                "headline": "Пропущена ключевая сессия",
+                "review_badge": "Потеря качества",
+                "deviations": [
+                    {
+                        "code": "missed_key_session",
+                        "label": "Пропущена ключевая сессия",
+                        "detail": "Ключевая работа недели",
+                    }
+                ],
+                "recommended_response_strategy": "protect_recovery",
+                "recommended_response_label": "Беречь восстановление",
+                "recommended_response_reason": "Сначала лучше вернуть структуру недели.",
+                "selected_response_strategy": "protect_recovery",
+                "selected_response_label": "Беречь восстановление",
+            },
         },
     )
 
@@ -233,8 +267,11 @@ def test_coach_explainability_prefers_execution_review_after_actionable_checkpoi
     assert "checkpoint" in summary["title"].lower()
     assert "execution checkpoint" in summary["prompt"].lower()
     assert "-40 TSS" in summary["prompt"]
+    assert "Пропущена ключевая сессия" in summary["prompt"]
+    assert "Беречь восстановление" in summary["prompt"]
     assert any("Execution checkpoint" in signal for signal in summary["signals"])
     assert any("140/180 TSS" in signal for signal in summary["signals"])
+    assert any("Weekly review:" in signal for signal in summary["signals"])
 
 
 def test_coach_explainability_keeps_checkpoint_guardrails_visible_during_recovery_focus():

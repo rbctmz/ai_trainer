@@ -662,6 +662,13 @@ def _render_planning_version_history(
                 f"{execution_reconciliation['planned_total_tss']} TSS · "
                 f"{execution_reconciliation['changed_day_count']} дн. изменено"
             )
+        if current_summary.get("execution_weekly_review"):
+            execution_weekly_review = current_summary["execution_weekly_review"]
+            st.caption(
+                f"Weekly review: {execution_weekly_review['review_badge']} · "
+                f"{execution_weekly_review['headline']} · "
+                f"{execution_weekly_review['selected_response_label']}"
+            )
 
     for record in history_records:
         summary = summarize_planning_checkpoint(record)
@@ -689,6 +696,13 @@ def _render_planning_version_history(
                     f"Факт окна: {execution_reconciliation['actual_total_tss']} из "
                     f"{execution_reconciliation['planned_total_tss']} TSS · "
                     f"{execution_reconciliation['changed_day_count']} дн. изменено"
+                )
+            if summary.get("execution_weekly_review"):
+                execution_weekly_review = summary["execution_weekly_review"]
+                st.caption(
+                    f"Weekly review: {execution_weekly_review['review_badge']} · "
+                    f"{execution_weekly_review['headline']} · "
+                    f"{execution_weekly_review['selected_response_label']}"
                 )
             if summary.get("near_term_edit"):
                 st.caption(f"Ручная правка: {summary['near_term_edit']['compact_label']}")
@@ -1396,7 +1410,19 @@ def render_planning_page(state: "StateManager") -> None:
                 saved_checkpoint,
             )
             execution_reconciliation = execution_feedback_result["plan_adjustment"].get("execution_reconciliation")
-            if isinstance(execution_reconciliation, dict) and execution_reconciliation.get("changed_day_count", 0) > 0:
+            execution_weekly_review = execution_feedback_result["plan_adjustment"].get("execution_weekly_review")
+            if (
+                isinstance(execution_reconciliation, dict)
+                and execution_reconciliation.get("changed_day_count", 0) > 0
+                and isinstance(execution_weekly_review, dict)
+            ):
+                st.session_state["planning_near_term_flash"] = (
+                    "Execution checkpoint сохранён: "
+                    f"{execution_reconciliation['compact_label']} · "
+                    f"{execution_weekly_review['headline']} · "
+                    f"{execution_weekly_review['selected_response_label']}."
+                )
+            elif isinstance(execution_reconciliation, dict) and execution_reconciliation.get("changed_day_count", 0) > 0:
                 st.session_state["planning_near_term_flash"] = (
                     "Execution checkpoint сохранён: "
                     f"{execution_reconciliation['compact_label']}."

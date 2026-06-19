@@ -9,9 +9,13 @@ from models.planning_execution import (
     build_execution_reconciliation_rows,
     rebuild_goal_plan_with_adjustment,
     summarize_execution_reconciliation_rows,
+    summarize_execution_weekly_review_rows,
 )
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
-from ui.components.execution_feedback import _sanitize_actual_tss_value
+from ui.components.execution_feedback import (
+    _resolve_actual_tss_value,
+    _sanitize_actual_tss_value,
+)
 
 
 pytestmark = pytest.mark.smoke
@@ -113,7 +117,74 @@ def test_day_level_execution_rows_can_escalate_to_unavailable_status():
     assert payload["execution_reconciliation"]["status"] == "unavailable"
 
 
+def test_execution_weekly_review_detects_lost_key_and_long_sessions():
+    goal_plan = _sample_goal_plan()
+    rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    quality_idx = next(
+        index
+        for index, row in enumerate(rows)
+        if row.get("session_role") == "quality" and int(row.get("planned_total_tss", 0) or 0) > 0
+    )
+    long_idx = next(
+        index
+        for index, row in enumerate(rows)
+        if row.get("session_role") == "long" and int(row.get("planned_total_tss", 0) or 0) > 0
+    )
+
+    rows[quality_idx]["outcome"] = "missed"
+    rows[long_idx]["outcome"] = "unavailable"
+
+    weekly_review = summarize_execution_weekly_review_rows(
+        rows,
+        current_response_strategy="catch_up",
+    )
+    payload = build_execution_plan_adjustment(
+        goal_plan,
+        rows,
+        weeks=1,
+        response_strategy_override="catch_up",
+    )
+
+    assert weekly_review["recommended_response_strategy"] == "protect_recovery"
+    assert any(item["code"] == "missed_key_session" for item in weekly_review["deviations"])
+    assert any(item["code"] == "lost_long_session" for item in weekly_review["deviations"])
+    assert payload["execution_weekly_review"]["headline"] == weekly_review["headline"]
+    assert payload["execution_weekly_review"]["selected_response_strategy"] == "catch_up"
+    assert payload["catch_up_strategy_override"] == "catch_up"
+
+
+def test_rebuild_goal_plan_honors_execution_response_strategy_override():
+    goal_plan = _sample_goal_plan()
+    goal_plan["constraint_summary"]["catch_up_strategy"] = "protect_recovery"
+    rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    positive_rows = _positive_tss_row_indices(rows)
+    rows[positive_rows[0]]["outcome"] = "reduced"
+    rows[positive_rows[0]]["actual_total_tss"] = max(
+        0,
+        int(rows[positive_rows[0]]["planned_total_tss"]) - 10,
+    )
+
+    payload = build_execution_plan_adjustment(
+        goal_plan,
+        rows,
+        weeks=1,
+        response_strategy_override="catch_up",
+    )
+    rebuilt = rebuild_goal_plan_with_adjustment(goal_plan, payload)
+
+    assert rebuilt["constraint_summary"]["catch_up_strategy"] == "catch_up"
+    assert rebuilt["constraint_summary"]["plan_adjustment"]["catch_up_strategy_override"] == "catch_up"
+
+
 def test_execution_feedback_widget_state_is_clamped_to_current_planned_tss():
     assert _sanitize_actual_tss_value(0, 41) == 0
     assert _sanitize_actual_tss_value(35, 41) == 35
     assert _sanitize_actual_tss_value(35, -5) == 0
+
+
+def test_execution_feedback_actual_tss_value_tracks_selected_outcome():
+    assert _resolve_actual_tss_value(35, "as_planned", 5) == 35
+    assert _resolve_actual_tss_value(35, "missed", 35) == 0
+    assert _resolve_actual_tss_value(35, "unavailable", 35) == 0
+    assert _resolve_actual_tss_value(35, "reduced", 41) == 35
+    assert _resolve_actual_tss_value(0, "reduced", 41) == 0

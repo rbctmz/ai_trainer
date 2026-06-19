@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
-from models.planning_execution import summarize_execution_reconciliation
+from models.planning_execution import (
+    summarize_execution_reconciliation,
+    summarize_execution_weekly_review,
+)
 from models.planning_checkpoints import NON_ACTIONABLE_PLAN_ADJUSTMENTS
 from models.planning_summary import summarize_near_term_edit
 
@@ -27,6 +30,40 @@ def _int_or_zero(value: Any) -> int:
 
 def _strategy_label(strategy: str | None) -> str:
     return "Наверстать аккуратно" if (strategy or "").lower() == "catch_up" else "Беречь восстановление"
+
+
+def _summarize_execution_weekly_review_line(
+    execution_weekly_review: Dict[str, Any] | None,
+) -> str | None:
+    review = summarize_execution_weekly_review(execution_weekly_review)
+    if not isinstance(review, dict):
+        return None
+
+    fragments: List[str] = []
+    headline = str(review.get("headline") or "").strip()
+    if headline:
+        fragments.append(headline)
+
+    deviation_fragments: List[str] = []
+    for item in review.get("deviations", [])[:2]:
+        label = str(item.get("label") or "").strip()
+        detail = str(item.get("detail") or "").strip()
+        if label and detail:
+            deviation_fragments.append(f"{label}: {detail}")
+        elif label:
+            deviation_fragments.append(label)
+    if deviation_fragments:
+        fragments.append("; ".join(deviation_fragments))
+
+    response_label = str(
+        review.get("selected_response_label")
+        or review.get("recommended_response_label")
+        or ""
+    ).strip()
+    if response_label:
+        fragments.append(f"Ответ: {response_label}")
+
+    return " · ".join(fragments) if fragments else None
 
 
 def _checkpoint_source_label(source: str | None) -> str:
@@ -57,6 +94,9 @@ def _extract_planning_context(goal_plan: Dict[str, Any] | None) -> Dict[str, Any
     execution_reconciliation = summarize_execution_reconciliation(
         plan_adjustment.get("execution_reconciliation")
     )
+    execution_weekly_review = summarize_execution_weekly_review(
+        plan_adjustment.get("execution_weekly_review")
+    )
 
     return {
         "checkpoint_source": str(goal_plan.get("checkpoint_source") or "").strip(),
@@ -75,6 +115,7 @@ def _extract_planning_context(goal_plan: Dict[str, Any] | None) -> Dict[str, Any
         "plan_adjustment_weeks": _int_or_zero(plan_adjustment.get("weeks")),
         "plan_adjustment_recovered_tss": _int_or_zero(constraint_summary.get("plan_adjustment_recovered_tss")),
         "execution_reconciliation": execution_reconciliation,
+        "execution_weekly_review": execution_weekly_review,
         "near_term_edit": near_term_edit,
         "notes": [
             str(note)
@@ -139,6 +180,11 @@ def _collect_planning_signals(goal_plan: Dict[str, Any] | None) -> List[str]:
             f"{execution_reconciliation['actual_total_tss']} из {execution_reconciliation['planned_total_tss']} TSS, "
             f"изменено {execution_reconciliation['changed_day_count']} дн."
         )
+    weekly_review_line = _summarize_execution_weekly_review_line(
+        planning_context.get("execution_weekly_review")
+    )
+    if weekly_review_line:
+        signals.append(f"Weekly review: {weekly_review_line}.")
 
     near_term_edit = planning_context.get("near_term_edit")
     if isinstance(near_term_edit, dict):
@@ -208,6 +254,11 @@ def _build_plan_context_line(goal_plan: Dict[str, Any] | None) -> str | None:
             f"{execution_reconciliation['actual_total_tss']}/{execution_reconciliation['planned_total_tss']} TSS, "
             f"изменено {execution_reconciliation['changed_day_count']} дн."
         )
+    weekly_review_line = _summarize_execution_weekly_review_line(
+        planning_context.get("execution_weekly_review")
+    )
+    if weekly_review_line:
+        fragments.append(f"weekly review: {weekly_review_line}")
 
     near_term_edit = planning_context.get("near_term_edit")
     if isinstance(near_term_edit, dict):
@@ -260,6 +311,9 @@ def _normalize_execution_feedback(execution_feedback: Dict[str, Any] | None) -> 
     execution_reconciliation = summarize_execution_reconciliation(
         execution_feedback.get("execution_reconciliation")
     )
+    execution_weekly_review = summarize_execution_weekly_review(
+        execution_feedback.get("execution_weekly_review")
+    )
     return {
         "title": str(execution_feedback.get("title") or "").strip(),
         "created_at_label": str(execution_feedback.get("created_at_label") or "").strip(),
@@ -270,6 +324,7 @@ def _normalize_execution_feedback(execution_feedback: Dict[str, Any] | None) -> 
         "total_tss": _int_or_zero(execution_feedback.get("total_tss")),
         "total_delta": _int_or_zero(execution_feedback.get("total_delta")),
         "execution_reconciliation": execution_reconciliation,
+        "execution_weekly_review": execution_weekly_review,
         "is_actionable": plan_adjustment_label not in NON_ACTIONABLE_PLAN_ADJUSTMENTS,
     }
 
@@ -293,6 +348,11 @@ def _build_execution_feedback_context_line(
             f"{execution_reconciliation['actual_total_tss']} из {execution_reconciliation['planned_total_tss']} TSS, "
             f"изменено {execution_reconciliation['changed_day_count']} дн."
         )
+    weekly_review_line = _summarize_execution_weekly_review_line(
+        feedback.get("execution_weekly_review")
+    )
+    if weekly_review_line:
+        fragments.append("Weekly review: " + weekly_review_line + ".")
     delta_parts: List[str] = []
     if feedback["total_delta"] != 0:
         delta_parts.append(f"сумма {feedback['total_delta']:+d} TSS")
@@ -320,6 +380,11 @@ def _collect_execution_feedback_signals(
             f"{execution_reconciliation['actual_total_tss']}/{execution_reconciliation['planned_total_tss']} TSS, "
             f"{execution_reconciliation['changed_day_count']} дн. изменено."
         )
+    weekly_review_line = _summarize_execution_weekly_review_line(
+        feedback.get("execution_weekly_review")
+    )
+    if weekly_review_line:
+        signals.append("Weekly review: " + weekly_review_line + ".")
     delta_parts: List[str] = []
     if feedback["total_delta"] != 0:
         delta_parts.append(f"сумма {feedback['total_delta']:+d} TSS")
@@ -435,6 +500,7 @@ def build_coach_explainability_summary(
             watchout = "Не пытайтесь наверстать пропущенный объём, пока сигналы усталости ещё красные."
     elif feedback_context.get("is_actionable"):
         label = feedback_context["plan_adjustment_label"]
+        weekly_review = feedback_context.get("execution_weekly_review")
         focus = "execution_review"
         icon = "♻️"
         title = "Разберите execution checkpoint и ближайший план"
@@ -487,6 +553,14 @@ def build_coach_explainability_summary(
                 "Сверьте ближайшие 2-3 дня с фактическим объёмом недели и уберите автоматическое желание 'добить план'."
                 f"{total_delta_text}"
             )
+        weekly_review_line = _summarize_execution_weekly_review_line(weekly_review)
+        if weekly_review_line:
+            next_window = f"{next_window} Weekly review: {weekly_review_line}."
+        recommended_reason = ""
+        if isinstance(weekly_review, dict):
+            recommended_reason = str(weekly_review.get("recommended_response_reason") or "").strip()
+        if recommended_reason:
+            watchout = f"{watchout} {recommended_reason}"
     elif (
         readiness_val is not None
         and readiness_val >= 75
