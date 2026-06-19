@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Optional
 
 from models.planning_execution import (
+    summarize_execution_corrective_microcycle,
     summarize_execution_reconciliation,
     summarize_execution_weekly_review,
 )
@@ -413,6 +414,9 @@ def summarize_planning_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str
     execution_weekly_review = summarize_execution_weekly_review(
         plan_adjustment.get("execution_weekly_review")
     )
+    execution_corrective_microcycle = summarize_execution_corrective_microcycle(
+        plan_adjustment.get("execution_corrective_microcycle")
+    )
     provenance = summarize_checkpoint_provenance(checkpoint)
 
     return {
@@ -429,6 +433,7 @@ def summarize_planning_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str
         "near_term_edit": near_term_edit,
         "execution_reconciliation": execution_reconciliation,
         "execution_weekly_review": execution_weekly_review,
+        "execution_corrective_microcycle": execution_corrective_microcycle,
         "provenance": provenance,
     }
 
@@ -472,6 +477,7 @@ def summarize_execution_feedback_transition(
         "total_delta": current_total - previous_total,
         "execution_reconciliation": current.get("execution_reconciliation"),
         "execution_weekly_review": current.get("execution_weekly_review"),
+        "execution_corrective_microcycle": current.get("execution_corrective_microcycle"),
     }
 
 

@@ -23,6 +23,18 @@ class _DummyState:
             "plan_adjustment_weeks": 1,
             "total_delta": -40,
             "peak_delta": 0,
+            "execution_corrective_microcycle": {
+                "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
+                "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                "guardrail": "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией.",
+                "sessions": [
+                    {
+                        "action_label": "Сделать контролируемо",
+                        "session_name": "Триатлон Олимпийка — Качество • бег",
+                    }
+                ],
+            },
         }
         self.goal_plan = None
         self.resolved_goal_plan_context = {
@@ -52,6 +64,18 @@ class _DummyState:
                         "recommended_response_reason": "Сначала лучше вернуть структуру недели.",
                         "selected_response_strategy": "catch_up",
                         "selected_response_label": "Наверстать аккуратно",
+                    },
+                    "execution_corrective_microcycle": {
+                        "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
+                        "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                        "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                        "guardrail": "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией.",
+                        "sessions": [
+                            {
+                                "action_label": "Сделать контролируемо",
+                                "session_name": "Триатлон Олимпийка — Качество • бег",
+                            }
+                        ],
                     },
                 },
                 "plan_adjustment_recovered_tss": 20,
@@ -96,6 +120,8 @@ def test_ai_chat_action_primes_dashboard_handoff(monkeypatch: pytest.MonkeyPatch
     assert "ручную правку ближнего горизонта" in state.ai_coach_handoff["prompt"]
     assert "Пропущена ключевая сессия" in state.ai_coach_handoff["prompt"]
     assert "Наверстать аккуратно" in state.ai_coach_handoff["prompt"]
+    assert "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии" in state.ai_coach_handoff["prompt"]
+    assert "Сделать контролируемо" in state.ai_coach_handoff["prompt"]
     assert "Риск низкий" in state.ai_coach_handoff["prompt"]
     assert state.ai_coach_handoff["response_contract"]["mode"] == "operational_brief"
     assert "Сегодня / Ближайшие 2-3 дня / Не делать / Почему" in state.ai_coach_handoff["response_contract"]["preview_label"]
@@ -146,6 +172,18 @@ def test_execution_feedback_result_compares_checkpoint_deltas():
                             "selected_response_strategy": "protect_recovery",
                             "selected_response_label": "Беречь восстановление",
                         },
+                        "execution_corrective_microcycle": {
+                            "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
+                            "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                            "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                            "guardrail": "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией.",
+                            "sessions": [
+                                {
+                                    "action_label": "Сделать контролируемо",
+                                    "session_name": "Триатлон Олимпийка — Качество • бег",
+                                }
+                            ],
+                        },
                     }
                 }
             },
@@ -160,3 +198,4 @@ def test_execution_feedback_result_compares_checkpoint_deltas():
     assert result["execution_reconciliation"]["planned_total_tss"] == 180
     assert result["execution_reconciliation"]["changed_day_count"] == 2
     assert result["execution_weekly_review"]["headline"] == "Пропущена ключевая сессия"
+    assert result["execution_corrective_microcycle"]["headline"].startswith("Ближайшие 2-3 дня")

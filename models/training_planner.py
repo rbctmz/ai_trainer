@@ -165,6 +165,9 @@ def normalize_plan_adjustment(
     execution_weekly_review = raw.get('execution_weekly_review')
     if not isinstance(execution_weekly_review, Mapping):
         execution_weekly_review = None
+    execution_corrective_microcycle = raw.get('execution_corrective_microcycle')
+    if not isinstance(execution_corrective_microcycle, Mapping):
+        execution_corrective_microcycle = None
 
     catch_up_strategy_override = str(raw.get('catch_up_strategy_override') or '').strip().lower()
     if catch_up_strategy_override not in {'catch_up', 'protect_recovery'}:
@@ -262,6 +265,7 @@ def normalize_plan_adjustment(
             'changed_rows': changed_rows,
         } if execution_reconciliation else None,
         'execution_weekly_review': dict(execution_weekly_review) if execution_weekly_review else None,
+        'execution_corrective_microcycle': dict(execution_corrective_microcycle) if execution_corrective_microcycle else None,
         'catch_up_strategy_override': catch_up_strategy_override or None,
         'is_active': status in {'skipped', 'reduced', 'unavailable'} and weeks > 0,
     }
@@ -595,6 +599,11 @@ def apply_planning_constraints(
                 if selected_response_label:
                     note += f" Ответ: {selected_response_label}."
                 summary_notes.append(note)
+        execution_corrective_microcycle = normalized_adjustment.get('execution_corrective_microcycle')
+        if isinstance(execution_corrective_microcycle, Mapping):
+            microcycle_headline = str(execution_corrective_microcycle.get('headline') or '').strip()
+            if microcycle_headline:
+                summary_notes.append(f"Execution microcycle: {microcycle_headline}.")
         if plan_adjustment_loss > 0 and catch_up_strategy == 'catch_up':
             summary_notes.append(
                 f"Локальная перепланировка вернула {plan_adjustment_recovered} из {plan_adjustment_recoverable} TSS в ближайшем окне"

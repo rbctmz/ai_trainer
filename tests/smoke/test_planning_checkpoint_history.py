@@ -112,6 +112,34 @@ def _sample_goal_plan() -> dict[str, object]:
                     "selected_response_strategy": "catch_up",
                     "selected_response_label": "Наверстать аккуратно",
                 },
+                "execution_corrective_microcycle": {
+                    "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
+                    "summary": "Следующее окно сохраняет один качественный стимул и не добирает пропущенную интенсивность сверху.",
+                    "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                    "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                    "guardrail": "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией.",
+                    "selected_response_strategy": "catch_up",
+                    "selected_response_label": "Наверстать аккуратно",
+                    "window_total_tss": 80,
+                    "window_delta_tss": -10,
+                    "window_day_count": 2,
+                    "sessions": [
+                        {
+                            "date": "2026-06-18",
+                            "date_label": "Thu 18.06",
+                            "session_name": "Триатлон Олимпийка — Качество • бег",
+                            "session_role": "quality",
+                            "session_role_label": "Качество",
+                            "planned_total_tss": 35,
+                            "planned_duration_minutes": 60,
+                            "delta_tss": -10,
+                            "delta_label": "-10 TSS",
+                            "action_code": "controlled_quality",
+                            "action_label": "Сделать контролируемо",
+                            "reason": "Верните структуру недели, но не пытайтесь добрать выпавшую интенсивность внутри этой сессии.",
+                        }
+                    ],
+                },
             },
             "plan_adjustment_recovered_tss": 20,
             "near_term_edit": {
@@ -192,6 +220,8 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     assert summary["near_term_edit"]["risk_level"] == "low"
     assert summary["execution_weekly_review"]["headline"] == "Пропущена ключевая сессия"
     assert summary["execution_weekly_review"]["selected_response_label"] == "Наверстать аккуратно"
+    assert summary["execution_corrective_microcycle"]["headline"].startswith("Ближайшие 2-3 дня")
+    assert summary["execution_corrective_microcycle"]["sessions"][0]["action_label"] == "Сделать контролируемо"
     assert checkpoint["near_term_edit_risk_level"] == "low"
 
 
@@ -302,3 +332,5 @@ def test_summarize_execution_feedback_transition_from_persisted_checkpoints():
     assert summary["execution_reconciliation"]["changed_day_count"] == 2
     assert summary["execution_weekly_review"] is not None
     assert summary["execution_weekly_review"]["headline"]
+    assert summary["execution_corrective_microcycle"] is not None
+    assert summary["execution_corrective_microcycle"]["today_action"]

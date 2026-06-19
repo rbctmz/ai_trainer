@@ -6,6 +6,7 @@ import pytest
 
 from models.planning_execution import (
     build_execution_plan_adjustment,
+    summarize_execution_corrective_microcycle,
     build_execution_reconciliation_rows,
     rebuild_goal_plan_with_adjustment,
     summarize_execution_reconciliation_rows,
@@ -98,6 +99,13 @@ def test_day_level_execution_rows_can_build_reduced_local_replan_payload():
     assert payload["execution_reconciliation"]["changed_day_count"] == 2
     assert payload["completion_share"] < 1.0
     assert "checkpoint: факт" in rebuilt["weekly_summary"][0]["adjustment_note"]
+    corrective_microcycle = summarize_execution_corrective_microcycle(
+        rebuilt["constraint_summary"]["plan_adjustment"].get("execution_corrective_microcycle")
+    )
+    assert corrective_microcycle is not None
+    assert corrective_microcycle["headline"]
+    assert corrective_microcycle["sessions"]
+    assert corrective_microcycle["today_action"]
 
 
 def test_day_level_execution_rows_can_escalate_to_unavailable_status():
@@ -174,6 +182,9 @@ def test_rebuild_goal_plan_honors_execution_response_strategy_override():
 
     assert rebuilt["constraint_summary"]["catch_up_strategy"] == "catch_up"
     assert rebuilt["constraint_summary"]["plan_adjustment"]["catch_up_strategy_override"] == "catch_up"
+    corrective_microcycle = rebuilt["constraint_summary"]["plan_adjustment"]["execution_corrective_microcycle"]
+    assert corrective_microcycle["selected_response_strategy"] == "catch_up"
+    assert corrective_microcycle["window_day_count"] >= 1
 
 
 def test_execution_feedback_widget_state_is_clamped_to_current_planned_tss():

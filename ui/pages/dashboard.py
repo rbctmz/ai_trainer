@@ -685,6 +685,11 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
                 "Ответ после окна: "
                 f"{execution_weekly_review['selected_response_label']}"
             )
+        if checkpoint_summary.get("execution_corrective_microcycle"):
+            corrective_microcycle = checkpoint_summary["execution_corrective_microcycle"]
+            st.write(f"**Microcycle:** {corrective_microcycle['headline']}")
+            if corrective_microcycle.get("today_action"):
+                st.caption(corrective_microcycle["today_action"])
         if checkpoint_summary.get("near_term_edit"):
             st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
             st.write(f"**Оценка правки:** {checkpoint_summary['near_term_edit']['risk_badge']}")
@@ -715,6 +720,8 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
                 suffix = f" · checkpoint: {item['plan_adjustment_label']}"
                 if item.get("execution_weekly_review"):
                     suffix += f" · weekly review: {item['execution_weekly_review']['review_badge']}"
+                if item.get("execution_corrective_microcycle"):
+                    suffix += " · microcycle"
                 if item.get("near_term_edit") and provenance_source != "manual_edit":
                     suffix += f" · ручная правка: {item['near_term_edit']['delta_label']}"
                     if item["near_term_edit"].get("risk_level") != "low":
@@ -761,6 +768,11 @@ def _render_execution_feedback_loop(state: StateManager) -> None:
                 f"Weekly review: {execution_weekly_review['headline']} · "
                 f"{execution_weekly_review['selected_response_label']}"
             )
+        if result.get("execution_corrective_microcycle"):
+            corrective_microcycle = result["execution_corrective_microcycle"]
+            st.caption(f"Microcycle: {corrective_microcycle['headline']}")
+            if corrective_microcycle.get("today_action"):
+                st.caption(corrective_microcycle["today_action"])
         if result.get("created_at_label"):
             st.caption(f"Сохранён: {result['created_at_label']}")
 

@@ -78,6 +78,18 @@ def test_recommended_prompt_prefers_execution_review_when_checkpoint_is_actionab
                         "selected_response_strategy": "protect_recovery",
                         "selected_response_label": "Беречь восстановление",
                     },
+                    "execution_corrective_microcycle": {
+                        "headline": "Ближайшие 2-3 дня: удержать объём без компрессии недели",
+                        "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                        "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                        "guardrail": "Не пытайтесь добрать весь объём в оставшиеся 1-2 дня.",
+                        "sessions": [
+                            {
+                                "action_label": "Сделать контролируемо",
+                                "session_name": "Триатлон Олимпийка — Качество • бег",
+                            }
+                        ],
+                    },
                 },
             }
         },
@@ -102,6 +114,18 @@ def test_recommended_prompt_prefers_execution_review_when_checkpoint_is_actionab
                 "selected_response_strategy": "protect_recovery",
                 "selected_response_label": "Беречь восстановление",
             },
+            "execution_corrective_microcycle": {
+                "headline": "Ближайшие 2-3 дня: удержать объём без компрессии недели",
+                "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                "guardrail": "Не пытайтесь добрать весь объём в оставшиеся 1-2 дня.",
+                "sessions": [
+                    {
+                        "action_label": "Сделать контролируемо",
+                        "session_name": "Триатлон Олимпийка — Качество • бег",
+                    }
+                ],
+            },
         },
     )
 
@@ -109,6 +133,8 @@ def test_recommended_prompt_prefers_execution_review_when_checkpoint_is_actionab
     assert "execution checkpoint" in prompt["prompt"].lower()
     assert "Нагрузка сжалась в меньшее число дней" in prompt["prompt"]
     assert "Беречь восстановление" in prompt["prompt"]
+    assert "Execution microcycle" in prompt["prompt"]
+    assert "Ближайшие 2-3 дня: удержать объём без компрессии недели" in prompt["prompt"]
     assert prompt["response_contract"]["mode"] == "operational_brief"
     assert "Сегодня / Ближайшие 2-3 дня / Не делать / Почему" in prompt["response_contract"]["preview_label"]
 

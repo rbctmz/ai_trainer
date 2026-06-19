@@ -19,6 +19,7 @@ from models.planning_near_term import (
     summarize_near_term_draft_rows,
 )
 from models.planning_execution import rebuild_goal_plan_with_adjustment
+from models.planning_execution import summarize_execution_corrective_microcycle
 from models.planning_summary import (
     NEAR_TERM_EDIT_POST_STRATEGIES,
     NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU,
@@ -144,6 +145,9 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     plan_adjustment_loss = int(constraint_summary.get("plan_adjustment_loss_tss", 0))
     plan_adjustment_recovered = int(constraint_summary.get("plan_adjustment_recovered_tss", 0))
     near_term_edit = summarize_near_term_edit(constraint_summary)
+    execution_corrective_microcycle = summarize_execution_corrective_microcycle(
+        plan_adjustment.get("execution_corrective_microcycle")
+    )
     summary_notes = list(constraint_summary.get("notes", []))
     first_week_structure = ""
     if weekly_summary:
@@ -186,6 +190,7 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "plan_adjustment_weeks": plan_adjustment_weeks,
         "plan_adjustment_loss_tss": plan_adjustment_loss,
         "plan_adjustment_recovered_tss": plan_adjustment_recovered,
+        "execution_corrective_microcycle": execution_corrective_microcycle,
         "near_term_edit": near_term_edit,
         "summary_notes": summary_notes,
         "comparison_rows": comparison_rows,
@@ -669,6 +674,10 @@ def _render_planning_version_history(
                 f"{execution_weekly_review['headline']} · "
                 f"{execution_weekly_review['selected_response_label']}"
             )
+        if current_summary.get("execution_corrective_microcycle"):
+            corrective_microcycle = current_summary["execution_corrective_microcycle"]
+            st.caption(f"Microcycle: {corrective_microcycle['headline']}")
+            st.caption(corrective_microcycle["today_action"])
 
     for record in history_records:
         summary = summarize_planning_checkpoint(record)
@@ -704,6 +713,10 @@ def _render_planning_version_history(
                     f"{execution_weekly_review['headline']} · "
                     f"{execution_weekly_review['selected_response_label']}"
                 )
+            if summary.get("execution_corrective_microcycle"):
+                corrective_microcycle = summary["execution_corrective_microcycle"]
+                st.caption(f"Microcycle: {corrective_microcycle['headline']}")
+                st.caption(corrective_microcycle["today_action"])
             if summary.get("near_term_edit"):
                 st.caption(f"Ручная правка: {summary['near_term_edit']['compact_label']}")
             if preview["weekly_rows"]:
@@ -784,6 +797,10 @@ def _render_plan_explainability(goal_plan: Dict[str, Any]) -> pd.DataFrame:
                 st.write(f"• Локально возвращено: {explain['plan_adjustment_recovered_tss']} TSS")
             elif explain["plan_adjustment_loss_tss"] > 0:
                 st.write("• Локальный возврат: не применялся")
+            if explain["execution_corrective_microcycle"] is not None:
+                st.write(f"• Corrective microcycle: {explain['execution_corrective_microcycle']['headline']}")
+                st.write(f"• Сегодня: {explain['execution_corrective_microcycle']['today_action']}")
+                st.write(f"• Guardrail: {explain['execution_corrective_microcycle']['guardrail']}")
             if explain["near_term_edit"] is not None:
                 st.write(f"• Ручная правка: {explain['near_term_edit']['compact_label']}")
                 st.write(f"• После окна: {explain['near_term_edit']['follow_up_description']}")
@@ -1411,7 +1428,28 @@ def render_planning_page(state: "StateManager") -> None:
             )
             execution_reconciliation = execution_feedback_result["plan_adjustment"].get("execution_reconciliation")
             execution_weekly_review = execution_feedback_result["plan_adjustment"].get("execution_weekly_review")
+            execution_corrective_microcycle = (
+                (
+                    (
+                        (updated_goal_plan.get("constraint_summary", {}) or {}).get("plan_adjustment", {})
+                        or {}
+                    ).get("execution_corrective_microcycle")
+                )
+            )
             if (
+                isinstance(execution_reconciliation, dict)
+                and execution_reconciliation.get("changed_day_count", 0) > 0
+                and isinstance(execution_weekly_review, dict)
+                and isinstance(execution_corrective_microcycle, dict)
+            ):
+                st.session_state["planning_near_term_flash"] = (
+                    "Execution checkpoint сохранён: "
+                    f"{execution_reconciliation['compact_label']} · "
+                    f"{execution_weekly_review['headline']} · "
+                    f"{execution_weekly_review['selected_response_label']} · "
+                    f"{execution_corrective_microcycle['headline']}."
+                )
+            elif (
                 isinstance(execution_reconciliation, dict)
                 and execution_reconciliation.get("changed_day_count", 0) > 0
                 and isinstance(execution_weekly_review, dict)

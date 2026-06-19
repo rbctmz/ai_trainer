@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any, Dict, List
 
 from models.planning_execution import (
+    summarize_execution_corrective_microcycle,
     summarize_execution_reconciliation,
     summarize_execution_weekly_review,
 )
@@ -66,6 +67,31 @@ def _summarize_execution_weekly_review_line(
     return " · ".join(fragments) if fragments else None
 
 
+def _summarize_execution_corrective_microcycle_line(
+    execution_corrective_microcycle: Dict[str, Any] | None,
+) -> str | None:
+    microcycle = summarize_execution_corrective_microcycle(execution_corrective_microcycle)
+    if not isinstance(microcycle, dict):
+        return None
+
+    fragments: List[str] = []
+    headline = str(microcycle.get("headline") or "").strip()
+    if headline:
+        fragments.append(headline)
+    sessions = microcycle.get("sessions", [])
+    if sessions:
+        first_session = sessions[0]
+        action_label = str(first_session.get("action_label") or "").strip()
+        session_name = str(first_session.get("session_name") or "").strip()
+        if action_label and session_name:
+            fragments.append(f"{action_label}: {session_name}")
+    guardrail = str(microcycle.get("guardrail") or "").strip()
+    if guardrail:
+        fragments.append(guardrail)
+
+    return " · ".join(fragments) if fragments else None
+
+
 def _checkpoint_source_label(source: str | None) -> str:
     mapping = {
         "initial_plan": "базовая версия",
@@ -97,6 +123,9 @@ def _extract_planning_context(goal_plan: Dict[str, Any] | None) -> Dict[str, Any
     execution_weekly_review = summarize_execution_weekly_review(
         plan_adjustment.get("execution_weekly_review")
     )
+    execution_corrective_microcycle = summarize_execution_corrective_microcycle(
+        plan_adjustment.get("execution_corrective_microcycle")
+    )
 
     return {
         "checkpoint_source": str(goal_plan.get("checkpoint_source") or "").strip(),
@@ -116,6 +145,7 @@ def _extract_planning_context(goal_plan: Dict[str, Any] | None) -> Dict[str, Any
         "plan_adjustment_recovered_tss": _int_or_zero(constraint_summary.get("plan_adjustment_recovered_tss")),
         "execution_reconciliation": execution_reconciliation,
         "execution_weekly_review": execution_weekly_review,
+        "execution_corrective_microcycle": execution_corrective_microcycle,
         "near_term_edit": near_term_edit,
         "notes": [
             str(note)
@@ -185,6 +215,11 @@ def _collect_planning_signals(goal_plan: Dict[str, Any] | None) -> List[str]:
     )
     if weekly_review_line:
         signals.append(f"Weekly review: {weekly_review_line}.")
+    corrective_microcycle_line = _summarize_execution_corrective_microcycle_line(
+        planning_context.get("execution_corrective_microcycle")
+    )
+    if corrective_microcycle_line:
+        signals.append(f"Execution microcycle: {corrective_microcycle_line}.")
 
     near_term_edit = planning_context.get("near_term_edit")
     if isinstance(near_term_edit, dict):
@@ -259,6 +294,11 @@ def _build_plan_context_line(goal_plan: Dict[str, Any] | None) -> str | None:
     )
     if weekly_review_line:
         fragments.append(f"weekly review: {weekly_review_line}")
+    corrective_microcycle_line = _summarize_execution_corrective_microcycle_line(
+        planning_context.get("execution_corrective_microcycle")
+    )
+    if corrective_microcycle_line:
+        fragments.append(f"execution microcycle: {corrective_microcycle_line}")
 
     near_term_edit = planning_context.get("near_term_edit")
     if isinstance(near_term_edit, dict):
@@ -314,6 +354,9 @@ def _normalize_execution_feedback(execution_feedback: Dict[str, Any] | None) -> 
     execution_weekly_review = summarize_execution_weekly_review(
         execution_feedback.get("execution_weekly_review")
     )
+    execution_corrective_microcycle = summarize_execution_corrective_microcycle(
+        execution_feedback.get("execution_corrective_microcycle")
+    )
     return {
         "title": str(execution_feedback.get("title") or "").strip(),
         "created_at_label": str(execution_feedback.get("created_at_label") or "").strip(),
@@ -325,6 +368,7 @@ def _normalize_execution_feedback(execution_feedback: Dict[str, Any] | None) -> 
         "total_delta": _int_or_zero(execution_feedback.get("total_delta")),
         "execution_reconciliation": execution_reconciliation,
         "execution_weekly_review": execution_weekly_review,
+        "execution_corrective_microcycle": execution_corrective_microcycle,
         "is_actionable": plan_adjustment_label not in NON_ACTIONABLE_PLAN_ADJUSTMENTS,
     }
 
@@ -353,6 +397,11 @@ def _build_execution_feedback_context_line(
     )
     if weekly_review_line:
         fragments.append("Weekly review: " + weekly_review_line + ".")
+    corrective_microcycle_line = _summarize_execution_corrective_microcycle_line(
+        feedback.get("execution_corrective_microcycle")
+    )
+    if corrective_microcycle_line:
+        fragments.append("Execution microcycle: " + corrective_microcycle_line + ".")
     delta_parts: List[str] = []
     if feedback["total_delta"] != 0:
         delta_parts.append(f"сумма {feedback['total_delta']:+d} TSS")
@@ -385,6 +434,11 @@ def _collect_execution_feedback_signals(
     )
     if weekly_review_line:
         signals.append("Weekly review: " + weekly_review_line + ".")
+    corrective_microcycle_line = _summarize_execution_corrective_microcycle_line(
+        feedback.get("execution_corrective_microcycle")
+    )
+    if corrective_microcycle_line:
+        signals.append("Execution microcycle: " + corrective_microcycle_line + ".")
     delta_parts: List[str] = []
     if feedback["total_delta"] != 0:
         delta_parts.append(f"сумма {feedback['total_delta']:+d} TSS")
@@ -447,6 +501,10 @@ def build_coach_explainability_summary(
     readiness_val = _float_or_none(readiness)
     planning_context = _extract_planning_context(goal_plan)
     feedback_context = _normalize_execution_feedback(execution_feedback)
+    execution_microcycle = (
+        feedback_context.get("execution_corrective_microcycle")
+        or planning_context.get("execution_corrective_microcycle")
+    )
     available_day_labels = planning_context.get("available_day_labels", [])
     available_days_text = ", ".join(available_day_labels)
     atl_ratio = None
@@ -561,6 +619,13 @@ def build_coach_explainability_summary(
             recommended_reason = str(weekly_review.get("recommended_response_reason") or "").strip()
         if recommended_reason:
             watchout = f"{watchout} {recommended_reason}"
+        if isinstance(execution_microcycle, dict):
+            if execution_microcycle.get("today_action"):
+                today_action = str(execution_microcycle["today_action"])
+            if execution_microcycle.get("next_window"):
+                next_window = str(execution_microcycle["next_window"])
+            if execution_microcycle.get("guardrail"):
+                watchout = str(execution_microcycle["guardrail"])
     elif (
         readiness_val is not None
         and readiness_val >= 75
@@ -602,6 +667,13 @@ def build_coach_explainability_summary(
             next_window = f"{next_window} {guardrail['next_window']}"
         if guardrail.get("watchout"):
             watchout = f"{watchout} {guardrail['watchout']}"
+        if isinstance(execution_microcycle, dict):
+            if execution_microcycle.get("today_action"):
+                today_action = f"{today_action} {execution_microcycle['today_action']}"
+            if execution_microcycle.get("next_window"):
+                next_window = f"{next_window} {execution_microcycle['next_window']}"
+            if execution_microcycle.get("guardrail"):
+                watchout = f"{watchout} {execution_microcycle['guardrail']}"
 
     prompt = _append_plan_context_to_prompt(prompt, goal_plan, feedback_context)
 

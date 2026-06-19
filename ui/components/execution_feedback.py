@@ -11,6 +11,8 @@ from models.planning_execution import (
     EXECUTION_RESPONSE_STRATEGY_LABELS,
     build_execution_plan_adjustment,
     build_execution_reconciliation_rows,
+    rebuild_goal_plan_with_adjustment,
+    summarize_execution_corrective_microcycle,
     summarize_execution_reconciliation_rows,
     summarize_execution_weekly_review_rows,
 )
@@ -311,6 +313,35 @@ def render_execution_feedback_editor(
                 weeks=weeks,
                 response_strategy_override=selected_response_strategy,
             )
+            projected_goal_plan = rebuild_goal_plan_with_adjustment(
+                goal_plan,
+                plan_adjustment_payload,
+            )
+            corrective_microcycle = summarize_execution_corrective_microcycle(
+                (
+                    (
+                        (projected_goal_plan.get("constraint_summary", {}) or {}).get("plan_adjustment", {})
+                        or {}
+                    ).get("execution_corrective_microcycle")
+                )
+            )
+            if corrective_microcycle:
+                with st.container(border=True):
+                    st.markdown(f"**{corrective_microcycle['headline']}**")
+                    if corrective_microcycle["summary"]:
+                        st.caption(corrective_microcycle["summary"])
+                    for item in corrective_microcycle["sessions"]:
+                        delta_text = (
+                            f" · {item['delta_label']}"
+                            if item.get("delta_tss")
+                            else ""
+                        )
+                        st.write(
+                            f"• {item['date_label']} · {item['action_label']} · "
+                            f"{item['session_name']} ({item['planned_total_tss']} TSS{delta_text})"
+                        )
+                    if corrective_microcycle["guardrail"]:
+                        st.caption(corrective_microcycle["guardrail"])
 
         if st.button(
             "♻️ Применить локальный replan",

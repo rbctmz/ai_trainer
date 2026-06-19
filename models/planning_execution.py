@@ -5,6 +5,7 @@ from datetime import date, datetime
 from typing import Any, Dict, List, Mapping
 
 from models.training_planner import (
+    SESSION_ROLE_LABELS_RU,
     apply_planning_constraints,
     build_daily_session_templates,
     expand_weekly_to_daily_triathlon,
@@ -19,6 +20,14 @@ EXECUTION_DAY_OUTCOME_LABELS = {
 EXECUTION_RESPONSE_STRATEGY_LABELS = {
     "protect_recovery": "Беречь восстановление",
     "catch_up": "Наверстать аккуратно",
+}
+EXECUTION_CORRECTIVE_ACTION_LABELS = {
+    "keep_recovery": "Сохранить восстановление",
+    "keep_easy": "Оставить лёгкой",
+    "return_small_load": "Вернуть только малую часть объёма",
+    "controlled_quality": "Сделать контролируемо",
+    "single_key_stimulus": "Оставить одной ключевой работой",
+    "hold_long_ceiling": "Не превращать в компенсацию",
 }
 
 
@@ -61,6 +70,11 @@ def _normalize_response_strategy(strategy: Any) -> str:
 def _response_strategy_label(strategy: Any) -> str:
     normalized = _normalize_response_strategy(strategy)
     return EXECUTION_RESPONSE_STRATEGY_LABELS[normalized]
+
+
+def _session_role_label(session_role: Any) -> str:
+    normalized = str(session_role or "").strip().lower()
+    return SESSION_ROLE_LABELS_RU.get(normalized, normalized or "—")
 
 
 def _actual_tss_for_row(row: Mapping[str, Any]) -> int:
@@ -380,6 +394,244 @@ def summarize_execution_weekly_review_rows(
     }
 
 
+def _corrective_action_for_session(
+    session_role: str,
+    *,
+    response_strategy: str,
+    deviation_codes: set[str],
+) -> Dict[str, str]:
+    normalized_role = str(session_role or "").strip().lower()
+    normalized_strategy = _normalize_response_strategy(response_strategy)
+
+    if normalized_role in {"off", "recovery"}:
+        if normalized_strategy == "catch_up":
+            return {
+                "action_code": "keep_recovery",
+                "action_label": "Не забирать буфер восстановления",
+                "reason": "Даже при аккуратном catch-up этот день остаётся защитой от компрессии недели.",
+            }
+        return {
+            "action_code": "keep_recovery",
+            "action_label": EXECUTION_CORRECTIVE_ACTION_LABELS["keep_recovery"],
+            "reason": "Этот день нужен, чтобы вернуть ритм недели без догонки выпавшего объёма.",
+        }
+    if normalized_role == "quality":
+        if normalized_strategy == "protect_recovery":
+            return {
+                "action_code": "controlled_quality",
+                "action_label": EXECUTION_CORRECTIVE_ACTION_LABELS["controlled_quality"],
+                "reason": "Верните структуру недели, но не пытайтесь добрать выпавшую интенсивность внутри этой сессии.",
+            }
+        if "missed_key_session" in deviation_codes:
+            return {
+                "action_code": "single_key_stimulus",
+                "action_label": EXECUTION_CORRECTIVE_ACTION_LABELS["single_key_stimulus"],
+                "reason": "После пропуска ключевой работы не вставляйте вторую компенсационную quality-сессию рядом.",
+            }
+        return {
+            "action_code": "single_key_stimulus",
+            "action_label": "Сохранить как главный стимул",
+            "reason": "Можно вернуть только малую часть объёма вокруг этой сессии, не расширяя её сверх плана.",
+        }
+    if normalized_role == "long":
+        if "lost_long_session" in deviation_codes or normalized_strategy == "protect_recovery":
+            return {
+                "action_code": "hold_long_ceiling",
+                "action_label": EXECUTION_CORRECTIVE_ACTION_LABELS["hold_long_ceiling"],
+                "reason": "Следующая длинная сессия остаётся потолком недели, а не компенсацией за сорванную работу.",
+            }
+        return {
+            "action_code": "hold_long_ceiling",
+            "action_label": "Оставить потолком недели",
+            "reason": "Возврат нагрузки не должен превращать следующую длинную сессию в сверхобъём.",
+        }
+    if normalized_strategy == "catch_up":
+        return {
+            "action_code": "return_small_load",
+            "action_label": EXECUTION_CORRECTIVE_ACTION_LABELS["return_small_load"],
+            "reason": "Безопаснее вернуть немного объёма через лёгкий день, чем добавлять ещё одну тяжёлую работу.",
+        }
+    return {
+        "action_code": "keep_easy",
+        "action_label": EXECUTION_CORRECTIVE_ACTION_LABELS["keep_easy"],
+        "reason": "Лёгкий день помогает разжать неделю и вернуть ритм без лишней догонки.",
+    }
+
+
+def summarize_execution_corrective_microcycle(
+    execution_corrective_microcycle: Mapping[str, Any] | None,
+) -> Dict[str, Any] | None:
+    """Normalize a compact corrective 2-3 day microcycle derived from execution review."""
+    if not isinstance(execution_corrective_microcycle, Mapping):
+        return None
+
+    selected_strategy = _normalize_response_strategy(
+        execution_corrective_microcycle.get("selected_response_strategy")
+    )
+    sessions = []
+    for item in execution_corrective_microcycle.get("sessions", []):
+        if not isinstance(item, Mapping):
+            continue
+        sessions.append(
+            {
+                "date": str(item.get("date") or "").strip(),
+                "date_label": str(item.get("date_label") or "").strip(),
+                "session_name": str(item.get("session_name") or "Сессия").strip(),
+                "session_role": str(item.get("session_role") or "").strip(),
+                "session_role_label": str(item.get("session_role_label") or _session_role_label(item.get("session_role"))).strip(),
+                "sport": str(item.get("sport") or "").strip(),
+                "planned_total_tss": _coerce_int(item.get("planned_total_tss")),
+                "planned_duration_minutes": _coerce_int(item.get("planned_duration_minutes")),
+                "delta_tss": _coerce_int(item.get("delta_tss")),
+                "delta_label": str(item.get("delta_label") or "").strip(),
+                "action_code": str(item.get("action_code") or "").strip(),
+                "action_label": str(item.get("action_label") or "").strip(),
+                "reason": str(item.get("reason") or "").strip(),
+            }
+        )
+
+    return {
+        "headline": str(execution_corrective_microcycle.get("headline") or "").strip(),
+        "summary": str(execution_corrective_microcycle.get("summary") or "").strip(),
+        "today_action": str(execution_corrective_microcycle.get("today_action") or "").strip(),
+        "next_window": str(execution_corrective_microcycle.get("next_window") or "").strip(),
+        "guardrail": str(execution_corrective_microcycle.get("guardrail") or "").strip(),
+        "selected_response_strategy": selected_strategy,
+        "selected_response_label": _response_strategy_label(selected_strategy),
+        "window_total_tss": _coerce_int(execution_corrective_microcycle.get("window_total_tss")),
+        "window_delta_tss": _coerce_int(execution_corrective_microcycle.get("window_delta_tss")),
+        "window_day_count": _coerce_int(execution_corrective_microcycle.get("window_day_count")),
+        "sessions": sessions[:3],
+    }
+
+
+def build_execution_corrective_microcycle(
+    goal_plan: Mapping[str, Any],
+    execution_weekly_review: Mapping[str, Any] | None,
+    *,
+    baseline_goal_plan: Mapping[str, Any] | None = None,
+    horizon_days: int = 3,
+) -> Dict[str, Any] | None:
+    """Build a concrete corrective 2-3 day microcycle from the rebuilt near-term plan."""
+    daily_plan = list(goal_plan.get("daily_plan", []) or [])
+    session_templates = list(goal_plan.get("session_templates", []) or [])
+    if not daily_plan:
+        return None
+
+    review = summarize_execution_weekly_review(execution_weekly_review)
+    selected_strategy = _normalize_response_strategy(
+        (
+            (review or {}).get("selected_response_strategy")
+            or ((goal_plan.get("constraint_summary", {}) or {}).get("catch_up_strategy"))
+            or "protect_recovery"
+        )
+    )
+    deviation_codes = {
+        str(item.get("code") or "").strip()
+        for item in ((review or {}).get("deviations") or [])
+        if isinstance(item, Mapping)
+    }
+
+    baseline_daily_plan = list((baseline_goal_plan or {}).get("daily_plan", []) or [])
+    session_rows: List[Dict[str, Any]] = []
+    window_total_tss = 0
+    window_delta_tss = 0
+
+    for index, daily_item in enumerate(daily_plan[: max(1, int(horizon_days or 3))]):
+        if not isinstance(daily_item, (list, tuple)) or len(daily_item) < 3:
+            continue
+        dt, total_tss, _parts = daily_item
+        session_template = session_templates[index] if index < len(session_templates) else {}
+        baseline_total_tss = 0
+        if index < len(baseline_daily_plan):
+            baseline_item = baseline_daily_plan[index]
+            if isinstance(baseline_item, (list, tuple)) and len(baseline_item) >= 2:
+                baseline_total_tss = _round_int(_coerce_float(baseline_item[1]))
+        planned_total_tss = _round_int(_coerce_float(total_tss))
+        if not baseline_daily_plan:
+            baseline_total_tss = planned_total_tss
+        delta_tss = planned_total_tss - baseline_total_tss
+        action = _corrective_action_for_session(
+            str((session_template or {}).get("session_role") or ""),
+            response_strategy=selected_strategy,
+            deviation_codes=deviation_codes,
+        )
+        date_value = dt.date() if isinstance(dt, datetime) else dt
+        session_rows.append(
+            {
+                "date": date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value),
+                "date_label": date_value.strftime("%a %d.%m") if hasattr(date_value, "strftime") else str(date_value),
+                "session_name": str((session_template or {}).get("export_name") or "Сессия").strip(),
+                "session_role": str((session_template or {}).get("session_role") or "").strip().lower(),
+                "session_role_label": _session_role_label((session_template or {}).get("session_role")),
+                "sport": str((session_template or {}).get("sport") or "").strip(),
+                "planned_total_tss": planned_total_tss,
+                "planned_duration_minutes": _coerce_int((session_template or {}).get("duration_minutes")),
+                "delta_tss": delta_tss,
+                "delta_label": f"{delta_tss:+d} TSS" if delta_tss else "0 TSS",
+                "action_code": action["action_code"],
+                "action_label": action["action_label"],
+                "reason": action["reason"],
+            }
+        )
+        window_total_tss += planned_total_tss
+        window_delta_tss += delta_tss
+
+    if not session_rows:
+        return None
+
+    if "lost_long_session" in deviation_codes and selected_strategy == "protect_recovery":
+        headline = "Ближайшие 2-3 дня: не догонять сорванную длинную"
+        summary = "Следующий микроцикл возвращает ритм недели, но не пытается вернуть сорванный длинный объём одним блоком."
+        guardrail = "Не переносите потерянную длинную сессию в ближайшие 48 часов."
+    elif "missed_key_session" in deviation_codes and selected_strategy == "protect_recovery":
+        headline = "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии"
+        summary = "Микроцикл сохраняет только один качественный стимул и не добирает пропущенную интенсивность сверху."
+        guardrail = "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией."
+    elif "overload_compression" in deviation_codes:
+        headline = "Ближайшие 2-3 дня: разжать нагрузку и вернуть буфер"
+        summary = "Следующее окно сохраняет лёгкий или восстановительный буфер, чтобы неделя не сжималась в меньшее число дней."
+        guardrail = "Не сжимайте похожий объём в меньшее число тренировочных дней."
+    elif selected_strategy == "catch_up":
+        headline = "Ближайшие 2-3 дня: вернуть только малую часть объёма"
+        summary = "Следующее окно аккуратно возвращает часть нагрузки, но не строит компенсационный мини-блок."
+        guardrail = "Не делайте две тяжёлые сессии подряд и не расширяйте следующую длинную работу."
+    else:
+        headline = "Ближайшие 2-3 дня: сохранить ритм без компенсации"
+        summary = "Следующее окно держит структуру недели и принимает фактический объём как новый ориентир."
+        guardrail = "Не превращайте ближайший микроцикл в попытку быстро закрыть выпавший долг."
+
+    if review and review.get("recommended_response_reason"):
+        guardrail = str(review["recommended_response_reason"]).strip()
+
+    today_row = session_rows[0]
+    today_action = (
+        f"{today_row['date_label']}: {today_row['action_label']} — "
+        f"{today_row['session_name']} ({today_row['planned_total_tss']} TSS)."
+    )
+    if len(session_rows) > 1:
+        next_window = " ; ".join(
+            f"{row['date_label']}: {row['action_label']} ({row['session_name']})"
+            for row in session_rows[1:]
+        )
+    else:
+        next_window = summary
+
+    return {
+        "headline": headline,
+        "summary": summary,
+        "today_action": today_action,
+        "next_window": next_window,
+        "guardrail": guardrail,
+        "selected_response_strategy": selected_strategy,
+        "selected_response_label": _response_strategy_label(selected_strategy),
+        "window_total_tss": window_total_tss,
+        "window_delta_tss": window_delta_tss,
+        "window_day_count": len(session_rows),
+        "sessions": session_rows,
+    }
+
+
 def summarize_execution_reconciliation_rows(
     rows: List[Mapping[str, Any]] | None,
 ) -> Dict[str, Any]:
@@ -569,6 +821,31 @@ def rebuild_goal_plan_with_adjustment(
         goal_type=goal_type,
         distance=distance,
     )
+    corrective_microcycle = None
+    rebuilt_plan_adjustment = rebuilt_constraint_summary.get("plan_adjustment")
+    if isinstance(rebuilt_plan_adjustment, dict) and rebuilt_plan_adjustment.get("execution_weekly_review"):
+        corrective_microcycle = build_execution_corrective_microcycle(
+            {
+                "daily_plan": daily_plan,
+                "session_templates": session_templates,
+                "constraint_summary": rebuilt_constraint_summary,
+            },
+            rebuilt_plan_adjustment.get("execution_weekly_review"),
+            baseline_goal_plan=goal_plan,
+        )
+        if corrective_microcycle is not None:
+            rebuilt_plan_adjustment["execution_corrective_microcycle"] = corrective_microcycle
+            notes = [
+                str(note)
+                for note in rebuilt_constraint_summary.get("notes", [])
+                if note
+            ]
+            notes.append(
+                "Execution microcycle: "
+                f"{corrective_microcycle['headline']} "
+                f"({corrective_microcycle['window_delta_tss']:+d} TSS в первых {corrective_microcycle['window_day_count']} дн.)."
+            )
+            rebuilt_constraint_summary["notes"] = notes
 
     return {
         "goal_type": goal_type,
@@ -591,8 +868,10 @@ __all__ = [
     "EXECUTION_DAY_OUTCOME_LABELS",
     "EXECUTION_RESPONSE_STRATEGY_LABELS",
     "build_execution_plan_adjustment",
+    "build_execution_corrective_microcycle",
     "build_execution_reconciliation_rows",
     "rebuild_goal_plan_with_adjustment",
+    "summarize_execution_corrective_microcycle",
     "summarize_execution_reconciliation",
     "summarize_execution_reconciliation_rows",
     "summarize_execution_weekly_review",

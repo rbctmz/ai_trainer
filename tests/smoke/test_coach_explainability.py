@@ -111,6 +111,18 @@ def test_coach_explainability_mentions_persisted_checkpoint_adjustment():
                         "selected_response_strategy": "catch_up",
                         "selected_response_label": "Наверстать аккуратно",
                     },
+                    "execution_corrective_microcycle": {
+                        "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
+                        "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                        "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                        "guardrail": "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией.",
+                        "sessions": [
+                            {
+                                "action_label": "Сделать контролируемо",
+                                "session_name": "Триатлон Олимпийка — Качество • бег",
+                            }
+                        ],
+                    },
                 },
                 "plan_adjustment_recovered_tss": 20,
                 "catch_up_strategy": "catch_up",
@@ -122,6 +134,8 @@ def test_coach_explainability_mentions_persisted_checkpoint_adjustment():
     assert "checkpoint «Пропущены сессии»" in summary["plan_context"]
     assert "Пропущена ключевая сессия" in summary["plan_context"]
     assert any("Weekly review:" in signal for signal in summary["signals"])
+    assert "execution microcycle" in summary["plan_context"].lower()
+    assert any("Execution microcycle:" in signal for signal in summary["signals"])
 
 
 def test_coach_explainability_mentions_manual_near_term_edit():
@@ -260,6 +274,18 @@ def test_coach_explainability_prefers_execution_review_after_actionable_checkpoi
                 "selected_response_strategy": "protect_recovery",
                 "selected_response_label": "Беречь восстановление",
             },
+            "execution_corrective_microcycle": {
+                "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
+                "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                "guardrail": "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией.",
+                "sessions": [
+                    {
+                        "action_label": "Сделать контролируемо",
+                        "session_name": "Триатлон Олимпийка — Качество • бег",
+                    }
+                ],
+            },
         },
     )
 
@@ -269,9 +295,13 @@ def test_coach_explainability_prefers_execution_review_after_actionable_checkpoi
     assert "-40 TSS" in summary["prompt"]
     assert "Пропущена ключевая сессия" in summary["prompt"]
     assert "Беречь восстановление" in summary["prompt"]
+    assert summary["today_action"].startswith("Thu 18.06: Сделать контролируемо")
+    assert summary["next_window"].startswith("Fri 19.06: Оставить лёгкой")
+    assert summary["watchout"] == "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией."
     assert any("Execution checkpoint" in signal for signal in summary["signals"])
     assert any("140/180 TSS" in signal for signal in summary["signals"])
     assert any("Weekly review:" in signal for signal in summary["signals"])
+    assert any("Execution microcycle:" in signal for signal in summary["signals"])
 
 
 def test_coach_explainability_keeps_checkpoint_guardrails_visible_during_recovery_focus():

@@ -48,6 +48,7 @@ This repository should borrow those product patterns while staying faithful to t
 
 ## Progress
 
+- [x] (2026-06-19 20:35+04:00) Completed the next Planning UX hardening v2 slice: execution checkpoints now derive a compact `execution_corrective_microcycle` from day-level reconciliation plus weekly review, persist it next to the existing execution summary, preview it before apply in the execution editor, and surface the same next-2-3-day action story on Planning, Dashboard, and AI Coaching. Smoke coverage was extended across planning explainability, checkpoint history, dashboard handoff, recommended AI entry prompts, and coach explainability before moving to final validation.
 - [x] (2026-06-12 11:00+04:00) Re-audited the current repository after Iteration 3, including branch state, smoke-suite status, module sizes, and the remaining operational risks.
 - [x] (2026-06-12 11:00+04:00) Reviewed `IntervalCoach` changelog themes as a product reference and mapped them into three concrete workstreams for AI Trainer.
 - [x] (2026-06-12 13:50+04:00) Started Hardening Sprint by validating `matin/garth` against its upstream repository and docs, then hardening the local runtime so a broken or deprecated `garth` install no longer masquerades as a normal login failure.
@@ -94,6 +95,9 @@ This repository should borrow those product patterns while staying faithful to t
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
 ## Surprises & Discoveries
+
+- Observation: weekly review by itself was still too abstract to close the execution-feedback loop.
+  Evidence: after the day-level reconciliation slice, the product could explain `140/180 TSS` and name the lost key or long session, but the next step still depended on the user inferring what the next 2-3 days should look like. Adding a derived `execution_corrective_microcycle` exposed the missing contract immediately in planning history, dashboard checkpoint cards, and the first AI-coach handoff prompt.
 
 - Observation: the current `garth` installation in the local virtual environment is structurally damaged.
   Evidence: importing `garth` returns a namespace package with no `__file__`, no `__version__`, and no `login` attribute, while `site-packages/garth` contains only subdirectories and `__pycache__` files. This matches the earlier report that the checked-in virtual environment is damaged beyond a normal dependency state.
@@ -243,6 +247,10 @@ This repository should borrow those product patterns while staying faithful to t
   Evidence: the live dashboard hit `StreamlitValueAboveMaxError: The value 41 is greater than the max_value 0` after a row's current planned TSS collapsed to zero while the persisted widget key still held an earlier positive value. The stable fix was not just clamping a raw number, but separating logical `actual_tss` state from the widget key and resolving outcome-aware display values (`as_planned -> planned`, `missed/unavailable -> 0`, `reduced -> clamped custom value`) before rendering the input.
 
 ## Decision Log
+
+- Decision: persist the execution-driven next-step as `execution_corrective_microcycle` inside `constraint_summary.plan_adjustment` rather than as a separate planning mode or top-level checkpoint type.
+  Rationale: the microcycle is not an independent source of truth; it is the concrete follow-up generated from the already persisted execution facts and weekly review. Keeping it adjacent to `execution_reconciliation` and `execution_weekly_review` preserves one execution-feedback contract that can be summarized, versioned, and re-explained consistently across Planning, Dashboard, and AI Coaching.
+  Date/Author: 2026-06-19 / Codex
 
 - Decision: treat the next phase as a new ExecPlan instead of extending the previous three-iteration roadmap indefinitely.
   Rationale: the earlier plan is complete and should remain a closed record of the stabilization/modularization/core-flow work. The next work has a different objective and therefore deserves its own acceptance criteria.
@@ -458,6 +466,10 @@ Coach Explainability is accepted when the dashboard and AI coaching can surface 
 
 This section starts empty on purpose. The previous plan ended with a working product flow. This plan begins at the moment where the product needs to become a durable system rather than a successful sequence of flows.
 
+The latest slice closes the next abstraction gap in execution feedback. The product no longer stops at a persisted fact window plus a weekly headline; it now turns that evidence into an explicit corrective microcycle for the next 2-3 days, including one concrete action, the next-window expectation, and one guardrail that survive local replanning, checkpoint persistence, dashboard summary cards, planning version history, and AI-coach prompt context. That makes the handoff from “what happened” to “what do I do next” materially more coach-like.
+
+This was also the right level of scope for the next planning improvement. A separate planning mode would have fractured the checkpoint story and forced every downstream surface to decide whether to trust weekly review, day-level reconciliation, or a parallel follow-up entity. Keeping the microcycle inside the existing execution checkpoint contract means every surface now reads the same lineage: fact window, weekly review, then short corrective window.
+
 The latest slice closes the next execution-feedback trust gap. The product no longer stops at "140 of 180 TSS happened"; it now turns day-level facts into a compact weekly review with a headline, concrete deviations such as a lost key or long session, and an explicit follow-up response strategy that survives rebuild, checkpoint persistence, dashboard cards, planning history, and AI coaching context. That makes the execution-feedback loop feel more like coaching and less like a bookkeeping delta.
 
 This slice also tightened a real runtime seam, not just the UX copy. The shared execution editor had a latent Streamlit-state failure where an old widget value could survive after the allowed max dropped to zero and crash the page. Moving to outcome-aware actual-TSS resolution plus separate logical/widget keys keeps the editor stable while preserving the user-visible day-level workflow, and the new smoke coverage plus full `145 passed` run make that regression much harder to reintroduce silently.
@@ -621,3 +633,5 @@ The validation evidence is strong enough to treat this as a completed planning b
 The newest slice closes the remaining trust gap in that workflow: reversibility. A risky draft is now safer to try not only because the product can warn or soften it, but because the saved manual edit is no longer a one-way operation. The planning page can show exactly how the current checkpoint differs from the prior version, restore that prior version from persisted data instead of approximation, and save the restored version back as the new current state. That moves near-term editing closer to a real coaching workflow: the athlete can experiment locally, inspect consequences, and still back out cleanly without rebuilding the whole plan from scratch.
 
 Revision note (2026-06-17 20:01+04:00): recorded the post-edit-strategy slice after adding persisted `keep / catch_up / protect_recovery` behavior for manual near-term edits, re-running focused smoke coverage (`39 passed`) plus the full smoke suite (`127 passed`), and verifying fresh acceptance startup/health on the isolated `http://localhost:8510` runtime.
+
+Revision note (2026-06-19 20:35+04:00): recorded the execution-driven corrective-microcycle slice after deriving and persisting `execution_corrective_microcycle`, propagating it through Planning, Dashboard, and AI Coaching explainability surfaces, and extending smoke coverage across checkpoint, handoff, and prompt-generation boundaries before final validation.
