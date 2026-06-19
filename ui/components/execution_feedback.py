@@ -21,6 +21,19 @@ QUICK_EXECUTION_LABELS = {
 }
 
 
+def _sanitize_actual_tss_value(planned_total_tss: Any, current_value: Any) -> int:
+    """Clamp persisted widget state to the current row's allowed TSS range."""
+    try:
+        planned = int(planned_total_tss or 0)
+    except (TypeError, ValueError):
+        planned = 0
+    try:
+        value = int(current_value if current_value is not None else planned)
+    except (TypeError, ValueError):
+        value = planned
+    return max(0, min(planned, value))
+
+
 def render_execution_feedback_editor(
     goal_plan: Mapping[str, Any] | None,
     *,
@@ -125,6 +138,10 @@ def render_execution_feedback_editor(
                 st.session_state.setdefault(
                     actual_tss_key,
                     int(row["planned_total_tss"]),
+                )
+                st.session_state[actual_tss_key] = _sanitize_actual_tss_value(
+                    row["planned_total_tss"],
+                    st.session_state.get(actual_tss_key),
                 )
 
                 with st.container(border=True):

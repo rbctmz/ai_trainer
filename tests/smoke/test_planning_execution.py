@@ -11,6 +11,7 @@ from models.planning_execution import (
     summarize_execution_reconciliation_rows,
 )
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
+from ui.components.execution_feedback import _sanitize_actual_tss_value
 
 
 pytestmark = pytest.mark.smoke
@@ -110,3 +111,9 @@ def test_day_level_execution_rows_can_escalate_to_unavailable_status():
     assert summary["unavailable_day_count"] == 2
     assert payload["status"] == "unavailable"
     assert payload["execution_reconciliation"]["status"] == "unavailable"
+
+
+def test_execution_feedback_widget_state_is_clamped_to_current_planned_tss():
+    assert _sanitize_actual_tss_value(0, 41) == 0
+    assert _sanitize_actual_tss_value(35, 41) == 35
+    assert _sanitize_actual_tss_value(35, -5) == 0
