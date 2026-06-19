@@ -23,6 +23,7 @@ from models.planning_execution import rebuild_goal_plan_with_adjustment
 from services import demo_mode as demo_mode_service
 from services.data_cache import load_activities, load_hrv, load_sleep
 from state import StateManager
+from ui.components.execution_feedback import render_execution_feedback_editor
 from ui.theme import get_plotly_theme
 
 
@@ -61,14 +62,6 @@ ACWR_STATUS_STYLES = {
     "HIGH": {"label": "Выше нормы", "color": "#F97316"},
     "VERY_HIGH": {"label": "Сильно выше нормы", "color": "#EF4444"},
 }
-
-EXECUTION_FEEDBACK_LABELS = {
-    "completed": "Выполнено по плану",
-    "skipped": "Пропущены сессии",
-    "reduced": "Нагрузка урезана",
-    "unavailable": "Неделя ограничена",
-}
-
 
 def render_dashboard_page(
     state: StateManager,
@@ -675,6 +668,13 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
             f"**Checkpoint:** {checkpoint_summary['plan_adjustment_label']} · "
             f"Пик {checkpoint_summary['peak_tss']} TSS · Сумма {checkpoint_summary['total_tss']} TSS"
         )
+        if checkpoint_summary.get("execution_reconciliation"):
+            execution_reconciliation = checkpoint_summary["execution_reconciliation"]
+            st.write(
+                f"**Факт окна:** {execution_reconciliation['actual_total_tss']} из "
+                f"{execution_reconciliation['planned_total_tss']} TSS · "
+                f"{execution_reconciliation['changed_day_count']} дн. изменено"
+            )
         if checkpoint_summary.get("near_term_edit"):
             st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
             st.write(f"**Оценка правки:** {checkpoint_summary['near_term_edit']['risk_badge']}")
@@ -729,95 +729,49 @@ def _render_execution_feedback_loop(state: StateManager) -> None:
     if checkpoint_summary is None or not isinstance(goal_plan_context, dict) or not goal_plan_context:
         return
 
-    status_options = list(EXECUTION_FEEDBACK_LABELS.values())
-    reverse_labels = {label: key for key, label in EXECUTION_FEEDBACK_LABELS.items()}
-
-    st.markdown("### ♻️ Факт выполнения")
-    with st.container(border=True):
-        st.caption("Зафиксируйте, как неделя прошла в реальности. AI Trainer локально пересчитает ближайший горизонт и сохранит новый planning checkpoint.")
-        status_label = st.selectbox(
-            "Что произошло по факту",
-            options=status_options,
-            index=0,
-            key="dashboard_execution_feedback_status",
+    result = getattr(state, "last_execution_feedback_result", None)
+    if isinstance(result, dict):
+        st.success(
+            f"Последний execution checkpoint: {result['plan_adjustment_label']} · "
+            f"Сумма {result['total_tss']} TSS ({result['total_delta']:+d}) · "
+            f"Пик {result['peak_tss']} TSS ({result['peak_delta']:+d})"
         )
-        status = reverse_labels.get(status_label, "completed")
-        weeks = st.slider(
-            "Горизонт локального пересчёта",
-            min_value=1,
-            max_value=2,
-            value=1,
-            disabled=status == "completed",
-            key="dashboard_execution_feedback_weeks",
+        if result.get("execution_reconciliation"):
+            execution_reconciliation = result["execution_reconciliation"]
+            st.caption(
+                f"Факт окна: {execution_reconciliation['actual_total_tss']} из "
+                f"{execution_reconciliation['planned_total_tss']} TSS · "
+                f"{execution_reconciliation['changed_day_count']} дн. изменено"
+            )
+        if result.get("created_at_label"):
+            st.caption(f"Сохранён: {result['created_at_label']}")
+
+    editor_result = render_execution_feedback_editor(
+        goal_plan_context,
+        key_prefix="dashboard_execution_feedback",
+    )
+    if editor_result is not None:
+        previous_checkpoint = getattr(state, "latest_planning_checkpoint", None)
+        updated_goal_plan = rebuild_goal_plan_with_adjustment(
+            goal_plan_context,
+            editor_result["plan_adjustment"],
         )
-
-        missed_sessions = 0
-        reduced_load_share = 0.70
-        if status == "skipped":
-            missed_sessions = st.slider(
-                "Сколько сессий реально выпало",
-                min_value=1,
-                max_value=max(1, int(goal_plan_context.get("constraint_summary", {}).get("available_day_count", 1) or 1)),
-                value=1,
-                key="dashboard_execution_feedback_missed_sessions",
-            )
-        elif status == "reduced":
-            reduced_percent = st.slider(
-                "Сколько % нагрузки реально осталось",
-                min_value=35,
-                max_value=95,
-                value=70,
-                step=5,
-                key="dashboard_execution_feedback_reduced_percent",
-            )
-            reduced_load_share = reduced_percent / 100.0
-        elif status == "unavailable":
-            st.caption("Используйте этот вариант, если неделя фактически сжалась из-за поездки, болезни или жёсткого внешнего ограничения.")
-        else:
-            st.caption("План сохранит execution checkpoint «выполнено по плану» без дополнительного снижения нагрузки.")
-
-        result = getattr(state, "last_execution_feedback_result", None)
-        if isinstance(result, dict):
-            st.success(
-                f"Последний execution checkpoint: {result['plan_adjustment_label']} · "
-                f"Сумма {result['total_tss']} TSS ({result['total_delta']:+d}) · "
-                f"Пик {result['peak_tss']} TSS ({result['peak_delta']:+d})"
-            )
-            if result.get("created_at_label"):
-                st.caption(f"Сохранён: {result['created_at_label']}")
-
-        if st.button(
-            "♻️ Применить локальный replan",
-            key="dashboard_apply_execution_feedback",
-            type="primary",
-            width="stretch",
-        ):
-            previous_checkpoint = getattr(state, "latest_planning_checkpoint", None)
-            updated_goal_plan = rebuild_goal_plan_with_adjustment(
-                goal_plan_context,
-                {
-                    "status": status,
-                    "weeks": weeks if status != "completed" else 1,
-                    "missed_sessions": missed_sessions,
-                    "reduced_load_share": reduced_load_share,
-                },
-            )
-            updated_goal_plan = with_checkpoint_provenance(
-                updated_goal_plan,
-                source="execution_feedback",
-                parent_checkpoint_id=(previous_checkpoint or {}).get("id") if isinstance(previous_checkpoint, dict) else None,
-            )
-            state.goal_plan = updated_goal_plan
-            saved_checkpoint = state.database.save_planning_checkpoint(
-                build_planning_checkpoint(updated_goal_plan)
-            )
-            state.latest_planning_checkpoint = saved_checkpoint
-            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
-            state.last_execution_feedback_result = _build_execution_feedback_result(
-                previous_checkpoint,
-                saved_checkpoint,
-            )
-            st.rerun()
+        updated_goal_plan = with_checkpoint_provenance(
+            updated_goal_plan,
+            source="execution_feedback",
+            parent_checkpoint_id=(previous_checkpoint or {}).get("id") if isinstance(previous_checkpoint, dict) else None,
+        )
+        state.goal_plan = updated_goal_plan
+        saved_checkpoint = state.database.save_planning_checkpoint(
+            build_planning_checkpoint(updated_goal_plan)
+        )
+        state.latest_planning_checkpoint = saved_checkpoint
+        state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
+        state.last_execution_feedback_result = _build_execution_feedback_result(
+            previous_checkpoint,
+            saved_checkpoint,
+        )
+        st.rerun()
 
 
 def _render_last_sync_handoff(

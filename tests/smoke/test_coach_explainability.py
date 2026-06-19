@@ -216,6 +216,16 @@ def test_coach_explainability_prefers_execution_review_after_actionable_checkpoi
             "plan_adjustment_weeks": 1,
             "total_delta": -40,
             "peak_delta": 0,
+            "execution_reconciliation": {
+                "planned_total_tss": 180,
+                "actual_total_tss": 140,
+                "delta_tss": -40,
+                "changed_day_count": 2,
+                "missed_day_count": 1,
+                "reduced_day_count": 1,
+                "unavailable_day_count": 0,
+                "completion_share": 0.78,
+            },
         },
     )
 
@@ -224,6 +234,7 @@ def test_coach_explainability_prefers_execution_review_after_actionable_checkpoi
     assert "execution checkpoint" in summary["prompt"].lower()
     assert "-40 TSS" in summary["prompt"]
     assert any("Execution checkpoint" in signal for signal in summary["signals"])
+    assert any("140/180 TSS" in signal for signal in summary["signals"])
 
 
 def test_coach_explainability_keeps_checkpoint_guardrails_visible_during_recovery_focus():
@@ -246,9 +257,51 @@ def test_coach_explainability_keeps_checkpoint_guardrails_visible_during_recover
             "plan_adjustment_weeks": 1,
             "total_delta": -40,
             "peak_delta": 0,
+            "execution_reconciliation": {
+                "planned_total_tss": 180,
+                "actual_total_tss": 140,
+                "delta_tss": -40,
+                "changed_day_count": 2,
+                "missed_day_count": 1,
+                "reduced_day_count": 1,
+                "unavailable_day_count": 0,
+                "completion_share": 0.78,
+            },
         },
     )
 
     assert summary["focus"] == "recovery"
     assert "урезан" in summary["next_window"].lower()
     assert "резким ростом интенсивности" in summary["watchout"].lower()
+
+
+def test_coach_explainability_mentions_fact_window_from_current_plan():
+    summary = build_coach_explainability_summary(
+        tsb=1,
+        ctl=67,
+        atl=59,
+        readiness=73,
+        goal_plan={
+            "constraint_summary": {
+                "available_hours": 8.0,
+                "available_day_labels": ["Вт", "Чт", "Сб"],
+                "plan_adjustment": {
+                    "label": "Нагрузка урезана",
+                    "weeks": 1,
+                    "execution_reconciliation": {
+                        "planned_total_tss": 180,
+                        "actual_total_tss": 140,
+                        "delta_tss": -40,
+                        "changed_day_count": 2,
+                        "missed_day_count": 1,
+                        "reduced_day_count": 1,
+                        "unavailable_day_count": 0,
+                        "completion_share": 0.78,
+                    },
+                },
+            }
+        },
+    )
+
+    assert any("Факт ближнего окна уже учтён" in signal for signal in summary["signals"])
+    assert "140/180 TSS" in summary["plan_context"]

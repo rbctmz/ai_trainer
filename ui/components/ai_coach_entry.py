@@ -230,6 +230,13 @@ def render_empty_ai_chat_guidance(
                 f"**Checkpoint:** {checkpoint_summary['plan_adjustment_label']} · "
                 f"Пик {checkpoint_summary['peak_tss']} TSS · Сумма {checkpoint_summary['total_tss']} TSS"
             )
+            if checkpoint_summary.get("execution_reconciliation"):
+                execution_reconciliation = checkpoint_summary["execution_reconciliation"]
+                st.write(
+                    f"**Факт окна:** {execution_reconciliation['actual_total_tss']} из "
+                    f"{execution_reconciliation['planned_total_tss']} TSS · "
+                    f"{execution_reconciliation['changed_day_count']} дн. изменено"
+                )
             if checkpoint_summary.get("near_term_edit"):
                 st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
                 st.write(f"**Оценка правки:** {checkpoint_summary['near_term_edit']['risk_badge']}")

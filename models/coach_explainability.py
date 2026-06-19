@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from models.planning_execution import summarize_execution_reconciliation
 from models.planning_checkpoints import NON_ACTIONABLE_PLAN_ADJUSTMENTS
 from models.planning_summary import summarize_near_term_edit
 
@@ -53,6 +54,9 @@ def _extract_planning_context(goal_plan: Dict[str, Any] | None) -> Dict[str, Any
     ]
     plan_adjustment = constraint_summary.get("plan_adjustment", {}) or {}
     near_term_edit = summarize_near_term_edit(constraint_summary)
+    execution_reconciliation = summarize_execution_reconciliation(
+        plan_adjustment.get("execution_reconciliation")
+    )
 
     return {
         "checkpoint_source": str(goal_plan.get("checkpoint_source") or "").strip(),
@@ -70,6 +74,7 @@ def _extract_planning_context(goal_plan: Dict[str, Any] | None) -> Dict[str, Any
         "plan_adjustment_label": str(plan_adjustment.get("label", "Нет")),
         "plan_adjustment_weeks": _int_or_zero(plan_adjustment.get("weeks")),
         "plan_adjustment_recovered_tss": _int_or_zero(constraint_summary.get("plan_adjustment_recovered_tss")),
+        "execution_reconciliation": execution_reconciliation,
         "near_term_edit": near_term_edit,
         "notes": [
             str(note)
@@ -127,6 +132,13 @@ def _collect_planning_signals(goal_plan: Dict[str, Any] | None) -> List[str]:
         if recovered_tss > 0:
             signal += f" Локально возвращено {recovered_tss} TSS."
         signals.append(signal)
+    execution_reconciliation = planning_context.get("execution_reconciliation")
+    if isinstance(execution_reconciliation, dict) and execution_reconciliation.get("changed_day_count", 0) > 0:
+        signals.append(
+            "Факт ближнего окна уже учтён: "
+            f"{execution_reconciliation['actual_total_tss']} из {execution_reconciliation['planned_total_tss']} TSS, "
+            f"изменено {execution_reconciliation['changed_day_count']} дн."
+        )
 
     near_term_edit = planning_context.get("near_term_edit")
     if isinstance(near_term_edit, dict):
@@ -189,6 +201,13 @@ def _build_plan_context_line(goal_plan: Dict[str, Any] | None) -> str | None:
         if recovered_tss > 0:
             checkpoint_text += f", локально возвращено {recovered_tss} TSS"
         fragments.append(checkpoint_text)
+    execution_reconciliation = planning_context.get("execution_reconciliation")
+    if isinstance(execution_reconciliation, dict) and execution_reconciliation.get("changed_day_count", 0) > 0:
+        fragments.append(
+            "факт ближнего окна: "
+            f"{execution_reconciliation['actual_total_tss']}/{execution_reconciliation['planned_total_tss']} TSS, "
+            f"изменено {execution_reconciliation['changed_day_count']} дн."
+        )
 
     near_term_edit = planning_context.get("near_term_edit")
     if isinstance(near_term_edit, dict):
@@ -238,6 +257,9 @@ def _normalize_execution_feedback(execution_feedback: Dict[str, Any] | None) -> 
         return {}
 
     plan_adjustment_label = str(execution_feedback.get("plan_adjustment_label") or "Нет").strip()
+    execution_reconciliation = summarize_execution_reconciliation(
+        execution_feedback.get("execution_reconciliation")
+    )
     return {
         "title": str(execution_feedback.get("title") or "").strip(),
         "created_at_label": str(execution_feedback.get("created_at_label") or "").strip(),
@@ -247,6 +269,7 @@ def _normalize_execution_feedback(execution_feedback: Dict[str, Any] | None) -> 
         "peak_delta": _int_or_zero(execution_feedback.get("peak_delta")),
         "total_tss": _int_or_zero(execution_feedback.get("total_tss")),
         "total_delta": _int_or_zero(execution_feedback.get("total_delta")),
+        "execution_reconciliation": execution_reconciliation,
         "is_actionable": plan_adjustment_label not in NON_ACTIONABLE_PLAN_ADJUSTMENTS,
     }
 
@@ -263,6 +286,13 @@ def _build_execution_feedback_context_line(
     ]
     if feedback["plan_adjustment_weeks"] > 0:
         fragments[-1] += f" на {feedback['plan_adjustment_weeks']} нед."
+    execution_reconciliation = feedback.get("execution_reconciliation")
+    if isinstance(execution_reconciliation, dict) and execution_reconciliation.get("changed_day_count", 0) > 0:
+        fragments.append(
+            "Факт окна: "
+            f"{execution_reconciliation['actual_total_tss']} из {execution_reconciliation['planned_total_tss']} TSS, "
+            f"изменено {execution_reconciliation['changed_day_count']} дн."
+        )
     delta_parts: List[str] = []
     if feedback["total_delta"] != 0:
         delta_parts.append(f"сумма {feedback['total_delta']:+d} TSS")
@@ -283,6 +313,13 @@ def _collect_execution_feedback_signals(
     signals = [
         f"Execution checkpoint: {feedback['plan_adjustment_label']}.",
     ]
+    execution_reconciliation = feedback.get("execution_reconciliation")
+    if isinstance(execution_reconciliation, dict) and execution_reconciliation.get("changed_day_count", 0) > 0:
+        signals.append(
+            "Факт ближнего окна: "
+            f"{execution_reconciliation['actual_total_tss']}/{execution_reconciliation['planned_total_tss']} TSS, "
+            f"{execution_reconciliation['changed_day_count']} дн. изменено."
+        )
     delta_parts: List[str] = []
     if feedback["total_delta"] != 0:
         delta_parts.append(f"сумма {feedback['total_delta']:+d} TSS")

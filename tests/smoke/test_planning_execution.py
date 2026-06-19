@@ -1,0 +1,112 @@
+from __future__ import annotations
+
+from datetime import date
+
+import pytest
+
+from models.planning_execution import (
+    build_execution_plan_adjustment,
+    build_execution_reconciliation_rows,
+    rebuild_goal_plan_with_adjustment,
+    summarize_execution_reconciliation_rows,
+)
+from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
+
+
+pytestmark = pytest.mark.smoke
+
+
+def _sample_goal_plan() -> dict[str, object]:
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        [220, 240, 210],
+        ["Base", "Build", "Peak"],
+        "Олимпийка",
+        date(2026, 6, 15),
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+    session_templates = build_daily_session_templates(
+        daily_plan,
+        weekly_summary,
+        "Триатлон",
+        "Олимпийка",
+    )
+    return {
+        "goal_type": "Триатлон",
+        "distance": "Олимпийка",
+        "weeks_to_race": 8,
+        "start_week": date(2026, 6, 15),
+        "weekly_tss_plan": [220, 240, 210],
+        "base_weekly_tss_plan": [220, 240, 210],
+        "phases": ["Base", "Build", "Peak"],
+        "daily_plan": daily_plan,
+        "session_templates": session_templates,
+        "weekly_summary": weekly_summary,
+        "constraint_summary": {
+            "available_hours": 8.5,
+            "available_day_indices": [1, 3, 5],
+            "available_day_labels": ["Вт", "Чт", "Сб"],
+            "available_day_count": 3,
+            "recommended_days": 6,
+            "interruption_type": "none",
+            "interruption_label": "Нет",
+            "interruption_weeks": 0,
+            "catch_up_strategy": "catch_up",
+            "current_tsb": -6.0,
+            "current_ctl": 60.0,
+            "current_atl": 68.0,
+            "load_state_label": "Нейтральный старт",
+            "notes": [],
+        },
+        "planner_mix": None,
+        "planner_weights": None,
+    }
+
+
+def _positive_tss_row_indices(rows: list[dict[str, object]]) -> list[int]:
+    return [
+        index
+        for index, row in enumerate(rows)
+        if int(row.get("planned_total_tss", 0) or 0) > 0
+    ]
+
+
+def test_day_level_execution_rows_can_build_reduced_local_replan_payload():
+    goal_plan = _sample_goal_plan()
+    rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    positive_rows = _positive_tss_row_indices(rows)
+
+    rows[positive_rows[0]]["outcome"] = "missed"
+    rows[positive_rows[1]]["outcome"] = "reduced"
+    rows[positive_rows[1]]["actual_total_tss"] = max(
+        0,
+        int(rows[positive_rows[1]]["planned_total_tss"]) - 15,
+    )
+
+    summary = summarize_execution_reconciliation_rows(rows)
+    payload = build_execution_plan_adjustment(goal_plan, rows, weeks=1)
+    rebuilt = rebuild_goal_plan_with_adjustment(goal_plan, payload)
+
+    assert summary["status"] == "reduced"
+    assert summary["changed_day_count"] == 2
+    assert summary["delta_tss"] < 0
+    assert payload["execution_reconciliation"]["changed_day_count"] == 2
+    assert payload["completion_share"] < 1.0
+    assert "checkpoint: факт" in rebuilt["weekly_summary"][0]["adjustment_note"]
+
+
+def test_day_level_execution_rows_can_escalate_to_unavailable_status():
+    goal_plan = _sample_goal_plan()
+    rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    positive_rows = _positive_tss_row_indices(rows)
+
+    rows[positive_rows[0]]["outcome"] = "unavailable"
+    rows[positive_rows[1]]["outcome"] = "unavailable"
+
+    summary = summarize_execution_reconciliation_rows(rows)
+    payload = build_execution_plan_adjustment(goal_plan, rows, weeks=1)
+
+    assert summary["status"] == "unavailable"
+    assert summary["unavailable_day_count"] == 2
+    assert payload["status"] == "unavailable"
+    assert payload["execution_reconciliation"]["status"] == "unavailable"

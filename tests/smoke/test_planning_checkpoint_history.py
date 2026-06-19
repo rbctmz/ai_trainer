@@ -16,7 +16,11 @@ from models.planning_checkpoints import (
     summarize_planning_checkpoint,
     with_checkpoint_provenance,
 )
-from models.planning_execution import rebuild_goal_plan_with_adjustment
+from models.planning_execution import (
+    build_execution_plan_adjustment,
+    build_execution_reconciliation_rows,
+    rebuild_goal_plan_with_adjustment,
+)
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
 
 
@@ -236,13 +240,28 @@ def test_execution_feedback_summary_ignores_manual_edit_checkpoint_versions():
 
 def test_summarize_execution_feedback_transition_from_persisted_checkpoints():
     previous_checkpoint = build_planning_checkpoint(_sample_goal_plan())
+    execution_rows = build_execution_reconciliation_rows(
+        checkpoint_to_goal_plan_context(previous_checkpoint),
+        weeks=1,
+    )
+    positive_rows = [
+        index
+        for index, row in enumerate(execution_rows)
+        if int(row.get("planned_total_tss", 0) or 0) > 0
+    ]
+    execution_rows[positive_rows[0]]["outcome"] = "missed"
+    execution_rows[positive_rows[1]]["outcome"] = "reduced"
+    execution_rows[positive_rows[1]]["actual_total_tss"] = max(
+        0,
+        int(execution_rows[positive_rows[1]]["planned_total_tss"]) - 10,
+    )
     rebuilt = rebuild_goal_plan_with_adjustment(
         checkpoint_to_goal_plan_context(previous_checkpoint),
-        {
-            "status": "reduced",
-            "weeks": 1,
-            "reduced_load_share": 0.60,
-        },
+        build_execution_plan_adjustment(
+            checkpoint_to_goal_plan_context(previous_checkpoint),
+            execution_rows,
+            weeks=1,
+        ),
     )
     current_checkpoint = build_planning_checkpoint(
         with_checkpoint_provenance(
@@ -261,3 +280,5 @@ def test_summarize_execution_feedback_transition_from_persisted_checkpoints():
     assert summary["plan_adjustment_label"] == "Нагрузка урезана"
     assert summary["total_delta"] < 0
     assert summary["peak_delta"] <= 0
+    assert summary["execution_reconciliation"] is not None
+    assert summary["execution_reconciliation"]["changed_day_count"] == 2

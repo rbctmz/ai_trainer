@@ -99,6 +99,24 @@ def test_execution_feedback_result_compares_checkpoint_deltas():
             "peak_tss": 380,
             "total_tss": 1140,
             "plan_adjustment_label": "Пропущены сессии",
+            "goal_plan_snapshot": {
+                "constraint_summary": {
+                    "plan_adjustment": {
+                        "execution_reconciliation": {
+                            "status": "reduced",
+                            "planned_total_tss": 180,
+                            "actual_total_tss": 140,
+                            "delta_tss": -40,
+                            "changed_day_count": 2,
+                            "missed_day_count": 1,
+                            "reduced_day_count": 1,
+                            "unavailable_day_count": 0,
+                            "completion_share": 0.78,
+                        }
+                    }
+                }
+            },
+            "checkpoint_source": "execution_feedback",
             "created_at": "2026-06-14 12:00:00",
         },
     )
@@ -106,3 +124,5 @@ def test_execution_feedback_result_compares_checkpoint_deltas():
     assert result["plan_adjustment_label"] == "Пропущены сессии"
     assert result["peak_delta"] == -20
     assert result["total_delta"] == -60
+    assert result["execution_reconciliation"]["planned_total_tss"] == 180
+    assert result["execution_reconciliation"]["changed_day_count"] == 2

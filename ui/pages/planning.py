@@ -18,6 +18,7 @@ from models.planning_near_term import (
     build_safer_near_term_draft,
     summarize_near_term_draft_rows,
 )
+from models.planning_execution import rebuild_goal_plan_with_adjustment
 from models.planning_summary import (
     NEAR_TERM_EDIT_POST_STRATEGIES,
     NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU,
@@ -654,6 +655,13 @@ def _render_planning_version_history(
             f"**Checkpoint:** {current_summary['plan_adjustment_label']} · "
             f"Пик {current_summary['peak_tss']} TSS · Сумма {current_summary['total_tss']} TSS"
         )
+        if current_summary.get("execution_reconciliation"):
+            execution_reconciliation = current_summary["execution_reconciliation"]
+            st.caption(
+                f"Факт окна: {execution_reconciliation['actual_total_tss']} из "
+                f"{execution_reconciliation['planned_total_tss']} TSS · "
+                f"{execution_reconciliation['changed_day_count']} дн. изменено"
+            )
 
     for record in history_records:
         summary = summarize_planning_checkpoint(record)
@@ -675,6 +683,13 @@ def _render_planning_version_history(
                 f"**Checkpoint:** {summary['plan_adjustment_label']} · "
                 f"Пик {summary['peak_tss']} TSS · Сумма {summary['total_tss']} TSS"
             )
+            if summary.get("execution_reconciliation"):
+                execution_reconciliation = summary["execution_reconciliation"]
+                st.caption(
+                    f"Факт окна: {execution_reconciliation['actual_total_tss']} из "
+                    f"{execution_reconciliation['planned_total_tss']} TSS · "
+                    f"{execution_reconciliation['changed_day_count']} дн. изменено"
+                )
             if summary.get("near_term_edit"):
                 st.caption(f"Ручная правка: {summary['near_term_edit']['compact_label']}")
             if preview["weekly_rows"]:
@@ -1344,13 +1359,51 @@ def render_planning_page(state: "StateManager") -> None:
             build_planning_checkpoint,
             get_near_term_edit_rollback_target_checkpoint_id,
             restore_goal_plan_from_checkpoint,
+            summarize_execution_feedback_transition,
             with_checkpoint_provenance,
         )
+        from ui.components.execution_feedback import render_execution_feedback_editor
 
         goal_plan = state.goal_plan
         flash_message = st.session_state.pop("planning_near_term_flash", None)
         if flash_message:
             st.success(flash_message)
+
+        execution_feedback_result = render_execution_feedback_editor(
+            goal_plan,
+            key_prefix="planning_execution_feedback",
+            title="### ♻️ Факт выполнения по дням",
+        )
+        if execution_feedback_result is not None:
+            latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
+            updated_goal_plan = rebuild_goal_plan_with_adjustment(
+                goal_plan,
+                execution_feedback_result["plan_adjustment"],
+            )
+            updated_goal_plan = with_checkpoint_provenance(
+                updated_goal_plan,
+                source="execution_feedback",
+                parent_checkpoint_id=(latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None,
+            )
+            state.goal_plan = updated_goal_plan
+            saved_checkpoint = state.database.save_planning_checkpoint(
+                build_planning_checkpoint(updated_goal_plan)
+            )
+            state.latest_planning_checkpoint = saved_checkpoint
+            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
+            state.last_execution_feedback_result = summarize_execution_feedback_transition(
+                latest_checkpoint,
+                saved_checkpoint,
+            )
+            execution_reconciliation = execution_feedback_result["plan_adjustment"].get("execution_reconciliation")
+            if isinstance(execution_reconciliation, dict) and execution_reconciliation.get("changed_day_count", 0) > 0:
+                st.session_state["planning_near_term_flash"] = (
+                    "Execution checkpoint сохранён: "
+                    f"{execution_reconciliation['compact_label']}."
+                )
+            else:
+                st.session_state["planning_near_term_flash"] = "Execution checkpoint сохранён."
+            st.rerun()
 
         rollback_goal_plan = None
         latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)

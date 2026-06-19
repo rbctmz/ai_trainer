@@ -159,19 +159,114 @@ def normalize_plan_adjustment(
         reduced_load_share = 0.70
     reduced_load_share = max(0.35, min(0.95, reduced_load_share))
 
+    execution_reconciliation = raw.get('execution_reconciliation')
+    if not isinstance(execution_reconciliation, Mapping):
+        execution_reconciliation = None
+
+    try:
+        completion_share_default = None
+        if execution_reconciliation:
+            completion_share_default = execution_reconciliation.get('completion_share')
+        elif 'completion_share' in raw:
+            completion_share_default = raw.get('completion_share')
+        elif status == 'reduced':
+            completion_share_default = reduced_load_share
+        completion_share = (
+            float(completion_share_default)
+            if completion_share_default is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        completion_share = None
+    if completion_share is not None:
+        completion_share = max(0.0, min(1.0, completion_share))
+
+    changed_day_count = 0
+    reduced_day_count = 0
+    unavailable_day_count = 0
+    planned_total_tss = 0
+    actual_total_tss = 0
+    delta_tss = 0
+    compact_label = ''
+    description = ''
+    changed_rows = []
+    if execution_reconciliation:
+        try:
+            changed_day_count = int(execution_reconciliation.get('changed_day_count', 0) or 0)
+        except (TypeError, ValueError):
+            changed_day_count = 0
+        try:
+            reduced_day_count = int(execution_reconciliation.get('reduced_day_count', 0) or 0)
+        except (TypeError, ValueError):
+            reduced_day_count = 0
+        try:
+            unavailable_day_count = int(execution_reconciliation.get('unavailable_day_count', 0) or 0)
+        except (TypeError, ValueError):
+            unavailable_day_count = 0
+        try:
+            planned_total_tss = int(execution_reconciliation.get('planned_total_tss', 0) or 0)
+        except (TypeError, ValueError):
+            planned_total_tss = 0
+        try:
+            actual_total_tss = int(execution_reconciliation.get('actual_total_tss', 0) or 0)
+        except (TypeError, ValueError):
+            actual_total_tss = 0
+        try:
+            delta_tss = int(execution_reconciliation.get('delta_tss', actual_total_tss - planned_total_tss) or 0)
+        except (TypeError, ValueError):
+            delta_tss = actual_total_tss - planned_total_tss
+        compact_label = str(execution_reconciliation.get('compact_label', '') or '')
+        description = str(execution_reconciliation.get('description', '') or '')
+        changed_rows = [
+            dict(item)
+            for item in execution_reconciliation.get('changed_rows', [])
+            if isinstance(item, Mapping)
+        ][:10]
+
     return {
         'status': status,
         'label': _plan_adjustment_label(status),
         'weeks': weeks,
         'missed_sessions': missed_sessions,
         'reduced_load_share': reduced_load_share,
+        'completion_share': completion_share,
         'available_day_count': day_count,
+        'changed_day_count': changed_day_count,
+        'reduced_day_count': reduced_day_count,
+        'unavailable_day_count': unavailable_day_count,
+        'planned_total_tss': planned_total_tss,
+        'actual_total_tss': actual_total_tss,
+        'delta_tss': delta_tss,
+        'compact_label': compact_label,
+        'description': description,
+        'changed_rows': changed_rows,
+        'execution_reconciliation': {
+            'status': status,
+            'planned_total_tss': planned_total_tss,
+            'actual_total_tss': actual_total_tss,
+            'delta_tss': delta_tss,
+            'changed_day_count': changed_day_count,
+            'missed_day_count': missed_sessions,
+            'reduced_day_count': reduced_day_count,
+            'unavailable_day_count': unavailable_day_count,
+            'completion_share': completion_share if completion_share is not None else reduced_load_share,
+            'compact_label': compact_label,
+            'description': description,
+            'changed_rows': changed_rows,
+        } if execution_reconciliation else None,
         'is_active': status in {'skipped', 'reduced', 'unavailable'} and weeks > 0,
     }
 
 
 def _plan_adjustment_week_factor(plan_adjustment: Mapping[str, Any], week_index: int) -> float:
     status = str(plan_adjustment.get('status', 'none') or 'none').lower()
+    completion_share = plan_adjustment.get('completion_share')
+    try:
+        completion_share = float(completion_share) if completion_share is not None else None
+    except (TypeError, ValueError):
+        completion_share = None
+    if completion_share is not None and status in {'skipped', 'reduced', 'unavailable'}:
+        return min(1.0, max(0.0, completion_share + 0.10 * max(0, week_index)))
     if status == 'skipped':
         day_count = max(1, int(plan_adjustment.get('available_day_count', 1) or 1))
         missed_sessions = max(1, int(plan_adjustment.get('missed_sessions', 1) or 1))
@@ -189,6 +284,24 @@ def _plan_adjustment_week_factor(plan_adjustment: Mapping[str, Any], week_index:
 def _plan_adjustment_note(plan_adjustment: Mapping[str, Any], factor: float) -> str:
     status = str(plan_adjustment.get('status', 'none') or 'none').lower()
     percent = int(round(float(factor) * 100))
+    execution_reconciliation = plan_adjustment.get('execution_reconciliation')
+    if isinstance(execution_reconciliation, Mapping):
+        planned_total_tss = int(execution_reconciliation.get('planned_total_tss', 0) or 0)
+        actual_total_tss = int(execution_reconciliation.get('actual_total_tss', 0) or 0)
+        changed_day_count = int(execution_reconciliation.get('changed_day_count', 0) or 0)
+        unavailable_day_count = int(execution_reconciliation.get('unavailable_day_count', 0) or 0)
+        missed_day_count = int(execution_reconciliation.get('missed_day_count', 0) or 0)
+        reduced_day_count = int(execution_reconciliation.get('reduced_day_count', 0) or 0)
+        note = f"checkpoint: факт {actual_total_tss}/{planned_total_tss} TSS"
+        if unavailable_day_count > 0:
+            note += f" · недоступно {unavailable_day_count} дн."
+        elif missed_day_count > 0:
+            note += f" · пропуск {missed_day_count} дн."
+        elif reduced_day_count > 0:
+            note += f" · облегчено {reduced_day_count} дн."
+        elif changed_day_count > 0:
+            note += f" · изменено {changed_day_count} дн."
+        return f"{note} → {percent}%"
     if status == 'skipped':
         missed_sessions = max(1, int(plan_adjustment.get('missed_sessions', 1) or 1))
         return f"checkpoint: пропущено {missed_sessions} сесс. → {percent}%"
@@ -458,6 +571,12 @@ def apply_planning_constraints(
         summary_notes.append(
             f"Checkpoint: {normalized_adjustment['label']} на {normalized_adjustment['weeks']} нед."
         )
+        if normalized_adjustment.get('execution_reconciliation'):
+            summary_notes.append(
+                "Факт ближнего окна: "
+                f"{normalized_adjustment['actual_total_tss']} из {normalized_adjustment['planned_total_tss']} TSS, "
+                f"изменено {normalized_adjustment['changed_day_count']} дн."
+            )
         if plan_adjustment_loss > 0 and catch_up_strategy == 'catch_up':
             summary_notes.append(
                 f"Локальная перепланировка вернула {plan_adjustment_recovered} из {plan_adjustment_recoverable} TSS в ближайшем окне"

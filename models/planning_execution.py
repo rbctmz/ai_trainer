@@ -2,13 +2,257 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Dict, Mapping
+from typing import Any, Dict, List, Mapping
 
 from models.training_planner import (
     apply_planning_constraints,
     build_daily_session_templates,
     expand_weekly_to_daily_triathlon,
 )
+
+EXECUTION_DAY_OUTCOME_LABELS = {
+    "as_planned": "По плану",
+    "reduced": "Сделано легче",
+    "missed": "Пропущено",
+    "unavailable": "Недоступно",
+}
+
+
+def _coerce_float(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value if value is not None else default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _coerce_int(value: Any, default: int = 0) -> int:
+    try:
+        return int(value if value is not None else default)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _round_int(value: float) -> int:
+    return int(round(float(value or 0.0)))
+
+
+def _plan_adjustment_label(status: str) -> str:
+    mapping = {
+        "completed": "Выполнено по плану",
+        "skipped": "Пропущены сессии",
+        "reduced": "Нагрузка урезана",
+        "unavailable": "Неделя ограничена",
+        "none": "Нет",
+    }
+    return mapping.get((status or "none").lower(), "Нет")
+
+
+def build_execution_reconciliation_rows(
+    goal_plan: Mapping[str, Any],
+    *,
+    weeks: int = 1,
+) -> List[Dict[str, Any]]:
+    """Build editable day-level execution rows for the near-term horizon."""
+    daily_plan = list(goal_plan.get("daily_plan", []) or [])
+    session_templates = list(goal_plan.get("session_templates", []) or [])
+    horizon_days = min(len(daily_plan), max(1, int(weeks or 1)) * 7)
+    rows: List[Dict[str, Any]] = []
+
+    for index, daily_item in enumerate(daily_plan[:horizon_days]):
+        if not isinstance(daily_item, (list, tuple)) or len(daily_item) < 3:
+            continue
+        dt, total_tss, parts = daily_item
+        session_template = session_templates[index] if index < len(session_templates) else {}
+        date_value = dt.date() if isinstance(dt, datetime) else dt
+        sport = str((session_template or {}).get("sport") or "").strip() or "—"
+        session_role = str((session_template or {}).get("session_role") or "").strip() or "—"
+        session_name = str((session_template or {}).get("export_name") or "").strip() or "Сессия"
+        rows.append(
+            {
+                "index": index,
+                "week_index": index // 7,
+                "date": date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value),
+                "date_label": date_value.strftime("%a %d.%m") if hasattr(date_value, "strftime") else str(date_value),
+                "phase": str((session_template or {}).get("phase") or "—"),
+                "sport": sport,
+                "session_role": session_role,
+                "session_name": session_name,
+                "planned_total_tss": _round_int(_coerce_float(total_tss)),
+                "planned_parts": dict(parts or {}),
+                "planned_duration_minutes": _coerce_int((session_template or {}).get("duration_minutes"), 0),
+                "outcome": "as_planned",
+                "actual_total_tss": _round_int(_coerce_float(total_tss)),
+            }
+        )
+    return rows
+
+
+def summarize_execution_reconciliation(
+    execution_reconciliation: Mapping[str, Any] | None,
+) -> Dict[str, Any] | None:
+    """Normalize a persisted day-level execution reconciliation summary."""
+    if not isinstance(execution_reconciliation, Mapping):
+        return None
+
+    planned_total_tss = _round_int(_coerce_float(execution_reconciliation.get("planned_total_tss")))
+    actual_total_tss = _round_int(_coerce_float(execution_reconciliation.get("actual_total_tss")))
+    delta_tss = _round_int(_coerce_float(execution_reconciliation.get("delta_tss"), actual_total_tss - planned_total_tss))
+    changed_day_count = _coerce_int(execution_reconciliation.get("changed_day_count"))
+    missed_day_count = _coerce_int(execution_reconciliation.get("missed_day_count"))
+    reduced_day_count = _coerce_int(execution_reconciliation.get("reduced_day_count"))
+    unavailable_day_count = _coerce_int(execution_reconciliation.get("unavailable_day_count"))
+    completion_share = execution_reconciliation.get("completion_share")
+    if completion_share is None:
+        completion_share = (actual_total_tss / planned_total_tss) if planned_total_tss > 0 else 1.0
+    completion_share = max(0.0, min(1.0, _coerce_float(completion_share, 1.0)))
+    changed_rows = [
+        dict(row)
+        for row in execution_reconciliation.get("changed_rows", [])
+        if isinstance(row, dict)
+    ][:10]
+
+    status = str(execution_reconciliation.get("status") or "").strip().lower()
+    if not status:
+        if changed_day_count <= 0:
+            status = "completed"
+        elif unavailable_day_count > 0 and unavailable_day_count >= max(1, (changed_day_count + 1) // 2):
+            status = "unavailable"
+        elif missed_day_count > 0 and reduced_day_count == 0:
+            status = "skipped"
+        else:
+            status = "reduced"
+
+    compact_label = str(execution_reconciliation.get("compact_label") or "").strip()
+    if not compact_label:
+        compact_label = (
+            f"{actual_total_tss}/{planned_total_tss} TSS · {changed_day_count} дн. изменено"
+            if changed_day_count > 0
+            else f"{actual_total_tss}/{planned_total_tss} TSS"
+        )
+
+    description = str(execution_reconciliation.get("description") or "").strip()
+    if not description:
+        if changed_day_count <= 0:
+            description = "Ближнее окно выполнено по плану без отклонений."
+        else:
+            description = (
+                f"По факту выполнено {actual_total_tss} из {planned_total_tss} TSS; "
+                f"изменено {changed_day_count} дн."
+            )
+
+    return {
+        "status": status,
+        "status_label": _plan_adjustment_label(status),
+        "planned_total_tss": planned_total_tss,
+        "actual_total_tss": actual_total_tss,
+        "delta_tss": delta_tss,
+        "changed_day_count": changed_day_count,
+        "missed_day_count": missed_day_count,
+        "reduced_day_count": reduced_day_count,
+        "unavailable_day_count": unavailable_day_count,
+        "completion_share": completion_share,
+        "compact_label": compact_label,
+        "description": description,
+        "changed_rows": changed_rows,
+    }
+
+
+def summarize_execution_reconciliation_rows(
+    rows: List[Mapping[str, Any]] | None,
+) -> Dict[str, Any]:
+    """Summarize day-level execution facts into a compact local-replan input."""
+    planned_total_tss = 0
+    actual_total_tss = 0
+    changed_day_count = 0
+    missed_day_count = 0
+    reduced_day_count = 0
+    unavailable_day_count = 0
+    changed_rows: List[Dict[str, Any]] = []
+
+    for row in rows or []:
+        planned_tss = max(0, _round_int(_coerce_float(row.get("planned_total_tss"))))
+        outcome = str(row.get("outcome") or "as_planned").strip().lower()
+        planned_total_tss += planned_tss
+        actual_tss = planned_tss
+        if outcome == "reduced":
+            actual_tss = min(planned_tss, max(0, _round_int(_coerce_float(row.get("actual_total_tss"), planned_tss))))
+        elif outcome in {"missed", "unavailable"}:
+            actual_tss = 0
+
+        actual_total_tss += actual_tss
+        changed = outcome != "as_planned" or actual_tss != planned_tss
+        if not changed:
+            continue
+
+        changed_day_count += 1
+        if outcome == "missed":
+            missed_day_count += 1
+        elif outcome == "reduced":
+            reduced_day_count += 1
+        elif outcome == "unavailable":
+            unavailable_day_count += 1
+
+        changed_rows.append(
+            {
+                "Дата": str(row.get("date_label") or row.get("date") or ""),
+                "Сессия": str(row.get("session_name") or "Сессия"),
+                "План TSS": planned_tss,
+                "Факт TSS": actual_tss,
+                "Δ TSS": f"{actual_tss - planned_tss:+d}",
+                "Статус": EXECUTION_DAY_OUTCOME_LABELS.get(outcome, EXECUTION_DAY_OUTCOME_LABELS["as_planned"]),
+            }
+        )
+
+    completion_share = (actual_total_tss / planned_total_tss) if planned_total_tss > 0 else 1.0
+    if changed_day_count <= 0:
+        status = "completed"
+    elif unavailable_day_count > 0 and unavailable_day_count >= max(1, (changed_day_count + 1) // 2):
+        status = "unavailable"
+    elif missed_day_count > 0 and reduced_day_count == 0:
+        status = "skipped"
+    else:
+        status = "reduced"
+
+    summary = summarize_execution_reconciliation(
+        {
+            "status": status,
+            "planned_total_tss": planned_total_tss,
+            "actual_total_tss": actual_total_tss,
+            "delta_tss": actual_total_tss - planned_total_tss,
+            "changed_day_count": changed_day_count,
+            "missed_day_count": missed_day_count,
+            "reduced_day_count": reduced_day_count,
+            "unavailable_day_count": unavailable_day_count,
+            "completion_share": completion_share,
+            "changed_rows": changed_rows,
+        }
+    )
+    assert summary is not None
+    return summary
+
+
+def build_execution_plan_adjustment(
+    goal_plan: Mapping[str, Any],
+    rows: List[Mapping[str, Any]] | None,
+    *,
+    weeks: int = 1,
+) -> Dict[str, Any]:
+    """Convert day-level execution facts into a plan-adjustment payload."""
+    summary = summarize_execution_reconciliation_rows(rows)
+    status = str(summary["status"] or "completed")
+    available_day_count = _coerce_int((goal_plan.get("constraint_summary", {}) or {}).get("available_day_count"), 0)
+    missed_sessions = summary["missed_day_count"] + summary["unavailable_day_count"]
+
+    return {
+        "status": status,
+        "label": _plan_adjustment_label(status),
+        "weeks": max(1, int(weeks or 1)) if status != "none" else 0,
+        "missed_sessions": missed_sessions,
+        "reduced_load_share": max(0.35, min(0.95, float(summary["completion_share"]))),
+        "completion_share": float(summary["completion_share"]),
+        "available_day_count": max(1, available_day_count),
+        "execution_reconciliation": summary,
+    }
 
 
 def _coerce_start_week(goal_plan: Mapping[str, Any]) -> date:
@@ -101,4 +345,11 @@ def rebuild_goal_plan_with_adjustment(
     }
 
 
-__all__ = ["rebuild_goal_plan_with_adjustment"]
+__all__ = [
+    "EXECUTION_DAY_OUTCOME_LABELS",
+    "build_execution_plan_adjustment",
+    "build_execution_reconciliation_rows",
+    "rebuild_goal_plan_with_adjustment",
+    "summarize_execution_reconciliation",
+    "summarize_execution_reconciliation_rows",
+]
