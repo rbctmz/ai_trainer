@@ -84,6 +84,11 @@ def render_garmin_connection(
                             else:
                                 error = garmin_service.auth_error(state) or "Неизвестно"
                                 st.error(f"❌ Ошибка подключения: {error}")
+                                auth_debug = garmin_service.connection_info(state)
+                                raw_auth_error = str(auth_debug.get("auth_error_raw") or "").strip()
+                                if raw_auth_error and raw_auth_error != error:
+                                    with st.expander("Технические детали авторизации"):
+                                        st.code(raw_auth_error)
                     else:
                         st.warning("Введите email и пароль")
             return

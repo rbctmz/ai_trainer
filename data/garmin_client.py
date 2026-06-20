@@ -17,12 +17,73 @@ except ImportError:
         GARTH_AVAILABLE = False
         print("WARNING: garth_client не найден, использование только garminconnect")
 
+
+def _summarize_auth_error(error):
+    """Normalize noisy garminconnect auth failures into one actionable message."""
+    raw_message = str(error or "").strip()
+    normalized = raw_message.lower()
+    has_rate_limit = "429" in normalized or "rate limited" in normalized
+    has_invalid_credentials = (
+        "401 unauthorized" in normalized
+        or "invalid username or password" in normalized
+    )
+    has_widget_fallback_noise = (
+        "unexpected title" in normalized
+        or "garmin authentication application" in normalized
+    )
+
+    detail_parts = []
+    if has_rate_limit:
+        detail_parts.append("Garmin временно ограничил вход с этого IP (429).")
+    if has_invalid_credentials:
+        detail_parts.append("Garmin также вернул 401 Unauthorized.")
+    if has_widget_fallback_noise:
+        detail_parts.append("Встроенный widget fallback тоже не подтвердил логин.")
+
+    if has_rate_limit and has_invalid_credentials:
+        summary = (
+            "Garmin временно ограничил вход с этого IP (429), а повторная авторизация "
+            "завершилась 401 Unauthorized. Подождите 30-60 минут или смените сеть, "
+            "затем перепроверьте логин и пароль."
+        )
+        kind = "rate_limited_with_401"
+    elif has_rate_limit:
+        summary = (
+            "Garmin временно ограничил вход с этого IP (429). "
+            "Подождите 30-60 минут или попробуйте другую сеть."
+        )
+        kind = "rate_limited"
+    elif has_invalid_credentials:
+        summary = (
+            "Garmin отклонил логин или пароль (401 Unauthorized). "
+            "Проверьте введенные учетные данные."
+        )
+        kind = "invalid_credentials"
+    elif has_widget_fallback_noise:
+        summary = (
+            "Garmin не подтвердил fallback-авторизацию через widget flow. "
+            "Попробуйте повторить вход позже."
+        )
+        kind = "widget_fallback"
+    else:
+        summary = raw_message or "Не удалось авторизоваться в Garmin Connect."
+        kind = "unknown"
+
+    return {
+        "kind": kind,
+        "summary": summary,
+        "details": " ".join(detail_parts).strip(),
+        "raw": raw_message,
+    }
+
 class GarminClient:
     def __init__(self):
         self.client = None
         self.garth_client = GarthClient() if GARTH_AVAILABLE else None
         self.is_authenticated = False
         self.auth_error = None
+        self.auth_error_raw = None
+        self.auth_error_kind = None
         self.last_error = None
         self.use_garth = False
 
@@ -51,15 +112,22 @@ class GarminClient:
             self.client.login()
             self.is_authenticated = True
             self.auth_error = None
+            self.auth_error_raw = None
+            self.auth_error_kind = None
             self._clear_last_error()
             self.use_garth = False
             print("DEBUG: Авторизация через garminconnect успешна")
             return True
         except Exception as e:
-            self.auth_error = str(e)
+            error_info = _summarize_auth_error(e)
+            self.auth_error = error_info["summary"]
+            self.auth_error_raw = error_info["raw"]
+            self.auth_error_kind = error_info["kind"]
             self.is_authenticated = False
             self.use_garth = False
-            print(f"DEBUG: Ошибка авторизации через garminconnect: {e}")
+            print(f"DEBUG: Ошибка авторизации через garminconnect: {self.auth_error}")
+            if self.auth_error_raw and self.auth_error_raw != self.auth_error:
+                print(f"DEBUG: Технические детали авторизации Garmin: {self.auth_error_raw}")
             return False
     
     def get_activities(self, start_date, end_date, limit=100):
@@ -276,6 +344,8 @@ class GarminClient:
             self.garth_client.disconnect()
         self.is_authenticated = False
         self.auth_error = None
+        self.auth_error_raw = None
+        self.auth_error_kind = None
         self._clear_last_error()
         self.use_garth = False
     
@@ -495,5 +565,7 @@ class GarminClient:
             "garth_mode": "legacy_diagnostic",
             "garth_runtime": garth_runtime,
             "auth_error": self.auth_error,
+            "auth_error_raw": self.auth_error_raw,
+            "auth_error_kind": self.auth_error_kind,
             "last_error": self.last_error,
         }
