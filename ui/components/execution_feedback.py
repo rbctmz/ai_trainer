@@ -189,6 +189,24 @@ def _partition_execution_row_states(
     return attention_rows, quiet_rows
 
 
+def _split_execution_row_states(
+    row_states: List[Mapping[str, Any]],
+    *,
+    focused_date: str = "",
+) -> tuple[Mapping[str, Any] | None, List[Mapping[str, Any]], List[Mapping[str, Any]]]:
+    normalized_focus = str(focused_date or "").strip()
+    focused_row_state: Mapping[str, Any] | None = None
+    remaining_states: List[Mapping[str, Any]] = []
+    for row_state in row_states:
+        row_date = str((row_state.get("row") or {}).get("date") or "").strip()
+        if normalized_focus and focused_row_state is None and row_date == normalized_focus:
+            focused_row_state = row_state
+        else:
+            remaining_states.append(row_state)
+    attention_rows, quiet_rows = _partition_execution_row_states(remaining_states)
+    return focused_row_state, attention_rows, quiet_rows
+
+
 def _render_execution_day_editor_row(
     row_state: Mapping[str, Any],
 ) -> Dict[str, Any]:
@@ -260,6 +278,7 @@ def render_execution_feedback_editor(
     key_prefix: str,
     title: str = "### ♻️ Факт выполнения",
     allow_open_as_draft: bool = False,
+    focus_state_key: str | None = None,
 ) -> Dict[str, Any] | None:
     """Render a shared editor that converts execution facts into a local-replan payload."""
     if not isinstance(goal_plan, Mapping) or not goal_plan:
@@ -272,6 +291,16 @@ def render_execution_feedback_editor(
     max_weeks = min(2, max(1, (len(daily_plan) + 6) // 7))
     status_by_label = {label: code for code, label in QUICK_EXECUTION_LABELS.items()}
     strategy_by_label = {label: code for code, label in EXECUTION_RESPONSE_STRATEGY_LABELS.items()}
+
+    if focus_state_key:
+        pending_weeks = st.session_state.pop(f"{focus_state_key}_weeks_pending", None)
+        if pending_weeks is not None:
+            try:
+                resolved_pending_weeks = max(1, min(max_weeks, int(pending_weeks)))
+            except (TypeError, ValueError):
+                resolved_pending_weeks = None
+            if resolved_pending_weeks is not None:
+                st.session_state[f"{key_prefix}_weeks"] = resolved_pending_weeks
 
     st.markdown(title)
     with st.container(border=True):
@@ -447,11 +476,36 @@ def render_execution_feedback_editor(
                     }
                 )
 
-            attention_row_states, quiet_row_states = _partition_execution_row_states(row_states)
+            focused_date = str(st.session_state.get(focus_state_key) or "").strip() if focus_state_key else ""
+            focused_row_state, attention_row_states, quiet_row_states = _split_execution_row_states(
+                row_states,
+                focused_date=focused_date,
+            )
             edited_rows = []
+            if focused_row_state is not None:
+                focused_row = dict(focused_row_state.get("row") or {})
+                with st.container(border=True):
+                    banner_cols = st.columns([4, 1])
+                    with banner_cols[0]:
+                        st.markdown(
+                            f"**Фокус дня: {focused_row.get('date_label', focused_row.get('date', ''))}**"
+                        )
+                        st.caption(
+                            "Этот день был выбран из недельного блока «План и факт» и вынесен наверх."
+                        )
+                    with banner_cols[1]:
+                        if focus_state_key and st.button(
+                            "Сбросить фокус",
+                            key=f"{key_prefix}_clear_focus_day",
+                            width="stretch",
+                        ):
+                            st.session_state.pop(focus_state_key, None)
+                            st.rerun()
+                edited_rows.append(_render_execution_day_editor_row(focused_row_state))
             if attention_row_states:
                 quiet_count = len(quiet_row_states)
-                spotlight_label = f"{len(attention_row_states)} дн."
+                spotlight_count = len(attention_row_states) + (1 if focused_row_state is not None else 0)
+                spotlight_label = f"{spotlight_count} дн."
                 if quiet_count > 0:
                     st.caption(
                         "Сначала показаны дни с отклонением или локальным Garmin sync: "

@@ -18,6 +18,7 @@ from models.planning_near_term import build_near_term_edit_seed_from_goal_plans
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
 from ui.components.execution_feedback import (
     _build_follow_up_preview_rows,
+    _split_execution_row_states,
     _partition_execution_row_states,
     _resolve_actual_tss_value,
     _row_state_needs_attention,
@@ -557,3 +558,33 @@ def test_execution_feedback_partition_puts_signal_rows_first():
 
     assert [item["row"]["index"] for item in attention_states] == [1, 2]
     assert [item["row"]["index"] for item in quiet_states] == [0, 3]
+
+
+def test_execution_feedback_split_can_focus_quiet_day_above_signal_groups():
+    row_states = [
+        {
+            "row": {"index": 0, "date": "2026-06-22", "planned_total_tss": 40},
+            "outcome_code": "as_planned",
+            "resolved_actual_tss": 40,
+        },
+        {
+            "row": {"index": 1, "date": "2026-06-23", "planned_total_tss": 55, "activity_prefill_source": "garmin_local"},
+            "outcome_code": "as_planned",
+            "resolved_actual_tss": 55,
+        },
+        {
+            "row": {"index": 2, "date": "2026-06-24", "planned_total_tss": 60},
+            "outcome_code": "missed",
+            "resolved_actual_tss": 0,
+        },
+    ]
+
+    focused_state, attention_states, quiet_states = _split_execution_row_states(
+        row_states,
+        focused_date="2026-06-22",
+    )
+
+    assert focused_state is not None
+    assert focused_state["row"]["index"] == 0
+    assert [item["row"]["index"] for item in attention_states] == [1, 2]
+    assert quiet_states == []

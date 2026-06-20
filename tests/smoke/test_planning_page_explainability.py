@@ -16,6 +16,7 @@ from ui.pages.planning import (
     _build_daily_session_rows,
     _build_plan_fact_calendar_markup,
     _build_plan_fact_calendar_rows,
+    _build_plan_fact_week_summary,
     _build_goal_plan_transition_preview,
     _build_near_term_draft_preview,
     _build_plan_explainability,
@@ -391,6 +392,28 @@ def test_build_plan_fact_calendar_markup_is_compact_html():
     assert markup.count("class='pfv-card'") == 7
     assert "</div><div class='pfv-card'" in markup
     assert "\n" not in markup
+
+
+def test_build_plan_fact_week_summary_counts_signal_states():
+    summary = _build_plan_fact_week_summary(
+        [
+            {"status": "matched"},
+            {"status": "matched"},
+            {"status": "other_sport"},
+            {"status": "planned_only"},
+            {"status": "unplanned_actual"},
+            {"status": "upcoming"},
+            {"status": "off_day"},
+        ]
+    )
+
+    assert summary == {
+        "matched": 2,
+        "mismatch": 2,
+        "prefill_ready": 2,
+        "unplanned_actual": 1,
+        "upcoming": 1,
+    }
 
 
 def test_build_daily_session_rows_uses_week_structure_metadata():

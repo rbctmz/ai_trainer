@@ -555,6 +555,7 @@ def _build_plan_fact_calendar_rows(
         status_meta = PLAN_FACT_STATUS_META[status]
         rows.append(
             {
+                "absolute_index": absolute_index,
                 "date": day_date.isoformat(),
                 "date_label": _format_calendar_day_label(day_date),
                 "status": status,
@@ -575,6 +576,28 @@ def _build_plan_fact_calendar_rows(
         )
 
     return rows
+
+
+def _build_plan_fact_week_summary(rows: List[Dict[str, Any]]) -> Dict[str, int]:
+    summary = {
+        "matched": 0,
+        "mismatch": 0,
+        "prefill_ready": 0,
+        "unplanned_actual": 0,
+        "upcoming": 0,
+    }
+    for row in rows:
+        status = str(row.get("status") or "").strip()
+        if status == "matched":
+            summary["matched"] += 1
+            summary["prefill_ready"] += 1
+        elif status in {"other_sport", "planned_only"}:
+            summary["mismatch"] += 1
+        elif status == "unplanned_actual":
+            summary["unplanned_actual"] += 1
+        elif status == "upcoming":
+            summary["upcoming"] += 1
+    return summary
 
 
 def _build_plan_fact_calendar_markup(rows: List[Dict[str, Any]]) -> str:
@@ -620,6 +643,7 @@ def _render_plan_fact_calendar(
     *,
     key_prefix: str,
     title: str,
+    focus_state_key: str | None = None,
 ) -> None:
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
     if not daily_plan:
@@ -656,6 +680,19 @@ def _render_plan_fact_calendar(
     if not rows:
         st.info("Для выбранной недели пока нет данных плана.")
         return
+
+    week_summary = _build_plan_fact_week_summary(rows)
+    metric_cols = st.columns(5)
+    with metric_cols[0]:
+        st.metric("Совпало", week_summary["matched"])
+    with metric_cols[1]:
+        st.metric("Нужны проверки", week_summary["mismatch"])
+    with metric_cols[2]:
+        st.metric("Garmin-prefill", week_summary["prefill_ready"])
+    with metric_cols[3]:
+        st.metric("Вне плана", week_summary["unplanned_actual"])
+    with metric_cols[4]:
+        st.metric("Впереди", week_summary["upcoming"])
 
     st.markdown(
         """
@@ -721,6 +758,26 @@ def _render_plan_fact_calendar(
         unsafe_allow_html=True,
     )
     st.markdown(_build_plan_fact_calendar_markup(rows), unsafe_allow_html=True)
+    if focus_state_key:
+        st.caption("Быстрый переход в редактор факта по дню недели.")
+        current_focus = str(st.session_state.get(focus_state_key) or "").strip()
+        for chunk_start in range(0, len(rows), 4):
+            chunk = rows[chunk_start:chunk_start + 4]
+            cols = st.columns(len(chunk))
+            for col, row in zip(cols, chunk):
+                with col:
+                    is_selected = current_focus == str(row["date"])
+                    if st.button(
+                        f"Открыть {row['date_label']}",
+                        key=f"{key_prefix}_focus_day_{row['date']}",
+                        type="primary" if is_selected else "secondary",
+                        width="stretch",
+                    ):
+                        st.session_state[focus_state_key] = str(row["date"])
+                        st.session_state[f"{focus_state_key}_weeks_pending"] = (
+                            2 if int(row.get("absolute_index", 0) or 0) >= 7 else 1
+                        )
+                        st.rerun()
 
 
 def _build_near_term_draft_preview(
@@ -2025,6 +2082,7 @@ def render_planning_page(state: "StateManager") -> None:
                 activities_df,
                 key_prefix="planning_plan_fact_review",
                 title="### 🗓️ План и факт по неделе",
+                focus_state_key="planning_execution_feedback_focus_day",
             )
 
             execution_feedback_result = render_execution_feedback_editor(
@@ -2032,6 +2090,7 @@ def render_planning_page(state: "StateManager") -> None:
                 key_prefix="planning_execution_feedback",
                 title="### ♻️ Факт выполнения по дням",
                 allow_open_as_draft=True,
+                focus_state_key="planning_execution_feedback_focus_day",
             )
             if execution_feedback_result is not None:
                 latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
@@ -2333,6 +2392,7 @@ def render_planning_page(state: "StateManager") -> None:
                 activities_df,
                 key_prefix="planning_plan_fact_export",
                 title="#### Недельный overlay плана и факта",
+                focus_state_key="planning_execution_feedback_focus_day",
             )
 
         near_term_export_summary = summarize_near_term_edit(goal_plan.get("constraint_summary", {}))
