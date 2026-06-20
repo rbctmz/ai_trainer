@@ -1,6 +1,7 @@
 """Training planning page renderer."""
 from __future__ import annotations
 
+import html
 from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Dict, List
 
@@ -37,6 +38,53 @@ PLANNING_WORKSPACE_MODES = (
     "Скорректировать выполнение",
     "Экспорт и детали",
 )
+SPORT_LABELS_RU = {
+    "run": "бег",
+    "bike": "вело",
+    "swim": "плавание",
+    "strength": "силовая",
+    "gym": "зал",
+    "walk": "ходьба",
+}
+WEEKDAY_SHORT_LABELS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+PLAN_FACT_STATUS_META = {
+    "matched": {
+        "label": "Совпадает",
+        "badge_bg": "#dcfce7",
+        "badge_fg": "#166534",
+        "card_border": "#22c55e",
+    },
+    "other_sport": {
+        "label": "Другой спорт",
+        "badge_bg": "#fef3c7",
+        "badge_fg": "#92400e",
+        "card_border": "#f59e0b",
+    },
+    "planned_only": {
+        "label": "Нет факта",
+        "badge_bg": "#fee2e2",
+        "badge_fg": "#991b1b",
+        "card_border": "#ef4444",
+    },
+    "upcoming": {
+        "label": "Впереди",
+        "badge_bg": "#dbeafe",
+        "badge_fg": "#1d4ed8",
+        "card_border": "#3b82f6",
+    },
+    "off_day": {
+        "label": "Отдых",
+        "badge_bg": "#e5e7eb",
+        "badge_fg": "#374151",
+        "card_border": "#9ca3af",
+    },
+    "unplanned_actual": {
+        "label": "Вне плана",
+        "badge_bg": "#ede9fe",
+        "badge_fg": "#6d28d9",
+        "card_border": "#8b5cf6",
+    },
+}
 
 
 def _strategy_label(strategy: str) -> str:
@@ -321,6 +369,351 @@ def _build_daily_session_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]
         )
 
     return rows
+
+
+def _normalize_plan_fact_sport(value: Any) -> str:
+    normalized = str(value or "").strip().lower()
+    if not normalized or normalized in {"—", "off", "rest"}:
+        return ""
+    if any(token in normalized for token in ("swim", "swimming", "плав")):
+        return "swim"
+    if any(token in normalized for token in ("bike", "cycling", "cycle", "ride", "вело", "велосип")):
+        return "bike"
+    if any(token in normalized for token in ("run", "running", "бег")):
+        return "run"
+    if any(token in normalized for token in ("strength", "gym", "сил", "зал")):
+        return "gym"
+    if any(token in normalized for token in ("walk", "ход")):
+        return "walk"
+    return normalized
+
+
+def _coerce_calendar_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if hasattr(value, "to_pydatetime"):
+        try:
+            return value.to_pydatetime().date()
+        except Exception:
+            return None
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _format_duration_label(value: Any) -> str:
+    minutes = max(0, int(round(float(value or 0.0))))
+    if minutes <= 0:
+        return "0 мин"
+    hours, remainder = divmod(minutes, 60)
+    if hours <= 0:
+        return f"{remainder} мин"
+    return f"{hours} ч {remainder:02d} м" if remainder else f"{hours} ч"
+
+
+def _format_calendar_day_label(day_date: date) -> str:
+    weekday_label = WEEKDAY_SHORT_LABELS_RU[day_date.weekday()]
+    return f"{weekday_label} {day_date.strftime('%d.%m')}"
+
+
+def _build_plan_fact_activity_index(activities_df: pd.DataFrame | None) -> Dict[str, Dict[str, Any]]:
+    if activities_df is None or activities_df.empty or "date" not in activities_df.columns:
+        return {}
+
+    normalized_df = activities_df.copy()
+    normalized_df["date"] = pd.to_datetime(normalized_df["date"], errors="coerce").dt.normalize()
+    normalized_df = normalized_df[normalized_df["date"].notna()]
+    if normalized_df.empty:
+        return {}
+
+    sport_series = (
+        normalized_df["sport"]
+        if "sport" in normalized_df.columns
+        else pd.Series([""] * len(normalized_df), index=normalized_df.index)
+    )
+    duration_series = (
+        normalized_df["duration_minutes"]
+        if "duration_minutes" in normalized_df.columns
+        else pd.Series([0.0] * len(normalized_df), index=normalized_df.index)
+    )
+    tss_series = (
+        normalized_df["tss"]
+        if "tss" in normalized_df.columns
+        else pd.Series([0.0] * len(normalized_df), index=normalized_df.index)
+    )
+    normalized_df["normalized_sport"] = sport_series.apply(_normalize_plan_fact_sport)
+    normalized_df["duration_minutes"] = pd.to_numeric(duration_series, errors="coerce").fillna(0.0)
+    normalized_df["tss"] = pd.to_numeric(tss_series, errors="coerce").fillna(0.0)
+
+    by_date: Dict[str, Dict[str, Any]] = {}
+    for day_value, day_df in normalized_df.groupby(normalized_df["date"].dt.date):
+        if day_df.empty:
+            continue
+        main_row = day_df.sort_values(["duration_minutes", "tss"], ascending=False).iloc[0]
+        sport_breakdown: Dict[str, Dict[str, Any]] = {}
+        for sport_key, sport_df in day_df.groupby("normalized_sport"):
+            if not sport_key:
+                continue
+            sport_breakdown[str(sport_key)] = {
+                "count": int(len(sport_df)),
+                "total_tss": round(float(sport_df["tss"].sum()), 1),
+                "total_duration_minutes": round(float(sport_df["duration_minutes"].sum()), 1),
+            }
+        by_date[day_value.isoformat()] = {
+            "date": day_value.isoformat(),
+            "activity_count": int(len(day_df)),
+            "actual_total_tss": round(float(day_df["tss"].sum()), 1),
+            "actual_total_duration_minutes": round(float(day_df["duration_minutes"].sum()), 1),
+            "main_sport": str(main_row.get("normalized_sport") or ""),
+            "main_sport_label": SPORT_LABELS_RU.get(
+                str(main_row.get("normalized_sport") or ""),
+                str(main_row.get("sport") or "другая активность"),
+            ),
+            "sport_breakdown": sport_breakdown,
+        }
+    return by_date
+
+
+def _resolve_plan_fact_calendar_default_week(
+    goal_plan: Dict[str, Any],
+    *,
+    reference_date: date | None = None,
+) -> int:
+    daily_plan = list(goal_plan.get("daily_plan", []) or [])
+    if not daily_plan:
+        return 0
+
+    reference = reference_date or datetime.now().date()
+    first_day = _coerce_calendar_date(daily_plan[0][0] if daily_plan and isinstance(daily_plan[0], (list, tuple)) else None)
+    if first_day is None:
+        return 0
+    if reference <= first_day:
+        return 0
+
+    total_weeks = max(1, (len(daily_plan) + 6) // 7)
+    week_index = (reference - first_day).days // 7
+    return max(0, min(total_weeks - 1, int(week_index)))
+
+
+def _build_plan_fact_calendar_rows(
+    goal_plan: Dict[str, Any],
+    activities_df: pd.DataFrame | None,
+    *,
+    week_index: int,
+    reference_date: date | None = None,
+) -> List[Dict[str, Any]]:
+    daily_plan = list(goal_plan.get("daily_plan", []) or [])
+    session_templates = list(goal_plan.get("session_templates", []) or [])
+    if not daily_plan:
+        return []
+
+    start = max(0, int(week_index or 0) * 7)
+    end = min(len(daily_plan), start + 7)
+    activity_index = _build_plan_fact_activity_index(activities_df)
+    today = reference_date or datetime.now().date()
+    rows: List[Dict[str, Any]] = []
+
+    for offset, daily_item in enumerate(daily_plan[start:end]):
+        if not isinstance(daily_item, (list, tuple)) or len(daily_item) < 3:
+            continue
+        dt, total_tss, _parts = daily_item
+        day_date = _coerce_calendar_date(dt)
+        if day_date is None:
+            continue
+        absolute_index = start + offset
+        session_template = session_templates[absolute_index] if absolute_index < len(session_templates) else {}
+        planned_total_tss = round(float(total_tss or 0.0), 1)
+        planned_sport = _normalize_plan_fact_sport(session_template.get("sport"))
+        planned_duration_minutes = int(session_template.get("duration_minutes", 0) or 0)
+        actual_summary = activity_index.get(day_date.isoformat(), {})
+        actual_count = int(actual_summary.get("activity_count", 0) or 0)
+        actual_main_sport = str(actual_summary.get("main_sport") or "")
+
+        if planned_total_tss <= 0 and actual_count > 0:
+            status = "unplanned_actual"
+        elif planned_total_tss <= 0:
+            status = "off_day"
+        elif actual_count <= 0 and day_date > today:
+            status = "upcoming"
+        elif actual_count <= 0:
+            status = "planned_only"
+        elif planned_sport and planned_sport == actual_main_sport:
+            status = "matched"
+        else:
+            status = "other_sport"
+
+        status_meta = PLAN_FACT_STATUS_META[status]
+        rows.append(
+            {
+                "date": day_date.isoformat(),
+                "date_label": _format_calendar_day_label(day_date),
+                "status": status,
+                "status_label": status_meta["label"],
+                "badge_bg": status_meta["badge_bg"],
+                "badge_fg": status_meta["badge_fg"],
+                "card_border": status_meta["card_border"],
+                "planned_session_name": str(session_template.get("export_name") or "Сессия").strip(),
+                "planned_sport": planned_sport,
+                "planned_sport_label": SPORT_LABELS_RU.get(planned_sport, planned_sport or "—"),
+                "planned_total_tss": planned_total_tss,
+                "planned_duration_label": _format_duration_label(planned_duration_minutes),
+                "actual_activity_count": actual_count,
+                "actual_total_tss": round(float(actual_summary.get("actual_total_tss", 0.0) or 0.0), 1),
+                "actual_duration_label": _format_duration_label(actual_summary.get("actual_total_duration_minutes", 0.0)),
+                "actual_sport_label": str(actual_summary.get("main_sport_label") or "—").strip() or "—",
+            }
+        )
+
+    return rows
+
+
+def _render_plan_fact_calendar(
+    goal_plan: Dict[str, Any],
+    activities_df: pd.DataFrame | None,
+    *,
+    key_prefix: str,
+    title: str,
+) -> None:
+    daily_plan = list(goal_plan.get("daily_plan", []) or [])
+    if not daily_plan:
+        return
+
+    total_weeks = max(1, (len(daily_plan) + 6) // 7)
+    weekly_summary = list(goal_plan.get("weekly_summary", []) or [])
+    default_week_index = _resolve_plan_fact_calendar_default_week(goal_plan)
+    week_options = list(range(total_weeks))
+    option_labels = []
+    for idx in week_options:
+        if idx < len(weekly_summary) and weekly_summary[idx].get("week_start") is not None:
+            week_start = weekly_summary[idx]["week_start"]
+            option_labels.append(f"Неделя {idx + 1} · {week_start.strftime('%d.%m')}")
+        else:
+            option_labels.append(f"Неделя {idx + 1}")
+
+    st.markdown(title)
+    st.caption(
+        "Одна поверхность для проверки недели: сверху запланированная сессия, снизу факт из локального Garmin sync."
+    )
+    selected_label = st.selectbox(
+        "Неделя плана",
+        options=option_labels,
+        index=max(0, min(default_week_index, len(option_labels) - 1)),
+        key=f"{key_prefix}_week_index",
+    )
+    selected_week_index = option_labels.index(selected_label)
+    rows = _build_plan_fact_calendar_rows(
+        goal_plan,
+        activities_df,
+        week_index=selected_week_index,
+    )
+    if not rows:
+        st.info("Для выбранной недели пока нет данных плана.")
+        return
+
+    grid_cards: List[str] = []
+    for row in rows:
+        actual_block = (
+            f"<div class='pfv-actual-title'>Факт</div>"
+            f"<div class='pfv-actual-main'>{html.escape(str(row['actual_sport_label']))}</div>"
+            f"<div class='pfv-actual-meta'>{int(round(float(row['actual_total_tss'] or 0.0)))} TSS · "
+            f"{html.escape(str(row['actual_duration_label']))}</div>"
+            f"<div class='pfv-actual-meta'>{int(row['actual_activity_count'])} акт.</div>"
+            if int(row["actual_activity_count"] or 0) > 0
+            else "<div class='pfv-actual-empty'>Факт пока не найден</div>"
+        )
+        grid_cards.append(
+            f"""
+            <div class="pfv-card" style="border-top: 4px solid {row['card_border']};">
+              <div class="pfv-top">
+                <div class="pfv-day">{html.escape(str(row['date_label']))}</div>
+                <span class="pfv-badge" style="background:{row['badge_bg']}; color:{row['badge_fg']};">
+                  {html.escape(str(row['status_label']))}
+                </span>
+              </div>
+              <div class="pfv-plan-title">План</div>
+              <div class="pfv-plan-main">{html.escape(str(row['planned_session_name']))}</div>
+              <div class="pfv-plan-meta">{html.escape(str(row['planned_sport_label']))} · {int(round(float(row['planned_total_tss'] or 0.0)))} TSS</div>
+              <div class="pfv-plan-meta">{html.escape(str(row['planned_duration_label']))}</div>
+              <div class="pfv-divider"></div>
+              {actual_block}
+            </div>
+            """
+        )
+
+    st.markdown(
+        """
+        <style>
+        .pfv-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+          gap: 0.75rem;
+          margin: 0.5rem 0 1rem 0;
+        }
+        .pfv-card {
+          border-radius: 16px;
+          padding: 0.9rem;
+          background: rgba(255, 255, 255, 0.04);
+          box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+        }
+        .pfv-top {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 0.5rem;
+          margin-bottom: 0.75rem;
+        }
+        .pfv-day {
+          font-size: 0.95rem;
+          font-weight: 700;
+        }
+        .pfv-badge {
+          border-radius: 999px;
+          font-size: 0.72rem;
+          font-weight: 700;
+          padding: 0.2rem 0.55rem;
+          white-space: nowrap;
+        }
+        .pfv-plan-title, .pfv-actual-title {
+          font-size: 0.72rem;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          opacity: 0.72;
+          margin-bottom: 0.25rem;
+        }
+        .pfv-plan-main, .pfv-actual-main {
+          font-size: 0.88rem;
+          font-weight: 600;
+          line-height: 1.35;
+          margin-bottom: 0.2rem;
+        }
+        .pfv-plan-meta, .pfv-actual-meta, .pfv-actual-empty {
+          font-size: 0.8rem;
+          opacity: 0.86;
+          line-height: 1.35;
+        }
+        .pfv-actual-empty {
+          padding: 0.3rem 0 0.1rem 0;
+        }
+        .pfv-divider {
+          height: 1px;
+          background: rgba(148, 163, 184, 0.22);
+          margin: 0.7rem 0;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    st.markdown(f"<div class='pfv-grid'>{''.join(grid_cards)}</div>", unsafe_allow_html=True)
 
 
 def _build_near_term_draft_preview(
@@ -1620,6 +2013,12 @@ def render_planning_page(state: "StateManager") -> None:
                 title="Активный план для корректировки",
                 caption="Здесь остаются только execution feedback, ручной override ближнего горизонта и история версий.",
             )
+            _render_plan_fact_calendar(
+                goal_plan,
+                activities_df,
+                key_prefix="planning_plan_fact_review",
+                title="### 🗓️ План и факт по неделе",
+            )
 
             execution_feedback_result = render_execution_feedback_editor(
                 goal_plan,
@@ -1920,6 +2319,14 @@ def render_planning_page(state: "StateManager") -> None:
         df_daily = pd.DataFrame(daily_session_rows)
         with st.expander("🗓️ Структура Дней И Восстановления", expanded=False):
             st.dataframe(df_daily, width="stretch", hide_index=True)
+
+        with st.expander("🗓️ План и факт по неделе", expanded=False):
+            _render_plan_fact_calendar(
+                goal_plan,
+                activities_df,
+                key_prefix="planning_plan_fact_export",
+                title="#### Недельный overlay плана и факта",
+            )
 
         near_term_export_summary = summarize_near_term_edit(goal_plan.get("constraint_summary", {}))
         if near_term_export_summary is not None:

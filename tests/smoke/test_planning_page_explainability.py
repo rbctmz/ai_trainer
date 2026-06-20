@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
+import pandas as pd
 import pytest
 
 from models.planning_near_term import (
@@ -13,10 +14,12 @@ from models.training_planner import build_daily_session_templates, expand_weekly
 from ui.pages.planning import (
     _align_slider_value,
     _build_daily_session_rows,
+    _build_plan_fact_calendar_rows,
     _build_goal_plan_transition_preview,
     _build_near_term_draft_preview,
     _build_plan_explainability,
     _normalize_planning_workspace_mode,
+    _resolve_plan_fact_calendar_default_week,
     _resolve_planning_start_week,
     _resolve_near_term_tss_widget_max,
     _resolve_target_weekly_tss_control,
@@ -230,6 +233,128 @@ def test_resolve_planning_start_week_shifts_late_week_build_to_next_monday():
     assert _resolve_planning_start_week(date(2026, 6, 20)) == date(2026, 6, 22)
     assert _resolve_planning_start_week(date(2026, 6, 19)) == date(2026, 6, 22)
     assert _resolve_planning_start_week(date(2026, 6, 18)) == date(2026, 6, 15)
+
+
+def test_resolve_plan_fact_calendar_default_week_prefers_current_plan_week():
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        [220, 240, 180],
+        ["Base", "Build", "Taper"],
+        "Олимпийка",
+        date(2026, 6, 15),
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+    goal_plan = {
+        "daily_plan": daily_plan,
+        "weekly_summary": weekly_summary,
+    }
+
+    assert _resolve_plan_fact_calendar_default_week(goal_plan, reference_date=date(2026, 6, 15)) == 0
+    assert _resolve_plan_fact_calendar_default_week(goal_plan, reference_date=date(2026, 6, 23)) == 1
+    assert _resolve_plan_fact_calendar_default_week(goal_plan, reference_date=date(2026, 6, 30)) == 2
+
+
+def test_build_plan_fact_calendar_rows_merge_plan_and_same_day_activity():
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        [220, 240],
+        ["Base", "Build"],
+        "Олимпийка",
+        date(2026, 6, 15),
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+    session_templates = build_daily_session_templates(
+        daily_plan,
+        weekly_summary,
+        goal_type="Триатлон",
+        distance="Олимпийка",
+    )
+    goal_plan = {
+        "daily_plan": daily_plan,
+        "weekly_summary": weekly_summary,
+        "session_templates": session_templates,
+    }
+    target_idx = next(
+        index
+        for index, template in enumerate(session_templates[:7])
+        if str(template.get("sport") or "") == "bike"
+    )
+    target_date = session_templates[target_idx]["date"]
+    activities_df = pd.DataFrame(
+        [
+            {
+                "date": target_date,
+                "sport": "cycling",
+                "duration_minutes": 95,
+                "tss": 86,
+            }
+        ]
+    )
+
+    rows = _build_plan_fact_calendar_rows(
+        goal_plan,
+        activities_df,
+        week_index=0,
+        reference_date=date(2026, 6, 20),
+    )
+
+    matched_row = next(row for row in rows if row["date"] == target_date)
+    assert matched_row["status"] == "matched"
+    assert matched_row["date_label"] == "Пн 15.06"
+    assert matched_row["actual_sport_label"] == "вело"
+    assert matched_row["actual_activity_count"] == 1
+    assert matched_row["actual_total_tss"] == 86.0
+
+
+def test_build_plan_fact_calendar_rows_marks_other_sport_and_upcoming_days():
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        [220, 240],
+        ["Base", "Build"],
+        "Олимпийка",
+        date(2026, 6, 15),
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+    session_templates = build_daily_session_templates(
+        daily_plan,
+        weekly_summary,
+        goal_type="Триатлон",
+        distance="Олимпийка",
+    )
+    goal_plan = {
+        "daily_plan": daily_plan,
+        "weekly_summary": weekly_summary,
+        "session_templates": session_templates,
+    }
+    run_template = next(
+        template
+        for template in session_templates[:7]
+        if str(template.get("sport") or "") == "run"
+    )
+    activities_df = pd.DataFrame(
+        [
+            {
+                "date": run_template["date"],
+                "sport": "swimming",
+                "duration_minutes": 48,
+                "tss": 39,
+            }
+        ]
+    )
+
+    rows = _build_plan_fact_calendar_rows(
+        goal_plan,
+        activities_df,
+        week_index=0,
+        reference_date=date(2026, 6, 18),
+    )
+
+    mismatch_row = next(row for row in rows if row["date"] == run_template["date"])
+    upcoming_row = next(row for row in rows if row["date"] == "2026-06-20")
+    assert mismatch_row["status"] == "other_sport"
+    assert mismatch_row["date_label"] == "Чт 18.06"
+    assert mismatch_row["actual_sport_label"] == "плавание"
+    assert upcoming_row["status"] == "upcoming"
 
 
 def test_build_daily_session_rows_uses_week_structure_metadata():
