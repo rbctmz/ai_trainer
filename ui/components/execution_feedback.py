@@ -186,6 +186,23 @@ def _row_state_has_prefill(row_state: Mapping[str, Any]) -> bool:
     return bool(str(row.get("activity_prefill_source") or "").strip())
 
 
+def _resolve_execution_primary_action(
+    *,
+    real_deviation_count: int,
+    garmin_confirmation_count: int,
+    has_corrective_microcycle: bool,
+) -> Dict[str, str]:
+    if int(real_deviation_count or 0) <= 0 and int(garmin_confirmation_count or 0) > 0:
+        return {
+            "label": "✅ Подтвердить окно по Garmin",
+            "mode": "confirm_garmin_window",
+        }
+    return {
+        "label": "♻️ Применить local replan как есть" if has_corrective_microcycle else "♻️ Применить локальный replan",
+        "mode": "apply_replan",
+    }
+
+
 def _partition_execution_row_states(
     row_states: List[Mapping[str, Any]],
 ) -> tuple[List[Mapping[str, Any]], List[Mapping[str, Any]], List[Mapping[str, Any]]]:
@@ -309,6 +326,8 @@ def render_execution_feedback_editor(
     max_weeks = min(2, max(1, (len(daily_plan) + 6) // 7))
     status_by_label = {label: code for code, label in QUICK_EXECUTION_LABELS.items()}
     strategy_by_label = {label: code for code, label in EXECUTION_RESPONSE_STRATEGY_LABELS.items()}
+    real_deviation_count = 0
+    garmin_confirmation_count = 0
 
     if focus_state_key:
         pending_weeks = st.session_state.pop(f"{focus_state_key}_weeks_pending", None)
@@ -495,6 +514,12 @@ def render_execution_feedback_editor(
                 )
 
             focused_date = str(st.session_state.get(focus_state_key) or "").strip() if focus_state_key else ""
+            real_deviation_count = sum(1 for row_state in row_states if _row_state_has_real_deviation(row_state))
+            garmin_confirmation_count = sum(
+                1
+                for row_state in row_states
+                if _row_state_has_prefill(row_state) and not _row_state_has_real_deviation(row_state)
+            )
             (
                 focused_row_state,
                 deviation_row_states,
@@ -565,7 +590,7 @@ def render_execution_feedback_editor(
                     st.info(
                         "В этом окне реальные отклонения не найдены. "
                         f"Garmin уже предзаполнил {prefilled_count} дн.; "
-                        "можно сохранить checkpoint сразу или развернуть подтверждения ниже."
+                        "можно подтвердить окно по Garmin сразу или развернуть подтверждения ниже."
                     )
                 with st.expander(
                     f"Показать Garmin-подтверждения ({prefilled_count})",
@@ -812,10 +837,15 @@ def render_execution_feedback_editor(
             "Нет",
             "Выполнено по плану",
         }
+        primary_action = _resolve_execution_primary_action(
+            real_deviation_count=real_deviation_count,
+            garmin_confirmation_count=garmin_confirmation_count,
+            has_corrective_microcycle=bool(corrective_microcycle),
+        )
         action_cols = st.columns(2 if allow_open_as_draft and corrective_microcycle and is_actionable else 1)
         with action_cols[0]:
             if st.button(
-                "♻️ Применить local replan как есть" if corrective_microcycle else "♻️ Применить локальный replan",
+                primary_action["label"],
                 key=f"{key_prefix}_apply",
                 type="primary",
                 width="stretch",
@@ -825,7 +855,7 @@ def render_execution_feedback_editor(
                     "execution_summary": execution_summary,
                     "execution_adaptation_pressure": adaptation_pressure,
                     "weeks": weeks,
-                    "mode": "apply_replan",
+                    "mode": primary_action["mode"],
                     "source_mode": mode,
                 }
         if allow_open_as_draft and corrective_microcycle and is_actionable:

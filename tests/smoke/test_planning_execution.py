@@ -18,6 +18,7 @@ from models.planning_near_term import build_near_term_edit_seed_from_goal_plans
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
 from ui.components.execution_feedback import (
     _build_follow_up_preview_rows,
+    _resolve_execution_primary_action,
     _split_execution_row_states,
     _partition_execution_row_states,
     _resolve_actual_tss_value,
@@ -590,3 +591,22 @@ def test_execution_feedback_split_can_focus_quiet_day_above_signal_groups():
     assert [item["row"]["index"] for item in deviation_states] == [2]
     assert [item["row"]["index"] for item in prefilled_states] == [1]
     assert quiet_states == []
+
+
+def test_execution_primary_action_prefers_explicit_garmin_confirmation_for_clean_window():
+    assert _resolve_execution_primary_action(
+        real_deviation_count=0,
+        garmin_confirmation_count=2,
+        has_corrective_microcycle=False,
+    ) == {
+        "label": "✅ Подтвердить окно по Garmin",
+        "mode": "confirm_garmin_window",
+    }
+    assert _resolve_execution_primary_action(
+        real_deviation_count=1,
+        garmin_confirmation_count=2,
+        has_corrective_microcycle=True,
+    ) == {
+        "label": "♻️ Применить local replan как есть",
+        "mode": "apply_replan",
+    }

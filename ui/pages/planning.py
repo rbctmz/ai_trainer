@@ -2241,6 +2241,10 @@ def render_planning_page(state: "StateManager") -> None:
                         st.session_state["planning_near_term_flash"] += (
                             f" После окна: {execution_adaptation_pressure['follow_up_label']}."
                         )
+                elif execution_feedback_result.get("mode") == "confirm_garmin_window":
+                    st.session_state["planning_near_term_flash"] = (
+                        "Garmin-подтверждение сохранено: execution checkpoint зафиксировал окно как выполненное."
+                    )
                 else:
                     st.session_state["planning_near_term_flash"] = "Execution checkpoint сохранён."
                 st.rerun()
