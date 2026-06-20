@@ -87,6 +87,11 @@ def test_day_level_execution_rows_can_build_reduced_local_replan_payload():
     rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
     positive_rows = _positive_tss_row_indices(rows)
 
+    assert rows[0]["date_label"] == "Пн 15.06"
+    assert rows[0]["phase_label"] == "База"
+    assert rows[0]["sport_label"] == "вело"
+    assert rows[0]["session_role_label"] == "Легкая"
+
     rows[positive_rows[0]]["outcome"] = "missed"
     rows[positive_rows[1]]["outcome"] = "reduced"
     rows[positive_rows[1]]["actual_total_tss"] = max(
@@ -112,6 +117,7 @@ def test_day_level_execution_rows_can_build_reduced_local_replan_payload():
     assert corrective_microcycle["headline"]
     assert corrective_microcycle["sessions"]
     assert corrective_microcycle["today_action"]
+    assert corrective_microcycle["today_action"].startswith("Пн ")
 
 
 def test_day_level_execution_rows_can_escalate_to_unavailable_status():

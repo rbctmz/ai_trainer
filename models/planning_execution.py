@@ -10,6 +10,8 @@ from models.planning_summary import (
 )
 from models.training_planner import (
     SESSION_ROLE_LABELS_RU,
+    SPORT_LABELS_RU,
+    WEEKDAY_LABELS_RU,
     apply_planning_constraints,
     build_daily_session_templates,
     expand_weekly_to_daily_triathlon,
@@ -32,6 +34,12 @@ EXECUTION_CORRECTIVE_ACTION_LABELS = {
     "controlled_quality": "Сделать контролируемо",
     "single_key_stimulus": "Оставить одной ключевой работой",
     "hold_long_ceiling": "Не превращать в компенсацию",
+}
+PHASE_LABELS_RU = {
+    "base": "База",
+    "build": "Сборка",
+    "peak": "Пик",
+    "taper": "Подводка",
 }
 
 
@@ -133,6 +141,23 @@ def _selected_follow_up_reason(selected_mode: str, recommended_mode: str) -> str
 def _session_role_label(session_role: Any) -> str:
     normalized = str(session_role or "").strip().lower()
     return SESSION_ROLE_LABELS_RU.get(normalized, normalized or "—")
+
+
+def _sport_label(sport: Any) -> str:
+    normalized = str(sport or "").strip().lower()
+    return SPORT_LABELS_RU.get(normalized, normalized or "—")
+
+
+def _phase_label(phase: Any) -> str:
+    normalized = str(phase or "").strip().lower()
+    return PHASE_LABELS_RU.get(normalized, str(phase or "—").strip() or "—")
+
+
+def _date_label_ru(value: Any) -> str:
+    resolved = _coerce_date(value)
+    if resolved is None:
+        return str(value or "").strip()
+    return f"{WEEKDAY_LABELS_RU[resolved.weekday()]} {resolved.strftime('%d.%m')}"
 
 
 def _actual_tss_for_row(row: Mapping[str, Any]) -> int:
@@ -321,6 +346,7 @@ def build_execution_reconciliation_rows(
         date_value = dt.date() if isinstance(dt, datetime) else dt
         sport = str((session_template or {}).get("sport") or "").strip() or "—"
         session_role = str((session_template or {}).get("session_role") or "").strip() or "—"
+        phase = str((session_template or {}).get("phase") or "—")
         session_name = str((session_template or {}).get("export_name") or "").strip() or "Сессия"
         planned_total_tss = _round_int(_coerce_float(total_tss))
         planned_duration_minutes = _coerce_int((session_template or {}).get("duration_minutes"), 0)
@@ -328,10 +354,13 @@ def build_execution_reconciliation_rows(
             "index": index,
             "week_index": index // 7,
             "date": date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value),
-            "date_label": date_value.strftime("%a %d.%m") if hasattr(date_value, "strftime") else str(date_value),
-            "phase": str((session_template or {}).get("phase") or "—"),
+            "date_label": _date_label_ru(date_value),
+            "phase": phase,
+            "phase_label": _phase_label(phase),
             "sport": sport,
+            "sport_label": _sport_label(sport),
             "session_role": session_role,
+            "session_role_label": _session_role_label(session_role),
             "session_name": session_name,
             "planned_total_tss": planned_total_tss,
             "planned_parts": dict(parts or {}),
@@ -903,11 +932,12 @@ def build_execution_corrective_microcycle(
         session_rows.append(
             {
                 "date": date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value),
-                "date_label": date_value.strftime("%a %d.%m") if hasattr(date_value, "strftime") else str(date_value),
+                "date_label": _date_label_ru(date_value),
                 "session_name": str((session_template or {}).get("export_name") or "Сессия").strip(),
                 "session_role": str((session_template or {}).get("session_role") or "").strip().lower(),
                 "session_role_label": _session_role_label((session_template or {}).get("session_role")),
                 "sport": str((session_template or {}).get("sport") or "").strip(),
+                "sport_label": _sport_label((session_template or {}).get("sport")),
                 "planned_total_tss": planned_total_tss,
                 "planned_duration_minutes": _coerce_int((session_template or {}).get("duration_minutes")),
                 "delta_tss": delta_tss,
@@ -1010,7 +1040,7 @@ def summarize_execution_reconciliation_rows(
             {
                 "Дата": str(row.get("date_label") or row.get("date") or ""),
                 "Сессия": str(row.get("session_name") or "Сессия"),
-                "Роль": str(row.get("session_role") or "—"),
+                "Роль": str(row.get("session_role_label") or row.get("session_role") or "—"),
                 "План TSS": planned_tss,
                 "Факт TSS": actual_tss,
                 "Δ TSS": f"{actual_tss - planned_tss:+d}",

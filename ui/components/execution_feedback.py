@@ -343,9 +343,11 @@ def render_execution_feedback_editor(
                 st.session_state[actual_tss_widget_key] = resolved_actual_tss
 
                 with st.container(border=True):
-                    st.markdown(f"**{row['date_label']} • {row['phase']}**")
+                    st.markdown(f"**{row['date_label']} • {row.get('phase_label', row['phase'])}**")
                     st.caption(
-                        f"План: {row['session_name']} · {row['sport']} · {row['session_role']} · "
+                        f"План: {row['session_name']} · "
+                        f"{row.get('sport_label', row['sport'])} · "
+                        f"{row.get('session_role_label', row['session_role'])} · "
                         f"{int(row['planned_total_tss'])} TSS · ~{int(row['planned_duration_minutes'])} мин"
                     )
                     if row.get("activity_prefill_note"):
