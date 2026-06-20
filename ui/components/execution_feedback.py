@@ -164,6 +164,11 @@ def _row_state_needs_attention(row_state: Mapping[str, Any]) -> bool:
     row = dict(row_state.get("row") or {})
     if str(row.get("activity_prefill_source") or "").strip():
         return True
+    return _row_state_has_real_deviation(row_state)
+
+
+def _row_state_has_real_deviation(row_state: Mapping[str, Any]) -> bool:
+    row = dict(row_state.get("row") or {})
     try:
         planned_total_tss = int(row.get("planned_total_tss", 0) or 0)
     except (TypeError, ValueError):
@@ -176,24 +181,37 @@ def _row_state_needs_attention(row_state: Mapping[str, Any]) -> bool:
     return outcome_code != "as_planned" or resolved_actual_tss != planned_total_tss
 
 
+def _row_state_has_prefill(row_state: Mapping[str, Any]) -> bool:
+    row = dict(row_state.get("row") or {})
+    return bool(str(row.get("activity_prefill_source") or "").strip())
+
+
 def _partition_execution_row_states(
     row_states: List[Mapping[str, Any]],
-) -> tuple[List[Mapping[str, Any]], List[Mapping[str, Any]]]:
-    attention_rows: List[Mapping[str, Any]] = []
+) -> tuple[List[Mapping[str, Any]], List[Mapping[str, Any]], List[Mapping[str, Any]]]:
+    deviation_rows: List[Mapping[str, Any]] = []
+    prefilled_rows: List[Mapping[str, Any]] = []
     quiet_rows: List[Mapping[str, Any]] = []
     for row_state in row_states:
-        if _row_state_needs_attention(row_state):
-            attention_rows.append(row_state)
+        if _row_state_has_real_deviation(row_state):
+            deviation_rows.append(row_state)
+        elif _row_state_has_prefill(row_state):
+            prefilled_rows.append(row_state)
         else:
             quiet_rows.append(row_state)
-    return attention_rows, quiet_rows
+    return deviation_rows, prefilled_rows, quiet_rows
 
 
 def _split_execution_row_states(
     row_states: List[Mapping[str, Any]],
     *,
     focused_date: str = "",
-) -> tuple[Mapping[str, Any] | None, List[Mapping[str, Any]], List[Mapping[str, Any]]]:
+) -> tuple[
+    Mapping[str, Any] | None,
+    List[Mapping[str, Any]],
+    List[Mapping[str, Any]],
+    List[Mapping[str, Any]],
+]:
     normalized_focus = str(focused_date or "").strip()
     focused_row_state: Mapping[str, Any] | None = None
     remaining_states: List[Mapping[str, Any]] = []
@@ -203,8 +221,8 @@ def _split_execution_row_states(
             focused_row_state = row_state
         else:
             remaining_states.append(row_state)
-    attention_rows, quiet_rows = _partition_execution_row_states(remaining_states)
-    return focused_row_state, attention_rows, quiet_rows
+    deviation_rows, prefilled_rows, quiet_rows = _partition_execution_row_states(remaining_states)
+    return focused_row_state, deviation_rows, prefilled_rows, quiet_rows
 
 
 def _render_execution_day_editor_row(
@@ -477,7 +495,12 @@ def render_execution_feedback_editor(
                 )
 
             focused_date = str(st.session_state.get(focus_state_key) or "").strip() if focus_state_key else ""
-            focused_row_state, attention_row_states, quiet_row_states = _split_execution_row_states(
+            (
+                focused_row_state,
+                deviation_row_states,
+                prefilled_row_states,
+                quiet_row_states,
+            ) = _split_execution_row_states(
                 row_states,
                 focused_date=focused_date,
             )
@@ -517,26 +540,48 @@ def render_execution_feedback_editor(
                             st.session_state.pop(f"{focus_state_key}_action_hint", None)
                             st.rerun()
                 edited_rows.append(_render_execution_day_editor_row(focused_row_state))
-            if attention_row_states:
-                quiet_count = len(quiet_row_states)
-                spotlight_count = len(attention_row_states) + (1 if focused_row_state is not None else 0)
+            deviation_count = len(deviation_row_states)
+            prefilled_count = len(prefilled_row_states)
+            quiet_count = len(quiet_row_states)
+            if deviation_row_states:
+                spotlight_count = deviation_count + (1 if focused_row_state is not None else 0)
                 spotlight_label = f"{spotlight_count} дн."
+                extra_parts = []
+                if prefilled_count > 0:
+                    extra_parts.append(f"Garmin-подтверждения: {prefilled_count} дн.")
                 if quiet_count > 0:
+                    extra_parts.append(f"Остальные без сигналов: {quiet_count} дн.")
+                if extra_parts:
                     st.caption(
-                        "Сначала показаны дни с отклонением или локальным Garmin sync: "
-                        f"{spotlight_label}. Остальные {quiet_count} дн. скрыты ниже."
+                        "Сначала показаны реальные отклонения: "
+                        f"{spotlight_label}. " + " ".join(extra_parts)
                     )
-                for row_state in attention_row_states:
+                else:
+                    st.caption(f"Сначала показаны реальные отклонения: {spotlight_label}.")
+                for row_state in deviation_row_states:
                     edited_rows.append(_render_execution_day_editor_row(row_state))
+            if prefilled_row_states:
+                if not deviation_row_states:
+                    st.info(
+                        "В этом окне реальные отклонения не найдены. "
+                        f"Garmin уже предзаполнил {prefilled_count} дн.; "
+                        "можно сохранить checkpoint сразу или развернуть подтверждения ниже."
+                    )
+                with st.expander(
+                    f"Показать Garmin-подтверждения ({prefilled_count})",
+                    expanded=False,
+                ):
+                    for row_state in prefilled_row_states:
+                        edited_rows.append(_render_execution_day_editor_row(row_state))
             if quiet_row_states:
-                if not attention_row_states:
+                if not deviation_row_states and not prefilled_row_states:
                     st.info(
                         "В этом окне пока нет отклонений и Garmin-подсказок: "
-                        f"все {len(quiet_row_states)} дн. сейчас совпадают с планом. "
+                        f"все {quiet_count} дн. сейчас совпадают с планом. "
                         "Разверните список ниже, если хотите отметить факт вручную."
                     )
                 with st.expander(
-                    f"Показать дни без отклонений ({len(quiet_row_states)})",
+                    f"Показать дни без сигналов ({quiet_count})",
                     expanded=False,
                 ):
                     for row_state in quiet_row_states:

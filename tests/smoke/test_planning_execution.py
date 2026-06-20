@@ -530,7 +530,7 @@ def test_execution_feedback_row_state_detects_prefill_and_real_deviation():
     assert _row_state_needs_attention(changed_state) is True
 
 
-def test_execution_feedback_partition_puts_signal_rows_first():
+def test_execution_feedback_partition_separates_deviation_prefill_and_quiet_rows():
     row_states = [
         {
             "row": {"index": 0, "planned_total_tss": 40},
@@ -554,9 +554,10 @@ def test_execution_feedback_partition_puts_signal_rows_first():
         },
     ]
 
-    attention_states, quiet_states = _partition_execution_row_states(row_states)
+    deviation_states, prefilled_states, quiet_states = _partition_execution_row_states(row_states)
 
-    assert [item["row"]["index"] for item in attention_states] == [1, 2]
+    assert [item["row"]["index"] for item in deviation_states] == [2]
+    assert [item["row"]["index"] for item in prefilled_states] == [1]
     assert [item["row"]["index"] for item in quiet_states] == [0, 3]
 
 
@@ -579,12 +580,13 @@ def test_execution_feedback_split_can_focus_quiet_day_above_signal_groups():
         },
     ]
 
-    focused_state, attention_states, quiet_states = _split_execution_row_states(
+    focused_state, deviation_states, prefilled_states, quiet_states = _split_execution_row_states(
         row_states,
         focused_date="2026-06-22",
     )
 
     assert focused_state is not None
     assert focused_state["row"]["index"] == 0
-    assert [item["row"]["index"] for item in attention_states] == [1, 2]
+    assert [item["row"]["index"] for item in deviation_states] == [2]
+    assert [item["row"]["index"] for item in prefilled_states] == [1]
     assert quiet_states == []

@@ -48,6 +48,7 @@ This repository should borrow those product patterns while staying faithful to t
 
 ## Progress
 
+- [x] (2026-06-20 22:47+04:00) Completed the next Planning V2 real-data UX slice: the shared execution editor now separates real deviations from Garmin-confirmation rows instead of surfacing both at the same visual priority. Real mismatches still render first, Garmin-matched rows now move into their own compact confirmation block, and a clean window with only Garmin matches now explicitly tells the athlete that checkpoint save can happen without opening every row manually. The slice stays UI-only inside `ui/components/execution_feedback.py`, with smoke coverage updated in `tests/smoke/test_planning_execution.py`. Validation passed on focused planning/execution smoke (`40 passed`) and the full smoke suite (`171 passed`).
 - [x] (2026-06-20 22:24+04:00) Completed the next hardening slice around real Garmin login diagnostics: noisy fresh-login failures from `garminconnect` are now normalized into one actionable auth message instead of leaking a raw blend of `429 rate limit`, widget fallback noise, and `401 Unauthorized` straight into the UI. `data/garmin_client.py` now keeps a concise summary plus raw details, `ui/components/garmin_connection.py` shows the normalized error first and exposes the raw provider string only in an optional debug expander, and smoke coverage now protects the new auth-message contract in `tests/smoke/test_garmin_auth_messages.py`. Validation passed on focused Garmin smoke (`8 passed`) and the full smoke suite (`171 passed`).
 - [x] (2026-06-20 22:12+04:00) Completed the next Planning UX hardening v2 slice: the weekly `План и факт` overlay now routes each day into a status-aware next action instead of a generic open button. Each row carries a focused CTA such as `Подтвердить Garmin`, `Зафиксировать факт`, or `Проверить mismatch`, and that intent now survives the handoff into the shared execution editor through session state so the focus banner can explain why the selected day was lifted to the top. The slice stays UI-only across `ui/pages/planning.py` and `ui/components/execution_feedback.py`; planning math and checkpoint persistence remain unchanged. Smoke coverage now protects the CTA mapping in `tests/smoke/test_planning_page_explainability.py`.
 - [x] (2026-06-20 18:35+04:00) Completed the next Planning UX hardening v2 slice: the weekly `План и факт` block and the shared execution editor are now linked into one flow. The weekly overlay now shows compact week-summary metrics plus day buttons that store a shared focus target; the editor reads that focus, auto-expands to two weeks when needed, lifts the selected day above the mismatch/quiet grouping, and lets the athlete clear focus after review. The planning model still stays untouched; this is a page-shell and editor-shell integration only. Smoke coverage now protects both the weekly summary helper in `tests/smoke/test_planning_page_explainability.py` and the focused-day split behavior in `tests/smoke/test_planning_execution.py`. Validation passed on focused planning/execution smoke (`39 passed`) and the full smoke suite (`167 passed`).
@@ -109,6 +110,9 @@ This repository should borrow those product patterns while staying faithful to t
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
 ## Surprises & Discoveries
+
+- Observation: once Garmin-prefill became reliable enough to populate day-level facts automatically, the next friction was not data entry but visual prioritization.
+  Evidence: the shared editor treated a same-day/same-sport Garmin confirmation row and a real `missed/reduced/unavailable` row as the same class of attention signal, so the user still had to scan matched confirmations before reaching the true mismatch they needed to act on. Splitting those signals into `deviation / Garmin-confirmation / quiet` preserves explicit checkpoint confirmation while cutting review noise.
 
 - Observation: real Garmin fresh-login failures are often multi-cause and the raw provider string is therefore worse than useless as a primary user-facing diagnosis.
   Evidence: one live runtime log contained `429 IP rate limited by Garmin`, widget fallback title mismatch, and `401 Unauthorized (Invalid Username or Password)` in the same exception chain. Showing that string verbatim in the UI makes the athlete guess whether the problem is credentials, provider throttling, or our code. Normalizing the message while still preserving raw details keeps the product honest without pretending we can fix Garmin from inside the app.
@@ -315,6 +319,10 @@ This repository should borrow those product patterns while staying faithful to t
   Evidence: the live dashboard hit `StreamlitValueAboveMaxError: The value 41 is greater than the max_value 0` after a row's current planned TSS collapsed to zero while the persisted widget key still held an earlier positive value. The stable fix was not just clamping a raw number, but separating logical `actual_tss` state from the widget key and resolving outcome-aware display values (`as_planned -> planned`, `missed/unavailable -> 0`, `reduced -> clamped custom value`) before rendering the input.
 
 ## Decision Log
+
+- Decision: keep Garmin-prefilled rows inside the same execution editor, but downgrade them from top-level deviations into a separate compact confirmation group.
+  Rationale: the product still needs explicit checkpoint persistence, so Garmin matches cannot silently disappear into autosave. At the same time, a confirmed same-day/same-sport match is operationally different from a true execution deviation. Grouping those rows separately keeps the flow conservative while reducing visual work in the most common real-data review path.
+  Date/Author: 2026-06-20 / Codex
 
 - Decision: normalize fresh Garmin auth failures inside `data/garmin_client.py` and keep raw provider text only as optional diagnostics, not as the main UI error.
   Rationale: the app cannot prevent Garmin rate limiting or third-party widget fallback quirks, but it can stop presenting a single noisy exception blob as if it were a helpful diagnosis. One concise summary plus optional raw details is the right boundary: actionable for the athlete, still debuggable for us, and stable under smoke coverage.
@@ -593,6 +601,8 @@ Coach Explainability is accepted when the dashboard and AI coaching can surface 
 ## Outcomes & Retrospective
 
 This section starts empty on purpose. The previous plan ended with a working product flow. This plan begins at the moment where the product needs to become a durable system rather than a successful sequence of flows.
+
+The newest slice tightens the real-data execution loop rather than adding new planning math. Garmin-matched rows were already being prefilled correctly, but they were still rendered alongside true deviations at the same visual priority, which made a clean real-data week feel busier than it really was. The editor now treats those as confirmation candidates, not as top-level problems.
 
 The newest slice does not claim to fix Garmin itself; it fixes our side of the diagnosis. A real runtime can legitimately hit provider throttling, unstable widget fallback behavior, and a final `401` in one sequence, and dumping that whole chain into the sidebar is not a trustworthy UX. The app now summarizes the failure into one primary explanation and keeps the raw provider text available only when the user or developer explicitly wants technical detail.
 
