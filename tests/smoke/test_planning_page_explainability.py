@@ -17,6 +17,7 @@ from ui.pages.planning import (
     _build_plan_fact_focus_action,
     _build_plan_fact_calendar_markup,
     _build_plan_fact_calendar_rows,
+    _build_plan_fact_timeline_rows,
     _build_plan_fact_week_summary,
     _build_goal_plan_transition_preview,
     _build_near_term_draft_preview,
@@ -430,6 +431,126 @@ def test_build_plan_fact_week_summary_counts_signal_states():
         "unplanned_actual": 1,
         "upcoming": 1,
     }
+
+
+def test_build_plan_fact_timeline_rows_summarize_weekly_drift_and_future():
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        [220, 240],
+        ["Base", "Build"],
+        "Олимпийка",
+        date(2026, 6, 15),
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+    session_templates = build_daily_session_templates(
+        daily_plan,
+        weekly_summary,
+        goal_type="Триатлон",
+        distance="Олимпийка",
+    )
+    goal_plan = {
+        "daily_plan": daily_plan,
+        "weekly_summary": weekly_summary,
+        "session_templates": session_templates,
+    }
+    week_one_run = next(
+        template
+        for template in session_templates[:7]
+        if str(template.get("sport") or "") == "run"
+    )
+    week_one_bike = next(
+        template
+        for template in session_templates[:7]
+        if str(template.get("sport") or "") == "bike"
+    )
+    week_two_bike = next(
+        template
+        for template in session_templates[7:14]
+        if str(template.get("sport") or "") == "bike"
+    )
+    activities_df = pd.DataFrame(
+        [
+            {
+                "date": week_one_bike["date"],
+                "sport": "cycling",
+                "duration_minutes": 95,
+                "tss": 86,
+            },
+            {
+                "date": week_one_run["date"],
+                "sport": "swimming",
+                "duration_minutes": 48,
+                "tss": 39,
+            },
+            {
+                "date": week_two_bike["date"],
+                "sport": "cycling",
+                "duration_minutes": 75,
+                "tss": 70,
+            },
+        ]
+    )
+
+    rows = _build_plan_fact_timeline_rows(
+        goal_plan,
+        activities_df,
+        reference_date=date(2026, 6, 20),
+    )
+
+    assert len(rows) == 2
+    assert rows[0]["week_label"] == "Неделя 1 · 15.06"
+    assert rows[0]["status_label"] == "Нужна проверка"
+    assert rows[0]["action_label"] == "Проверить drift"
+    assert rows[0]["mismatch"] >= 1
+    assert rows[1]["week_label"] == "Неделя 2 · 22.06"
+    assert rows[1]["status_label"] == "Идёт по плану"
+    assert rows[1]["action_label"] == "Открыть неделю"
+    assert rows[1]["prefill_ready"] >= 1
+    assert rows[1]["upcoming"] >= 1
+
+
+def test_build_plan_fact_timeline_rows_marks_fully_matched_week_as_garmin_ready():
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        [220],
+        ["Base"],
+        "Олимпийка",
+        date(2026, 6, 15),
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+    session_templates = build_daily_session_templates(
+        daily_plan,
+        weekly_summary,
+        goal_type="Триатлон",
+        distance="Олимпийка",
+    )
+    goal_plan = {
+        "daily_plan": daily_plan,
+        "weekly_summary": weekly_summary,
+        "session_templates": session_templates,
+    }
+    activities_df = pd.DataFrame(
+        [
+            {
+                "date": template["date"],
+                "sport": template["sport"],
+                "duration_minutes": int(template.get("duration_minutes") or 0),
+                "tss": max(1, int(round(float(template.get("total_tss") or 0.0)))),
+            }
+            for template in session_templates[:7]
+            if str(template.get("sport") or "") in {"run", "bike", "swim"}
+        ]
+    )
+
+    rows = _build_plan_fact_timeline_rows(
+        goal_plan,
+        activities_df,
+        reference_date=date(2026, 6, 30),
+    )
+
+    assert len(rows) == 1
+    assert rows[0]["status_label"] == "Garmin готов"
+    assert rows[0]["action_label"] == "Открыть неделю"
 
 
 def test_build_daily_session_rows_uses_week_structure_metadata():

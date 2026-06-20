@@ -534,6 +534,7 @@ def _build_plan_fact_calendar_rows(
     *,
     week_index: int,
     reference_date: date | None = None,
+    activity_index: Dict[str, Dict[str, Any]] | None = None,
 ) -> List[Dict[str, Any]]:
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
     session_templates = list(goal_plan.get("session_templates", []) or [])
@@ -542,7 +543,7 @@ def _build_plan_fact_calendar_rows(
 
     start = max(0, int(week_index or 0) * 7)
     end = min(len(daily_plan), start + 7)
-    activity_index = _build_plan_fact_activity_index(activities_df)
+    resolved_activity_index = activity_index if isinstance(activity_index, dict) else _build_plan_fact_activity_index(activities_df)
     today = reference_date or datetime.now().date()
     rows: List[Dict[str, Any]] = []
 
@@ -558,7 +559,7 @@ def _build_plan_fact_calendar_rows(
         planned_total_tss = round(float(total_tss or 0.0), 1)
         planned_sport = _normalize_plan_fact_sport(session_template.get("sport"))
         planned_duration_minutes = int(session_template.get("duration_minutes", 0) or 0)
-        actual_summary = activity_index.get(day_date.isoformat(), {})
+        actual_summary = resolved_activity_index.get(day_date.isoformat(), {})
         actual_count = int(actual_summary.get("activity_count", 0) or 0)
         actual_main_sport = str(actual_summary.get("main_sport") or "")
 
@@ -626,6 +627,83 @@ def _build_plan_fact_week_summary(rows: List[Dict[str, Any]]) -> Dict[str, int]:
     return summary
 
 
+def _build_plan_fact_timeline_rows(
+    goal_plan: Dict[str, Any],
+    activities_df: pd.DataFrame | None,
+    *,
+    reference_date: date | None = None,
+) -> List[Dict[str, Any]]:
+    daily_plan = list(goal_plan.get("daily_plan", []) or [])
+    weekly_summary = list(goal_plan.get("weekly_summary", []) or [])
+    if not daily_plan:
+        return []
+
+    total_weeks = max(1, (len(daily_plan) + 6) // 7)
+    activity_index = _build_plan_fact_activity_index(activities_df)
+    timeline_rows: List[Dict[str, Any]] = []
+
+    for week_index in range(total_weeks):
+        week_rows = _build_plan_fact_calendar_rows(
+            goal_plan,
+            activities_df,
+            week_index=week_index,
+            reference_date=reference_date,
+            activity_index=activity_index,
+        )
+        if not week_rows:
+            continue
+        week_summary = _build_plan_fact_week_summary(week_rows)
+        planned_total_tss = int(round(sum(float(row.get("planned_total_tss", 0.0) or 0.0) for row in week_rows)))
+        actual_total_tss = int(round(sum(float(row.get("actual_total_tss", 0.0) or 0.0) for row in week_rows)))
+        actual_day_count = sum(1 for row in week_rows if int(row.get("actual_activity_count", 0) or 0) > 0)
+        if week_summary["mismatch"] > 0 or week_summary["unplanned_actual"] > 0:
+            status_label = "Нужна проверка"
+            action_label = "Проверить drift"
+            signal_label = (
+                f"Проверки {week_summary['mismatch'] + week_summary['unplanned_actual']} дн."
+            )
+        elif actual_day_count > 0 and week_summary["upcoming"] > 0:
+            status_label = "Идёт по плану"
+            action_label = "Открыть неделю"
+            signal_label = f"Garmin {week_summary['prefill_ready']} дн. · впереди {week_summary['upcoming']} дн."
+        elif week_summary["prefill_ready"] > 0:
+            status_label = "Garmin готов"
+            action_label = "Открыть неделю"
+            signal_label = f"Garmin {week_summary['prefill_ready']} дн."
+        elif week_summary["upcoming"] > 0:
+            status_label = "Впереди"
+            action_label = "Открыть неделю"
+            signal_label = f"Впереди {week_summary['upcoming']} дн."
+        else:
+            status_label = "Ждёт факта"
+            action_label = "Открыть неделю"
+            signal_label = "Факт не найден"
+
+        week_label = f"Неделя {week_index + 1}"
+        if week_index < len(weekly_summary) and weekly_summary[week_index].get("week_start") is not None:
+            week_start = weekly_summary[week_index]["week_start"]
+            week_label = f"Неделя {week_index + 1} · {week_start.strftime('%d.%m')}"
+
+        timeline_rows.append(
+            {
+                "week_index": week_index,
+                "week_label": week_label,
+                "planned_total_tss": planned_total_tss,
+                "actual_total_tss": actual_total_tss,
+                "delta_tss": actual_total_tss - planned_total_tss,
+                "status_label": status_label,
+                "action_label": action_label,
+                "signal_label": signal_label,
+                "prefill_ready": week_summary["prefill_ready"],
+                "mismatch": week_summary["mismatch"],
+                "unplanned_actual": week_summary["unplanned_actual"],
+                "upcoming": week_summary["upcoming"],
+            }
+        )
+
+    return timeline_rows
+
+
 def _build_plan_fact_calendar_markup(rows: List[Dict[str, Any]]) -> str:
     cards: List[str] = []
     for row in rows:
@@ -691,6 +769,46 @@ def _render_plan_fact_calendar(
     st.caption(
         "Одна поверхность для проверки недели: сверху запланированная сессия, снизу факт из локального Garmin sync."
     )
+    timeline_rows = _build_plan_fact_timeline_rows(goal_plan, activities_df)
+    current_selected_label = str(
+        st.session_state.get(f"{key_prefix}_week_index") or option_labels[max(0, min(default_week_index, len(option_labels) - 1))]
+    )
+    if current_selected_label not in option_labels:
+        current_selected_label = option_labels[max(0, min(default_week_index, len(option_labels) - 1))]
+    if timeline_rows:
+        st.markdown("**Таймлайн по неделям**")
+        st.caption("Сначала найдите недельный drift, затем откройте нужную неделю для day-level разбора.")
+        st.dataframe(
+            pd.DataFrame(
+                [
+                    {
+                        "Неделя": row["week_label"],
+                        "План TSS": row["planned_total_tss"],
+                        "Факт TSS": row["actual_total_tss"],
+                        "Δ TSS": f"{int(row['delta_tss']):+d}",
+                        "Статус": row["status_label"],
+                        "Сигнал": row["signal_label"],
+                    }
+                    for row in timeline_rows
+                ]
+            ),
+            width="stretch",
+            hide_index=True,
+        )
+        for chunk_start in range(0, len(timeline_rows), 3):
+            chunk = timeline_rows[chunk_start:chunk_start + 3]
+            cols = st.columns(len(chunk))
+            for col, row in zip(cols, chunk):
+                with col:
+                    is_selected = current_selected_label == str(row["week_label"])
+                    if st.button(
+                        f"{row['action_label']} · {row['week_label']}",
+                        key=f"{key_prefix}_select_week_{row['week_index']}",
+                        type="primary" if is_selected else "secondary",
+                        width="stretch",
+                    ):
+                        st.session_state[f"{key_prefix}_week_index"] = str(row["week_label"])
+                        st.rerun()
     selected_label = st.selectbox(
         "Неделя плана",
         options=option_labels,

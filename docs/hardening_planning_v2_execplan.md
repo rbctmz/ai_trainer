@@ -48,6 +48,7 @@ This repository should borrow those product patterns while staying faithful to t
 
 ## Progress
 
+- [x] (2026-06-20 23:06+04:00) Completed the next Planning V2 surface slice: Planning now includes a multi-week `план ↔ факт` timeline above the existing week drill-down. The new overview summarizes each week with `План TSS / Факт TSS / Δ TSS / Статус / Сигнал`, highlights where drift needs review versus where the week is simply underway or Garmin-ready, and lets the athlete jump directly into the relevant week before using the existing day-level cards and execution editor. The slice stays UI-only in `ui/pages/planning.py`, with helper coverage extended in `tests/smoke/test_planning_page_explainability.py`. Validation passed on focused planning/execution smoke (`43 passed`) and the full smoke suite (`174 passed`).
 - [x] (2026-06-20 22:54+04:00) Completed the next Planning V2 real-data UX slice: clean Garmin-matched windows now have an explicit one-click confirmation path instead of reusing the generic local-replan action. The shared execution editor still requires an explicit checkpoint save, but when there are Garmin confirmations and no real deviations it now offers `Подтвердить окно по Garmin`, preserves the same checkpoint pipeline, and lets Planning show a Garmin-specific saved flash instead of a generic replan message. Smoke coverage now protects the new primary-action contract in `tests/smoke/test_planning_execution.py`. Validation passed on focused planning/execution smoke (`41 passed`) and the full smoke suite (`172 passed`).
 - [x] (2026-06-20 22:47+04:00) Completed the next Planning V2 real-data UX slice: the shared execution editor now separates real deviations from Garmin-confirmation rows instead of surfacing both at the same visual priority. Real mismatches still render first, Garmin-matched rows now move into their own compact confirmation block, and a clean window with only Garmin matches now explicitly tells the athlete that checkpoint save can happen without opening every row manually. The slice stays UI-only inside `ui/components/execution_feedback.py`, with smoke coverage updated in `tests/smoke/test_planning_execution.py`. Validation passed on focused planning/execution smoke (`40 passed`) and the full smoke suite (`171 passed`).
 - [x] (2026-06-20 22:24+04:00) Completed the next hardening slice around real Garmin login diagnostics: noisy fresh-login failures from `garminconnect` are now normalized into one actionable auth message instead of leaking a raw blend of `429 rate limit`, widget fallback noise, and `401 Unauthorized` straight into the UI. `data/garmin_client.py` now keeps a concise summary plus raw details, `ui/components/garmin_connection.py` shows the normalized error first and exposes the raw provider string only in an optional debug expander, and smoke coverage now protects the new auth-message contract in `tests/smoke/test_garmin_auth_messages.py`. Validation passed on focused Garmin smoke (`8 passed`) and the full smoke suite (`171 passed`).
@@ -111,6 +112,9 @@ This repository should borrow those product patterns while staying faithful to t
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
 ## Surprises & Discoveries
+
+- Observation: once the local loop became smoother at the day level, the next real blind spot was week-to-week accumulation rather than another execution-editor control.
+  Evidence: the app could already show one selected week in detail, but the athlete still had no compact answer to “which of the next several weeks is drifting, which is only partly underway, and which is already Garmin-ready?” A small week summary layer above the existing drill-down solved that without touching planning math or checkpoint semantics.
 
 - Observation: once Garmin-confirmation rows were visually separated from true deviations, the next missing piece was not more layout but a different primary action label for that clean window.
   Evidence: the product could already hide Garmin confirmations in a separate block, but the main button still read like a replan action even when the actual user intent was simply “yes, these Garmin matches are good enough to save as completed.” Giving that state its own explicit CTA makes the review path shorter without changing the persistence contract.
@@ -323,6 +327,10 @@ This repository should borrow those product patterns while staying faithful to t
   Evidence: the live dashboard hit `StreamlitValueAboveMaxError: The value 41 is greater than the max_value 0` after a row's current planned TSS collapsed to zero while the persisted widget key still held an earlier positive value. The stable fix was not just clamping a raw number, but separating logical `actual_tss` state from the widget key and resolving outcome-aware display values (`as_planned -> planned`, `missed/unavailable -> 0`, `reduced -> clamped custom value`) before rendering the input.
 
 ## Decision Log
+
+- Decision: add a multi-week plan/fact overview as a summary-and-jump layer above the existing weekly drill-down, not as a separate planning mode or a new planner artifact.
+  Rationale: the missing product value was quick orientation across weeks, not another editable entity. A compact timeline with weekly TSS, status, and jump actions preserves the current weekly cards and execution editor while making it much easier to decide where attention is needed first.
+  Date/Author: 2026-06-20 / Codex
 
 - Decision: preserve one shared checkpoint pipeline, but give clean Garmin-matched windows their own explicit primary action mode and label.
   Rationale: the athlete should not have to mentally reinterpret `Применить локальный replan` when no replan is actually needed. At the same time, this still must not become silent autosave. A dedicated `confirm_garmin_window` action keeps one save path and one payload shape while making the user intent explicit.
@@ -609,6 +617,8 @@ Coach Explainability is accepted when the dashboard and AI coaching can surface 
 ## Outcomes & Retrospective
 
 This section starts empty on purpose. The previous plan ended with a working product flow. This plan begins at the moment where the product needs to become a durable system rather than a successful sequence of flows.
+
+The newest slice adds the first real medium-horizon visibility layer on top of the weekly execution loop. The app no longer starts with “pick one week and inspect it”; it first shows how the next several weeks look at a glance, where drift has accumulated, and where the week is simply in progress or already Garmin-ready. That makes the Planning surface feel less like a single-week worksheet and more like a real multi-week coaching view.
 
 The newest slice closes the last obvious naming gap in that Garmin-assisted execution loop. After the previous declutter work, the app could already isolate Garmin-confirmation rows from true deviations, but the primary button still sounded like a replanning action even when the athlete was only confirming that the local Garmin evidence was good enough. The new explicit confirmation CTA makes that clean-window path read like a confirmation step, not like a hidden replan.
 
