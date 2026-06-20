@@ -16,13 +16,20 @@ from models.planning_execution import (
     summarize_execution_reconciliation_rows,
     summarize_execution_weekly_review_rows,
 )
-from models.planning_summary import summarize_execution_adaptation_pressure
+from models.planning_summary import (
+    EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU,
+    summarize_execution_adaptation_pressure,
+)
 
 QUICK_EXECUTION_LABELS = {
     "completed": "Выполнено по плану",
     "skipped": "Пропущены сессии",
     "reduced": "Нагрузка урезана",
     "unavailable": "Неделя ограничена",
+}
+FOLLOW_UP_MODE_BY_LABEL = {
+    label: code
+    for code, label in EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU.items()
 }
 
 
@@ -72,6 +79,63 @@ def _resolve_actual_tss_value(
     if normalized_outcome in {"missed", "unavailable"}:
         return 0
     return _sanitize_actual_tss_value(planned_total_tss, current_value)
+
+
+def _format_week_label(week_start: Any, week_number: int) -> str:
+    if hasattr(week_start, "strftime"):
+        return f"Неделя {week_number} · {week_start.strftime('%d.%m')}"
+    label = str(week_start or "").strip()
+    if label:
+        return f"Неделя {week_number} · {label}"
+    return f"Неделя {week_number}"
+
+
+def _build_follow_up_preview_rows(
+    current_goal_plan: Mapping[str, Any],
+    projected_goal_plan: Mapping[str, Any],
+    *,
+    affected_weeks: int,
+    horizon_weeks: int,
+) -> list[dict[str, Any]]:
+    current_weekly_summary = list(current_goal_plan.get("weekly_summary", []) or [])
+    projected_weekly_summary = list(projected_goal_plan.get("weekly_summary", []) or [])
+    if not projected_weekly_summary:
+        return []
+
+    start_index = max(0, min(int(affected_weeks or 0), len(projected_weekly_summary)))
+    end_index = min(
+        len(projected_weekly_summary),
+        start_index + max(1, int(horizon_weeks or 1)),
+    )
+    if start_index >= end_index:
+        return []
+
+    rows: list[dict[str, Any]] = []
+    for week_index in range(start_index, end_index):
+        projected_row = projected_weekly_summary[week_index] or {}
+        current_row = (
+            current_weekly_summary[week_index]
+            if week_index < len(current_weekly_summary)
+            else {}
+        )
+        try:
+            before_tss = int(current_row.get("weekly_tss", 0) or 0)
+        except (TypeError, ValueError):
+            before_tss = 0
+        try:
+            after_tss = int(projected_row.get("weekly_tss", 0) or 0)
+        except (TypeError, ValueError):
+            after_tss = 0
+        rows.append(
+            {
+                "Неделя": _format_week_label(projected_row.get("week_start"), week_index + 1),
+                "Было TSS": before_tss,
+                "Станет TSS": after_tss,
+                "Δ TSS": after_tss - before_tss,
+                "Комментарий": str(projected_row.get("adjustment_note") or "—").strip() or "—",
+            }
+        )
+    return rows
 
 
 def render_execution_feedback_editor(
@@ -170,6 +234,10 @@ def render_execution_feedback_editor(
                 "missed_sessions": missed_sessions,
                 "reduced_load_share": reduced_load_share,
             }
+            if status != "completed":
+                st.caption(
+                    "Для явного выбора режима следующих 1-2 недель и точного preview переключитесь в режим «По дням»."
+                )
         else:
             editable_rows = build_execution_reconciliation_rows(goal_plan, weeks=weeks)
             current_response_strategy = str(
@@ -282,6 +350,25 @@ def render_execution_feedback_editor(
                 edited_rows,
                 current_response_strategy=selected_response_strategy,
             )
+            recommended_adjustment_payload = build_execution_plan_adjustment(
+                goal_plan,
+                edited_rows,
+                weeks=weeks,
+                response_strategy_override=selected_response_strategy,
+            )
+            recommended_adaptation_pressure = summarize_execution_adaptation_pressure(
+                recommended_adjustment_payload.get("execution_adaptation_pressure")
+            )
+            follow_up_mode_key = f"{key_prefix}_follow_up_mode"
+            default_follow_up_label = (
+                (recommended_adaptation_pressure or {}).get("follow_up_label")
+                or EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU["hold"]
+            )
+            _sync_pending_widget_value(
+                st.session_state,
+                follow_up_mode_key,
+                default_value=str(default_follow_up_label),
+            )
             metric_cols = st.columns(4)
             with metric_cols[0]:
                 st.metric("Правок дней", execution_summary["changed_day_count"])
@@ -324,6 +411,40 @@ def render_execution_feedback_editor(
                     ):
                         st.session_state[f"{response_strategy_key}_pending"] = weekly_review["recommended_response_label"]
                         st.rerun()
+            if recommended_adaptation_pressure:
+                selected_follow_up_label = st.radio(
+                    "Как вести следующие 1-2 недели после этого окна",
+                    options=list(EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU.values()),
+                    key=follow_up_mode_key,
+                    horizontal=True,
+                )
+                selected_follow_up_mode = FOLLOW_UP_MODE_BY_LABEL.get(
+                    selected_follow_up_label,
+                    str(recommended_adaptation_pressure["follow_up_mode"]),
+                )
+                with st.container(border=True):
+                    st.markdown(
+                        f"**{recommended_adaptation_pressure['badge']}** · "
+                        f"Рекомендация: {recommended_adaptation_pressure['follow_up_label']}"
+                    )
+                    st.caption(recommended_adaptation_pressure["follow_up_window_description"])
+                    if recommended_adaptation_pressure["recommended_reason"]:
+                        st.caption(recommended_adaptation_pressure["recommended_reason"])
+                    if selected_follow_up_mode != recommended_adaptation_pressure["follow_up_mode"]:
+                        st.caption(
+                            f"Выбран ручной режим: {selected_follow_up_label}."
+                        )
+                        if st.button(
+                            f"Принять рекомендацию: {recommended_adaptation_pressure['follow_up_label']}",
+                            key=f"{key_prefix}_accept_recommended_follow_up",
+                            width="stretch",
+                        ):
+                            st.session_state[f"{follow_up_mode_key}_pending"] = (
+                                recommended_adaptation_pressure["follow_up_label"]
+                            )
+                            st.rerun()
+            else:
+                selected_follow_up_mode = "hold"
             if execution_summary["changed_rows"]:
                 st.dataframe(
                     pd.DataFrame(execution_summary["changed_rows"]),
@@ -338,6 +459,7 @@ def render_execution_feedback_editor(
                 edited_rows,
                 weeks=weeks,
                 response_strategy_override=selected_response_strategy,
+                follow_up_mode_override=selected_follow_up_mode,
             )
             adaptation_pressure = summarize_execution_adaptation_pressure(
                 plan_adjustment_payload.get("execution_adaptation_pressure")
@@ -374,9 +496,35 @@ def render_execution_feedback_editor(
             if adaptation_pressure:
                 with st.container(border=True):
                     st.markdown(f"**{adaptation_pressure['badge']}** · {adaptation_pressure['follow_up_label']}")
+                    if adaptation_pressure["is_user_override"]:
+                        st.caption(
+                            f"Рекомендация была: {adaptation_pressure['recommended_follow_up_label']}."
+                        )
                     st.caption(adaptation_pressure["follow_up_window_description"])
                     if adaptation_pressure["reason"]:
                         st.caption(adaptation_pressure["reason"])
+                follow_up_preview_rows = _build_follow_up_preview_rows(
+                    goal_plan,
+                    projected_goal_plan,
+                    affected_weeks=int(plan_adjustment_payload.get("weeks", weeks) or weeks),
+                    horizon_weeks=int(adaptation_pressure["rebuild_horizon_weeks"]),
+                )
+                if follow_up_preview_rows:
+                    with st.container(border=True):
+                        st.markdown("**Preview следующих недель**")
+                        st.caption(
+                            f"Если сохранить режим «{adaptation_pressure['follow_up_label']}», "
+                            "AI Trainer пересоберёт пост-окно так:"
+                        )
+                        st.dataframe(
+                            pd.DataFrame(follow_up_preview_rows),
+                            width="stretch",
+                            hide_index=True,
+                        )
+                else:
+                    st.info(
+                        "В текущем плане не осталось отдельной недели после этого окна, поэтому follow-up preview ограничен guardrail-описанием."
+                    )
 
         if projected_goal_plan is None:
             projected_goal_plan = rebuild_goal_plan_with_adjustment(

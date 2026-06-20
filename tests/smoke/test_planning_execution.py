@@ -16,6 +16,7 @@ from models.planning_execution import (
 from models.planning_near_term import build_near_term_edit_seed_from_goal_plans
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
 from ui.components.execution_feedback import (
+    _build_follow_up_preview_rows,
     _resolve_actual_tss_value,
     _sanitize_actual_tss_value,
     _sync_pending_widget_value,
@@ -223,6 +224,48 @@ def test_execution_adaptation_pressure_can_hold_next_week_even_with_catch_up_cho
     assert "Execution drift pressure:" in " ".join(rebuilt["constraint_summary"]["notes"])
 
 
+def test_execution_adaptation_pressure_override_can_relax_rebound_mode_before_save():
+    goal_plan = _sample_goal_plan()
+    rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    quality_idx = next(
+        index
+        for index, row in enumerate(rows)
+        if row.get("session_role") == "quality" and int(row.get("planned_total_tss", 0) or 0) > 0
+    )
+    rows[quality_idx]["outcome"] = "reduced"
+    rows[quality_idx]["actual_total_tss"] = max(
+        0,
+        int(rows[quality_idx]["planned_total_tss"]) - 15,
+    )
+
+    recommended_payload = build_execution_plan_adjustment(
+        goal_plan,
+        rows,
+        weeks=1,
+        response_strategy_override="catch_up",
+    )
+    override_payload = build_execution_plan_adjustment(
+        goal_plan,
+        rows,
+        weeks=1,
+        response_strategy_override="catch_up",
+        follow_up_mode_override="catch_up",
+    )
+    recommended_rebuilt = rebuild_goal_plan_with_adjustment(goal_plan, recommended_payload)
+    override_rebuilt = rebuild_goal_plan_with_adjustment(goal_plan, override_payload)
+    override_pressure = summarize_execution_adaptation_pressure(
+        override_payload["execution_adaptation_pressure"]
+    )
+
+    assert override_pressure is not None
+    assert override_pressure["recommended_follow_up_mode"] == "hold"
+    assert override_pressure["follow_up_mode"] == "catch_up"
+    assert override_pressure["is_user_override"] is True
+    assert override_pressure["growth_cap_tss_per_week"] == 40
+    assert override_rebuilt["weekly_tss_plan"][2] > recommended_rebuilt["weekly_tss_plan"][2]
+    assert override_rebuilt["weekly_tss_plan"][2] <= override_rebuilt["weekly_tss_plan"][1] + 40
+
+
 def test_execution_adaptation_pressure_can_force_protective_rebound_cap():
     goal_plan = _sample_goal_plan()
     rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
@@ -252,6 +295,43 @@ def test_execution_adaptation_pressure_can_force_protective_rebound_cap():
     assert pressure["follow_up_mode"] == "protect_recovery"
     assert pressure["growth_cap_tss_per_week"] == 15
     assert rebuilt["weekly_tss_plan"][1] <= rebuilt["weekly_tss_plan"][0] + 15
+
+
+def test_follow_up_preview_rows_focus_on_post_window_weeks():
+    goal_plan = _sample_goal_plan()
+    rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    quality_idx = next(
+        index
+        for index, row in enumerate(rows)
+        if row.get("session_role") == "quality" and int(row.get("planned_total_tss", 0) or 0) > 0
+    )
+    rows[quality_idx]["outcome"] = "reduced"
+    rows[quality_idx]["actual_total_tss"] = max(
+        0,
+        int(rows[quality_idx]["planned_total_tss"]) - 15,
+    )
+
+    payload = build_execution_plan_adjustment(
+        goal_plan,
+        rows,
+        weeks=1,
+        response_strategy_override="catch_up",
+        follow_up_mode_override="catch_up",
+    )
+    rebuilt = rebuild_goal_plan_with_adjustment(goal_plan, payload)
+    pressure = summarize_execution_adaptation_pressure(payload["execution_adaptation_pressure"])
+
+    preview_rows = _build_follow_up_preview_rows(
+        goal_plan,
+        rebuilt,
+        affected_weeks=1,
+        horizon_weeks=int(pressure["rebuild_horizon_weeks"]),
+    )
+
+    assert preview_rows
+    assert preview_rows[0]["Неделя"].startswith("Неделя 2")
+    assert "Станет TSS" in preview_rows[0]
+    assert preview_rows[0]["Комментарий"]
 
 
 def test_execution_replan_can_open_corrective_microcycle_as_near_term_draft():

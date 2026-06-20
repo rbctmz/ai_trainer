@@ -310,6 +310,17 @@ def summarize_execution_adaptation_pressure(
     if not follow_up_label:
         follow_up_label = EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU[follow_up_mode]
 
+    recommended_follow_up_mode = normalize_execution_adaptation_follow_up_mode(
+        execution_adaptation_pressure.get("recommended_follow_up_mode") or follow_up_mode
+    )
+    recommended_follow_up_label = str(
+        execution_adaptation_pressure.get("recommended_follow_up_label") or ""
+    ).strip()
+    if not recommended_follow_up_label:
+        recommended_follow_up_label = EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU[
+            recommended_follow_up_mode
+        ]
+
     reason = str(execution_adaptation_pressure.get("reason") or "").strip()
     if not reason:
         if follow_up_mode == "protect_recovery":
@@ -318,6 +329,21 @@ def summarize_execution_adaptation_pressure(
             reason = "Окно отклонилось умеренно, поэтому можно вернуть только малую часть объёма под явным ceiling."
         else:
             reason = "Окно уже сдвинулось достаточно, чтобы на 1-2 недели удержать текущий потолок без нового разгона."
+
+    recommended_reason = str(
+        execution_adaptation_pressure.get("recommended_reason") or ""
+    ).strip()
+    if not recommended_reason:
+        if recommended_follow_up_mode == "protect_recovery":
+            recommended_reason = "Сначала удерживайте восстановление, а не пытайтесь вернуть потерянный объём ближайшим rebound."
+        elif recommended_follow_up_mode == "catch_up":
+            recommended_reason = "Окно отклонилось умеренно, поэтому можно вернуть только малую часть объёма под явным ceiling."
+        else:
+            recommended_reason = "Окно уже сдвинулось достаточно, чтобы на 1-2 недели удержать текущий потолок без нового разгона."
+
+    is_user_override = bool(execution_adaptation_pressure.get("is_user_override"))
+    if recommended_follow_up_mode != follow_up_mode:
+        is_user_override = True
 
     follow_up_window_description = str(
         execution_adaptation_pressure.get("follow_up_window_description") or ""
@@ -336,7 +362,10 @@ def summarize_execution_adaptation_pressure(
 
     description = str(execution_adaptation_pressure.get("description") or "").strip()
     if not description:
-        description = f"{badge} · {follow_up_label}. {follow_up_window_description} {reason}"
+        override_note = ""
+        if is_user_override:
+            override_note = f"Ручной режим вместо «{recommended_follow_up_label}». "
+        description = f"{badge} · {follow_up_label}. {override_note}{follow_up_window_description} {reason}"
 
     return {
         "level": level,
@@ -345,6 +374,10 @@ def summarize_execution_adaptation_pressure(
         "badge": badge,
         "follow_up_mode": follow_up_mode,
         "follow_up_label": follow_up_label,
+        "recommended_follow_up_mode": recommended_follow_up_mode,
+        "recommended_follow_up_label": recommended_follow_up_label,
+        "recommended_reason": recommended_reason,
+        "is_user_override": is_user_override,
         "rebuild_horizon_weeks": rebuild_horizon_weeks,
         "growth_cap_tss_per_week": growth_cap_tss_per_week,
         "recovery_share_cap": recovery_share_cap,

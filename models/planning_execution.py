@@ -76,6 +76,60 @@ def _response_strategy_label(strategy: Any) -> str:
     return EXECUTION_RESPONSE_STRATEGY_LABELS[normalized]
 
 
+def _normalize_follow_up_mode(mode: Any) -> str:
+    normalized = str(mode or "").strip().lower()
+    if normalized in EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU:
+        return normalized
+    return ""
+
+
+def _follow_up_mode_profile(mode: str) -> Dict[str, float | int]:
+    normalized = _normalize_follow_up_mode(mode) or "hold"
+    if normalized == "protect_recovery":
+        return {
+            "growth_cap_tss_per_week": 15,
+            "recovery_share_cap": 0.0,
+        }
+    if normalized == "catch_up":
+        return {
+            "growth_cap_tss_per_week": 40,
+            "recovery_share_cap": 0.35,
+        }
+    return {
+        "growth_cap_tss_per_week": 25,
+        "recovery_share_cap": 0.0,
+    }
+
+
+def _recommended_follow_up_reason(mode: str) -> str:
+    normalized = _normalize_follow_up_mode(mode) or "hold"
+    if normalized == "protect_recovery":
+        return (
+            "Дрейф недели уже слишком велик: ближайшие 1-2 недели лучше держать мягче и не ускорять rebound."
+        )
+    if normalized == "catch_up":
+        return (
+            "Отклонение умеренное: можно вернуть только малую часть объёма, но под явным weekly ceiling."
+        )
+    return (
+        "Окно уже сдвинулось заметно: следующие 1-2 недели лучше удержать текущий потолок, а не сразу разгонять план."
+    )
+
+
+def _selected_follow_up_reason(selected_mode: str, recommended_mode: str) -> str:
+    selected_label = EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU[selected_mode]
+    recommended_label = EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU[recommended_mode]
+    if selected_mode == "protect_recovery":
+        guidance = "Следующие 1-2 недели держите мягче и не ускоряйте rebound автоматически."
+    elif selected_mode == "catch_up":
+        guidance = "Возвращайте только малую часть объёма и держите явный weekly ceiling на rebound."
+    else:
+        guidance = "Следующие 1-2 недели удерживайте текущий потолок и не разгоняйте план одним скачком."
+    return (
+        f"Рекомендация была «{recommended_label}», но выбран ручной режим «{selected_label}». {guidance}"
+    )
+
+
 def _session_role_label(session_role: Any) -> str:
     normalized = str(session_role or "").strip().lower()
     return SESSION_ROLE_LABELS_RU.get(normalized, normalized or "—")
@@ -246,6 +300,8 @@ def summarize_execution_weekly_review(
 def build_execution_adaptation_pressure(
     execution_reconciliation: Mapping[str, Any] | None,
     execution_weekly_review: Mapping[str, Any] | None,
+    *,
+    follow_up_mode_override: str | None = None,
 ) -> Dict[str, Any] | None:
     """Turn execution drift into a compact next-1-2-week follow-up mode."""
     summary = summarize_execution_reconciliation(execution_reconciliation)
@@ -315,39 +371,37 @@ def build_execution_adaptation_pressure(
     level = "high" if high_pressure else "low" if low_pressure else "medium"
 
     if level == "high":
-        follow_up_mode = "protect_recovery"
-        growth_cap_tss_per_week = 15
-        recovery_share_cap = 0.0
+        recommended_follow_up_mode = "protect_recovery"
     elif level == "low":
-        follow_up_mode = "catch_up"
-        growth_cap_tss_per_week = 40
-        recovery_share_cap = 0.35
+        recommended_follow_up_mode = "catch_up"
     else:
-        follow_up_mode = "hold"
-        growth_cap_tss_per_week = 25
-        recovery_share_cap = 0.0
+        recommended_follow_up_mode = "hold"
+
+    follow_up_mode = _normalize_follow_up_mode(follow_up_mode_override) or recommended_follow_up_mode
+    follow_up_profile = _follow_up_mode_profile(follow_up_mode)
+    growth_cap_tss_per_week = int(follow_up_profile["growth_cap_tss_per_week"])
+    recovery_share_cap = float(follow_up_profile["recovery_share_cap"])
 
     rebuild_horizon_weeks = 2 if changed_day_count > 0 else 1
+    recommended_follow_up_label = EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU[recommended_follow_up_mode]
     follow_up_label = EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU[follow_up_mode]
-
-    if follow_up_mode == "protect_recovery":
-        reason = (
-            "Дрейф недели уже слишком велик: ближайшие 1-2 недели лучше держать мягче и не ускорять rebound."
-        )
-    elif follow_up_mode == "catch_up":
-        reason = (
-            "Отклонение умеренное: можно вернуть только малую часть объёма, но под явным weekly ceiling."
-        )
-    else:
-        reason = (
-            "Окно уже сдвинулось заметно: следующие 1-2 недели лучше удержать текущий потолок, а не сразу разгонять план."
-        )
+    recommended_reason = _recommended_follow_up_reason(recommended_follow_up_mode)
+    is_user_override = follow_up_mode != recommended_follow_up_mode
+    reason = (
+        _selected_follow_up_reason(follow_up_mode, recommended_follow_up_mode)
+        if is_user_override
+        else recommended_reason
+    )
 
     return {
         "level": level,
         "score": score,
         "follow_up_mode": follow_up_mode,
         "follow_up_label": follow_up_label,
+        "recommended_follow_up_mode": recommended_follow_up_mode,
+        "recommended_follow_up_label": recommended_follow_up_label,
+        "recommended_reason": recommended_reason,
+        "is_user_override": is_user_override,
         "rebuild_horizon_weeks": rebuild_horizon_weeks,
         "growth_cap_tss_per_week": growth_cap_tss_per_week,
         "recovery_share_cap": recovery_share_cap,
@@ -826,6 +880,7 @@ def build_execution_plan_adjustment(
     *,
     weeks: int = 1,
     response_strategy_override: str | None = None,
+    follow_up_mode_override: str | None = None,
 ) -> Dict[str, Any]:
     """Convert day-level execution facts into a plan-adjustment payload."""
     summary = summarize_execution_reconciliation_rows(rows)
@@ -841,7 +896,11 @@ def build_execution_plan_adjustment(
     )
     weekly_review["selected_response_strategy"] = selected_response_strategy
     weekly_review["selected_response_label"] = _response_strategy_label(selected_response_strategy)
-    adaptation_pressure = build_execution_adaptation_pressure(summary, weekly_review)
+    adaptation_pressure = build_execution_adaptation_pressure(
+        summary,
+        weekly_review,
+        follow_up_mode_override=follow_up_mode_override,
+    )
     status = str(summary["status"] or "completed")
     available_day_count = _coerce_int((goal_plan.get("constraint_summary", {}) or {}).get("available_day_count"), 0)
     missed_sessions = summary["missed_day_count"] + summary["unavailable_day_count"]
