@@ -1,6 +1,7 @@
 """Shared execution-feedback editor for planning and dashboard surfaces."""
 from __future__ import annotations
 
+from datetime import date, datetime
 from typing import Any, Dict, Mapping, MutableMapping
 
 import pandas as pd
@@ -138,6 +139,27 @@ def _build_follow_up_preview_rows(
     return rows
 
 
+def _resolve_execution_activity_lookback_days(
+    daily_plan: list[Any],
+    *,
+    weeks: int,
+) -> int:
+    horizon_days = max(1, int(weeks or 1)) * 7
+    horizon_dates: list[date] = []
+    for item in daily_plan[:horizon_days]:
+        if not isinstance(item, (list, tuple)) or not item:
+            continue
+        raw_date = item[0]
+        if isinstance(raw_date, datetime):
+            horizon_dates.append(raw_date.date())
+        elif isinstance(raw_date, date):
+            horizon_dates.append(raw_date)
+    if not horizon_dates:
+        return 30
+    days_back = (date.today() - min(horizon_dates)).days + 3
+    return max(14, min(90, days_back))
+
+
 def render_execution_feedback_editor(
     goal_plan: Mapping[str, Any] | None,
     *,
@@ -239,7 +261,32 @@ def render_execution_feedback_editor(
                     "Для явного выбора режима следующих 1-2 недель и точного preview переключитесь в режим «По дням»."
                 )
         else:
-            editable_rows = build_execution_reconciliation_rows(goal_plan, weeks=weeks)
+            recent_activities = None
+            try:
+                from services.data_cache import load_activities
+
+                recent_activities = load_activities(
+                    _resolve_execution_activity_lookback_days(
+                        daily_plan,
+                        weeks=weeks,
+                    )
+                )
+            except Exception:
+                recent_activities = None
+            editable_rows = build_execution_reconciliation_rows(
+                goal_plan,
+                weeks=weeks,
+                recent_activities=recent_activities,
+            )
+            auto_prefilled_row_count = sum(
+                1 for row in editable_rows if str(row.get("activity_prefill_source") or "").strip() == "garmin_local"
+            )
+            if auto_prefilled_row_count > 0:
+                st.caption(
+                    "Локальный Garmin sync найден для "
+                    f"{auto_prefilled_row_count} дн. по совпадению даты и основного вида спорта. "
+                    "Поля факта уже предзаполнены, но checkpoint сохранится только после вашего подтверждения."
+                )
             current_response_strategy = str(
                 ((goal_plan.get("constraint_summary", {}) or {}).get("catch_up_strategy") or "protect_recovery")
             ).strip().lower()
@@ -257,10 +304,24 @@ def render_execution_feedback_editor(
                 outcome_key = f"{key_prefix}_outcome_{row_index}"
                 actual_tss_key = f"{key_prefix}_actual_tss_{row_index}"
                 actual_tss_widget_key = f"{actual_tss_key}_widget"
+                default_outcome_code = str(row.get("activity_prefill_outcome") or "as_planned").strip().lower()
+                if default_outcome_code not in EXECUTION_DAY_OUTCOME_LABELS:
+                    default_outcome_code = "as_planned"
+                default_actual_tss = int(
+                    row.get(
+                        "activity_prefill_actual_total_tss",
+                        row.get("actual_total_tss", row["planned_total_tss"]),
+                    )
+                    or 0
+                )
                 st.session_state.setdefault(
                     outcome_key,
-                    EXECUTION_DAY_OUTCOME_LABELS["as_planned"],
+                    EXECUTION_DAY_OUTCOME_LABELS[default_outcome_code],
                 )
+                if actual_tss_key not in st.session_state:
+                    st.session_state[actual_tss_key] = default_actual_tss
+                if actual_tss_widget_key not in st.session_state:
+                    st.session_state[actual_tss_widget_key] = default_actual_tss
                 outcome_label = str(st.session_state.get(outcome_key) or EXECUTION_DAY_OUTCOME_LABELS["as_planned"])
                 outcome_code = next(
                     (
@@ -287,6 +348,8 @@ def render_execution_feedback_editor(
                         f"План: {row['session_name']} · {row['sport']} · {row['session_role']} · "
                         f"{int(row['planned_total_tss'])} TSS · ~{int(row['planned_duration_minutes'])} мин"
                     )
+                    if row.get("activity_prefill_note"):
+                        st.caption(f"Автоподстановка: {row['activity_prefill_note']}")
                     col1, col2 = st.columns([1.4, 1])
                     with col1:
                         outcome_label = st.selectbox(

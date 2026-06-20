@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 
+import pandas as pd
 import pytest
 
 from models.planning_execution import (
@@ -369,6 +370,98 @@ def test_execution_replan_can_open_corrective_microcycle_as_near_term_draft():
     assert seed["post_edit_strategy"] == corrective_microcycle["selected_response_strategy"]
     assert seed["draft_summary"]["has_changes"] is True
     assert seed["draft_summary"]["changed_day_count"] >= 1
+
+
+def test_execution_reconciliation_rows_prefill_from_same_day_garmin_activity_dataframe():
+    goal_plan = _sample_goal_plan()
+    baseline_rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    target_idx = next(
+        index
+        for index, row in enumerate(baseline_rows)
+        if row.get("sport") in {"run", "bike", "swim"} and int(row.get("planned_total_tss", 0) or 0) > 0
+    )
+    target_row = baseline_rows[target_idx]
+    recent_activities = pd.DataFrame(
+        [
+            {
+                "date": target_row["date"],
+                "sport": target_row["sport"],
+                "duration_minutes": int(target_row["planned_duration_minutes"]),
+                "tss": max(1, int(target_row["planned_total_tss"]) - 5),
+            }
+        ]
+    )
+
+    rows = build_execution_reconciliation_rows(
+        goal_plan,
+        weeks=1,
+        recent_activities=recent_activities,
+    )
+
+    assert rows[target_idx]["activity_prefill_source"] == "garmin_local"
+    assert rows[target_idx]["activity_prefill_outcome"] == "as_planned"
+    assert rows[target_idx]["actual_total_tss"] == int(target_row["planned_total_tss"])
+    assert "Garmin sync:" in str(rows[target_idx]["activity_prefill_note"])
+
+
+def test_execution_reconciliation_rows_prefill_reduced_when_garmin_load_is_lower():
+    goal_plan = _sample_goal_plan()
+    baseline_rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    target_idx = next(
+        index
+        for index, row in enumerate(baseline_rows)
+        if row.get("sport") in {"run", "bike", "swim"} and int(row.get("planned_total_tss", 0) or 0) >= 30
+    )
+    target_row = baseline_rows[target_idx]
+    expected_actual_tss = max(1, int(target_row["planned_total_tss"] * 0.5))
+    recent_activities = [
+        {
+            "date": target_row["date"],
+            "sport": target_row["sport"],
+            "duration_minutes": max(10, int(target_row["planned_duration_minutes"] * 0.5)),
+            "tss": expected_actual_tss,
+        }
+    ]
+
+    rows = build_execution_reconciliation_rows(
+        goal_plan,
+        weeks=1,
+        recent_activities=recent_activities,
+    )
+
+    assert rows[target_idx]["activity_prefill_source"] == "garmin_local"
+    assert rows[target_idx]["activity_prefill_outcome"] == "reduced"
+    assert rows[target_idx]["actual_total_tss"] == expected_actual_tss
+
+
+def test_execution_reconciliation_rows_ignore_same_day_activity_with_other_sport():
+    goal_plan = _sample_goal_plan()
+    baseline_rows = build_execution_reconciliation_rows(goal_plan, weeks=1)
+    target_idx = next(
+        index
+        for index, row in enumerate(baseline_rows)
+        if row.get("sport") in {"run", "bike", "swim"} and int(row.get("planned_total_tss", 0) or 0) > 0
+    )
+    target_row = baseline_rows[target_idx]
+    other_sport = "swim" if target_row["sport"] != "swim" else "bike"
+    recent_activities = [
+        {
+            "date": target_row["date"],
+            "sport": other_sport,
+            "duration_minutes": int(target_row["planned_duration_minutes"]),
+            "tss": int(target_row["planned_total_tss"]),
+        }
+    ]
+
+    rows = build_execution_reconciliation_rows(
+        goal_plan,
+        weeks=1,
+        recent_activities=recent_activities,
+    )
+
+    assert "activity_prefill_source" not in rows[target_idx]
+    assert rows[target_idx]["outcome"] == "as_planned"
+    assert rows[target_idx]["actual_total_tss"] == int(target_row["planned_total_tss"])
 
 
 def test_execution_feedback_widget_state_is_clamped_to_current_planned_tss():

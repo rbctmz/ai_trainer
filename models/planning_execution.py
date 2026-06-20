@@ -145,15 +145,172 @@ def _actual_tss_for_row(row: Mapping[str, Any]) -> int:
     return planned_tss
 
 
+def _coerce_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if hasattr(value, "to_pydatetime"):
+        try:
+            return value.to_pydatetime().date()
+        except Exception:
+            return None
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _normalize_execution_sport(sport: Any) -> str:
+    normalized = str(sport or "").strip().lower()
+    if not normalized or normalized in {"—", "off", "rest"}:
+        return ""
+    if any(token in normalized for token in ("swim", "swimming", "плав")):
+        return "swim"
+    if any(token in normalized for token in ("bike", "cycling", "cycle", "ride", "вело", "велосип")):
+        return "bike"
+    if any(token in normalized for token in ("run", "running", "бег")):
+        return "run"
+    return ""
+
+
+def _iter_activity_records(recent_activities: Any) -> List[Mapping[str, Any]]:
+    if recent_activities is None:
+        return []
+    if isinstance(recent_activities, Mapping):
+        return [recent_activities]
+    if hasattr(recent_activities, "to_dict"):
+        try:
+            records = recent_activities.to_dict("records")
+        except Exception:
+            records = None
+        if isinstance(records, list):
+            return [item for item in records if isinstance(item, Mapping)]
+    try:
+        return [item for item in recent_activities if isinstance(item, Mapping)]
+    except TypeError:
+        return []
+
+
+def _build_recent_activity_index(
+    recent_activities: Any,
+) -> Dict[tuple[str, str], Dict[str, Any]]:
+    index: Dict[tuple[str, str], Dict[str, Any]] = {}
+    for activity in _iter_activity_records(recent_activities):
+        activity_date = _coerce_date(activity.get("date"))
+        normalized_sport = _normalize_execution_sport(activity.get("sport"))
+        if activity_date is None or not normalized_sport:
+            continue
+        key = (activity_date.isoformat(), normalized_sport)
+        summary = index.setdefault(
+            key,
+            {
+                "date": activity_date.isoformat(),
+                "sport": normalized_sport,
+                "activity_count": 0,
+                "actual_total_tss_raw": 0.0,
+                "actual_duration_minutes": 0.0,
+            },
+        )
+        summary["activity_count"] += 1
+        summary["actual_total_tss_raw"] = round(
+            float(summary["actual_total_tss_raw"] or 0.0)
+            + max(0.0, _coerce_float(activity.get("tss"))),
+            1,
+        )
+        summary["actual_duration_minutes"] = round(
+            float(summary["actual_duration_minutes"] or 0.0)
+            + max(
+                0.0,
+                _coerce_float(
+                    activity.get(
+                        "duration_minutes",
+                        activity.get("duration"),
+                    )
+                ),
+            ),
+            1,
+        )
+    return index
+
+
+def _build_activity_prefill(
+    *,
+    planned_total_tss: Any,
+    planned_duration_minutes: Any,
+    activity_summary: Mapping[str, Any] | None,
+) -> Dict[str, Any] | None:
+    if not isinstance(activity_summary, Mapping):
+        return None
+
+    planned_tss = max(0, _round_int(_coerce_float(planned_total_tss)))
+    planned_duration = max(0, _coerce_int(planned_duration_minutes))
+    if planned_tss <= 0:
+        return None
+
+    raw_actual_tss = max(0, _round_int(_coerce_float(activity_summary.get("actual_total_tss_raw"))))
+    actual_duration = max(0, _round_int(_coerce_float(activity_summary.get("actual_duration_minutes"))))
+    if raw_actual_tss <= 0 and actual_duration <= 0:
+        return None
+
+    tss_completion = raw_actual_tss / planned_tss if planned_tss > 0 else 0.0
+    duration_completion = actual_duration / planned_duration if planned_duration > 0 else 0.0
+    completion_proxy = max(tss_completion, duration_completion)
+
+    if completion_proxy >= 0.75:
+        suggested_outcome = "as_planned"
+        suggested_actual_total_tss = planned_tss
+    elif raw_actual_tss <= 0 and actual_duration < max(20, planned_duration // 4):
+        suggested_outcome = "missed"
+        suggested_actual_total_tss = 0
+    else:
+        suggested_outcome = "reduced"
+        fallback_actual_tss = raw_actual_tss
+        if fallback_actual_tss <= 0 and planned_duration > 0 and actual_duration > 0:
+            fallback_actual_tss = round(planned_tss * min(1.0, actual_duration / planned_duration))
+        suggested_actual_total_tss = min(
+            planned_tss,
+            max(0, _round_int(_coerce_float(fallback_actual_tss))),
+        )
+
+    activity_count = max(1, _coerce_int(activity_summary.get("activity_count"), 1))
+    note_parts = [
+        f"{raw_actual_tss}/{planned_tss} TSS",
+        f"{activity_count} акт.",
+    ]
+    if actual_duration > 0:
+        note_parts.append(f"{actual_duration} мин")
+
+    return {
+        "activity_prefill_source": "garmin_local",
+        "activity_prefill_outcome": suggested_outcome,
+        "activity_prefill_actual_total_tss": suggested_actual_total_tss,
+        "activity_prefill_raw_tss": raw_actual_tss,
+        "activity_prefill_duration_minutes": actual_duration,
+        "activity_prefill_activity_count": activity_count,
+        "activity_prefill_completion_share": round(completion_proxy, 2),
+        "activity_prefill_note": "Garmin sync: " + " · ".join(note_parts),
+    }
+
+
 def build_execution_reconciliation_rows(
     goal_plan: Mapping[str, Any],
     *,
     weeks: int = 1,
+    recent_activities: Any | None = None,
 ) -> List[Dict[str, Any]]:
     """Build editable day-level execution rows for the near-term horizon."""
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
     session_templates = list(goal_plan.get("session_templates", []) or [])
     horizon_days = min(len(daily_plan), max(1, int(weeks or 1)) * 7)
+    recent_activity_index = _build_recent_activity_index(recent_activities)
     rows: List[Dict[str, Any]] = []
 
     for index, daily_item in enumerate(daily_plan[:horizon_days]):
@@ -165,23 +322,38 @@ def build_execution_reconciliation_rows(
         sport = str((session_template or {}).get("sport") or "").strip() or "—"
         session_role = str((session_template or {}).get("session_role") or "").strip() or "—"
         session_name = str((session_template or {}).get("export_name") or "").strip() or "Сессия"
-        rows.append(
-            {
-                "index": index,
-                "week_index": index // 7,
-                "date": date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value),
-                "date_label": date_value.strftime("%a %d.%m") if hasattr(date_value, "strftime") else str(date_value),
-                "phase": str((session_template or {}).get("phase") or "—"),
-                "sport": sport,
-                "session_role": session_role,
-                "session_name": session_name,
-                "planned_total_tss": _round_int(_coerce_float(total_tss)),
-                "planned_parts": dict(parts or {}),
-                "planned_duration_minutes": _coerce_int((session_template or {}).get("duration_minutes"), 0),
-                "outcome": "as_planned",
-                "actual_total_tss": _round_int(_coerce_float(total_tss)),
-            }
-        )
+        planned_total_tss = _round_int(_coerce_float(total_tss))
+        planned_duration_minutes = _coerce_int((session_template or {}).get("duration_minutes"), 0)
+        row = {
+            "index": index,
+            "week_index": index // 7,
+            "date": date_value.isoformat() if hasattr(date_value, "isoformat") else str(date_value),
+            "date_label": date_value.strftime("%a %d.%m") if hasattr(date_value, "strftime") else str(date_value),
+            "phase": str((session_template or {}).get("phase") or "—"),
+            "sport": sport,
+            "session_role": session_role,
+            "session_name": session_name,
+            "planned_total_tss": planned_total_tss,
+            "planned_parts": dict(parts or {}),
+            "planned_duration_minutes": planned_duration_minutes,
+            "outcome": "as_planned",
+            "actual_total_tss": planned_total_tss,
+        }
+        normalized_sport = _normalize_execution_sport(sport)
+        if normalized_sport and hasattr(date_value, "isoformat"):
+            activity_prefill = _build_activity_prefill(
+                planned_total_tss=planned_total_tss,
+                planned_duration_minutes=planned_duration_minutes,
+                activity_summary=recent_activity_index.get((date_value.isoformat(), normalized_sport)),
+            )
+            if activity_prefill:
+                row.update(activity_prefill)
+                row["outcome"] = str(activity_prefill["activity_prefill_outcome"])
+                row["actual_total_tss"] = _coerce_int(
+                    activity_prefill["activity_prefill_actual_total_tss"],
+                    planned_total_tss,
+                )
+        rows.append(row)
     return rows
 
 
