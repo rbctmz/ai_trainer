@@ -269,6 +269,17 @@ python -m pytest tests/smoke -q
 - **Медленные ответы**: Используйте более быстрые модели (GPT-3.5, Claude-haiku) или локальный Ollama
 - **Ollama не подключается**: Убедитесь что `ollama serve` запущен
 
+## 🗺️ Roadmap & Feedback
+
+Мы разрабатываем проект открыто. Голосуйте за фичи, сообщайте о багах или предлагайте свои идеи!
+
+| | | |
+|---|---|---|
+| 📋 **Roadmap** | [github.com/rbctmz/ai_trainer/projects/1](https://github.com/rbctmz/ai_trainer/projects/1) | Текущие приоритеты и статус разработки |
+| 💡 **Feature Requests** | [Discussions](https://github.com/rbctmz/ai_trainer/discussions/new?category=Feature%20Requests) | Предложите идею или проголосуйте 👍 |
+| 🐛 **Bug Reports** | [Open an issue](https://github.com/rbctmz/ai_trainer/issues/new/choose) | Сообщите о проблеме через шаблон |
+| ❓ **Q&A** | [Discussions](https://github.com/rbctmz/ai_trainer/discussions/new?category=Q%20%26%20A) | Задайте вопрос сообществу |
+
 ## 🤝 Вклад в проект
 
 Проект находится в активной разработке. Ваши предложения и pull request'ы приветствуются!

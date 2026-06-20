@@ -1,0 +1,10 @@
+title: ""
+labels: []
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What's on your mind?
+      description: "Share ideas, ask questions, or start a conversation."
+    validations:
+      required: true

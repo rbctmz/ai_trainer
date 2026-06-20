@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💡 Feature Request Discussion
+    url: https://github.com/rbctmz/ai_trainer/discussions/new?category=Feature%20Requests
+    about: "Discuss feature ideas and vote on existing proposals before creating a formal issue."
+  - name: ❓ Ask a Question
+    url: https://github.com/rbctmz/ai_trainer/discussions/new?category=Q%20%26%20A
+    about: "Ask questions, share ideas, or get help from the community."
