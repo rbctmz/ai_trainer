@@ -14,6 +14,7 @@ from models.training_planner import build_daily_session_templates, expand_weekly
 from ui.pages.planning import (
     _align_slider_value,
     _build_daily_session_rows,
+    _build_plan_fact_calendar_markup,
     _build_plan_fact_calendar_rows,
     _build_goal_plan_transition_preview,
     _build_near_term_draft_preview,
@@ -355,6 +356,41 @@ def test_build_plan_fact_calendar_rows_marks_other_sport_and_upcoming_days():
     assert mismatch_row["date_label"] == "Чт 18.06"
     assert mismatch_row["actual_sport_label"] == "плавание"
     assert upcoming_row["status"] == "upcoming"
+
+
+def test_build_plan_fact_calendar_markup_is_compact_html():
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        [220, 240],
+        ["Base", "Build"],
+        "Олимпийка",
+        date(2026, 6, 15),
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+    session_templates = build_daily_session_templates(
+        daily_plan,
+        weekly_summary,
+        goal_type="Триатлон",
+        distance="Олимпийка",
+    )
+    goal_plan = {
+        "daily_plan": daily_plan,
+        "weekly_summary": weekly_summary,
+        "session_templates": session_templates,
+    }
+    rows = _build_plan_fact_calendar_rows(
+        goal_plan,
+        activities_df=None,
+        week_index=0,
+        reference_date=date(2026, 6, 20),
+    )
+
+    markup = _build_plan_fact_calendar_markup(rows)
+
+    assert markup.startswith("<div class='pfv-grid'><div class='pfv-card'")
+    assert markup.count("class='pfv-card'") == 7
+    assert "</div><div class='pfv-card'" in markup
+    assert "\n" not in markup
 
 
 def test_build_daily_session_rows_uses_week_structure_metadata():

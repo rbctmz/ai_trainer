@@ -577,6 +577,43 @@ def _build_plan_fact_calendar_rows(
     return rows
 
 
+def _build_plan_fact_calendar_markup(rows: List[Dict[str, Any]]) -> str:
+    cards: List[str] = []
+    for row in rows:
+        if int(row["actual_activity_count"] or 0) > 0:
+            actual_block = (
+                "<div class='pfv-actual-title'>Факт</div>"
+                f"<div class='pfv-actual-main'>{html.escape(str(row['actual_sport_label']))}</div>"
+                f"<div class='pfv-actual-meta'>{int(round(float(row['actual_total_tss'] or 0.0)))} TSS · "
+                f"{html.escape(str(row['actual_duration_label']))}</div>"
+                f"<div class='pfv-actual-meta'>{int(row['actual_activity_count'])} акт.</div>"
+            )
+        else:
+            actual_block = "<div class='pfv-actual-empty'>Факт пока не найден</div>"
+
+        cards.append(
+            (
+                f"<div class='pfv-card' style='border-top: 4px solid {row['card_border']};'>"
+                "<div class='pfv-top'>"
+                f"<div class='pfv-day'>{html.escape(str(row['date_label']))}</div>"
+                f"<span class='pfv-badge' style='background:{row['badge_bg']}; color:{row['badge_fg']};'>"
+                f"{html.escape(str(row['status_label']))}"
+                "</span>"
+                "</div>"
+                "<div class='pfv-plan-title'>План</div>"
+                f"<div class='pfv-plan-main'>{html.escape(str(row['planned_session_name']))}</div>"
+                f"<div class='pfv-plan-meta'>{html.escape(str(row['planned_sport_label']))} · "
+                f"{int(round(float(row['planned_total_tss'] or 0.0)))} TSS</div>"
+                f"<div class='pfv-plan-meta'>{html.escape(str(row['planned_duration_label']))}</div>"
+                "<div class='pfv-divider'></div>"
+                f"{actual_block}"
+                "</div>"
+            )
+        )
+
+    return "<div class='pfv-grid'>" + "".join(cards) + "</div>"
+
+
 def _render_plan_fact_calendar(
     goal_plan: Dict[str, Any],
     activities_df: pd.DataFrame | None,
@@ -619,36 +656,6 @@ def _render_plan_fact_calendar(
     if not rows:
         st.info("Для выбранной недели пока нет данных плана.")
         return
-
-    grid_cards: List[str] = []
-    for row in rows:
-        actual_block = (
-            f"<div class='pfv-actual-title'>Факт</div>"
-            f"<div class='pfv-actual-main'>{html.escape(str(row['actual_sport_label']))}</div>"
-            f"<div class='pfv-actual-meta'>{int(round(float(row['actual_total_tss'] or 0.0)))} TSS · "
-            f"{html.escape(str(row['actual_duration_label']))}</div>"
-            f"<div class='pfv-actual-meta'>{int(row['actual_activity_count'])} акт.</div>"
-            if int(row["actual_activity_count"] or 0) > 0
-            else "<div class='pfv-actual-empty'>Факт пока не найден</div>"
-        )
-        grid_cards.append(
-            f"""
-            <div class="pfv-card" style="border-top: 4px solid {row['card_border']};">
-              <div class="pfv-top">
-                <div class="pfv-day">{html.escape(str(row['date_label']))}</div>
-                <span class="pfv-badge" style="background:{row['badge_bg']}; color:{row['badge_fg']};">
-                  {html.escape(str(row['status_label']))}
-                </span>
-              </div>
-              <div class="pfv-plan-title">План</div>
-              <div class="pfv-plan-main">{html.escape(str(row['planned_session_name']))}</div>
-              <div class="pfv-plan-meta">{html.escape(str(row['planned_sport_label']))} · {int(round(float(row['planned_total_tss'] or 0.0)))} TSS</div>
-              <div class="pfv-plan-meta">{html.escape(str(row['planned_duration_label']))}</div>
-              <div class="pfv-divider"></div>
-              {actual_block}
-            </div>
-            """
-        )
 
     st.markdown(
         """
@@ -713,7 +720,7 @@ def _render_plan_fact_calendar(
         """,
         unsafe_allow_html=True,
     )
-    st.markdown(f"<div class='pfv-grid'>{''.join(grid_cards)}</div>", unsafe_allow_html=True)
+    st.markdown(_build_plan_fact_calendar_markup(rows), unsafe_allow_html=True)
 
 
 def _build_near_term_draft_preview(
