@@ -1,7 +1,7 @@
 """Training planning page renderer."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Dict, List
 
 import pandas as pd
@@ -130,6 +130,16 @@ def _normalize_planning_workspace_mode(value: Any, *, has_goal_plan: bool) -> st
     if not has_goal_plan and mode != PLANNING_WORKSPACE_MODES[0]:
         return PLANNING_WORKSPACE_MODES[0]
     return mode
+
+
+def _resolve_planning_start_week(base_date: date | None = None) -> date:
+    """Choose the weekly plan anchor date, avoiding a near-finished current week."""
+    today = base_date or datetime.now().date()
+    current_week_start = today - timedelta(days=today.weekday())
+    remaining_days_in_week = 7 - today.weekday()
+    if remaining_days_in_week <= 3:
+        return current_week_start + timedelta(days=7)
+    return current_week_start
 
 
 def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -1153,6 +1163,9 @@ def render_planning_page(state: "StateManager") -> None:
         weeks_until,
     )
 
+    planning_reference_date = datetime.now().date()
+    planning_start_week = _resolve_planning_start_week(planning_reference_date)
+
     colg1, colg2, colg3 = st.columns(3)
     with colg1:
         goal_type = st.selectbox(
@@ -1173,10 +1186,13 @@ def render_planning_page(state: "StateManager") -> None:
     with colg2:
         goal_date = st.date_input(
             "Дата старта:",
-            value=datetime.now().date() + timedelta(weeks=8),
+            value=planning_reference_date + timedelta(weeks=8),
         )
-        weeks_to_race = weeks_until(goal_date)
-        st.caption(f"До старта: ~{weeks_to_race} нед.")
+        weeks_to_race = weeks_until(goal_date, from_date=planning_start_week)
+        start_caption = f"Старт плана: {planning_start_week.strftime('%d.%m.%Y')} · до старта: ~{weeks_to_race} нед."
+        if planning_start_week > planning_reference_date:
+            start_caption += " Текущая неделя почти завершена, поэтому план начинается со следующего понедельника."
+        st.caption(start_caption)
     with colg3:
         start_weekly_tss_guess = int(current_metrics.get("ctl", 50) * 7)
         auto = suggest_target_weekly_tss(goal_type, distance, activities_df)
@@ -1497,8 +1513,7 @@ def render_planning_page(state: "StateManager") -> None:
             max_ramp=0.10,
         )
 
-        today = datetime.now().date()
-        start_week = today - timedelta(days=today.weekday())
+        start_week = planning_start_week
         phases = compute_phase_schedule(weeks_to_race)
         mix_overrides = state.planner_mix or None
         if not mix_overrides:

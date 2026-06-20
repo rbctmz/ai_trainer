@@ -17,6 +17,7 @@ from ui.pages.planning import (
     _build_near_term_draft_preview,
     _build_plan_explainability,
     _normalize_planning_workspace_mode,
+    _resolve_planning_start_week,
     _resolve_near_term_tss_widget_max,
     _resolve_target_weekly_tss_control,
     _resolve_target_weekly_tss_step,
@@ -223,6 +224,12 @@ def test_normalize_planning_workspace_mode_falls_back_without_goal_plan():
     assert _normalize_planning_workspace_mode("Скорректировать выполнение", has_goal_plan=False) == "Собрать план"
     assert _normalize_planning_workspace_mode("Экспорт и детали", has_goal_plan=False) == "Собрать план"
     assert _normalize_planning_workspace_mode("Экспорт и детали", has_goal_plan=True) == "Экспорт и детали"
+
+
+def test_resolve_planning_start_week_shifts_late_week_build_to_next_monday():
+    assert _resolve_planning_start_week(date(2026, 6, 20)) == date(2026, 6, 22)
+    assert _resolve_planning_start_week(date(2026, 6, 19)) == date(2026, 6, 22)
+    assert _resolve_planning_start_week(date(2026, 6, 18)) == date(2026, 6, 15)
 
 
 def test_build_daily_session_rows_uses_week_structure_metadata():
