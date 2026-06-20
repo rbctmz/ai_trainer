@@ -53,36 +53,48 @@ PLAN_FACT_STATUS_META = {
         "badge_bg": "#dcfce7",
         "badge_fg": "#166534",
         "card_border": "#22c55e",
+        "action_label": "Подтвердить Garmin",
+        "action_hint": "У дня уже найден совпавший факт: подтвердите автоподстановку или поправьте его перед checkpoint.",
     },
     "other_sport": {
         "label": "Другой спорт",
         "badge_bg": "#fef3c7",
         "badge_fg": "#92400e",
         "card_border": "#f59e0b",
+        "action_label": "Проверить mismatch",
+        "action_hint": "План и факт расходятся по виду спорта: решите, считать ли день выполненным иначе.",
     },
     "planned_only": {
         "label": "Нет факта",
         "badge_bg": "#fee2e2",
         "badge_fg": "#991b1b",
         "card_border": "#ef4444",
+        "action_label": "Зафиксировать факт",
+        "action_hint": "У дня нет подтвержденного факта: отметьте пропуск или введите реальный TSS вручную.",
     },
     "upcoming": {
         "label": "Впереди",
         "badge_bg": "#dbeafe",
         "badge_fg": "#1d4ed8",
         "card_border": "#3b82f6",
+        "action_label": "Открыть день",
+        "action_hint": "День еще впереди: можно заранее проверить план и при необходимости скорректировать ближайшее окно.",
     },
     "off_day": {
         "label": "Отдых",
         "badge_bg": "#e5e7eb",
         "badge_fg": "#374151",
         "card_border": "#9ca3af",
+        "action_label": "Проверить отдых",
+        "action_hint": "Это день отдыха: убедитесь, что лишний факт не нужно учитывать в локальном replanning.",
     },
     "unplanned_actual": {
         "label": "Вне плана",
         "badge_bg": "#ede9fe",
         "badge_fg": "#6d28d9",
         "card_border": "#8b5cf6",
+        "action_label": "Проверить вне плана",
+        "action_hint": "В этот день найден факт вне плана: решите, как он должен повлиять на ближайший микросикл.",
     },
 }
 
@@ -426,6 +438,17 @@ def _format_calendar_day_label(day_date: date) -> str:
     return f"{weekday_label} {day_date.strftime('%d.%m')}"
 
 
+def _build_plan_fact_focus_action(status: Any) -> Dict[str, str]:
+    normalized_status = str(status or "").strip().lower()
+    status_meta = PLAN_FACT_STATUS_META.get(normalized_status, PLAN_FACT_STATUS_META["planned_only"])
+    action_label = str(status_meta.get("action_label") or "Открыть день").strip() or "Открыть день"
+    action_hint = str(status_meta.get("action_hint") or "").strip()
+    return {
+        "label": action_label,
+        "hint": action_hint,
+    }
+
+
 def _build_plan_fact_activity_index(activities_df: pd.DataFrame | None) -> Dict[str, Dict[str, Any]]:
     if activities_df is None or activities_df.empty or "date" not in activities_df.columns:
         return {}
@@ -553,6 +576,7 @@ def _build_plan_fact_calendar_rows(
             status = "other_sport"
 
         status_meta = PLAN_FACT_STATUS_META[status]
+        action_meta = _build_plan_fact_focus_action(status)
         rows.append(
             {
                 "absolute_index": absolute_index,
@@ -563,6 +587,8 @@ def _build_plan_fact_calendar_rows(
                 "badge_bg": status_meta["badge_bg"],
                 "badge_fg": status_meta["badge_fg"],
                 "card_border": status_meta["card_border"],
+                "focus_action_label": action_meta["label"],
+                "focus_action_hint": action_meta["hint"],
                 "planned_session_name": str(session_template.get("export_name") or "Сессия").strip(),
                 "planned_sport": planned_sport,
                 "planned_sport_label": SPORT_LABELS_RU.get(planned_sport, planned_sport or "—"),
@@ -759,8 +785,10 @@ def _render_plan_fact_calendar(
     )
     st.markdown(_build_plan_fact_calendar_markup(rows), unsafe_allow_html=True)
     if focus_state_key:
-        st.caption("Быстрый переход в редактор факта по дню недели.")
+        st.caption("Карточки ниже ведут сразу в нужное действие в редакторе факта по выбранному дню.")
         current_focus = str(st.session_state.get(focus_state_key) or "").strip()
+        focus_action_label_key = f"{focus_state_key}_action_label"
+        focus_action_hint_key = f"{focus_state_key}_action_hint"
         for chunk_start in range(0, len(rows), 4):
             chunk = rows[chunk_start:chunk_start + 4]
             cols = st.columns(len(chunk))
@@ -768,12 +796,14 @@ def _render_plan_fact_calendar(
                 with col:
                     is_selected = current_focus == str(row["date"])
                     if st.button(
-                        f"Открыть {row['date_label']}",
+                        str(row["focus_action_label"]),
                         key=f"{key_prefix}_focus_day_{row['date']}",
                         type="primary" if is_selected else "secondary",
                         width="stretch",
                     ):
                         st.session_state[focus_state_key] = str(row["date"])
+                        st.session_state[focus_action_label_key] = str(row["focus_action_label"])
+                        st.session_state[focus_action_hint_key] = str(row["focus_action_hint"])
                         st.session_state[f"{focus_state_key}_weeks_pending"] = (
                             2 if int(row.get("absolute_index", 0) or 0) >= 7 else 1
                         )

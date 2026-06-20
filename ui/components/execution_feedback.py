@@ -484,15 +484,28 @@ def render_execution_feedback_editor(
             edited_rows = []
             if focused_row_state is not None:
                 focused_row = dict(focused_row_state.get("row") or {})
+                focus_action_label = (
+                    str(st.session_state.get(f"{focus_state_key}_action_label") or "").strip()
+                    if focus_state_key
+                    else ""
+                )
+                focus_action_hint = (
+                    str(st.session_state.get(f"{focus_state_key}_action_hint") or "").strip()
+                    if focus_state_key
+                    else ""
+                )
                 with st.container(border=True):
                     banner_cols = st.columns([4, 1])
                     with banner_cols[0]:
                         st.markdown(
                             f"**Фокус дня: {focused_row.get('date_label', focused_row.get('date', ''))}**"
                         )
-                        st.caption(
-                            "Этот день был выбран из недельного блока «План и факт» и вынесен наверх."
-                        )
+                        focus_caption = "Этот день был выбран из недельного блока «План и факт» и вынесен наверх."
+                        if focus_action_label:
+                            focus_caption += f" Следующее действие: {focus_action_label}."
+                        st.caption(focus_caption)
+                        if focus_action_hint:
+                            st.caption(focus_action_hint)
                     with banner_cols[1]:
                         if focus_state_key and st.button(
                             "Сбросить фокус",
@@ -500,6 +513,8 @@ def render_execution_feedback_editor(
                             width="stretch",
                         ):
                             st.session_state.pop(focus_state_key, None)
+                            st.session_state.pop(f"{focus_state_key}_action_label", None)
+                            st.session_state.pop(f"{focus_state_key}_action_hint", None)
                             st.rerun()
                 edited_rows.append(_render_execution_day_editor_row(focused_row_state))
             if attention_row_states:

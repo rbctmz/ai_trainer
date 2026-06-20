@@ -14,6 +14,7 @@ from models.training_planner import build_daily_session_templates, expand_weekly
 from ui.pages.planning import (
     _align_slider_value,
     _build_daily_session_rows,
+    _build_plan_fact_focus_action,
     _build_plan_fact_calendar_markup,
     _build_plan_fact_calendar_rows,
     _build_plan_fact_week_summary,
@@ -303,6 +304,7 @@ def test_build_plan_fact_calendar_rows_merge_plan_and_same_day_activity():
     matched_row = next(row for row in rows if row["date"] == target_date)
     assert matched_row["status"] == "matched"
     assert matched_row["date_label"] == "Пн 15.06"
+    assert matched_row["focus_action_label"] == "Подтвердить Garmin"
     assert matched_row["actual_sport_label"] == "вело"
     assert matched_row["actual_activity_count"] == 1
     assert matched_row["actual_total_tss"] == 86.0
@@ -355,8 +357,22 @@ def test_build_plan_fact_calendar_rows_marks_other_sport_and_upcoming_days():
     upcoming_row = next(row for row in rows if row["date"] == "2026-06-20")
     assert mismatch_row["status"] == "other_sport"
     assert mismatch_row["date_label"] == "Чт 18.06"
+    assert mismatch_row["focus_action_label"] == "Проверить mismatch"
     assert mismatch_row["actual_sport_label"] == "плавание"
     assert upcoming_row["status"] == "upcoming"
+    assert upcoming_row["focus_action_label"] == "Открыть день"
+
+
+def test_build_plan_fact_focus_action_matches_status_intent():
+    assert _build_plan_fact_focus_action("matched") == {
+        "label": "Подтвердить Garmin",
+        "hint": "У дня уже найден совпавший факт: подтвердите автоподстановку или поправьте его перед checkpoint.",
+    }
+    assert _build_plan_fact_focus_action("planned_only")["label"] == "Зафиксировать факт"
+    assert _build_plan_fact_focus_action("other_sport")["label"] == "Проверить mismatch"
+    assert _build_plan_fact_focus_action("unplanned_actual")["label"] == "Проверить вне плана"
+    assert _build_plan_fact_focus_action("upcoming")["label"] == "Открыть день"
+    assert _build_plan_fact_focus_action("off_day")["label"] == "Проверить отдых"
 
 
 def test_build_plan_fact_calendar_markup_is_compact_html():
