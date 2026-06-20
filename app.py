@@ -139,7 +139,7 @@ def main():
         st.sidebar.markdown("---")
 
         _ = state.chat_manager  # Ensure chat manager initialised
-        render_chat_management(state)
+        render_chat_management(state, expanded=page == "🤖 AI Коучинг")
 
         if Settings.SHOW_DEVELOPMENT_TOOLS:
             st.sidebar.markdown("---")

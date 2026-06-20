@@ -25,8 +25,6 @@ _ALL_PAGES.append("📋 Логи синхронизации")
 
 def render_primary_navigation(state: StateManager) -> str:
     """Render the horizontal navigation bar and return the active page."""
-    st.markdown("### 🧭 Навигация")
-
     selected_page = state.selected_page or "📊 Дашборд"
     cols = st.columns(len(_PRIMARY_NAV_ITEMS))
 
@@ -43,7 +41,7 @@ def render_primary_navigation(state: StateManager) -> str:
 
 def render_sidebar_navigation(state: StateManager, current_page: str) -> str:
     """Render the compact sidebar navigation for smaller screens."""
-    st.sidebar.markdown("### 📱 Мобильное меню")
+    st.sidebar.caption("Раздел")
     pages = [item for item in _ALL_PAGES if item != "📋 Логи синхронизации"]
     index = pages.index(current_page) if current_page in pages else 0
     sidebar_page = st.sidebar.selectbox(

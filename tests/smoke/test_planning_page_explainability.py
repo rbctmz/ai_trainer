@@ -11,10 +11,13 @@ from models.planning_near_term import (
 )
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
 from ui.pages.planning import (
+    _align_slider_value,
     _build_daily_session_rows,
     _build_goal_plan_transition_preview,
     _build_near_term_draft_preview,
     _build_plan_explainability,
+    _normalize_planning_workspace_mode,
+    _resolve_near_term_tss_widget_max,
     _resolve_target_weekly_tss_control,
     _resolve_target_weekly_tss_step,
 )
@@ -201,6 +204,25 @@ def test_target_tss_slider_step_softens_for_narrow_ranges():
     assert _resolve_target_weekly_tss_step(500, 505) == 1
     assert _resolve_target_weekly_tss_step(500, 520) == 5
     assert _resolve_target_weekly_tss_step(500, 600) == 25
+
+
+def test_align_slider_value_clamps_to_valid_step():
+    assert _align_slider_value(107, min_value=0, max_value=1000, step=50) == 100
+    assert _align_slider_value(149, min_value=0, max_value=1000, step=50) == 150
+    assert _align_slider_value(1015, min_value=0, max_value=1000, step=50) == 1000
+
+
+def test_near_term_tss_widget_max_respects_draft_and_session_values():
+    assert _resolve_near_term_tss_widget_max(60, 110, 95) == 180
+    assert _resolve_near_term_tss_widget_max(40, 185, 120) == 185
+    assert _resolve_near_term_tss_widget_max(55, 80, 210) == 210
+
+
+def test_normalize_planning_workspace_mode_falls_back_without_goal_plan():
+    assert _normalize_planning_workspace_mode("Собрать план", has_goal_plan=False) == "Собрать план"
+    assert _normalize_planning_workspace_mode("Скорректировать выполнение", has_goal_plan=False) == "Собрать план"
+    assert _normalize_planning_workspace_mode("Экспорт и детали", has_goal_plan=False) == "Собрать план"
+    assert _normalize_planning_workspace_mode("Экспорт и детали", has_goal_plan=True) == "Экспорт и детали"
 
 
 def test_build_daily_session_rows_uses_week_structure_metadata():

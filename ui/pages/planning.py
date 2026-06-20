@@ -32,6 +32,13 @@ if TYPE_CHECKING:
     from state import StateManager
 
 
+PLANNING_WORKSPACE_MODES = (
+    "Собрать план",
+    "Скорректировать выполнение",
+    "Экспорт и детали",
+)
+
+
 def _strategy_label(strategy: str) -> str:
     return "Наверстать аккуратно" if strategy == "catch_up" else "Беречь восстановление"
 
@@ -90,6 +97,39 @@ def _resolve_target_weekly_tss_step(slider_min: int, slider_max: int) -> int:
     if span <= 25:
         return 5
     return 25
+
+
+def _align_slider_value(value: int | float, *, min_value: int, max_value: int, step: int) -> int:
+    """Clamp an integer slider value so it matches the slider's accessible step values."""
+    safe_min = int(min_value)
+    safe_max = max(safe_min, int(max_value))
+    safe_step = max(1, int(step))
+    clamped = max(safe_min, min(int(round(float(value or 0))), safe_max))
+    offset = clamped - safe_min
+    aligned = safe_min + int(round(offset / safe_step)) * safe_step
+    return max(safe_min, min(aligned, safe_max))
+
+
+def _resolve_near_term_tss_widget_max(
+    current_total_tss: int | float,
+    draft_total_tss: int | float,
+    widget_value: int | float,
+) -> int:
+    """Keep the near-term TSS input range compatible with draft and session-state values."""
+    current_value = int(round(float(current_total_tss or 0.0)))
+    draft_value = int(round(float(draft_total_tss or 0.0)))
+    session_value = int(round(float(widget_value or 0.0)))
+    return max(180, current_value + 80, draft_value, session_value)
+
+
+def _normalize_planning_workspace_mode(value: Any, *, has_goal_plan: bool) -> str:
+    """Resolve a stable planning workspace mode for the current page state."""
+    mode = str(value or "").strip()
+    if mode not in PLANNING_WORKSPACE_MODES:
+        return PLANNING_WORKSPACE_MODES[0]
+    if not has_goal_plan and mode != PLANNING_WORKSPACE_MODES[0]:
+        return PLANNING_WORKSPACE_MODES[0]
+    return mode
 
 
 def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
@@ -201,6 +241,42 @@ def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "summary_notes": summary_notes,
         "comparison_rows": comparison_rows,
     }
+
+
+def _render_active_plan_workspace_summary(
+    goal_plan: Dict[str, Any],
+    *,
+    title: str,
+    caption: str,
+) -> Dict[str, Any]:
+    """Render a compact summary of the active plan for non-export workflows."""
+    explain = _build_plan_explainability(goal_plan)
+    with st.container(border=True):
+        st.markdown(f"**{title}**")
+        st.caption(caption)
+        metric_cols = st.columns(4)
+        with metric_cols[0]:
+            st.metric("Пик TSS", explain["peak_after"])
+        with metric_cols[1]:
+            st.metric("Сумма TSS", explain["total_after"])
+        with metric_cols[2]:
+            st.metric("Стратегия", explain["catch_up_label"])
+        with metric_cols[3]:
+            st.metric("Checkpoint", explain["plan_adjustment_label"])
+        st.caption(explain["headline"])
+        if explain["execution_adaptation_pressure"] is not None:
+            st.caption(
+                "После окна: "
+                f"{explain['execution_adaptation_pressure']['follow_up_label']} · "
+                f"{explain['execution_adaptation_pressure']['follow_up_window_description']}"
+            )
+        elif explain["near_term_edit"] is not None:
+            st.caption(
+                "Активный override: "
+                f"{explain['near_term_edit']['compact_label']} · "
+                f"{explain['near_term_edit']['follow_up_description']}"
+            )
+    return explain
 
 
 def _build_daily_session_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -577,6 +653,14 @@ def _render_near_term_editor(
 
         for row in editable_rows:
             draft_row = draft_rows_by_index[int(row["index"])]
+            role_key = f"near_term_role_{key_prefix}_{row['index']}"
+            sport_key = f"near_term_sport_{key_prefix}_{row['index']}"
+            tss_key = f"near_term_tss_{key_prefix}_{row['index']}"
+            tss_widget_max = _resolve_near_term_tss_widget_max(
+                row["current_total_tss"],
+                draft_row["total_tss"],
+                st.session_state[tss_key],
+            )
             with st.container(border=True):
                 st.markdown(f"**{row['date_label']} • {row['phase']}**")
                 st.caption(
@@ -595,24 +679,21 @@ def _render_near_term_editor(
                     st.selectbox(
                         "Роль дня",
                         options=[role_labels[role] for role in EDITABLE_SESSION_ROLES],
-                        index=EDITABLE_SESSION_ROLES.index(draft_row["session_role"]),
-                        key=f"near_term_role_{key_prefix}_{row['index']}",
+                        key=role_key,
                     )
                 with col2:
                     st.selectbox(
                         "Основной спорт",
                         options=[sport_labels[sport] for sport in EDITABLE_SPORTS],
-                        index=EDITABLE_SPORTS.index(draft_row["sport"]),
-                        key=f"near_term_sport_{key_prefix}_{row['index']}",
+                        key=sport_key,
                     )
                 with col3:
                     st.number_input(
                         "TSS",
                         min_value=0,
-                        max_value=max(180, int(round(row["current_total_tss"])) + 80),
-                        value=int(round(float(draft_row["total_tss"] or 0.0))),
+                        max_value=tss_widget_max,
                         step=5,
-                        key=f"near_term_tss_{key_prefix}_{row['index']}",
+                        key=tss_key,
                     )
 
         action_cols = st.columns([1, 1.4])
@@ -925,112 +1006,136 @@ def render_planning_page(state: "StateManager") -> None:
         dates.append(row["date"])
 
     current_metrics = banister.get_current_metrics(tss_data, dates)
-
-    st.subheader("🎯 Текущее состояние")
-    col1, col2 = st.columns(2)
-    col3, col4 = st.columns(2)
-
-    with col1:
-        st.metric("CTL (Фитнес)", current_metrics["ctl"])
-    with col2:
-        st.metric("ATL (Усталость)", current_metrics["atl"])
-    with col3:
-        st.metric("TSB (Форма)", current_metrics["tsb"])
-    with col4:
-        form_color = {
-            "Отличная форма": "🟢",
-            "Хорошая форма": "🟡",
-            "Усталость": "🟠",
-            "Переутомление": "🔴",
-            "Недостаточно данных": "⚫",
-        }
-        form_status = current_metrics["form"] if "form" in current_metrics else "Недостаточно данных"
-        st.metric("Состояние", f"{form_color.get(form_status, '⚫')} {form_status}")
-
-    st.subheader("📊 Анализ фитнеса и усталости")
-
-    dates_full, ctl_values, atl_values, tsb_values = banister.calculate_ctl_atl_tsb(tss_data, dates)
-
-    if dates_full and ctl_values:
-        fig_banister = Visualizations.create_banister_chart(dates_full, ctl_values, atl_values, tsb_values)
-        st.plotly_chart(fig_banister, width="stretch")
-
-    st.subheader("💡 Рекомендации по тренировкам")
     recommendation = banister.get_training_recommendation(current_metrics)
-
-    intensity_colors = {
-        "Высокая": "🔴",
-        "Умеренная": "🟡",
-        "Низкая": "🟢",
-        "Очень низкая/Отдых": "🔵",
+    form_color = {
+        "Отличная форма": "🟢",
+        "Хорошая форма": "🟡",
+        "Усталость": "🟠",
+        "Переутомление": "🔴",
+        "Недостаточно данных": "⚫",
     }
+    form_status = current_metrics["form"] if "form" in current_metrics else "Недостаточно данных"
+    has_goal_plan = bool((getattr(state, "goal_plan", None) or {}).get("daily_plan"))
+    workspace_mode_key = "planning_workspace_mode"
+    normalized_workspace_mode = _normalize_planning_workspace_mode(
+        st.session_state.get(workspace_mode_key),
+        has_goal_plan=has_goal_plan,
+    )
+    if st.session_state.get(workspace_mode_key) != normalized_workspace_mode:
+        st.session_state[workspace_mode_key] = normalized_workspace_mode
+    workspace_mode = st.radio(
+        "Режим страницы",
+        options=list(PLANNING_WORKSPACE_MODES),
+        key=workspace_mode_key,
+        horizontal=True,
+    )
+    workspace_mode = _normalize_planning_workspace_mode(
+        workspace_mode,
+        has_goal_plan=has_goal_plan,
+    )
 
-    col1, col2 = st.columns([2, 1])
+    if workspace_mode == "Собрать план":
+        st.caption("Сначала соберите или обновите план. Корректировка выполнения и экспорт вынесены в отдельные режимы.")
+        st.subheader("🎯 Текущее состояние")
+        col1, col2 = st.columns(2)
+        col3, col4 = st.columns(2)
 
-    with col1:
-        st.markdown(
-            f"""
-        **{recommendation['recommendation']}**
+        with col1:
+            st.metric("CTL (Фитнес)", current_metrics["ctl"])
+        with col2:
+            st.metric("ATL (Усталость)", current_metrics["atl"])
+        with col3:
+            st.metric("TSB (Форма)", current_metrics["tsb"])
+        with col4:
+            st.metric("Состояние", f"{form_color.get(form_status, '⚫')} {form_status}")
 
-        {recommendation['description']}
+        with st.expander("📊 Контекст нагрузки, рекомендации и быстрый прогноз", expanded=False):
+            dates_full, ctl_values, atl_values, tsb_values = banister.calculate_ctl_atl_tsb(tss_data, dates)
+            if dates_full and ctl_values:
+                fig_banister = Visualizations.create_banister_chart(dates_full, ctl_values, atl_values, tsb_values)
+                st.plotly_chart(fig_banister, width="stretch")
 
-        **Рекомендуемый диапазон TSS:** {recommendation['suggested_tss']}
-        """
-        )
+            intensity_colors = {
+                "Высокая": "🔴",
+                "Умеренная": "🟡",
+                "Низкая": "🟢",
+                "Очень низкая/Отдых": "🔵",
+            }
 
-    with col2:
-        st.markdown(
-            f"""
-        **Интенсивность:** {intensity_colors.get(recommendation['intensity'], '⚫')} {recommendation['intensity']}
-        """
-        )
+            col1, col2 = st.columns([2, 1])
 
-    st.subheader("🎲 Симулятор планирования")
+            with col1:
+                st.markdown(
+                    f"""
+                **{recommendation['recommendation']}**
 
-    col1, col2 = st.columns(2)
+                {recommendation['description']}
 
-    with col1:
-        planned_weekly_tss = st.slider(
-            "Планируемый недельный TSS:",
-            min_value=0,
-            max_value=1000,
-            value=int((current_metrics["ctl"] if "ctl" in current_metrics else 50) * 7),
-            step=50,
-            help="Планируемая тренировочная нагрузка на неделю",
-        )
+                **Рекомендуемый диапазон TSS:** {recommendation['suggested_tss']}
+                """
+                )
 
-    with col2:
-        simulation_weeks = st.slider(
-            "Период симуляции (недели):",
-            min_value=1,
-            max_value=12,
-            value=4,
-            step=1,
-        )
+            with col2:
+                st.markdown(
+                    f"""
+                **Интенсивность:** {intensity_colors.get(recommendation['intensity'], '⚫')} {recommendation['intensity']}
+                """
+                )
 
-    if st.button("🚀 Показать прогноз"):
-        future_dates, future_ctl, future_atl, future_tsb = banister.simulate_training_load(
-            current_metrics, planned_weekly_tss, simulation_weeks
-        )
+            st.markdown("#### 🎲 Симулятор планирования")
 
-        if future_dates:
-            fig_future = Visualizations.create_banister_chart(
-                future_dates, future_ctl, future_atl, future_tsb
+            col1, col2 = st.columns(2)
+            simulator_default_tss = _align_slider_value(
+                int((current_metrics["ctl"] if "ctl" in current_metrics else 50) * 7),
+                min_value=0,
+                max_value=1000,
+                step=50,
             )
-            fig_future.update_layout(title="Прогноз при планируемой нагрузке")
-            st.plotly_chart(fig_future, width="stretch")
 
-            final_tsb = future_tsb[-1]
-            if final_tsb > 5:
-                forecast_message = "🟢 Отличный прогноз! Вы будете в пиковой форме."
-            elif final_tsb > -10:
-                forecast_message = "🟡 Хорошая нагрузка для поддержания формы."
-            elif final_tsb > -30:
-                forecast_message = "🟠 Внимание: возможно накопление усталости."
-            else:
-                forecast_message = "🔴 Предупреждение: высокий риск переутомления!"
+            with col1:
+                planned_weekly_tss = st.slider(
+                    "Планируемый недельный TSS:",
+                    min_value=0,
+                    max_value=1000,
+                    value=simulator_default_tss,
+                    step=50,
+                    help="Планируемая тренировочная нагрузка на неделю",
+                )
 
-            st.info(f"**Прогноз через {simulation_weeks} недель:** TSB = {final_tsb:.1f} - {forecast_message}")
+            with col2:
+                simulation_weeks = st.slider(
+                    "Период симуляции (недели):",
+                    min_value=1,
+                    max_value=12,
+                    value=4,
+                    step=1,
+                )
+
+            if st.button("🚀 Показать прогноз"):
+                future_dates, future_ctl, future_atl, future_tsb = banister.simulate_training_load(
+                    current_metrics, planned_weekly_tss, simulation_weeks
+                )
+
+                if future_dates:
+                    fig_future = Visualizations.create_banister_chart(
+                        future_dates, future_ctl, future_atl, future_tsb
+                    )
+                    fig_future.update_layout(title="Прогноз при планируемой нагрузке")
+                    st.plotly_chart(fig_future, width="stretch")
+
+                    final_tsb = future_tsb[-1]
+                    if final_tsb > 5:
+                        forecast_message = "🟢 Отличный прогноз! Вы будете в пиковой форме."
+                    elif final_tsb > -10:
+                        forecast_message = "🟡 Хорошая нагрузка для поддержания формы."
+                    elif final_tsb > -30:
+                        forecast_message = "🟠 Внимание: возможно накопление усталости."
+                    else:
+                        forecast_message = "🔴 Предупреждение: высокий риск переутомления!"
+
+                    st.info(f"**Прогноз через {simulation_weeks} недель:** TSB = {final_tsb:.1f} - {forecast_message}")
+    elif not has_goal_plan:
+        st.info("Сначала соберите план в режиме «Собрать план». После этого откроются режимы корректировки и экспорта.")
 
     st.subheader("🎯 План под цель (дата старта)")
 
@@ -1469,257 +1574,284 @@ def render_planning_page(state: "StateManager") -> None:
         st.rerun()
 
     if state.goal_plan:
-        from models.planning_checkpoints import (
-            build_planning_checkpoint,
-            get_near_term_edit_rollback_target_checkpoint_id,
-            restore_goal_plan_from_checkpoint,
-            summarize_execution_feedback_transition,
-            with_checkpoint_provenance,
-        )
-        from ui.components.execution_feedback import render_execution_feedback_editor
-
         goal_plan = state.goal_plan
+        if workspace_mode == "Собрать план":
+            _render_active_plan_workspace_summary(
+                goal_plan,
+                title="План готов",
+                caption="Детальная корректировка выполнения и экспорты вынесены в отдельные режимы страницы.",
+            )
+            st.info(
+                "Переключитесь в «Скорректировать выполнение», если неделя пошла не по плану, "
+                "или в «Экспорт и детали», если хотите посмотреть explainability, таблицы и sync."
+            )
+            return
+
+        if workspace_mode != "Экспорт и детали":
+            from models.planning_checkpoints import (
+                build_planning_checkpoint,
+                get_near_term_edit_rollback_target_checkpoint_id,
+                restore_goal_plan_from_checkpoint,
+                summarize_execution_feedback_transition,
+                with_checkpoint_provenance,
+            )
+            from ui.components.execution_feedback import render_execution_feedback_editor
+
+            flash_message = st.session_state.pop("planning_near_term_flash", None)
+            if flash_message:
+                st.success(flash_message)
+            _render_active_plan_workspace_summary(
+                goal_plan,
+                title="Активный план для корректировки",
+                caption="Здесь остаются только execution feedback, ручной override ближнего горизонта и история версий.",
+            )
+
+            execution_feedback_result = render_execution_feedback_editor(
+                goal_plan,
+                key_prefix="planning_execution_feedback",
+                title="### ♻️ Факт выполнения по дням",
+                allow_open_as_draft=True,
+            )
+            if execution_feedback_result is not None:
+                latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
+                if execution_feedback_result.get("mode") == "open_near_term_draft":
+                    projected_goal_plan = execution_feedback_result.get("projected_goal_plan")
+                    corrective_microcycle = execution_feedback_result.get("execution_corrective_microcycle") or {}
+                    draft_seed = None
+                    if isinstance(projected_goal_plan, dict):
+                        draft_seed = build_near_term_edit_seed_from_goal_plans(
+                            goal_plan,
+                            projected_goal_plan,
+                            horizon_days=7,
+                            post_edit_strategy=str(corrective_microcycle.get("selected_response_strategy") or "keep"),
+                            source_label=str(corrective_microcycle.get("headline") or "Execution microcycle"),
+                        )
+                    if draft_seed is not None:
+                        draft_seed["hint"] = (
+                            "Это override-path для ближайших 7 дней: сначала проверьте diff, risk и follow-up strategy, "
+                            "а уже потом сохраняйте manual override."
+                        )
+                        draft_seed["origin_kind"] = "execution_microcycle_override"
+                        draft_seed["origin_checkpoint_id"] = (
+                            (latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None
+                        )
+                        draft_seed["origin_checkpoint_source"] = (
+                            (latest_checkpoint or {}).get("checkpoint_source")
+                            if isinstance(latest_checkpoint, dict)
+                            else None
+                        )
+                        draft_seed["origin_plan_adjustment_label"] = str(
+                            execution_feedback_result["plan_adjustment"].get("label") or ""
+                        )
+                        draft_seed["origin_weekly_review_headline"] = str(
+                            (
+                                execution_feedback_result["plan_adjustment"].get("execution_weekly_review") or {}
+                            ).get("headline")
+                            or ""
+                        )
+                        draft_seed["origin_microcycle_headline"] = str(
+                            corrective_microcycle.get("headline") or ""
+                        )
+                        st.session_state["planning_near_term_prefill"] = draft_seed
+                        st.session_state["planning_near_term_flash"] = (
+                            "Execution microcycle открыт как черновик ручной правки. "
+                            "Проверьте diff и risk перед сохранением override."
+                        )
+                        st.rerun()
+                    st.warning("Не удалось открыть microcycle как черновик: в ближнем горизонте нет видимого diff.")
+                    return
+                updated_goal_plan = rebuild_goal_plan_with_adjustment(
+                    goal_plan,
+                    execution_feedback_result["plan_adjustment"],
+                )
+                updated_goal_plan = with_checkpoint_provenance(
+                    updated_goal_plan,
+                    source="execution_feedback",
+                    parent_checkpoint_id=(latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None,
+                )
+                state.goal_plan = updated_goal_plan
+                saved_checkpoint = state.database.save_planning_checkpoint(
+                    build_planning_checkpoint(updated_goal_plan)
+                )
+                state.latest_planning_checkpoint = saved_checkpoint
+                state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
+                state.last_execution_feedback_result = summarize_execution_feedback_transition(
+                    latest_checkpoint,
+                    saved_checkpoint,
+                )
+                execution_reconciliation = execution_feedback_result["plan_adjustment"].get("execution_reconciliation")
+                execution_weekly_review = execution_feedback_result["plan_adjustment"].get("execution_weekly_review")
+                execution_adaptation_pressure = execution_feedback_result.get("execution_adaptation_pressure")
+                execution_corrective_microcycle = (
+                    (
+                        (
+                            (updated_goal_plan.get("constraint_summary", {}) or {}).get("plan_adjustment", {})
+                            or {}
+                        ).get("execution_corrective_microcycle")
+                    )
+                )
+                if (
+                    isinstance(execution_reconciliation, dict)
+                    and execution_reconciliation.get("changed_day_count", 0) > 0
+                    and isinstance(execution_weekly_review, dict)
+                    and isinstance(execution_corrective_microcycle, dict)
+                ):
+                    st.session_state["planning_near_term_flash"] = (
+                        "Execution checkpoint сохранён: "
+                        f"{execution_reconciliation['compact_label']} · "
+                        f"{execution_weekly_review['headline']} · "
+                        f"{execution_weekly_review['selected_response_label']} · "
+                        f"{execution_corrective_microcycle['headline']}."
+                    )
+                    if isinstance(execution_adaptation_pressure, dict):
+                        st.session_state["planning_near_term_flash"] += (
+                            f" После окна: {execution_adaptation_pressure['follow_up_label']}."
+                        )
+                elif (
+                    isinstance(execution_reconciliation, dict)
+                    and execution_reconciliation.get("changed_day_count", 0) > 0
+                    and isinstance(execution_weekly_review, dict)
+                ):
+                    st.session_state["planning_near_term_flash"] = (
+                        "Execution checkpoint сохранён: "
+                        f"{execution_reconciliation['compact_label']} · "
+                        f"{execution_weekly_review['headline']} · "
+                        f"{execution_weekly_review['selected_response_label']}."
+                    )
+                    if isinstance(execution_adaptation_pressure, dict):
+                        st.session_state["planning_near_term_flash"] += (
+                            f" После окна: {execution_adaptation_pressure['follow_up_label']}."
+                        )
+                elif isinstance(execution_reconciliation, dict) and execution_reconciliation.get("changed_day_count", 0) > 0:
+                    st.session_state["planning_near_term_flash"] = (
+                        "Execution checkpoint сохранён: "
+                        f"{execution_reconciliation['compact_label']}."
+                    )
+                    if isinstance(execution_adaptation_pressure, dict):
+                        st.session_state["planning_near_term_flash"] += (
+                            f" После окна: {execution_adaptation_pressure['follow_up_label']}."
+                        )
+                else:
+                    st.session_state["planning_near_term_flash"] = "Execution checkpoint сохранён."
+                st.rerun()
+
+            rollback_goal_plan = None
+            latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
+            rollback_target_checkpoint_id = get_near_term_edit_rollback_target_checkpoint_id(latest_checkpoint)
+            if rollback_target_checkpoint_id is not None:
+                rollback_checkpoint = state.database.get_planning_checkpoint(rollback_target_checkpoint_id)
+                rollback_goal_plan = restore_goal_plan_from_checkpoint(rollback_checkpoint)
+                if not isinstance(rollback_goal_plan, dict) or not rollback_goal_plan.get("daily_plan"):
+                    rollback_goal_plan = None
+
+            updated_goal_plan = _render_near_term_editor(
+                goal_plan,
+                rollback_goal_plan=rollback_goal_plan,
+                rollback_checkpoint_id=rollback_target_checkpoint_id,
+                draft_seed=st.session_state.pop("planning_near_term_prefill", None),
+            )
+            if updated_goal_plan is None:
+                updated_goal_plan = _render_planning_version_history(
+                    goal_plan,
+                    latest_checkpoint,
+                    getattr(state, "planning_checkpoint_history", []),
+                )
+            if updated_goal_plan is not None:
+                planning_action = str(updated_goal_plan.pop("_transient_planning_action", "") or "")
+                restored_from_checkpoint_id = updated_goal_plan.pop("_transient_restore_checkpoint_id", None)
+                near_term_edit_origin = updated_goal_plan.pop("_transient_near_term_edit_origin", None)
+                if (
+                    planning_action == "override_execution_microcycle"
+                    and isinstance(updated_goal_plan.get("constraint_summary"), dict)
+                    and isinstance((updated_goal_plan.get("constraint_summary") or {}).get("near_term_edit"), dict)
+                    and isinstance(near_term_edit_origin, dict)
+                ):
+                    updated_goal_plan["constraint_summary"]["near_term_edit"].update(
+                        {key: value for key, value in near_term_edit_origin.items() if value not in (None, "")}
+                    )
+                near_term_summary = summarize_near_term_edit(updated_goal_plan.get("constraint_summary", {}))
+                latest_checkpoint_id = (latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None
+                if planning_action in {"rollback_near_term_edit", "restore_checkpoint_version"}:
+                    updated_goal_plan = with_checkpoint_provenance(
+                        updated_goal_plan,
+                        source="restore_version",
+                        parent_checkpoint_id=latest_checkpoint_id,
+                        restored_from_checkpoint_id=restored_from_checkpoint_id,
+                    )
+                else:
+                    updated_goal_plan = with_checkpoint_provenance(
+                        updated_goal_plan,
+                        source="manual_edit",
+                        parent_checkpoint_id=latest_checkpoint_id,
+                    )
+                    if near_term_summary is not None and latest_checkpoint_id is not None:
+                        updated_goal_plan["near_term_edit_rollback_target_checkpoint_id"] = latest_checkpoint_id
+                    elif near_term_summary is None:
+                        updated_goal_plan.pop("near_term_edit_rollback_target_checkpoint_id", None)
+
+                state.goal_plan = updated_goal_plan
+                state.last_execution_feedback_result = None
+                saved_checkpoint = state.database.save_planning_checkpoint(
+                    build_planning_checkpoint(updated_goal_plan)
+                )
+                state.latest_planning_checkpoint = saved_checkpoint
+                state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
+                if planning_action == "rollback_near_term_edit":
+                    if near_term_summary is not None:
+                        st.session_state["planning_near_term_flash"] = (
+                            "Откат выполнен. Активная версия: "
+                            f"{near_term_summary['compact_label']}."
+                        )
+                    else:
+                        st.session_state["planning_near_term_flash"] = "Последняя ручная правка ближнего горизонта откатана."
+                elif planning_action == "restore_checkpoint_version":
+                    if restored_from_checkpoint_id is not None:
+                        st.session_state["planning_near_term_flash"] = (
+                            f"Версия checkpoint #{int(restored_from_checkpoint_id)} восстановлена."
+                        )
+                    else:
+                        st.session_state["planning_near_term_flash"] = "Сохранённая версия плана восстановлена."
+                elif planning_action == "override_execution_microcycle":
+                    if near_term_summary is not None:
+                        st.session_state["planning_near_term_flash"] = (
+                            "Execution microcycle переопределён вручную: "
+                            f"{near_term_summary['compact_label']}."
+                        )
+                        if near_term_summary.get("origin_microcycle_headline"):
+                            st.session_state["planning_near_term_flash"] += (
+                                f" База override: {near_term_summary['origin_microcycle_headline']}."
+                            )
+                        if near_term_summary["risk_level"] != "low":
+                            st.session_state["planning_near_term_flash"] += (
+                                f" Оценка: {near_term_summary['risk_badge']}."
+                            )
+                    else:
+                        st.session_state["planning_near_term_flash"] = "Execution microcycle переопределён вручную."
+                else:
+                    if near_term_summary is not None:
+                        st.session_state["planning_near_term_flash"] = (
+                            "Ближний горизонт обновлён: "
+                            f"{near_term_summary['compact_label']}."
+                        )
+                        if near_term_summary["risk_level"] != "low":
+                            st.session_state["planning_near_term_flash"] += (
+                                f" Оценка: {near_term_summary['risk_badge']}."
+                            )
+                    else:
+                        st.session_state["planning_near_term_flash"] = "Ближний горизонт обновлён."
+                st.rerun()
+                return
+
+            return
+
         flash_message = st.session_state.pop("planning_near_term_flash", None)
         if flash_message:
             st.success(flash_message)
-
-        execution_feedback_result = render_execution_feedback_editor(
+        _render_active_plan_workspace_summary(
             goal_plan,
-            key_prefix="planning_execution_feedback",
-            title="### ♻️ Факт выполнения по дням",
-            allow_open_as_draft=True,
+            title="Активный план для экспорта и деталей",
+            caption="Здесь собраны explainability, недельные таблицы, внешние sync и файловые экспорты.",
         )
-        if execution_feedback_result is not None:
-            latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
-            if execution_feedback_result.get("mode") == "open_near_term_draft":
-                projected_goal_plan = execution_feedback_result.get("projected_goal_plan")
-                corrective_microcycle = execution_feedback_result.get("execution_corrective_microcycle") or {}
-                draft_seed = None
-                if isinstance(projected_goal_plan, dict):
-                    draft_seed = build_near_term_edit_seed_from_goal_plans(
-                        goal_plan,
-                        projected_goal_plan,
-                        horizon_days=7,
-                        post_edit_strategy=str(corrective_microcycle.get("selected_response_strategy") or "keep"),
-                        source_label=str(corrective_microcycle.get("headline") or "Execution microcycle"),
-                    )
-                if draft_seed is not None:
-                    draft_seed["hint"] = (
-                        "Это override-path для ближайших 7 дней: сначала проверьте diff, risk и follow-up strategy, "
-                        "а уже потом сохраняйте manual override."
-                    )
-                    draft_seed["origin_kind"] = "execution_microcycle_override"
-                    draft_seed["origin_checkpoint_id"] = (
-                        (latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None
-                    )
-                    draft_seed["origin_checkpoint_source"] = (
-                        (latest_checkpoint or {}).get("checkpoint_source")
-                        if isinstance(latest_checkpoint, dict)
-                        else None
-                    )
-                    draft_seed["origin_plan_adjustment_label"] = str(
-                        execution_feedback_result["plan_adjustment"].get("label") or ""
-                    )
-                    draft_seed["origin_weekly_review_headline"] = str(
-                        (
-                            execution_feedback_result["plan_adjustment"].get("execution_weekly_review") or {}
-                        ).get("headline")
-                        or ""
-                    )
-                    draft_seed["origin_microcycle_headline"] = str(
-                        corrective_microcycle.get("headline") or ""
-                    )
-                    st.session_state["planning_near_term_prefill"] = draft_seed
-                    st.session_state["planning_near_term_flash"] = (
-                        "Execution microcycle открыт как черновик ручной правки. "
-                        "Проверьте diff и risk перед сохранением override."
-                    )
-                    st.rerun()
-                st.warning("Не удалось открыть microcycle как черновик: в ближнем горизонте нет видимого diff.")
-                return
-            updated_goal_plan = rebuild_goal_plan_with_adjustment(
-                goal_plan,
-                execution_feedback_result["plan_adjustment"],
-            )
-            updated_goal_plan = with_checkpoint_provenance(
-                updated_goal_plan,
-                source="execution_feedback",
-                parent_checkpoint_id=(latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None,
-            )
-            state.goal_plan = updated_goal_plan
-            saved_checkpoint = state.database.save_planning_checkpoint(
-                build_planning_checkpoint(updated_goal_plan)
-            )
-            state.latest_planning_checkpoint = saved_checkpoint
-            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
-            state.last_execution_feedback_result = summarize_execution_feedback_transition(
-                latest_checkpoint,
-                saved_checkpoint,
-            )
-            execution_reconciliation = execution_feedback_result["plan_adjustment"].get("execution_reconciliation")
-            execution_weekly_review = execution_feedback_result["plan_adjustment"].get("execution_weekly_review")
-            execution_adaptation_pressure = execution_feedback_result.get("execution_adaptation_pressure")
-            execution_corrective_microcycle = (
-                (
-                    (
-                        (updated_goal_plan.get("constraint_summary", {}) or {}).get("plan_adjustment", {})
-                        or {}
-                    ).get("execution_corrective_microcycle")
-                )
-            )
-            if (
-                isinstance(execution_reconciliation, dict)
-                and execution_reconciliation.get("changed_day_count", 0) > 0
-                and isinstance(execution_weekly_review, dict)
-                and isinstance(execution_corrective_microcycle, dict)
-            ):
-                st.session_state["planning_near_term_flash"] = (
-                    "Execution checkpoint сохранён: "
-                    f"{execution_reconciliation['compact_label']} · "
-                    f"{execution_weekly_review['headline']} · "
-                    f"{execution_weekly_review['selected_response_label']} · "
-                    f"{execution_corrective_microcycle['headline']}."
-                )
-                if isinstance(execution_adaptation_pressure, dict):
-                    st.session_state["planning_near_term_flash"] += (
-                        f" После окна: {execution_adaptation_pressure['follow_up_label']}."
-                    )
-            elif (
-                isinstance(execution_reconciliation, dict)
-                and execution_reconciliation.get("changed_day_count", 0) > 0
-                and isinstance(execution_weekly_review, dict)
-            ):
-                st.session_state["planning_near_term_flash"] = (
-                    "Execution checkpoint сохранён: "
-                    f"{execution_reconciliation['compact_label']} · "
-                    f"{execution_weekly_review['headline']} · "
-                    f"{execution_weekly_review['selected_response_label']}."
-                )
-                if isinstance(execution_adaptation_pressure, dict):
-                    st.session_state["planning_near_term_flash"] += (
-                        f" После окна: {execution_adaptation_pressure['follow_up_label']}."
-                    )
-            elif isinstance(execution_reconciliation, dict) and execution_reconciliation.get("changed_day_count", 0) > 0:
-                st.session_state["planning_near_term_flash"] = (
-                    "Execution checkpoint сохранён: "
-                    f"{execution_reconciliation['compact_label']}."
-                )
-                if isinstance(execution_adaptation_pressure, dict):
-                    st.session_state["planning_near_term_flash"] += (
-                        f" После окна: {execution_adaptation_pressure['follow_up_label']}."
-                    )
-            else:
-                st.session_state["planning_near_term_flash"] = "Execution checkpoint сохранён."
-            st.rerun()
-
-        rollback_goal_plan = None
-        latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
-        rollback_target_checkpoint_id = get_near_term_edit_rollback_target_checkpoint_id(latest_checkpoint)
-        if rollback_target_checkpoint_id is not None:
-            rollback_checkpoint = state.database.get_planning_checkpoint(rollback_target_checkpoint_id)
-            rollback_goal_plan = restore_goal_plan_from_checkpoint(rollback_checkpoint)
-            if not isinstance(rollback_goal_plan, dict) or not rollback_goal_plan.get("daily_plan"):
-                rollback_goal_plan = None
-
-        updated_goal_plan = _render_near_term_editor(
-            goal_plan,
-            rollback_goal_plan=rollback_goal_plan,
-            rollback_checkpoint_id=rollback_target_checkpoint_id,
-            draft_seed=st.session_state.pop("planning_near_term_prefill", None),
-        )
-        if updated_goal_plan is None:
-            updated_goal_plan = _render_planning_version_history(
-                goal_plan,
-                latest_checkpoint,
-                getattr(state, "planning_checkpoint_history", []),
-            )
-        if updated_goal_plan is not None:
-            planning_action = str(updated_goal_plan.pop("_transient_planning_action", "") or "")
-            restored_from_checkpoint_id = updated_goal_plan.pop("_transient_restore_checkpoint_id", None)
-            near_term_edit_origin = updated_goal_plan.pop("_transient_near_term_edit_origin", None)
-            if (
-                planning_action == "override_execution_microcycle"
-                and isinstance(updated_goal_plan.get("constraint_summary"), dict)
-                and isinstance((updated_goal_plan.get("constraint_summary") or {}).get("near_term_edit"), dict)
-                and isinstance(near_term_edit_origin, dict)
-            ):
-                updated_goal_plan["constraint_summary"]["near_term_edit"].update(
-                    {key: value for key, value in near_term_edit_origin.items() if value not in (None, "")}
-                )
-            near_term_summary = summarize_near_term_edit(updated_goal_plan.get("constraint_summary", {}))
-            latest_checkpoint_id = (latest_checkpoint or {}).get("id") if isinstance(latest_checkpoint, dict) else None
-            if planning_action in {"rollback_near_term_edit", "restore_checkpoint_version"}:
-                updated_goal_plan = with_checkpoint_provenance(
-                    updated_goal_plan,
-                    source="restore_version",
-                    parent_checkpoint_id=latest_checkpoint_id,
-                    restored_from_checkpoint_id=restored_from_checkpoint_id,
-                )
-            else:
-                updated_goal_plan = with_checkpoint_provenance(
-                    updated_goal_plan,
-                    source="manual_edit",
-                    parent_checkpoint_id=latest_checkpoint_id,
-                )
-                if near_term_summary is not None and latest_checkpoint_id is not None:
-                    updated_goal_plan["near_term_edit_rollback_target_checkpoint_id"] = latest_checkpoint_id
-                elif near_term_summary is None:
-                    updated_goal_plan.pop("near_term_edit_rollback_target_checkpoint_id", None)
-
-            state.goal_plan = updated_goal_plan
-            state.last_execution_feedback_result = None
-            saved_checkpoint = state.database.save_planning_checkpoint(
-                build_planning_checkpoint(updated_goal_plan)
-            )
-            state.latest_planning_checkpoint = saved_checkpoint
-            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
-            if planning_action == "rollback_near_term_edit":
-                if near_term_summary is not None:
-                    st.session_state["planning_near_term_flash"] = (
-                        "Откат выполнен. Активная версия: "
-                        f"{near_term_summary['compact_label']}."
-                    )
-                else:
-                    st.session_state["planning_near_term_flash"] = "Последняя ручная правка ближнего горизонта откатана."
-            elif planning_action == "restore_checkpoint_version":
-                if restored_from_checkpoint_id is not None:
-                    st.session_state["planning_near_term_flash"] = (
-                        f"Версия checkpoint #{int(restored_from_checkpoint_id)} восстановлена."
-                    )
-                else:
-                    st.session_state["planning_near_term_flash"] = "Сохранённая версия плана восстановлена."
-            elif planning_action == "override_execution_microcycle":
-                if near_term_summary is not None:
-                    st.session_state["planning_near_term_flash"] = (
-                        "Execution microcycle переопределён вручную: "
-                        f"{near_term_summary['compact_label']}."
-                    )
-                    if near_term_summary.get("origin_microcycle_headline"):
-                        st.session_state["planning_near_term_flash"] += (
-                            f" База override: {near_term_summary['origin_microcycle_headline']}."
-                        )
-                    if near_term_summary["risk_level"] != "low":
-                        st.session_state["planning_near_term_flash"] += (
-                            f" Оценка: {near_term_summary['risk_badge']}."
-                        )
-                else:
-                    st.session_state["planning_near_term_flash"] = "Execution microcycle переопределён вручную."
-            else:
-                if near_term_summary is not None:
-                    st.session_state["planning_near_term_flash"] = (
-                        "Ближний горизонт обновлён: "
-                        f"{near_term_summary['compact_label']}."
-                    )
-                    if near_term_summary["risk_level"] != "low":
-                        st.session_state["planning_near_term_flash"] += (
-                            f" Оценка: {near_term_summary['risk_badge']}."
-                        )
-                else:
-                    st.session_state["planning_near_term_flash"] = "Ближний горизонт обновлён."
-            st.rerun()
-            return
-
-        goal_plan = state.goal_plan
         daily_plan = goal_plan["daily_plan"]
         weekly_summary = goal_plan["weekly_summary"]
         start_week = goal_plan["start_week"]
@@ -2081,16 +2213,16 @@ def render_planning_page(state: "StateManager") -> None:
             st.success("План сброшен")
             st.rerun()
 
-    st.subheader("📈 Дополнительная статистика")
+    if workspace_mode == "Собрать план":
+        with st.expander("📈 Дополнительная статистика", expanded=False):
+            col1, col2 = st.columns(2)
 
-    col1, col2 = st.columns(2)
+            with col1:
+                if not activities_df.empty and "tss" in activities_df.columns:
+                    fig_tss_dist = Visualizations.create_tss_distribution_chart(activities_df)
+                    st.plotly_chart(fig_tss_dist, width="stretch")
 
-    with col1:
-        if not activities_df.empty and "tss" in activities_df.columns:
-            fig_tss_dist = Visualizations.create_tss_distribution_chart(activities_df)
-            st.plotly_chart(fig_tss_dist, width="stretch")
-
-    with col2:
-        if not activities_df.empty:
-            fig_weekly = Visualizations.create_weekly_tss_chart(activities_df)
-            st.plotly_chart(fig_weekly, width="stretch")
+            with col2:
+                if not activities_df.empty:
+                    fig_weekly = Visualizations.create_weekly_tss_chart(activities_df)
+                    st.plotly_chart(fig_weekly, width="stretch")
