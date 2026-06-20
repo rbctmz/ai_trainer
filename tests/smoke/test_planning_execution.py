@@ -18,7 +18,9 @@ from models.planning_near_term import build_near_term_edit_seed_from_goal_plans
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
 from ui.components.execution_feedback import (
     _build_follow_up_preview_rows,
+    _partition_execution_row_states,
     _resolve_actual_tss_value,
+    _row_state_needs_attention,
     _sanitize_actual_tss_value,
     _sync_pending_widget_value,
 )
@@ -496,3 +498,62 @@ def test_execution_feedback_pending_widget_value_applies_before_widget_init():
     assert resolved == "Беречь восстановление"
     assert session_state["dashboard_execution_feedback_response_strategy"] == "Беречь восстановление"
     assert "dashboard_execution_feedback_response_strategy_pending" not in session_state
+
+
+def test_execution_feedback_row_state_detects_prefill_and_real_deviation():
+    quiet_state = {
+        "row": {
+            "planned_total_tss": 40,
+        },
+        "outcome_code": "as_planned",
+        "resolved_actual_tss": 40,
+    }
+    prefilled_state = {
+        "row": {
+            "planned_total_tss": 40,
+            "activity_prefill_source": "garmin_local",
+        },
+        "outcome_code": "as_planned",
+        "resolved_actual_tss": 40,
+    }
+    changed_state = {
+        "row": {
+            "planned_total_tss": 40,
+        },
+        "outcome_code": "reduced",
+        "resolved_actual_tss": 30,
+    }
+
+    assert _row_state_needs_attention(quiet_state) is False
+    assert _row_state_needs_attention(prefilled_state) is True
+    assert _row_state_needs_attention(changed_state) is True
+
+
+def test_execution_feedback_partition_puts_signal_rows_first():
+    row_states = [
+        {
+            "row": {"index": 0, "planned_total_tss": 40},
+            "outcome_code": "as_planned",
+            "resolved_actual_tss": 40,
+        },
+        {
+            "row": {"index": 1, "planned_total_tss": 55, "activity_prefill_source": "garmin_local"},
+            "outcome_code": "as_planned",
+            "resolved_actual_tss": 55,
+        },
+        {
+            "row": {"index": 2, "planned_total_tss": 60},
+            "outcome_code": "missed",
+            "resolved_actual_tss": 0,
+        },
+        {
+            "row": {"index": 3, "planned_total_tss": 25},
+            "outcome_code": "as_planned",
+            "resolved_actual_tss": 25,
+        },
+    ]
+
+    attention_states, quiet_states = _partition_execution_row_states(row_states)
+
+    assert [item["row"]["index"] for item in attention_states] == [1, 2]
+    assert [item["row"]["index"] for item in quiet_states] == [0, 3]

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Dict, Mapping, MutableMapping
+from typing import Any, Dict, List, Mapping, MutableMapping
 
 import pandas as pd
 import streamlit as st
@@ -160,6 +160,100 @@ def _resolve_execution_activity_lookback_days(
     return max(14, min(90, days_back))
 
 
+def _row_state_needs_attention(row_state: Mapping[str, Any]) -> bool:
+    row = dict(row_state.get("row") or {})
+    if str(row.get("activity_prefill_source") or "").strip():
+        return True
+    try:
+        planned_total_tss = int(row.get("planned_total_tss", 0) or 0)
+    except (TypeError, ValueError):
+        planned_total_tss = 0
+    try:
+        resolved_actual_tss = int(row_state.get("resolved_actual_tss", planned_total_tss) or 0)
+    except (TypeError, ValueError):
+        resolved_actual_tss = planned_total_tss
+    outcome_code = str(row_state.get("outcome_code") or "as_planned").strip().lower()
+    return outcome_code != "as_planned" or resolved_actual_tss != planned_total_tss
+
+
+def _partition_execution_row_states(
+    row_states: List[Mapping[str, Any]],
+) -> tuple[List[Mapping[str, Any]], List[Mapping[str, Any]]]:
+    attention_rows: List[Mapping[str, Any]] = []
+    quiet_rows: List[Mapping[str, Any]] = []
+    for row_state in row_states:
+        if _row_state_needs_attention(row_state):
+            attention_rows.append(row_state)
+        else:
+            quiet_rows.append(row_state)
+    return attention_rows, quiet_rows
+
+
+def _render_execution_day_editor_row(
+    row_state: Mapping[str, Any],
+) -> Dict[str, Any]:
+    row = dict(row_state["row"])
+    outcome_key = str(row_state["outcome_key"])
+    actual_tss_key = str(row_state["actual_tss_key"])
+    actual_tss_widget_key = str(row_state["actual_tss_widget_key"])
+
+    with st.container(border=True):
+        st.markdown(f"**{row['date_label']} • {row.get('phase_label', row['phase'])}**")
+        st.caption(
+            f"План: {row['session_name']} · "
+            f"{row.get('sport_label', row['sport'])} · "
+            f"{row.get('session_role_label', row['session_role'])} · "
+            f"{int(row['planned_total_tss'])} TSS · ~{int(row['planned_duration_minutes'])} мин"
+        )
+        if row.get("activity_prefill_note"):
+            st.caption(f"Автоподстановка: {row['activity_prefill_note']}")
+        col1, col2 = st.columns([1.4, 1])
+        with col1:
+            outcome_label = st.selectbox(
+                "Факт",
+                options=list(EXECUTION_DAY_OUTCOME_LABELS.values()),
+                key=outcome_key,
+            )
+        outcome_code = next(
+            (
+                code
+                for code, label in EXECUTION_DAY_OUTCOME_LABELS.items()
+                if label == outcome_label
+            ),
+            "as_planned",
+        )
+        resolved_actual_tss = _resolve_actual_tss_value(
+            row["planned_total_tss"],
+            outcome_code,
+            st.session_state.get(
+                actual_tss_widget_key,
+                st.session_state.get(actual_tss_key),
+            ),
+        )
+        st.session_state[actual_tss_key] = resolved_actual_tss
+        st.session_state[actual_tss_widget_key] = resolved_actual_tss
+        with col2:
+            actual_tss_value = st.number_input(
+                "Факт TSS",
+                min_value=0,
+                max_value=int(row["planned_total_tss"]),
+                step=5,
+                key=actual_tss_widget_key,
+                disabled=outcome_code != "reduced",
+            )
+        st.session_state[actual_tss_key] = _resolve_actual_tss_value(
+            row["planned_total_tss"],
+            outcome_code,
+            actual_tss_value,
+        )
+
+    return {
+        **row,
+        "outcome": outcome_code,
+        "actual_total_tss": int(st.session_state[actual_tss_key]),
+    }
+
+
 def render_execution_feedback_editor(
     goal_plan: Mapping[str, Any] | None,
     *,
@@ -298,7 +392,7 @@ def render_execution_feedback_editor(
                 response_strategy_key,
                 default_value=EXECUTION_RESPONSE_STRATEGY_LABELS[current_response_strategy],
             )
-            edited_rows = []
+            row_states: List[Dict[str, Any]] = []
             for row in editable_rows:
                 row_index = int(row["index"])
                 outcome_key = f"{key_prefix}_outcome_{row_index}"
@@ -341,64 +435,43 @@ def render_execution_feedback_editor(
                 )
                 st.session_state[actual_tss_key] = resolved_actual_tss
                 st.session_state[actual_tss_widget_key] = resolved_actual_tss
-
-                with st.container(border=True):
-                    st.markdown(f"**{row['date_label']} • {row.get('phase_label', row['phase'])}**")
-                    st.caption(
-                        f"План: {row['session_name']} · "
-                        f"{row.get('sport_label', row['sport'])} · "
-                        f"{row.get('session_role_label', row['session_role'])} · "
-                        f"{int(row['planned_total_tss'])} TSS · ~{int(row['planned_duration_minutes'])} мин"
-                    )
-                    if row.get("activity_prefill_note"):
-                        st.caption(f"Автоподстановка: {row['activity_prefill_note']}")
-                    col1, col2 = st.columns([1.4, 1])
-                    with col1:
-                        outcome_label = st.selectbox(
-                            "Факт",
-                            options=list(EXECUTION_DAY_OUTCOME_LABELS.values()),
-                            key=outcome_key,
-                        )
-                    outcome_code = next(
-                        (
-                            code
-                            for code, label in EXECUTION_DAY_OUTCOME_LABELS.items()
-                            if label == outcome_label
-                        ),
-                        "as_planned",
-                    )
-                    resolved_actual_tss = _resolve_actual_tss_value(
-                        row["planned_total_tss"],
-                        outcome_code,
-                        st.session_state.get(
-                            actual_tss_widget_key,
-                            st.session_state.get(actual_tss_key),
-                        ),
-                    )
-                    st.session_state[actual_tss_key] = resolved_actual_tss
-                    st.session_state[actual_tss_widget_key] = resolved_actual_tss
-                    with col2:
-                        actual_tss_value = st.number_input(
-                            "Факт TSS",
-                            min_value=0,
-                            max_value=int(row["planned_total_tss"]),
-                            step=5,
-                            key=actual_tss_widget_key,
-                            disabled=outcome_code != "reduced",
-                        )
-                    st.session_state[actual_tss_key] = _resolve_actual_tss_value(
-                        row["planned_total_tss"],
-                        outcome_code,
-                        actual_tss_value,
-                    )
-
-                edited_rows.append(
+                row_states.append(
                     {
-                        **row,
-                        "outcome": outcome_code,
-                        "actual_total_tss": int(st.session_state[actual_tss_key]),
+                        "row": row,
+                        "row_index": row_index,
+                        "outcome_key": outcome_key,
+                        "actual_tss_key": actual_tss_key,
+                        "actual_tss_widget_key": actual_tss_widget_key,
+                        "outcome_code": outcome_code,
+                        "resolved_actual_tss": resolved_actual_tss,
                     }
                 )
+
+            attention_row_states, quiet_row_states = _partition_execution_row_states(row_states)
+            edited_rows = []
+            if attention_row_states:
+                quiet_count = len(quiet_row_states)
+                spotlight_label = f"{len(attention_row_states)} дн."
+                if quiet_count > 0:
+                    st.caption(
+                        "Сначала показаны дни с отклонением или локальным Garmin sync: "
+                        f"{spotlight_label}. Остальные {quiet_count} дн. скрыты ниже."
+                    )
+                for row_state in attention_row_states:
+                    edited_rows.append(_render_execution_day_editor_row(row_state))
+            if quiet_row_states:
+                if not attention_row_states:
+                    st.info(
+                        "В этом окне пока нет отклонений и Garmin-подсказок: "
+                        f"все {len(quiet_row_states)} дн. сейчас совпадают с планом. "
+                        "Разверните список ниже, если хотите отметить факт вручную."
+                    )
+                with st.expander(
+                    f"Показать дни без отклонений ({len(quiet_row_states)})",
+                    expanded=False,
+                ):
+                    for row_state in quiet_row_states:
+                        edited_rows.append(_render_execution_day_editor_row(row_state))
 
             execution_summary = summarize_execution_reconciliation_rows(edited_rows)
             selected_response_label = st.radio(
