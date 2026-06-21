@@ -92,6 +92,9 @@ class ModernUI:
             --ic-red: #C94B42;
             --ic-blue: #2E6FBB;
             --ic-shadow: {'0 20px 70px rgba(0,0,0,0.34)' if dark_mode else '0 22px 70px rgba(75,63,38,0.14)'};
+            --ic-button-bg: {'rgba(255,255,255,0.055)' if dark_mode else '#FFFFFF'};
+            --ic-button-hover: {'rgba(13,143,104,0.18)' if dark_mode else 'rgba(13,143,104,0.08)'};
+            --ic-input-bg: {'#18231D' if dark_mode else '#FFFFFF'};
         }}
         
         /* Базовые стили приложения */
@@ -226,9 +229,13 @@ class ModernUI:
         .status-warning::before {{ background: var(--danger-red); }}
         .status-critical::before {{ background: #991B1B; }}
         
-        /* Кнопки с адаптацией к теме */
-        .stButton > button {{
-            background-color: {'rgba(255,255,255,0.04)' if dark_mode else '#FFFFFF'} !important;
+        /* Кнопки с адаптацией к теме. Streamlit меняет внутренние data-testid,
+           поэтому держим и старый, и новый контракт селекторов. */
+        .stButton > button,
+        button[data-testid="stBaseButton-secondary"],
+        button[data-testid="stBaseButton-tertiary"],
+        button[data-testid="stBaseButton-minimal"] {{
+            background: var(--ic-button-bg) !important;
             color: {theme['text_primary']} !important;
             border: 1px solid var(--ic-hairline) !important;
             border-radius: 14px !important;
@@ -239,17 +246,34 @@ class ModernUI:
             transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
         }}
         
-        .stButton > button:hover {{
-            background-color: {'rgba(13,143,104,0.16)' if dark_mode else 'rgba(13,143,104,0.08)'} !important;
+        .stButton > button:hover,
+        button[data-testid="stBaseButton-secondary"]:hover,
+        button[data-testid="stBaseButton-tertiary"]:hover,
+        button[data-testid="stBaseButton-minimal"]:hover {{
+            background: var(--ic-button-hover) !important;
             border-color: rgba(13,143,104,0.45) !important;
             transform: translateY(-1px);
         }}
 
+        button[data-testid="stBaseButton-primary"],
         div[data-testid="stBaseButton-primary"] > button,
-        .stButton > button[kind="primary"] {{
+        .stButton > button[kind="primary"],
+        button[kind="primary"] {{
             background: linear-gradient(135deg, var(--ic-green), #14C38E) !important;
             color: white !important;
             border-color: rgba(20,195,142,0.45) !important;
+        }}
+
+        .stButton > button *,
+        button[data-testid="stBaseButton-secondary"] *,
+        button[data-testid="stBaseButton-tertiary"] *,
+        button[data-testid="stBaseButton-minimal"] * {{
+            color: var(--ic-ink) !important;
+        }}
+
+        button[data-testid="stBaseButton-primary"] *,
+        .stButton > button[kind="primary"] * {{
+            color: white !important;
         }}
         
         /* Табы и селекторы */
@@ -265,17 +289,58 @@ class ModernUI:
         
         /* Поля ввода */
         .stTextInput > div > div > input,
+        .stNumberInput input,
+        .stDateInput input,
         .stSelectbox > div > div,
-        .stTextArea > div > div > textarea {{
-            background-color: {theme['metric_bg']} !important;
+        .stTextArea > div > div > textarea,
+        div[data-baseweb="select"] > div,
+        div[data-baseweb="input"] > div {{
+            background-color: var(--ic-input-bg) !important;
             color: {theme['text_primary']} !important;
-            border: 1px solid {theme['border_gray']} !important;
+            border: 1px solid var(--ic-hairline) !important;
+            border-radius: 14px !important;
+        }}
+
+        div[data-baseweb="select"] span,
+        div[data-baseweb="input"] input,
+        .stTextInput input,
+        .stNumberInput input,
+        .stDateInput input,
+        .stTextArea textarea {{
+            color: var(--ic-ink) !important;
+        }}
+
+        div[data-baseweb="tag"] {{
+            background: {'rgba(13,143,104,0.22)' if dark_mode else 'rgba(13,143,104,0.12)'} !important;
+            color: var(--ic-ink) !important;
+            border: 1px solid rgba(13,143,104,0.24) !important;
         }}
         
         /* Expander */
         .streamlit-expanderHeader {{
             background-color: {theme['metric_bg']} !important;
             color: {theme['text_primary']} !important;
+        }}
+
+        div[data-testid="stExpander"] {{
+            background: {'rgba(255,255,255,0.035)' if dark_mode else 'rgba(255,253,247,0.58)'} !important;
+            border: 1px solid var(--ic-hairline) !important;
+            border-radius: 14px !important;
+        }}
+
+        div[data-testid="metric-container"] {{
+            background:
+                linear-gradient(180deg, {'rgba(255,255,255,0.045)' if dark_mode else 'rgba(255,255,255,0.92)'}, {'rgba(255,255,255,0.025)' if dark_mode else 'rgba(255,253,247,0.86)'}) !important;
+            border: 1px solid var(--ic-hairline) !important;
+            border-top: 3px solid var(--ic-teal) !important;
+            border-radius: 20px !important;
+            color: var(--ic-ink) !important;
+            box-shadow: {'0 10px 30px rgba(0,0,0,0.13)' if dark_mode else '0 14px 34px rgba(76,63,38,0.08)'} !important;
+            padding: 1rem !important;
+        }}
+
+        div[data-testid="metric-container"] * {{
+            color: var(--ic-ink) !important;
         }}
         
         /* Dataframe */
@@ -289,6 +354,35 @@ class ModernUI:
             background:
                 linear-gradient(180deg, {'#121A16' if dark_mode else '#EAE4D8'}, {'#101411' if dark_mode else '#F6F0E5'}) !important;
             border-right: 1px solid var(--ic-hairline);
+            color: var(--ic-ink) !important;
+        }}
+
+        section[data-testid="stSidebar"] * {{
+            color: var(--ic-ink) !important;
+        }}
+
+        section[data-testid="stSidebar"] .stButton > button {{
+            background: {'rgba(255,255,255,0.05)' if dark_mode else 'rgba(255,255,255,0.74)'} !important;
+        }}
+
+        section[data-testid="stSidebar"] button[data-testid="stBaseButton-primary"],
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"] {{
+            background: linear-gradient(135deg, var(--ic-green), #14C38E) !important;
+        }}
+
+        section[data-testid="stSidebar"] button[data-testid="stBaseButton-primary"] *,
+        section[data-testid="stSidebar"] .stButton > button[kind="primary"] * {{
+            color: white !important;
+        }}
+
+        div[data-testid="collapsedControl"] {{
+            z-index: 999999 !important;
+        }}
+
+        @media (min-width: 900px) {{
+            section[data-testid="stSidebar"] {{
+                min-width: 17rem !important;
+            }}
         }}
 
         /* Visual V2 app shell */

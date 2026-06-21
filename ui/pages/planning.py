@@ -320,32 +320,41 @@ def _render_active_plan_workspace_summary(
     caption: str,
 ) -> Dict[str, Any]:
     """Render a compact summary of the active plan for non-export workflows."""
+    from utils.modern_ui import ModernUI
+
     explain = _build_plan_explainability(goal_plan)
-    with st.container(border=True):
-        st.markdown(f"**{title}**")
-        st.caption(caption)
-        metric_cols = st.columns(4)
-        with metric_cols[0]:
-            st.metric("Пик TSS", explain["peak_after"])
-        with metric_cols[1]:
-            st.metric("Сумма TSS", explain["total_after"])
-        with metric_cols[2]:
-            st.metric("Стратегия", explain["catch_up_label"])
-        with metric_cols[3]:
-            st.metric("Checkpoint", explain["plan_adjustment_label"])
-        st.caption(explain["headline"])
-        if explain["execution_adaptation_pressure"] is not None:
-            st.caption(
-                "После окна: "
-                f"{explain['execution_adaptation_pressure']['follow_up_label']} · "
-                f"{explain['execution_adaptation_pressure']['follow_up_window_description']}"
-            )
-        elif explain["near_term_edit"] is not None:
-            st.caption(
-                "Активный override: "
-                f"{explain['near_term_edit']['compact_label']} · "
-                f"{explain['near_term_edit']['follow_up_description']}"
-            )
+    ModernUI.render_section_title(title, caption)
+    metric_cols = st.columns(4)
+    with metric_cols[0]:
+        ModernUI.render_stat_card("Пик TSS", explain["peak_after"], "нагрузка", "success")
+    with metric_cols[1]:
+        ModernUI.render_stat_card("Сумма TSS", explain["total_after"], "весь план", "neutral")
+    with metric_cols[2]:
+        ModernUI.render_stat_card("Стратегия", explain["catch_up_label"], "после сбоя", "info")
+    with metric_cols[3]:
+        checkpoint_tone = "warning" if explain["plan_adjustment_label"] != "Нет" else "neutral"
+        ModernUI.render_stat_card("Checkpoint", explain["plan_adjustment_label"], "реальность недели", checkpoint_tone)
+
+    follow_up = None
+    if explain["execution_adaptation_pressure"] is not None:
+        follow_up = (
+            "После окна: "
+            f"{explain['execution_adaptation_pressure']['follow_up_label']} · "
+            f"{explain['execution_adaptation_pressure']['follow_up_window_description']}"
+        )
+    elif explain["near_term_edit"] is not None:
+        follow_up = (
+            "Активный override: "
+            f"{explain['near_term_edit']['compact_label']} · "
+            f"{explain['near_term_edit']['follow_up_description']}"
+        )
+    summary_body = explain["headline"] if follow_up is None else f"{explain['headline']} {follow_up}"
+    ModernUI.render_text_card(
+        "Что изменится в плане",
+        summary_body,
+        eyebrow="Plan ready",
+        tone=checkpoint_tone,
+    )
     return explain
 
 

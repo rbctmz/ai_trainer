@@ -18,6 +18,9 @@ The user-visible behavior is visible by running the app at `http://localhost:850
 - [x] (2026-06-21 17:44+04:00) Tightened Dashboard copy: Russian hero title, readable week status, and Russian sport labels for plan days.
 - [x] (2026-06-21 17:49+04:00) Wrapped Planning builder sections in clearer Visual V2 cards and replaced default preview metrics with custom cards.
 - [x] (2026-06-21 17:55+04:00) Ran smoke tests and browser DOM acceptance for Dashboard and Planning.
+- [x] (2026-06-21 19:28+04:00) Added a theme-stability follow-up after Firefox screenshots showed dark native Streamlit widgets mixed into the light V2 surface.
+- [x] (2026-06-21 19:34+04:00) Hardened shared button/input/sidebar/metric selectors against Streamlit's current `data-testid` markup.
+- [x] (2026-06-21 19:38+04:00) Replaced the remaining `План готов` workspace `st.metric` block with Visual V2 cards.
 
 ## Surprises & Discoveries
 
@@ -29,6 +32,12 @@ The user-visible behavior is visible by running the app at `http://localhost:850
 
 - Observation: shell-based localhost health checks can be blocked by sandbox escalation review even when the Streamlit server is running.
   Evidence: the escalated Python `urllib.request.urlopen("http://localhost:8510/_stcore/health")` command was rejected by auto-review infrastructure, while read-only browser DOM checks against `http://localhost:8510/` succeeded and returned zero console errors.
+
+- Observation: Streamlit's current button markup can bypass the older `.stButton > button` styling path.
+  Evidence: Firefox screenshots showed inactive nav buttons rendering with dark native backgrounds and low-contrast text while the V2 shell surface remained light.
+
+- Observation: the non-export Planning summary still used native `st.metric` after the V2.1 polish.
+  Evidence: `ui/pages/planning.py::_render_active_plan_workspace_summary` rendered `План готов` through a bordered container with four `st.metric` calls, and the screenshot showed those values nearly invisible on the V2 background.
 
 ## Decision Log
 
@@ -42,6 +51,10 @@ The user-visible behavior is visible by running the app at `http://localhost:850
 
 - Decision: avoid adding new Visual V2 helper APIs in this slice.
   Rationale: `render_text_card`, `render_stat_card`, `render_section_title`, and `render_page_hero` were enough for the V2.1 polish. Avoiding new helpers keeps the change smaller and reduces the chance of another Streamlit Markdown rendering edge case.
+  Date/Author: 2026-06-21 / Codex
+
+- Decision: fix theme consistency at the shared `ModernUI.apply_modern_styles` layer instead of adding page-local overrides.
+  Rationale: Dashboard, Planning, sidebar controls, and other Streamlit widgets all share the same native components. Centralizing the selectors prevents each page from drifting into a different light/dark contract.
   Date/Author: 2026-06-21 / Codex
 
 ## Outcomes & Retrospective
@@ -61,6 +74,8 @@ Validation completed:
 - Browser DOM acceptance on `http://localhost:8510/` confirmed Dashboard has the Russian hero, no old Dashboard context strip, no raw HTML text, Planning has `Планирование`, `Сборка плана`, `Цель и дата старта`, `Сводка перед сборкой`, and zero console errors.
 
 The remaining gap is that Planning still uses native Streamlit sliders/selectboxes for the actual input controls. That is intentional for this slice because the controls are functional and the current problem is surrounding hierarchy, not input mechanics.
+
+Theme-stability follow-up: shared Visual V2 CSS now targets Streamlit's current button `data-testid` selectors, input/select wrappers, expanders, legacy metric containers, and sidebar text/buttons. The `План готов` summary no longer uses native `st.metric`; it renders through Visual V2 stat/text cards, so it stays readable under both theme states and no longer looks detached from the rest of Planning.
 
 ## Context and Orientation
 
