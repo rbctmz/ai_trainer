@@ -42,8 +42,6 @@ def render_dashboard_page(
     if state.use_custom_theme:
         ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
 
-    ModernUI.show_horizontal_nav("Dashboard")
-
     activities_df = load_activities(30)
     if activities_df.empty:
         _render_empty_dashboard_state(state, on_sync)
@@ -149,6 +147,29 @@ def _build_activity_day_tss(activities_df: pd.DataFrame) -> dict[date, float]:
     return activity_days
 
 
+def _format_dashboard_sport_label(sport: Any) -> str:
+    """Return a compact reader-facing sport label for Dashboard cards."""
+    raw = str(sport or "—").strip()
+    normalized = raw.lower()
+    labels = {
+        "bike": "вело",
+        "biking": "вело",
+        "cycling": "вело",
+        "ride": "вело",
+        "run": "бег",
+        "running": "бег",
+        "trailrun": "трейл",
+        "swim": "плавание",
+        "swimming": "плавание",
+        "walk": "ходьба",
+        "walking": "ходьба",
+        "brick": "brick",
+        "rest": "отдых",
+        "—": "—",
+    }
+    return labels.get(normalized, raw)
+
+
 def _build_dashboard_v2_summary(
     state: StateManager,
     current_status: dict[str, Any],
@@ -211,9 +232,12 @@ def _build_dashboard_v2_summary(
         duration_label = f"{duration} мин · " if duration > 0 else ""
         workout = {
             "title": today_plan["name"],
-            "subtitle": f"{duration_label}{today_plan['sport']} · {_format_tss_value(today_plan['total_tss'])} TSS",
+            "subtitle": (
+                f"{duration_label}{_format_dashboard_sport_label(today_plan['sport'])} · "
+                f"{_format_tss_value(today_plan['total_tss'])} TSS"
+            ),
             "tss": int(round(today_plan["total_tss"])),
-            "sport": today_plan["sport"],
+            "sport": _format_dashboard_sport_label(today_plan["sport"]),
             "action": "planning",
             "button": "Открыть план",
         }
@@ -246,7 +270,7 @@ def _build_dashboard_v2_summary(
             status = "empty"
         else:
             tss = int(round(float(planned.get("total_tss") or 0.0)))
-            sport = str(planned.get("sport") or "—")
+            sport = _format_dashboard_sport_label(planned.get("sport") or "—")
             if tss <= 0:
                 label = "отдых"
                 status = "rest"
@@ -329,7 +353,7 @@ def _render_dashboard_v2_shell(
     if isinstance(sync_status, dict) and sync_status.get("summary"):
         sync_summary = str(sync_status["summary"])
     ModernUI.render_page_hero(
-        "Dashboard",
+        "Дашборд",
         sync_summary
         or "Короткая сводка состояния, тренировки на сегодня, недельной нагрузки и следующего действия.",
         eyebrow="Training cockpit",
@@ -370,13 +394,18 @@ def _render_dashboard_v2_shell(
     with top_cols[1]:
         ModernUI.render_section_title("Неделя")
         week_tone = "warning" if "риск" in summary["week"]["status"] else "success"
+        week_status_title = {
+            "по плану": "Неделя под контролем",
+            "цель недели закрыта": "Цель недели закрыта",
+            "риск отставания": "Есть риск отставания",
+        }.get(str(summary["week"]["status"]), str(summary["week"]["status"]))
         metric_cols = st.columns(2)
         with metric_cols[0]:
             ModernUI.render_stat_card("Факт", f"{summary['week']['actual_tss']} TSS", "уже выполнено", week_tone)
         with metric_cols[1]:
             ModernUI.render_stat_card("План", f"{summary['week']['planned_tss']} TSS", "цель недели", "neutral")
         ModernUI.render_text_card(
-            summary["week"]["status"],
+            week_status_title,
             f"Осталось {summary['week']['remaining_tss']} TSS · прогноз {summary['week']['forecast_tss']} TSS.",
             tone=week_tone,
         )

@@ -1993,7 +1993,7 @@ def render_planning_page(state: "StateManager") -> None:
     }
     form_status = current_metrics["form"] if "form" in current_metrics else "Недостаточно данных"
     ModernUI.render_page_hero(
-        "Planning",
+        "Планирование",
         "Соберите план, сверяйте неделю с фактом Garmin и открывайте коррекцию только когда план реально разошёлся с выполнением.",
         eyebrow="Planning cockpit",
         meta=f"CTL {current_metrics['ctl']} · ATL {current_metrics['atl']} · TSB {current_metrics['tsb']} · {form_status}",
@@ -2018,7 +2018,12 @@ def render_planning_page(state: "StateManager") -> None:
     )
 
     if workspace_mode == "Собрать план":
-        st.caption("Сначала соберите или обновите план. Корректировка выполнения и экспорт вынесены в отдельные режимы.")
+        ModernUI.render_text_card(
+            "Сборка плана",
+            "Сначала задайте цель, затем реальные ограничения недели и только после этого собирайте план. Корректировка выполнения и экспорт остаются в отдельных режимах.",
+            eyebrow="Guided setup",
+            tone="info",
+        )
         ModernUI.render_section_title("Текущее состояние", "Стартовая нагрузка для расчёта ближайшего плана.")
         col1, col2 = st.columns(2)
         col3, col4 = st.columns(2)
@@ -2122,7 +2127,10 @@ def render_planning_page(state: "StateManager") -> None:
         st.info("Сначала соберите план в режиме «Собрать план». После этого откроются режимы корректировки и экспорта.")
 
     if workspace_mode == "Собрать план":
-        st.subheader("🎯 План под цель (дата старта)")
+        ModernUI.render_section_title(
+            "Цель и дата старта",
+            "Выберите тип события и дату. План стартует со следующей полноценной недели, если текущая уже почти закрыта.",
+        )
 
         from models.training_planner import (
             WEEKDAY_LABELS_RU,
@@ -2171,7 +2179,12 @@ def render_planning_page(state: "StateManager") -> None:
         with colg3:
             start_weekly_tss_guess = int(current_metrics.get("ctl", 50) * 7)
             auto = suggest_target_weekly_tss(goal_type, distance, activities_df)
-            st.caption(f"Автонастройка: последняя неделя {auto['last_week']}, среднее 4н {auto['avg_4']}, лучшая 8н {auto['best_8']}")
+            ModernUI.render_text_card(
+                "Автонастройка нагрузки",
+                f"Последняя неделя {auto['last_week']} TSS · среднее 4н {auto['avg_4']} · лучшая 8н {auto['best_8']}.",
+                eyebrow="History-based",
+                tone="neutral",
+            )
 
         t_min, t_max = goal_target_weekly_tss(goal_type, distance)
         default_hours = max(
@@ -2182,7 +2195,10 @@ def render_planning_page(state: "StateManager") -> None:
             ),
         )
 
-        st.markdown("#### 🧭 Сценарий и ограничения")
+        ModernUI.render_section_title(
+            "Сценарий и ограничения",
+            "Доступность задаёт потолок нагрузки. Это не цель заполнить все часы, а ограничитель для безопасной сборки.",
+        )
         cola1, cola2, cola3 = st.columns([1, 1.3, 1])
         with cola1:
             available_hours = st.slider(
@@ -2249,7 +2265,10 @@ def render_planning_page(state: "StateManager") -> None:
         availability_preview = summarize_availability(goal_type, available_hours, selected_day_indices)
         availability_cap_tss = int(availability_preview["weekly_capacity_tss"])
 
-        st.markdown("#### ♻️ Локальная перепланировка")
+        ModernUI.render_section_title(
+            "Локальная перепланировка",
+            "Если реальное выполнение уже пошло не по плану, отметьте это локально, без полной перестройки цикла.",
+        )
         adjustment_col1, adjustment_col2, adjustment_col3 = st.columns([1.3, 1, 1])
         with adjustment_col1:
             plan_adjustment_label = st.selectbox(
@@ -2314,29 +2333,36 @@ def render_planning_page(state: "StateManager") -> None:
             availability_cap_tss=availability_cap_tss,
         )
 
-        with st.container(border=True):
-            preview_cols = st.columns(5)
-            with preview_cols[0]:
-                st.metric("Часы / нед", f"{availability_preview['available_hours']}")
-            with preview_cols[1]:
-                st.metric("Доступных дней", availability_preview["available_day_count"])
-            with preview_cols[2]:
-                st.metric("Ограничение", interruption_label)
-            with preview_cols[3]:
-                st.metric("Checkpoint", plan_adjustment_label)
-            with preview_cols[4]:
-                st.metric("Реакция", _strategy_label(catch_up_strategy))
-            st.caption(
-                "Доступность сейчас ≈ "
-                f"{availability_preview['available_hours']} ч/нед, "
-                f"{availability_preview['available_day_count']} дн. из рекомендованных {availability_preview['recommended_days']} "
-                f"→ мягкий потолок около {availability_cap_tss} TSS/нед."
+        ModernUI.render_section_title("Сводка перед сборкой", "Проверьте ограничения до генерации плана.")
+        preview_cols = st.columns(5)
+        with preview_cols[0]:
+            ModernUI.render_stat_card("Часы / нед", availability_preview["available_hours"], "доступно", "neutral")
+        with preview_cols[1]:
+            ModernUI.render_stat_card("Дней", availability_preview["available_day_count"], "в календаре", "success")
+        with preview_cols[2]:
+            interruption_tone = "warning" if interruption_label != "Нет" else "success"
+            ModernUI.render_stat_card("Ограничение", interruption_label, "ближайшее", interruption_tone)
+        with preview_cols[3]:
+            checkpoint_tone = "warning" if plan_adjustment_status not in {"none", "completed"} else "neutral"
+            ModernUI.render_stat_card("Checkpoint", plan_adjustment_label, "реальность недели", checkpoint_tone)
+        with preview_cols[4]:
+            ModernUI.render_stat_card("Реакция", _strategy_label(catch_up_strategy), "после сбоя", "info")
+        availability_body = (
+            f"Доступность сейчас около {availability_preview['available_hours']} ч/нед, "
+            f"{availability_preview['available_day_count']} дн. из рекомендованных {availability_preview['recommended_days']}. "
+            f"Мягкий потолок: примерно {availability_cap_tss} TSS/нед."
+        )
+        if plan_adjustment_status in {"skipped", "reduced", "unavailable"}:
+            availability_body += (
+                f" Локальная перепланировка активна: {plan_adjustment_label.lower()} на "
+                f"{plan_adjustment_weeks} нед.; изменится только ближайший горизонт и короткое окно возврата нагрузки."
             )
-            if plan_adjustment_status in {"skipped", "reduced", "unavailable"}:
-                st.caption(
-                    f"Локальная перепланировка активна: {plan_adjustment_label.lower()} "
-                    f"на {plan_adjustment_weeks} нед. План изменит только ближайший горизонт и короткое окно возврата нагрузки."
-                )
+        ModernUI.render_text_card(
+            "Что это значит для плана",
+            availability_body,
+            eyebrow="Planning guardrail",
+            tone=checkpoint_tone if plan_adjustment_status not in {"none", "completed"} else "success",
+        )
         if availability_cap_tss < int(auto["suggested"] or 0):
             st.warning(
                 f"Текущая доступность ограничивает план примерно до {availability_cap_tss} TSS/нед. "
@@ -2345,7 +2371,7 @@ def render_planning_page(state: "StateManager") -> None:
 
         if target_control["is_fixed"]:
             target_weekly_tss = int(target_control["value"])
-            st.metric("Целевой недельный TSS к пику", target_weekly_tss)
+            ModernUI.render_stat_card("Целевой недельный TSS к пику", target_weekly_tss, "зафиксировано", "warning")
             if target_control["reason"] == "availability_cap":
                 st.caption(
                     "Под текущую доступность реалистичный пик уже зафиксирован. "
