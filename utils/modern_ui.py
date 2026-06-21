@@ -1,12 +1,11 @@
-"""
-Улучшенные UI компоненты с полной поддержкой темной темы
-"""
+"""Улучшенные UI компоненты с полной поддержкой темной темы."""
 
+import html
 import textwrap
 
 import streamlit as st
 import plotly.graph_objects as go
-from typing import Dict, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 class ModernUI:
     """Современные UI компоненты для AI Trainer с улучшенной поддержкой тем"""
@@ -54,8 +53,8 @@ class ModernUI:
         # CSS с динамическими значениями из темы
         css = f"""
         <style>
-        /* Импорт современного шрифта */
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+        /* Purposeful app typography. Manrope is the intended face; SF/Avenir are local fallbacks. */
+        @import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap');
         
         /* Переменные темы */
         :root {{
@@ -78,13 +77,58 @@ class ModernUI:
             --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
             --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
             --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+
+            /* Visual V2 cockpit palette */
+            --ic-bg: {'#101411' if dark_mode else '#F3EFE6'};
+            --ic-bg-soft: {'#151C18' if dark_mode else '#FBF7EE'};
+            --ic-surface: {'#19221D' if dark_mode else '#FFFDF7'};
+            --ic-surface-raised: {'#202B25' if dark_mode else '#FFFFFF'};
+            --ic-ink: {'#F4F0E7' if dark_mode else '#18251F'};
+            --ic-muted: {'#A7B4A9' if dark_mode else '#67736B'};
+            --ic-hairline: {'rgba(244,240,231,0.12)' if dark_mode else 'rgba(24,37,31,0.12)'};
+            --ic-green: #0D8F68;
+            --ic-teal: #0F6F73;
+            --ic-amber: #E6A01A;
+            --ic-red: #C94B42;
+            --ic-blue: #2E6FBB;
+            --ic-shadow: {'0 20px 70px rgba(0,0,0,0.34)' if dark_mode else '0 22px 70px rgba(75,63,38,0.14)'};
         }}
         
         /* Базовые стили приложения */
         .stApp {{
-            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-            background-color: {theme['bg_primary']} !important;
+            font-family: 'Manrope', 'Avenir Next', 'SF Pro Display', -apple-system, BlinkMacSystemFont, sans-serif;
+            background:
+                radial-gradient(circle at 12% 8%, {'rgba(13,143,104,0.18)' if dark_mode else 'rgba(13,143,104,0.13)'}, transparent 34rem),
+                radial-gradient(circle at 88% 2%, {'rgba(230,160,26,0.14)' if dark_mode else 'rgba(230,160,26,0.18)'}, transparent 30rem),
+                linear-gradient(180deg, var(--ic-bg-soft), var(--ic-bg)) !important;
             color: {theme['text_primary']} !important;
+        }}
+
+        .block-container {{
+            max-width: 1240px;
+            padding-top: 2.1rem;
+            padding-bottom: 5rem;
+        }}
+
+        #MainMenu,
+        footer,
+        div[data-testid="stToolbar"],
+        div[data-testid="stDecoration"],
+        div[data-testid="stStatusWidget"],
+        .stDeployButton {{
+            display: none !important;
+        }}
+
+        header[data-testid="stHeader"] {{
+            background: transparent !important;
+            box-shadow: none !important;
+        }}
+
+        div[data-testid="stAlert"] {{
+            border-radius: 20px !important;
+            border: 1px solid var(--ic-hairline) !important;
+            box-shadow: {'0 12px 34px rgba(0,0,0,0.12)' if dark_mode else '0 12px 34px rgba(76,63,38,0.08)'};
+            overflow: hidden;
         }}
         
         /* Современные карточки */
@@ -184,15 +228,28 @@ class ModernUI:
         
         /* Кнопки с адаптацией к теме */
         .stButton > button {{
-            background-color: {'#2D2D2D' if dark_mode else '#FFFFFF'} !important;
+            background-color: {'rgba(255,255,255,0.04)' if dark_mode else '#FFFFFF'} !important;
             color: {theme['text_primary']} !important;
-            border: 1px solid {theme['border_gray']} !important;
-            transition: all 0.2s ease;
+            border: 1px solid var(--ic-hairline) !important;
+            border-radius: 14px !important;
+            min-height: 2.75rem;
+            box-shadow: none !important;
+            font-weight: 750 !important;
+            white-space: nowrap !important;
+            transition: transform 0.18s ease, border-color 0.18s ease, background 0.18s ease;
         }}
         
         .stButton > button:hover {{
-            background-color: {'#3D3D3D' if dark_mode else '#F5F5F5'} !important;
-            border-color: var(--primary-blue) !important;
+            background-color: {'rgba(13,143,104,0.16)' if dark_mode else 'rgba(13,143,104,0.08)'} !important;
+            border-color: rgba(13,143,104,0.45) !important;
+            transform: translateY(-1px);
+        }}
+
+        div[data-testid="stBaseButton-primary"] > button,
+        .stButton > button[kind="primary"] {{
+            background: linear-gradient(135deg, var(--ic-green), #14C38E) !important;
+            color: white !important;
+            border-color: rgba(20,195,142,0.45) !important;
         }}
         
         /* Табы и селекторы */
@@ -229,7 +286,255 @@ class ModernUI:
         
         /* Sidebar */
         section[data-testid="stSidebar"] {{
-            background-color: {theme['surface_dark'] if dark_mode else '#F0F2F6'} !important;
+            background:
+                linear-gradient(180deg, {'#121A16' if dark_mode else '#EAE4D8'}, {'#101411' if dark_mode else '#F6F0E5'}) !important;
+            border-right: 1px solid var(--ic-hairline);
+        }}
+
+        /* Visual V2 app shell */
+        .ic-app-header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            margin: 0.25rem 0 1.35rem;
+            padding: 0.82rem 1rem;
+            border: 1px solid var(--ic-hairline);
+            border-radius: 24px;
+            background: {'rgba(25,34,29,0.72)' if dark_mode else 'rgba(255,253,247,0.74)'};
+            backdrop-filter: blur(18px);
+            box-shadow: var(--ic-shadow);
+        }}
+
+        .ic-brand-lockup {{
+            display: flex;
+            align-items: center;
+            gap: 0.85rem;
+        }}
+
+        .ic-brand-mark {{
+            width: 42px;
+            height: 42px;
+            display: grid;
+            place-items: center;
+            border-radius: 16px;
+            color: white;
+            font-weight: 900;
+            background:
+                radial-gradient(circle at 30% 20%, rgba(255,255,255,0.42), transparent 26px),
+                linear-gradient(145deg, var(--ic-green), var(--ic-teal));
+            box-shadow: 0 14px 34px rgba(13,143,104,0.28);
+        }}
+
+        .ic-brand-title {{
+            margin: 0;
+            color: var(--ic-ink);
+            font-size: clamp(1.45rem, 2.2vw, 2.35rem);
+            font-weight: 850;
+            letter-spacing: -0.05em;
+            line-height: 0.98;
+        }}
+
+        .ic-brand-subtitle,
+        .ic-caption {{
+            color: var(--ic-muted);
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+        }}
+
+        .ic-sync-pill,
+        .ic-kicker {{
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            width: fit-content;
+            border-radius: 999px;
+            padding: 0.42rem 0.72rem;
+            background: {'rgba(13,143,104,0.16)' if dark_mode else 'rgba(13,143,104,0.10)'};
+            color: var(--ic-green);
+            border: 1px solid rgba(13,143,104,0.26);
+            font-size: 0.72rem;
+            font-weight: 850;
+            text-transform: uppercase;
+            letter-spacing: 0.09em;
+        }}
+
+        .ic-page-context {{
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin: 0.35rem 0 1.35rem;
+            padding: 0.72rem 0.88rem;
+            border: 1px solid var(--ic-hairline);
+            border-radius: 18px;
+            background: {'rgba(255,255,255,0.04)' if dark_mode else 'rgba(255,253,247,0.62)'};
+            color: var(--ic-muted);
+        }}
+
+        .ic-page-hero {{
+            position: relative;
+            overflow: hidden;
+            margin: 0.4rem 0 1.2rem;
+            padding: clamp(1.25rem, 3vw, 2.1rem);
+            border-radius: 30px;
+            border: 1px solid var(--ic-hairline);
+            background:
+                radial-gradient(circle at 88% 18%, rgba(230,160,26,0.22), transparent 18rem),
+                linear-gradient(135deg, {'#17221D' if dark_mode else '#FFFCF4'}, {'#20352C' if dark_mode else '#EDF7EE'});
+            box-shadow: var(--ic-shadow);
+        }}
+
+        .ic-page-hero::after {{
+            content: "";
+            position: absolute;
+            right: -4rem;
+            bottom: -6rem;
+            width: 18rem;
+            height: 18rem;
+            border-radius: 999px;
+            border: 2.5rem solid rgba(13,143,104,0.08);
+        }}
+
+        .ic-page-title {{
+            position: relative;
+            z-index: 1;
+            margin: 0.55rem 0 0.55rem;
+            color: var(--ic-ink);
+            font-size: clamp(2rem, 5vw, 4.5rem);
+            font-weight: 900;
+            line-height: 0.92;
+            letter-spacing: -0.075em;
+        }}
+
+        .ic-page-subtitle {{
+            position: relative;
+            z-index: 1;
+            max-width: 58rem;
+            margin: 0;
+            color: var(--ic-muted);
+            font-size: clamp(0.95rem, 1.4vw, 1.12rem);
+            line-height: 1.6;
+            font-weight: 650;
+        }}
+
+        .ic-section-title {{
+            margin: 1.45rem 0 0.7rem;
+            color: var(--ic-ink);
+            font-size: clamp(1.2rem, 2vw, 1.65rem);
+            font-weight: 880;
+            letter-spacing: -0.045em;
+        }}
+
+        .ic-section-caption {{
+            margin: -0.35rem 0 0.75rem;
+            color: var(--ic-muted);
+            font-size: 0.88rem;
+            line-height: 1.45;
+        }}
+
+        .ic-card,
+        .ic-stat-card,
+        .ic-day-chip {{
+            background:
+                linear-gradient(180deg, {'rgba(255,255,255,0.045)' if dark_mode else 'rgba(255,255,255,0.92)'}, {'rgba(255,255,255,0.025)' if dark_mode else 'rgba(255,253,247,0.86)'});
+            border: 1px solid var(--ic-hairline);
+            border-radius: 24px;
+            box-shadow: {'0 12px 38px rgba(0,0,0,0.16)' if dark_mode else '0 16px 42px rgba(76,63,38,0.09)'};
+        }}
+
+        .ic-card {{
+            padding: 1.05rem;
+            min-height: 100%;
+        }}
+
+        .ic-card-title {{
+            margin: 0.25rem 0 0.35rem;
+            color: var(--ic-ink);
+            font-size: 1.15rem;
+            font-weight: 850;
+            letter-spacing: -0.035em;
+        }}
+
+        .ic-card-body {{
+            margin: 0;
+            color: var(--ic-muted);
+            font-size: 0.88rem;
+            line-height: 1.55;
+            font-weight: 620;
+        }}
+
+        .ic-stat-card {{
+            padding: 1rem;
+            min-height: 8.5rem;
+            border-top: 3px solid var(--tone, var(--ic-green));
+        }}
+
+        .ic-stat-label {{
+            color: var(--ic-muted);
+            font-size: 0.73rem;
+            font-weight: 850;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }}
+
+        .ic-stat-value {{
+            margin: 0.42rem 0 0.35rem;
+            color: var(--ic-ink);
+            font-size: clamp(1.55rem, 3vw, 2.45rem);
+            font-weight: 900;
+            line-height: 0.95;
+            letter-spacing: -0.065em;
+        }}
+
+        .ic-stat-caption {{
+            color: var(--ic-muted);
+            font-size: 0.78rem;
+            line-height: 1.35;
+            font-weight: 650;
+        }}
+
+        .ic-day-chip {{
+            padding: 0.8rem 0.72rem;
+            min-height: 8.6rem;
+            border-radius: 20px;
+            border-top: 3px solid var(--tone, var(--ic-hairline));
+        }}
+
+        .ic-day-date {{
+            color: var(--ic-muted);
+            font-size: 0.72rem;
+            font-weight: 850;
+        }}
+
+        .ic-day-load {{
+            margin: 0.55rem 0 0.25rem;
+            color: var(--ic-ink);
+            font-size: 1.25rem;
+            font-weight: 900;
+            letter-spacing: -0.05em;
+        }}
+
+        .ic-day-meta {{
+            color: var(--ic-muted);
+            font-size: 0.76rem;
+            line-height: 1.35;
+            font-weight: 650;
+        }}
+
+        .ic-timeline-bar {{
+            height: 0.62rem;
+            overflow: hidden;
+            border-radius: 999px;
+            background: {'rgba(255,255,255,0.08)' if dark_mode else 'rgba(24,37,31,0.10)'};
+            margin: 0.85rem 0 0.4rem;
+        }}
+
+        .ic-timeline-fill {{
+            height: 100%;
+            width: var(--fill, 0%);
+            border-radius: inherit;
+            background: linear-gradient(90deg, var(--ic-green), var(--ic-amber));
         }}
         
         /* Быстрые действия */
@@ -282,6 +587,21 @@ class ModernUI:
             .metric-value {{
                 font-size: 1.75rem;
             }}
+
+            .block-container {{
+                padding-left: 1rem;
+                padding-right: 1rem;
+            }}
+
+            .ic-app-header,
+            .ic-page-context {{
+                align-items: flex-start;
+                flex-direction: column;
+            }}
+
+            .ic-day-chip {{
+                min-height: 7rem;
+            }}
         }}
         </style>
         """
@@ -311,6 +631,166 @@ class ModernUI:
     def _clean_html(html: str) -> str:
         """Удаляет лишние отступы, чтобы Markdown не превращал HTML в код."""
         return textwrap.dedent(html).strip()
+
+    @staticmethod
+    def _escape_html(value: Any) -> str:
+        """Escape values before rendering custom Visual V2 HTML."""
+        return html.escape(str(value if value is not None else "—"), quote=True)
+
+    @staticmethod
+    def _tone_color(tone: str | None = None) -> str:
+        """Map semantic tone names to Visual V2 CSS colors."""
+        tones = {
+            "success": "var(--ic-green)",
+            "good": "var(--ic-green)",
+            "neutral": "var(--ic-teal)",
+            "info": "var(--ic-blue)",
+            "warning": "var(--ic-amber)",
+            "danger": "var(--ic-red)",
+            "rest": "var(--ic-muted)",
+            "planned": "var(--ic-green)",
+            "done": "var(--ic-green)",
+            "empty": "var(--ic-hairline)",
+        }
+        return tones.get(str(tone or "neutral"), "var(--ic-teal)")
+
+    @staticmethod
+    def render_app_header(
+        title: str = "AI Trainer",
+        subtitle: str = "Персональный тренировочный cockpit",
+        status: str | None = None,
+    ) -> None:
+        """Render the compact app-level chrome used above navigation."""
+        status_html = ""
+        if status:
+            status_html = (
+                f"<div class='ic-sync-pill'>"
+                f"<span>●</span><span>{ModernUI._escape_html(status)}</span>"
+                f"</div>"
+            )
+        st.markdown(
+            ModernUI._clean_html(
+                f"""
+                <div class="ic-app-header">
+                    <div class="ic-brand-lockup">
+                        <div class="ic-brand-mark">AI</div>
+                        <div>
+                            <div class="ic-brand-title">{ModernUI._escape_html(title)}</div>
+                            <div class="ic-brand-subtitle">{ModernUI._escape_html(subtitle)}</div>
+                        </div>
+                    </div>
+                    {status_html}
+                </div>
+                """
+            ),
+            unsafe_allow_html=True,
+        )
+
+    @staticmethod
+    def render_page_hero(
+        title: str,
+        subtitle: str,
+        eyebrow: str | None = None,
+        meta: str | None = None,
+    ) -> None:
+        """Render a Visual V2 page hero."""
+        eyebrow_html = f"<div class='ic-kicker'>{ModernUI._escape_html(eyebrow)}</div>" if eyebrow else ""
+        meta_html = f"<div class='ic-caption' style='margin-top:0.85rem;'>{ModernUI._escape_html(meta)}</div>" if meta else ""
+        st.markdown(
+            ModernUI._clean_html(
+                f"""
+                <section class="ic-page-hero">
+                    {eyebrow_html}
+                    <h1 class="ic-page-title">{ModernUI._escape_html(title)}</h1>
+                    <p class="ic-page-subtitle">{ModernUI._escape_html(subtitle)}</p>
+                    {meta_html}
+                </section>
+                """
+            ),
+            unsafe_allow_html=True,
+        )
+
+    @staticmethod
+    def render_section_title(title: str, caption: str | None = None) -> None:
+        """Render a Visual V2 section title."""
+        caption_html = f"<p class='ic-section-caption'>{ModernUI._escape_html(caption)}</p>" if caption else ""
+        st.markdown(
+            ModernUI._clean_html(
+                f"""
+                <div class="ic-section-title">{ModernUI._escape_html(title)}</div>
+                {caption_html}
+                """
+            ),
+            unsafe_allow_html=True,
+        )
+
+    @staticmethod
+    def render_stat_card(
+        label: str,
+        value: Any,
+        caption: str | None = None,
+        tone: str | None = None,
+    ) -> None:
+        """Render one Visual V2 stat card."""
+        caption_html = f"<div class='ic-stat-caption'>{ModernUI._escape_html(caption)}</div>" if caption else ""
+        st.markdown(
+            ModernUI._clean_html(
+                f"""
+                <div class="ic-stat-card" style="--tone:{ModernUI._tone_color(tone)};">
+                    <div class="ic-stat-label">{ModernUI._escape_html(label)}</div>
+                    <div class="ic-stat-value">{ModernUI._escape_html(value)}</div>
+                    {caption_html}
+                </div>
+                """
+            ),
+            unsafe_allow_html=True,
+        )
+
+    @staticmethod
+    def render_text_card(
+        title: str,
+        body: str,
+        eyebrow: str | None = None,
+        tone: str | None = None,
+        footer: str | None = None,
+    ) -> None:
+        """Render a narrative Visual V2 card."""
+        eyebrow_html = f"<div class='ic-kicker'>{ModernUI._escape_html(eyebrow)}</div>" if eyebrow else ""
+        footer_html = f"<div class='ic-caption' style='margin-top:0.85rem;'>{ModernUI._escape_html(footer)}</div>" if footer else ""
+        st.markdown(
+            ModernUI._clean_html(
+                f"""
+                <div class="ic-card" style="border-top:3px solid {ModernUI._tone_color(tone)};">
+                    {eyebrow_html}
+                    <div class="ic-card-title">{ModernUI._escape_html(title)}</div>
+                    <p class="ic-card-body">{ModernUI._escape_html(body)}</p>
+                    {footer_html}
+                </div>
+                """
+            ),
+            unsafe_allow_html=True,
+        )
+
+    @staticmethod
+    def render_day_chip(
+        label: str,
+        load: str,
+        meta: str,
+        tone: str | None = None,
+    ) -> None:
+        """Render a compact Visual V2 day chip."""
+        st.markdown(
+            ModernUI._clean_html(
+                f"""
+                <div class="ic-day-chip" style="--tone:{ModernUI._tone_color(tone)};">
+                    <div class="ic-day-date">{ModernUI._escape_html(label)}</div>
+                    <div class="ic-day-load">{ModernUI._escape_html(load)}</div>
+                    <div class="ic-day-meta">{ModernUI._escape_html(meta)}</div>
+                </div>
+                """
+            ),
+            unsafe_allow_html=True,
+        )
 
     @staticmethod
     def training_status_card(
@@ -795,20 +1275,23 @@ class ModernUI:
     
     @staticmethod
     def show_horizontal_nav(current_page="Dashboard"):
-        """Горизонтальная навигация с адаптацией к теме"""
-        
-        theme = ModernUI.get_theme()
-        
-        st.markdown(f"""
-        <div style="background: {theme['primary_gradient']};
-                   border-radius: 20px; padding: 20px; margin-bottom: 30px;
-                   box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);">
-            <div style="display: flex; justify-content: space-between; align-items: center;">
-                <h2 style="margin: 0; color: white;">AI Trainer</h2>
-                <div style="color: white;">{current_page}</div>
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
+        """Render a compact page context strip.
+
+        Historically this method rendered a large purple hero. Dashboard and
+        Planning V2 now own their own hero surfaces, so this is intentionally
+        quiet and only preserves lightweight page context for older call sites.
+        """
+        st.markdown(
+            ModernUI._clean_html(
+                f"""
+                <div class="ic-page-context">
+                    <span class="ic-caption">AI Trainer</span>
+                    <span class="ic-sync-pill">{ModernUI._escape_html(current_page)}</span>
+                </div>
+                """
+            ),
+            unsafe_allow_html=True,
+        )
     
     @staticmethod
     def show_weekly_training_calendar(activities_df=None):

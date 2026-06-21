@@ -92,7 +92,15 @@ def render_garmin_profile(profile: Dict[str, Any]) -> None:
 def main():
     state = get_state_manager()
     acceptance_info = acceptance_mode_service.bootstrap_session(state)
-    st.title("🏃‍♂️ Персональный AI Тренер")
+
+    from utils.modern_ui import ModernUI
+    apply_theme(state.dark_mode)
+    # Visual V2 cards rely on the shared `ic-*` CSS contract, so keep the
+    # modern shell loaded even when older theme toggles are disabled.
+    ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
+
+    header_status = "Acceptance sandbox" if acceptance_info.get("enabled") else "Training cockpit"
+    ModernUI.render_app_header(status=header_status)
 
     if acceptance_info.get("enabled"):
         st.info(
@@ -101,12 +109,6 @@ def main():
             "а реальный Garmin login отключён."
         )
         st.caption(f"Isolated DB: `{acceptance_info.get('database_path', Settings.DATABASE_PATH)}`")
-
-    from utils.modern_ui import ModernUI
-    if state.use_custom_theme:
-        ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
-
-    apply_theme(state.dark_mode)
 
     col1, col2 = st.sidebar.columns([4, 1])
     with col1:

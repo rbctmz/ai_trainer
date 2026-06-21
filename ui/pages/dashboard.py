@@ -324,73 +324,95 @@ def _render_dashboard_v2_shell(
         latest_training_status,
         activities_df,
     )
-    st.title("Dashboard")
-
     sync_status = getattr(state, "last_sync_status", None)
+    sync_summary = ""
     if isinstance(sync_status, dict) and sync_status.get("summary"):
-        st.caption(f"Синхронизация: {sync_status['summary']}")
+        sync_summary = str(sync_status["summary"])
+    ModernUI.render_page_hero(
+        "Dashboard",
+        sync_summary
+        or "Короткая сводка состояния, тренировки на сегодня, недельной нагрузки и следующего действия.",
+        eyebrow="Training cockpit",
+        meta=f"{summary['today']['date']} · CTL {summary['today']['ctl']} · TSB {summary['today']['tsb']}",
+    )
 
     if current_status.get("critical_status"):
         st.error(f"{current_status['critical_status']}: {current_status.get('critical_action', 'снизьте нагрузку')}")
 
-    st.markdown("### Сегодня")
-    with st.container(border=True):
-        cols = st.columns([1.5, 1, 1, 1])
-        with cols[0]:
-            st.metric("Состояние", summary["today"]["state_label"], help="Главная интерпретация текущей готовности.")
-        with cols[1]:
-            st.metric("Readiness", summary["today"]["readiness"])
-        with cols[2]:
-            st.metric("TSB", summary["today"]["tsb"])
-        with cols[3]:
-            st.metric("CTL", summary["today"]["ctl"])
-        if summary["today"]["hrv"]:
-            st.caption(f"HRV: {summary['today']['hrv']}")
+    ModernUI.render_section_title("Сегодня", "Главная интерпретация готовности без лишней диагностики.")
+    today_cols = st.columns([1.45, 0.85, 0.85, 0.85])
+    with today_cols[0]:
+        ModernUI.render_stat_card(
+            "Состояние",
+            summary["today"]["state_label"],
+            f"HRV: {summary['today']['hrv']}" if summary["today"]["hrv"] else "Сводный coaching signal",
+            summary["today"]["tone"],
+        )
+    with today_cols[1]:
+        ModernUI.render_stat_card("Readiness", summary["today"]["readiness"], "0-100", summary["today"]["tone"])
+    with today_cols[2]:
+        ModernUI.render_stat_card("TSB", summary["today"]["tsb"], "форма / усталость", summary["today"]["tone"])
+    with today_cols[3]:
+        ModernUI.render_stat_card("CTL", summary["today"]["ctl"], "fitness", "neutral")
 
     top_cols = st.columns([1.15, 0.85])
     with top_cols[0]:
-        st.markdown("### Тренировка сегодня")
-        with st.container(border=True):
-            st.markdown(f"**{summary['workout']['title']}**")
-            st.caption(summary["workout"]["subtitle"])
-            if st.button(summary["workout"]["button"], key="dashboard_v2_workout_cta", type="primary", width="stretch"):
-                _handle_quick_action(state, str(summary["workout"]["action"]), on_sync, current_status)
+        ModernUI.render_section_title("Тренировка сегодня")
+        ModernUI.render_text_card(
+            summary["workout"]["title"],
+            summary["workout"]["subtitle"],
+            eyebrow=f"{summary['workout']['tss']} TSS",
+            tone="planned" if summary["workout"]["tss"] else "rest",
+        )
+        if st.button(summary["workout"]["button"], key="dashboard_v2_workout_cta", type="primary", width="stretch"):
+            _handle_quick_action(state, str(summary["workout"]["action"]), on_sync, current_status)
 
     with top_cols[1]:
-        st.markdown("### Неделя")
-        with st.container(border=True):
-            metric_cols = st.columns(2)
-            with metric_cols[0]:
-                st.metric("Факт", f"{summary['week']['actual_tss']} TSS")
-            with metric_cols[1]:
-                st.metric("План", f"{summary['week']['planned_tss']} TSS")
-            st.caption(
-                f"Осталось {summary['week']['remaining_tss']} TSS · "
-                f"прогноз {summary['week']['forecast_tss']} TSS · {summary['week']['status']}"
-            )
+        ModernUI.render_section_title("Неделя")
+        week_tone = "warning" if "риск" in summary["week"]["status"] else "success"
+        metric_cols = st.columns(2)
+        with metric_cols[0]:
+            ModernUI.render_stat_card("Факт", f"{summary['week']['actual_tss']} TSS", "уже выполнено", week_tone)
+        with metric_cols[1]:
+            ModernUI.render_stat_card("План", f"{summary['week']['planned_tss']} TSS", "цель недели", "neutral")
+        ModernUI.render_text_card(
+            summary["week"]["status"],
+            f"Осталось {summary['week']['remaining_tss']} TSS · прогноз {summary['week']['forecast_tss']} TSS.",
+            tone=week_tone,
+        )
 
-    st.markdown("### Следующие 7 дней")
+    ModernUI.render_section_title("Следующие 7 дней", "Компактный план без длинных workout descriptions.")
     day_cols = st.columns(7)
     for col, day in zip(day_cols, summary["next_days"]):
         with col:
-            with st.container(border=True):
-                st.caption(day["label"])
-                st.markdown(f"**{day['tss']} TSS**")
-                st.caption(f"{day['sport']} · {day['status_label']}")
+            ModernUI.render_day_chip(
+                day["label"],
+                f"{day['tss']} TSS",
+                f"{day['sport']} · {day['status_label']}",
+                day["status"],
+            )
 
-    st.markdown("### План")
-    with st.container(border=True):
-        st.markdown(f"**{summary['plan']['title']}**")
-        st.caption(summary["plan"]["subtitle"])
+    bottom_cols = st.columns([1, 1])
+    with bottom_cols[0]:
+        ModernUI.render_section_title("План")
+        ModernUI.render_text_card(
+            summary["plan"]["title"],
+            summary["plan"]["subtitle"],
+            tone="success" if summary["plan"]["status"] == "active" else "warning",
+        )
         if st.button(summary["plan"]["button"], key="dashboard_v2_plan_cta", width="stretch"):
             state.selected_page = "📈 Планирование"
             st.session_state["planning_workspace_mode"] = "Скорректировать выполнение"
             st.rerun()
 
-    st.markdown("### Следующий шаг")
-    with st.container(border=True):
-        st.markdown(f"**{summary['next_action']['title']}**")
-        st.caption(summary["next_action"]["desc"])
+    with bottom_cols[1]:
+        ModernUI.render_section_title("Следующий шаг")
+        ModernUI.render_text_card(
+            summary["next_action"]["title"],
+            summary["next_action"]["desc"],
+            eyebrow="Primary action",
+            tone="warning" if summary["next_action"]["action"] == "recovery_plan" else "success",
+        )
         if st.button(
             f"{summary['next_action']['icon']} {summary['next_action']['button']}",
             key=f"dashboard_v2_next_action_{summary['next_action']['action']}",

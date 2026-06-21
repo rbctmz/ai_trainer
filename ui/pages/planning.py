@@ -473,74 +473,87 @@ def _render_planning_v2_active_plan(
     current_metrics: Mapping[str, Any],
 ) -> Dict[str, Any]:
     """Render the review-first active plan shell for Planning V2."""
+    from utils.modern_ui import ModernUI
+
     summary = _build_planning_v2_summary(goal_plan, activities_df, current_metrics)
 
-    st.markdown("### Цель")
-    with st.container(border=True):
-        title_cols = st.columns([1.5, 1, 1, 1])
-        with title_cols[0]:
-            st.markdown(f"**{summary['goal']['title']}**")
-            days_to_goal = summary["goal"]["days_to_goal"]
-            if days_to_goal is not None:
-                st.caption(f"До финального дня плана: {days_to_goal} дн.")
-            else:
-                st.caption("Дата цели не определена.")
-        with title_cols[1]:
-            st.metric("Фаза", summary["goal"]["phase"])
-        with title_cols[2]:
-            st.metric("Старт", summary["goal"]["start_date"])
-        with title_cols[3]:
-            st.metric("Финиш", summary["goal"]["race_date"])
+    ModernUI.render_section_title("Цель", "Что тренируем и сколько времени осталось.")
+    title_cols = st.columns([1.35, 0.8, 0.8, 0.8])
+    with title_cols[0]:
+        days_to_goal = summary["goal"]["days_to_goal"]
+        ModernUI.render_text_card(
+            summary["goal"]["title"],
+            f"До финального дня плана: {days_to_goal} дн." if days_to_goal is not None else "Дата цели не определена.",
+            eyebrow=summary["goal"]["goal_type"],
+            tone="success",
+            footer=f"Дистанция: {summary['goal']['distance']}",
+        )
+    with title_cols[1]:
+        ModernUI.render_stat_card("Фаза", summary["goal"]["phase"], "текущий блок", "neutral")
+    with title_cols[2]:
+        ModernUI.render_stat_card("Старт", summary["goal"]["start_date"], "первый день", "info")
+    with title_cols[3]:
+        ModernUI.render_stat_card("Финиш", summary["goal"]["race_date"], "день цели", "warning")
 
-    st.markdown("### Путь к цели")
-    with st.container(border=True):
-        progress_cols = st.columns(5)
-        with progress_cols[0]:
-            st.metric("CTL", summary["progress"]["current_ctl"])
-        with progress_cols[1]:
-            st.metric("ATL", summary["progress"]["current_atl"])
-        with progress_cols[2]:
-            st.metric("TSB", summary["progress"]["current_tsb"])
-        with progress_cols[3]:
-            st.metric("Пик", f"{summary['progress']['peak_tss']} TSS")
-        with progress_cols[4]:
-            st.metric("Стратегия", summary["progress"]["strategy"])
-        st.caption(summary["progress"]["headline"])
+    ModernUI.render_section_title("Путь к цели", summary["progress"]["headline"])
+    progress_cols = st.columns(5)
+    with progress_cols[0]:
+        ModernUI.render_stat_card("CTL", summary["progress"]["current_ctl"], "fitness", "neutral")
+    with progress_cols[1]:
+        ModernUI.render_stat_card("ATL", summary["progress"]["current_atl"], "fatigue", "warning")
+    with progress_cols[2]:
+        tsb_tone = "success" if float(summary["progress"]["current_tsb"]) >= -10 else "warning"
+        ModernUI.render_stat_card("TSB", summary["progress"]["current_tsb"], "form", tsb_tone)
+    with progress_cols[3]:
+        ModernUI.render_stat_card("Пик", f"{summary['progress']['peak_tss']} TSS", "нагрузка", "success")
+    with progress_cols[4]:
+        ModernUI.render_stat_card("Стратегия", summary["progress"]["strategy"], summary["progress"]["checkpoint"], "info")
 
-    st.markdown("### Текущая неделя")
-    with st.container(border=True):
-        week_cols = st.columns([1.2, 1, 1, 1, 1])
-        with week_cols[0]:
-            st.markdown(f"**{summary['current_week']['label']}**")
-            st.caption(summary["current_week"]["status"])
-        with week_cols[1]:
-            st.metric("План", f"{summary['current_week']['planned_tss']} TSS")
-        with week_cols[2]:
-            st.metric("Факт", f"{summary['current_week']['actual_tss']} TSS")
-        with week_cols[3]:
-            st.metric("Δ", f"{summary['current_week']['delta_tss']:+d} TSS")
-        with week_cols[4]:
-            st.metric("Проверки", summary["current_week"]["mismatch"])
-        st.caption(
+    ModernUI.render_section_title("Текущая неделя", "Plan/fact без таблицы на первом экране.")
+    week_cols = st.columns([1.25, 0.9, 0.9, 0.9, 0.9])
+    week_tone = "warning" if summary["current_week"]["delta_tss"] < 0 else "success"
+    with week_cols[0]:
+        ModernUI.render_text_card(
+            summary["current_week"]["label"],
+            summary["current_week"]["status"],
+            eyebrow="Selected week",
+            tone=week_tone,
+        )
+    with week_cols[1]:
+        ModernUI.render_stat_card("План", f"{summary['current_week']['planned_tss']} TSS", "target", "neutral")
+    with week_cols[2]:
+        ModernUI.render_stat_card("Факт", f"{summary['current_week']['actual_tss']} TSS", "Garmin", week_tone)
+    with week_cols[3]:
+        ModernUI.render_stat_card("Δ", f"{summary['current_week']['delta_tss']:+d} TSS", "gap", week_tone)
+    with week_cols[4]:
+        ModernUI.render_stat_card("Проверки", summary["current_week"]["mismatch"], "mismatch", "warning")
+    ModernUI.render_text_card(
+        "Сводка сверки",
+        (
             f"Совпало: {summary['current_week']['matched']} · "
             f"Garmin-ready: {summary['current_week']['prefill_ready']} · "
             f"Вне плана: {summary['current_week']['unplanned_actual']} · "
-            f"Впереди: {summary['current_week']['upcoming']}"
-        )
+            f"Впереди: {summary['current_week']['upcoming']}."
+        ),
+        tone=week_tone,
+    )
 
-    st.markdown("### Коррекция")
-    with st.container(border=True):
-        st.markdown(f"**{summary['correction']['headline']}**")
-        st.write(summary["correction"]["body"])
-        st.caption(summary["correction"]["next_action"])
-        if st.button(
-            summary["correction"]["button"],
-            key="planning_v2_open_execution_editor",
-            type="primary",
-            width="stretch",
-        ):
-            st.session_state["planning_v2_execution_editor_visible"] = True
-            st.rerun()
+    ModernUI.render_section_title("Коррекция", "Открывайте редактор только когда есть реальная задача.")
+    ModernUI.render_text_card(
+        summary["correction"]["headline"],
+        summary["correction"]["body"],
+        eyebrow="Next decision",
+        tone=summary["correction"]["tone"],
+        footer=summary["correction"]["next_action"],
+    )
+    if st.button(
+        summary["correction"]["button"],
+        key="planning_v2_open_execution_editor",
+        type="primary",
+        width="stretch",
+    ):
+        st.session_state["planning_v2_execution_editor_visible"] = True
+        st.rerun()
 
     return summary
 
@@ -1948,9 +1961,8 @@ def render_planning_page(state: "StateManager") -> None:
     from models.banister import BanisterModel
     from services import intervals_icu
     from services.data_cache import load_activities
+    from utils.modern_ui import ModernUI
     from utils.visualizations import Visualizations
-
-    st.header("📈 Планирование тренировок")
 
     activities_df = load_activities(90)
 
@@ -1980,6 +1992,12 @@ def render_planning_page(state: "StateManager") -> None:
         "Недостаточно данных": "⚫",
     }
     form_status = current_metrics["form"] if "form" in current_metrics else "Недостаточно данных"
+    ModernUI.render_page_hero(
+        "Planning",
+        "Соберите план, сверяйте неделю с фактом Garmin и открывайте коррекцию только когда план реально разошёлся с выполнением.",
+        eyebrow="Planning cockpit",
+        meta=f"CTL {current_metrics['ctl']} · ATL {current_metrics['atl']} · TSB {current_metrics['tsb']} · {form_status}",
+    )
     has_goal_plan = bool((getattr(state, "goal_plan", None) or {}).get("daily_plan"))
     workspace_mode_key = "planning_workspace_mode"
     normalized_workspace_mode = _normalize_planning_workspace_mode(
@@ -2001,18 +2019,19 @@ def render_planning_page(state: "StateManager") -> None:
 
     if workspace_mode == "Собрать план":
         st.caption("Сначала соберите или обновите план. Корректировка выполнения и экспорт вынесены в отдельные режимы.")
-        st.subheader("🎯 Текущее состояние")
+        ModernUI.render_section_title("Текущее состояние", "Стартовая нагрузка для расчёта ближайшего плана.")
         col1, col2 = st.columns(2)
         col3, col4 = st.columns(2)
 
         with col1:
-            st.metric("CTL (Фитнес)", current_metrics["ctl"])
+            ModernUI.render_stat_card("CTL", current_metrics["ctl"], "фитнес", "neutral")
         with col2:
-            st.metric("ATL (Усталость)", current_metrics["atl"])
+            ModernUI.render_stat_card("ATL", current_metrics["atl"], "усталость", "warning")
         with col3:
-            st.metric("TSB (Форма)", current_metrics["tsb"])
+            tsb_tone = "success" if float(current_metrics["tsb"]) >= -10 else "warning"
+            ModernUI.render_stat_card("TSB", current_metrics["tsb"], "форма", tsb_tone)
         with col4:
-            st.metric("Состояние", f"{form_color.get(form_status, '⚫')} {form_status}")
+            ModernUI.render_stat_card("Состояние", form_status, "Banister", tsb_tone)
 
         with st.expander("📊 Контекст нагрузки, рекомендации и быстрый прогноз", expanded=False):
             dates_full, ctl_values, atl_values, tsb_values = banister.calculate_ctl_atl_tsb(tss_data, dates)

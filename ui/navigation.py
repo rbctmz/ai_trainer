@@ -11,12 +11,12 @@ NavItem = Tuple[str, str, str]
 
 _PRIMARY_NAV_ITEMS: List[NavItem] = [
     ("📊", "Дашборд", "📊 Дашборд"),
-    ("🤖", "AI Коучинг", "🤖 AI Коучинг"),
+    ("🤖", "Коуч", "🤖 AI Коучинг"),
     ("🏃‍♂️", "Активности", "🏃‍♂️ Активности"),
-    ("📈", "Планирование", "📈 Планирование"),
-    ("💓", "Анализ HRV", "💓 Анализ HRV"),
-    ("😴", "Анализ сна", "😴 Анализ сна"),
-    ("⚙️", "Управление", "⚙️ Управление данными"),
+    ("📈", "План", "📈 Планирование"),
+    ("💓", "HRV", "💓 Анализ HRV"),
+    ("😴", "Сон", "😴 Анализ сна"),
+    ("⚙️", "Данные", "⚙️ Управление данными"),
 ]
 
 _ALL_PAGES: List[str] = [item[2] for item in _PRIMARY_NAV_ITEMS]
@@ -32,7 +32,7 @@ def render_primary_navigation(state: StateManager) -> str:
         with cols[idx]:
             is_active = selected_page == full_name
             button_type = "primary" if is_active else "secondary"
-            if st.button(f"{icon}\n{short_name}", key=f"nav_{idx}", help=full_name, width="stretch", type=button_type):
+            if st.button(short_name, key=f"nav_{idx}", help=full_name, width="stretch", type=button_type):
                 state.selected_page = full_name
                 st.rerun()
 
