@@ -23,6 +23,11 @@ def _summarize_auth_error(error):
     raw_message = str(error or "").strip()
     normalized = raw_message.lower()
     has_rate_limit = "429" in normalized or "rate limited" in normalized
+    has_portal_403 = (
+        "portal login failed" in normalized and "403" in normalized
+    ) or (
+        "all login strategies exhausted" in normalized and "403" in normalized
+    )
     has_invalid_credentials = (
         "401 unauthorized" in normalized
         or "invalid username or password" in normalized
@@ -35,12 +40,28 @@ def _summarize_auth_error(error):
     detail_parts = []
     if has_rate_limit:
         detail_parts.append("Garmin временно ограничил вход с этого IP (429).")
+    if has_portal_403:
+        detail_parts.append("Portal login Garmin завершился HTTP 403.")
     if has_invalid_credentials:
         detail_parts.append("Garmin также вернул 401 Unauthorized.")
     if has_widget_fallback_noise:
         detail_parts.append("Встроенный widget fallback тоже не подтвердил логин.")
 
-    if has_rate_limit and has_invalid_credentials:
+    if has_rate_limit and has_portal_403:
+        summary = (
+            "Garmin сначала ограничил вход с этого IP (429), а затем заблокировал portal login "
+            "через HTTP 403. Это больше похоже на временную provider-side блокировку, чем на ошибку Planning. "
+            "Подождите 30-60 минут, отключите VPN/relay/adblock при наличии и попробуйте другую сеть."
+        )
+        kind = "rate_limited_with_portal_403"
+    elif has_portal_403:
+        summary = (
+            "Garmin отклонил portal login через HTTP 403. Это похоже на временную блокировку "
+            "или защиту на стороне Garmin, а не на ошибку Planning. Попробуйте повторить вход позже, "
+            "без VPN/relay/adblock, либо с другой сети."
+        )
+        kind = "portal_forbidden"
+    elif has_rate_limit and has_invalid_credentials:
         summary = (
             "Garmin временно ограничил вход с этого IP (429), а повторная авторизация "
             "завершилась 401 Unauthorized. Подождите 30-60 минут или смените сеть, "

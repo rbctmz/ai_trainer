@@ -48,6 +48,7 @@ This repository should borrow those product patterns while staying faithful to t
 
 ## Progress
 
+- [x] (2026-06-21 10:14+04:00) Extended the Garmin auth hardening slice to cover the next live provider failure mode: `All login strategies exhausted` with `Portal login failed (non-JSON): HTTP 403`. `data/garmin_client.py` now classifies this as a Garmin-side portal block instead of leaking it as an opaque unknown error, and `tests/smoke/test_garmin_auth_messages.py` now protects both the pure `portal 403` case and the combined `429 + portal 403` case. Validation passed on focused Garmin smoke (`6 passed`) and the full smoke suite (`179 passed`).
 - [x] (2026-06-21 10:00+04:00) Completed the next Planning V2 decision-layer slice: the multi-week `план ↔ факт` timeline now detects accumulated weekly drift and surfaces a suggested replan entrypoint before the athlete drills into a single week. When multiple drift weeks or a larger negative TSS gap accumulate, Planning now shows a compact `multi-week drift` callout with a direct CTA that opens the right week, sets focus on the first problem day, and widens the execution-review horizon to the relevant local window without changing planning math or checkpoint semantics. The slice stays UI/helper-only in `ui/pages/planning.py`, with smoke coverage extended in `tests/smoke/test_planning_page_explainability.py`. Validation passed on focused planning/execution smoke (`45 passed`) and the full smoke suite (`176 passed`).
 - [x] (2026-06-20 23:06+04:00) Completed the next Planning V2 surface slice: Planning now includes a multi-week `план ↔ факт` timeline above the existing week drill-down. The new overview summarizes each week with `План TSS / Факт TSS / Δ TSS / Статус / Сигнал`, highlights where drift needs review versus where the week is simply underway or Garmin-ready, and lets the athlete jump directly into the relevant week before using the existing day-level cards and execution editor. The slice stays UI-only in `ui/pages/planning.py`, with helper coverage extended in `tests/smoke/test_planning_page_explainability.py`. Validation passed on focused planning/execution smoke (`43 passed`) and the full smoke suite (`174 passed`).
 - [x] (2026-06-20 22:54+04:00) Completed the next Planning V2 real-data UX slice: clean Garmin-matched windows now have an explicit one-click confirmation path instead of reusing the generic local-replan action. The shared execution editor still requires an explicit checkpoint save, but when there are Garmin confirmations and no real deviations it now offers `Подтвердить окно по Garmin`, preserves the same checkpoint pipeline, and lets Planning show a Garmin-specific saved flash instead of a generic replan message. Smoke coverage now protects the new primary-action contract in `tests/smoke/test_planning_execution.py`. Validation passed on focused planning/execution smoke (`41 passed`) and the full smoke suite (`172 passed`).
@@ -113,6 +114,9 @@ This repository should borrow those product patterns while staying faithful to t
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
 ## Surprises & Discoveries
+
+- Observation: Garmin login failures can shift from `429` throttling to a stricter `portal 403` block without ever becoming a real credential error.
+  Evidence: the live runtime first showed `mobile 429`, then exhausted all strategies on `Portal login failed (non-JSON): HTTP 403`. Treating that as an unknown exception or as a likely bad password would mislead the athlete. The safer product contract is to call this a Garmin-side block and suggest retrying later or from another network.
 
 - Observation: once the timeline could show week-level drift, the next trust gap was not visibility but arbitration: which week and which horizon should the athlete inspect first?
   Evidence: a raw table of `План TSS / Факт TSS / Δ TSS` still leaves the athlete deciding whether one negative week is noise or whether several weeks have started to accumulate into a local replanning problem. Adding a conservative decision helper that only reacts to explicit mismatch/unplanned signals and larger negative drift gives the user a useful entrypoint without pretending we already changed the planner itself.
@@ -331,6 +335,10 @@ This repository should borrow those product patterns while staying faithful to t
   Evidence: the live dashboard hit `StreamlitValueAboveMaxError: The value 41 is greater than the max_value 0` after a row's current planned TSS collapsed to zero while the persisted widget key still held an earlier positive value. The stable fix was not just clamping a raw number, but separating logical `actual_tss` state from the widget key and resolving outcome-aware display values (`as_planned -> planned`, `missed/unavailable -> 0`, `reduced -> clamped custom value`) before rendering the input.
 
 ## Decision Log
+
+- Decision: classify `portal 403` Garmin login exhaustion as a provider-side block in the same auth normalizer, not as an unknown fallback string and not as a credential error.
+  Rationale: this is still part of the same authentication hardening boundary. The app cannot fix Garmin's portal defenses, but it can stop presenting a misleading diagnosis. Folding the new live case into the same normalizer preserves one UI contract and one smoke boundary for Garmin auth failures.
+  Date/Author: 2026-06-21 / Codex
 
 - Decision: implement accumulated weekly-drift guidance as a helper-driven entrypoint into the existing execution-review workflow, not as a new auto-replanner or a second planning checkpoint type.
   Rationale: the product value at this stage is better navigation and decision support, not hidden planning automation. Reusing the current week selector, focused day handoff, and widened execution horizon keeps one correction workflow while making multi-week drift actionable instead of merely visible.
@@ -625,6 +633,8 @@ Coach Explainability is accepted when the dashboard and AI coaching can surface 
 ## Outcomes & Retrospective
 
 This section starts empty on purpose. The previous plan ended with a working product flow. This plan begins at the moment where the product needs to become a durable system rather than a successful sequence of flows.
+
+The newest hardening slice does not improve Garmin availability, but it improves truthfulness. The athlete now gets a clearer diagnosis when Garmin moves past ordinary throttling into a portal-level `403` block, which matters because the right response is operational patience, not random password retries or suspicion that the recent Planning work broke auth.
 
 The newest slice starts turning the multi-week timeline from a passive dashboard into a coaching surface. The athlete no longer just sees that several weeks are off; Planning now points to the first week that likely deserves correction and opens the existing execution-review workflow on the right local window. That is the correct boundary for this phase because it makes drift actionable without introducing silent replanning or new planning math.
 
