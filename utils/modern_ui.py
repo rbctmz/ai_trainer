@@ -757,19 +757,17 @@ class ModernUI:
         """Render a narrative Visual V2 card."""
         eyebrow_html = f"<div class='ic-kicker'>{ModernUI._escape_html(eyebrow)}</div>" if eyebrow else ""
         footer_html = f"<div class='ic-caption' style='margin-top:0.85rem;'>{ModernUI._escape_html(footer)}</div>" if footer else ""
-        st.markdown(
-            ModernUI._clean_html(
-                f"""
-                <div class="ic-card" style="border-top:3px solid {ModernUI._tone_color(tone)};">
-                    {eyebrow_html}
-                    <div class="ic-card-title">{ModernUI._escape_html(title)}</div>
-                    <p class="ic-card-body">{ModernUI._escape_html(body)}</p>
-                    {footer_html}
-                </div>
-                """
-            ),
-            unsafe_allow_html=True,
+        # Keep this as one HTML fragment. Streamlit Markdown can treat indented
+        # nested block tags inside custom HTML as literal code text.
+        card_html = (
+            f'<div class="ic-card" style="border-top:3px solid {ModernUI._tone_color(tone)};">'
+            f"{eyebrow_html}"
+            f'<div class="ic-card-title">{ModernUI._escape_html(title)}</div>'
+            f'<div class="ic-card-body">{ModernUI._escape_html(body)}</div>'
+            f"{footer_html}"
+            "</div>"
         )
+        st.markdown(card_html, unsafe_allow_html=True)
 
     @staticmethod
     def render_day_chip(
