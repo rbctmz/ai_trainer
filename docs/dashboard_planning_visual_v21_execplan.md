@@ -21,6 +21,7 @@ The user-visible behavior is visible by running the app at `http://localhost:850
 - [x] (2026-06-21 19:28+04:00) Added a theme-stability follow-up after Firefox screenshots showed dark native Streamlit widgets mixed into the light V2 surface.
 - [x] (2026-06-21 19:34+04:00) Hardened shared button/input/sidebar/metric selectors against Streamlit's current `data-testid` markup.
 - [x] (2026-06-21 19:38+04:00) Replaced the remaining `План готов` workspace `st.metric` block with Visual V2 cards.
+- [x] (2026-06-21 19:49+04:00) Added a follow-up fix for invisible sidebar content and white radio labels on light Planning surfaces.
 
 ## Surprises & Discoveries
 
@@ -39,6 +40,12 @@ The user-visible behavior is visible by running the app at `http://localhost:850
 - Observation: the non-export Planning summary still used native `st.metric` after the V2.1 polish.
   Evidence: `ui/pages/planning.py::_render_active_plan_workspace_summary` rendered `План готов` through a bordered container with four `st.metric` calls, and the screenshot showed those values nearly invisible on the V2 background.
 
+- Observation: the Streamlit sidebar can reserve width while its inner content layer remains visually absent in Firefox.
+  Evidence: user screenshots showed a blank left rail while DOM/a11y still contained sidebar content and the main `.block-container` started after the reserved sidebar width.
+
+- Observation: Planning's `Режим страницы` radio labels can render white over the light V2 background.
+  Evidence: screenshot showed `Собрать план`, `Скорректировать выполнение`, and `Экспорт и детали` as low-contrast white text under the Planning hero.
+
 ## Decision Log
 
 - Decision: remove the Dashboard context strip instead of restyling it.
@@ -55,6 +62,10 @@ The user-visible behavior is visible by running the app at `http://localhost:850
 
 - Decision: fix theme consistency at the shared `ModernUI.apply_modern_styles` layer instead of adding page-local overrides.
   Rationale: Dashboard, Planning, sidebar controls, and other Streamlit widgets all share the same native components. Centralizing the selectors prevents each page from drifting into a different light/dark contract.
+  Date/Author: 2026-06-21 / Codex
+
+- Decision: force the visible sidebar contract on `stSidebarContent` and `stSidebarUserContent`, not only the outer `stSidebar` section.
+  Rationale: the outer section can be present and still visually empty if Streamlit's inner layers retain native transparency/visibility behavior. Targeting the inner content wrappers makes the rail deterministic without moving navigation logic.
   Date/Author: 2026-06-21 / Codex
 
 ## Outcomes & Retrospective
@@ -76,6 +87,8 @@ Validation completed:
 The remaining gap is that Planning still uses native Streamlit sliders/selectboxes for the actual input controls. That is intentional for this slice because the controls are functional and the current problem is surrounding hierarchy, not input mechanics.
 
 Theme-stability follow-up: shared Visual V2 CSS now targets Streamlit's current button `data-testid` selectors, input/select wrappers, expanders, legacy metric containers, and sidebar text/buttons. The `План готов` summary no longer uses native `st.metric`; it renders through Visual V2 stat/text cards, so it stays readable under both theme states and no longer looks detached from the rest of Planning.
+
+Sidebar/radio follow-up: the sidebar now has a fixed 300px visual rail contract across the outer `stSidebar` and inner `stSidebarContent`/`stSidebarUserContent` layers. Planning radio groups now explicitly inherit `--ic-ink`, preventing white labels on the light V2 background.
 
 ## Context and Orientation
 

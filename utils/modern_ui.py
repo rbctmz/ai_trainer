@@ -315,6 +315,31 @@ class ModernUI:
             color: var(--ic-ink) !important;
             border: 1px solid rgba(13,143,104,0.24) !important;
         }}
+
+        /* Radio groups inherit native Streamlit theme colors aggressively.
+           Keep page-mode and planning strategy labels readable on V2 surfaces. */
+        div[data-testid="stRadio"],
+        div[data-testid="stRadio"] > label,
+        div[data-testid="stRadio"] label,
+        div[data-testid="stRadio"] p,
+        div[data-testid="stRadio"] span,
+        div[role="radiogroup"],
+        div[role="radiogroup"] label,
+        div[role="radiogroup"] p,
+        div[role="radiogroup"] span {{
+            color: var(--ic-ink) !important;
+        }}
+
+        div[data-testid="stRadio"] [role="radio"],
+        div[role="radiogroup"] [role="radio"] {{
+            color: var(--ic-ink) !important;
+        }}
+
+        div[data-testid="stRadio"] svg,
+        div[role="radiogroup"] svg {{
+            color: var(--ic-ink) !important;
+            fill: currentColor !important;
+        }}
         
         /* Expander */
         .streamlit-expanderHeader {{
@@ -355,10 +380,53 @@ class ModernUI:
                 linear-gradient(180deg, {'#121A16' if dark_mode else '#EAE4D8'}, {'#101411' if dark_mode else '#F6F0E5'}) !important;
             border-right: 1px solid var(--ic-hairline);
             color: var(--ic-ink) !important;
+            flex: 0 0 300px !important;
+            min-width: 300px !important;
+            width: 300px !important;
+            max-width: 300px !important;
+            box-shadow: {'18px 0 54px rgba(0,0,0,0.20)' if dark_mode else '18px 0 54px rgba(75,63,38,0.10)'} !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+            z-index: 999991 !important;
         }}
 
-        section[data-testid="stSidebar"] * {{
+        section[data-testid="stSidebar"] > div,
+        div[data-testid="stSidebarContent"],
+        div[data-testid="stSidebarUserContent"] {{
+            background: transparent !important;
             color: var(--ic-ink) !important;
+            display: block !important;
+            opacity: 1 !important;
+            visibility: visible !important;
+        }}
+
+        div[data-testid="stSidebarContent"] {{
+            border-right: 1px solid var(--ic-hairline) !important;
+            padding: 0 0.78rem 1rem !important;
+        }}
+
+        div[data-testid="stSidebarUserContent"] {{
+            padding: 0.75rem 0.45rem 1.2rem !important;
+        }}
+
+        section[data-testid="stSidebar"] *,
+        div[data-testid="stSidebarContent"] *,
+        div[data-testid="stSidebarUserContent"] * {{
+            color: var(--ic-ink) !important;
+        }}
+
+        div[data-testid="stSidebarUserContent"],
+        div[data-testid="stSidebarUserContent"] * {{
+            opacity: 1 !important;
+            visibility: visible !important;
+        }}
+
+        section[data-testid="stSidebar"] h1 {{
+            color: var(--ic-ink) !important;
+            font-size: 1.35rem !important;
+            line-height: 1.08 !important;
+            letter-spacing: -0.045em !important;
+            margin-bottom: 0.25rem !important;
         }}
 
         section[data-testid="stSidebar"] .stButton > button {{
