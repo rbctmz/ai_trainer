@@ -48,6 +48,7 @@ This repository should borrow those product patterns while staying faithful to t
 
 ## Progress
 
+- [x] (2026-06-21 10:00+04:00) Completed the next Planning V2 decision-layer slice: the multi-week `план ↔ факт` timeline now detects accumulated weekly drift and surfaces a suggested replan entrypoint before the athlete drills into a single week. When multiple drift weeks or a larger negative TSS gap accumulate, Planning now shows a compact `multi-week drift` callout with a direct CTA that opens the right week, sets focus on the first problem day, and widens the execution-review horizon to the relevant local window without changing planning math or checkpoint semantics. The slice stays UI/helper-only in `ui/pages/planning.py`, with smoke coverage extended in `tests/smoke/test_planning_page_explainability.py`. Validation passed on focused planning/execution smoke (`45 passed`) and the full smoke suite (`176 passed`).
 - [x] (2026-06-20 23:06+04:00) Completed the next Planning V2 surface slice: Planning now includes a multi-week `план ↔ факт` timeline above the existing week drill-down. The new overview summarizes each week with `План TSS / Факт TSS / Δ TSS / Статус / Сигнал`, highlights where drift needs review versus where the week is simply underway or Garmin-ready, and lets the athlete jump directly into the relevant week before using the existing day-level cards and execution editor. The slice stays UI-only in `ui/pages/planning.py`, with helper coverage extended in `tests/smoke/test_planning_page_explainability.py`. Validation passed on focused planning/execution smoke (`43 passed`) and the full smoke suite (`174 passed`).
 - [x] (2026-06-20 22:54+04:00) Completed the next Planning V2 real-data UX slice: clean Garmin-matched windows now have an explicit one-click confirmation path instead of reusing the generic local-replan action. The shared execution editor still requires an explicit checkpoint save, but when there are Garmin confirmations and no real deviations it now offers `Подтвердить окно по Garmin`, preserves the same checkpoint pipeline, and lets Planning show a Garmin-specific saved flash instead of a generic replan message. Smoke coverage now protects the new primary-action contract in `tests/smoke/test_planning_execution.py`. Validation passed on focused planning/execution smoke (`41 passed`) and the full smoke suite (`172 passed`).
 - [x] (2026-06-20 22:47+04:00) Completed the next Planning V2 real-data UX slice: the shared execution editor now separates real deviations from Garmin-confirmation rows instead of surfacing both at the same visual priority. Real mismatches still render first, Garmin-matched rows now move into their own compact confirmation block, and a clean window with only Garmin matches now explicitly tells the athlete that checkpoint save can happen without opening every row manually. The slice stays UI-only inside `ui/components/execution_feedback.py`, with smoke coverage updated in `tests/smoke/test_planning_execution.py`. Validation passed on focused planning/execution smoke (`40 passed`) and the full smoke suite (`171 passed`).
@@ -112,6 +113,9 @@ This repository should borrow those product patterns while staying faithful to t
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
 ## Surprises & Discoveries
+
+- Observation: once the timeline could show week-level drift, the next trust gap was not visibility but arbitration: which week and which horizon should the athlete inspect first?
+  Evidence: a raw table of `План TSS / Факт TSS / Δ TSS` still leaves the athlete deciding whether one negative week is noise or whether several weeks have started to accumulate into a local replanning problem. Adding a conservative decision helper that only reacts to explicit mismatch/unplanned signals and larger negative drift gives the user a useful entrypoint without pretending we already changed the planner itself.
 
 - Observation: once the local loop became smoother at the day level, the next real blind spot was week-to-week accumulation rather than another execution-editor control.
   Evidence: the app could already show one selected week in detail, but the athlete still had no compact answer to “which of the next several weeks is drifting, which is only partly underway, and which is already Garmin-ready?” A small week summary layer above the existing drill-down solved that without touching planning math or checkpoint semantics.
@@ -327,6 +331,10 @@ This repository should borrow those product patterns while staying faithful to t
   Evidence: the live dashboard hit `StreamlitValueAboveMaxError: The value 41 is greater than the max_value 0` after a row's current planned TSS collapsed to zero while the persisted widget key still held an earlier positive value. The stable fix was not just clamping a raw number, but separating logical `actual_tss` state from the widget key and resolving outcome-aware display values (`as_planned -> planned`, `missed/unavailable -> 0`, `reduced -> clamped custom value`) before rendering the input.
 
 ## Decision Log
+
+- Decision: implement accumulated weekly-drift guidance as a helper-driven entrypoint into the existing execution-review workflow, not as a new auto-replanner or a second planning checkpoint type.
+  Rationale: the product value at this stage is better navigation and decision support, not hidden planning automation. Reusing the current week selector, focused day handoff, and widened execution horizon keeps one correction workflow while making multi-week drift actionable instead of merely visible.
+  Date/Author: 2026-06-21 / Codex
 
 - Decision: add a multi-week plan/fact overview as a summary-and-jump layer above the existing weekly drill-down, not as a separate planning mode or a new planner artifact.
   Rationale: the missing product value was quick orientation across weeks, not another editable entity. A compact timeline with weekly TSS, status, and jump actions preserves the current weekly cards and execution editor while making it much easier to decide where attention is needed first.
@@ -617,6 +625,8 @@ Coach Explainability is accepted when the dashboard and AI coaching can surface 
 ## Outcomes & Retrospective
 
 This section starts empty on purpose. The previous plan ended with a working product flow. This plan begins at the moment where the product needs to become a durable system rather than a successful sequence of flows.
+
+The newest slice starts turning the multi-week timeline from a passive dashboard into a coaching surface. The athlete no longer just sees that several weeks are off; Planning now points to the first week that likely deserves correction and opens the existing execution-review workflow on the right local window. That is the correct boundary for this phase because it makes drift actionable without introducing silent replanning or new planning math.
 
 The newest slice adds the first real medium-horizon visibility layer on top of the weekly execution loop. The app no longer starts with “pick one week and inspect it”; it first shows how the next several weeks look at a glance, where drift has accumulated, and where the week is simply in progress or already Garmin-ready. That makes the Planning surface feel less like a single-week worksheet and more like a real multi-week coaching view.
 

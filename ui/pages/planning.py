@@ -656,6 +656,12 @@ def _build_plan_fact_timeline_rows(
         planned_total_tss = int(round(sum(float(row.get("planned_total_tss", 0.0) or 0.0) for row in week_rows)))
         actual_total_tss = int(round(sum(float(row.get("actual_total_tss", 0.0) or 0.0) for row in week_rows)))
         actual_day_count = sum(1 for row in week_rows if int(row.get("actual_activity_count", 0) or 0) > 0)
+        attention_rows = [
+            row
+            for row in week_rows
+            if str(row.get("status") or "").strip() in {"other_sport", "planned_only", "unplanned_actual"}
+        ]
+        first_attention_date = str(attention_rows[0]["date"]) if attention_rows else ""
         if week_summary["mismatch"] > 0 or week_summary["unplanned_actual"] > 0:
             status_label = "Нужна проверка"
             action_label = "Проверить drift"
@@ -698,10 +704,65 @@ def _build_plan_fact_timeline_rows(
                 "mismatch": week_summary["mismatch"],
                 "unplanned_actual": week_summary["unplanned_actual"],
                 "upcoming": week_summary["upcoming"],
+                "attention_day_count": len(attention_rows),
+                "first_attention_date": first_attention_date,
             }
         )
 
     return timeline_rows
+
+
+def _build_plan_fact_replan_signal(
+    timeline_rows: List[Dict[str, Any]],
+) -> Dict[str, Any] | None:
+    drift_rows = [
+        row for row in timeline_rows
+        if int(row.get("mismatch", 0) or 0) > 0 or int(row.get("unplanned_actual", 0) or 0) > 0
+    ]
+    if not drift_rows:
+        return None
+
+    target_row = drift_rows[0]
+    drift_week_count = len(drift_rows)
+    attention_day_count = sum(int(row.get("attention_day_count", 0) or 0) for row in drift_rows)
+    negative_delta = sum(
+        min(0, int(row.get("delta_tss", 0) or 0))
+        for row in drift_rows
+    )
+    horizon_weeks = 2 if drift_week_count >= 2 else 1
+    if drift_week_count >= 2 or attention_day_count >= 3 or negative_delta <= -60:
+        severity = "high"
+        headline = "Накопился multi-week drift"
+        action_label = "Предложить мягкий replan"
+    else:
+        severity = "medium"
+        headline = "Недельный drift уже требует проверки"
+        action_label = "Открыть проблемную неделю"
+
+    week_word = "нед." if drift_week_count > 1 else "неделе"
+    reason = (
+        f"Проблемных недель: {drift_week_count} · "
+        f"сигнальных дней: {attention_day_count} · "
+        f"суммарный Δ TSS: {negative_delta:+d}. "
+        f"Начните с {target_row['week_label']}."
+    )
+
+    return {
+        "severity": severity,
+        "headline": headline,
+        "action_label": action_label,
+        "reason": reason,
+        "drift_week_count": drift_week_count,
+        "attention_day_count": attention_day_count,
+        "delta_tss": negative_delta,
+        "target_week_index": int(target_row["week_index"]),
+        "target_week_label": str(target_row["week_label"]),
+        "target_date": str(target_row.get("first_attention_date") or "").strip(),
+        "weeks_horizon": horizon_weeks,
+        "follow_up_hint": (
+            f"Откроем {drift_week_count} {week_word} для локальной проверки execution drift."
+        ),
+    }
 
 
 def _build_plan_fact_calendar_markup(rows: List[Dict[str, Any]]) -> str:
@@ -748,6 +809,7 @@ def _render_plan_fact_calendar(
     key_prefix: str,
     title: str,
     focus_state_key: str | None = None,
+    show_replan_signal: bool = False,
 ) -> None:
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
     if not daily_plan:
@@ -776,6 +838,25 @@ def _render_plan_fact_calendar(
     if current_selected_label not in option_labels:
         current_selected_label = option_labels[max(0, min(default_week_index, len(option_labels) - 1))]
     if timeline_rows:
+        replan_signal = _build_plan_fact_replan_signal(timeline_rows) if show_replan_signal else None
+        if replan_signal is not None:
+            with st.container(border=True):
+                st.markdown(f"**{replan_signal['headline']}**")
+                st.caption(replan_signal["reason"])
+                if st.button(
+                    replan_signal["action_label"],
+                    key=f"{key_prefix}_open_replan_signal",
+                    type="primary",
+                    width="stretch",
+                ):
+                    st.session_state[f"{key_prefix}_week_index"] = replan_signal["target_week_label"]
+                    if focus_state_key:
+                        if replan_signal["target_date"]:
+                            st.session_state[focus_state_key] = replan_signal["target_date"]
+                        st.session_state[f"{focus_state_key}_action_label"] = replan_signal["action_label"]
+                        st.session_state[f"{focus_state_key}_action_hint"] = replan_signal["follow_up_hint"]
+                        st.session_state[f"{focus_state_key}_weeks_pending"] = int(replan_signal["weeks_horizon"])
+                    st.rerun()
         st.markdown("**Таймлайн по неделям**")
         st.caption("Сначала найдите недельный drift, затем откройте нужную неделю для day-level разбора.")
         st.dataframe(
@@ -2231,6 +2312,7 @@ def render_planning_page(state: "StateManager") -> None:
                 key_prefix="planning_plan_fact_review",
                 title="### 🗓️ План и факт по неделе",
                 focus_state_key="planning_execution_feedback_focus_day",
+                show_replan_signal=True,
             )
 
             execution_feedback_result = render_execution_feedback_editor(

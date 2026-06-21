@@ -17,6 +17,7 @@ from ui.pages.planning import (
     _build_plan_fact_focus_action,
     _build_plan_fact_calendar_markup,
     _build_plan_fact_calendar_rows,
+    _build_plan_fact_replan_signal,
     _build_plan_fact_timeline_rows,
     _build_plan_fact_week_summary,
     _build_goal_plan_transition_preview,
@@ -551,6 +552,56 @@ def test_build_plan_fact_timeline_rows_marks_fully_matched_week_as_garmin_ready(
     assert len(rows) == 1
     assert rows[0]["status_label"] == "Garmin готов"
     assert rows[0]["action_label"] == "Открыть неделю"
+
+
+def test_build_plan_fact_replan_signal_detects_accumulated_multiweek_drift():
+    signal = _build_plan_fact_replan_signal(
+        [
+            {
+                "week_index": 0,
+                "week_label": "Неделя 1 · 15.06",
+                "delta_tss": -35,
+                "mismatch": 2,
+                "unplanned_actual": 0,
+                "attention_day_count": 2,
+                "first_attention_date": "2026-06-16",
+            },
+            {
+                "week_index": 1,
+                "week_label": "Неделя 2 · 22.06",
+                "delta_tss": -30,
+                "mismatch": 1,
+                "unplanned_actual": 1,
+                "attention_day_count": 2,
+                "first_attention_date": "2026-06-23",
+            },
+        ]
+    )
+
+    assert signal is not None
+    assert signal["severity"] == "high"
+    assert signal["headline"] == "Накопился multi-week drift"
+    assert signal["action_label"] == "Предложить мягкий replan"
+    assert signal["target_week_index"] == 0
+    assert signal["target_date"] == "2026-06-16"
+    assert signal["weeks_horizon"] == 2
+    assert signal["delta_tss"] == -65
+
+
+def test_build_plan_fact_replan_signal_returns_none_without_drift():
+    assert _build_plan_fact_replan_signal(
+        [
+            {
+                "week_index": 0,
+                "week_label": "Неделя 1 · 15.06",
+                "delta_tss": 0,
+                "mismatch": 0,
+                "unplanned_actual": 0,
+                "attention_day_count": 0,
+                "first_attention_date": "",
+            }
+        ]
+    ) is None
 
 
 def test_build_daily_session_rows_uses_week_structure_metadata():
