@@ -48,6 +48,7 @@ This repository should borrow those product patterns while staying faithful to t
 
 ## Progress
 
+- [x] (2026-06-21 11:08+04:00) Completed the first reference-driven Dashboard/Planning cleanup after comparing the current app against a cleaner coaching reference. Planning now renders the goal-plan builder only in `Собрать план`, so `Скорректировать выполнение` no longer starts with unrelated race setup, constraints, local-replan sliders, and advanced distribution controls. Dashboard now demotes the latest planning checkpoint into a compact plan card and hides the full execution-feedback editor behind an explicit fallback, with the primary path routing to `Planning → Скорректировать выполнение`. Validation passed on focused planning/dashboard smoke (`53 passed`), the full smoke suite (`181 passed`), and an isolated acceptance runtime on `http://localhost:8510` returned `HTTP 200 ok` on `/_stcore/health`.
 - [x] (2026-06-21 10:40+04:00) Completed a Planning declutter checkpoint after the `План и факт` surface became too dense in real use. The weekly review now shows one selected-week brief first, keeps the multi-week drift table inside a collapsed diagnostics expander, and keeps day cards/metrics inside a details expander that opens only when the selected week has real review signals or an active focused day. The same slice removed another Streamlit widget-state warning by letting the execution-feedback horizon slider use pre-normalized `session_state` as its only source of truth. Validation passed on focused planning/execution smoke (`47 passed`).
 - [x] (2026-06-21 10:14+04:00) Extended the Garmin auth hardening slice to cover the next live provider failure mode: `All login strategies exhausted` with `Portal login failed (non-JSON): HTTP 403`. `data/garmin_client.py` now classifies this as a Garmin-side portal block instead of leaking it as an opaque unknown error, and `tests/smoke/test_garmin_auth_messages.py` now protects both the pure `portal 403` case and the combined `429 + portal 403` case. Validation passed on focused Garmin smoke (`6 passed`) and the full smoke suite (`179 passed`).
 - [x] (2026-06-21 10:00+04:00) Completed the next Planning V2 decision-layer slice: the multi-week `план ↔ факт` timeline now detects accumulated weekly drift and surfaces a suggested replan entrypoint before the athlete drills into a single week. When multiple drift weeks or a larger negative TSS gap accumulate, Planning now shows a compact `multi-week drift` callout with a direct CTA that opens the right week, sets focus on the first problem day, and widens the execution-review horizon to the relevant local window without changing planning math or checkpoint semantics. The slice stays UI/helper-only in `ui/pages/planning.py`, with smoke coverage extended in `tests/smoke/test_planning_page_explainability.py`. Validation passed on focused planning/execution smoke (`45 passed`) and the full smoke suite (`176 passed`).
@@ -115,6 +116,9 @@ This repository should borrow those product patterns while staying faithful to t
 - [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
 
 ## Surprises & Discoveries
+
+- Observation: the worst remaining Dashboard/Planning problem was structural leakage between jobs, not dark-mode styling.
+  Evidence: the Planning mode split existed, but the goal builder still rendered in every mode before the adjustment workspace, so a user opening `Скорректировать выполнение` still saw race setup, availability controls, local-replan controls, and advanced distribution before the actual plan/fact workflow. Dashboard also surfaced planning checkpoint internals and the full execution editor, which made the overview page behave like an operations console.
 
 - Observation: adding more planning intelligence can quickly reduce usability if every signal is rendered at the same priority.
   Evidence: after the plan/fact timeline, drift CTA, weekly cards, day CTAs, and execution editor were all visible together, the real page became a stacked diagnostic console rather than a coaching workflow. The safer product pattern is now `one next action first, diagnostics collapsed, day cards opened only for real review signals`.
@@ -339,6 +343,10 @@ This repository should borrow those product patterns while staying faithful to t
   Evidence: the live dashboard hit `StreamlitValueAboveMaxError: The value 41 is greater than the max_value 0` after a row's current planned TSS collapsed to zero while the persisted widget key still held an earlier positive value. The stable fix was not just clamping a raw number, but separating logical `actual_tss` state from the widget key and resolving outcome-aware display values (`as_planned -> planned`, `missed/unavailable -> 0`, `reduced -> clamped custom value`) before rendering the input.
 
 ## Decision Log
+
+- Decision: make page modes enforce hard ownership: Dashboard summarizes and links out, while Planning builder controls render only in `Собрать план`.
+  Rationale: the reference screenshots work because each page has a primary job. The current app had already named those jobs, but still rendered hidden-mode controls and editors on the wrong surface. Hiding the builder outside build mode and routing Dashboard's execution-edit action into Planning reduces visual load without changing planning math, checkpoint persistence, or export behavior.
+  Date/Author: 2026-06-21 / Codex
 
 - Decision: classify `portal 403` Garmin login exhaustion as a provider-side block in the same auth normalizer, not as an unknown fallback string and not as a credential error.
   Rationale: this is still part of the same authentication hardening boundary. The app cannot fix Garmin's portal defenses, but it can stop presenting a misleading diagnosis. Folding the new live case into the same normalizer preserves one UI contract and one smoke boundary for Garmin auth failures.
@@ -637,6 +645,8 @@ Coach Explainability is accepted when the dashboard and AI coaching can surface 
 ## Outcomes & Retrospective
 
 This section starts empty on purpose. The previous plan ended with a working product flow. This plan begins at the moment where the product needs to become a durable system rather than a successful sequence of flows.
+
+The newest slice responds to the user's reference screenshots by fixing ownership before attempting cosmetic redesign. Dashboard is now less of a planning operations console because it summarizes the latest plan checkpoint and points to Planning for correction; Planning is less chaotic because the builder only appears when the user is actually building a plan. This does not finish the visual redesign, but it removes the most confusing cross-mode leakage and gives the next UI pass a cleaner structure to style.
 
 The newest hardening slice does not improve Garmin availability, but it improves truthfulness. The athlete now gets a clearer diagnosis when Garmin moves past ordinary throttling into a portal-level `403` block, which matters because the right response is operational patience, not random password retries or suspicion that the recent Planning work broke auth.
 

@@ -1,7 +1,7 @@
 """Dashboard page renderer and helpers."""
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import logging
 from typing import Any, Callable
 
@@ -29,39 +29,6 @@ from ui.theme import get_plotly_theme
 
 logger = logging.getLogger(__name__)
 
-TRAINING_STATUS_TITLES = {
-    "PRODUCTIVE": "Продуктивно",
-    "UNPRODUCTIVE": "Непродуктивно",
-    "RECOVERY": "Восстановление",
-    "MAINTAINING": "Поддержание",
-    "DETRAINING": "Потеря формы",
-    "PEAK": "Пик",
-    "BASE": "База",
-    "BUILD": "Билд",
-    "OVERREACHING": "Перегрузка",
-    "IMPROVING": "Улучшение",
-}
-
-TRAINING_STATUS_COLORS = {
-    "PRODUCTIVE": "#10B981",
-    "MAINTAINING": "#3B82F6",
-    "BASE": "#6366F1",
-    "BUILD": "#F59E0B",
-    "PEAK": "#8B5CF6",
-    "RECOVERY": "#22D3EE",
-    "OVERREACHING": "#F97316",
-    "UNPRODUCTIVE": "#EF4444",
-    "DETRAINING": "#F97316",
-}
-
-ACWR_STATUS_STYLES = {
-    "OPTIMAL": {"label": "Оптимально", "color": "#10B981"},
-    "BALANCED": {"label": "Баланс", "color": "#10B981"},
-    "LOW": {"label": "Ниже нормы", "color": "#F59E0B"},
-    "VERY_LOW": {"label": "Сильно ниже нормы", "color": "#F97316"},
-    "HIGH": {"label": "Выше нормы", "color": "#F97316"},
-    "VERY_HIGH": {"label": "Сильно выше нормы", "color": "#EF4444"},
-}
 
 def render_dashboard_page(
     state: StateManager,
@@ -77,180 +44,373 @@ def render_dashboard_page(
 
     ModernUI.show_horizontal_nav("Dashboard")
 
-    theme = ModernUI.get_theme()
-    badge_bg_light = "rgba(232,240,255,0.8)"
-    badge_bg_dark = theme["surface_light"]
-    badge_text_color = theme["text_primary"]
-    badge_border = theme["metric_border"]
-
     activities_df = load_activities(30)
     if activities_df.empty:
         _render_empty_dashboard_state(state, on_sync)
         return
 
-    st.title("🏃‍♂️ Статус тренировок")
-
     if demo_mode_service.is_demo_mode(state):
-        st.info("🎮 Вы просматриваете демо-режим. Подключите Garmin, чтобы заменить sample data реальными тренировками и синхронизацией.")
+        st.info(
+            "🎮 Вы просматриваете демо-режим. Подключите Garmin, чтобы заменить sample data "
+            "реальными тренировками и синхронизацией."
+        )
 
     current_status = _calculate_current_status()
     latest_training_status = _get_latest_training_status(database)
 
-    training_status_code = (latest_training_status.get("training_status") or "").upper()
-    training_status_display = TRAINING_STATUS_TITLES.get(
-        training_status_code,
-        training_status_code or "Нет данных",
+    _render_dashboard_v2_shell(
+        state,
+        current_status,
+        latest_training_status,
+        activities_df,
+        on_sync,
     )
-    training_load_7d = latest_training_status.get("training_load_7d")
-    training_load_chronic = latest_training_status.get("training_load_chronic")
-    garmin_readiness = latest_training_status.get("training_readiness")
-    if garmin_readiness is None or pd.isna(garmin_readiness):
-        garmin_readiness = None
-    acwr_status_value = (latest_training_status.get("acwr_status") or "").upper()
-    acwr_percent = latest_training_status.get("acwr_percent")
-    training_feedback_text = latest_training_status.get("training_feedback")
-    if not training_feedback_text and latest_training_status.get("training_feedback_code"):
-        training_feedback_text = latest_training_status["training_feedback_code"].replace("_", " ").title()
-    balance_feedback_text = latest_training_status.get("training_balance_feedback")
-    if not balance_feedback_text and latest_training_status.get("training_balance_feedback_code"):
-        balance_feedback_text = latest_training_status["training_balance_feedback_code"].replace("_", " ").title()
-    training_since_date = latest_training_status.get("training_since_date")
-    last_primary_sync_date = latest_training_status.get("last_primary_sync_date")
+
+
+def _coerce_dashboard_date(value: Any) -> date | None:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if hasattr(value, "to_pydatetime"):
+        try:
+            return value.to_pydatetime().date()
+        except Exception:
+            return None
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return None
+
+
+def _format_tss_value(value: Any) -> str:
+    try:
+        return f"{float(value or 0):.0f}"
+    except (TypeError, ValueError):
+        return "0"
+
+
+def _get_dashboard_goal_plan(state: StateManager) -> dict[str, Any]:
+    goal_plan = getattr(state, "resolved_goal_plan_context", None)
+    if not isinstance(goal_plan, dict) or not goal_plan:
+        goal_plan = getattr(state, "goal_plan", None)
+    return goal_plan if isinstance(goal_plan, dict) else {}
+
+
+def _build_plan_day_lookup(goal_plan: dict[str, Any]) -> dict[date, dict[str, Any]]:
+    daily_plan = list(goal_plan.get("daily_plan", []) or [])
+    session_templates = list(goal_plan.get("session_templates", []) or [])
+    lookup: dict[date, dict[str, Any]] = {}
+    for idx, entry in enumerate(daily_plan):
+        try:
+            planned_dt, total_tss, parts = entry
+        except (TypeError, ValueError):
+            continue
+        planned_date = _coerce_dashboard_date(planned_dt)
+        if planned_date is None:
+            continue
+        template = session_templates[idx] if idx < len(session_templates) and isinstance(session_templates[idx], dict) else {}
+        sport = str(template.get("sport") or "").strip()
+        if not sport and isinstance(parts, dict):
+            sport = max(parts, key=lambda key: float(parts.get(key) or 0.0), default="")
+        lookup[planned_date] = {
+            "date": planned_date,
+            "index": idx,
+            "total_tss": float(total_tss or 0.0),
+            "parts": parts if isinstance(parts, dict) else {},
+            "sport": sport or "—",
+            "name": str(template.get("export_name") or template.get("name") or "Плановая тренировка"),
+            "duration_minutes": int(template.get("duration_minutes") or 0),
+            "session_role": str(template.get("session_role_label") or template.get("session_role") or ""),
+        }
+    return lookup
+
+
+def _build_activity_day_tss(activities_df: pd.DataFrame) -> dict[date, float]:
+    if activities_df.empty or "date" not in activities_df.columns:
+        return {}
+    activity_days: dict[date, float] = {}
+    for _, row in activities_df.iterrows():
+        activity_date = _coerce_dashboard_date(row.get("date"))
+        if activity_date is None:
+            continue
+        try:
+            tss_value = float(row.get("tss") or 0.0)
+        except (TypeError, ValueError):
+            tss_value = 0.0
+        activity_days[activity_date] = activity_days.get(activity_date, 0.0) + tss_value
+    return activity_days
+
+
+def _build_dashboard_v2_summary(
+    state: StateManager,
+    current_status: dict[str, Any],
+    latest_training_status: dict[str, Any],
+    activities_df: pd.DataFrame,
+    *,
+    reference_date: date | None = None,
+) -> dict[str, Any]:
+    """Build a testable command-center summary for Dashboard V2."""
+    today = reference_date or datetime.now().date()
+    goal_plan = _get_dashboard_goal_plan(state)
+    plan_lookup = _build_plan_day_lookup(goal_plan)
+    activity_tss_by_day = _build_activity_day_tss(activities_df)
+    checkpoint_summary = summarize_planning_checkpoint(getattr(state, "latest_planning_checkpoint", None))
+
+    readiness_value = latest_training_status.get("training_readiness")
+    if readiness_value is None or pd.isna(readiness_value):
+        readiness_value = current_status.get("readiness", 0)
+    try:
+        readiness_number = max(0.0, min(100.0, float(readiness_value or 0.0)))
+    except (TypeError, ValueError):
+        readiness_number = 0.0
+    tsb_value = float(current_status.get("tsb") or 0.0)
+    ctl_value = float(current_status.get("ctl") or 0.0)
+    hrv_value = current_status.get("hrv") or latest_training_status.get("hrv")
+    if current_status.get("critical_status"):
+        state_label = str(current_status["critical_status"])
+        tone = "danger"
+    elif readiness_number >= 75 and tsb_value > -10:
+        state_label = "Готов к работе"
+        tone = "success"
+    elif tsb_value < -20:
+        state_label = "Нужна разгрузка"
+        tone = "warning"
+    else:
+        state_label = "Контролируемая нагрузка"
+        tone = "neutral"
+
+    today_plan = plan_lookup.get(today)
+    if today_plan is None:
+        workout = {
+            "title": "План на сегодня не найден",
+            "subtitle": "Откройте Planning, если нужно уточнить ближайшие тренировки.",
+            "tss": 0,
+            "sport": "—",
+            "action": "planning",
+            "button": "Открыть Planning",
+        }
+    elif today_plan["total_tss"] <= 0:
+        workout = {
+            "title": "Сегодня восстановление",
+            "subtitle": "План не ставит тренировочную нагрузку на сегодня.",
+            "tss": 0,
+            "sport": "rest",
+            "action": "planning",
+            "button": "Посмотреть неделю",
+        }
+    else:
+        duration = today_plan["duration_minutes"]
+        duration_label = f"{duration} мин · " if duration > 0 else ""
+        workout = {
+            "title": today_plan["name"],
+            "subtitle": f"{duration_label}{today_plan['sport']} · {_format_tss_value(today_plan['total_tss'])} TSS",
+            "tss": int(round(today_plan["total_tss"])),
+            "sport": today_plan["sport"],
+            "action": "planning",
+            "button": "Открыть план",
+        }
+
+    week_start = today - timedelta(days=today.weekday())
+    week_days = [week_start + timedelta(days=offset) for offset in range(7)]
+    planned_week_tss = sum(float(plan_lookup.get(day, {}).get("total_tss") or 0.0) for day in week_days)
+    actual_week_tss = sum(float(activity_tss_by_day.get(day, 0.0)) for day in week_days)
+    remaining_tss = max(0.0, planned_week_tss - actual_week_tss)
+    forecast_tss = actual_week_tss + sum(
+        float(plan_lookup.get(day, {}).get("total_tss") or 0.0)
+        for day in week_days
+        if day >= today
+    )
+    week_status = "по плану"
+    if planned_week_tss > 0 and actual_week_tss < planned_week_tss * 0.55 and today.weekday() >= 4:
+        week_status = "риск отставания"
+    elif planned_week_tss > 0 and actual_week_tss >= planned_week_tss:
+        week_status = "цель недели закрыта"
+
+    next_days = []
+    for offset in range(7):
+        day = today + timedelta(days=offset)
+        planned = plan_lookup.get(day)
+        actual_tss = activity_tss_by_day.get(day, 0.0)
+        if planned is None:
+            label = "нет плана"
+            tss = 0
+            sport = "—"
+            status = "empty"
+        else:
+            tss = int(round(float(planned.get("total_tss") or 0.0)))
+            sport = str(planned.get("sport") or "—")
+            if tss <= 0:
+                label = "отдых"
+                status = "rest"
+            elif actual_tss > 0:
+                label = "есть факт"
+                status = "done"
+            else:
+                label = "запланировано"
+                status = "planned"
+        next_days.append(
+            {
+                "date": day.isoformat(),
+                "label": day.strftime("%a %d.%m"),
+                "status": status,
+                "status_label": label,
+                "sport": sport,
+                "tss": tss,
+            }
+        )
+
+    if checkpoint_summary is None:
+        plan = {
+            "title": "Активный план не найден",
+            "subtitle": "Соберите план, чтобы Dashboard показывал прогресс к цели.",
+            "status": "no_plan",
+            "button": "Собрать план",
+        }
+    else:
+        plan = {
+            "title": checkpoint_summary["title"],
+            "subtitle": f"{checkpoint_summary['plan_adjustment_label']} · пик {checkpoint_summary['peak_tss']} TSS",
+            "status": "active",
+            "button": "Открыть Planning",
+        }
+        if checkpoint_summary.get("execution_weekly_review"):
+            plan["subtitle"] = str(checkpoint_summary["execution_weekly_review"]["headline"])
+
+    next_step = _choose_primary_next_step(state, current_status)
+    return {
+        "today": {
+            "date": today.isoformat(),
+            "state_label": state_label,
+            "tone": tone,
+            "readiness": int(round(readiness_number)),
+            "tsb": round(tsb_value, 1),
+            "ctl": round(ctl_value, 1),
+            "hrv": hrv_value,
+        },
+        "workout": workout,
+        "week": {
+            "planned_tss": int(round(planned_week_tss)),
+            "actual_tss": int(round(actual_week_tss)),
+            "remaining_tss": int(round(remaining_tss)),
+            "forecast_tss": int(round(forecast_tss)),
+            "status": week_status,
+        },
+        "next_days": next_days,
+        "plan": plan,
+        "next_action": next_step,
+    }
+
+
+def _render_dashboard_v2_shell(
+    state: StateManager,
+    current_status: dict[str, Any],
+    latest_training_status: dict[str, Any],
+    activities_df: pd.DataFrame,
+    on_sync: Callable[[int], None],
+) -> None:
+    from utils.modern_ui import ModernUI
+
+    summary = _build_dashboard_v2_summary(
+        state,
+        current_status,
+        latest_training_status,
+        activities_df,
+    )
+    st.title("Dashboard")
+
+    sync_status = getattr(state, "last_sync_status", None)
+    if isinstance(sync_status, dict) and sync_status.get("summary"):
+        st.caption(f"Синхронизация: {sync_status['summary']}")
 
     if current_status.get("critical_status"):
-        st.error(f"🚨 {current_status['critical_status']}")
-        if current_status.get("critical_action"):
-            st.info(f"💡 Рекомендация: {current_status['critical_action']}")
+        st.error(f"{current_status['critical_status']}: {current_status.get('critical_action', 'снизьте нагрузку')}")
 
-        if current_status["tsb"] < -30:
-            st.markdown(
-                """
-            <div class="critical-alert">
-                <h3>🛌 Немедленные действия при переутомлении:</h3>
-                <ul>
-                    <li>• Полный отдых 2-3 дня (никаких тренировок)</li>
-                    <li>• Увеличьте продолжительность сна до 8+ часов</li>
-                    <li>• Легкие прогулки или стретчинг максимум</li>
-                    <li>• Обратите внимание на питание и гидратацию</li>
-                    <li>• Рассмотрите массаж или физиотерапию</li>
-                </ul>
-            </div>
-            """,
-                unsafe_allow_html=True,
+    st.markdown("### Сегодня")
+    with st.container(border=True):
+        cols = st.columns([1.5, 1, 1, 1])
+        with cols[0]:
+            st.metric("Состояние", summary["today"]["state_label"], help="Главная интерпретация текущей готовности.")
+        with cols[1]:
+            st.metric("Readiness", summary["today"]["readiness"])
+        with cols[2]:
+            st.metric("TSB", summary["today"]["tsb"])
+        with cols[3]:
+            st.metric("CTL", summary["today"]["ctl"])
+        if summary["today"]["hrv"]:
+            st.caption(f"HRV: {summary['today']['hrv']}")
+
+    top_cols = st.columns([1.15, 0.85])
+    with top_cols[0]:
+        st.markdown("### Тренировка сегодня")
+        with st.container(border=True):
+            st.markdown(f"**{summary['workout']['title']}**")
+            st.caption(summary["workout"]["subtitle"])
+            if st.button(summary["workout"]["button"], key="dashboard_v2_workout_cta", type="primary", width="stretch"):
+                _handle_quick_action(state, str(summary["workout"]["action"]), on_sync, current_status)
+
+    with top_cols[1]:
+        st.markdown("### Неделя")
+        with st.container(border=True):
+            metric_cols = st.columns(2)
+            with metric_cols[0]:
+                st.metric("Факт", f"{summary['week']['actual_tss']} TSS")
+            with metric_cols[1]:
+                st.metric("План", f"{summary['week']['planned_tss']} TSS")
+            st.caption(
+                f"Осталось {summary['week']['remaining_tss']} TSS · "
+                f"прогноз {summary['week']['forecast_tss']} TSS · {summary['week']['status']}"
             )
 
-    col1, col2, col3, col4 = st.columns(4)
+    st.markdown("### Следующие 7 дней")
+    day_cols = st.columns(7)
+    for col, day in zip(day_cols, summary["next_days"]):
+        with col:
+            with st.container(border=True):
+                st.caption(day["label"])
+                st.markdown(f"**{day['tss']} TSS**")
+                st.caption(f"{day['sport']} · {day['status_label']}")
 
-    with col1:
-        tsb_value = current_status.get("tsb", 0)
-        fig_tsb = ModernUI.create_circular_indicator(tsb_value, 100, "TSB", f"{tsb_value:.1f}", "#10B981")
-        st.plotly_chart(fig_tsb, width="stretch")
-        badge_bg = badge_bg_dark if theme["is_dark"] else badge_bg_light
-        badge_style = (
-            f"background: {badge_bg};"
-            f" color: {badge_text_color}; padding: 4px 8px; border-radius: 12px;"
-            f" font-size: 11px; display: inline-block;"
-        )
-        if theme["is_dark"]:
-            badge_style += f" border: 1px solid {badge_border};"
-        st.markdown(
-            f'<div style="text-align: center;"><span style="{badge_style}">Training Stress Balance<br>Тренировочный стресс баланс</span></div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown("### План")
+    with st.container(border=True):
+        st.markdown(f"**{summary['plan']['title']}**")
+        st.caption(summary["plan"]["subtitle"])
+        if st.button(summary["plan"]["button"], key="dashboard_v2_plan_cta", width="stretch"):
+            state.selected_page = "📈 Планирование"
+            st.session_state["planning_workspace_mode"] = "Скорректировать выполнение"
+            st.rerun()
 
-    with col2:
-        ctl_value = current_status.get("ctl", 0)
-        fig_ctl = ModernUI.create_circular_indicator(ctl_value, 150, "CTL", f"{ctl_value:.1f}", "#10B981")
-        st.plotly_chart(fig_ctl, width="stretch")
-        st.markdown(
-            f'<div style="text-align: center;"><span style="{badge_style}">Chronic Training Load<br>Хроническая тренировочная нагрузка</span></div>',
-            unsafe_allow_html=True,
-        )
+    st.markdown("### Следующий шаг")
+    with st.container(border=True):
+        st.markdown(f"**{summary['next_action']['title']}**")
+        st.caption(summary["next_action"]["desc"])
+        if st.button(
+            f"{summary['next_action']['icon']} {summary['next_action']['button']}",
+            key=f"dashboard_v2_next_action_{summary['next_action']['action']}",
+            type="primary",
+            width="stretch",
+        ):
+            _handle_quick_action(state, summary["next_action"]["action"], on_sync, current_status)
 
-    with col3:
-        status_color = TRAINING_STATUS_COLORS.get(training_status_code, theme["text_primary"])
-        load_text = f"{float(training_load_7d):.0f}" if training_load_7d is not None and not pd.isna(training_load_7d) else "—"
-        chronic_text = f"{float(training_load_chronic):.0f}" if training_load_chronic is not None and not pd.isna(training_load_chronic) else "—"
-        load_ratio_value = latest_training_status.get("load_ratio")
-        load_ratio_text = f"{float(load_ratio_value):.2f}" if load_ratio_value is not None and not pd.isna(load_ratio_value) else "—"
-        acwr_style = ACWR_STATUS_STYLES.get(acwr_status_value)
-        load_ratio_color = acwr_style["color"] if acwr_style else theme["text_primary"]
-        acwr_label = acwr_style["label"] if acwr_style else (acwr_status_value.title() if acwr_status_value else "")
-        acwr_suffix = f"({float(acwr_percent):.0f}%)" if acwr_percent is not None and not pd.isna(acwr_percent) else ""
-        status_date = latest_training_status.get("date")
-        caption_parts = _build_status_caption_parts(status_date, training_since_date, last_primary_sync_date)
-        feedback_messages = []
-        if training_feedback_text:
-            feedback_messages.append(training_feedback_text)
-        if balance_feedback_text and balance_feedback_text != training_feedback_text:
-            feedback_messages.append(balance_feedback_text)
-        load_ratio_details = {
-            "label": "Load ratio",
-            "value": load_ratio_text,
-            "color": load_ratio_color,
-            "badge": acwr_label,
-            "suffix": acwr_suffix,
-        }
-        ModernUI.training_status_card(
-            title="Статус тренировки",
-            status_text=training_status_display,
-            status_color=status_color,
-            metrics=[
-                ("Нагрузка 7д", load_text),
-                ("Хроническая", chronic_text),
-            ],
-            load_ratio=load_ratio_details,
-            feedback=feedback_messages,
-        )
-        if caption_parts:
-            st.caption(" • ".join(caption_parts))
-        ModernUI.training_status_description()
-
-    with col4:
-        readiness_fallback = current_status.get("readiness", 0) or 0
-        readiness_value = garmin_readiness if garmin_readiness is not None else readiness_fallback
-        try:
-            readiness_value = float(readiness_value)
-        except (ValueError, TypeError):
-            readiness_value = 0.0
-        readiness_value = max(0.0, min(100.0, readiness_value))
-        readiness_source = "Garmin" if garmin_readiness is not None else "AI индекс"
-        readiness_subtitle = f"{readiness_value:.0f}% • {readiness_source}"
-        readiness_color = "#3B82F6" if garmin_readiness is not None else "#8B5CF6"
-        fig_readiness = ModernUI.create_circular_indicator(
-            readiness_value,
-            100,
-            "Readiness",
-            readiness_subtitle,
-            readiness_color,
-        )
-        st.plotly_chart(fig_readiness, width="stretch")
-        readiness_bg = badge_bg_dark if theme["is_dark"] else "rgba(59,130,246,0.85)"
-        readiness_style = (
-            f"background: {readiness_bg}; color: {badge_text_color if theme['is_dark'] else '#FFFFFF'};"
-            f" padding: 4px 8px; border-radius: 12px; font-size: 11px; display: inline-block;"
-        )
-        if theme["is_dark"]:
-            readiness_style += f" border: 1px solid {badge_border};"
-        st.markdown(
-            f'<div style="text-align: center;"><span style="{readiness_style}">Готовность</span></div>',
-            unsafe_allow_html=True,
-        )
-
-    st.markdown("<br><br>", unsafe_allow_html=True)
-
-    recommendations = current_status.get("recommendations", [])
-    if recommendations:
-        ModernUI.ai_recommendation_panel(recommendations)
-
-    _render_coach_briefing(state, current_status)
-    _render_recent_planning_checkpoint(state)
-    _render_execution_feedback_loop(state)
-    _render_last_sync_handoff(state, current_status, on_sync)
-    _render_primary_next_step(state, current_status, on_sync)
-    _render_quick_actions(state, current_status, on_sync)
-    ModernUI.show_weekly_training_calendar(activities_df)
-    _render_compact_analytics(activities_df, latest_training_status)
+    with st.expander("Диагностика Dashboard", expanded=False):
+        recommendations = current_status.get("recommendations", [])
+        if recommendations:
+            ModernUI.ai_recommendation_panel(recommendations)
+        _render_coach_briefing(state, current_status)
+        _render_recent_planning_checkpoint(state)
+        _render_execution_feedback_loop(state)
+        _render_last_sync_handoff(state, current_status, on_sync)
+        _render_primary_next_step(state, current_status, on_sync)
+        _render_quick_actions(state, current_status, on_sync)
+        ModernUI.show_weekly_training_calendar(activities_df)
+        _render_compact_analytics(activities_df, latest_training_status)
 
 
 def _render_empty_dashboard_state(state: StateManager, on_sync: Callable[[int], None]) -> None:
@@ -473,32 +633,6 @@ def _get_latest_training_status(database: Any) -> dict[str, Any]:
     return {}
 
 
-def _build_status_caption_parts(
-    status_date: Any,
-    training_since_date: Any,
-    last_primary_sync_date: Any,
-) -> list[str]:
-    caption_parts: list[str] = []
-
-    if status_date is not None and not pd.isna(status_date):
-        try:
-            caption_parts.append(f"Обновлено: {_format_date(status_date, 'display')}")
-        except Exception:
-            pass
-    if training_since_date:
-        try:
-            caption_parts.append(f"С {_format_date(training_since_date, 'display')}")
-        except Exception:
-            caption_parts.append(f"С {training_since_date}")
-    if last_primary_sync_date and last_primary_sync_date != status_date:
-        try:
-            caption_parts.append(f"Синхронизировано: {_format_date(last_primary_sync_date, 'display')}")
-        except Exception:
-            caption_parts.append(f"Синхронизировано: {last_primary_sync_date}")
-
-    return caption_parts
-
-
 def _render_quick_actions(
     state: StateManager,
     current_status: dict[str, Any],
@@ -650,96 +784,41 @@ def _render_recent_planning_checkpoint(state: StateManager) -> None:
         return
 
     provenance = checkpoint_summary.get("provenance") or {}
-    st.markdown("### 🗂️ Последний planning checkpoint")
+    st.markdown("### 🗂️ План")
     with st.container(border=True):
         st.markdown(f"**{checkpoint_summary['title']}**")
         if checkpoint_summary["headline"]:
             st.write(checkpoint_summary["headline"])
-        if checkpoint_summary["created_at_label"]:
-            st.caption(f"Сохранён: {checkpoint_summary['created_at_label']}")
+        summary_bits = [
+            checkpoint_summary["plan_adjustment_label"],
+            f"пик {checkpoint_summary['peak_tss']} TSS",
+            f"сумма {checkpoint_summary['total_tss']} TSS",
+        ]
         if provenance.get("label"):
-            st.write(
-                f"**Версия:** checkpoint #{checkpoint_summary['checkpoint_id']} · "
-                f"{provenance['label']}"
-            )
-        if provenance.get("detail"):
-            st.caption(provenance["detail"])
-        st.write(
-            f"**Checkpoint:** {checkpoint_summary['plan_adjustment_label']} · "
-            f"Пик {checkpoint_summary['peak_tss']} TSS · Сумма {checkpoint_summary['total_tss']} TSS"
-        )
+            summary_bits.append(str(provenance["label"]))
+        st.caption(" · ".join(summary_bits))
         if checkpoint_summary.get("execution_reconciliation"):
             execution_reconciliation = checkpoint_summary["execution_reconciliation"]
-            st.write(
-                f"**Факт окна:** {execution_reconciliation['actual_total_tss']} из "
-                f"{execution_reconciliation['planned_total_tss']} TSS · "
-                f"{execution_reconciliation['changed_day_count']} дн. изменено"
-            )
+            st.caption(f"Факт окна: {execution_reconciliation['compact_label']}")
         if checkpoint_summary.get("execution_weekly_review"):
             execution_weekly_review = checkpoint_summary["execution_weekly_review"]
-            st.write(
-                f"**Weekly review:** {execution_weekly_review['review_badge']} · "
-                f"{execution_weekly_review['headline']}"
-            )
-            st.caption(
-                "Ответ после окна: "
-                f"{execution_weekly_review['selected_response_label']}"
-            )
+            st.caption(f"Weekly review: {execution_weekly_review['headline']}")
         if checkpoint_summary.get("execution_corrective_microcycle"):
             corrective_microcycle = checkpoint_summary["execution_corrective_microcycle"]
-            st.write(f"**Microcycle:** {corrective_microcycle['headline']}")
+            st.caption(f"Microcycle: {corrective_microcycle['headline']}")
             if corrective_microcycle.get("today_action"):
                 st.caption(corrective_microcycle["today_action"])
         if checkpoint_summary.get("execution_adaptation_pressure"):
             adaptation_pressure = checkpoint_summary["execution_adaptation_pressure"]
-            st.write(f"**После окна:** {adaptation_pressure['compact_label']}")
-            st.caption(adaptation_pressure["follow_up_window_description"])
+            st.caption(f"После окна: {adaptation_pressure['compact_label']}")
         if checkpoint_summary.get("near_term_edit"):
-            st.write(f"**Ручная правка:** {checkpoint_summary['near_term_edit']['compact_label']}")
-            if checkpoint_summary["near_term_edit"].get("origin_description"):
-                st.caption(checkpoint_summary["near_term_edit"]["origin_description"])
-            st.write(f"**Оценка правки:** {checkpoint_summary['near_term_edit']['risk_badge']}")
-            if checkpoint_summary["near_term_edit"].get("risk_level") != "low":
-                st.caption(checkpoint_summary["near_term_edit"]["risk_guardrail"])
-        if checkpoint_summary["plan_adjustment_weeks"] > 0:
-            st.write(f"**Горизонт:** {checkpoint_summary['plan_adjustment_weeks']} нед.")
-        if checkpoint_summary["interruption_label"] != "Нет":
-            st.write(f"**Ограничение:** {checkpoint_summary['interruption_label']}")
-        if checkpoint_summary["load_state_label"]:
-            st.write(f"**Стартовое состояние:** {checkpoint_summary['load_state_label']}")
-        history = [
-            item
-            for item in (
-                summarize_planning_checkpoint(record)
-                for record in getattr(state, "planning_checkpoint_history", [])[1:3]
-            )
-            if item is not None
-        ]
-        if history:
-            st.caption("Недавние checkpoints")
-            for item in history:
-                when = f" ({item['created_at_label']})" if item["created_at_label"] else ""
-                provenance = item.get("provenance") or {}
-                provenance_source = provenance.get("source")
-                version_label = provenance.get("label", "Сохранённая версия")
-                detail = provenance.get("detail", "")
-                suffix = f" · checkpoint: {item['plan_adjustment_label']}"
-                if item.get("execution_weekly_review"):
-                    suffix += f" · weekly review: {item['execution_weekly_review']['review_badge']}"
-                if item.get("execution_corrective_microcycle"):
-                    suffix += " · microcycle"
-                if item.get("execution_adaptation_pressure"):
-                    suffix += f" · {item['execution_adaptation_pressure']['follow_up_label']}"
-                if item.get("near_term_edit") and provenance_source != "manual_edit":
-                    suffix += f" · ручная правка: {item['near_term_edit']['delta_label']}"
-                    if item["near_term_edit"].get("risk_level") != "low":
-                        suffix += f" · {item['near_term_edit']['risk_badge']}"
-                elif item.get("near_term_edit") and item["near_term_edit"].get("origin_label"):
-                    suffix += " · override from execution microcycle"
-                detail_text = f" — {detail}" if detail else ""
-                st.write(
-                    f"• #{item['checkpoint_id']} · {version_label}{detail_text}{suffix}{when}"
-                )
+            st.caption(f"Ручная правка: {checkpoint_summary['near_term_edit']['compact_label']}")
+        if checkpoint_summary["created_at_label"]:
+            st.caption(f"Сохранён: {checkpoint_summary['created_at_label']}")
+        if st.button("Открыть детали в Planning", key="dashboard_open_planning_checkpoint", width="stretch"):
+            state.selected_page = "📈 Планирование"
+            st.session_state["planning_workspace_mode"] = "Скорректировать выполнение"
+            st.rerun()
 
 
 def _build_execution_feedback_result(
@@ -759,6 +838,31 @@ def _render_execution_feedback_loop(state: StateManager) -> None:
         return
 
     result = getattr(state, "last_execution_feedback_result", None)
+    st.markdown("### ♻️ Сверка выполнения")
+    with st.container(border=True):
+        st.markdown("**Dashboard показывает только статус. Ручная сверка живёт в Planning.**")
+        st.caption(
+            "Так главная страница остаётся обзорной: состояние сегодня, следующий шаг и недельная нагрузка. "
+            "Подробный plan/fact и сохранение checkpoint открывайте в Planning."
+        )
+        plan_cols = st.columns([1, 1])
+        with plan_cols[0]:
+            if st.button(
+                "Открыть Planning → корректировка",
+                key="dashboard_open_planning_execution_feedback",
+                type="primary",
+                width="stretch",
+            ):
+                state.selected_page = "📈 Планирование"
+                st.session_state["planning_workspace_mode"] = "Скорректировать выполнение"
+                st.rerun()
+        with plan_cols[1]:
+            st.checkbox(
+                "Показать редактор здесь",
+                key="dashboard_execution_feedback_editor_visible",
+                help="Оставлено как аварийный fallback; основной поток должен идти через Planning.",
+            )
+
     if isinstance(result, dict):
         st.success(
             f"Последний execution checkpoint: {result['plan_adjustment_label']} · "
@@ -788,6 +892,9 @@ def _render_execution_feedback_loop(state: StateManager) -> None:
                 st.caption(corrective_microcycle["today_action"])
         if result.get("created_at_label"):
             st.caption(f"Сохранён: {result['created_at_label']}")
+
+    if not st.session_state.get("dashboard_execution_feedback_editor_visible"):
+        return
 
     editor_result = render_execution_feedback_editor(
         goal_plan_context,

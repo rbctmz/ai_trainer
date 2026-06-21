@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import html
 from datetime import date, datetime, timedelta
-from typing import TYPE_CHECKING, Any, Dict, List
+from typing import TYPE_CHECKING, Any, Dict, List, Mapping
 
 import pandas as pd
 import streamlit as st
@@ -347,6 +347,202 @@ def _render_active_plan_workspace_summary(
                 f"{explain['near_term_edit']['follow_up_description']}"
             )
     return explain
+
+
+def _build_planning_v2_summary(
+    goal_plan: Mapping[str, Any],
+    activities_df: pd.DataFrame | None,
+    current_metrics: Mapping[str, Any],
+    *,
+    reference_date: date | None = None,
+) -> Dict[str, Any]:
+    """Build a testable active-plan command center summary for Planning V2."""
+    daily_plan = list(goal_plan.get("daily_plan", []) or [])
+    weekly_summary = list(goal_plan.get("weekly_summary", []) or [])
+    explain = _build_plan_explainability(dict(goal_plan))
+    today = reference_date or datetime.now().date()
+
+    plan_dates = [_coerce_calendar_date(entry[0]) for entry in daily_plan if isinstance(entry, (list, tuple)) and entry]
+    plan_dates = [item for item in plan_dates if item is not None]
+    first_plan_date = min(plan_dates) if plan_dates else None
+    last_plan_date = max(plan_dates) if plan_dates else None
+    days_to_goal = (last_plan_date - today).days if last_plan_date is not None else None
+
+    default_week_index = _resolve_plan_fact_calendar_default_week(dict(goal_plan), reference_date=today)
+    timeline_rows = _build_plan_fact_timeline_rows(dict(goal_plan), activities_df)
+    selected_timeline = None
+    if timeline_rows:
+        selected_timeline = next(
+            (row for row in timeline_rows if int(row["week_index"]) == int(default_week_index)),
+            timeline_rows[0],
+        )
+    selected_week_label = (
+        str(selected_timeline["week_label"])
+        if selected_timeline is not None
+        else f"Неделя {default_week_index + 1}"
+    )
+    review_brief = _build_plan_fact_review_brief(timeline_rows, selected_week_label) if timeline_rows else None
+
+    rows = _build_plan_fact_calendar_rows(
+        dict(goal_plan),
+        activities_df,
+        week_index=default_week_index,
+    )
+    week_summary = _build_plan_fact_week_summary(rows) if rows else {
+        "matched": 0,
+        "mismatch": 0,
+        "prefill_ready": 0,
+        "unplanned_actual": 0,
+        "upcoming": 0,
+    }
+
+    current_ctl = float(current_metrics.get("ctl") or 0.0)
+    current_tsb = float(current_metrics.get("tsb") or 0.0)
+    current_atl = float(current_metrics.get("atl") or 0.0)
+    if review_brief is not None:
+        correction_headline = str(review_brief["headline"])
+        correction_body = str(review_brief["body"])
+        correction_action = str(review_brief["next_action"])
+        correction_tone = str(review_brief["tone"])
+    elif selected_timeline is not None and int(selected_timeline.get("planned_total_tss", 0) or 0) > 0:
+        correction_headline = "Неделя идёт без явного сигнала"
+        correction_body = "Пока достаточно следить за план-факт и не открывать редактор без причины."
+        correction_action = "Открывайте корректировку только при пропуске, wrong sport или заметном снижении нагрузки."
+        correction_tone = "neutral"
+    else:
+        correction_headline = "План требует первой сверки"
+        correction_body = "Для выбранной недели пока мало данных."
+        correction_action = "Проверьте план-факт после следующей синхронизации Garmin."
+        correction_tone = "neutral"
+
+    phase = "—"
+    if default_week_index < len(weekly_summary):
+        phase = str(weekly_summary[default_week_index].get("phase") or "—")
+
+    return {
+        "goal": {
+            "title": f"{goal_plan.get('goal_type', 'Цель')} · {goal_plan.get('distance', 'дистанция')}",
+            "goal_type": str(goal_plan.get("goal_type") or "—"),
+            "distance": str(goal_plan.get("distance") or "—"),
+            "start_date": first_plan_date.isoformat() if first_plan_date else "—",
+            "race_date": last_plan_date.isoformat() if last_plan_date else "—",
+            "days_to_goal": days_to_goal,
+            "phase": phase,
+        },
+        "progress": {
+            "headline": explain["headline"],
+            "current_ctl": round(current_ctl, 1),
+            "current_atl": round(current_atl, 1),
+            "current_tsb": round(current_tsb, 1),
+            "peak_tss": int(explain["peak_after"]),
+            "total_tss": int(explain["total_after"]),
+            "strategy": str(explain["catch_up_label"]),
+            "checkpoint": str(explain["plan_adjustment_label"]),
+        },
+        "current_week": {
+            "week_index": default_week_index,
+            "label": selected_week_label,
+            "planned_tss": int(selected_timeline.get("planned_total_tss", 0) if selected_timeline else 0),
+            "actual_tss": int(selected_timeline.get("actual_total_tss", 0) if selected_timeline else 0),
+            "delta_tss": int(selected_timeline.get("delta_tss", 0) if selected_timeline else 0),
+            "status": str(selected_timeline.get("status_label", "—") if selected_timeline else "—"),
+            "matched": int(week_summary["matched"]),
+            "mismatch": int(week_summary["mismatch"]),
+            "prefill_ready": int(week_summary["prefill_ready"]),
+            "unplanned_actual": int(week_summary["unplanned_actual"]),
+            "upcoming": int(week_summary["upcoming"]),
+        },
+        "correction": {
+            "headline": correction_headline,
+            "body": correction_body,
+            "next_action": correction_action,
+            "tone": correction_tone,
+            "button": "Открыть корректировку факта",
+        },
+        "diagnostics": {
+            "explain": explain,
+            "timeline_rows": timeline_rows,
+        },
+    }
+
+
+def _render_planning_v2_active_plan(
+    state: "StateManager",
+    goal_plan: Dict[str, Any],
+    activities_df: pd.DataFrame | None,
+    current_metrics: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Render the review-first active plan shell for Planning V2."""
+    summary = _build_planning_v2_summary(goal_plan, activities_df, current_metrics)
+
+    st.markdown("### Цель")
+    with st.container(border=True):
+        title_cols = st.columns([1.5, 1, 1, 1])
+        with title_cols[0]:
+            st.markdown(f"**{summary['goal']['title']}**")
+            days_to_goal = summary["goal"]["days_to_goal"]
+            if days_to_goal is not None:
+                st.caption(f"До финального дня плана: {days_to_goal} дн.")
+            else:
+                st.caption("Дата цели не определена.")
+        with title_cols[1]:
+            st.metric("Фаза", summary["goal"]["phase"])
+        with title_cols[2]:
+            st.metric("Старт", summary["goal"]["start_date"])
+        with title_cols[3]:
+            st.metric("Финиш", summary["goal"]["race_date"])
+
+    st.markdown("### Путь к цели")
+    with st.container(border=True):
+        progress_cols = st.columns(5)
+        with progress_cols[0]:
+            st.metric("CTL", summary["progress"]["current_ctl"])
+        with progress_cols[1]:
+            st.metric("ATL", summary["progress"]["current_atl"])
+        with progress_cols[2]:
+            st.metric("TSB", summary["progress"]["current_tsb"])
+        with progress_cols[3]:
+            st.metric("Пик", f"{summary['progress']['peak_tss']} TSS")
+        with progress_cols[4]:
+            st.metric("Стратегия", summary["progress"]["strategy"])
+        st.caption(summary["progress"]["headline"])
+
+    st.markdown("### Текущая неделя")
+    with st.container(border=True):
+        week_cols = st.columns([1.2, 1, 1, 1, 1])
+        with week_cols[0]:
+            st.markdown(f"**{summary['current_week']['label']}**")
+            st.caption(summary["current_week"]["status"])
+        with week_cols[1]:
+            st.metric("План", f"{summary['current_week']['planned_tss']} TSS")
+        with week_cols[2]:
+            st.metric("Факт", f"{summary['current_week']['actual_tss']} TSS")
+        with week_cols[3]:
+            st.metric("Δ", f"{summary['current_week']['delta_tss']:+d} TSS")
+        with week_cols[4]:
+            st.metric("Проверки", summary["current_week"]["mismatch"])
+        st.caption(
+            f"Совпало: {summary['current_week']['matched']} · "
+            f"Garmin-ready: {summary['current_week']['prefill_ready']} · "
+            f"Вне плана: {summary['current_week']['unplanned_actual']} · "
+            f"Впереди: {summary['current_week']['upcoming']}"
+        )
+
+    st.markdown("### Коррекция")
+    with st.container(border=True):
+        st.markdown(f"**{summary['correction']['headline']}**")
+        st.write(summary["correction"]["body"])
+        st.caption(summary["correction"]["next_action"])
+        if st.button(
+            summary["correction"]["button"],
+            key="planning_v2_open_execution_editor",
+            type="primary",
+            width="stretch",
+        ):
+            st.session_state["planning_v2_execution_editor_visible"] = True
+            st.rerun()
+
+    return summary
 
 
 def _build_daily_session_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -1906,446 +2102,447 @@ def render_planning_page(state: "StateManager") -> None:
     elif not has_goal_plan:
         st.info("Сначала соберите план в режиме «Собрать план». После этого откроются режимы корректировки и экспорта.")
 
-    st.subheader("🎯 План под цель (дата старта)")
+    if workspace_mode == "Собрать план":
+        st.subheader("🎯 План под цель (дата старта)")
 
-    from models.training_planner import (
-        WEEKDAY_LABELS_RU,
-        apply_planning_constraints,
-        compute_phase_schedule,
-        create_weekly_tss_plan,
-        estimated_tss_per_hour,
-        expand_weekly_to_daily_triathlon,
-        flatten_daily_total,
-        goal_target_weekly_tss,
-        summarize_availability,
-        suggest_target_weekly_tss,
-        weeks_until,
-    )
-
-    planning_reference_date = datetime.now().date()
-    planning_start_week = _resolve_planning_start_week(planning_reference_date)
-
-    colg1, colg2, colg3 = st.columns(3)
-    with colg1:
-        goal_type = st.selectbox(
-            "Тип цели:",
-            ["Триатлон", "Бег", "Вело"],
-            index=0,
-        )
-        if goal_type == "Триатлон":
-            distance_options = ["Спринт", "Олимпийка", "Half (70.3)", "Ironman"]
-            default_index = 1
-        elif goal_type == "Бег":
-            distance_options = ["5 км", "10 км", "Полумарафон", "Марафон", "Ультра"]
-            default_index = 2
-        else:
-            distance_options = ["40 км TT", "100 км", "100 миль", "200 км (бревет)", "Этапная гонка"]
-            default_index = 1
-        distance = st.selectbox("Дистанция:", distance_options, index=default_index)
-    with colg2:
-        goal_date = st.date_input(
-            "Дата старта:",
-            value=planning_reference_date + timedelta(weeks=8),
-        )
-        weeks_to_race = weeks_until(goal_date, from_date=planning_start_week)
-        start_caption = f"Старт плана: {planning_start_week.strftime('%d.%m.%Y')} · до старта: ~{weeks_to_race} нед."
-        if planning_start_week > planning_reference_date:
-            start_caption += " Текущая неделя почти завершена, поэтому план начинается со следующего понедельника."
-        st.caption(start_caption)
-    with colg3:
-        start_weekly_tss_guess = int(current_metrics.get("ctl", 50) * 7)
-        auto = suggest_target_weekly_tss(goal_type, distance, activities_df)
-        st.caption(f"Автонастройка: последняя неделя {auto['last_week']}, среднее 4н {auto['avg_4']}, лучшая 8н {auto['best_8']}")
-
-    t_min, t_max = goal_target_weekly_tss(goal_type, distance)
-    default_hours = max(
-        3.0,
-        min(
-            20.0,
-            round((float(auto["suggested"] or int((t_min + t_max) / 2)) / estimated_tss_per_hour(goal_type)) * 2) / 2,
-        ),
-    )
-
-    st.markdown("#### 🧭 Сценарий и ограничения")
-    cola1, cola2, cola3 = st.columns([1, 1.3, 1])
-    with cola1:
-        available_hours = st.slider(
-            "Доступно часов в неделю:",
-            min_value=3.0,
-            max_value=20.0,
-            value=float(default_hours),
-            step=0.5,
-            help="Используется как мягкий потолок weekly TSS под ваш реальный календарь.",
-        )
-    with cola2:
-        available_day_labels = st.multiselect(
-            "Доступные дни для тренировок:",
-            options=WEEKDAY_LABELS_RU,
-            default=WEEKDAY_LABELS_RU,
-            help="Нагрузка будет перераспределена только на выбранные дни.",
-        )
-    with cola3:
-        interruption_label = st.selectbox(
-            "Ближайшее ограничение:",
-            ["Нет", "Ограниченная доступность", "Отпуск", "Болезнь", "Травма"],
-            index=0,
+        from models.training_planner import (
+            WEEKDAY_LABELS_RU,
+            apply_planning_constraints,
+            compute_phase_schedule,
+            create_weekly_tss_plan,
+            estimated_tss_per_hour,
+            expand_weekly_to_daily_triathlon,
+            flatten_daily_total,
+            goal_target_weekly_tss,
+            summarize_availability,
+            suggest_target_weekly_tss,
+            weeks_until,
         )
 
-    interruption_key_map = {
-        "Нет": "none",
-        "Ограниченная доступность": "limited",
-        "Отпуск": "holiday",
-        "Болезнь": "illness",
-        "Травма": "injury",
-    }
-    plan_adjustment_key_map = {
-        "Нет": "none",
-        "Выполнено по плану": "completed",
-        "Пропущены сессии": "skipped",
-        "Нагрузка урезана": "reduced",
-        "Неделя ограничена": "unavailable",
-    }
-    selected_day_indices = [
-        WEEKDAY_LABELS_RU.index(label)
-        for label in available_day_labels
-        if label in WEEKDAY_LABELS_RU
-    ] or list(range(7))
+        planning_reference_date = datetime.now().date()
+        planning_start_week = _resolve_planning_start_week(planning_reference_date)
 
-    colb1, colb2 = st.columns([1, 1.5])
-    with colb1:
-        interruption_weeks = st.slider(
-            "Сколько недель продлится:",
-            min_value=0,
-            max_value=min(4, weeks_to_race),
-            value=1 if interruption_label != "Нет" and weeks_to_race > 0 else 0,
-            step=1,
-            disabled=interruption_label == "Нет",
-        )
-    with colb2:
-        catch_up_label = st.radio(
-            "После пропуска:",
-            ["Беречь восстановление", "Наверстать аккуратно"],
-            horizontal=True,
-            help="«Беречь восстановление» не пытается автоматически вернуть весь пропущенный объём. «Наверстать аккуратно» возвращает только часть нагрузки и с ограничением по усталости.",
-        )
+        colg1, colg2, colg3 = st.columns(3)
+        with colg1:
+            goal_type = st.selectbox(
+                "Тип цели:",
+                ["Триатлон", "Бег", "Вело"],
+                index=0,
+            )
+            if goal_type == "Триатлон":
+                distance_options = ["Спринт", "Олимпийка", "Half (70.3)", "Ironman"]
+                default_index = 1
+            elif goal_type == "Бег":
+                distance_options = ["5 км", "10 км", "Полумарафон", "Марафон", "Ультра"]
+                default_index = 2
+            else:
+                distance_options = ["40 км TT", "100 км", "100 миль", "200 км (бревет)", "Этапная гонка"]
+                default_index = 1
+            distance = st.selectbox("Дистанция:", distance_options, index=default_index)
+        with colg2:
+            goal_date = st.date_input(
+                "Дата старта:",
+                value=planning_reference_date + timedelta(weeks=8),
+            )
+            weeks_to_race = weeks_until(goal_date, from_date=planning_start_week)
+            start_caption = f"Старт плана: {planning_start_week.strftime('%d.%m.%Y')} · до старта: ~{weeks_to_race} нед."
+            if planning_start_week > planning_reference_date:
+                start_caption += " Текущая неделя почти завершена, поэтому план начинается со следующего понедельника."
+            st.caption(start_caption)
+        with colg3:
+            start_weekly_tss_guess = int(current_metrics.get("ctl", 50) * 7)
+            auto = suggest_target_weekly_tss(goal_type, distance, activities_df)
+            st.caption(f"Автонастройка: последняя неделя {auto['last_week']}, среднее 4н {auto['avg_4']}, лучшая 8н {auto['best_8']}")
 
-    catch_up_strategy = "catch_up" if catch_up_label == "Наверстать аккуратно" else "protect_recovery"
-    availability_preview = summarize_availability(goal_type, available_hours, selected_day_indices)
-    availability_cap_tss = int(availability_preview["weekly_capacity_tss"])
-
-    st.markdown("#### ♻️ Локальная перепланировка")
-    adjustment_col1, adjustment_col2, adjustment_col3 = st.columns([1.3, 1, 1])
-    with adjustment_col1:
-        plan_adjustment_label = st.selectbox(
-            "Что произошло в реальном выполнении:",
-            ["Нет", "Выполнено по плану", "Пропущены сессии", "Нагрузка урезана", "Неделя ограничена"],
-            index=0,
-            help="Этот checkpoint меняет только ближайший горизонт, а не перестраивает весь цикл вслепую.",
+        t_min, t_max = goal_target_weekly_tss(goal_type, distance)
+        default_hours = max(
+            3.0,
+            min(
+                20.0,
+                round((float(auto["suggested"] or int((t_min + t_max) / 2)) / estimated_tss_per_hour(goal_type)) * 2) / 2,
+            ),
         )
 
-    plan_adjustment_status = plan_adjustment_key_map.get(plan_adjustment_label, "none")
-    max_adjustment_weeks = min(2, max(1, weeks_to_race))
-    with adjustment_col2:
-        plan_adjustment_weeks = st.slider(
-            "Горизонт пересчёта:",
-            min_value=1,
-            max_value=max_adjustment_weeks,
-            value=1,
-            step=1,
-            disabled=plan_adjustment_status in {"none", "completed"},
-            help="План меняет только ближайшие 7-14 дней и короткое окно safe catch-up после них.",
-        )
+        st.markdown("#### 🧭 Сценарий и ограничения")
+        cola1, cola2, cola3 = st.columns([1, 1.3, 1])
+        with cola1:
+            available_hours = st.slider(
+                "Доступно часов в неделю:",
+                min_value=3.0,
+                max_value=20.0,
+                value=float(default_hours),
+                step=0.5,
+                help="Используется как мягкий потолок weekly TSS под ваш реальный календарь.",
+            )
+        with cola2:
+            available_day_labels = st.multiselect(
+                "Доступные дни для тренировок:",
+                options=WEEKDAY_LABELS_RU,
+                default=WEEKDAY_LABELS_RU,
+                help="Нагрузка будет перераспределена только на выбранные дни.",
+            )
+        with cola3:
+            interruption_label = st.selectbox(
+                "Ближайшее ограничение:",
+                ["Нет", "Ограниченная доступность", "Отпуск", "Болезнь", "Травма"],
+                index=0,
+            )
 
-    plan_adjustment_missed_sessions = 0
-    plan_adjustment_reduced_share = 0.70
-    with adjustment_col3:
-        if plan_adjustment_status == "skipped":
-            max_missed_sessions = max(1, min(4, int(availability_preview["available_day_count"])))
-            plan_adjustment_missed_sessions = st.slider(
-                "Сколько сессий выпало:",
-                min_value=1,
-                max_value=max_missed_sessions,
-                value=min(2, max_missed_sessions),
+        interruption_key_map = {
+            "Нет": "none",
+            "Ограниченная доступность": "limited",
+            "Отпуск": "holiday",
+            "Болезнь": "illness",
+            "Травма": "injury",
+        }
+        plan_adjustment_key_map = {
+            "Нет": "none",
+            "Выполнено по плану": "completed",
+            "Пропущены сессии": "skipped",
+            "Нагрузка урезана": "reduced",
+            "Неделя ограничена": "unavailable",
+        }
+        selected_day_indices = [
+            WEEKDAY_LABELS_RU.index(label)
+            for label in available_day_labels
+            if label in WEEKDAY_LABELS_RU
+        ] or list(range(7))
+
+        colb1, colb2 = st.columns([1, 1.5])
+        with colb1:
+            interruption_weeks = st.slider(
+                "Сколько недель продлится:",
+                min_value=0,
+                max_value=min(4, weeks_to_race),
+                value=1 if interruption_label != "Нет" and weeks_to_race > 0 else 0,
                 step=1,
+                disabled=interruption_label == "Нет",
             )
-        elif plan_adjustment_status == "reduced":
-            reduced_percent = st.slider(
-                "Сколько % нагрузки реально осталось:",
-                min_value=35,
-                max_value=95,
-                value=70,
-                step=5,
+        with colb2:
+            catch_up_label = st.radio(
+                "После пропуска:",
+                ["Беречь восстановление", "Наверстать аккуратно"],
+                horizontal=True,
+                help="«Беречь восстановление» не пытается автоматически вернуть весь пропущенный объём. «Наверстать аккуратно» возвращает только часть нагрузки и с ограничением по усталости.",
             )
-            plan_adjustment_reduced_share = reduced_percent / 100.0
-        elif plan_adjustment_status == "unavailable":
-            st.caption("План временно упростит 1-2 недели и вернёт нагрузку только в коротком безопасном окне.")
-        elif plan_adjustment_status == "completed":
-            st.caption("Checkpoint фиксирует, что неделя закрыта по плану. Дополнительная коррекция не нужна.")
-        else:
-            st.caption("Если реальная неделя пошла не по плану, отметьте это здесь — локально, без полной перестройки цикла.")
 
-    plan_adjustment_payload = {
-        "status": plan_adjustment_status,
-        "weeks": 0 if plan_adjustment_status == "none" else plan_adjustment_weeks,
-        "missed_sessions": plan_adjustment_missed_sessions,
-        "reduced_load_share": plan_adjustment_reduced_share,
-    }
+        catch_up_strategy = "catch_up" if catch_up_label == "Наверстать аккуратно" else "protect_recovery"
+        availability_preview = summarize_availability(goal_type, available_hours, selected_day_indices)
+        availability_cap_tss = int(availability_preview["weekly_capacity_tss"])
 
-    target_control = _resolve_target_weekly_tss_control(
-        auto_suggested=auto["suggested"],
-        t_min=t_min,
-        t_max=t_max,
-        availability_cap_tss=availability_cap_tss,
-    )
+        st.markdown("#### ♻️ Локальная перепланировка")
+        adjustment_col1, adjustment_col2, adjustment_col3 = st.columns([1.3, 1, 1])
+        with adjustment_col1:
+            plan_adjustment_label = st.selectbox(
+                "Что произошло в реальном выполнении:",
+                ["Нет", "Выполнено по плану", "Пропущены сессии", "Нагрузка урезана", "Неделя ограничена"],
+                index=0,
+                help="Этот checkpoint меняет только ближайший горизонт, а не перестраивает весь цикл вслепую.",
+            )
 
-    with st.container(border=True):
-        preview_cols = st.columns(5)
-        with preview_cols[0]:
-            st.metric("Часы / нед", f"{availability_preview['available_hours']}")
-        with preview_cols[1]:
-            st.metric("Доступных дней", availability_preview["available_day_count"])
-        with preview_cols[2]:
-            st.metric("Ограничение", interruption_label)
-        with preview_cols[3]:
-            st.metric("Checkpoint", plan_adjustment_label)
-        with preview_cols[4]:
-            st.metric("Реакция", _strategy_label(catch_up_strategy))
-        st.caption(
-            "Доступность сейчас ≈ "
-            f"{availability_preview['available_hours']} ч/нед, "
-            f"{availability_preview['available_day_count']} дн. из рекомендованных {availability_preview['recommended_days']} "
-            f"→ мягкий потолок около {availability_cap_tss} TSS/нед."
+        plan_adjustment_status = plan_adjustment_key_map.get(plan_adjustment_label, "none")
+        max_adjustment_weeks = min(2, max(1, weeks_to_race))
+        with adjustment_col2:
+            plan_adjustment_weeks = st.slider(
+                "Горизонт пересчёта:",
+                min_value=1,
+                max_value=max_adjustment_weeks,
+                value=1,
+                step=1,
+                disabled=plan_adjustment_status in {"none", "completed"},
+                help="План меняет только ближайшие 7-14 дней и короткое окно safe catch-up после них.",
+            )
+
+        plan_adjustment_missed_sessions = 0
+        plan_adjustment_reduced_share = 0.70
+        with adjustment_col3:
+            if plan_adjustment_status == "skipped":
+                max_missed_sessions = max(1, min(4, int(availability_preview["available_day_count"])))
+                plan_adjustment_missed_sessions = st.slider(
+                    "Сколько сессий выпало:",
+                    min_value=1,
+                    max_value=max_missed_sessions,
+                    value=min(2, max_missed_sessions),
+                    step=1,
+                )
+            elif plan_adjustment_status == "reduced":
+                reduced_percent = st.slider(
+                    "Сколько % нагрузки реально осталось:",
+                    min_value=35,
+                    max_value=95,
+                    value=70,
+                    step=5,
+                )
+                plan_adjustment_reduced_share = reduced_percent / 100.0
+            elif plan_adjustment_status == "unavailable":
+                st.caption("План временно упростит 1-2 недели и вернёт нагрузку только в коротком безопасном окне.")
+            elif plan_adjustment_status == "completed":
+                st.caption("Checkpoint фиксирует, что неделя закрыта по плану. Дополнительная коррекция не нужна.")
+            else:
+                st.caption("Если реальная неделя пошла не по плану, отметьте это здесь — локально, без полной перестройки цикла.")
+
+        plan_adjustment_payload = {
+            "status": plan_adjustment_status,
+            "weeks": 0 if plan_adjustment_status == "none" else plan_adjustment_weeks,
+            "missed_sessions": plan_adjustment_missed_sessions,
+            "reduced_load_share": plan_adjustment_reduced_share,
+        }
+
+        target_control = _resolve_target_weekly_tss_control(
+            auto_suggested=auto["suggested"],
+            t_min=t_min,
+            t_max=t_max,
+            availability_cap_tss=availability_cap_tss,
         )
-        if plan_adjustment_status in {"skipped", "reduced", "unavailable"}:
+
+        with st.container(border=True):
+            preview_cols = st.columns(5)
+            with preview_cols[0]:
+                st.metric("Часы / нед", f"{availability_preview['available_hours']}")
+            with preview_cols[1]:
+                st.metric("Доступных дней", availability_preview["available_day_count"])
+            with preview_cols[2]:
+                st.metric("Ограничение", interruption_label)
+            with preview_cols[3]:
+                st.metric("Checkpoint", plan_adjustment_label)
+            with preview_cols[4]:
+                st.metric("Реакция", _strategy_label(catch_up_strategy))
             st.caption(
-                f"Локальная перепланировка активна: {plan_adjustment_label.lower()} "
-                f"на {plan_adjustment_weeks} нед. План изменит только ближайший горизонт и короткое окно возврата нагрузки."
+                "Доступность сейчас ≈ "
+                f"{availability_preview['available_hours']} ч/нед, "
+                f"{availability_preview['available_day_count']} дн. из рекомендованных {availability_preview['recommended_days']} "
+                f"→ мягкий потолок около {availability_cap_tss} TSS/нед."
             )
-    if availability_cap_tss < int(auto["suggested"] or 0):
-        st.warning(
-            f"Текущая доступность ограничивает план примерно до {availability_cap_tss} TSS/нед. "
-            "Пик выше этого значения будет автоматически урезан."
-        )
+            if plan_adjustment_status in {"skipped", "reduced", "unavailable"}:
+                st.caption(
+                    f"Локальная перепланировка активна: {plan_adjustment_label.lower()} "
+                    f"на {plan_adjustment_weeks} нед. План изменит только ближайший горизонт и короткое окно возврата нагрузки."
+                )
+        if availability_cap_tss < int(auto["suggested"] or 0):
+            st.warning(
+                f"Текущая доступность ограничивает план примерно до {availability_cap_tss} TSS/нед. "
+                "Пик выше этого значения будет автоматически урезан."
+            )
 
-    if target_control["is_fixed"]:
-        target_weekly_tss = int(target_control["value"])
-        st.metric("Целевой недельный TSS к пику", target_weekly_tss)
-        if target_control["reason"] == "availability_cap":
-            st.caption(
-                "Под текущую доступность реалистичный пик уже зафиксирован. "
-                "Он ниже типового диапазона для этой цели, поэтому план будет строиться от достижимого потолка."
-            )
+        if target_control["is_fixed"]:
+            target_weekly_tss = int(target_control["value"])
+            st.metric("Целевой недельный TSS к пику", target_weekly_tss)
+            if target_control["reason"] == "availability_cap":
+                st.caption(
+                    "Под текущую доступность реалистичный пик уже зафиксирован. "
+                    "Он ниже типового диапазона для этой цели, поэтому план будет строиться от достижимого потолка."
+                )
+            else:
+                st.caption("Для этой цели и текущей доступности доступен один реалистичный пик нагрузки.")
         else:
-            st.caption("Для этой цели и текущей доступности доступен один реалистичный пик нагрузки.")
-    else:
-        target_slider_step = _resolve_target_weekly_tss_step(
-            int(target_control["slider_min"]),
-            int(target_control["slider_max"]),
-        )
-        target_weekly_tss = st.slider(
-            "Целевой недельный TSS к пику:",
-            min_value=int(target_control["slider_min"]),
-            max_value=int(target_control["slider_max"]),
-            value=int(target_control["value"]),
-            step=target_slider_step,
-            help="Ориентир под дистанцию и доступность; фактический план дальше дополнительно учитывает ограничения и стратегию возврата нагрузки.",
-        )
+            target_slider_step = _resolve_target_weekly_tss_step(
+                int(target_control["slider_min"]),
+                int(target_control["slider_max"]),
+            )
+            target_weekly_tss = st.slider(
+                "Целевой недельный TSS к пику:",
+                min_value=int(target_control["slider_min"]),
+                max_value=int(target_control["slider_max"]),
+                value=int(target_control["value"]),
+                step=target_slider_step,
+                help="Ориентир под дистанцию и доступность; фактический план дальше дополнительно учитывает ограничения и стратегию возврата нагрузки.",
+            )
 
-    with st.expander("⚙️ Продвинутые настройки распределения", expanded=False):
-        st.caption("Обычно этот блок не нужен. Используйте его, только если хотите вручную управлять миксом дисциплин и днями внутри недели.")
-        phases_all = ["Base", "Build", "Peak", "Taper"]
-        if "planner_mix" not in state:
-            state.planner_mix = {}
-        if "planner_weights" not in state:
-            state.planner_weights = {}
+        with st.expander("⚙️ Продвинутые настройки распределения", expanded=False):
+            st.caption("Обычно этот блок не нужен. Используйте его, только если хотите вручную управлять миксом дисциплин и днями внутри недели.")
+            phases_all = ["Base", "Build", "Peak", "Taper"]
+            if "planner_mix" not in state:
+                state.planner_mix = {}
+            if "planner_weights" not in state:
+                state.planner_weights = {}
 
-        prev_goal = state.planner_goal_type
-        if prev_goal != goal_type:
-            state.planner_goal_type = goal_type
-            state.planner_mix = {}
-            state.planner_weights = {}
-            for phase in phases_all:
-                for key in (f"mix_bike_{phase}", f"mix_run_{phase}", f"mix_swim_{phase}"):
-                    state.pop(key, None)
-                for i in range(7):
-                    for key in (f"w_run_{phase}_{i}", f"w_bike_{phase}_{i}", f"w_swim_{phase}_{i}"):
+            prev_goal = state.planner_goal_type
+            if prev_goal != goal_type:
+                state.planner_goal_type = goal_type
+                state.planner_mix = {}
+                state.planner_weights = {}
+                for phase in phases_all:
+                    for key in (f"mix_bike_{phase}", f"mix_run_{phase}", f"mix_swim_{phase}"):
                         state.pop(key, None)
+                    for i in range(7):
+                        for key in (f"w_run_{phase}_{i}", f"w_bike_{phase}_{i}", f"w_swim_{phase}_{i}"):
+                            state.pop(key, None)
 
-        tabs = st.tabs(phases_all)
-        from models.training_planner import daily_weights_for_phase, triathlon_weekly_mix
+            tabs = st.tabs(phases_all)
+            from models.training_planner import daily_weights_for_phase, triathlon_weekly_mix
 
-        for phase, tab in zip(phases_all, tabs):
-            with tab:
-                st.caption("Проценты TSS по видам спорта (нормализуются автоматически)")
+            for phase, tab in zip(phases_all, tabs):
+                with tab:
+                    st.caption("Проценты TSS по видам спорта (нормализуются автоматически)")
+                    if goal_type == "Бег":
+                        default_mix = {"run": 1.0, "bike": 0.0, "swim": 0.0}
+                    elif goal_type == "Вело":
+                        default_mix = {"run": 0.0, "bike": 1.0, "swim": 0.0}
+                    else:
+                        default_mix = triathlon_weekly_mix(distance, phase)
+                    stored_mix = state.planner_mix.get(phase, default_mix)
+                    bike = st.slider(
+                        f"{phase} • Bike %",
+                        0,
+                        100,
+                        int(round(stored_mix.get("bike", default_mix["bike"]) * 100)),
+                        key=f"mix_bike_{phase}",
+                    )
+                    run = st.slider(
+                        f"{phase} • Run %",
+                        0,
+                        100,
+                        int(round(stored_mix.get("run", default_mix["run"]) * 100)),
+                        key=f"mix_run_{phase}",
+                    )
+                    swim = st.slider(
+                        f"{phase} • Swim %",
+                        0,
+                        100,
+                        int(round(stored_mix.get("swim", default_mix["swim"]) * 100)),
+                        key=f"mix_swim_{phase}",
+                    )
+                    total = bike + run + swim
+                    if total == 0:
+                        mix_norm = default_mix
+                    else:
+                        mix_norm = {"bike": bike / total, "run": run / total, "swim": swim / total}
+                    state.planner_mix[phase] = mix_norm
+                    st.caption(f"Сумма: {bike + run + swim}% → будет нормализовано до 100%")
+
+                    st.divider()
+                    st.caption("Дневные веса (Пн..Вс) для каждого вида спорта. Значения нормализуются к 100% на неделю.")
+                    default_w = daily_weights_for_phase(phase)
+                    stored_w = state.planner_weights.get(phase, default_w)
+                    days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+                    cols_run = st.columns(7)
+                    run_vals = []
+                    for i, col in enumerate(cols_run):
+                        with col:
+                            val = col.number_input(
+                                f"Run {days[i]}",
+                                min_value=0.0,
+                                max_value=1.0,
+                                step=0.05,
+                                value=float(stored_w.get("run", default_w["run"])[i]),
+                                key=f"w_run_{phase}_{i}",
+                            )
+                            run_vals.append(val)
+                    cols_bike = st.columns(7)
+                    bike_vals = []
+                    for i, col in enumerate(cols_bike):
+                        with col:
+                            val = col.number_input(
+                                f"Bike {days[i]}",
+                                min_value=0.0,
+                                max_value=1.0,
+                                step=0.05,
+                                value=float(stored_w.get("bike", default_w["bike"])[i]),
+                                key=f"w_bike_{phase}_{i}",
+                            )
+                            bike_vals.append(val)
+                    cols_swim = st.columns(7)
+                    swim_vals = []
+                    for i, col in enumerate(cols_swim):
+                        with col:
+                            val = col.number_input(
+                                f"Swim {days[i]}",
+                                min_value=0.0,
+                                max_value=1.0,
+                                step=0.05,
+                                value=float(stored_w.get("swim", default_w["swim"])[i]),
+                                key=f"w_swim_{phase}_{i}",
+                            )
+                            swim_vals.append(val)
+                    state.planner_weights[phase] = {"run": run_vals, "bike": bike_vals, "swim": swim_vals}
+
+        if st.button("🧭 Построить план до старта"):
+            from models.planning_checkpoints import build_planning_checkpoint, with_checkpoint_provenance
+            from models.training_planner import build_daily_session_templates
+
+            base_weekly_tss_plan = create_weekly_tss_plan(
+                start_weekly_tss=start_weekly_tss_guess,
+                weeks_total=weeks_to_race,
+                target_weekly_tss=target_weekly_tss,
+                deload_every=4,
+                taper_weeks=2,
+                max_ramp=0.10,
+            )
+
+            start_week = planning_start_week
+            phases = compute_phase_schedule(weeks_to_race)
+            mix_overrides = state.planner_mix or None
+            if not mix_overrides:
                 if goal_type == "Бег":
-                    default_mix = {"run": 1.0, "bike": 0.0, "swim": 0.0}
+                    mix_overrides = {phase: {"run": 1.0, "bike": 0.0, "swim": 0.0} for phase in phases}
                 elif goal_type == "Вело":
-                    default_mix = {"run": 0.0, "bike": 1.0, "swim": 0.0}
-                else:
-                    default_mix = triathlon_weekly_mix(distance, phase)
-                stored_mix = state.planner_mix.get(phase, default_mix)
-                bike = st.slider(
-                    f"{phase} • Bike %",
-                    0,
-                    100,
-                    int(round(stored_mix.get("bike", default_mix["bike"]) * 100)),
-                    key=f"mix_bike_{phase}",
-                )
-                run = st.slider(
-                    f"{phase} • Run %",
-                    0,
-                    100,
-                    int(round(stored_mix.get("run", default_mix["run"]) * 100)),
-                    key=f"mix_run_{phase}",
-                )
-                swim = st.slider(
-                    f"{phase} • Swim %",
-                    0,
-                    100,
-                    int(round(stored_mix.get("swim", default_mix["swim"]) * 100)),
-                    key=f"mix_swim_{phase}",
-                )
-                total = bike + run + swim
-                if total == 0:
-                    mix_norm = default_mix
-                else:
-                    mix_norm = {"bike": bike / total, "run": run / total, "swim": swim / total}
-                state.planner_mix[phase] = mix_norm
-                st.caption(f"Сумма: {bike + run + swim}% → будет нормализовано до 100%")
+                    mix_overrides = {phase: {"run": 0.0, "bike": 1.0, "swim": 0.0} for phase in phases}
+            weekly_tss_plan, constraint_details, constraint_summary = apply_planning_constraints(
+                base_weekly_tss_plan,
+                phases,
+                goal_type,
+                available_hours=available_hours,
+                available_day_indices=selected_day_indices,
+                interruption_type=interruption_key_map.get(interruption_label, "none"),
+                interruption_weeks=interruption_weeks if interruption_label != "Нет" else 0,
+                catch_up_strategy=catch_up_strategy,
+                current_tsb=float(current_metrics.get("tsb", 0.0)) if current_metrics.get("tsb") is not None else None,
+                current_ctl=float(current_metrics.get("ctl", 0.0)) if current_metrics.get("ctl") is not None else None,
+                current_atl=float(current_metrics.get("atl", 0.0)) if current_metrics.get("atl") is not None else None,
+                plan_adjustment=plan_adjustment_payload,
+            )
+            weights_overrides = state.planner_weights or None
+            daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+                weekly_tss_plan,
+                phases,
+                distance,
+                start_week,
+                mix_overrides=mix_overrides,
+                weights_overrides=weights_overrides,
+                available_day_indices=selected_day_indices,
+                goal_type=goal_type,
+                load_state=str(constraint_summary.get("load_state", "balanced")),
+            )
+            daily_seq = flatten_daily_total(daily_plan)
+            for week_row, detail in zip(weekly_summary, constraint_details):
+                week_row["capacity_tss"] = detail.get("capacity_tss")
+                week_row["adjustment_note"] = detail.get("adjustment_note", "—")
+            session_templates = build_daily_session_templates(
+                daily_plan,
+                weekly_summary,
+                goal_type=goal_type,
+                distance=distance,
+            )
 
-                st.divider()
-                st.caption("Дневные веса (Пн..Вс) для каждого вида спорта. Значения нормализуются к 100% на неделю.")
-                default_w = daily_weights_for_phase(phase)
-                stored_w = state.planner_weights.get(phase, default_w)
-                days = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
-                cols_run = st.columns(7)
-                run_vals = []
-                for i, col in enumerate(cols_run):
-                    with col:
-                        val = col.number_input(
-                            f"Run {days[i]}",
-                            min_value=0.0,
-                            max_value=1.0,
-                            step=0.05,
-                            value=float(stored_w.get("run", default_w["run"])[i]),
-                            key=f"w_run_{phase}_{i}",
-                        )
-                        run_vals.append(val)
-                cols_bike = st.columns(7)
-                bike_vals = []
-                for i, col in enumerate(cols_bike):
-                    with col:
-                        val = col.number_input(
-                            f"Bike {days[i]}",
-                            min_value=0.0,
-                            max_value=1.0,
-                            step=0.05,
-                            value=float(stored_w.get("bike", default_w["bike"])[i]),
-                            key=f"w_bike_{phase}_{i}",
-                        )
-                        bike_vals.append(val)
-                cols_swim = st.columns(7)
-                swim_vals = []
-                for i, col in enumerate(cols_swim):
-                    with col:
-                        val = col.number_input(
-                            f"Swim {days[i]}",
-                            min_value=0.0,
-                            max_value=1.0,
-                            step=0.05,
-                            value=float(stored_w.get("swim", default_w["swim"])[i]),
-                            key=f"w_swim_{phase}_{i}",
-                        )
-                        swim_vals.append(val)
-                state.planner_weights[phase] = {"run": run_vals, "bike": bike_vals, "swim": swim_vals}
-
-    if st.button("🧭 Построить план до старта"):
-        from models.planning_checkpoints import build_planning_checkpoint, with_checkpoint_provenance
-        from models.training_planner import build_daily_session_templates
-
-        base_weekly_tss_plan = create_weekly_tss_plan(
-            start_weekly_tss=start_weekly_tss_guess,
-            weeks_total=weeks_to_race,
-            target_weekly_tss=target_weekly_tss,
-            deload_every=4,
-            taper_weeks=2,
-            max_ramp=0.10,
-        )
-
-        start_week = planning_start_week
-        phases = compute_phase_schedule(weeks_to_race)
-        mix_overrides = state.planner_mix or None
-        if not mix_overrides:
-            if goal_type == "Бег":
-                mix_overrides = {phase: {"run": 1.0, "bike": 0.0, "swim": 0.0} for phase in phases}
-            elif goal_type == "Вело":
-                mix_overrides = {phase: {"run": 0.0, "bike": 1.0, "swim": 0.0} for phase in phases}
-        weekly_tss_plan, constraint_details, constraint_summary = apply_planning_constraints(
-            base_weekly_tss_plan,
-            phases,
-            goal_type,
-            available_hours=available_hours,
-            available_day_indices=selected_day_indices,
-            interruption_type=interruption_key_map.get(interruption_label, "none"),
-            interruption_weeks=interruption_weeks if interruption_label != "Нет" else 0,
-            catch_up_strategy=catch_up_strategy,
-            current_tsb=float(current_metrics.get("tsb", 0.0)) if current_metrics.get("tsb") is not None else None,
-            current_ctl=float(current_metrics.get("ctl", 0.0)) if current_metrics.get("ctl") is not None else None,
-            current_atl=float(current_metrics.get("atl", 0.0)) if current_metrics.get("atl") is not None else None,
-            plan_adjustment=plan_adjustment_payload,
-        )
-        weights_overrides = state.planner_weights or None
-        daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
-            weekly_tss_plan,
-            phases,
-            distance,
-            start_week,
-            mix_overrides=mix_overrides,
-            weights_overrides=weights_overrides,
-            available_day_indices=selected_day_indices,
-            goal_type=goal_type,
-            load_state=str(constraint_summary.get("load_state", "balanced")),
-        )
-        daily_seq = flatten_daily_total(daily_plan)
-        for week_row, detail in zip(weekly_summary, constraint_details):
-            week_row["capacity_tss"] = detail.get("capacity_tss")
-            week_row["adjustment_note"] = detail.get("adjustment_note", "—")
-        session_templates = build_daily_session_templates(
-            daily_plan,
-            weekly_summary,
-            goal_type=goal_type,
-            distance=distance,
-        )
-
-        goal_plan_payload = with_checkpoint_provenance(
-            {
-            "goal_type": goal_type,
-            "distance": distance,
-            "weeks_to_race": weeks_to_race,
-            "start_week": start_week,
-            "weekly_tss_plan": weekly_tss_plan,
-            "base_weekly_tss_plan": base_weekly_tss_plan,
-            "phases": phases,
-            "daily_plan": daily_plan,
-            "session_templates": session_templates,
-            "weekly_summary": weekly_summary,
-            "constraint_summary": constraint_summary,
-            "planner_mix": mix_overrides,
-            "planner_weights": weights_overrides,
-            "plan_revision": datetime.now().isoformat(),
-            "near_term_edit_version": 0,
-            "near_term_edit_rollback_target_checkpoint_id": None,
-            },
-            source="initial_plan",
-        )
-        state.goal_plan = goal_plan_payload
-        state.last_execution_feedback_result = None
-        saved_checkpoint = state.database.save_planning_checkpoint(
-            build_planning_checkpoint(goal_plan_payload)
-        )
-        state.latest_planning_checkpoint = saved_checkpoint
-        state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
-        st.rerun()
+            goal_plan_payload = with_checkpoint_provenance(
+                {
+                "goal_type": goal_type,
+                "distance": distance,
+                "weeks_to_race": weeks_to_race,
+                "start_week": start_week,
+                "weekly_tss_plan": weekly_tss_plan,
+                "base_weekly_tss_plan": base_weekly_tss_plan,
+                "phases": phases,
+                "daily_plan": daily_plan,
+                "session_templates": session_templates,
+                "weekly_summary": weekly_summary,
+                "constraint_summary": constraint_summary,
+                "planner_mix": mix_overrides,
+                "planner_weights": weights_overrides,
+                "plan_revision": datetime.now().isoformat(),
+                "near_term_edit_version": 0,
+                "near_term_edit_rollback_target_checkpoint_id": None,
+                },
+                source="initial_plan",
+            )
+            state.goal_plan = goal_plan_payload
+            state.last_execution_feedback_result = None
+            saved_checkpoint = state.database.save_planning_checkpoint(
+                build_planning_checkpoint(goal_plan_payload)
+            )
+            state.latest_planning_checkpoint = saved_checkpoint
+            state.planning_checkpoint_history = state.database.get_recent_planning_checkpoints(limit=6)
+            st.rerun()
 
     if state.goal_plan:
         goal_plan = state.goal_plan
@@ -2374,27 +2571,39 @@ def render_planning_page(state: "StateManager") -> None:
             flash_message = st.session_state.pop("planning_near_term_flash", None)
             if flash_message:
                 st.success(flash_message)
-            _render_active_plan_workspace_summary(
+            _render_planning_v2_active_plan(
+                state,
                 goal_plan,
-                title="Активный план для корректировки",
-                caption="Здесь остаются только execution feedback, ручной override ближнего горизонта и история версий.",
+                activities_df,
+                current_metrics,
             )
             _render_plan_fact_calendar(
                 goal_plan,
                 activities_df,
                 key_prefix="planning_plan_fact_review",
-                title="### 🗓️ План и факт по неделе",
+                title="### План и факт",
                 focus_state_key="planning_execution_feedback_focus_day",
                 show_replan_signal=True,
             )
 
-            execution_feedback_result = render_execution_feedback_editor(
-                goal_plan,
-                key_prefix="planning_execution_feedback",
-                title="### ♻️ Факт выполнения по дням",
-                allow_open_as_draft=True,
-                focus_state_key="planning_execution_feedback_focus_day",
-            )
+            editor_visible_key = "planning_v2_execution_editor_visible"
+            if str(st.session_state.get("planning_execution_feedback_focus_day") or "").strip():
+                st.session_state[editor_visible_key] = True
+
+            execution_feedback_result = None
+            if st.session_state.get(editor_visible_key):
+                execution_feedback_result = render_execution_feedback_editor(
+                    goal_plan,
+                    key_prefix="planning_execution_feedback",
+                    title="### Факт выполнения по дням",
+                    allow_open_as_draft=True,
+                    focus_state_key="planning_execution_feedback_focus_day",
+                )
+            else:
+                st.info(
+                    "Редактор факта скрыт, пока нет явной задачи. "
+                    "Откройте его через блок «Коррекция» или выберите день в plan/fact."
+                )
             if execution_feedback_result is not None:
                 latest_checkpoint = getattr(state, "latest_planning_checkpoint", None)
                 if execution_feedback_result.get("mode") == "open_near_term_draft":
@@ -2531,18 +2740,20 @@ def render_planning_page(state: "StateManager") -> None:
                 if not isinstance(rollback_goal_plan, dict) or not rollback_goal_plan.get("daily_plan"):
                     rollback_goal_plan = None
 
+            draft_seed = st.session_state.pop("planning_near_term_prefill", None)
             updated_goal_plan = _render_near_term_editor(
                 goal_plan,
                 rollback_goal_plan=rollback_goal_plan,
                 rollback_checkpoint_id=rollback_target_checkpoint_id,
-                draft_seed=st.session_state.pop("planning_near_term_prefill", None),
+                draft_seed=draft_seed,
             )
             if updated_goal_plan is None:
-                updated_goal_plan = _render_planning_version_history(
-                    goal_plan,
-                    latest_checkpoint,
-                    getattr(state, "planning_checkpoint_history", []),
-                )
+                with st.expander("История и откат версий", expanded=False):
+                    updated_goal_plan = _render_planning_version_history(
+                        goal_plan,
+                        latest_checkpoint,
+                        getattr(state, "planning_checkpoint_history", []),
+                    )
             if updated_goal_plan is not None:
                 planning_action = str(updated_goal_plan.pop("_transient_planning_action", "") or "")
                 restored_from_checkpoint_id = updated_goal_plan.pop("_transient_restore_checkpoint_id", None)
@@ -2642,9 +2853,11 @@ def render_planning_page(state: "StateManager") -> None:
         daily_plan = goal_plan["daily_plan"]
         weekly_summary = goal_plan["weekly_summary"]
         start_week = goal_plan["start_week"]
-        goal_type_cached = goal_plan.get("goal_type", goal_type)
-        distance_cached = goal_plan.get("distance", distance)
+        goal_type_cached = goal_plan.get("goal_type", "Триатлон")
+        distance_cached = goal_plan.get("distance", "Олимпийка")
         session_templates = goal_plan.get("session_templates", [])
+
+        from models.training_planner import flatten_daily_total
 
         future_dates, future_ctl, future_atl, future_tsb = banister.simulate_variable_load(
             current_metrics, flatten_daily_total(daily_plan), start_date=datetime.combine(start_week, datetime.min.time())

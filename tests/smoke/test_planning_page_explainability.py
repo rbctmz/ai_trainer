@@ -21,6 +21,7 @@ from ui.pages.planning import (
     _build_plan_fact_replan_signal,
     _build_plan_fact_timeline_rows,
     _build_plan_fact_week_summary,
+    _build_planning_v2_summary,
     _build_goal_plan_transition_preview,
     _build_near_term_draft_preview,
     _build_plan_explainability,
@@ -233,6 +234,57 @@ def test_normalize_planning_workspace_mode_falls_back_without_goal_plan():
     assert _normalize_planning_workspace_mode("Скорректировать выполнение", has_goal_plan=False) == "Собрать план"
     assert _normalize_planning_workspace_mode("Экспорт и детали", has_goal_plan=False) == "Собрать план"
     assert _normalize_planning_workspace_mode("Экспорт и детали", has_goal_plan=True) == "Экспорт и детали"
+
+
+def test_build_planning_v2_summary_starts_with_active_week_review():
+    start_week = date(2026, 6, 22)
+    daily_plan, weekly_summary = expand_weekly_to_daily_triathlon(
+        [210, 240],
+        ["Peak", "Peak"],
+        "Олимпийка",
+        start_week,
+        goal_type="Триатлон",
+    )
+    session_templates = build_daily_session_templates(
+        daily_plan,
+        weekly_summary,
+        goal_type="Триатлон",
+        distance="Олимпийка",
+    )
+    goal_plan = {
+        "goal_type": "Триатлон",
+        "distance": "Олимпийка",
+        "daily_plan": daily_plan,
+        "weekly_summary": weekly_summary,
+        "session_templates": session_templates,
+        "weekly_tss_plan": [210, 240],
+        "base_weekly_tss_plan": [210, 240],
+        "phases": ["Peak", "Peak"],
+        "constraint_summary": {"notes": ["Базовый план под текущую доступность."]},
+    }
+    activities_df = pd.DataFrame(
+        [
+            {"date": start_week, "sport": "running", "tss": 30, "duration_minutes": 45},
+            {"date": start_week + pd.Timedelta(days=1), "sport": "cycling", "tss": 20, "duration_minutes": 40},
+        ]
+    )
+
+    summary = _build_planning_v2_summary(
+        goal_plan,
+        activities_df,
+        {"ctl": 30.2, "atl": 41.4, "tsb": -11.2},
+        reference_date=start_week,
+    )
+
+    assert summary["goal"]["title"] == "Триатлон · Олимпийка"
+    assert summary["goal"]["phase"] == "Peak"
+    assert summary["progress"]["current_ctl"] == 30.2
+    assert summary["current_week"]["label"].startswith("Неделя 1")
+    assert summary["current_week"]["planned_tss"] == 210
+    assert summary["current_week"]["actual_tss"] == 50
+    assert summary["current_week"]["delta_tss"] == -160
+    assert summary["correction"]["headline"]
+    assert "корректиров" in summary["correction"]["button"]
 
 
 def test_resolve_planning_start_week_shifts_late_week_build_to_next_monday():
