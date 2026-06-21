@@ -17,6 +17,7 @@ from ui.pages.planning import (
     _build_plan_fact_focus_action,
     _build_plan_fact_calendar_markup,
     _build_plan_fact_calendar_rows,
+    _build_plan_fact_review_brief,
     _build_plan_fact_replan_signal,
     _build_plan_fact_timeline_rows,
     _build_plan_fact_week_summary,
@@ -602,6 +603,57 @@ def test_build_plan_fact_replan_signal_returns_none_without_drift():
             }
         ]
     ) is None
+
+
+def test_build_plan_fact_review_brief_prioritizes_one_next_action():
+    brief = _build_plan_fact_review_brief(
+        [
+            {
+                "week_label": "Неделя 1 · 15.06",
+                "planned_total_tss": 200,
+                "actual_total_tss": 145,
+                "delta_tss": -55,
+                "status_label": "Нужна проверка",
+                "signal_label": "Проверки 2 дн.",
+                "mismatch": 2,
+                "unplanned_actual": 0,
+                "prefill_ready": 1,
+                "upcoming": 0,
+            }
+        ],
+        "Неделя 1 · 15.06",
+    )
+
+    assert brief is not None
+    assert brief["tone"] == "warning"
+    assert brief["headline"] == "Неделя 1 · 15.06: нужна проверка факта"
+    assert "план 200 TSS / факт 145 TSS (-55)" in brief["body"]
+    assert "сигнальные дни" in brief["next_action"]
+
+
+def test_build_plan_fact_review_brief_treats_clean_garmin_week_as_confirmation():
+    brief = _build_plan_fact_review_brief(
+        [
+            {
+                "week_label": "Неделя 1 · 15.06",
+                "planned_total_tss": 180,
+                "actual_total_tss": 180,
+                "delta_tss": 0,
+                "status_label": "Garmin готов",
+                "signal_label": "Garmin 5 дн.",
+                "mismatch": 0,
+                "unplanned_actual": 0,
+                "prefill_ready": 5,
+                "upcoming": 0,
+            }
+        ],
+        "Неделя 1 · 15.06",
+    )
+
+    assert brief is not None
+    assert brief["tone"] == "success"
+    assert brief["headline"] == "Неделя 1 · 15.06: Garmin готов к подтверждению"
+    assert "без ручного разбора каждого дня" in brief["next_action"]
 
 
 def test_build_daily_session_rows_uses_week_structure_metadata():

@@ -765,6 +765,56 @@ def _build_plan_fact_replan_signal(
     }
 
 
+def _build_plan_fact_review_brief(
+    timeline_rows: List[Dict[str, Any]],
+    selected_week_label: str,
+) -> Dict[str, str] | None:
+    if not timeline_rows:
+        return None
+
+    selected_row = next(
+        (row for row in timeline_rows if str(row.get("week_label")) == str(selected_week_label)),
+        timeline_rows[0],
+    )
+    week_label = str(selected_row.get("week_label") or "Выбранная неделя")
+    status_label = str(selected_row.get("status_label") or "Статус неясен")
+    signal_label = str(selected_row.get("signal_label") or "нет сигнала")
+    planned_tss = int(selected_row.get("planned_total_tss", 0) or 0)
+    actual_tss = int(selected_row.get("actual_total_tss", 0) or 0)
+    delta_tss = int(selected_row.get("delta_tss", 0) or 0)
+    mismatch = int(selected_row.get("mismatch", 0) or 0)
+    unplanned = int(selected_row.get("unplanned_actual", 0) or 0)
+    prefill_ready = int(selected_row.get("prefill_ready", 0) or 0)
+    upcoming = int(selected_row.get("upcoming", 0) or 0)
+
+    if mismatch > 0 or unplanned > 0:
+        tone = "warning"
+        headline = f"{week_label}: нужна проверка факта"
+        next_action = "Откройте детали выбранной недели и проверьте только сигнальные дни."
+    elif prefill_ready > 0 and upcoming == 0:
+        tone = "success"
+        headline = f"{week_label}: Garmin готов к подтверждению"
+        next_action = "Если всё совпадает, можно подтверждать окно без ручного разбора каждого дня."
+    elif upcoming > 0:
+        tone = "info"
+        headline = f"{week_label}: план впереди"
+        next_action = "Детали можно держать закрытыми до появления факта из Garmin sync."
+    else:
+        tone = "info"
+        headline = f"{week_label}: факт ещё не найден"
+        next_action = "После синка Garmin вернитесь к этой неделе для сверки."
+
+    return {
+        "tone": tone,
+        "headline": headline,
+        "body": (
+            f"{status_label} · {signal_label} · "
+            f"план {planned_tss} TSS / факт {actual_tss} TSS ({delta_tss:+d})."
+        ),
+        "next_action": next_action,
+    }
+
+
 def _build_plan_fact_calendar_markup(rows: List[Dict[str, Any]]) -> str:
     cards: List[str] = []
     for row in rows:
@@ -828,74 +878,87 @@ def _render_plan_fact_calendar(
             option_labels.append(f"Неделя {idx + 1}")
 
     st.markdown(title)
-    st.caption(
-        "Одна поверхность для проверки недели: сверху запланированная сессия, снизу факт из локального Garmin sync."
-    )
+    st.caption("Короткая сверка выбранной недели. Подробности раскрываются только когда они нужны.")
     timeline_rows = _build_plan_fact_timeline_rows(goal_plan, activities_df)
-    current_selected_label = str(
-        st.session_state.get(f"{key_prefix}_week_index") or option_labels[max(0, min(default_week_index, len(option_labels) - 1))]
-    )
-    if current_selected_label not in option_labels:
-        current_selected_label = option_labels[max(0, min(default_week_index, len(option_labels) - 1))]
-    if timeline_rows:
-        replan_signal = _build_plan_fact_replan_signal(timeline_rows) if show_replan_signal else None
-        if replan_signal is not None:
-            with st.container(border=True):
-                st.markdown(f"**{replan_signal['headline']}**")
-                st.caption(replan_signal["reason"])
-                if st.button(
-                    replan_signal["action_label"],
-                    key=f"{key_prefix}_open_replan_signal",
-                    type="primary",
-                    width="stretch",
-                ):
-                    st.session_state[f"{key_prefix}_week_index"] = replan_signal["target_week_label"]
-                    if focus_state_key:
-                        if replan_signal["target_date"]:
-                            st.session_state[focus_state_key] = replan_signal["target_date"]
-                        st.session_state[f"{focus_state_key}_action_label"] = replan_signal["action_label"]
-                        st.session_state[f"{focus_state_key}_action_hint"] = replan_signal["follow_up_hint"]
-                        st.session_state[f"{focus_state_key}_weeks_pending"] = int(replan_signal["weeks_horizon"])
-                    st.rerun()
-        st.markdown("**Таймлайн по неделям**")
-        st.caption("Сначала найдите недельный drift, затем откройте нужную неделю для day-level разбора.")
-        st.dataframe(
-            pd.DataFrame(
-                [
-                    {
-                        "Неделя": row["week_label"],
-                        "План TSS": row["planned_total_tss"],
-                        "Факт TSS": row["actual_total_tss"],
-                        "Δ TSS": f"{int(row['delta_tss']):+d}",
-                        "Статус": row["status_label"],
-                        "Сигнал": row["signal_label"],
-                    }
-                    for row in timeline_rows
-                ]
-            ),
-            width="stretch",
-            hide_index=True,
-        )
-        for chunk_start in range(0, len(timeline_rows), 3):
-            chunk = timeline_rows[chunk_start:chunk_start + 3]
-            cols = st.columns(len(chunk))
-            for col, row in zip(cols, chunk):
-                with col:
-                    is_selected = current_selected_label == str(row["week_label"])
-                    if st.button(
-                        f"{row['action_label']} · {row['week_label']}",
-                        key=f"{key_prefix}_select_week_{row['week_index']}",
-                        type="primary" if is_selected else "secondary",
-                        width="stretch",
-                    ):
-                        st.session_state[f"{key_prefix}_week_index"] = str(row["week_label"])
-                        st.rerun()
+    week_key = f"{key_prefix}_week_index"
+    default_week_label = option_labels[max(0, min(default_week_index, len(option_labels) - 1))]
+    if str(st.session_state.get(week_key) or "").strip() not in option_labels:
+        st.session_state[week_key] = default_week_label
+
+    replan_signal = _build_plan_fact_replan_signal(timeline_rows) if show_replan_signal else None
+    if replan_signal is not None:
+        with st.container(border=True):
+            st.markdown(f"**{replan_signal['headline']}**")
+            st.caption(replan_signal["reason"])
+            if st.button(
+                replan_signal["action_label"],
+                key=f"{key_prefix}_open_replan_signal",
+                type="primary",
+                width="stretch",
+            ):
+                st.session_state[week_key] = replan_signal["target_week_label"]
+                if focus_state_key:
+                    if replan_signal["target_date"]:
+                        st.session_state[focus_state_key] = replan_signal["target_date"]
+                    st.session_state[f"{focus_state_key}_action_label"] = replan_signal["action_label"]
+                    st.session_state[f"{focus_state_key}_action_hint"] = replan_signal["follow_up_hint"]
+                    st.session_state[f"{focus_state_key}_weeks_pending"] = int(replan_signal["weeks_horizon"])
+                st.rerun()
+
     selected_label = st.selectbox(
         "Неделя плана",
         options=option_labels,
-        index=max(0, min(default_week_index, len(option_labels) - 1)),
-        key=f"{key_prefix}_week_index",
+        key=week_key,
     )
+    if timeline_rows and replan_signal is None:
+        review_brief = _build_plan_fact_review_brief(timeline_rows, selected_label)
+        if review_brief is not None:
+            brief_text = (
+                f"**{review_brief['headline']}**\n\n"
+                f"{review_brief['body']}\n\n"
+                f"{review_brief['next_action']}"
+            )
+            if review_brief["tone"] == "warning":
+                st.warning(brief_text)
+            elif review_brief["tone"] == "success":
+                st.success(brief_text)
+            else:
+                st.info(brief_text)
+
+    if timeline_rows:
+        with st.expander("Диагностика: таймлайн по неделям", expanded=False):
+            st.caption("Для разбора drift. В обычном сценарии достаточно статуса выбранной недели выше.")
+            st.dataframe(
+                pd.DataFrame(
+                    [
+                        {
+                            "Неделя": row["week_label"],
+                            "План TSS": row["planned_total_tss"],
+                            "Факт TSS": row["actual_total_tss"],
+                            "Δ TSS": f"{int(row['delta_tss']):+d}",
+                            "Статус": row["status_label"],
+                            "Сигнал": row["signal_label"],
+                        }
+                        for row in timeline_rows
+                    ]
+                ),
+                width="stretch",
+                hide_index=True,
+            )
+            for chunk_start in range(0, len(timeline_rows), 3):
+                chunk = timeline_rows[chunk_start:chunk_start + 3]
+                cols = st.columns(len(chunk))
+                for col, row in zip(cols, chunk):
+                    with col:
+                        is_selected = str(selected_label) == str(row["week_label"])
+                        if st.button(
+                            f"{row['action_label']} · {row['week_label']}",
+                            key=f"{key_prefix}_select_week_{row['week_index']}",
+                            type="primary" if is_selected else "secondary",
+                            width="stretch",
+                        ):
+                            st.session_state[week_key] = str(row["week_label"])
+                            st.rerun()
     selected_week_index = option_labels.index(selected_label)
     rows = _build_plan_fact_calendar_rows(
         goal_plan,
@@ -907,106 +970,116 @@ def _render_plan_fact_calendar(
         return
 
     week_summary = _build_plan_fact_week_summary(rows)
-    metric_cols = st.columns(5)
-    with metric_cols[0]:
-        st.metric("Совпало", week_summary["matched"])
-    with metric_cols[1]:
-        st.metric("Нужны проверки", week_summary["mismatch"])
-    with metric_cols[2]:
-        st.metric("Garmin-prefill", week_summary["prefill_ready"])
-    with metric_cols[3]:
-        st.metric("Вне плана", week_summary["unplanned_actual"])
-    with metric_cols[4]:
-        st.metric("Впереди", week_summary["upcoming"])
-
-    st.markdown(
-        """
-        <style>
-        .pfv-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-          gap: 0.75rem;
-          margin: 0.5rem 0 1rem 0;
-        }
-        .pfv-card {
-          border-radius: 16px;
-          padding: 0.9rem;
-          background: rgba(255, 255, 255, 0.04);
-          box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
-        }
-        .pfv-top {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          gap: 0.5rem;
-          margin-bottom: 0.75rem;
-        }
-        .pfv-day {
-          font-size: 0.95rem;
-          font-weight: 700;
-        }
-        .pfv-badge {
-          border-radius: 999px;
-          font-size: 0.72rem;
-          font-weight: 700;
-          padding: 0.2rem 0.55rem;
-          white-space: nowrap;
-        }
-        .pfv-plan-title, .pfv-actual-title {
-          font-size: 0.72rem;
-          text-transform: uppercase;
-          letter-spacing: 0.04em;
-          opacity: 0.72;
-          margin-bottom: 0.25rem;
-        }
-        .pfv-plan-main, .pfv-actual-main {
-          font-size: 0.88rem;
-          font-weight: 600;
-          line-height: 1.35;
-          margin-bottom: 0.2rem;
-        }
-        .pfv-plan-meta, .pfv-actual-meta, .pfv-actual-empty {
-          font-size: 0.8rem;
-          opacity: 0.86;
-          line-height: 1.35;
-        }
-        .pfv-actual-empty {
-          padding: 0.3rem 0 0.1rem 0;
-        }
-        .pfv-divider {
-          height: 1px;
-          background: rgba(148, 163, 184, 0.22);
-          margin: 0.7rem 0;
-        }
-        </style>
-        """,
-        unsafe_allow_html=True,
+    current_focus = str(st.session_state.get(focus_state_key) or "").strip() if focus_state_key else ""
+    focus_inside_week = any(current_focus == str(row.get("date")) for row in rows)
+    has_review_signal = week_summary["mismatch"] > 0 or week_summary["unplanned_actual"] > 0
+    details_expanded = has_review_signal or focus_inside_week
+    details_label = (
+        "Проверить выбранную неделю"
+        if has_review_signal
+        else "Открыть детали выбранной недели"
     )
-    st.markdown(_build_plan_fact_calendar_markup(rows), unsafe_allow_html=True)
-    if focus_state_key:
-        st.caption("Карточки ниже ведут сразу в нужное действие в редакторе факта по выбранному дню.")
-        current_focus = str(st.session_state.get(focus_state_key) or "").strip()
-        focus_action_label_key = f"{focus_state_key}_action_label"
-        focus_action_hint_key = f"{focus_state_key}_action_hint"
-        for chunk_start in range(0, len(rows), 4):
-            chunk = rows[chunk_start:chunk_start + 4]
-            cols = st.columns(len(chunk))
-            for col, row in zip(cols, chunk):
-                with col:
-                    is_selected = current_focus == str(row["date"])
-                    if st.button(
-                        str(row["focus_action_label"]),
-                        key=f"{key_prefix}_focus_day_{row['date']}",
-                        type="primary" if is_selected else "secondary",
-                        width="stretch",
-                    ):
-                        st.session_state[focus_state_key] = str(row["date"])
-                        st.session_state[focus_action_label_key] = str(row["focus_action_label"])
-                        st.session_state[focus_action_hint_key] = str(row["focus_action_hint"])
-                        st.session_state[f"{focus_state_key}_weeks_pending"] = (
-                            2 if int(row.get("absolute_index", 0) or 0) >= 7 else 1
-                        )
-                        st.rerun()
+
+    with st.expander(details_label, expanded=details_expanded):
+        metric_cols = st.columns(5)
+        with metric_cols[0]:
+            st.metric("Совпало", week_summary["matched"])
+        with metric_cols[1]:
+            st.metric("Нужны проверки", week_summary["mismatch"])
+        with metric_cols[2]:
+            st.metric("Garmin-prefill", week_summary["prefill_ready"])
+        with metric_cols[3]:
+            st.metric("Вне плана", week_summary["unplanned_actual"])
+        with metric_cols[4]:
+            st.metric("Впереди", week_summary["upcoming"])
+
+        st.markdown(
+            """
+            <style>
+            .pfv-grid {
+              display: grid;
+              grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+              gap: 0.75rem;
+              margin: 0.5rem 0 1rem 0;
+            }
+            .pfv-card {
+              border-radius: 16px;
+              padding: 0.9rem;
+              background: rgba(255, 255, 255, 0.04);
+              box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+            }
+            .pfv-top {
+              display: flex;
+              justify-content: space-between;
+              align-items: flex-start;
+              gap: 0.5rem;
+              margin-bottom: 0.75rem;
+            }
+            .pfv-day {
+              font-size: 0.95rem;
+              font-weight: 700;
+            }
+            .pfv-badge {
+              border-radius: 999px;
+              font-size: 0.72rem;
+              font-weight: 700;
+              padding: 0.2rem 0.55rem;
+              white-space: nowrap;
+            }
+            .pfv-plan-title, .pfv-actual-title {
+              font-size: 0.72rem;
+              text-transform: uppercase;
+              letter-spacing: 0.04em;
+              opacity: 0.72;
+              margin-bottom: 0.25rem;
+            }
+            .pfv-plan-main, .pfv-actual-main {
+              font-size: 0.88rem;
+              font-weight: 600;
+              line-height: 1.35;
+              margin-bottom: 0.2rem;
+            }
+            .pfv-plan-meta, .pfv-actual-meta, .pfv-actual-empty {
+              font-size: 0.8rem;
+              opacity: 0.86;
+              line-height: 1.35;
+            }
+            .pfv-actual-empty {
+              padding: 0.3rem 0 0.1rem 0;
+            }
+            .pfv-divider {
+              height: 1px;
+              background: rgba(148, 163, 184, 0.22);
+              margin: 0.7rem 0;
+            }
+            </style>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.markdown(_build_plan_fact_calendar_markup(rows), unsafe_allow_html=True)
+        if focus_state_key:
+            st.caption("Кнопки ниже передают выбранный день в редактор факта.")
+            focus_action_label_key = f"{focus_state_key}_action_label"
+            focus_action_hint_key = f"{focus_state_key}_action_hint"
+            for chunk_start in range(0, len(rows), 4):
+                chunk = rows[chunk_start:chunk_start + 4]
+                cols = st.columns(len(chunk))
+                for col, row in zip(cols, chunk):
+                    with col:
+                        is_selected = current_focus == str(row["date"])
+                        if st.button(
+                            str(row["focus_action_label"]),
+                            key=f"{key_prefix}_focus_day_{row['date']}",
+                            type="primary" if is_selected else "secondary",
+                            width="stretch",
+                        ):
+                            st.session_state[focus_state_key] = str(row["date"])
+                            st.session_state[focus_action_label_key] = str(row["focus_action_label"])
+                            st.session_state[focus_action_hint_key] = str(row["focus_action_hint"])
+                            st.session_state[f"{focus_state_key}_weeks_pending"] = (
+                                2 if int(row.get("absolute_index", 0) or 0) >= 7 else 1
+                            )
+                            st.rerun()
 
 
 def _build_near_term_draft_preview(

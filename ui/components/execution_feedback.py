@@ -338,6 +338,12 @@ def render_execution_feedback_editor(
                 resolved_pending_weeks = None
             if resolved_pending_weeks is not None:
                 st.session_state[f"{key_prefix}_weeks"] = resolved_pending_weeks
+    weeks_key = f"{key_prefix}_weeks"
+    try:
+        current_weeks_value = int(st.session_state.get(weeks_key, 1) or 1)
+    except (TypeError, ValueError):
+        current_weeks_value = 1
+    st.session_state[weeks_key] = max(1, min(max_weeks, current_weeks_value))
 
     st.markdown(title)
     with st.container(border=True):
@@ -355,9 +361,8 @@ def render_execution_feedback_editor(
             "Горизонт локального пересчёта",
             min_value=1,
             max_value=max_weeks,
-            value=1,
             step=1,
-            key=f"{key_prefix}_weeks",
+            key=weeks_key,
             help="Реальное окно влияния ограничено ближайшими 7-14 днями.",
         )
 
