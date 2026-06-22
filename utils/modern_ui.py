@@ -117,7 +117,6 @@ class ModernUI:
 
         #MainMenu,
         footer,
-        div[data-testid="stToolbar"],
         div[data-testid="stDecoration"],
         div[data-testid="stStatusWidget"],
         .stDeployButton {{
@@ -127,6 +126,32 @@ class ModernUI:
         header[data-testid="stHeader"] {{
             background: transparent !important;
             box-shadow: none !important;
+        }}
+
+        div[data-testid="stToolbar"] {{
+            background: transparent !important;
+            pointer-events: none !important;
+        }}
+
+        div[data-testid="stToolbar"] button:not([data-testid="stExpandSidebarButton"]),
+        div[data-testid="stToolbar"] div[data-testid="stStatusWidget"],
+        div[data-testid="stToolbar"] .stDeployButton {{
+            display: none !important;
+        }}
+
+        div[data-testid="stToolbar"] button[data-testid="stExpandSidebarButton"] {{
+            pointer-events: auto !important;
+            display: inline-flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+            width: 2rem !important;
+            height: 2rem !important;
+            min-height: 2rem !important;
+            border-radius: 999px !important;
+            background: var(--ic-button-bg) !important;
+            border: 1px solid var(--ic-hairline) !important;
+            color: var(--ic-ink) !important;
+            box-shadow: {'0 10px 28px rgba(0,0,0,0.18)' if dark_mode else '0 10px 28px rgba(75,63,38,0.10)'} !important;
         }}
 
         div[data-testid="stAlert"] {{
@@ -381,16 +406,7 @@ class ModernUI:
             background: var(--ic-sidebar-bg) !important;
             border-right: 1px solid var(--ic-hairline);
             color: var(--ic-ink) !important;
-            flex: 0 0 var(--ic-sidebar-width) !important;
-            min-width: var(--ic-sidebar-width) !important;
-            width: var(--ic-sidebar-width) !important;
-            max-width: var(--ic-sidebar-width) !important;
-            position: fixed !important;
-            inset: 0 auto 0 0 !important;
-            transform: translateX(0) !important;
             box-shadow: {'18px 0 54px rgba(0,0,0,0.20)' if dark_mode else '18px 0 54px rgba(75,63,38,0.10)'} !important;
-            opacity: 1 !important;
-            visibility: visible !important;
             z-index: 999991 !important;
         }}
 
@@ -399,9 +415,6 @@ class ModernUI:
         div[data-testid="stSidebarUserContent"] {{
             background: transparent !important;
             color: var(--ic-ink) !important;
-            display: block !important;
-            opacity: 1 !important;
-            visibility: visible !important;
         }}
 
         div[data-testid="stSidebarContent"] {{
@@ -421,12 +434,6 @@ class ModernUI:
         div[data-testid="stSidebarContent"] *,
         div[data-testid="stSidebarUserContent"] * {{
             color: var(--ic-ink) !important;
-        }}
-
-        div[data-testid="stSidebarUserContent"],
-        div[data-testid="stSidebarUserContent"] * {{
-            opacity: 1 !important;
-            visibility: visible !important;
         }}
 
         section[data-testid="stSidebar"] h1 {{
@@ -451,35 +458,16 @@ class ModernUI:
             color: white !important;
         }}
 
-        div[data-testid="collapsedControl"] {{
+        div[data-testid="collapsedControl"],
+        div[data-testid="stSidebarCollapseButton"] {{
             z-index: 999999 !important;
         }}
 
-        @media (min-width: 900px) {{
-            section[data-testid="stSidebar"] {{
-                min-width: var(--ic-sidebar-width) !important;
-            }}
-
-            div[data-testid="stAppViewContainer"],
-            div[data-testid="stMain"] {{
-                padding-left: var(--ic-sidebar-width) !important;
-                box-sizing: border-box !important;
-                width: 100% !important;
-            }}
-
-            .block-container {{
-                max-width: 1040px;
-            }}
-        }}
-
-        @media (max-width: 899px) {{
-            section[data-testid="stSidebar"] {{
-                position: relative !important;
-                inset: auto !important;
-                width: 100% !important;
-                max-width: none !important;
-                min-width: 0 !important;
-            }}
+        div[data-testid="collapsedControl"] button,
+        div[data-testid="stSidebarCollapseButton"] button {{
+            background: var(--ic-button-bg) !important;
+            border: 1px solid var(--ic-hairline) !important;
+            color: var(--ic-ink) !important;
         }}
 
         /* Visual V2 app shell */

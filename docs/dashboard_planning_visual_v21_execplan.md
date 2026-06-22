@@ -23,6 +23,8 @@ The user-visible behavior is visible by running the app at `http://localhost:850
 - [x] (2026-06-21 19:38+04:00) Replaced the remaining `План готов` workspace `st.metric` block with Visual V2 cards.
 - [x] (2026-06-21 19:49+04:00) Added a follow-up fix for invisible sidebar content and white radio labels on light Planning surfaces.
 - [x] (2026-06-22 11:29+04:00) Converted the sidebar from a fragile native-flow panel into a fixed 300px rail for desktop layouts.
+- [x] (2026-06-22 11:58+04:00) Relaxed the fixed sidebar rail CSS so Streamlit's native collapse/expand behavior works again.
+- [x] (2026-06-22 12:09+04:00) Restored the collapsed-sidebar expand button by no longer hiding the entire Streamlit toolbar.
 
 ## Surprises & Discoveries
 
@@ -46,6 +48,12 @@ The user-visible behavior is visible by running the app at `http://localhost:850
 
 - Observation: Planning's `Режим страницы` radio labels can render white over the light V2 background.
   Evidence: screenshot showed `Собрать план`, `Скорректировать выполнение`, and `Экспорт и детали` as low-contrast white text under the Planning hero.
+
+- Observation: forcing the sidebar to `position: fixed` with `transform: translateX(0)` restores a visible rail but disables Streamlit's native collapse state.
+  Evidence: user reported the left panel no longer collapsed after the fixed rail follow-up.
+
+- Observation: hiding `div[data-testid="stToolbar"]` also hides Streamlit's collapsed-sidebar expand button.
+  Evidence: browser DOM showed `button[data-testid="stExpandSidebarButton"]` present after collapse, but it inherited zero visible size while the toolbar was hidden.
 
 ## Decision Log
 
@@ -73,6 +81,14 @@ The user-visible behavior is visible by running the app at `http://localhost:850
   Rationale: Chrome still showed a blank reserved left column even when the accessibility tree contained sidebar content. Fixing the rail to `left: 0` with a high z-index makes the sidebar render independently of Streamlit's main content stacking.
   Date/Author: 2026-06-22 / Codex
 
+- Decision: relax the sidebar fix back to native Streamlit layout control and limit our CSS to visual styling.
+  Rationale: a sidebar must remain collapsible. Overriding Streamlit's width, transform, visibility, and main-content offset is too brittle; the safer contract is to style the open panel while allowing Streamlit to own expand/collapse placement.
+  Date/Author: 2026-06-22 / Codex
+
+- Decision: keep Streamlit toolbar available for the sidebar expand control, but hide nonessential toolbar buttons.
+  Rationale: removing the entire toolbar cleans the header but breaks recovery from a collapsed sidebar. Selectively hiding Deploy/menu while preserving `stExpandSidebarButton` keeps the minimal shell and preserves navigation.
+  Date/Author: 2026-06-22 / Codex
+
 ## Outcomes & Retrospective
 
 Implemented the V2.1 polish slice starting from commit `d22e33f fix: render v2 text cards as html fragments`.
@@ -93,9 +109,11 @@ The remaining gap is that Planning still uses native Streamlit sliders/selectbox
 
 Theme-stability follow-up: shared Visual V2 CSS now targets Streamlit's current button `data-testid` selectors, input/select wrappers, expanders, legacy metric containers, and sidebar text/buttons. The `План готов` summary no longer uses native `st.metric`; it renders through Visual V2 stat/text cards, so it stays readable under both theme states and no longer looks detached from the rest of Planning.
 
-Sidebar/radio follow-up: the sidebar now has a fixed 300px visual rail contract across the outer `stSidebar` and inner `stSidebarContent`/`stSidebarUserContent` layers. Planning radio groups now explicitly inherit `--ic-ink`, preventing white labels on the light V2 background.
+Sidebar/radio follow-up: the sidebar now has a visual styling contract across the outer `stSidebar` and inner `stSidebarContent`/`stSidebarUserContent` layers without overriding native layout state. Planning radio groups now explicitly inherit `--ic-ink`, preventing white labels on the light V2 background.
 
-Chrome sidebar follow-up: desktop sidebar placement now uses `position: fixed`, `left: 0`, `width: 300px`, and high z-index, while the main app container gets matching left padding with border-box sizing. This prevents the observed state where the app reserved space for the sidebar but painted the V2 background over the visible rail.
+Chrome sidebar follow-up: the earlier fixed-rail approach made the left panel visible but prevented collapse. The sidebar CSS now avoids overriding Streamlit's width, position, transform, visibility, and main-content offset. Visual V2 still controls sidebar background, contrast, and button styling, but Streamlit owns the actual open/collapsed layout state.
+
+Collapse-control follow-up: the app no longer hides the whole `stToolbar`, because Streamlit renders the collapsed-sidebar expand button there. Visual V2 now hides nonessential toolbar buttons while keeping `stExpandSidebarButton` visible and styled.
 
 ## Context and Orientation
 
