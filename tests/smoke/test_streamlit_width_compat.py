@@ -80,3 +80,52 @@ def test_apply_streamlit_width_compat_skips_native_width_implementations():
     fake_streamlit.button("CTA", width="stretch")
 
     assert calls == [("button", ("CTA",), {"width": "stretch"})]
+
+
+def test_dataframe_stretch_translated_on_broken_versions():
+    """Regression: st.dataframe declares `width` but Streamlit 1.4x proto
+    rejects width='stretch'. The compat shim must still translate it on
+    those versions even though _supports_width_argument would skip it."""
+    calls: list[dict[str, object]] = []
+
+    def dataframe_stub(*args, width=None, **kwargs):
+        payload = dict(kwargs)
+        payload["width"] = width
+        calls.append(payload)
+        return "dataframe"
+
+    fake_streamlit = SimpleNamespace(
+        __version__="1.48.0",
+        button=lambda *a, **k: None,
+        dataframe=dataframe_stub,
+        plotly_chart=lambda *a, **k: None,
+    )
+
+    apply_streamlit_width_compat(fake_streamlit)
+    fake_streamlit.dataframe("rows", width="stretch", height=200)
+
+    assert calls == [{"use_container_width": True, "height": 200, "width": None}]
+
+
+def test_dataframe_stretch_preserved_on_fixed_versions():
+    """On Streamlit >=1.50 native width='stretch' works, so dataframe calls
+    must pass through unchanged."""
+    calls: list[dict[str, object]] = []
+
+    def dataframe_stub(*args, width=None, **kwargs):
+        payload = dict(kwargs)
+        payload["width"] = width
+        calls.append(payload)
+        return "dataframe"
+
+    fake_streamlit = SimpleNamespace(
+        __version__="1.50.0",
+        button=lambda *a, **k: None,
+        dataframe=dataframe_stub,
+        plotly_chart=lambda *a, **k: None,
+    )
+
+    apply_streamlit_width_compat(fake_streamlit)
+    fake_streamlit.dataframe("rows", width="stretch", height=200)
+
+    assert calls == [{"width": "stretch", "height": 200}]
