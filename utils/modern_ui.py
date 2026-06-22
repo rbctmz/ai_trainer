@@ -95,6 +95,8 @@ class ModernUI:
             --ic-button-bg: {'rgba(255,255,255,0.055)' if dark_mode else '#FFFFFF'};
             --ic-button-hover: {'rgba(13,143,104,0.18)' if dark_mode else 'rgba(13,143,104,0.08)'};
             --ic-input-bg: {'#18231D' if dark_mode else '#FFFFFF'};
+            --ic-sidebar-width: 300px;
+            --ic-sidebar-bg: linear-gradient(180deg, {'#121A16' if dark_mode else '#EAE4D8'}, {'#101411' if dark_mode else '#F6F0E5'});
         }}
         
         /* Базовые стили приложения */
@@ -376,14 +378,16 @@ class ModernUI:
         
         /* Sidebar */
         section[data-testid="stSidebar"] {{
-            background:
-                linear-gradient(180deg, {'#121A16' if dark_mode else '#EAE4D8'}, {'#101411' if dark_mode else '#F6F0E5'}) !important;
+            background: var(--ic-sidebar-bg) !important;
             border-right: 1px solid var(--ic-hairline);
             color: var(--ic-ink) !important;
-            flex: 0 0 300px !important;
-            min-width: 300px !important;
-            width: 300px !important;
-            max-width: 300px !important;
+            flex: 0 0 var(--ic-sidebar-width) !important;
+            min-width: var(--ic-sidebar-width) !important;
+            width: var(--ic-sidebar-width) !important;
+            max-width: var(--ic-sidebar-width) !important;
+            position: fixed !important;
+            inset: 0 auto 0 0 !important;
+            transform: translateX(0) !important;
             box-shadow: {'18px 0 54px rgba(0,0,0,0.20)' if dark_mode else '18px 0 54px rgba(75,63,38,0.10)'} !important;
             opacity: 1 !important;
             visibility: visible !important;
@@ -401,7 +405,11 @@ class ModernUI:
         }}
 
         div[data-testid="stSidebarContent"] {{
+            background: var(--ic-sidebar-bg) !important;
             border-right: 1px solid var(--ic-hairline) !important;
+            height: 100vh !important;
+            min-height: 100vh !important;
+            overflow-y: auto !important;
             padding: 0 0.78rem 1rem !important;
         }}
 
@@ -449,7 +457,28 @@ class ModernUI:
 
         @media (min-width: 900px) {{
             section[data-testid="stSidebar"] {{
-                min-width: 17rem !important;
+                min-width: var(--ic-sidebar-width) !important;
+            }}
+
+            div[data-testid="stAppViewContainer"],
+            div[data-testid="stMain"] {{
+                padding-left: var(--ic-sidebar-width) !important;
+                box-sizing: border-box !important;
+                width: 100% !important;
+            }}
+
+            .block-container {{
+                max-width: 1040px;
+            }}
+        }}
+
+        @media (max-width: 899px) {{
+            section[data-testid="stSidebar"] {{
+                position: relative !important;
+                inset: auto !important;
+                width: 100% !important;
+                max-width: none !important;
+                min-width: 0 !important;
             }}
         }}
 

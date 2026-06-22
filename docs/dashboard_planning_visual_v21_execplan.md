@@ -22,6 +22,7 @@ The user-visible behavior is visible by running the app at `http://localhost:850
 - [x] (2026-06-21 19:34+04:00) Hardened shared button/input/sidebar/metric selectors against Streamlit's current `data-testid` markup.
 - [x] (2026-06-21 19:38+04:00) Replaced the remaining `План готов` workspace `st.metric` block with Visual V2 cards.
 - [x] (2026-06-21 19:49+04:00) Added a follow-up fix for invisible sidebar content and white radio labels on light Planning surfaces.
+- [x] (2026-06-22 11:29+04:00) Converted the sidebar from a fragile native-flow panel into a fixed 300px rail for desktop layouts.
 
 ## Surprises & Discoveries
 
@@ -68,6 +69,10 @@ The user-visible behavior is visible by running the app at `http://localhost:850
   Rationale: the outer section can be present and still visually empty if Streamlit's inner layers retain native transparency/visibility behavior. Targeting the inner content wrappers makes the rail deterministic without moving navigation logic.
   Date/Author: 2026-06-21 / Codex
 
+- Decision: use a fixed desktop sidebar rail instead of relying on Streamlit's flex placement.
+  Rationale: Chrome still showed a blank reserved left column even when the accessibility tree contained sidebar content. Fixing the rail to `left: 0` with a high z-index makes the sidebar render independently of Streamlit's main content stacking.
+  Date/Author: 2026-06-22 / Codex
+
 ## Outcomes & Retrospective
 
 Implemented the V2.1 polish slice starting from commit `d22e33f fix: render v2 text cards as html fragments`.
@@ -89,6 +94,8 @@ The remaining gap is that Planning still uses native Streamlit sliders/selectbox
 Theme-stability follow-up: shared Visual V2 CSS now targets Streamlit's current button `data-testid` selectors, input/select wrappers, expanders, legacy metric containers, and sidebar text/buttons. The `План готов` summary no longer uses native `st.metric`; it renders through Visual V2 stat/text cards, so it stays readable under both theme states and no longer looks detached from the rest of Planning.
 
 Sidebar/radio follow-up: the sidebar now has a fixed 300px visual rail contract across the outer `stSidebar` and inner `stSidebarContent`/`stSidebarUserContent` layers. Planning radio groups now explicitly inherit `--ic-ink`, preventing white labels on the light V2 background.
+
+Chrome sidebar follow-up: desktop sidebar placement now uses `position: fixed`, `left: 0`, `width: 300px`, and high z-index, while the main app container gets matching left padding with border-box sizing. This prevents the observed state where the app reserved space for the sidebar but painted the V2 background over the visible rail.
 
 ## Context and Orientation
 
