@@ -9,7 +9,7 @@ import streamlit as st
 
 from services.data_cache import load_activities, load_hrv
 from state import StateManager
-from ui.theme import create_dark_table_html
+from ui.plotly_theme import create_dark_table_html
 
 
 def render_hrv_page(state: StateManager) -> None:

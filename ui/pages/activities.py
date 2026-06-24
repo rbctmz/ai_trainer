@@ -9,7 +9,7 @@ import streamlit as st
 
 from services.data_cache import load_activities
 from state import StateManager
-from ui.theme import create_dark_table_html, get_plotly_theme
+from ui.plotly_theme import create_dark_table_html, get_plotly_theme
 
 
 _SORT_LABELS = {

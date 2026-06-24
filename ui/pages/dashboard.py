@@ -24,7 +24,7 @@ from services import demo_mode as demo_mode_service
 from services.data_cache import load_activities, load_hrv, load_sleep
 from state import StateManager
 from ui.components.execution_feedback import render_execution_feedback_editor
-from ui.theme import get_plotly_theme
+from ui.plotly_theme import get_plotly_theme
 
 
 logger = logging.getLogger(__name__)
