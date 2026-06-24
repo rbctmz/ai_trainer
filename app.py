@@ -103,10 +103,15 @@ def main():
     ModernUI.render_app_header(status=header_status)
 
     if acceptance_info.get("enabled"):
+        garmin_login_note = (
+            "а реальный Garmin login отключён."
+            if acceptance_mode_service.garmin_disabled()
+            else "а реальный Garmin login разрешён."
+        )
         st.info(
             "🧪 Acceptance mode активен. "
             "Приложение работает на изолированной временной БД, demo dataset может безопасно переинициализироваться, "
-            "а реальный Garmin login отключён."
+            + garmin_login_note
         )
         st.caption(f"Isolated DB: `{acceptance_info.get('database_path', Settings.DATABASE_PATH)}`")
 

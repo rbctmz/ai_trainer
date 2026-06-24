@@ -1,6 +1,7 @@
 """Welcome page renderer for unauthenticated users."""
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import streamlit as st
@@ -10,12 +11,63 @@ if TYPE_CHECKING:
     from state import StateManager
 
 
+@dataclass(frozen=True)
+class WelcomeGarminMode:
+    """Pure description of how the welcome page should present the Garmin path.
+
+    Decoupled from Streamlit so the gating contract can be unit-tested without
+    rendering. The boolean flags map directly to which blocks render.
+
+    ``show_real_garmin_path`` is True whenever the user can actually attempt a
+    real Garmin login: outside acceptance mode, or inside acceptance mode when
+    the runner has explicitly allowed login (ACCEPTANCE_DISABLE_GARMIN=0).
+    ``show_demo_only_acceptance_block`` is the inverse for the acceptance block
+    that previously (incorrectly) hid the real path behind "login is disabled".
+    """
+
+    is_acceptance_mode: bool
+    garmin_login_allowed: bool
+    show_real_garmin_path: bool
+    show_demo_only_acceptance_block: bool
+    garmin_status_text: str
+
+
+def resolve_welcome_garmin_mode() -> WelcomeGarminMode:
+    """Decide which Garmin onboarding surface the welcome page should render.
+
+    The old code gated the real Garmin path on ``acceptance_enabled`` alone, so
+    an acceptance run with ``ACCEPTANCE_DISABLE_GARMIN=0`` still hid the real
+    path and falsely claimed login was disabled. This resolver derives the
+    visible behaviour from the actual ``garmin_disabled()`` contract instead.
+    """
+    is_acceptance = acceptance_mode_service.is_acceptance_mode()
+    login_allowed = not acceptance_mode_service.garmin_disabled()
+
+    show_real = login_allowed  # real path shown whenever a real login can run
+
+    if is_acceptance and not login_allowed:
+        status = "Реальный Garmin login отключён в этом acceptance runtime."
+    elif is_acceptance:
+        status = "Acceptance runtime: реальный Garmin login разрешён — используйте свои данные аккуратно."
+    else:
+        status = "Подключите аккаунт Garmin, чтобы работать со своими данными."
+
+    return WelcomeGarminMode(
+        is_acceptance_mode=is_acceptance,
+        garmin_login_allowed=login_allowed,
+        show_real_garmin_path=show_real,
+        show_demo_only_acceptance_block=not show_real,
+        garmin_status_text=status,
+    )
+
+
 def render_welcome_page(state: "StateManager") -> None:
     """Экран приветствия для неподключённых пользователей."""
     stats = state.database.get_database_stats()
     has_local_cache = any(stats.values())
     acceptance_info = acceptance_mode_service.runtime_info(state)
     acceptance_enabled = acceptance_info.get("enabled", False)
+    garmin_mode = resolve_welcome_garmin_mode()
 
     st.markdown("## Добро пожаловать в персональный AI тренер!")
     st.markdown("Выберите, как хотите войти в продукт: с реальными данными Garmin или на временном демо-наборе.")
@@ -23,7 +75,7 @@ def render_welcome_page(state: "StateManager") -> None:
     if acceptance_enabled:
         st.info(
             "🧪 Acceptance mode активен: этот запуск использует изолированную временную БД и предназначен "
-            "для безопасного browser clickthrough. Реальный Garmin login здесь отключён."
+            f"для безопасного browser clickthrough. {garmin_mode.garmin_status_text}"
         )
 
     feature_col, path_col = st.columns([1, 2])
@@ -41,7 +93,7 @@ def render_welcome_page(state: "StateManager") -> None:
 
         with garmin_col:
             st.markdown("### 🔗 Garmin Connect")
-            if acceptance_enabled:
+            if garmin_mode.show_demo_only_acceptance_block:
                 st.markdown("Acceptance instance отключает реальный Garmin path.")
                 st.markdown("1. Используйте изолированный demo dataset")
                 st.markdown("2. Прогоняйте dashboard, planning и exports")
@@ -52,7 +104,10 @@ def render_welcome_page(state: "StateManager") -> None:
                 st.markdown("1. Введите email и пароль Garmin в боковой панели")
                 st.markdown("2. Подключитесь и синхронизируйте последние 30 дней")
                 st.markdown("3. Откройте dashboard и AI coaching на своих данных")
-                st.caption("Подходит, если вы хотите сразу работать со своей историей тренировок.")
+                if garmin_mode.is_acceptance_mode:
+                    st.caption("Acceptance runtime, но реальный login разрешён — основная локальная БД не затрагивается.")
+                else:
+                    st.caption("Подходит, если вы хотите сразу работать со своей историей тренировок.")
 
         with demo_col:
             st.markdown("### 🎮 Демо-режим" if not acceptance_enabled else "### 🧪 Acceptance dataset")
