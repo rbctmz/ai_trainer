@@ -72,13 +72,24 @@ class StateManager:
     # ------------------------------------------------------------------
     def _bootstrap_defaults(self) -> None:
         if "dark_mode" not in self._session:
-            theme_state = self._session.get("_theme")
-            base_theme = None
-            if isinstance(theme_state, dict):
-                base_theme = theme_state.get("base")
-            if base_theme is None and callable(getattr(st, "get_option", None)):
-                base_theme = st.get_option("theme.base")
-            self._session["dark_mode"] = (base_theme or "light").lower() == "dark"
+            # Prefer the JS-roundtrip result (carries resolved stored>system
+            # preference) when available; fall back to the Streamlit theme base.
+            resolved: bool | None = None
+            try:
+                from ui.theme_bootstrap import consume_theme_query_param
+
+                resolved = consume_theme_query_param()
+            except Exception:
+                resolved = None
+            if resolved is None:
+                theme_state = self._session.get("_theme")
+                base_theme = None
+                if isinstance(theme_state, dict):
+                    base_theme = theme_state.get("base")
+                if base_theme is None and callable(getattr(st, "get_option", None)):
+                    base_theme = st.get_option("theme.base")
+                resolved = (base_theme or "light").lower() == "dark"
+            self._session["dark_mode"] = bool(resolved)
 
         for key, value in self._PRIMITIVE_DEFAULTS.items():
             if key == "dark_mode":
