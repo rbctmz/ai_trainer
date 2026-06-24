@@ -5,7 +5,6 @@ from config.settings import Settings
 from state import get_state_manager
 from utils.streamlit_compat import apply_streamlit_width_compat
 from ui.components import render_chat_management, render_development_tools, render_garmin_connection
-from ui.theme import apply_theme
 from ui.navigation import (
     render_primary_navigation,
     render_sidebar_navigation,
@@ -94,9 +93,6 @@ def main():
     acceptance_info = acceptance_mode_service.bootstrap_session(state)
 
     from utils.modern_ui import ModernUI
-    apply_theme(state.dark_mode)
-    # Visual V2 cards rely on the shared `ic-*` CSS contract, so keep the
-    # modern shell loaded even when older theme toggles are disabled.
     ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
 
     header_status = "Acceptance sandbox" if acceptance_info.get("enabled") else "Training cockpit"
@@ -120,18 +116,12 @@ def main():
         st.title("🏃‍♂️ AI Trainer")
     with col2:
         st.markdown("<br>", unsafe_allow_html=True)
-        if state.use_custom_theme:
-            if st.button("🌙" if not state.dark_mode else "☀️",
-                         help="Переключить тему",
-                         width="stretch",
-                         key="theme_toggle"):
-                state.toggle_dark_mode()
-                st.rerun()
-
-    custom_theme_enabled = st.sidebar.checkbox("🎨 Кастомная тема", value=state.use_custom_theme, key="use_custom_theme_checkbox")
-    if custom_theme_enabled != state.use_custom_theme:
-        state.use_custom_theme = custom_theme_enabled
-        st.rerun()
+        if st.button("🌙" if not state.dark_mode else "☀️",
+                     help="Переключить тему",
+                     width="stretch",
+                     key="theme_toggle"):
+            state.toggle_dark_mode()
+            st.rerun()
 
     render_garmin_connection(state, render_profile=render_garmin_profile)
 
