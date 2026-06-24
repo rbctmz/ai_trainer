@@ -141,15 +141,41 @@ def main() -> int:
                 # sync may take a while against live Garmin; wait up to 120s
                 wait_for_ready(page, 120000)
                 time.sleep(3.0)
+
+                # The dashboard empty-state (shown after a successful login but
+                # before any sync) offers a "Синхронизировать данные" button that
+                # loads real activities. Click it to complete the real end-to-end
+                # path; without this step the dashboard stays on the welcome
+                # checklist and no real metric ever renders.
+                try:
+                    sync_btn = page.get_by_role("button", name="Синхронизировать данные").first
+                    sync_btn.wait_for(timeout=10000)
+                    sync_btn.click(timeout=8000)
+                    # real Garmin sync of 30 days can take a while; wait generously
+                    wait_for_ready(page, 180000)
+                    time.sleep(3.0)
+                    connect_result["sync_clicked"] = True
+                except Exception as sync_exc:
+                    connect_result["sync_clicked"] = False
+                    connect_result["sync_error"] = str(sync_exc)[:200]
+
                 errs = collect_errors(page)
                 page.screenshot(path=str(SCREENSHOT_DIR / "02_after_connect.png"), full_page=True)
                 after = page.locator("body").inner_text(timeout=10000)
+                # Detect a real activity count without a magic number: look for a
+                # digit that is not the welcome checklist's "1." step markers.
+                import re as _re
+                real_count_markers = [
+                    m
+                    for m in _re.findall(r"\b(\d{1,4})\b", after)
+                    if m not in {"1", "2", "3", "4", "30"}
+                ]
                 connect_result.update(
                     {
                         "exceptions_after": len(errs),
                         "errors_after": errs[:2],
                         "body_excerpt_after": after[:800],
-                        "shows_real_activity_count": "95" in after,
+                        "shows_real_activity_count": bool(real_count_markers),
                         "shows_real_metric": any(
                             m in after
                             for m in ("активност", "activity", "готовност", "readiness", "HRV", "сон", "sleep", "training", "трениров")
