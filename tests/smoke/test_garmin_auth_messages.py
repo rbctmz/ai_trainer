@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 import pytest
 
 from data import garmin_client as garmin_client_module
@@ -103,3 +105,39 @@ def test_garmin_client_stores_portal_403_auth_error(monkeypatch):
     assert client.auth_error_kind == "portal_forbidden"
     assert "HTTP 403" in str(client.auth_error)
     assert "Portal login failed" in str(client.auth_error_raw)
+
+
+def test_failed_authentication_emits_structured_log_record(monkeypatch, caplog):
+    """A failed Garmin login must be observable through the `garmin_sync`
+    logger, not only through a stdout `print`. This is what lets acceptance/E2E
+    runs surface a real 429/rate-limit instead of failing silently in logs."""
+    monkeypatch.setattr(garmin_client_module, "Garmin", _FailingGarmin)
+    caplog.set_level(logging.ERROR, logger="garmin_sync")
+
+    client = garmin_client_module.GarminClient()
+    client.authenticate("athlete@example.com", "secret")
+
+    error_records = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert error_records, "expected at least one ERROR record from garmin_sync logger"
+    combined = " ".join(r.getMessage() for r in error_records)
+    assert "429" in combined
+    assert "rate_limited" in combined
+
+
+def test_successful_authentication_emits_info_log_record(monkeypatch, caplog):
+    """A successful login should be observable too, for parity and auditability."""
+    class _OkGarmin:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def login(self):
+            return True
+
+    monkeypatch.setattr(garmin_client_module, "Garmin", _OkGarmin)
+    caplog.set_level(logging.INFO, logger="garmin_sync")
+
+    client = garmin_client_module.GarminClient()
+    assert client.authenticate("athlete@example.com", "secret") is True
+
+    info_records = [r for r in caplog.records if r.levelno == logging.INFO]
+    assert info_records

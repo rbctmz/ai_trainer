@@ -15,7 +15,7 @@ except ImportError:
         GARTH_AVAILABLE = True
     except ImportError:
         GARTH_AVAILABLE = False
-        print("WARNING: garth_client не найден, использование только garminconnect")
+        garmin_logger.warning("garth_client не найден, использование только garminconnect")
 
 
 def _summarize_auth_error(error):
@@ -137,7 +137,7 @@ class GarminClient:
             self.auth_error_kind = None
             self._clear_last_error()
             self.use_garth = False
-            print("DEBUG: Авторизация через garminconnect успешна")
+            garmin_logger.info("Авторизация через garminconnect успешна")
             return True
         except Exception as e:
             error_info = _summarize_auth_error(e)
@@ -146,9 +146,13 @@ class GarminClient:
             self.auth_error_kind = error_info["kind"]
             self.is_authenticated = False
             self.use_garth = False
-            print(f"DEBUG: Ошибка авторизации через garminconnect: {self.auth_error}")
+            garmin_logger.error(
+                "Ошибка авторизации через garminconnect: %s [%s]",
+                self.auth_error,
+                self.auth_error_kind,
+            )
             if self.auth_error_raw and self.auth_error_raw != self.auth_error:
-                print(f"DEBUG: Технические детали авторизации Garmin: {self.auth_error_raw}")
+                garmin_logger.debug("Технические детали авторизации Garmin: %s", self.auth_error_raw)
             return False
     
     def get_activities(self, start_date, end_date, limit=100):
@@ -172,12 +176,12 @@ class GarminClient:
                 )
                 if activities and isinstance(activities, list):
                     self._clear_last_error()
-                    print(f"DEBUG: Получено {len(activities)} активностей через garth")
+                    garmin_logger.debug("Получено %d активностей через garth", len(activities))
                     return activities[:limit]
                 else:
-                    print("DEBUG: garth не вернул активности, пробуем альтернативный метод")
+                    garmin_logger.debug("garth не вернул активности, пробуем альтернативный метод")
             except Exception as e:
-                print(f"DEBUG: Ошибка получения активностей через garth: {e}")
+                garmin_logger.debug("Ошибка получения активностей через garth: %s", e)
         
         # Используем стандартный garminconnect клиент
         if self.client:
@@ -208,10 +212,10 @@ class GarminClient:
                 activity_details = garth.connectapi(f"/activity-service/activity/{activity_id}")
                 if activity_details:
                     self._clear_last_error()
-                    print(f"DEBUG: Детали активности {activity_id} получены через garth")
+                    garmin_logger.debug("Детали активности %s получены через garth", activity_id)
                     return activity_details
             except Exception as e:
-                print(f"DEBUG: Ошибка получения деталей активности через garth: {e}")
+                garmin_logger.debug("Ошибка получения деталей активности через garth: %s", e)
         
         # Используем стандартный garminconnect клиент
         if self.client:
@@ -261,10 +265,10 @@ class GarminClient:
         # Используем стандартный garminconnect клиент как fallback
         if self.client:
             try:
-                print(f"DEBUG: Пробуем получить стресс через garminconnect для {date.strftime('%Y-%m-%d')}")
+                garmin_logger.debug("Пробуем получить стресс через garminconnect для %s", date.strftime('%Y-%m-%d'))
                 stress_result = self.client.get_stress_data(date.strftime("%Y-%m-%d"))
                 if stress_result:
-                    print(f"DEBUG: Стресс получен через garminconnect: {type(stress_result)}")
+                    garmin_logger.debug("Стресс получен через garminconnect: %s", type(stress_result))
                     # Конвертируем в нужный формат
                     if isinstance(stress_result, list) and len(stress_result) > 0:
                         # Берем средний стресс за день
@@ -279,7 +283,7 @@ class GarminClient:
                             return {'avgStressLevel': avg}
                 return stress_result
             except Exception as e:
-                print(f"DEBUG: Стресс данные недоступны через garminconnect: {e}")
+                garmin_logger.debug("Стресс данные недоступны через garminconnect: %s", e)
                 # Стресс данные могут быть недоступны
                 return None
         
@@ -402,14 +406,14 @@ class GarminClient:
                 try:
                     result = method_func()
                     if result:
-                        print(f"DEBUG: Данные сна получены через {method_name} для {date_str}")
+                        garmin_logger.debug("Данные сна получены через %s для %s", method_name, date_str)
                         return result
                 except Exception as e:
-                    print(f"DEBUG: {method_name} failed for {date_str}: {e}")
+                    garmin_logger.debug("%s failed for %s: %s", method_name, date_str, e)
                     continue
-        
+
         # Если ничего не сработало
-        print(f"DEBUG: Все методы получения данных сна не сработали для {date_str}")
+        garmin_logger.warning("Все методы получения данных сна не сработали для %s", date_str)
         return None
     
     def get_resting_heart_rate(self, date):
@@ -486,24 +490,24 @@ class GarminClient:
             )
 
         if not methods_to_try:
-            print("DEBUG: Нет доступных клиентов для получения статуса тренированности")
+            garmin_logger.warning("Нет доступных клиентов для получения статуса тренированности")
             return None
-        
+
         for method_name, method_func in methods_to_try:
             try:
                 result = method_func()
                 if result:
-                    print(f"DEBUG: Статус тренированности получен через {method_name}")
+                    garmin_logger.debug("Статус тренированности получен через %s", method_name)
                     try:
-                        garmin_logger.debug(f"TRAINING STATUS RAW ({method_name}): {result}")
+                        garmin_logger.debug("TRAINING STATUS RAW (%s): %s", method_name, result)
                     except Exception:
                         pass
                     return result
             except Exception as e:
-                print(f"DEBUG: {method_name} failed: {e}")
+                garmin_logger.debug("%s failed: %s", method_name, e)
                 continue
-        
-        print("DEBUG: Все методы получения статуса тренированности не сработали")
+
+        garmin_logger.warning("Все методы получения статуса тренированности не сработали")
         return None
     
     def get_vo2_max(self):

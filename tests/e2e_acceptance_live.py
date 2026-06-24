@@ -50,12 +50,28 @@ def wait_for_ready(page, timeout_ms: int = 60000) -> None:
 
 
 def collect_errors(page) -> list[str]:
-    """Collect Streamlit exception containers rendered into the DOM."""
+    """Collect Streamlit exception and alert containers rendered into the DOM.
+
+    Covers both hard failures (`stException`) and soft user-facing messages
+    (`st.error`/`st.warning`, rendered as `stAlert` with a `kind`). A real
+    Garmin 429/rate-limit surfaces as an `stAlert[kind=error]`, not as a
+    Streamlit exception, so excluding alerts made the probe miss it.
+    """
     errs = []
     exc = page.locator('[data-testid="stException"]')
     for i in range(exc.count()):
         txt = exc.nth(i).inner_text(timeout=2000)
         errs.append(txt[:500])
+    # st.error / st.warning render as stAlert with a kind attribute
+    alert = page.locator('[data-testid="stAlert"]')
+    for i in range(alert.count()):
+        try:
+            kind = alert.nth(i).get_attribute("kind", timeout=1000) or ""
+        except Exception:
+            kind = ""
+        if kind in ("error", "warning"):
+            txt = alert.nth(i).inner_text(timeout=2000)
+            errs.append(f"[{kind}] {txt[:500]}")
     return errs
 
 
