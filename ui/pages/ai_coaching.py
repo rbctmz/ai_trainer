@@ -84,7 +84,7 @@ def render_ai_chat_page(state: StateManager) -> None:
         return
 
     ensure_ai_chat_session_state(state, database)
-    apply_ai_chat_styles()
+    apply_ai_chat_styles(state.dark_mode)
     context_days = render_ai_chat_sidebar(
         state,
         database,

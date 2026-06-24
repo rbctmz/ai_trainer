@@ -42,9 +42,9 @@ CHAT_PAGE_STYLES = """
     .chat-input-fixed {
         position: sticky;
         bottom: 0;
-        background: white;
+        background: var(--ic-surface-raised, white);
         padding: 15px 0;
-        border-top: 1px solid #ddd;
+        border-top: 1px solid var(--ic-hairline, #ddd);
         z-index: 999;
         max-width: 800px;
         margin: 0 auto;
@@ -69,25 +69,50 @@ CHAT_PAGE_STYLES = """
 
     .chat-meta {
         font-size: 0.75rem;
-        color: #666;
+        color: var(--ic-muted, #666);
         margin: 0;
     }
 
     [data-testid="stChatMessage"][data-testid*="assistant"] {
-        background-color: #f8f9fa;
+        background-color: var(--ic-surface, #f8f9fa);
         border-radius: 10px;
         padding: 15px;
         margin: 10px 0;
     }
 
     [data-testid="stChatMessage"][data-testid*="user"] {
-        background-color: #e3f2fd;
+        background-color: var(--ic-surface-raised, #e3f2fd);
         border-radius: 10px;
         padding: 15px;
         margin: 10px 0;
     }
     </style>
 """
+
+
+def chat_page_styles(dark_mode: bool = False) -> str:
+    """Return chat page CSS tuned for the active theme.
+
+    In dark mode the assistant/user bubbles need a slightly raised surface
+    (var(--ic-surface-raised)) rather than the fixed light grays, otherwise
+    they blend into the dark app background.
+    """
+    if dark_mode:
+        return CHAT_PAGE_STYLES.replace(
+            "background-color: var(--ic-surface, #f8f9fa);",
+            "background-color: var(--ic-surface);",
+        ).replace(
+            "background-color: var(--ic-surface-raised, #e3f2fd);",
+            "background-color: var(--ic-surface-raised);",
+        )
+    # light: keep the legacy pastel tints for the user bubble for visual continuity
+    return CHAT_PAGE_STYLES.replace(
+        "background-color: var(--ic-surface-raised, #e3f2fd);",
+        "background-color: #e3f2fd;",
+    ).replace(
+        "background-color: var(--ic-surface, #f8f9fa);",
+        "background-color: #f8f9fa;",
+    )
 
 
 def _build_quick_question_prompts() -> tuple[dict[str, str], ...]:
@@ -142,9 +167,9 @@ def ensure_ai_chat_session_state(state: StateManager, database: Any) -> None:
                 state.current_chat_id = existing_chats[0]["id"]
 
 
-def apply_ai_chat_styles() -> None:
-    """Apply page-local chat styling."""
-    st.markdown(CHAT_PAGE_STYLES, unsafe_allow_html=True)
+def apply_ai_chat_styles(dark_mode: bool = False) -> None:
+    """Apply page-local chat styling tuned for the active theme."""
+    st.markdown(chat_page_styles(dark_mode), unsafe_allow_html=True)
 
 
 def render_ai_chat_sidebar(
