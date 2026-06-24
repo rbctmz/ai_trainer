@@ -173,6 +173,9 @@ def render_hrv_page(state: StateManager) -> None:
     if len(hrv_df) > 1:
         st.subheader("📈 Динамика показателей")
 
+        from ui.plotly_theme import get_plotly_theme
+        plotly_theme = get_plotly_theme(state.dark_mode)
+
         hrv_dates = hrv_df["date"].tolist()
         hrv_values = hrv_df["rmssd"].tolist()
 
@@ -222,8 +225,11 @@ def render_hrv_page(state: StateManager) -> None:
                 "text": "💓 Динамика HRV с зонами восстановления",
                 "x": 0.5,
                 "xanchor": "center",
-                "font": {"size": 18, "color": "#1F2937"},
-            }
+                "font": {"size": 18, "color": plotly_theme["font_color"]},
+            },
+            paper_bgcolor=plotly_theme["paper_bgcolor"],
+            plot_bgcolor=plotly_theme["plot_bgcolor"],
+            font=dict(color=plotly_theme["font_color"]),
         )
 
         st.plotly_chart(fig_rmssd, width="stretch")
@@ -278,7 +284,7 @@ def render_hrv_page(state: StateManager) -> None:
                     "text": "🔍 Взаимосвязь HRV и тренировочной нагрузки",
                     "x": 0.5,
                     "xanchor": "center",
-                    "font": {"size": 18, "color": "#1F2937"},
+                    "font": {"size": 18, "color": plotly_theme["font_color"]},
                 },
                 xaxis_title="Дата",
                 yaxis=dict(
@@ -286,7 +292,7 @@ def render_hrv_page(state: StateManager) -> None:
                     side="left",
                     showgrid=True,
                     gridwidth=1,
-                    gridcolor="rgba(156, 163, 175, 0.2)",
+                    gridcolor=plotly_theme["gridcolor"],
                 ),
                 yaxis2=dict(
                     title="TSS (нагрузка)",
@@ -295,9 +301,9 @@ def render_hrv_page(state: StateManager) -> None:
                     showgrid=False,
                 ),
                 height=450,
-                font=dict(family="Inter, -apple-system, sans-serif", size=12),
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
+                font=dict(family="Inter, -apple-system, sans-serif", size=12, color=plotly_theme["font_color"]),
+                paper_bgcolor=plotly_theme["paper_bgcolor"],
+                plot_bgcolor=plotly_theme["plot_bgcolor"],
                 legend=dict(
                     orientation="h",
                     yanchor="bottom",
