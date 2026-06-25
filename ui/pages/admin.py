@@ -13,18 +13,31 @@ if TYPE_CHECKING:
 
 def render_sync_logs_page(log_dir: str = "logs") -> None:
     """Показывает логи синхронизации для отладки."""
-    st.title("📋 Логи синхронизации")
-    st.write("Детальные логи процесса синхронизации с Garmin Connect")
+    from utils.modern_ui import ModernUI
+
+    ModernUI.render_page_hero(
+        "Логи синхронизации",
+        subtitle="Детальные логи процесса синхронизации с Garmin Connect",
+        eyebrow="Diagnostics",
+    )
 
     if not os.path.exists(log_dir):
-        st.warning("📁 Папка с логами не найдена. Логи будут создаваться при следующей синхронизации.")
+        ModernUI.render_text_card(
+            "Папка с логами не найдена",
+            "Логи будут создаваться при следующей синхронизации.",
+            tone="warning",
+        )
         return
 
     log_files = glob.glob(os.path.join(log_dir, "garmin_sync_*.log"))
     log_files.sort(reverse=True)
 
     if not log_files:
-        st.info("📝 Файлы логов пока не созданы. Выполните синхронизацию для создания логов.")
+        ModernUI.render_text_card(
+            "Файлы логов пока не созданы",
+            "Выполните синхронизацию для создания логов.",
+            tone="info",
+        )
         return
 
     col1, col2 = st.columns([2, 1])
@@ -44,7 +57,7 @@ def render_sync_logs_page(log_dir: str = "logs") -> None:
         return
 
     try:
-        st.subheader("🔍 Фильтры")
+        ModernUI.render_section_title("Фильтры", caption="Отбор строк лога")
         col1, col2, col3 = st.columns(3)
 
         with col1:
@@ -73,7 +86,7 @@ def render_sync_logs_page(log_dir: str = "logs") -> None:
 
         display_lines = filtered_lines[-max_lines:] if len(filtered_lines) > max_lines else filtered_lines
 
-        st.subheader(f"📄 Логи ({len(display_lines)} из {len(lines)} строк)")
+        ModernUI.render_section_title(f"Логи ({len(display_lines)} из {len(lines)} строк)")
 
         if st.checkbox("Группировать по типам"):
             errors = [line for line in display_lines if "ERROR" in line]
@@ -82,24 +95,18 @@ def render_sync_logs_page(log_dir: str = "logs") -> None:
             debugs = [line for line in display_lines if "DEBUG" in line]
 
             if errors:
-                st.error(f"❌ Ошибки ({len(errors)}):")
-                st.code("\n".join(errors), language=None)
-
+                ModernUI.render_text_card(f"❌ Ошибки ({len(errors)})", "\n".join(errors), tone="danger")
             if warnings:
-                st.warning(f"⚠️ Предупреждения ({len(warnings)}):")
-                st.code("\n".join(warnings), language=None)
-
+                ModernUI.render_text_card(f"⚠️ Предупреждения ({len(warnings)})", "\n".join(warnings), tone="warning")
             if infos:
-                st.info(f"ℹ️ Информация ({len(infos)}):")
-                st.code("\n".join(infos), language=None)
-
+                ModernUI.render_text_card(f"ℹ️ Информация ({len(infos)})", "\n".join(infos), tone="info")
             if debugs and "DEBUG" in level_filter:
                 with st.expander(f"🔍 Отладка ({len(debugs)})"):
                     st.code("\n".join(debugs), language=None)
         else:
             st.code("".join(display_lines), language=None)
 
-        st.subheader("📊 Статистика логов")
+        ModernUI.render_section_title("Статистика логов")
         col1, col2 = st.columns(2)
         col3, col4 = st.columns(2)
 
@@ -108,13 +115,17 @@ def render_sync_logs_page(log_dir: str = "logs") -> None:
         warnings_count = len([line for line in lines if "WARNING" in line])
         success_count = len([line for line in lines if "✅" in line])
 
-        col1.metric("Всего строк", total_lines)
-        col2.metric("Ошибок", errors_count)
-        col3.metric("Предупреждений", warnings_count)
-        col4.metric("Успешных операций", success_count)
+        with col1:
+            ModernUI.render_stat_card("Всего строк", total_lines, tone="neutral")
+        with col2:
+            ModernUI.render_stat_card("Ошибок", errors_count, tone="danger" if errors_count else "neutral")
+        with col3:
+            ModernUI.render_stat_card("Предупреждений", warnings_count, tone="warning" if warnings_count else "neutral")
+        with col4:
+            ModernUI.render_stat_card("Успешных операций", success_count, tone="success")
 
     except Exception as exc:
-        st.error(f"Ошибка чтения файла лога: {exc}")
+        ModernUI.render_text_card("Ошибка чтения файла лога", str(exc), tone="danger")
 
 
 def render_data_management_page(
@@ -123,11 +134,16 @@ def render_data_management_page(
     on_clear_database: Callable[[], None],
 ) -> None:
     """Показывает страницу управления данными."""
-    database = state.database
-    st.title("⚙️ Управление данными")
-    st.write("Управление синхронизацией и данными в базе")
+    from utils.modern_ui import ModernUI
 
-    st.subheader("🔄 Синхронизация данных")
+    database = state.database
+    ModernUI.render_page_hero(
+        "Управление данными",
+        subtitle="Синхронизация с Garmin Connect и данные в базе",
+        eyebrow="Data cockpit",
+    )
+
+    ModernUI.render_section_title("Синхронизация данных", caption="Загрузка из Garmin Connect")
     col1, col2 = st.columns([2, 1])
 
     with col1:
@@ -140,11 +156,10 @@ def render_data_management_page(
         )
 
     with col2:
-        if st.button("🔄 Синхронизировать данные", width="stretch"):
+        if st.button("🔄 Синхронизировать данные", type="primary", width="stretch"):
             on_sync(sync_days)
 
-    st.divider()
-    st.subheader("📊 Данные в БД")
+    ModernUI.render_section_title("Данные в БД", caption="Содержимое локального кэша")
 
     if hasattr(state, "database"):
         stats = database.get_database_stats()
@@ -153,25 +168,25 @@ def render_data_management_page(
         col4, col5 = st.columns(2)
 
         with col1:
-            st.metric("🏃‍♂️ Активности", stats["activities"])
-
+            ModernUI.render_stat_card("🏃‍♂️ Активности", stats["activities"], tone="success" if stats["activities"] else "empty")
         with col2:
-            st.metric("💓 HRV записи", stats["hrv_data"])
-
+            ModernUI.render_stat_card("💓 HRV записи", stats["hrv_data"], tone="info" if stats["hrv_data"] else "empty")
         with col3:
-            st.metric("😴 Данные сна", stats.get("sleep_data", 0))
-
+            ModernUI.render_stat_card("😴 Данные сна", stats.get("sleep_data", 0), tone="info" if stats.get("sleep_data", 0) else "empty")
         with col4:
-            st.metric("🏥 Показатели здоровья", stats.get("daily_health", 0))
-
+            ModernUI.render_stat_card("🏥 Здоровье", stats.get("daily_health", 0), tone="neutral")
         with col5:
-            st.metric("📈 Статус тренированности", stats.get("training_status", 0))
+            ModernUI.render_stat_card("📈 Training status", stats.get("training_status", 0), tone="neutral")
 
         if stats["activities"] > 0:
             try:
                 activities_df = database.get_activities(1)
                 if not activities_df.empty:
-                    st.info(f"📅 Последняя активность: {activities_df.iloc[0]['date']}")
+                    ModernUI.render_text_card(
+                        "Последняя активность",
+                        f"📅 {activities_df.iloc[0]['date']}",
+                        tone="info",
+                    )
             except Exception:
                 pass
 
