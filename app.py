@@ -92,13 +92,6 @@ def main():
     state = get_state_manager()
     acceptance_info = acceptance_mode_service.bootstrap_session(state)
 
-    # Resolve the initial dark-mode preference (stored localStorage value >
-    # OS prefers-color-scheme) via a one-shot JS roundtrip. The probe emits
-    # only when no preference has been carried into the session yet, and the
-    # resolved value is consumed by StateManager._bootstrap_defaults.
-    from ui.theme_bootstrap import render_theme_probe
-    render_theme_probe()
-
     from utils.modern_ui import ModernUI
     ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
 
@@ -127,9 +120,7 @@ def main():
                      help="Переключить тему",
                      width="stretch",
                      key="theme_toggle"):
-            new_mode = state.toggle_dark_mode()
-            from ui.theme_bootstrap import persist_theme_choice
-            persist_theme_choice(new_mode)
+            state.toggle_dark_mode()
             st.rerun()
 
     render_garmin_connection(state, render_profile=render_garmin_profile)

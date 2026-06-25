@@ -7,7 +7,7 @@ import time
 from typing import Any, Dict, Optional
 
 import pandas as pd
-import streamlit.components.v1 as components
+import streamlit as st
 
 
 def speak_text(text: str, voice: str = "default"):
@@ -63,7 +63,11 @@ def speak_text(text: str, voice: str = "default"):
     </script>
     """
 
-    components.html(js_code, height=0)
+    # st.html with unsafe_allow_javascript is the post-2026-06-01 replacement
+    # for the deprecated st.components.v1.html. Unlike the old API it runs the
+    # <script> in the main DOM (DOMPurify-sanitized) instead of a sandboxed
+    # iframe, so Web Speech API access is not restricted.
+    st.html(js_code, unsafe_allow_javascript=True)
 
 
 def simulate_streaming_response(placeholder, text):

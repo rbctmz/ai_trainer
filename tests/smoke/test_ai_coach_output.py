@@ -66,17 +66,19 @@ def test_streaming_response_keeps_cursor_during_long_output(monkeypatch: pytest.
 def test_speak_text_sanitizes_markdown_and_truncates(monkeypatch: pytest.MonkeyPatch):
     captured = {}
 
-    def fake_html(html, height=0):
-        captured["html"] = html
-        captured["height"] = height
+    def fake_html(body, *, unsafe_allow_javascript=False, width="stretch"):
+        captured["html"] = body
+        captured["unsafe_allow_javascript"] = unsafe_allow_javascript
 
-    monkeypatch.setattr(ai_coach_output.components, "html", fake_html)
+    # speak_text now uses st.html(unsafe_allow_javascript=True); mock it on the
+    # streamlit module the production code imports.
+    monkeypatch.setattr(ai_coach_output.st, "html", fake_html)
 
     long_markdown = "# Заголовок\n**Жирный** [линк](https://example.com) `" + ("x" * 520) + "`"
     ai_coach_output.speak_text(long_markdown)
 
     html = captured["html"]
-    assert captured["height"] == 0
+    assert captured["unsafe_allow_javascript"] is True
     assert "Заголовок" in html
     assert "Жирный" in html
     assert "линк" in html
