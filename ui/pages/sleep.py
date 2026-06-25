@@ -18,16 +18,22 @@ def render_sleep_page(state: StateManager) -> None:
     """Render the sleep analysis page."""
     from utils.modern_ui import ModernUI
 
-    if state.use_custom_theme:
-        ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
-
-    st.header("😴 Анализ качества сна")
+    ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
+    ModernUI.render_page_hero(
+        "Сон",
+        subtitle="Анализ качества сна и фаз",
+        eyebrow="Sleep cockpit",
+    )
 
     sleep_df = load_sleep(90)
 
     if sleep_df.empty:
-        st.warning("📊 Данные сна отсутствуют. Выполните синхронизацию с Garmin Connect.")
-        if st.button("🔄 Синхронизировать данные"):
+        ModernUI.render_text_card(
+            "Данные сна отсутствуют",
+            "Выполните синхронизацию с Garmin Connect, чтобы загрузить данные сна.",
+            tone="warning",
+        )
+        if st.button("🔄 Синхронизировать данные", type="primary", width="stretch"):
             st.rerun()
         return
 
@@ -51,7 +57,11 @@ def render_sleep_page(state: StateManager) -> None:
     filtered_df = sleep_df[sleep_df["date"] >= cutoff_date].copy()
 
     if filtered_df.empty:
-        st.warning(f"📊 Нет данных сна за последние {period_days} дней.")
+        ModernUI.render_text_card(
+            "Нет данных за период",
+            f"За последние {period_days} дней данные сна не найдены.",
+            tone="warning",
+        )
         return
 
     latest_sleep = None
@@ -60,7 +70,10 @@ def render_sleep_page(state: StateManager) -> None:
         latest_sleep = sorted_df.iloc[0]
 
     if latest_sleep is not None:
-        st.subheader(f"🌙 Последний сон ({_format_date(latest_sleep['date'], 'display')})")
+        ModernUI.render_section_title(
+            f"Последний сон ({_format_date(latest_sleep['date'], 'display')})",
+            caption="Детали последней ночи",
+        )
 
         col1, col2, col3, col4 = st.columns(4)
 
@@ -131,7 +144,7 @@ def render_sleep_page(state: StateManager) -> None:
             and bedtime_metric.get("status") != "secondary"
             and wake_metric.get("status") != "secondary"
         ):
-            st.subheader("⏱ Регулярность режима")
+            ModernUI.render_section_title("Регулярность режима", caption="Стабильность расписания сна")
             reg_col1, reg_col2 = st.columns(2)
 
             with reg_col1:
@@ -156,7 +169,7 @@ def render_sleep_page(state: StateManager) -> None:
 
         weekday_profile_df = regularity_metrics.get("weekday_profile")
         if weekday_profile_df is not None and not weekday_profile_df.empty:
-            st.subheader("📊 Засыпание и пробуждение по дням недели")
+            ModernUI.render_section_title("Засыпание и пробуждение по дням недели", caption="Средние значения")
 
             plot_df = weekday_profile_df.copy()
             bedtime_hours = plot_df["bedtime_hours"]
@@ -249,7 +262,7 @@ def render_sleep_page(state: StateManager) -> None:
             st.plotly_chart(fig_weekday, width="stretch")
             st.caption("Столбики показывают средний интервал сна по дням. Чем ровнее высота, тем стабильнее режим.")
 
-        st.subheader("🌀 Фазы сна")
+        ModernUI.render_section_title("Фазы сна", caption="Глубокий / REM / лёгкий")
         col1, col2, col3 = st.columns(3)
 
         with col1:
@@ -291,16 +304,16 @@ def render_sleep_page(state: StateManager) -> None:
         if latest_sleep.get("bedtime") and latest_sleep.get("wakeup_time"):
             col1, col2 = st.columns(2)
             with col1:
-                st.metric("🌙 Время засыпания", latest_sleep["bedtime"])
+                ModernUI.render_stat_card("🌙 Время засыпания", latest_sleep["bedtime"], tone="info")
             with col2:
-                st.metric("🌅 Время пробуждения", latest_sleep["wakeup_time"])
+                ModernUI.render_stat_card("🌅 Время пробуждения", latest_sleep["wakeup_time"], tone="info")
             try:
                 tz_name = datetime.now().astimezone().tzname()
                 st.caption(f"Время отображается в локальной зоне: {tz_name}")
             except Exception:
                 st.caption("Время отображается в локальной часовой зоне устройства/сервера")
 
-    st.subheader("📈 Тренды сна")
+    ModernUI.render_section_title("Тренды сна", caption="Динамика за выбранный период")
 
     if len(filtered_df) > 1:
         from ui.plotly_theme import get_plotly_theme
@@ -493,7 +506,7 @@ def render_sleep_page(state: StateManager) -> None:
 
         st.plotly_chart(fig, width="stretch")
 
-        st.subheader("📊 Статистика за период")
+        ModernUI.render_section_title("Статистика за период", caption="Средние значения за выбранный срок")
 
         col1, col2, col3, col4 = st.columns(4)
 
@@ -551,7 +564,7 @@ def render_sleep_page(state: StateManager) -> None:
             )
 
     if len(filtered_df) > 0:
-        st.subheader("🥧 Распределение фаз сна")
+        ModernUI.render_section_title("Распределение фаз сна", caption="Доля фаз за период")
 
         avg_deep = filtered_df["deep_sleep_minutes"].mean()
         avg_light = filtered_df["light_sleep_minutes"].mean()
@@ -606,7 +619,7 @@ def render_sleep_page(state: StateManager) -> None:
 
             st.plotly_chart(fig_pie, width="stretch")
 
-        st.subheader("💡 Рекомендации по сну")
+        ModernUI.render_section_title("Рекомендации по сну", caption="На основе данных за период")
 
         recommendations = []
 
@@ -652,11 +665,14 @@ def render_sleep_page(state: StateManager) -> None:
         if avg_awake > 3:
             recommendations.append("🟡 Частые пробуждения. Проверьте температуру и освещение в спальне.")
 
-        for recommendation in recommendations:
-            st.write(f"• {recommendation}")
+        ModernUI.render_text_card(
+            "Что заметил коуч",
+            "\n".join(f"• {r}" for r in recommendations) if recommendations else "Все показатели в норме.",
+            tone="warning" if any(r.startswith("🔴") for r in recommendations) else "info",
+        )
 
-    st.subheader("📁 Экспорт данных")
-    if st.button("📊 Скачать данные сна"):
+    ModernUI.render_section_title("Экспорт данных", caption="Выгрузка CSV")
+    if st.button("📊 Скачать данные сна", type="primary", width="stretch"):
         csv = filtered_df.to_csv(index=False)
         st.download_button(
             label="💾 Загрузить CSV файл",
