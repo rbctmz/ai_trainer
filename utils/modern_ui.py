@@ -1239,15 +1239,15 @@ class ModernUI:
         
         # Определяем статус, цвет и процент для кругового индикатора
         if status_type in ('success', 'warning', 'danger', 'secondary', 'info'):
-            # Цвета в палитре AI Endurance
+            # Cockpit accents (aligned to --ic-* in utils/modern_ui.py :root).
             color_map = {
-                'success': ('#10B981', 'Good'),     # зеленый
-                'warning': ('#F59E0B', 'Caution'),  # желтый
-                'danger': ('#EF4444', 'Critical'),  # красный
-                'secondary': ('#64748B', 'Info'),   # серый
-                'info': ('#3B82F6', 'Info'),        # синий
+                'success': ('#0D8F68', 'Good'),      # --ic-green
+                'warning': ('#E6A01A', 'Caution'),   # --ic-amber
+                'danger': ('#C94B42', 'Critical'),   # --ic-red
+                'secondary': ('#0F6F73', 'Info'),    # --ic-teal
+                'info': ('#2E6FBB', 'Info'),         # --ic-blue
             }
-            color, status_badge = color_map.get(status_type, ('#8B5CF6', 'Status'))
+            color, status_badge = color_map.get(status_type, ('#0F6F73', 'Status'))
             # Для категориальных статусов отображаем условный прогресс, чтобы кольцо выглядело завершенным
             progress_map = {
                 'success': 90,
@@ -1261,36 +1261,37 @@ class ModernUI:
             # TSB: -50 до +20 -> 0 до 100%
             progress_percent = max(0, min(100, ((numeric_value + 50) / 70) * 100))
             if numeric_value > 5:
-                color = '#10B981'  # зеленый
+                color = '#0D8F68'  # --ic-green
                 status_badge = "Peak Form"
             elif numeric_value > -10:
-                color = '#3B82F6'  # синий
+                color = '#2E6FBB'  # --ic-blue
                 status_badge = "Fresh"
             elif numeric_value > -30:
-                color = '#F59E0B'  # желтый
+                color = '#E6A01A'  # --ic-amber
                 status_badge = "Tired"
             else:
-                color = '#EF4444'  # красный
+                color = '#C94B42'  # --ic-red
                 status_badge = "Overtrained"
         elif status_type == 'readiness':
             progress_percent = min(100, max(0, numeric_value))
             if numeric_value > 80:
-                color = '#10B981'  # зеленый
+                color = '#0D8F68'  # --ic-green
                 status_badge = "Ready"
             elif numeric_value > 60:
-                color = '#F59E0B'  # желтый
+                color = '#E6A01A'  # --ic-amber
                 status_badge = "Caution"
             else:
-                color = '#EF4444'  # красный
+                color = '#C94B42'  # --ic-red
                 status_badge = "Not Ready"
         else:  # ctl
             # CTL: 0 до 200 -> 0 до 100%
             progress_percent = min(100, max(0, (numeric_value / 200) * 100))
-            color = '#8B5CF6'  # фиолетовый
+            color = '#0F6F73'  # --ic-teal
             status_badge = "Training Load"
-        
-        # Создаем круговой индикатор (упрощенный SVG) с адаптацией к теме
-        bg_circle_color = "rgba(100,100,100,0.3)" if theme['is_dark'] else "rgba(200,200,200,0.3)"
+
+        # Создаем круговой индикатор (упрощенный SVG) с адаптацией к теме.
+        # Track ring uses the cockpit hairline color so it reads on both themes.
+        bg_circle_color = "rgba(244,240,231,0.12)" if theme['is_dark'] else "rgba(24,37,31,0.12)"
         value_color = color
         
         circle_html = f"""
@@ -1342,16 +1343,17 @@ class ModernUI:
             f"</div>"
         )
         
-        # AI Endurance стиль карточки с адаптацией к теме
-        bg_color = "rgba(30,30,30,0.95)" if theme['is_dark'] else "rgba(255,255,255,0.95)"
-        title_color = "#F5F5F5" if theme['is_dark'] else "#374151"
-        desc_color = "#A0A0A0" if theme['is_dark'] else "#6B7280"
-        box_shadow = "0 4px 20px rgba(255,255,255,0.1)" if theme['is_dark'] else "0 4px 20px rgba(0,0,0,0.1)"
+        # AI Endurance стиль карточки с адаптацией к теме (cockpit --ic-*).
+        bg_color = "#19221D" if theme['is_dark'] else "#FFFDF7"   # --ic-surface
+        title_color = "#F4F0E7" if theme['is_dark'] else "#18251F"  # --ic-ink
+        desc_color = "#A7B4A9" if theme['is_dark'] else "#67736B"    # --ic-muted
+        box_shadow = "0 4px 20px rgba(0,0,0,0.34)" if theme['is_dark'] else "0 4px 20px rgba(75,63,38,0.14)"
+        border_color = "rgba(244,240,231,0.12)" if theme['is_dark'] else "rgba(24,37,31,0.12)"  # --ic-hairline
         
         card_html = (
             f"<div style=\"background: {bg_color}; border-radius: 20px; padding: 25px; "
             f"            box-shadow: {box_shadow}; text-align: center; "
-            f"            position: relative; margin: 10px 0; height: 320px; border: 1px solid rgba(128,128,128,0.2);\">"
+            f"            position: relative; margin: 10px 0; height: 320px; border: 1px solid {border_color};\">"
             f"{trend_html}"
             f"<div style=\"margin: 0 0 15px 0; color: {title_color}; font-size: 16px; font-weight: 600;\">{title}</div>"
             f"{circle_html}"
@@ -1390,11 +1392,11 @@ class ModernUI:
         
         for rec in recommendations:
             priority_colors = {
-                "high": "#EF4444",
-                "medium": "#F59E0B", 
-                "low": "#10B981"
+                "high": "#C94B42",   # --ic-red
+                "medium": "#E6A01A",  # --ic-amber
+                "low": "#0D8F68"      # --ic-green
             }
-            color = priority_colors.get(rec['priority'], '#667eea')
+            color = priority_colors.get(rec['priority'], '#0F6F73')  # --ic-teal default
             
             st.markdown(f"""
             <div class="ai-recommendation" style="border-left: 3px solid {color};">
@@ -1410,14 +1412,14 @@ class ModernUI:
         st.markdown("</div>", unsafe_allow_html=True)
     
     @staticmethod
-    def create_circular_indicator(value, max_value, title, subtitle, color="#667eea"):
-        """Круговой индикатор с адаптацией к теме"""
-        
+    def create_circular_indicator(value, max_value, title, subtitle, color="#0D8F68"):
+        """Круговой индикатор с адаптацией к теме (cockpit --ic-green default)."""
+
         theme = ModernUI.get_theme()
         percentage = (value / max_value) * 100 if max_value > 0 else 0
-        
-        # Адаптируем цвет фона под тему
-        bg_color = 'rgba(102, 126, 234, 0.1)' if not st.session_state.get('dark_mode', False) else 'rgba(76, 95, 213, 0.2)'
+
+        # Cockpit hairline track tint per theme.
+        bg_color = 'rgba(24,37,31,0.12)' if not theme['is_dark'] else 'rgba(244,240,231,0.12)'
         
         fig = go.Figure(go.Indicator(
             mode="gauge+number",
@@ -1569,7 +1571,7 @@ class ModernUI:
                 if data:
                     bg_color = theme['surface_light']
                     text_color = theme['text_primary']
-                    border_color = '#10B981'
+                    border_color = '#0D8F68'  # --ic-green
 
                     main = data['main']
                     title = sport_icon(main.get('sport'))
