@@ -9,7 +9,7 @@ import streamlit as st
 
 from services.data_cache import load_activities, load_hrv
 from state import StateManager
-from ui.plotly_theme import create_dark_table_html
+from ui.plotly_theme import get_plotly_theme
 
 
 def render_hrv_page(state: StateManager) -> None:
@@ -17,10 +17,12 @@ def render_hrv_page(state: StateManager) -> None:
     from utils.modern_ui import ModernUI
     from utils.visualizations import Visualizations
 
-    if state.use_custom_theme:
-        ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
-
-    st.header("💓 Анализ вариабельности сердечного ритма (HRV)")
+    ModernUI.apply_modern_styles(dark_mode=state.dark_mode)
+    ModernUI.render_page_hero(
+        "HRV",
+        subtitle="Анализ вариабельности сердечного ритма",
+        eyebrow="Recovery cockpit",
+    )
 
     hrv_df = load_hrv(90)
 
@@ -51,7 +53,11 @@ def render_hrv_page(state: StateManager) -> None:
     hrv_df.sort_values("date", ascending=False, inplace=True)
 
     if hrv_df.empty:
-        st.warning(f"📭 Нет данных HRV за последние {period_days} дней. Синхронизируйте данные с Garmin Connect.")
+        ModernUI.render_text_card(
+            "Нет данных HRV",
+            f"За последние {period_days} дней данные HRV не найдены. Синхронизируйте данные с Garmin Connect.",
+            tone="warning",
+        )
         with st.expander("❓ Что такое HRV?", expanded=True):
             st.markdown("**HRV (Heart Rate Variability)** - вариабельность сердечного ритма - это изменение времени между ударами сердца.")
             st.markdown("")
@@ -71,7 +77,7 @@ def render_hrv_page(state: StateManager) -> None:
 
     latest_date = latest_data.get("date") if isinstance(latest_data, pd.Series) else None
     display_date = _format_date(latest_date, "display") if latest_date is not None and not pd.isna(latest_date) else "Н/Д"
-    st.subheader(f"📊 Текущее состояние (данные от {display_date})")
+    ModernUI.render_section_title(f"Текущее состояние (данные от {display_date})", caption="Последний замер HRV")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -171,9 +177,8 @@ def render_hrv_page(state: StateManager) -> None:
         )
 
     if len(hrv_df) > 1:
-        st.subheader("📈 Динамика показателей")
+        ModernUI.render_section_title("Динамика показателей", caption="Динамика HRV с зонами восстановления")
 
-        from ui.plotly_theme import get_plotly_theme
         plotly_theme = get_plotly_theme(state.dark_mode)
 
         hrv_dates = hrv_df["date"].tolist()
@@ -235,7 +240,7 @@ def render_hrv_page(state: StateManager) -> None:
         st.plotly_chart(fig_rmssd, width="stretch")
 
     if not hrv_df.empty:
-        st.subheader("🔍 Анализ взаимосвязей")
+        ModernUI.render_section_title("Анализ взаимосвязей", caption="HRV и тренировочная нагрузка")
 
         activities_df = load_activities(period_days)
 
@@ -353,28 +358,48 @@ def render_hrv_page(state: StateManager) -> None:
 
                         if abs(max_corr_value) > 0.4:
                             if max_corr_value < 0:
-                                st.success(f"✅ **Сильная обратная связь** ({max_corr_key.replace('_', ' ')})")
-                                st.write("Высокая нагрузка приводит к снижению HRV")
+                                ModernUI.render_text_card(
+                                    "Сильная обратная связь",
+                                    f"{max_corr_key.replace('_', ' ')}\n\nВысокая нагрузка приводит к снижению HRV.",
+                                    tone="success",
+                                )
                             else:
-                                st.warning("⚠️ **Неожиданная прямая связь**")
-                                st.write("Возможно недовосстановление или особенности тренировок")
+                                ModernUI.render_text_card(
+                                    "Неожиданная прямая связь",
+                                    "Возможно недовосстановление или особенности тренировок.",
+                                    tone="warning",
+                                )
                         elif abs(max_corr_value) > 0.2:
                             if max_corr_value < 0:
-                                st.info(f"📈 **Умеренная обратная связь** ({max_corr_key.replace('_', ' ')})")
-                                st.write("Заметное влияние нагрузки на HRV")
+                                ModernUI.render_text_card(
+                                    "Умеренная обратная связь",
+                                    f"{max_corr_key.replace('_', ' ')}\n\nЗаметное влияние нагрузки на HRV.",
+                                    tone="info",
+                                )
                             else:
-                                st.info("📊 Умеренная прямая связь")
+                                ModernUI.render_text_card(
+                                    "Умеренная прямая связь",
+                                    "Нагрузка и HRV движутся согласованно.",
+                                    tone="info",
+                                )
                         else:
-                            st.info("ℹ️ **Слабая корреляция**")
                             training_days = len(combined_df[combined_df["tss"] > 0])
-                            st.write(f"Дней с тренировками: {training_days}")
-                            if training_days < 20:
-                                st.write("💡 Для лучшего анализа нужно больше тренировочных данных")
+                            footer = "💡 Для лучшего анализа нужно больше тренировочных данных." if training_days < 20 else None
+                            ModernUI.render_text_card(
+                                "Слабая корреляция",
+                                f"Дней с тренировками: {training_days}.",
+                                tone="neutral",
+                                footer=footer,
+                            )
                     else:
-                        st.warning("⚠️ Недостаточно данных для анализа корреляции")
+                        ModernUI.render_text_card(
+                            "Недостаточно данных",
+                            "Недостаточно данных для анализа корреляции HRV и нагрузки.",
+                            tone="warning",
+                        )
 
     if not hrv_df.empty:
-        st.subheader("📋 Таблица данных")
+        ModernUI.render_section_title("Таблица данных", caption="Подневные значения HRV")
 
         display_df = hrv_df.copy()
         display_df = display_df.sort_values("date", ascending=False)
@@ -391,12 +416,11 @@ def render_hrv_page(state: StateManager) -> None:
         columns_to_show = [col for col in display_columns.keys() if col in display_df.columns]
         table_df = display_df[columns_to_show].rename(columns=display_columns)
 
-        if state.use_custom_theme and state.dark_mode:
-            st.markdown(create_dark_table_html(table_df), unsafe_allow_html=True)
-        else:
-            st.dataframe(table_df, width="stretch", hide_index=True)
+        # Single cockpit path: st.dataframe is globally restyled by
+        # apply_modern_styles; the dark-only create_dark_table_html branch is gone.
+        st.dataframe(table_df, width="stretch", hide_index=True)
 
-    st.subheader("💡 Рекомендации по HRV")
+    ModernUI.render_section_title("Рекомендации по HRV", caption="Интерпретация динамики")
 
     if not hrv_df.empty and len(hrv_df) > 7:
         recent_data = hrv_df.tail(7)
@@ -405,40 +429,53 @@ def render_hrv_page(state: StateManager) -> None:
         col1, col2 = st.columns(2)
 
         with col1:
-            st.write("**Тенденция за неделю:**")
             if rmssd_trend > 2:
-                st.success("📈 HRV растет - отличное восстановление!")
-                st.write("- Можно увеличивать интенсивность тренировок")
-                st.write("- Организм хорошо адаптируется к нагрузкам")
+                ModernUI.render_text_card(
+                    "Тенденция за неделю",
+                    "📈 HRV растет — отличное восстановление!\n\n"
+                    "- Можно увеличивать интенсивность тренировок\n"
+                    "- Организм хорошо адаптируется к нагрузкам",
+                    tone="success",
+                )
             elif rmssd_trend < -2:
-                st.warning("📉 HRV снижается - признак накопления усталости")
-                st.write("- Рекомендуется снизить интенсивность")
-                st.write("- Уделить больше внимания восстановлению")
+                ModernUI.render_text_card(
+                    "Тенденция за неделю",
+                    "📉 HRV снижается — признак накопления усталости.\n\n"
+                    "- Рекомендуется снизить интенсивность\n"
+                    "- Уделить больше внимания восстановлению",
+                    tone="warning",
+                )
             else:
-                st.info("➡️ HRV стабильна - продолжайте текущий режим")
+                ModernUI.render_text_card(
+                    "Тенденция за неделю",
+                    "➡️ HRV стабильна — продолжайте текущий режим.",
+                    tone="info",
+                )
 
         with col2:
-            st.write("**Советы по улучшению HRV:**")
-            st.write("- 😴 Качественный сон 7-9 часов")
-            st.write("- 🧘 Медитация и дыхательные практики")
-            st.write("- 🥗 Сбалансированное питание")
-            st.write("- 💧 Достаточная гидратация")
-            st.write("- ⚖️ Баланс нагрузки и отдыха")
+            ModernUI.render_text_card(
+                "Советы по улучшению HRV",
+                "- 😴 Качественный сон 7-9 часов\n"
+                "- 🧘 Медитация и дыхательные практики\n"
+                "- 🥗 Сбалансированное питание\n"
+                "- 💧 Достаточная гидратация\n"
+                "- ⚖️ Баланс нагрузки и отдыха",
+                tone="neutral",
+            )
     else:
-        st.info(
-            """
-        **Для полноценного анализа HRV рекомендуется:**
-        - Регулярные измерения (ежедневно утром)
-        - Минимум 7-14 дней данных
-        - Постоянство условий измерения
-        - Учёт факторов образа жизни
-        """
+        ModernUI.render_text_card(
+            "Для полноценного анализа HRV рекомендуется",
+            "- Регулярные измерения (ежедневно утром)\n"
+            "- Минимум 7-14 дней данных\n"
+            "- Постоянство условий измерения\n"
+            "- Учёт факторов образа жизни",
+            tone="info",
         )
 
     if not hrv_df.empty:
-        st.subheader("📤 Экспорт данных HRV")
+        ModernUI.render_section_title("Экспорт данных HRV", caption="Выгрузка CSV")
 
-        if st.button("📊 Скачать данные HRV"):
+        if st.button("📊 Скачать данные HRV", type="primary", width="stretch"):
             csv = table_df.to_csv(index=False) if "table_df" in locals() else hrv_df.to_csv(index=False)
             st.download_button(
                 label="💾 Загрузить CSV файл",
