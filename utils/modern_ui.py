@@ -1601,11 +1601,13 @@ class ModernUI:
     @staticmethod
     def create_mini_trend_chart(data, title, color="#3B82F6", height=100):
         """Мини-график тренда с адаптацией к теме"""
-        
-        theme = ModernUI.get_theme()
-        
+        from ui.plotly_theme import get_plotly_theme
+
+        dark_mode = ModernUI.get_theme()['is_dark']
+        plotly_theme = get_plotly_theme(dark_mode)
+
         fig = go.Figure()
-        
+
         # Основная линия
         fig.add_trace(go.Scatter(
             y=data,
@@ -1615,7 +1617,7 @@ class ModernUI:
             showlegend=False,
             hovertemplate='%{y:.1f}<extra></extra>'
         ))
-        
+
         # Заливка
         fig.add_trace(go.Scatter(
             y=data,
@@ -1625,32 +1627,33 @@ class ModernUI:
             showlegend=False,
             hoverinfo='skip'
         ))
-        
+
         # Оформление
         fig.update_layout(
             height=height,
             margin=dict(l=0, r=0, t=25, b=0),
             xaxis=dict(
-                showticklabels=False, 
+                showticklabels=False,
                 showgrid=False,
                 showline=False,
                 zeroline=False
             ),
             yaxis=dict(
-                showticklabels=False, 
+                showticklabels=False,
                 showgrid=True,
-                gridcolor='rgba(0,0,0,0.05)',
+                gridcolor=plotly_theme['gridcolor'],
                 showline=False,
                 zeroline=False
             ),
             title=dict(
-                text=title, 
-                font=dict(size=12, color=theme['text_secondary']),
+                text=title,
+                font=dict(size=12, color=plotly_theme['font_color']),
                 x=0.5,
                 y=0.95
             ),
-            plot_bgcolor='rgba(0,0,0,0)',
-            paper_bgcolor='rgba(0,0,0,0)'
+            plot_bgcolor=plotly_theme['plot_bgcolor'],
+            paper_bgcolor=plotly_theme['paper_bgcolor'],
+            font=dict(color=plotly_theme['font_color']),
         )
-        
+
         return fig

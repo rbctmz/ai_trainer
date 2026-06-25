@@ -17,19 +17,20 @@ def get_plotly_theme(dark_mode: Optional[bool] = None):
         dark_mode = get_state_manager().dark_mode
     if dark_mode:
         return {
+            # Aligned to the cockpit palette in utils/modern_ui.py (--ic-*).
             'template': 'plotly_dark',
-            'paper_bgcolor': '#121212',  # Material Design dark background
-            'plot_bgcolor': '#1E1E1E',   # Surface color
-            'font_color': '#F5F5F5',     # High contrast text
-            'gridcolor': '#2B2B2B'       # Proper divider color
+            'paper_bgcolor': '#101411',  # --ic-bg
+            'plot_bgcolor': '#19221D',   # --ic-surface
+            'font_color': '#F4F0E7',     # --ic-ink
+            'gridcolor': 'rgba(244,240,231,0.12)',  # --ic-hairline
         }
     else:
         return {
             'template': 'plotly_white',
-            'paper_bgcolor': 'white',
-            'plot_bgcolor': 'white',
-            'font_color': '#262730',
-            'gridcolor': '#e0e0e0'
+            'paper_bgcolor': '#FFFDF7',  # --ic-surface (light)
+            'plot_bgcolor': '#FFFDF7',
+            'font_color': '#18251F',     # --ic-ink (light)
+            'gridcolor': 'rgba(24,37,31,0.12)',  # --ic-hairline (light)
         }
 
 

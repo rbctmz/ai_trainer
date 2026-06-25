@@ -22,6 +22,7 @@ from models.planning_near_term import (
 )
 from models.planning_execution import rebuild_goal_plan_with_adjustment
 from models.planning_execution import summarize_execution_corrective_microcycle
+from ui.plotly_theme import apply_plotly_theme
 from models.planning_summary import (
     NEAR_TERM_EDIT_POST_STRATEGIES,
     NEAR_TERM_EDIT_POST_STRATEGY_LABELS_RU,
@@ -2066,6 +2067,7 @@ def render_planning_page(state: "StateManager") -> None:
             dates_full, ctl_values, atl_values, tsb_values = banister.calculate_ctl_atl_tsb(tss_data, dates)
             if dates_full and ctl_values:
                 fig_banister = Visualizations.create_banister_chart(dates_full, ctl_values, atl_values, tsb_values)
+                apply_plotly_theme(fig_banister, dark_mode=state.dark_mode)
                 st.plotly_chart(fig_banister, width="stretch")
 
             intensity_colors = {
@@ -2134,6 +2136,7 @@ def render_planning_page(state: "StateManager") -> None:
                         future_dates, future_ctl, future_atl, future_tsb
                     )
                     fig_future.update_layout(title="Прогноз при планируемой нагрузке")
+                    apply_plotly_theme(fig_future, dark_mode=state.dark_mode)
                     st.plotly_chart(fig_future, width="stretch")
 
                     final_tsb = future_tsb[-1]
@@ -2935,6 +2938,7 @@ def render_planning_page(state: "StateManager") -> None:
             future_dates, future_ctl, future_atl, future_tsb
         )
         fig_future.update_layout(title=f"Прогноз до старта ({goal_type_cached} • {distance_cached})")
+        apply_plotly_theme(fig_future, dark_mode=state.dark_mode)
         st.plotly_chart(fig_future, width="stretch")
 
         comparison_df = _render_plan_explainability(goal_plan)
@@ -3298,9 +3302,11 @@ def render_planning_page(state: "StateManager") -> None:
             with col1:
                 if not activities_df.empty and "tss" in activities_df.columns:
                     fig_tss_dist = Visualizations.create_tss_distribution_chart(activities_df)
+                    apply_plotly_theme(fig_tss_dist, dark_mode=state.dark_mode)
                     st.plotly_chart(fig_tss_dist, width="stretch")
 
             with col2:
                 if not activities_df.empty:
                     fig_weekly = Visualizations.create_weekly_tss_chart(activities_df)
+                    apply_plotly_theme(fig_weekly, dark_mode=state.dark_mode)
                     st.plotly_chart(fig_weekly, width="stretch")

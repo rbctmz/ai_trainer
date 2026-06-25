@@ -17,19 +17,19 @@ pytestmark = pytest.mark.smoke
 def test_dark_plotly_theme_contract() -> None:
     theme = get_plotly_theme(True)
     assert theme["template"] == "plotly_dark"
-    assert theme["paper_bgcolor"] == "#121212"
-    assert theme["plot_bgcolor"] == "#1E1E1E"
-    assert theme["font_color"] == "#F5F5F5"
-    assert theme["gridcolor"] == "#2B2B2B"
+    assert theme["paper_bgcolor"] == "#101411"  # cockpit --ic-bg
+    assert theme["plot_bgcolor"] == "#19221D"   # cockpit --ic-surface
+    assert theme["font_color"] == "#F4F0E7"     # cockpit --ic-ink
+    assert theme["gridcolor"] == "rgba(244,240,231,0.12)"  # cockpit --ic-hairline
 
 
 def test_light_plotly_theme_contract() -> None:
     theme = get_plotly_theme(False)
     assert theme["template"] == "plotly_white"
-    assert theme["paper_bgcolor"] == "white"
-    assert theme["plot_bgcolor"] == "white"
-    assert theme["font_color"] == "#262730"
-    assert theme["gridcolor"] == "#e0e0e0"
+    assert theme["paper_bgcolor"] == "#FFFDF7"  # cockpit --ic-surface (light)
+    assert theme["plot_bgcolor"] == "#FFFDF7"
+    assert theme["font_color"] == "#18251F"     # cockpit --ic-ink (light)
+    assert theme["gridcolor"] == "rgba(24,37,31,0.12)"  # cockpit --ic-hairline (light)
 
 
 def test_apply_plotly_theme_writes_dark_palette_onto_figure() -> None:
@@ -48,8 +48,8 @@ def test_apply_plotly_theme_writes_dark_palette_onto_figure() -> None:
     assert fig.calls, "apply_plotly_theme must call fig.update_layout"
     kwargs = fig.calls[0][1]
     assert kwargs["template"] == "plotly_dark"
-    assert kwargs["paper_bgcolor"] == "#121212"
-    assert kwargs["font"] == dict(color="#F5F5F5")
+    assert kwargs["paper_bgcolor"] == "#101411"
+    assert kwargs["font"] == dict(color="#F4F0E7")
 
 
 def test_create_dark_table_html_contains_dark_palette_and_headers() -> None:
