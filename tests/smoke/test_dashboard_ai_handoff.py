@@ -1,0 +1,201 @@
+"""Smoke coverage for dashboard -> AI coach handoff."""
+from __future__ import annotations
+
+import pytest
+
+from ui.pages import dashboard
+
+
+pytestmark = pytest.mark.smoke
+
+
+class _RerunTriggered(BaseException):
+    """Sentinel exception used to stop rerun-based flows."""
+
+
+class _DummyState:
+    def __init__(self) -> None:
+        self.selected_page = "📊 Дашборд"
+        self.switch_to_chat_tab = False
+        self.ai_coach_handoff = None
+        self.latest_execution_feedback = {
+            "plan_adjustment_label": "Пропущены сессии",
+            "plan_adjustment_weeks": 1,
+            "total_delta": -40,
+            "peak_delta": 0,
+            "execution_corrective_microcycle": {
+                "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
+                "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                "guardrail": "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией.",
+                "sessions": [
+                    {
+                        "action_label": "Сделать контролируемо",
+                        "session_name": "Триатлон Олимпийка — Качество • бег",
+                    }
+                ],
+            },
+        }
+        self.goal_plan = None
+        self.resolved_goal_plan_context = {
+            "constraint_summary": {
+                "available_hours": 8.5,
+                "available_day_labels": ["Вт", "Чт", "Сб"],
+                "available_day_count": 3,
+                "recommended_days": 6,
+                "interruption_label": "Отпуск",
+                "interruption_weeks": 1,
+                "catch_up_strategy": "catch_up",
+                "plan_adjustment": {
+                    "label": "Пропущены сессии",
+                    "weeks": 1,
+                    "execution_weekly_review": {
+                        "headline": "Пропущена ключевая сессия",
+                        "review_badge": "Потеря качества",
+                        "deviations": [
+                            {
+                                "code": "missed_key_session",
+                                "label": "Пропущена ключевая сессия",
+                                "detail": "Ключевая работа недели",
+                            }
+                        ],
+                        "recommended_response_strategy": "protect_recovery",
+                        "recommended_response_label": "Беречь восстановление",
+                        "recommended_response_reason": "Сначала лучше вернуть структуру недели.",
+                        "selected_response_strategy": "catch_up",
+                        "selected_response_label": "Наверстать аккуратно",
+                    },
+                    "execution_corrective_microcycle": {
+                        "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
+                        "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                        "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                        "guardrail": "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией.",
+                        "sessions": [
+                            {
+                                "action_label": "Сделать контролируемо",
+                                "session_name": "Триатлон Олимпийка — Качество • бег",
+                            }
+                        ],
+                    },
+                },
+                "plan_adjustment_recovered_tss": 20,
+                "near_term_edit": {
+                    "is_active": True,
+                    "edited_day_count": 3,
+                    "horizon_days": 7,
+                    "total_delta_tss": -15,
+                    "label": "Ручная правка ближнего горизонта",
+                    "post_edit_strategy": "catch_up",
+                    "future_target_tss": 10,
+                    "future_delta_tss": 10,
+                    "future_weeks": 2,
+                    "future_week_count": 1,
+                },
+            }
+        }
+
+
+def test_ai_chat_action_primes_dashboard_handoff(monkeypatch: pytest.MonkeyPatch):
+    state = _DummyState()
+
+    def _raise_rerun() -> None:
+        raise _RerunTriggered
+
+    monkeypatch.setattr(dashboard.st, "rerun", _raise_rerun)
+
+    with pytest.raises(_RerunTriggered):
+        dashboard._handle_quick_action(
+            state,
+            "ai_chat",
+            lambda _days: None,
+            {"tsb": 4, "ctl": 70, "atl": 55, "readiness": 80},
+        )
+
+    assert state.selected_page == "🤖 AI Коучинг"
+    assert state.switch_to_chat_tab is True
+    assert state.ai_coach_handoff["source"] == "dashboard"
+    assert state.ai_coach_handoff["today_action"]
+    assert "checkpoint" in state.ai_coach_handoff["title"].lower()
+    assert "Вт, Чт, Сб" in state.ai_coach_handoff["prompt"]
+    assert "ручную правку ближнего горизонта" in state.ai_coach_handoff["prompt"]
+    assert "Пропущена ключевая сессия" in state.ai_coach_handoff["prompt"]
+    assert "Наверстать аккуратно" in state.ai_coach_handoff["prompt"]
+    assert "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии" in state.ai_coach_handoff["prompt"]
+    assert "Сделать контролируемо" in state.ai_coach_handoff["prompt"]
+    assert "Риск низкий" in state.ai_coach_handoff["prompt"]
+    assert state.ai_coach_handoff["response_contract"]["mode"] == "operational_brief"
+    assert "Сегодня / Ближайшие 2-3 дня / Не делать / Почему" in state.ai_coach_handoff["response_contract"]["preview_label"]
+
+
+def test_execution_feedback_result_compares_checkpoint_deltas():
+    result = dashboard._build_execution_feedback_result(
+        {
+            "goal_type": "Триатлон",
+            "distance": "Олимпийка",
+            "peak_tss": 400,
+            "total_tss": 1200,
+            "plan_adjustment_label": "Нет",
+        },
+        {
+            "goal_type": "Триатлон",
+            "distance": "Олимпийка",
+            "peak_tss": 380,
+            "total_tss": 1140,
+            "plan_adjustment_label": "Пропущены сессии",
+            "goal_plan_snapshot": {
+                "constraint_summary": {
+                    "plan_adjustment": {
+                        "execution_reconciliation": {
+                            "status": "reduced",
+                            "planned_total_tss": 180,
+                            "actual_total_tss": 140,
+                            "delta_tss": -40,
+                            "changed_day_count": 2,
+                            "missed_day_count": 1,
+                            "reduced_day_count": 1,
+                            "unavailable_day_count": 0,
+                            "completion_share": 0.78,
+                        },
+                        "execution_weekly_review": {
+                            "headline": "Пропущена ключевая сессия",
+                            "review_badge": "Потеря качества",
+                            "deviations": [
+                                {
+                                    "code": "missed_key_session",
+                                    "label": "Пропущена ключевая сессия",
+                                    "detail": "Ключевая работа недели",
+                                }
+                            ],
+                            "recommended_response_strategy": "protect_recovery",
+                            "recommended_response_label": "Беречь восстановление",
+                            "recommended_response_reason": "Сначала лучше вернуть структуру недели.",
+                            "selected_response_strategy": "protect_recovery",
+                            "selected_response_label": "Беречь восстановление",
+                        },
+                        "execution_corrective_microcycle": {
+                            "headline": "Ближайшие 2-3 дня: вернуть структуру без второй quality-сессии",
+                            "today_action": "Thu 18.06: Сделать контролируемо — Триатлон Олимпийка — Качество • бег (35 TSS).",
+                            "next_window": "Fri 19.06: Оставить лёгкой (Триатлон Олимпийка — Легкая • бег)",
+                            "guardrail": "Не добавляйте вторую интенсивную работу рядом с текущей ключевой сессией.",
+                            "sessions": [
+                                {
+                                    "action_label": "Сделать контролируемо",
+                                    "session_name": "Триатлон Олимпийка — Качество • бег",
+                                }
+                            ],
+                        },
+                    }
+                }
+            },
+            "checkpoint_source": "execution_feedback",
+            "created_at": "2026-06-14 12:00:00",
+        },
+    )
+
+    assert result["plan_adjustment_label"] == "Пропущены сессии"
+    assert result["peak_delta"] == -20
+    assert result["total_delta"] == -60
+    assert result["execution_reconciliation"]["planned_total_tss"] == 180
+    assert result["execution_reconciliation"]["changed_day_count"] == 2
+    assert result["execution_weekly_review"]["headline"] == "Пропущена ключевая сессия"
+    assert result["execution_corrective_microcycle"]["headline"].startswith("Ближайшие 2-3 дня")

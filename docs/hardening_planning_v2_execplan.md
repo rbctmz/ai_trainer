@@ -1,0 +1,964 @@
+# Hardening, Planning V2, and Coach Explainability
+
+This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
+
+This document must be maintained in accordance with `.agent/PLANS.md`.
+
+## Purpose / Big Picture
+
+The first three iterations did the right foundational work. The application now has a coherent onboarding path, a working dashboard, a real AI coaching flow, and a contributor-safe smoke suite. The next bottleneck is no longer "can the product be used at all?" It is "can the product be trusted, extended, and differentiated as a real coaching system?"
+
+This phase therefore has three goals in order:
+
+1. `Hardening Sprint`: remove operational fragility around Garmin authentication, environment drift, and release hygiene.
+2. `Planning V2`: turn the current planning page from a useful calculator into an adaptive planning engine.
+3. `Coach Explainability`: make the product explain why it recommends a given next step, not just render a chat answer.
+
+The observable proof is different from the previous phase. Success now means the app still launches and tests cleanly, but also that the real Garmin path is quieter and more predictable, planning decisions are better grounded in constraints and recent load, and AI recommendations are easier to trust because the user can see the reasoning signals behind them.
+
+## Current State
+
+As of 2026-06-12, the repository is at a strong functional checkpoint:
+
+- `app.py` is now a thin Streamlit shell rather than a product monolith.
+- Product surfaces live under `ui/pages/*` and `ui/components/*`.
+- Garmin sync orchestration lives in `services/sync.py`.
+- Demo onboarding and real-provider auto-connect are working.
+- DeepSeek support is wired and browser-verified.
+- `ai_trainer_env/bin/python -m pytest tests/smoke -q` passes locally.
+
+The current weak points are operational rather than conceptual:
+
+- Garmin authentication still succeeds through `garminconnect` fallback, but the `garth` path is noisy and brittle.
+- The worktree still contains unrelated local environment noise in `ai_trainer_env/*`.
+- The AI coaching hardening work is now largely complete; the next meaningful risks are less about page modularity and more about product behavior, especially how much adaptive planning and explainability still remain compared with the long-term reference target.
+- The planning engine is useful, but still much closer to a TSS simulator than to a constraint-aware adaptive coach.
+
+## Reference Signals
+
+`IntervalCoach` is a useful product reference not because it should be copied feature-for-feature, but because its changelog shows what a mature coaching product keeps polishing:
+
+- adaptive planning based on availability and interruptions,
+- recovery-aware day-level adjustments,
+- explicit handling of illness, injury, holiday, and limited availability,
+- richer analytics such as rider profile and readiness interpretation,
+- explainable behavior instead of opaque automation.
+
+This repository should borrow those product patterns while staying faithful to the current architecture and scope.
+
+## Progress
+
+- [x] (2026-06-21 11:08+04:00) Completed the first reference-driven Dashboard/Planning cleanup after comparing the current app against a cleaner coaching reference. Planning now renders the goal-plan builder only in `Собрать план`, so `Скорректировать выполнение` no longer starts with unrelated race setup, constraints, local-replan sliders, and advanced distribution controls. Dashboard now demotes the latest planning checkpoint into a compact plan card and hides the full execution-feedback editor behind an explicit fallback, with the primary path routing to `Planning → Скорректировать выполнение`. Validation passed on focused planning/dashboard smoke (`53 passed`), the full smoke suite (`181 passed`), and an isolated acceptance runtime on `http://localhost:8510` returned `HTTP 200 ok` on `/_stcore/health`.
+- [x] (2026-06-21 10:40+04:00) Completed a Planning declutter checkpoint after the `План и факт` surface became too dense in real use. The weekly review now shows one selected-week brief first, keeps the multi-week drift table inside a collapsed diagnostics expander, and keeps day cards/metrics inside a details expander that opens only when the selected week has real review signals or an active focused day. The same slice removed another Streamlit widget-state warning by letting the execution-feedback horizon slider use pre-normalized `session_state` as its only source of truth. Validation passed on focused planning/execution smoke (`47 passed`).
+- [x] (2026-06-21 10:14+04:00) Extended the Garmin auth hardening slice to cover the next live provider failure mode: `All login strategies exhausted` with `Portal login failed (non-JSON): HTTP 403`. `data/garmin_client.py` now classifies this as a Garmin-side portal block instead of leaking it as an opaque unknown error, and `tests/smoke/test_garmin_auth_messages.py` now protects both the pure `portal 403` case and the combined `429 + portal 403` case. Validation passed on focused Garmin smoke (`6 passed`) and the full smoke suite (`179 passed`).
+- [x] (2026-06-21 10:00+04:00) Completed the next Planning V2 decision-layer slice: the multi-week `план ↔ факт` timeline now detects accumulated weekly drift and surfaces a suggested replan entrypoint before the athlete drills into a single week. When multiple drift weeks or a larger negative TSS gap accumulate, Planning now shows a compact `multi-week drift` callout with a direct CTA that opens the right week, sets focus on the first problem day, and widens the execution-review horizon to the relevant local window without changing planning math or checkpoint semantics. The slice stays UI/helper-only in `ui/pages/planning.py`, with smoke coverage extended in `tests/smoke/test_planning_page_explainability.py`. Validation passed on focused planning/execution smoke (`45 passed`) and the full smoke suite (`176 passed`).
+- [x] (2026-06-20 23:06+04:00) Completed the next Planning V2 surface slice: Planning now includes a multi-week `план ↔ факт` timeline above the existing week drill-down. The new overview summarizes each week with `План TSS / Факт TSS / Δ TSS / Статус / Сигнал`, highlights where drift needs review versus where the week is simply underway or Garmin-ready, and lets the athlete jump directly into the relevant week before using the existing day-level cards and execution editor. The slice stays UI-only in `ui/pages/planning.py`, with helper coverage extended in `tests/smoke/test_planning_page_explainability.py`. Validation passed on focused planning/execution smoke (`43 passed`) and the full smoke suite (`174 passed`).
+- [x] (2026-06-20 22:54+04:00) Completed the next Planning V2 real-data UX slice: clean Garmin-matched windows now have an explicit one-click confirmation path instead of reusing the generic local-replan action. The shared execution editor still requires an explicit checkpoint save, but when there are Garmin confirmations and no real deviations it now offers `Подтвердить окно по Garmin`, preserves the same checkpoint pipeline, and lets Planning show a Garmin-specific saved flash instead of a generic replan message. Smoke coverage now protects the new primary-action contract in `tests/smoke/test_planning_execution.py`. Validation passed on focused planning/execution smoke (`41 passed`) and the full smoke suite (`172 passed`).
+- [x] (2026-06-20 22:47+04:00) Completed the next Planning V2 real-data UX slice: the shared execution editor now separates real deviations from Garmin-confirmation rows instead of surfacing both at the same visual priority. Real mismatches still render first, Garmin-matched rows now move into their own compact confirmation block, and a clean window with only Garmin matches now explicitly tells the athlete that checkpoint save can happen without opening every row manually. The slice stays UI-only inside `ui/components/execution_feedback.py`, with smoke coverage updated in `tests/smoke/test_planning_execution.py`. Validation passed on focused planning/execution smoke (`40 passed`) and the full smoke suite (`171 passed`).
+- [x] (2026-06-20 22:24+04:00) Completed the next hardening slice around real Garmin login diagnostics: noisy fresh-login failures from `garminconnect` are now normalized into one actionable auth message instead of leaking a raw blend of `429 rate limit`, widget fallback noise, and `401 Unauthorized` straight into the UI. `data/garmin_client.py` now keeps a concise summary plus raw details, `ui/components/garmin_connection.py` shows the normalized error first and exposes the raw provider string only in an optional debug expander, and smoke coverage now protects the new auth-message contract in `tests/smoke/test_garmin_auth_messages.py`. Validation passed on focused Garmin smoke (`8 passed`) and the full smoke suite (`171 passed`).
+- [x] (2026-06-20 22:12+04:00) Completed the next Planning UX hardening v2 slice: the weekly `План и факт` overlay now routes each day into a status-aware next action instead of a generic open button. Each row carries a focused CTA such as `Подтвердить Garmin`, `Зафиксировать факт`, or `Проверить mismatch`, and that intent now survives the handoff into the shared execution editor through session state so the focus banner can explain why the selected day was lifted to the top. The slice stays UI-only across `ui/pages/planning.py` and `ui/components/execution_feedback.py`; planning math and checkpoint persistence remain unchanged. Smoke coverage now protects the CTA mapping in `tests/smoke/test_planning_page_explainability.py`.
+- [x] (2026-06-20 18:35+04:00) Completed the next Planning UX hardening v2 slice: the weekly `План и факт` block and the shared execution editor are now linked into one flow. The weekly overlay now shows compact week-summary metrics plus day buttons that store a shared focus target; the editor reads that focus, auto-expands to two weeks when needed, lifts the selected day above the mismatch/quiet grouping, and lets the athlete clear focus after review. The planning model still stays untouched; this is a page-shell and editor-shell integration only. Smoke coverage now protects both the weekly summary helper in `tests/smoke/test_planning_page_explainability.py` and the focused-day split behavior in `tests/smoke/test_planning_execution.py`. Validation passed on focused planning/execution smoke (`39 passed`) and the full smoke suite (`167 passed`).
+- [x] (2026-06-20 18:20+04:00) Completed the next Planning UX hardening v2 slice: the shared `Факт выполнения по дням` editor is now `mismatch-first`. Days with a real deviation or a Garmin-prefill signal render first, while unchanged days move into a collapsed fallback block instead of always filling the page with seven near-identical cards. The grouping stays UI-only inside `ui/components/execution_feedback.py`, so the planning model and checkpoint contract remain intact. Smoke coverage now protects the attention-vs-quiet partition helpers in `tests/smoke/test_planning_execution.py`. Validation passed on focused execution smoke (`17 passed`) and the full smoke suite (`165 passed`).
+- [x] (2026-06-20 18:10+04:00) Completed the next Planning UX cleanup slice on top of the overlay fix: the shared execution-feedback surface no longer leaks English `Mon/Tue`, `Base`, `bike`, and `easy` labels into an otherwise Russian Planning workflow. `models/planning_execution.py` now emits localized `date_label / phase_label / sport_label / session_role_label` fields as the model boundary, and `ui/components/execution_feedback.py` consumes those labels directly so Planning, Dashboard, and downstream corrective-microcycle summaries stay on one contract. Validation passed on focused execution smoke (`15 passed`) and the full smoke suite (`163 passed`). As with the previous hotfix, the currently open acceptance runtimes need a restart or a fresh port because acceptance launch disables file watching.
+- [x] (2026-06-20 18:00+04:00) Closed the first regression on that same Planning overlay slice: the weekly `План и факт` cards no longer break after the first day and dump escaped raw HTML into the page. The renderer now builds one compact HTML string without Markdown-breaking blank block boundaries, keeps the localized weekday labels, and smoke coverage now protects the compact-card markup contract in `tests/smoke/test_planning_page_explainability.py`. Validation passed on focused planning smoke (`20 passed`) and the full smoke suite (`163 passed`). The currently open `http://localhost:8510` acceptance tab still needs a runtime restart to load this code because acceptance launch disables file watching.
+- [x] (2026-06-20 17:45+04:00) Completed the next Planning UX hardening v2 slice: the Planning page now has a weekly `План и факт` overlay that puts the planned session and the locally synced Garmin fact on one card-based surface inside both `Скорректировать выполнение` and `Экспорт и детали`. The new helpers live in `ui/pages/planning.py`, aggregate recent activities by day, choose a conservative status (`Совпадает / Другой спорт / Нет факта / Впереди / Отдых / Вне плана`), and default the selector to the currently relevant plan week instead of always forcing week one. Smoke coverage now protects week resolution plus the core merge states in `tests/smoke/test_planning_page_explainability.py`. Validation passed on focused planning smoke (`19 passed`), focused execution smoke (`15 passed`), and the full smoke suite (`162 passed`). A live isolated acceptance runtime on `http://localhost:8510` stayed healthy (`HTTP 200`), while page-level render verification confirmed the new Planning markers `### 🗓️ План и факт по неделе`, `Одна поверхность для проверки недели`, and `Неделя плана` in `Скорректировать выполнение`; direct in-app browser automation for this proof remained blocked by the current platform-level `node_repl/js` `missing field sandboxPolicy` error rather than by repository code.
+- [x] (2026-06-20 11:54+04:00) Completed the next Planning UX hardening v2 slice: the shared execution-feedback editor now pre-fills day-level execution facts from locally synced Garmin activities when the planned day and dominant sport match a synced activity day, while still requiring explicit user confirmation before saving any checkpoint. The new matcher/index lives in `models/planning_execution.py`, the shared Streamlit editor now loads recent local activities and surfaces the prefill provenance in `ui/components/execution_feedback.py`, and smoke coverage now protects the same-day/same-sport contract plus the conservative ignore-other-sport behavior. Validation passed on focused execution smoke (`15 passed` in `test_planning_execution.py`), focused planning smoke (`16 passed` in `test_planning_page_explainability.py`), and the full smoke suite (`159 passed`). A fresh isolated acceptance runtime on `http://localhost:8510` then browser-verified the live UI signal by loading a controlled overlapping checkpoint in the isolated DB and showing `Локальный Garmin sync найден для 1 дн.` plus row-level copy `Автоподстановка: Garmin sync: 86/17 TSS · 1 акт. · 95 мин`.
+- [x] (2026-06-20 11:25+04:00) Completed the next Planning UX/calendar slice: the plan builder no longer anchors new plans to the Monday of an almost-finished current week while still computing the horizon from today. Planning now resolves an explicit weekly anchor first, shifts late-week builds (`Fri/Sat/Sun`) to the next Monday, computes `weeks_to_race` from that anchor, and explains the chosen start date directly in the UI. Validation passed on focused planning smoke coverage (`16 passed` in `test_planning_page_explainability.py`, `12 passed` in `test_planning_execution.py`), the full smoke suite (`156 passed`), and a fresh isolated acceptance runtime on `http://localhost:8510` where browser verification showed `Старт плана: 22.06.2026` on Saturday `20.06.2026` and preserved the `Режим страницы` split.
+- [x] (2026-06-20 11:05+04:00) Completed the next Planning UX hardening v2 slice: the Planning page is now split into three explicit workspace modes (`Собрать план`, `Скорректировать выполнение`, `Экспорт и детали`) instead of stacking build inputs, execution correction, explainability, and export controls into one long surface. The shell clutter was also reduced by collapsing sidebar chat management outside AI Coaching, simplifying the sidebar section label, moving load context into a collapsed build-only expander, and demoting `📈 Дополнительная статистика` to a build-only collapsed block. The same slice removed the remaining near-term editor widget-state warning by letting the role/sport/TSS widgets use session state as the only source of truth and by widening the TSS input max to honor draft and seeded values. Validation passed on focused planning smoke coverage (`15 passed` in `test_planning_page_explainability.py`, `12 passed` in `test_planning_execution.py`), the full smoke suite (`155 passed`), and a fresh isolated acceptance runtime on `http://localhost:8510` where browser clickthrough confirmed the new mode split and the server log stayed clean while opening the adjust flow.
+- [x] (2026-06-20 10:19+04:00) Completed the next Planning UX hardening v2 slice: the shared execution editor now lets the athlete explicitly override the post-window follow-up mode (`protect_recovery / hold / catch_up`) before saving, previews the resulting 1-2 week post-window impact in the same flow, and persists both the selected mode and the auto-recommended mode inside `execution_adaptation_pressure` so Planning, Dashboard, and AI Coaching can keep reading the chosen contract later. Validation passed on focused planning/explainability smoke coverage (`50 passed` across the touched modules), the full smoke suite (`152 passed`), and a fresh isolated acceptance boot on `http://localhost:8522` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
+- [x] (2026-06-19 22:59+04:00) Completed the next Planning V2 + Coach Explainability slice: persisted execution drift now becomes an explicit `execution_adaptation_pressure` signal with one post-window follow-up mode (`protect_recovery / hold / catch_up`), and the planner uses that signal to softly cap rebound across the next 1-2 weeks instead of stopping at a weekly headline or a 2-3-day microcycle. The same signal is now visible in the shared execution editor, Planning explainability/version history, Dashboard checkpoint cards, and AI Coaching prompt/context surfaces. Validation passed on focused smoke coverage (`48 passed`), the full smoke suite (`150 passed`), and a fresh isolated acceptance boot on `http://localhost:8521` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
+- [x] (2026-06-19 22:40+04:00) Completed the next Planning UX hardening v2 slice: execution-derived near-term overrides now persist explicit origin lineage (`execution_microcycle_override` plus checkpoint/review/microcycle context) instead of collapsing into a generic manual edit, and that same origin story now survives Planning version history, Dashboard checkpoint cards, and AI Coaching explainability/prompt context. The shared execution editor also finished its Streamlit-state hardening by applying response-strategy presets through a pending-key sync and by letting the `actual_tss` widgets use session state as the single source of truth, which removes the last widget-state warning without regressing the day-level execution flow. Validation passed on focused smoke coverage (`46 passed`), the full smoke suite (`148 passed`), and a fresh isolated acceptance boot on `http://localhost:8520` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
+- [x] (2026-06-19 22:05+04:00) Completed the next Planning UX hardening v2 slice: the Planning page no longer forces the execution corrective microcycle through a single blind apply path. The shared execution editor can now either persist the local replan as-is or open the derived microcycle as a seeded near-term draft, and the existing near-term editor now consumes that one-shot draft seed with the same diff, risk, safer-variant, and follow-up-strategy workflow used by ordinary manual overrides.
+- [x] (2026-06-19 20:35+04:00) Completed the next Planning UX hardening v2 slice: execution checkpoints now derive a compact `execution_corrective_microcycle` from day-level reconciliation plus weekly review, persist it next to the existing execution summary, preview it before apply in the execution editor, and surface the same next-2-3-day action story on Planning, Dashboard, and AI Coaching. Smoke coverage was extended across planning explainability, checkpoint history, dashboard handoff, recommended AI entry prompts, and coach explainability before moving to final validation.
+- [x] (2026-06-12 11:00+04:00) Re-audited the current repository after Iteration 3, including branch state, smoke-suite status, module sizes, and the remaining operational risks.
+- [x] (2026-06-12 11:00+04:00) Reviewed `IntervalCoach` changelog themes as a product reference and mapped them into three concrete workstreams for AI Trainer.
+- [x] (2026-06-12 13:50+04:00) Started Hardening Sprint by validating `matin/garth` against its upstream repository and docs, then hardening the local runtime so a broken or deprecated `garth` install no longer masquerades as a normal login failure.
+- [x] (2026-06-12 14:05+04:00) Completed the first product-facing hardening slice: removed `garth` from the normal fresh-login path, kept it as a legacy diagnostic surface in Garmin connection info/UI, and expanded the smoke suite around the new auth contract.
+- [x] (2026-06-12 14:10+04:00) Completed the first Planning V2 slice: added an `Intervals.icu` personal API-key adapter, wired planning-page sync controls for day/week event export, and covered the new boundary with smoke tests plus a real browser check.
+- [x] (2026-06-12 14:41+04:00) Completed the first live-provider fix for that slice: added an explicit adapter `User-Agent`, re-ran smoke tests, and verified in the real UI that `Intervals.icu подключён. Найдено календарей: 1.`
+- [x] (2026-06-12 14:42+04:00) Closed the real end-to-end acceptance loop: sent one planned workout day from the planning page, then confirmed through live API read-back that event `Триатлон Олимпийка — 2026-06-08` exists in `Intervals.icu` with `icu_training_load=14`.
+- [x] (2026-06-12 23:33+04:00) Completed the next Planning V2 slice: the planner now accepts weekly hours, available training days, interruption type/duration, and catch-up vs protect-recovery strategy; smoke tests pass and the real planning page renders the new adaptive controls plus constraint summary.
+- [x] (2026-06-12 23:58+04:00) Completed the Planning UX + Explainability slice: the planning page now presents a scenario preview before generation, a post-build reasoning section with scenario/planner cards, a before/after weekly comparison table, and split CSV exports for comparison, weekly detail, and daily detail.
+- [x] (2026-06-12 23:59+04:00) Re-ran the smoke suite after the explainability refactor (`54 passed`) and browser-verified the updated planning flow on a separate local Streamlit instance at `http://localhost:8502` so the user's long-running `8501` session was not disturbed.
+- [x] (2026-06-13 00:20+04:00) Completed the next Planning V2 slice: the planner now interprets start-state load (`CTL/ATL/TSB`) as `fresh / balanced / fatigued / deep_fatigue`, softens risky early weeks when the athlete starts tired, and allows more catch-up after holiday/limited-availability scenarios when the athlete starts fresh.
+- [x] (2026-06-13 00:20+04:00) Hardened the planning UI around degenerate target-TSS ranges by replacing the collapsed `500..500` slider case with a fixed-value control, then re-ran the smoke suite (`58 passed`).
+- [x] (2026-06-13 00:46+04:00) Started the Coach Explainability slice by introducing a shared readiness/explainability helper and routing both dashboard next-step guidance and the AI coaching recommended first prompt through the same reasoning contract.
+- [x] (2026-06-13 00:46+04:00) Added the first user-facing explainability surfaces for that slice: a `Почему сегодня такой фокус` briefing on the dashboard and a matching `Почему такой старт` block on the AI coaching page, then re-ran the smoke suite (`61 passed`).
+- [x] (2026-06-13 01:09+04:00) Completed the next Coach Explainability slice: the shared helper now produces a richer daily briefing (`Сегодня / Ближайшие 2-3 дня / Следить за`) plus plan-aware prompt context, the dashboard now stores a concrete AI-coach handoff, and the AI coaching page renders that handoff as an actionable top-of-chat checkpoint.
+- [x] (2026-06-13 11:51+04:00) Completed the next Hardening Sprint slice: extracted AI provider setup/status and first-run entry/handoff guidance out of `ui/pages/ai_coaching.py` into dedicated `ui/components/ai_coach_provider.py` and `ui/components/ai_coach_entry.py`, preserved the existing `ui.pages.ai_coaching` helper contract for smoke tests and callers, and re-ran the full smoke suite (`64 passed`).
+- [x] (2026-06-13 19:38+04:00) Completed the next Hardening Sprint slice: extracted the remaining AI chat shell (state bootstrap, sidebar diagnostics, conversation surface, quick-question bar, and free-form input) into `ui/components/ai_coach_chat.py`, added focused smoke coverage for the new state bootstrap and quick-question contract, and re-ran the full smoke suite (`67 passed`).
+- [x] (2026-06-13 19:54+04:00) Completed the next Hardening Sprint slice: extracted the monthly progress-report assembly and filtering logic into `models/ai_coach_progress.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper for existing callers, added focused smoke coverage for the progress boundary, and re-ran the full smoke suite (`70 passed`).
+- [x] (2026-06-13 20:01+04:00) Completed the next Hardening Sprint slice: extracted prompt construction, tool-call resolution, and the core response-execution turn into `models/ai_coach_runtime.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper around the new runtime, added focused smoke coverage for the execution boundary, and re-ran the full smoke suite (`73 passed`).
+- [x] (2026-06-13 20:12+04:00) Completed the next Hardening Sprint slice: extracted markdown tool-result formatting and browser-side speech/streaming helpers into `ui/components/ai_coach_output.py`, kept `ui.pages.ai_coaching` as a compatibility wrapper for `app.py` and older tests, fixed the streaming helper so final text preserves sentence spacing, and re-ran the full smoke suite (`76 passed`).
+- [x] (2026-06-13 23:11+04:00) Completed the next Planning V2 slice: the planner now applies recovery-aware day roles (`off / recovery / easy / quality / long`) inside the daily expansion step, exposes weekly structure metadata plus daily session focus rows on the planning page, preserves the existing export/sync contract, and re-ran the full smoke suite (`78 passed`).
+- [x] (2026-06-13 23:27+04:00) Completed the next Planning V2 slice: added planner-owned `session_templates` metadata aligned to the existing daily tuple contract, surfaced phase/sport/session naming/duration on the planning page, upgraded ICS / Intervals.icu / FIT / TCX exports to consume the richer metadata when available, and re-ran the full smoke suite (`84 passed`).
+- [x] (2026-06-13 23:40+04:00) Completed the next Hardening Sprint slice: added an isolated acceptance runtime with `./run_acceptance.sh`, auto-seeded demo data into a unique temporary SQLite database, disabled real Garmin login inside that runtime, surfaced acceptance-mode reset/status messaging in the UI shell, and re-ran the full smoke suite (`88 passed`).
+- [x] (2026-06-14 03:35+04:00) Closed the isolated acceptance checkpoint: browser-verified a fresh `./run_acceptance.sh` session at `http://localhost:8510`, confirmed the unique temporary DB path and disabled Garmin login, exercised planning and AI coaching on the seeded dataset, fixed the narrow target-TSS slider step so the real `500..505` range stays interactive, and re-ran the full smoke suite (`89 passed`).
+- [x] (2026-06-14 07:47+04:00) Completed the next Planning V2 slice: introduced `plan_adjustment` as a local replanning entity (`completed / skipped / reduced / unavailable`), limited replanning to the near-term horizon plus a short safe catch-up window, surfaced the checkpoint and replanning story on the planning page, browser-verified the new flow on a fresh acceptance runtime at `http://localhost:8510`, and re-ran the full smoke suite (`91 passed`).
+- [x] (2026-06-14 08:01+04:00) Completed the next Planning V2 + Coach Explainability bridge slice: persisted compact planning checkpoints in SQLite, restored that context for dashboard and AI coaching beyond the immediate planning-page session, surfaced the latest checkpoint plus recent checkpoint history in the product UI, and re-ran focused smoke coverage (`8 passed`) plus the full smoke suite (`94 passed`).
+- [x] (2026-06-14 16:02+04:00) Closed the real persisted-planning acceptance checkpoint: restarted the isolated `8510` runtime on the same temporary SQLite database, fixed acceptance boot so it preserves existing data and rehydrates demo-mode session flags instead of reseeding, browser-verified that the saved planning checkpoint still appears on both dashboard and AI coaching after restart, and re-ran the full smoke suite (`96 passed`).
+- [x] (2026-06-14 16:44+04:00) Completed the next Planning V2 + Coach Explainability bridge slice: the dashboard now turns the persisted planning checkpoint into a real execution-feedback loop, locally rebuilds the near-term plan from the saved checkpoint even after the planning page is gone, stores the updated checkpoint back to SQLite, browser-verified the reduced-load replan flow on the isolated acceptance runtime at `http://localhost:8510`, and re-ran the full smoke suite (`98 passed`).
+- [x] (2026-06-14 17:08+04:00) Completed the next Planning V2 + Coach Explainability bridge slice: execution checkpoints are now first-class coaching signals, the shared explainability helper carries their impact into dashboard `Почему сегодня такой фокус`, `Следующий шаг`, and AI-coach handoff/entry copy, the acceptance browser flow on a fresh isolated runtime at `http://localhost:8511` proved the same reduced-load checkpoint changes both dashboard and AI-coach guidance, and the full smoke suite now passes at `102 passed`.
+- [x] (2026-06-14 17:28+04:00) Implemented the next Coach Explainability runtime slice: dashboard and AI-entry handoffs now carry a one-shot `operational_brief` response contract, the AI runtime turns the first post-handoff answer into a deterministic `Сегодня / Ближайшие 2-3 дня / Не делать / Почему` brief while preserving normal free-form chat afterward, added smoke coverage for both the dashboard-handoff click path and the modern-chat one-shot contract consumption path, and the full smoke suite now passes at `106 passed`.
+- [x] (2026-06-14 21:59+04:00) Closed the real acceptance checkpoint for that runtime slice on the live `http://localhost:8511` acceptance app: clicking `😴 Открыть план восстановления` on the dashboard and then `😴 Спросить про восстановление` in AI coaching produced a first assistant reply with `🎯 Operational Brief` plus the required `Сегодня / Ближайшие 2-3 дня / Не делать / Почему` sections, while a follow-up user message (`Объясни подробнее, почему ты сделал такой вывод.`) returned an ordinary free-form assistant answer without repeating the structured wrapper.
+- [x] (2026-06-14 22:32+04:00) Completed the next Planning V2 slice: added an in-place near-term editor for the next 7-10 plan days, wired manual edits into `daily_plan`, `session_templates`, weekly summaries, explainability notes, and persisted planning checkpoints, added focused smoke coverage for both manual day edits and unchanged-sport rescaling behavior, and re-ran the full smoke suite (`110 passed`).
+- [x] (2026-06-14 22:58+04:00) Completed the next Planning V2 + Coach Explainability bridge slice: extracted a shared persisted `near_term_edit` summary, surfaced that manual-edit signal in dashboard checkpoint/history UI, AI coaching entry/explainability, and planning export/sync messaging, re-ran focused smoke coverage (`21 passed`) plus the full smoke suite (`112 passed`), and browser-verified on a fresh isolated acceptance runtime at `http://localhost:8513` that a cold-reloaded saved checkpoint visibly carries `Ручная правка` into both dashboard and AI coaching.
+- [x] (2026-06-16 23:38+04:00) Completed the Planning UX hardening slice around the near-term editor: replaced the submit-only form flow with a live draft that shows `Черновик правок`, explicit `Было → Станет` diffs, reset/apply controls, and clearer saved-vs-draft messaging, fixed `off`-day duration so zero-load days now stay at `0` minutes, and made `ui.pages` imports lazy so planning helper tests no longer pull the whole page shell during collection. Focused validation passed on system Python for `test_planning_near_term`, `test_planning_page_explainability`, `test_training_planner_adaptive`, `test_planning_checkpoint_history`, `test_dashboard_ai_handoff`, `test_ai_coaching_recommended_prompt`, `test_coach_explainability`, and `test_ui_page_exports` (`51 passed` total). A full `tests/smoke` run and a fresh acceptance runtime were both blocked by separate pre-existing environment issues in `services/__init__.py` and `ai_trainer_env` runtime checks rather than by the planning UX code itself.
+- [x] (2026-06-17 19:40+04:00) Closed the workspace-move hardening loop and the next Planning UX slice together: `python3 -m pytest tests/smoke -q` is green again at `124 passed`, `./run_acceptance.sh` starts cleanly again from the moved workspace by launching Streamlit through `python -m streamlit`, the near-term editor now previews touched weeks plus the future persisted `Ручная правка` label before apply, the weekly manual-edit note now counts only truly changed days, and the Streamlit width-compat layer no longer forces deprecated `use_container_width` on modern runtimes. Acceptance startup, `HTTP 200`, and `/_stcore/health -> ok` all passed on a fresh isolated `http://localhost:8510` runtime without the earlier width warnings.
+- [x] (2026-06-17 20:01+04:00) Completed the next Planning V2 + Explainability slice on top of that editor: manual near-term edits now carry an explicit post-edit strategy (`Оставить как есть` / `Наверстать аккуратно` / `Беречь восстановление`), the planning model can safely redistribute part of the resulting `Δ TSS` across the next 1-2 weeks instead of stopping at the edited days, persisted checkpoints now retain both the manual-edit delta and the chosen follow-up behavior, and dashboard/AI explainability now describe not only that the horizon was edited but what happened to the following weeks afterward. Validation passed on focused planning/coaching smoke coverage (`39 passed`), the full smoke suite (`127 passed`), and a fresh isolated acceptance boot on `http://localhost:8510` with `HTTP 200` plus `/_stcore/health -> ok`.
+- [x] (2026-06-17 23:59+04:00) Completed the next Planning UX hardening slice: manual near-term edits now receive a shared safety assessment (`low / medium / high`) based on added or removed load, quality/rest-day structure, follow-up strategy, and current fatigue state; the planning draft preview shows that assessment before apply; persisted checkpoints retain the same signal; and dashboard plus AI coaching now carry the same risk/guardrail language instead of only mentioning raw `Δ TSS`. Validation passed on focused planning/coaching smoke coverage (`43 passed` across the targeted files), the full smoke suite (`131 passed`), and a fresh isolated acceptance boot on `http://localhost:8510` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
+- [x] (2026-06-18 23:59+04:00) Completed the next Planning UX hardening slice: risky near-term drafts now offer a one-click safer alternative that can switch the follow-up strategy (`keep -> protect_recovery` or `keep -> catch_up`) and minimally rewrite the touched days to reduce overload or underload risk instead of merely warning about it. The planning editor now shows the proposed safer outcome before apply, and one click rewrites the live draft in session state. Validation passed on focused planning-page/model smoke coverage (`22 passed` across `test_planning_near_term` and `test_planning_page_explainability`), the full smoke suite (`133 passed`), and a fresh isolated acceptance boot on `http://localhost:8510` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
+- [x] (2026-06-19 18:48+04:00) Completed the next Planning UX hardening slice: near-term manual edits are now reversible through a real rollback path instead of only draft-level caution. Planning checkpoints now persist enough plan detail to restore the exact previous version, the latest manual-edit checkpoint stores the precise rollback target checkpoint id instead of relying on history order, the planning page shows a weekly before/after preview for that rollback, and one click restores the prior version and saves it back as the new current checkpoint. Validation passed on focused checkpoint/planning smoke coverage (`47 passed` across rollback, near-term, and explainability tests), the full smoke suite (`135 passed`), and a fresh isolated acceptance boot on `http://localhost:8510` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
+- [x] (2026-06-19 19:25+04:00) Completed the next Planning V2 + Explainability slice: planning checkpoints are now explicit saved plan versions with provenance (`initial_plan / manual_edit / execution_feedback / restore_version`) instead of just raw summaries. The planning page now shows recent version history with week-level compare + restore for any recent checkpoint, dashboard and AI coaching expose the active version lineage, and execution-feedback summaries no longer misfire after an ordinary manual edit or restored version merely because the inherited `plan_adjustment` label stayed the same. Validation passed on focused smoke coverage across checkpoint, planning, dashboard, and coaching boundaries (`39 passed` across the targeted files), the full smoke suite (`138 passed`), and a fresh isolated acceptance boot on `http://localhost:8510` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
+- [x] (2026-06-19 20:20+04:00) Completed the next Planning V2 + Explainability slice: execution feedback is now day-level instead of only week-level. Planning and Dashboard both render the same shared execution-reconciliation editor, the model now turns per-day outcomes into a concrete near-term fact summary (`planned vs actual TSS`, changed-day counts, inferred checkpoint type, and completion share), local replanning uses that summary without mixing actuals into `daily_plan`, and dashboard plus AI coaching now surface the same fact window after the checkpoint is saved. Validation passed on focused smoke coverage across planning execution, checkpoint history, dashboard handoff, planning explainability, coach explainability, recommended prompt, and page exports (`47 passed` across the targeted files), the full smoke suite (`141 passed`), and a fresh isolated acceptance boot on `http://localhost:8512` with `HTTP 200` on `/` plus `/_stcore/health -> ok` after skipping occupied legacy ports `8510/8511`.
+- [x] (2026-06-19 21:15+04:00) Completed the next Planning V2 + Explainability slice: execution feedback now derives a compact weekly review on top of the new day-level facts instead of stopping at raw `planned vs actual` totals. Planning and Dashboard surface that weekly review with explicit deviations plus a selected response strategy, the planning model persists the same `execution_weekly_review` and `catch_up_strategy_override` through rebuild/checkpoint/history flows, AI coaching prompt context now carries the same weekly review into explainability and handoff copy, and the shared execution editor no longer crashes on stale `number_input` state when a row's allowed TSS collapses to zero. Validation passed on focused smoke coverage (`34 passed` across planning execution, checkpoint history, dashboard handoff, coach explainability, and recommended prompt), the full smoke suite (`145 passed`), and a fresh isolated acceptance boot on `http://localhost:8520` with `HTTP 200` on `/` plus `/_stcore/health -> ok` after skipping already occupied local ports `8510` and `8512`.
+- [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
+- [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
+
+## Surprises & Discoveries
+
+- Observation: the worst remaining Dashboard/Planning problem was structural leakage between jobs, not dark-mode styling.
+  Evidence: the Planning mode split existed, but the goal builder still rendered in every mode before the adjustment workspace, so a user opening `Скорректировать выполнение` still saw race setup, availability controls, local-replan controls, and advanced distribution before the actual plan/fact workflow. Dashboard also surfaced planning checkpoint internals and the full execution editor, which made the overview page behave like an operations console.
+
+- Observation: adding more planning intelligence can quickly reduce usability if every signal is rendered at the same priority.
+  Evidence: after the plan/fact timeline, drift CTA, weekly cards, day CTAs, and execution editor were all visible together, the real page became a stacked diagnostic console rather than a coaching workflow. The safer product pattern is now `one next action first, diagnostics collapsed, day cards opened only for real review signals`.
+
+- Observation: Garmin login failures can shift from `429` throttling to a stricter `portal 403` block without ever becoming a real credential error.
+  Evidence: the live runtime first showed `mobile 429`, then exhausted all strategies on `Portal login failed (non-JSON): HTTP 403`. Treating that as an unknown exception or as a likely bad password would mislead the athlete. The safer product contract is to call this a Garmin-side block and suggest retrying later or from another network.
+
+- Observation: once the timeline could show week-level drift, the next trust gap was not visibility but arbitration: which week and which horizon should the athlete inspect first?
+  Evidence: a raw table of `План TSS / Факт TSS / Δ TSS` still leaves the athlete deciding whether one negative week is noise or whether several weeks have started to accumulate into a local replanning problem. Adding a conservative decision helper that only reacts to explicit mismatch/unplanned signals and larger negative drift gives the user a useful entrypoint without pretending we already changed the planner itself.
+
+- Observation: once the local loop became smoother at the day level, the next real blind spot was week-to-week accumulation rather than another execution-editor control.
+  Evidence: the app could already show one selected week in detail, but the athlete still had no compact answer to “which of the next several weeks is drifting, which is only partly underway, and which is already Garmin-ready?” A small week summary layer above the existing drill-down solved that without touching planning math or checkpoint semantics.
+
+- Observation: once Garmin-confirmation rows were visually separated from true deviations, the next missing piece was not more layout but a different primary action label for that clean window.
+  Evidence: the product could already hide Garmin confirmations in a separate block, but the main button still read like a replan action even when the actual user intent was simply “yes, these Garmin matches are good enough to save as completed.” Giving that state its own explicit CTA makes the review path shorter without changing the persistence contract.
+
+- Observation: once Garmin-prefill became reliable enough to populate day-level facts automatically, the next friction was not data entry but visual prioritization.
+  Evidence: the shared editor treated a same-day/same-sport Garmin confirmation row and a real `missed/reduced/unavailable` row as the same class of attention signal, so the user still had to scan matched confirmations before reaching the true mismatch they needed to act on. Splitting those signals into `deviation / Garmin-confirmation / quiet` preserves explicit checkpoint confirmation while cutting review noise.
+
+- Observation: real Garmin fresh-login failures are often multi-cause and the raw provider string is therefore worse than useless as a primary user-facing diagnosis.
+  Evidence: one live runtime log contained `429 IP rate limited by Garmin`, widget fallback title mismatch, and `401 Unauthorized (Invalid Username or Password)` in the same exception chain. Showing that string verbatim in the UI makes the athlete guess whether the problem is credentials, provider throttling, or our code. Normalizing the message while still preserving raw details keeps the product honest without pretending we can fix Garmin from inside the app.
+
+- Observation: after the weekly overlay gained a day-focus bridge, the next real friction was not navigation but ambiguity about what the athlete was supposed to do once the editor opened.
+  Evidence: the generic `Открыть ...` buttons successfully moved focus into the shared execution editor, but they still made a `Совпадает`, `Нет факта`, and `Другой спорт` row look operationally identical even though each implies a different decision. Carrying a status-aware CTA label and hint through session state keeps one editor while making the handoff explicit.
+
+- Observation: once the execution editor became `mismatch-first`, the next missing UX piece was not another summary block but a focus bridge from the weekly overlay into the editor's current horizon.
+  Evidence: a quiet day chosen from `План и факт` could otherwise stay hidden inside the collapsed no-signal fallback even though the weekly surface had already made that day the user's current target. Storing a shared focus date plus a pending `weeks=2` override in session state preserved the editor contract and made the selected day render above the rest without changing checkpoint math.
+
+- Observation: the next meaningful Planning declutter step did not require changing replanning logic at all; the main overload came from rendering unchanged execution rows at the same visual priority as real signals.
+  Evidence: the live Planning flow already had a separate weekly `План и факт` surface plus a detailed day editor, but the editor still opened with seven almost identical `По плану` cards even when no deviation existed. Moving only the signalled rows to the top and collapsing the rest preserved the same checkpoint behavior while reducing visible noise, and focused execution smoke still passed at `17 passed`.
+
+- Observation: localizing only the Streamlit caption layer is not enough for the execution-review workflow because the same raw labels also feed corrective-microcycle summaries and later explainability surfaces.
+  Evidence: the live Planning screenshot still showed `Mon 22.06 • Base` and `bike · easy` inside `Факт выполнения по дням`, and the same `date_label` field also feeds `today_action` / `next_window` inside the persisted corrective microcycle. Moving localization into `models/planning_execution.py` fixed the current page and kept downstream text on one contract while the focused execution smoke remained green at `15 passed`.
+
+- Observation: Streamlit `st.markdown(..., unsafe_allow_html=True)` will still break a card grid if the generated HTML contains Markdown-significant blank block boundaries between sibling `<div>` elements.
+  Evidence: the first live Planning screenshot rendered day one correctly, then displayed literal escaped markup for `Tue/Wed/...` because the multiline indented card fragments were being split by the Markdown parser after the first block. Rebuilding the calendar as one compact HTML string fixed the visible regression and raised planning smoke coverage to `20 passed` while the full suite stayed green at `163 passed`.
+
+- Observation: the next missing Planning trust surface was not another automatic checkpoint rule, but a read-only calendar that lets the athlete compare the weekly plan against real activity history without mutating the plan first.
+  Evidence: the existing product could already show current-week facts on the dashboard and could already prefill day rows inside the execution editor, but it still had no one-surface answer to "what was planned for this week and what actually happened?" The new overlay renders statuses such as `Совпадает`, `Другой спорт`, `Нет факта`, and `Вне плана` from the same local activity history while keeping checkpoint persistence explicit and user-confirmed.
+
+- Observation: direct in-app browser automation is currently blocked by a platform-level MCP contract failure, so local Planning verification needs a fallback layer even when the app itself is healthy.
+  Evidence: `mcp__node_repl.js` failed during the required browser-runtime bootstrap with `codex/sandbox-state-meta: missing field sandboxPolicy`, while the isolated acceptance runtime at `http://localhost:8510` still returned `HTTP/1.1 200 OK`. A page-level `streamlit.testing.v1.AppTest` wrapper then confirmed the new Planning markers `План и факт по неделе`, `Одна поверхность для проверки недели`, `Неделя плана`, and `Скорректировать выполнение` before the older `st.dataframe(width="stretch")` limitation in system Streamlit `1.48.0` interrupted the rest of the synthetic render.
+
+- Observation: after the late-week start-anchor fix, the standard acceptance seed no longer naturally overlaps demo activities with the near-term execution window, so a live Garmin-prefill proof now needs a controlled overlapping checkpoint in the isolated DB.
+  Evidence: on Saturday `2026-06-20`, the acceptance seed builds the active plan from Monday `2026-06-22`, while the demo activity table still contains current-week sessions such as `2026-06-15 swimming`, `2026-06-17 running`, and `2026-06-19 cycling`. Reloading the dashboard with a checkpoint shifted back to `2026-06-15` immediately surfaced the new live copy `Локальный Garmin sync найден для 1 дн.` and `Автоподстановка: Garmin sync: 86/17 TSS · 1 акт. · 95 мин`, which proved the feature without touching real user data.
+
+- Observation: the old weekly-anchor logic was internally inconsistent late in the week: it measured horizon from "today" but still started the daily plan from the Monday of the current week.
+  Evidence: on Saturday `2026-06-20`, the UI said the race was about `8` weeks away, yet the built/exported plan still started on Monday `2026-06-15`, which pushed the first planned workouts into the past and made outbound exports such as `Intervals.icu` look backdated. Recomputing the horizon from the resolved planning anchor fixed the mismatch without changing planner math.
+
+- Observation: the current Planning overload was structural, not cosmetic; the same page was trying to be a plan builder, an execution-correction console, and an export/sync surface at once.
+  Evidence: browser clickthrough on the acceptance runtime showed the pre-slice page stacking build metrics, simulator context, goal-builder controls, execution feedback, version history, explainability, `Intervals.icu`, file export, and extra statistics in one scroll. Splitting those flows into three explicit page modes immediately produced a cleaner top-of-page contract without changing planner math or checkpoint persistence.
+
+- Observation: the remaining near-term editor warning was the same class of Streamlit state bug as the earlier execution-editor warning, just on a different widget family.
+  Evidence: the runtime log pointed at `ui/pages/planning.py` line `659` where `st.selectbox(...)` was created with a key that already existed in `st.session_state` and also received an explicit `index=`. Removing the redundant `index/value` defaults and letting session state own the widgets eliminated the warning; opening the adjust mode on a fresh isolated runtime at `http://localhost:8510` produced no new server log warnings afterward.
+
+- Observation: once `execution_adaptation_pressure` became a real medium-horizon contract, persisting only one auto-chosen follow-up mode was no longer enough for a trustworthy UX.
+  Evidence: the product could already infer `protect_recovery / hold / catch_up`, but the moment the athlete was allowed to disagree before save, downstream surfaces needed to preserve both truths: what the model recommended and what the user actually chose. Carrying `recommended_follow_up_*` plus the selected `follow_up_*` inside the same signal kept preview, checkpoint persistence, and later explainability aligned without inventing a parallel override entity.
+
+- Observation: a binary `protect_recovery` versus `catch_up` response strategy is still not enough to describe what should happen in the next 1-2 weeks after execution drift.
+  Evidence: a single reduced or lost key session can leave the week too unstable for immediate catch-up, but not severe enough to justify a full `protect_recovery` downshift. The missing middle ground was an explicit persisted `hold` mode that keeps the current ceiling for the next 1-2 weeks without pretending the athlete is either fully safe to catch up or forced into deeper protection.
+
+- Observation: the new execution-drift signal can disappear from top-level coaching summaries if it is appended after the older weekly-review and microcycle lines.
+  Evidence: the planning-signal collector intentionally caps itself to a short list, and the first implementation quietly dropped the new pressure line from `summary["signals"]` in smoke coverage even though it was present in the plan context. Reordering the signal and slightly expanding the cap preserved both the new `Execution drift pressure` story and the older `Execution microcycle` cue.
+
+- Observation: execution-derived short-horizon drafts need persisted origin metadata or they immediately collapse into indistinguishable generic manual edits after save.
+  Evidence: once the corrective microcycle could open inside the ordinary near-term editor, the saved checkpoint still rendered only `Ручная правка` on Planning history, Dashboard, and AI Coaching because the manual-edit summary had no durable link back to the originating execution checkpoint, weekly review, or microcycle headline. Persisting `near_term_edit.origin_*` closed that explainability gap without inventing a parallel checkpoint type.
+
+- Observation: the remaining `number_input` warning in the shared execution editor was caused by two competing state sources, not by another execution-math bug.
+  Evidence: after the earlier max-value crash was fixed, the live runtime still logged that `dashboard_execution_feedback_actual_tss_0_widget` had both a default value and a Session State value. Removing the explicit `value=` argument and syncing pending widget presets before instantiation made session state the only source of truth and eliminated the warning.
+
+- Observation: a derived corrective microcycle still is not a real planning decision until the user can route it through the same draft-safety machinery as any other near-term change.
+  Evidence: once the microcycle existed, the remaining trust gap was not “what would the next 2-3 days be?” but “can I inspect and override that short horizon before it becomes the new saved plan?” Reusing the near-term draft editor closed that gap without inventing a second editing system.
+
+- Observation: weekly review by itself was still too abstract to close the execution-feedback loop.
+  Evidence: after the day-level reconciliation slice, the product could explain `140/180 TSS` and name the lost key or long session, but the next step still depended on the user inferring what the next 2-3 days should look like. Adding a derived `execution_corrective_microcycle` exposed the missing contract immediately in planning history, dashboard checkpoint cards, and the first AI-coach handoff prompt.
+
+- Observation: the current `garth` installation in the local virtual environment is structurally damaged.
+  Evidence: importing `garth` returns a namespace package with no `__file__`, no `__version__`, and no `login` attribute, while `site-packages/garth` contains only subdirectories and `__pycache__` files. This matches the earlier report that the checked-in virtual environment is damaged beyond a normal dependency state.
+
+- Observation: even a healthy `garth` install is no longer a valid fresh-login strategy according to the upstream project itself.
+  Evidence: the upstream repository is explicitly marked deprecated, states that Garmin changed the auth flow, and says that new logins no longer work. The preserved docs still show `garth.login(...)` as the historical API, but the front page and getting-started guide now describe it as a reference-only surface for existing saved sessions.
+
+- Observation: `Intervals.icu` is a realistic next integration target for Planning V2 because it already exposes workout, calendar-event, and activity endpoints that line up with the current planning and export surfaces.
+  Evidence: the public API guide describes API-key access for personal use, athlete-id `0` shortcuts, calendar event CRUD, workout CRUD, downloadable planned workout formats, and activity detail endpoints with interval data. Those fit naturally with the current planning page and future explainability/export work.
+
+- Observation: the product is now modular at the shell level, but some page modules are already large enough to need a second wave of internal decomposition.
+  Evidence: `ui/pages/ai_coaching.py` is above 2200 lines, `ui/pages/dashboard.py` is near 1000 lines, and `ui/pages/planning.py` is above 600 lines.
+
+- Observation: the next differentiator is more likely to come from adaptive planning and explainability than from adding yet another AI provider.
+  Evidence: the provider layer already supports OpenAI, Anthropic, Gemini, Ollama, DeepSeek, and Mock AI. By contrast, planning still lacks first-class concepts such as illness, holiday, or constrained availability, and the changelog patterns in IntervalCoach emphasize those areas.
+
+- Observation: the repository does not currently declare a dedicated HTTP client dependency for general-purpose outbound integrations.
+  Evidence: `requirements.txt` lists Streamlit, pandas, AI SDKs, and Garmin-specific packages, but neither `requests` nor `httpx` is declared as an app-level dependency. The first `Intervals.icu` slice should therefore prefer the Python standard library for HTTP transport instead of adding a new dependency just for one small adapter.
+
+- Observation: the new planning sync section is resilient even before the user adds Intervals credentials.
+  Evidence: browser verification on `http://localhost:8501` after generating a goal plan shows a visible `📤 Intervals.icu` section and, without an API key in `.env`, an explanatory non-blocking message instead of an exception or broken layout.
+
+- Observation: `Intervals.icu` accepts the same API-key request via `curl`, but rejects the default Python `urllib` fingerprint with a Cloudflare-style `403`.
+  Evidence: `curl -u API_KEY:*** https://intervals.icu/api/v1/athlete/0/calendars` returned `HTTP/2 200`, while the same endpoint via `urllib.request.urlopen(...)` returned `HTTP Error 403: Forbidden` until a normal `User-Agent` header was added. The adapter therefore needs an explicit `User-Agent`, not different auth logic.
+
+- Observation: the first real provider-side event created by the planning page preserved the expected shape of the AI Trainer payload.
+  Evidence: a live read-back from `GET /api/v1/athlete/0/events?oldest=2026-06-08&newest=2026-06-08` returned event id `115757268` with name `Триатлон Олимпийка — 2026-06-08`, `type=\"Ride\"`, `start_date_local=\"2026-06-08T07:00:00\"`, `icu_training_load=14`, and the exported description block from AI Trainer.
+
+- Observation: availability-aware planning can be added without rewriting the existing Banister forecast or export surfaces.
+  Evidence: the planner model now constrains weekly TSS, redistributes load onto selected days, and annotates weekly adjustments before the existing daily expansion, forecast chart, CSV export, ICS export, and `Intervals.icu` sync all continue to work against the adjusted plan shape.
+
+- Observation: a small set of explicit user inputs gives a meaningfully more adaptive plan without demanding a full calendar UI.
+  Evidence: the real planning page now renders weekly available hours, available weekdays, interruption type, interruption duration, and `Беречь восстановление` vs `Наверстать аккуратно`; after building a plan, the UI shows a human-readable summary of which constraints were applied.
+
+- Observation: `run.sh` intentionally disables Streamlit file watching, so browser verification against an already running app can silently show stale UI even when the repository code is newer.
+  Evidence: the original `8501` session continued to show the old heading `Ограничения и interruptions` and the old expander copy until a fresh Streamlit process was started, while the current working tree only contained `🧭 Сценарий и ограничения` and `⚙️ Продвинутые настройки распределения`.
+
+- Observation: explicit `illness` and `injury` interruption scenarios already apply a strong first-week reduction, so layering a generic fatigue guard on top creates an unrealistic double penalty.
+  Evidence: the first implementation of the load-aware slice pushed the existing illness test from week-one `60` TSS down to `50` TSS, which was technically consistent with the added start-load guard but product-wise too punitive. The fix was to skip the extra load-guard layer when an illness/injury interruption is already active.
+
+- Observation: dashboard and AI coaching were both already using the same raw signals, but with different branching rules and different wording, which made the product feel less coherent than the underlying data actually was.
+  Evidence: `ui/pages/dashboard.py` had its own `TSB/HRV` next-step logic, while `ui/pages/ai_coaching.py` separately chose a recommended first prompt from `TSB/readiness/recovery_state`. The new shared helper replaced that duplication and the smoke suite still passed afterward.
+
+- Observation: the safest way to modularize `ui/pages/ai_coaching.py` was to preserve its old helper names as import-level re-exports instead of forcing every smoke test and caller to learn the new component paths immediately.
+  Evidence: after extracting provider and entry/handoff code into `ui/components/*`, the existing smoke tests for demo flow, real-provider flow, recommended prompt selection, and dashboard handoff all continued to run unchanged and the full suite still passed at `64 passed`.
+
+- Observation: the next safe extraction boundary was the chat shell, not the tool-calling engine.
+  Evidence: moving state bootstrap, sidebar diagnostics, conversation rendering, quick prompts, and the free-form input bar into `ui/components/ai_coach_chat.py` reduced `ui/pages/ai_coaching.py` from `1818` lines to `1440` lines while the full smoke suite increased to `67 passed` after adding focused coverage for the new boundary.
+
+- Observation: the progress-report boundary is safe to move into `models/` even though the final rendered markdown still belongs to the page layer.
+  Evidence: extracting the report assembly, recovery/sleep summaries, and monthly-progress filtering into `models/ai_coach_progress.py` reduced `ui/pages/ai_coaching.py` again to `1168` lines, while preserving the old page-level helper names through thin wrappers and keeping the full smoke suite green at `70 passed`.
+
+- Observation: the AI coaching execution pipeline can be moved into `models/` without sacrificing the current Streamlit UX states around generation, tool processing, and chat persistence.
+  Evidence: `models/ai_coach_runtime.py` now owns prompt construction, conversation-history assembly, tool-call parsing, and final-response post-processing, while the page still controls placeholder copy and message persistence. `ui/pages/ai_coaching.py` dropped again to `1045` lines and the full smoke suite increased to `73 passed`.
+
+- Observation: the last AI coaching page seam was not just extractable; it also exposed a small real UX defect in the legacy helper.
+  Evidence: after moving markdown-formatting and browser-side helpers into `ui/components/ai_coach_output.py`, a focused smoke test showed that the old streaming implementation was dropping the space between streamed sentences because the split pattern discarded separators. Fixing that inside the new output module preserved the final text exactly while keeping the same cursor-style streaming behavior, and the full smoke suite increased to `76 passed`.
+
+- Observation: the planner's existing per-sport day weights were good enough for export fidelity, but not good enough on their own to imply a believable training week.
+  Evidence: before the new slice, the planner could already constrain and redistribute weekly TSS, yet it had no explicit concept of `recovery`, `quality`, or `long` days. Adding a recovery-aware role layer on top of the existing daily expansion preserved the daily export shape while finally letting the product explain why one day is easy and another is key.
+
+- Observation: the next safe planning improvement after recovery-aware roles is a metadata layer, not a rewrite of the daily tuple contract.
+  Evidence: the new `session_templates` list can carry `phase / sport / role / focus / duration / export_name / description` for every day while `daily_plan` still stays as `(datetime, total_tss, parts)`. After wiring the metadata into CSV/ICS/Intervals/FIT/TCX paths, the full smoke suite still passed at `84 passed`, which would have been much riskier with a broad planner/export contract change.
+
+- Observation: local browser verification of this repository now has two separate operational gates: Streamlit port binding and onboarding state.
+  Evidence: starting `./run.sh` inside the sandbox failed with `PermissionError: [Errno 1] Operation not permitted` when binding port `8501`, but the same command succeeded once run unsandboxed. After that, the browser verified the onboarding page on `http://localhost:8501/`; proceeding to demo-mode clickthrough would have replaced the local cache, so the safe verification stopped at app boot for this slice.
+
+- Observation: acceptance verification needs a runtime boundary, not just a warning in the onboarding copy.
+  Evidence: the old demo path already warned that it would replace the local cache, but that still made browser acceptance awkward because the warning was true. The new `./run_acceptance.sh` launcher instead points Streamlit at a unique temporary SQLite file, turns on acceptance flags, and lets the app auto-seed a deterministic demo dataset there. After the change, the smoke suite increased to `88 passed` while the main `ai_trainer.db` path stayed untouched.
+
+- Observation: the in-app browser dev-log feed is noisy across local Streamlit restarts and cannot be treated as a strict per-run console transcript.
+  Evidence: after restarting the acceptance app on `http://localhost:8510`, the browser log feed still showed earlier `8501` health-check noise and one pre-fix narrow-slider warning timestamped `2026-06-14T03:21:55.972Z`, even though the fresh acceptance session displayed a new temporary DB path and the real `500..505` TSS control moved from `500` to `501` during direct interaction.
+
+- Observation: local replanning can be added as a short-horizon planner overlay without breaking the existing export and sync contract.
+  Evidence: the new `plan_adjustment` slice only changes the near-term weekly TSS plan and explanation summary, while the same acceptance run still showed `📅 Экспорт в календарь (ICS)`, `📤 Intervals.icu`, and `🧩 Экспорт тренировки (FIT-CSV / FIT / TCX)` after building the replanned output.
+
+- Observation: dashboard and AI coaching do not need the full exported daily plan payload to preserve planning context across sessions.
+  Evidence: saving a compact checkpoint snapshot with goal metadata, weekly summary rows, and constraint summary was enough to restore plan-aware explainability, render a recent-checkpoint card on the dashboard, and keep AI coaching aligned with the latest replanning state after the user leaves the planning page.
+
+- Observation: acceptance restart needs two separate persistence guarantees, not just a durable SQLite file.
+  Evidence: the first real restart attempt exposed two independent failures: acceptance boot was reseeding and wiping the isolated DB on each new browser session, and once that was fixed the app still fell back to the welcome flow because `demo_mode` and related session flags were not rehydrated from the preserved isolated dataset. After fixing both boundaries, the same saved planning checkpoint remained visible on dashboard and AI coaching after a cold restart of `http://localhost:8510`.
+
+- Observation: the compact planning checkpoint is now rich enough not only to explain the last plan, but also to regenerate a safe short-horizon replan from outside the planning page.
+  Evidence: after restoring only goal metadata, weekly summary rows, constraint summary, `start_week`, and planner mix/weight metadata from SQLite, the dashboard acceptance run on `http://localhost:8510` accepted `Нагрузка урезана` at `60%`, saved a new checkpoint, reduced total load from `1197` to `1157` TSS, and rendered the new delta summary without relying on the original in-memory planning-page state.
+
+- Observation: execution feedback needs to remain visible even when readiness stays in a recovery-first state; otherwise the product technically remembers the checkpoint but still reads as if only readiness mattered.
+  Evidence: on a fresh isolated acceptance dataset at `http://localhost:8511`, the athlete still started in a `Фокус на восстановлении` state after a reduced-load checkpoint. The correct product behavior was not to suppress recovery, but to inject checkpoint-aware guardrails directly into `Сегодня / Ближайшие 2-3 дня / Следить за` on both dashboard and AI coaching. After the change, the live UI explicitly added `Считайте облегчённую неделю новой верхней границей...`, `После урезанной недели возвращайте нагрузку только ступенчато...`, and `Не компенсируйте урезанный объём резким ростом интенсивности.`
+
+- Observation: prompt-only shaping is not a strong enough contract for the first post-dashboard coaching answer because provider behavior and mock responses can still drift away from the intended operational format.
+  Evidence: the current acceptance/runtime stack uses both real providers and a deterministic mock provider, and the mock provider intentionally returns ordinary free-form text. The stable solution was therefore to carry a compact response contract through the handoff and enforce the visible `Operational Brief` structure inside the runtime wrapper, not to rely on provider compliance alone.
+
+- Observation: acceptance browser verification on an already running local Streamlit tab is not a reliable proof that the current planning code is loaded, because both `run.sh` and `run_acceptance.sh` disable file watching.
+  Evidence: the existing `http://localhost:8511` acceptance tab still built plans without the new `✍️ Редактировать ближайшие 7-10 дней` section after the code was already green in tests, while a fresh isolated instance on `http://localhost:8512` immediately rendered the new near-term editor and accepted a manual edit.
+
+- Observation: browser automation against the inline near-term editor is materially less stable than downstream checkpoint verification, even on a fresh isolated runtime.
+  Evidence: on `http://localhost:8513`, the browser could build the plan and expose the editor plus editable day rows, but repeated attempts to mutate the TSS inputs failed because the Streamlit widgets alternated between stale/invisible Playwright targets and clipboard-backed typing constraints. Seeding the isolated SQLite checkpoint with the same saved `near_term_edit` signal and reloading the app immediately proved the user-visible persistence surfaces on dashboard and AI coaching instead.
+
+- Observation: `ui.pages` package import was still much heavier than the planning helper tests needed because package import eagerly pulled unrelated pages and, through them, heavyweight services.
+  Evidence: `python3 -X importtime -c "import ui.pages.planning"` showed import time jumping through `ui.pages.activities` and then into `services.acceptance_mode` before ever reaching planning helpers; replacing `ui/pages/__init__.py` with lazy render-function wrappers made `import ui.pages.planning` return immediately again.
+
+- Observation: the current full-smoke and acceptance-launch blockers are no longer inside the planning page itself, but in shared environment/import boundaries outside this slice.
+  Evidence: `python3 -m pytest tests/smoke -q` hung during collection at `tests/smoke/test_acceptance_mode_service.py` while importing `from services import acceptance_mode`, and interrupting the run showed the traceback stopping in `services/__init__.py`. Separately, `ACCEPTANCE_PORT=8514 ./run_acceptance.sh` stalled inside `scripts/doctor_env.py` while probing `import streamlit` through `ai_trainer_env`, matching the earlier `pluggy`/venv drift symptoms.
+
+- Observation: the near-term editor had a subtle zero-load inconsistency before this slice: a day turned into `off` could still preview and persist a non-zero duration.
+  Evidence: the new draft summary test first failed with `assert 30 == 0` for an `off` day, which traced back to `_estimate_session_duration_minutes(...)` returning a floor duration even when `total_tss <= 0`. Returning `0` for zero-load days fixed both the draft preview and persisted session-template metadata.
+
+- Observation: after the workspace move, the acceptance launcher failure was not in `streamlit` importability, but in the virtualenv wrapper script itself.
+  Evidence: `./run_acceptance.sh` passed `doctor_env.py check --runtime` and `import streamlit`, but then crashed with `ai_trainer_env/bin/streamlit: .../Documents/GitHub/ai_trainer/.../python3: bad interpreter`. Switching launchers to `python -m streamlit` fixed startup without depending on a rewritten shebang.
+
+- Observation: the first weekly draft-preview test exposed that manual-edit week notes were overstating the number of edited days.
+  Evidence: a draft that changed only one row still produced `ручная правка: 7 дн., Δ +15 TSS` because `apply_near_term_day_edits(...)` incremented `edited_days` for every row in the horizon, not only changed rows. Moving the counter update inside the `changed` branch made both the preview and persisted checkpoint truthful.
+
+- Observation: the initial width-compat layer solved old Streamlit support but reintroduced warnings on modern Streamlit by backporting too aggressively.
+  Evidence: acceptance boot on Streamlit `1.57.0` emitted repeated `Please replace use_container_width with width` warnings even after the planning page itself switched to `width="stretch"`. The root cause was `utils/streamlit_compat.py` always translating `width='stretch'` into `use_container_width=True`; making that translation conditional on the target function lacking a native `width` parameter removed the warnings while keeping backward compatibility tests green.
+
+- Observation: a manual near-term edit that changes the first 7-10 days is not product-complete unless the next 1-2 weeks have an explicit policy too.
+  Evidence: before this slice, the editor could truthfully mutate the near horizon and persist that fact, but the weekly story ended there: the rest of the plan stayed silent about whether the removed load was intentionally dropped, partly returned, or compensated by a lighter follow-up block. Adding an explicit post-edit strategy exposed that missing contract immediately in the preview, checkpoint summary, and AI prompt context.
+
+- Observation: week-level redistribution after a manual edit must update `daily_plan`, `session_templates`, and `weekly_summary` together or explainability drifts away from the exportable plan.
+  Evidence: the first implementation of future-week redistribution updated `daily_plan` and `weekly_tss_plan` but left the cached `weekly_summary` totals stale for those weeks. Recomputing the touched weeks from the scaled daily rows fixed the mismatch and kept comparison tables, checkpoint storage, and exports aligned.
+
+- Observation: raw `Δ TSS` is not enough to warn about a risky manual edit, because the same delta can be safe or dangerous depending on current fatigue and whether the edit removes rest or adds intensity.
+  Evidence: the new smoke coverage distinguishes a low-risk recovery cut (`catch_up` after removing load) from a high-risk overload (`keep` plus added quality/load on top of `Накопленная усталость`) even though both cases are just manual edits to the same 7-day window.
+
+- Observation: once the editor can classify a draft as risky, a warning-only UI is not enough; the next trust gap is whether the product can suggest a safer rewrite without forcing the user to reverse-engineer it manually.
+  Evidence: the new `build_safer_near_term_draft(...)` helper can turn a `high` overload draft into a lower-risk variant by switching the post-edit strategy and restoring or softening specific days, while the new smoke coverage proves that the helper returns `None` for already low-risk drafts instead of rewriting them gratuitously.
+
+- Observation: rollback for the latest manual edit cannot safely depend on `planning_checkpoint_history[1]`, because after one rollback that ordering naturally turns into a redo candidate rather than the true parent version.
+  Evidence: the new slice had to introduce an explicit `near_term_edit_rollback_target_checkpoint_id` plus direct database lookup by id; otherwise a restored checkpoint would immediately point back to the just-undone edit simply because it was now the second-most-recent row.
+
+- Observation: legacy compact checkpoints need a restore path that respects the saved `weekly_tss_plan`, not a fresh pass through planning constraints.
+  Evidence: the first fallback implementation used `rebuild_goal_plan_with_adjustment(...)` and changed a saved `[180, 220, 240]` weekly plan into `[145, 230, 230]`, which is acceptable for execution replanning but wrong for version rollback. Reconstructing daily/session details directly from the stored weekly plan fixed that mismatch.
+
+- Observation: acceptance boot can still show a transient `streamlit-runtime` timeout during the first runtime probe without indicating a product regression.
+  Evidence: on `2026-06-19`, the first acceptance health check timed out after `15s`, `doctor_env.py` immediately retried and confirmed `streamlit-runtime: 1.57.0`, and the same run then booted `http://localhost:8510` successfully with `HTTP 200` on `/` plus `ok` on `/_stcore/health`.
+
+- Observation: once checkpoints can represent manual edits, restores, and execution replans, `plan_adjustment_label` is no longer a safe proxy for "the latest execution checkpoint".
+  Evidence: both a restored version and a manual near-term edit can legitimately inherit the same persisted `plan_adjustment` payload from the plan they were based on. The correct fix was to persist explicit checkpoint provenance and gate execution-feedback summaries on that lineage instead of on labels or recency alone.
+
+- Observation: the next trust gap after versioned checkpoints was not "which week status was chosen", but "what actually happened inside the near-term window".
+  Evidence: the old `completed / skipped / reduced / unavailable` checkpoint model could only approximate reality through `missed_sessions` or one coarse `reduced_load_share`, which was enough for local replanning math but not enough to explain why a checkpoint existed or what exact short-term load delta it represented. Day-level reconciliation closes that gap without rewriting the whole planning engine.
+
+- Observation: actual execution facts should not overwrite the future-looking `daily_plan`; they need their own persisted summary.
+  Evidence: turning `daily_plan` rows themselves into "actuals" would blur the boundary between planned exportable sessions and historical execution. The stable contract was to persist a normalized `execution_reconciliation` summary inside the checkpoint/constraint payload and let local replanning consume that evidence while keeping `daily_plan` as a plan.
+
+- Observation: Streamlit widget state for day-level execution editing can outlive the current row contract and crash the page even when the underlying planning data is valid.
+  Evidence: the live dashboard hit `StreamlitValueAboveMaxError: The value 41 is greater than the max_value 0` after a row's current planned TSS collapsed to zero while the persisted widget key still held an earlier positive value. The stable fix was not just clamping a raw number, but separating logical `actual_tss` state from the widget key and resolving outcome-aware display values (`as_planned -> planned`, `missed/unavailable -> 0`, `reduced -> clamped custom value`) before rendering the input.
+
+- Observation: the first live Playwright acceptance probe made a real Garmin `429` look like a silent no-op, not because the login code swallowed the failure but because two independent observability gaps hid it.
+  Evidence: the probe reported `connect: exceptions_after: 0` and stayed on the welcome screen after clicking `Подключиться`, while the acceptance runtime log actually contained `mobile+cffi returned 429: Mobile login returned 429 — IP rate limited by Garmin`. Root cause was twofold: (a) `data/garmin_client.py::authenticate()` has no application-level fallback cascade — `mobile+cffi`/`mobile+requests` are internal sub-strategies of the `garminconnect` library's single `Garmin.login()` call, which raises one combined exception that `authenticate()` catches, normalizes via `_summarize_auth_error`, stores on `auth_error`/`auth_error_kind`, and returns `False`; and (b) the failure is rendered in the UI as a normal `st.error(...)` alert, not a Streamlit exception, so the probe's `collect_errors()` (which only counted `[data-testid="stException"]`) reported zero. The welcome banner additionally claimed "реальный Garmin login отключён" unconditionally in acceptance mode, which masked the fact that login was permitted and attempted. The same `429` string is already covered by `tests/smoke/test_garmin_auth_messages.py::test_summarize_auth_error_prioritizes_rate_limit_over_widget_noise`.
+
+## Decision Log
+
+- Decision: make page modes enforce hard ownership: Dashboard summarizes and links out, while Planning builder controls render only in `Собрать план`.
+  Rationale: the reference screenshots work because each page has a primary job. The current app had already named those jobs, but still rendered hidden-mode controls and editors on the wrong surface. Hiding the builder outside build mode and routing Dashboard's execution-edit action into Planning reduces visual load without changing planning math, checkpoint persistence, or export behavior.
+  Date/Author: 2026-06-21 / Codex
+
+- Decision: classify `portal 403` Garmin login exhaustion as a provider-side block in the same auth normalizer, not as an unknown fallback string and not as a credential error.
+  Rationale: this is still part of the same authentication hardening boundary. The app cannot fix Garmin's portal defenses, but it can stop presenting a misleading diagnosis. Folding the new live case into the same normalizer preserves one UI contract and one smoke boundary for Garmin auth failures.
+  Date/Author: 2026-06-21 / Codex
+
+- Decision: implement accumulated weekly-drift guidance as a helper-driven entrypoint into the existing execution-review workflow, not as a new auto-replanner or a second planning checkpoint type.
+  Rationale: the product value at this stage is better navigation and decision support, not hidden planning automation. Reusing the current week selector, focused day handoff, and widened execution horizon keeps one correction workflow while making multi-week drift actionable instead of merely visible.
+  Date/Author: 2026-06-21 / Codex
+
+- Decision: add a multi-week plan/fact overview as a summary-and-jump layer above the existing weekly drill-down, not as a separate planning mode or a new planner artifact.
+  Rationale: the missing product value was quick orientation across weeks, not another editable entity. A compact timeline with weekly TSS, status, and jump actions preserves the current weekly cards and execution editor while making it much easier to decide where attention is needed first.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: preserve one shared checkpoint pipeline, but give clean Garmin-matched windows their own explicit primary action mode and label.
+  Rationale: the athlete should not have to mentally reinterpret `Применить локальный replan` when no replan is actually needed. At the same time, this still must not become silent autosave. A dedicated `confirm_garmin_window` action keeps one save path and one payload shape while making the user intent explicit.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: keep Garmin-prefilled rows inside the same execution editor, but downgrade them from top-level deviations into a separate compact confirmation group.
+  Rationale: the product still needs explicit checkpoint persistence, so Garmin matches cannot silently disappear into autosave. At the same time, a confirmed same-day/same-sport match is operationally different from a true execution deviation. Grouping those rows separately keeps the flow conservative while reducing visual work in the most common real-data review path.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: normalize fresh Garmin auth failures inside `data/garmin_client.py` and keep raw provider text only as optional diagnostics, not as the main UI error.
+  Rationale: the app cannot prevent Garmin rate limiting or third-party widget fallback quirks, but it can stop presenting a single noisy exception blob as if it were a helpful diagnosis. One concise summary plus optional raw details is the right boundary: actionable for the athlete, still debuggable for us, and stable under smoke coverage.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: keep the weekly overlay on the same shared execution editor, but replace the generic day buttons with status-aware CTA labels and pass that intent through session state into the focus banner.
+  Rationale: the product already had a valid weekly scan and a valid editor, but the bridge between them still forced the athlete to infer the next action after opening the target day. Encoding `Подтвердить Garmin / Зафиксировать факт / Проверить mismatch / Проверить вне плана` at the overlay boundary clarifies intent without adding a second editor path or changing checkpoint logic.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: link the weekly overlay to the shared execution editor through session-state focus plus a pending horizon override, not through a second per-day planning route or an HTML-only anchor jump.
+  Rationale: the same selected day may live in week one or week two of the local execution horizon, and a pure anchor jump would not expand a collapsed quiet-row fallback or widen the editor from one week to two. A shared focus key plus `weeks_pending` keeps one editor contract, works for both review and export modes, and preserves the existing replanning logic.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: implement the next execution-review declutter step as a `mismatch-first` partition inside the shared Streamlit editor, not as a different data mode or a second summary-only workflow.
+  Rationale: the product already has the necessary data. The issue was visual priority: days with no signal were taking as much space as days with a Garmin-prefill or a real deviation. Grouping signalled rows first and moving quiet rows into a collapsed fallback preserves one editor and one checkpoint contract while making the page easier to scan.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: localize execution-review rows at the planning-execution model boundary, not only inside the Streamlit component.
+  Rationale: the same row contract drives the editable Planning cards, the compact weekly review, and the persisted corrective microcycle summaries. If the UI alone translated `Mon` to `Пн`, later summaries would still leak English fields. Emitting `date_label / phase_label / sport_label / session_role_label` directly from `models/planning_execution.py` preserves one consistent language contract across Planning and downstream coaching surfaces.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: keep the weekly `plan vs fact` overlay on Streamlit's native page surface, but render the card grid as one compact HTML string instead of concatenating multiline Markdown fragments.
+  Rationale: the product benefit of the overlay still comes from lightweight in-page visibility, not from moving into an iframe or a custom component. The actual bug was Markdown block parsing: blank lines between sibling `<div>` fragments caused cards after the first one to be escaped. A compact HTML helper fixes the regression while preserving the simple Streamlit integration and existing smoke boundaries.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: implement the next Planning UX slice as a read-only weekly `plan vs fact` overlay inside Planning, not as automatic checkpoint persistence or silent mutation of `goal_plan`.
+  Rationale: the user-visible gap was situational awareness, not data capture. The repository already has a shared execution editor where day-level facts can be confirmed and saved explicitly. A read-only overlay solves the "what happened this week?" problem on one surface, reuses the same local Garmin activity history, and preserves the stronger product contract that actuals do not become a new plan until the athlete confirms a checkpoint.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: keep Garmin-driven execution capture as a conservative prefill contract (`same day + dominant sport + explicit confirmation`) rather than as blind autosave or fuzzy cross-day matching.
+  Rationale: locally synced activities are valuable evidence, but their TSS values are still approximate and a fuzzy matcher would easily apply a Friday ride to the wrong planned session or silently override a user who intentionally shifted the session. Prefilling the shared editor removes repetitive manual entry while preserving the checkpoint as an explicit athlete-confirmed planning decision.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: resolve the weekly planning anchor before computing `weeks_to_race`, and shift late-week builds to the next Monday instead of backfilling a mostly finished current week.
+  Rationale: the planner is weekly by construction, so anchoring it to a Monday in the past while measuring the horizon from today creates silently backdated plans and confusing outbound exports. Using the same resolved anchor date for both `weeks_to_race` and `start_week` preserves weekly semantics and matches what the user expects when the current week is already nearly over.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: keep Planning as one route but split it into explicit workspace modes (`build / adjust / export`) instead of creating new pages or trying to simplify the surface with copy changes alone.
+  Rationale: the underlying plan/checkpoint/export contracts are still shared, so adding separate routes would mostly duplicate state hydration and navigation. The real problem was that one page rendered too many workflows simultaneously. A mode split inside `ui/pages/planning.py` keeps one source of truth for the plan while giving the user one clear job per visit.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: make `📈 Дополнительная статистика` a collapsed build-only expander and keep chat management collapsed outside `🤖 AI Коучинг`.
+  Rationale: both blocks remain useful, but neither belongs in the critical path when the user is correcting execution or exporting a saved plan. Collapsing them preserves functionality while removing low-signal chrome from the overloaded flows that matter most during Planning V2 acceptance work.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: keep `execution_adaptation_pressure` as the single post-window signal, but teach it to carry both the auto-recommended mode and the user-selected mode instead of adding a separate override object.
+  Rationale: the planner, checkpoint persistence, dashboard summaries, and AI coaching already consume one normalized execution-drift contract. Splitting "recommended" and "selected" into parallel entities would force every downstream surface to reconcile them again. Extending the same signal with `recommended_follow_up_*` plus `is_user_override` preserves one source of truth while making the before-save UX honest about model recommendation versus athlete choice.
+  Date/Author: 2026-06-20 / Codex
+
+- Decision: persist the next-1-2-week execution follow-up as `execution_adaptation_pressure` inside `constraint_summary.plan_adjustment` and let the planner enforce it as a rebound-growth ceiling rather than inventing a second post-checkpoint planning stage.
+  Rationale: the product already had two execution artifacts with different scopes: `execution_weekly_review` explains what the last window meant, and `execution_corrective_microcycle` explains the next 2-3 days. The missing contract was not another planner mode, but a compact bridge between them that answers “how aggressively may the next 1-2 weeks rebound?” Persisting one normalized signal with `follow_up_mode`, growth cap, and horizon lets the core planner, checkpoint storage, dashboard, and AI coaching all read the same answer.
+  Date/Author: 2026-06-19 / Codex
+
+- Decision: implement the next microcycle UX step as `apply as-is` versus `open as near-term draft`, not as a separate post-checkpoint editor or a second execution-specific override system.
+  Rationale: the repository already has a trustworthy near-term editor with diff preview, risk assessment, safer alternatives, rollback, and explicit follow-up strategy. Seeding that editor from the projected microcycle reuses the existing safety rails and keeps the product honest about the difference between “save the exact execution replan” and “manually override that short horizon before saving”.
+  Date/Author: 2026-06-19 / Codex
+
+- Decision: persist the execution-driven next-step as `execution_corrective_microcycle` inside `constraint_summary.plan_adjustment` rather than as a separate planning mode or top-level checkpoint type.
+  Rationale: the microcycle is not an independent source of truth; it is the concrete follow-up generated from the already persisted execution facts and weekly review. Keeping it adjacent to `execution_reconciliation` and `execution_weekly_review` preserves one execution-feedback contract that can be summarized, versioned, and re-explained consistently across Planning, Dashboard, and AI Coaching.
+  Date/Author: 2026-06-19 / Codex
+
+- Decision: keep the saved checkpoint source as `manual_edit` when an execution-derived draft is opened and edited, and store the execution lineage inside `near_term_edit.origin_*` instead of inventing a fifth checkpoint provenance.
+  Rationale: once the user opens the corrective microcycle as a draft, the saved result really is a manual override of the short horizon, not the untouched execution checkpoint. The missing contract was not a new checkpoint type; it was durable traceability back to the originating execution checkpoint, weekly review, and microcycle headline. Persisting that trace inside `near_term_edit` lets version history, dashboard summaries, and AI coaching explain both truths at once: this is a manual override, and it grew out of a specific execution correction path.
+  Date/Author: 2026-06-19 / Codex
+
+- Decision: treat the next phase as a new ExecPlan instead of extending the previous three-iteration roadmap indefinitely.
+  Rationale: the earlier plan is complete and should remain a closed record of the stabilization/modularization/core-flow work. The next work has a different objective and therefore deserves its own acceptance criteria.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: start the new phase with Garmin auth and environment hardening, not with planning features.
+  Rationale: the product flow is now good enough that operational fragility is the main thing undermining trust. The clearest current example is the broken `garth` runtime, which creates noisy and misleading auth attempts even though the fallback path works.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: treat `garth` as an optional legacy acceleration path, not as the default fresh-auth mechanism.
+  Rationale: upstream `matin/garth` now states that Garmin's auth changes broke new logins. Continuing to try `garth.login(email, password)` on every fresh login attempt adds noise and delay while providing no supported success path. The hardening target is therefore graceful detection plus clean fallback, not heroic retries.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: keep `Intervals.icu` in scope as a planning/export integration candidate, not as a replacement for Garmin ingestion.
+  Rationale: Garmin remains the primary source for personal activity, readiness, and recovery signals in this product. `Intervals.icu` is more interesting as a second-system integration for planned workouts, calendar sync, and richer workout/export semantics.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: use `IntervalCoach` as a product-pattern reference, not as a roadmap to copy.
+  Rationale: the right lesson is not "implement every feature they shipped." The useful lesson is where a mature coaching product keeps investing: adaptive planning, explicit interruption handling, better daily guidance, and more truthful explanations.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: checkpoint provenance must be explicit persisted metadata (`initial_plan / manual_edit / execution_feedback / restore_version`), not inferred from history position or inherited labels.
+  Rationale: once a restored version can sit above its parent in recency order, and once ordinary manual edits can preserve earlier `plan_adjustment` data, UI and coaching surfaces need a durable source-of-truth for what this version actually is. Provenance also makes version history, compare/restore, and execution-feedback gating use the same contract instead of separate heuristics.
+  Date/Author: 2026-06-19 / Codex
+
+- Decision: model day-level execution facts as a separate normalized `execution_reconciliation` payload inside the checkpoint/plan-adjustment contract rather than by mutating planned daily rows into historical results.
+  Rationale: the planning engine still needs a future-oriented `daily_plan` for exports, previews, and near-term editing. A separate persisted fact summary can drive local replanning, dashboard cards, and AI explainability without corrupting that boundary, and it keeps the new day-level UI compatible with the older weekly checkpoint math.
+  Date/Author: 2026-06-19 / Codex
+
+- Decision: derive the next execution-feedback UX layer as a compact `execution_weekly_review` plus an explicit selected response strategy on top of day-level reconciliation, instead of introducing a second parallel execution model.
+  Rationale: the new day-level rows already describe what materially happened. The missing product behavior was not more raw data, but a compact user-facing interpretation: which key deviations matter this week, whether the week now looks compressed or partially lost, and whether the safer next reaction is `Беречь восстановление` or `Наверстать аккуратно`. Persisting that interpretation inside `plan_adjustment` keeps Dashboard, Planning, checkpoint history, and AI coaching on one shared contract while leaving `daily_plan` and the replanning math intact.
+  Date/Author: 2026-06-19 / Codex
+
+- Decision: start Planning V2 with a single-user `Intervals.icu` API-key adapter that creates calendar events from the existing daily plan.
+  Rationale: the current product is a local single-athlete Streamlit app, not a multi-user SaaS. The simplest valuable slice is therefore personal API-key sync for planned workouts, which reuses the existing daily planner and export semantics without introducing OAuth or multi-tenant state.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: make the next Planning V2 slice availability-aware through weekly hours, selected training days, and near-term interruption inputs instead of attempting a full calendar scheduler.
+  Rationale: that input set is small enough to implement safely in the current Streamlit page, but rich enough to produce materially different plans. It also aligns directly with the product patterns seen in `IntervalCoach`: limited availability, missed time, and careful catch-up decisions.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: verify the explainability slice on a second local Streamlit instance instead of restarting the user's existing `8501` process.
+  Rationale: `run.sh` starts Streamlit with `--server.fileWatcherType none`, which made the already running instance stale. Launching a temporary `8502` server from the current worktree provided clean acceptance evidence without interrupting the user's live session.
+  Date/Author: 2026-06-12 / Codex
+
+- Decision: interpret start-state load inside the planner model itself, not in the page layer.
+  Rationale: the load-aware behavior belongs to the planning contract, not to Streamlit. Keeping the readiness classification and its rules in `models/training_planner.py` lets the same logic drive UI summaries, tests, and future non-UI integrations without duplicating thresholds.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: do not stack the generic start-fatigue guard on top of explicit `illness` or `injury` interruption blocks.
+  Rationale: illness and injury already encode a severe near-term reduction pattern. Adding another first-week fatigue cut on top overstates caution and makes the plan harder to trust. Availability/holiday/limited scenarios still benefit from the separate start-load interpretation, but sickness/injury should use the dedicated interruption path alone.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: start Coach Explainability with a shared reasoning helper instead of directly rewriting prompts or UI copy in place.
+  Rationale: the biggest current risk is divergence, not missing text. If dashboard and AI coaching continue to branch independently, any new wording polish will drift again. A shared helper creates one contract for `recovery / plan_week / form_today` and lets both surfaces explain the same signals consistently.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: compute manual-edit risk inside `models/planning_near_term.py` but normalize and present it only through `models/planning_summary.py`.
+  Rationale: the heuristics depend on local planning mechanics such as edited-day deltas, removed rest days, follow-up redistribution, and current fatigue state, so the source of truth belongs next to the edit model. The user-facing badge, description, and guardrail still need one shared renderer for planning, checkpoints, dashboard, and AI coaching, so those strings should continue to flow through the shared summary layer.
+  Date/Author: 2026-06-17 / Codex
+
+- Decision: implement the safer alternative as a model helper that rewrites the live draft and selected follow-up strategy, not as a separate “safe apply” planner path.
+  Rationale: the user is still editing one near-term draft, not choosing between two different planning systems. Returning a normalized safer draft from `models/planning_near_term.py` lets the Streamlit page show exactly what would change, apply it back into the existing session-state controls with one click, and keep the same preview/apply flow, tests, and persistence contract.
+  Date/Author: 2026-06-18 / Codex
+
+- Decision: make rollback target selection explicit at checkpoint-save time instead of inferring it later from recency ordering.
+  Rationale: once rollback itself creates a new latest checkpoint, “latest minus one” stops meaning “version before the last manual edit.” Persisting `near_term_edit_rollback_target_checkpoint_id` on the manual-edit checkpoint keeps undo semantics stable across reloads and additional history entries.
+  Date/Author: 2026-06-19 / Codex
+
+- Decision: enrich persisted planning snapshots with `daily_plan`, `session_templates`, and near-term rollback metadata even though the top-level checkpoint summary remains compact.
+  Rationale: dashboard and AI coaching still only need compact summaries, but reversible planning edits require full-fidelity restore data. Storing the richer detail inside `goal_plan_snapshot` preserves the lightweight user-facing summary while making rollback and exact version comparison possible.
+  Date/Author: 2026-06-19 / Codex
+
+- Decision: modularize `ui/pages/ai_coaching.py` by extracting provider setup/status and entry/handoff guidance first, while keeping the old helper names importable from `ui.pages.ai_coaching`.
+  Rationale: those two areas were the clearest UI-facing seams and the lowest-risk extraction targets. Preserving the old import contract let the repository keep its existing smoke tests and page callers while still shrinking the monolith and creating clearer reuse boundaries in `ui/components/*`.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: make the next extraction target the chat shell around `render_ai_chat_page(...)`, not the AI/tool-calling engine.
+  Rationale: the shell owns page-local concerns such as Streamlit layout, sidebar diagnostics, message history presentation, and quick-question actions, which are easier to isolate than the lower-level response pipeline. That gives another meaningful size reduction and cleaner boundaries without risking the more complex tool execution path yet.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: move the monthly progress-report core into `models/ai_coach_progress.py`, but keep markdown presentation wiring and public helper compatibility in `ui.pages.ai_coaching`.
+  Rationale: the progress report is mostly data interpretation and recommendation logic, which belongs with the coaching model layer rather than a Streamlit page. The page still owns the existing `format_tool_result(...)` presentation contract, so the safest extraction is a model-level core that accepts a formatter callback while preserving the old page imports for current callers and smoke tests.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: extract the tool-calling and response-execution turn into `models/ai_coach_runtime.py`, but keep `process_modern_chat_message(...)` and `process_chat_message(...)` in the page layer as Streamlit adapters.
+  Rationale: the runtime logic is provider- and tool-oriented, not UI-oriented, so it belongs in `models/`. The page still has to own placeholder states, `st.chat_message(...)`, reruns, and persistence side effects, so the safest split is a reusable runtime core with page-level wrappers instead of trying to eliminate the page handlers entirely in one step.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: move `format_tool_result(...)`, `simulate_streaming_response(...)`, and `speak_text(...)` into `ui/components/ai_coach_output.py`, not into `models/`.
+  Rationale: those helpers are output-oriented rather than reasoning-oriented. They render markdown for people and emit browser-side JavaScript for Streamlit, so they belong with the UI layer even though the page should not own them directly. Keeping page-level wrappers preserves the old import contract while making `ui/pages/ai_coaching.py` a genuinely thin adapter.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: add recovery-aware week structure as a separate role layer on top of the current daily TSS expansion, instead of replacing the existing mix/weight planner with a brand-new scheduler.
+  Rationale: the current planner already has valuable constraints, per-sport mix overrides, export integrations, and smoke coverage. Replacing it wholesale would be high-risk. A role layer (`off / recovery / easy / quality / long`) gives the product a much more believable weekly structure, preserves the daily tuple contract used by exports and `Intervals.icu`, and creates a clean stepping stone toward richer session planning later.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: implement the first session-template slice as planner-owned aligned metadata, and treat export/sync consumers as optional adopters of that metadata.
+  Rationale: the product needed richer per-day semantics than `total_tss + sport parts`, but the current planner/export stack already had many consumers that assume the old tuple shape. A parallel metadata list is the lowest-risk way to add `phase`, `session role`, `focus`, `duration`, and human-readable naming now, while keeping every old integration path backward-compatible until a later, larger planning rewrite is justified.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: make acceptance mode a separate launcher and runtime contract instead of overloading the normal `run.sh` path.
+  Rationale: the repository now has two distinct intents. Normal `./run.sh` should keep representing the user's real local app state, including `ai_trainer.db` and optional Garmin connections. Acceptance verification needs the opposite: a deterministic, disposable runtime on a dedicated port with demo data and no chance of touching the real account or database. A dedicated `./run_acceptance.sh` script plus app-side acceptance guards keeps those intents explicit and safer.
+  Date/Author: 2026-06-13 / Codex
+
+- Decision: treat the acceptance checkpoint as `smoke suite + functional browser proof`, not as `empty dev console`, in this local Codex environment.
+  Rationale: the in-app browser retains stale log history across local restarts, so the reliable acceptance signal is a fresh isolated DB, visible runtime markers, successful planning/AI navigation, and direct widget interaction on the current session rather than zero historical console lines.
+  Date/Author: 2026-06-14 / Codex
+
+- Decision: implement replanning as a `plan_adjustment` entity that only mutates the near-term horizon plus a short safe catch-up window, not as a full-plan regeneration trigger.
+  Rationale: the product gap is around truthful response to missed or constrained execution, not around recomputing every distant week from scratch. A short-horizon overlay is safer, easier to explain, and preserves the repository's current export/sync contracts while still making planning meaningfully more adaptive.
+  Date/Author: 2026-06-14 / Codex
+
+- Decision: persist planning context as compact checkpoint snapshots, not as full exported plan payloads.
+  Rationale: dashboard and AI coaching only need the goal shape, recent weekly story, and applied constraint summary in order to explain the latest plan or replanning outcome. Storing that compact checkpoint in SQLite keeps the persistence boundary small, avoids coupling the database to every export-oriented daily artifact, and is still rich enough to rebuild plan-aware handoff context on later page visits.
+  Date/Author: 2026-06-14 / Codex
+
+- Decision: enforce the first post-handoff coaching reply as a one-shot runtime response contract, not as a permanent chat mode or a prompt-only best effort.
+  Rationale: the user-facing requirement is narrow and operational: the first answer after a dashboard or recommended-entry handoff should reliably return `Сегодня / Ближайшие 2-3 дня / Не делать / Почему`. Making that contract one-shot keeps the chat flexible after the initial action, while enforcing it in the runtime wrapper keeps the behavior deterministic across real and mock providers.
+  Date/Author: 2026-06-14 / Codex
+
+- Decision: acceptance auto-demo must seed only empty isolated databases, and must restore demo-mode session state when an isolated dataset already exists.
+  Rationale: the acceptance launcher is meant to provide a safe disposable environment, but the persisted-planning acceptance checkpoint specifically requires cold-restart continuity on the same temporary DB. Reseeding on every new browser session destroys the very artifact being verified, while preserving the DB without restoring session-only demo flags drops the app back into the welcome screen. The correct contract is therefore `seed if empty, otherwise rehydrate`.
+  Date/Author: 2026-06-14 / Codex
+
+- Decision: rebuild dashboard execution-feedback replans from persisted checkpoint context instead of requiring a live planning-page session.
+  Rationale: execution feedback belongs to the daily operational loop on the dashboard, not only to the page where the original plan was created. Reconstructing the near-term plan from the compact checkpoint plus planner metadata keeps the flow durable across restarts and lets both dashboard and AI coaching continue from the latest saved checkpoint.
+  Date/Author: 2026-06-14 / Codex
+
+- Decision: let execution feedback augment recovery guidance as well as power a dedicated execution-review focus.
+  Rationale: a real athlete can be both fatigued and coming off a meaningful execution checkpoint at the same time. If recovery remains the top-level focus, the checkpoint still has to change the visible guardrails; otherwise the product falls back to sounding readiness-only again. The shared helper now treats actionable checkpoints as either a primary `execution_review` focus when readiness is otherwise calm, or as mandatory guardrail text inside the recovery/form guidance when readiness is already red.
+  Date/Author: 2026-06-14 / Codex
+
+- Decision: implement near-term planning edits as a 7-10 day overlay on top of the existing `daily_plan + session_templates` contract instead of introducing a separate calendar editor or forcing a full plan rebuild.
+  Rationale: the product gap is local plan truthfulness, not yet a full scheduling system. Updating the first 7-10 days in place keeps the existing exports, explainability tables, and persisted checkpoint flow intact while still letting the user correct the next week based on real life.
+  Date/Author: 2026-06-14 / Codex
+
+- Decision: close the persisted manual-edit acceptance slice by seeding a near-term-edited checkpoint into the isolated acceptance database and cold-reloading the app, instead of brute-forcing the inline Streamlit editor through flaky browser automation.
+  Rationale: the behavior under test for this slice is that a saved manual near-term edit becomes a first-class persisted coaching signal across dashboard and AI coaching. The editor mechanics themselves were already covered by smoke tests and a prior real manual edit on `http://localhost:8512`; the remaining acceptance gap was persistence and downstream propagation, which the DB-seeded cold-reload path proves deterministically.
+  Date/Author: 2026-06-14 / Codex
+
+- Decision: rework the near-term editor around a persistent live draft with explicit reset/apply controls instead of keeping the original `form`-only submit flow.
+  Rationale: the old form hid all pending changes until submit time, gave no compact diff preview, and made the product harder to reason about during both manual use and browser verification. A live draft keeps the same planning contract but makes the UI honest about what is currently saved, what is only a draft, and what exact day-level changes are about to be applied.
+  Date/Author: 2026-06-16 / Codex
+
+- Decision: make `ui.pages` exports lazy at the package boundary instead of requiring every test that touches one page helper to import all page modules up front.
+  Rationale: planning helper tests only need `ui.pages.planning`, but the eager `ui.pages.__init__` path still pulled unrelated pages and their heavy service imports into collection. Lazy wrappers preserve the public import surface used by `app.py` and the smoke suite while keeping page-local helper imports cheap and predictable.
+  Date/Author: 2026-06-16 / Codex
+
+- Decision: launch Streamlit through `python -m streamlit` in both `run.sh` and `run_acceptance.sh` instead of trusting the checked-in `ai_trainer_env/bin/streamlit` wrapper.
+  Rationale: after the workspace move, the Python interpreter inside the virtualenv still worked and `import streamlit` still passed, but the wrapper script carried a stale absolute shebang from the old checkout path. Module-based launch keeps both virtualenv and system-runtime flows working without depending on wrapper regeneration.
+  Date/Author: 2026-06-17 / Codex
+
+- Decision: extend the near-term draft UX with week-level preview and the future persisted `near_term_edit` label before apply.
+  Rationale: the live draft already showed day-level diffs, but it still made the user infer how those edits would change weekly totals and what checkpoint signal the rest of the product would see afterward. Showing the touched weeks and projected persisted label before apply makes the editor more trustworthy without changing the underlying planning model.
+  Date/Author: 2026-06-17 / Codex
+
+- Decision: make the Streamlit width-compat layer signature-aware so it only backports `width='stretch'` when the runtime truly lacks native `width` support.
+  Rationale: unconditional translation to `use_container_width=True` kept older versions working but polluted modern acceptance runs with deprecation warnings. Signature-aware patching preserves old-runtime compatibility while letting new Streamlit builds use the native `width` API directly.
+  Date/Author: 2026-06-17 / Codex
+
+- Decision: treat the aftermath of a manual near-term edit as a first-class planning strategy, not as an implicit side effect of the edited days alone.
+  Rationale: once the user manually changes the near horizon, the next meaningful question is no longer only “what changed today?” but also “what should happen to the next 1-2 weeks because of that change?” Encoding `keep / catch_up / protect_recovery` directly into `near_term_edit` keeps the behavior explicit, persistable, and explainable across dashboard and AI coaching.
+  Date/Author: 2026-06-17 / Codex
+
+- Decision: implement post-edit redistribution as local week-level scaling inside `models/planning_near_term.py` instead of forcing a full plan rebuild through `apply_planning_constraints(...)`.
+  Rationale: the user is editing an already accepted local plan, not asking to regenerate the whole cycle from scratch. Scaling only the next 1-2 weeks preserves the existing daily/session-template contract, keeps the change small and deterministic, and lets exports plus checkpoint summaries continue to describe one coherent plan artifact.
+  Date/Author: 2026-06-17 / Codex
+
+- Decision: gate the acceptance-mode welcome/banner Garmin copy and the welcome onboarding blocks on `services.acceptance_mode.garmin_disabled()` instead of on `acceptance_enabled` alone, and expose the gating through a pure `resolve_welcome_garmin_mode()` resolver.
+  Rationale: the acceptance banner and welcome block unconditionally asserted "реальный Garmin login отключён" whenever acceptance mode was on, even when the runner had explicitly permitted login (`ACCEPTANCE_DISABLE_GARMIN=0`). The first live Playwright probe hit exactly this: login was permitted, attempted, and `429`-rate-limited, yet the UI asserted it was disabled, so a real login failure looked like an intentional setting. Deriving both the banner text and the visible onboarding path from the actual `garmin_disabled()` contract removes the misinformation; extracting the decision into a pure resolver lets it be unit-tested without rendering.
+  Date/Author: 2026-06-24 / Codex
+
+- Decision: replace `print(...)` with `logging` across `data/garmin_client.py` (auth path, activities, stress, sleep, training-status, and the garth-import warning), and extend both Playwright acceptance probes' `collect_errors()` to collect `stAlert[kind=error|warning]` in addition to `stException`.
+  Rationale: there is no application-level login fallback cascade to fix — `mobile+cffi`/`mobile+requests` are internal sub-strategies of `garminconnect`'s single `Garmin.login()`, which raises one combined exception that `authenticate()` already catches, normalizes, and returns as `False`. The real defect was observability: the Garmin library's `429` output reached stdout via `print` instead of structured `logging`, and the probe only counted Streamlit exceptions, so a rendered `st.error` rate-limit alert read as `errors_after: 0`. Routing the auth failure through the existing `garmin_sync` logger makes it capturable by test capture and log aggregation, and teaching the probe to read alerts makes a real rate-limit visible in the acceptance report instead of silent.
+  Date/Author: 2026-06-24 / Codex
+
+## Plan of Work
+
+### Hardening Sprint
+
+The goal of the sprint is to make the current product quieter, more predictable, and easier to release. The highest-priority items are:
+
+- make `garth` capability detection explicit and fail soft when the package is broken,
+- keep Garmin auth fallback behavior working without misleading error noise,
+- separate genuine runtime requirements from optional accelerators,
+- clean up release hygiene around smoke tests, docs, and environment expectations.
+
+The measurable result is that the real Garmin path still works, but the app no longer behaves as if a broken `garth` install were a normal auth failure.
+
+### Planning V2
+
+The goal is to evolve the current planning screen into a constraint-aware planning engine. Key additions should include:
+
+- availability-aware weekly targets,
+- illness / injury / holiday / limited-availability inputs,
+- catch-up versus protect-recovery decisions after missed sessions,
+- clearer explanation of why a weekly target was chosen.
+
+The measurable result is that the planning page no longer behaves like a pure TSS slider plus projection chart.
+
+### Coach Explainability
+
+The goal is to make AI coaching feel grounded and consistent. The likely slices are:
+
+- a daily briefing card,
+- explicit "why this recommendation" output linked to TSB / HRV / sleep / readiness,
+- recent plan-adjustment history and a clearer handoff between sync, dashboard, and coach.
+
+The measurable result is that the product can answer not only "what should I do?" but also "why are you telling me this today?"
+
+## Validation and Acceptance
+
+The Hardening Sprint is accepted when the Garmin auth path behaves predictably in a damaged or reduced environment, the smoke suite remains green, and the docs describe the real contributor path instead of an idealized one.
+
+Planning V2 is accepted when weekly planning reacts to time constraints and interruptions instead of only ramp logic and static target ranges, and when near-term manual edits remain coherent after persistence and reload.
+
+Coach Explainability is accepted when the dashboard and AI coaching can surface the main reasoning signals behind a recommendation, including recent execution or manual near-term plan changes, without requiring the user to reverse-engineer them from charts or a long-form chat answer.
+
+## Outcomes & Retrospective
+
+This section starts empty on purpose. The previous plan ended with a working product flow. This plan begins at the moment where the product needs to become a durable system rather than a successful sequence of flows.
+
+The newest slice responds to the user's reference screenshots by fixing ownership before attempting cosmetic redesign. Dashboard is now less of a planning operations console because it summarizes the latest plan checkpoint and points to Planning for correction; Planning is less chaotic because the builder only appears when the user is actually building a plan. This does not finish the visual redesign, but it removes the most confusing cross-mode leakage and gives the next UI pass a cleaner structure to style.
+
+The newest hardening slice does not improve Garmin availability, but it improves truthfulness. The athlete now gets a clearer diagnosis when Garmin moves past ordinary throttling into a portal-level `403` block, which matters because the right response is operational patience, not random password retries or suspicion that the recent Planning work broke auth.
+
+The newest slice starts turning the multi-week timeline from a passive dashboard into a coaching surface. The athlete no longer just sees that several weeks are off; Planning now points to the first week that likely deserves correction and opens the existing execution-review workflow on the right local window. That is the correct boundary for this phase because it makes drift actionable without introducing silent replanning or new planning math.
+
+The newest slice adds the first real medium-horizon visibility layer on top of the weekly execution loop. The app no longer starts with “pick one week and inspect it”; it first shows how the next several weeks look at a glance, where drift has accumulated, and where the week is simply in progress or already Garmin-ready. That makes the Planning surface feel less like a single-week worksheet and more like a real multi-week coaching view.
+
+The newest slice closes the last obvious naming gap in that Garmin-assisted execution loop. After the previous declutter work, the app could already isolate Garmin-confirmation rows from true deviations, but the primary button still sounded like a replanning action even when the athlete was only confirming that the local Garmin evidence was good enough. The new explicit confirmation CTA makes that clean-window path read like a confirmation step, not like a hidden replan.
+
+The newest slice tightens the real-data execution loop rather than adding new planning math. Garmin-matched rows were already being prefilled correctly, but they were still rendered alongside true deviations at the same visual priority, which made a clean real-data week feel busier than it really was. The editor now treats those as confirmation candidates, not as top-level problems.
+
+The newest slice does not claim to fix Garmin itself; it fixes our side of the diagnosis. A real runtime can legitimately hit provider throttling, unstable widget fallback behavior, and a final `401` in one sequence, and dumping that whole chain into the sidebar is not a trustworthy UX. The app now summarizes the failure into one primary explanation and keeps the raw provider text available only when the user or developer explicitly wants technical detail.
+
+The newest slice tightens the last ambiguous step in that weekly Planning flow. The overlay could already show plan versus fact and could already jump into the shared execution editor, but the jump still arrived without a clear statement of intent. A matched Garmin day, a missing fact day, and a wrong-sport day now open with different explicit CTAs, and the editor's focus banner explains that intent in plain language instead of only restating the selected date.
+
+The newest slice closes the next Planning clarity gap that was still obvious in real use: the app could already build a plan, sync it out, and prefill parts of execution review from Garmin, but it still had no single weekly surface that showed "this was the plan" against "this is what actually happened." Planning now has that surface. In both correction and export workflows, the athlete can open one weekly overlay and compare the saved plan with locally synced activity facts day by day.
+
+Keeping that overlay read-only was the right product decision. If the calendar itself silently rewrote the plan or auto-saved a checkpoint, it would collapse the boundary between observed activity history and an explicit coaching decision. By leaving the overlay as situational awareness and keeping persistence in the shared execution editor, the product becomes easier to trust: Garmin facts are visible sooner, but the saved plan still changes only after a deliberate confirmation.
+
+This slice also exposed a tooling nuance worth preserving for later contributors. The repository code and isolated acceptance runtime were healthy, but the current in-app browser bootstrap is blocked by a platform `node_repl/js` metadata failure and system `AppTest` still cannot fully tolerate older `st.dataframe(width="stretch")` calls. Even with those external limits, the new Planning markers were verified through a page-level fallback and the full smoke suite remained green at `162 passed`, which is strong enough evidence to checkpoint this UX improvement and move on to the next Planning V2 trust gap instead of reopening the calendar surface.
+
+The newest execution-review slice builds on that same principle of signal over noise. The shared editor already had the right data and the right replanning contract, but it still made the athlete scan every unchanged day at the same visual weight as a real mismatch or a Garmin-prefill suggestion. The new `mismatch-first` partition fixes that without touching planning logic: signalled rows surface first, quiet rows stay available in one collapsed fallback, and the same save/apply flow remains intact. That is the right kind of Planning V2 work at this stage because it improves trust and readability without creating a second editing system.
+
+The newest slice turns those two pieces into one navigable flow instead of two adjacent blocks. The weekly overlay no longer ends at “here is the week”; it now offers a direct day-level handoff into the shared execution editor. Choosing a day from `План и факт` stores a focus target, widens the local horizon when the chosen day sits in week two, and lifts that day above both mismatch rows and quiet fallback rows inside the editor. This is still intentionally lightweight: no new planning entity was added, but the athlete now moves from weekly scan to day-level correction without re-finding the same date by hand.
+
+The newest slice fixed a planning mistake that becomes obvious only on real calendar dates: late in the week, the product could tell the user the race was still `~8` weeks away while exporting the first planned workout into the already nearly finished current week. On Saturday `20 June 2026`, that meant a plan could still start on Monday `15 June 2026`, which is exactly the kind of silent mismatch that makes an otherwise valid export look wrong in `Intervals.icu`. The builder now chooses one explicit weekly anchor first and tells the user about it in plain language.
+
+That was the right level of fix. The planning engine did not need new training math; it needed one consistent calendar contract. Computing `weeks_to_race` from the resolved planning anchor and shifting late-week starts to the next Monday keeps weekly phases and exports aligned while staying compatible with the new `Режим страницы` workflow.
+
+The newest slice finally addressed the most obvious Planning trust problem in the real browser: the page felt overloaded because it asked the athlete to build, reinterpret, correct, and export the same plan from one uninterrupted surface. The new workspace split gives the page a clearer contract. Build mode now stays focused on current-state context and plan construction, adjust mode contains the execution-feedback and near-term-override workflow, and export mode carries explainability plus outbound artifacts. The planning logic did not need a rewrite; the product needed a cleaner conversation boundary.
+
+This slice also closed the last remaining server-side warning inside the planning correction flow. The near-term editor now behaves like the hardened execution editor: session state owns the widget value, and the widget no longer competes with an explicit `index=` or `value=` default. That matters because the Planning UX is no longer just visually cleaner; it is also quieter and more trustworthy under real reruns and seeded-draft scenarios.
+
+The newest slice closes the next trust gap in that execution-feedback loop: the product no longer asks the athlete to accept one inferred post-window mode blindly. The shared execution editor now shows the recommended medium-horizon answer, lets the athlete override it explicitly before save, and previews how the following 1-2 weeks will change if that choice is persisted. That moves the workflow one step closer to real coach collaboration instead of one-way automation.
+
+Keeping that UX on top of the existing `execution_adaptation_pressure` contract was the right decision. The planner still enforces one normalized rebound ceiling, checkpoint persistence still stores one compact signal, and Planning, Dashboard, plus AI Coaching still read one chosen post-window story. The difference is that the signal now also remembers what the model recommended, which makes later explainability truthful even after the athlete has chosen a different follow-up mode.
+
+The latest slice closes the next planning trust gap after weekly review, microcycle, and manual-override lineage: what should the next 1-2 weeks actually do after execution drift? The planner now persists one compact `execution_adaptation_pressure` answer with a level, a follow-up mode, and a rebound-growth ceiling. That turns execution drift into a real medium-horizon planning contract instead of leaving the athlete to infer the next-week behavior from a headline and a short microcycle alone.
+
+That new contract matters because it changes behavior, not only explanation. `rebuild_goal_plan_with_adjustment(...)` now uses the persisted signal to cap rebound across the next 1-2 weeks, so a checkpoint can leave the plan in `protect_recovery`, `hold`, or `catch_up` mode even after the first 2-3 days are already explained. This is the right scope for the next Planning V2 improvement: the product still stays local and conservative, but it no longer jumps straight from short-window coaching to an unconstrained future week.
+
+The same slice also tightened the explainability model around that decision. Planning, Dashboard, and AI Coaching no longer stop at “a checkpoint happened” or “here is the corrective microcycle”; they can now say how hard the product expects the next 1-2 weeks to rebound and why. That makes the execution-feedback loop read more like a coaching system and less like a set of disconnected derived widgets.
+
+The latest slice makes the execution-to-planning handoff durable instead of ephemeral. Opening a corrective microcycle as a near-term draft no longer loses its origin once the user saves an override: the persisted `near_term_edit` summary now remembers that it grew out of an execution checkpoint, which checkpoint it came from, and which weekly-review/microcycle story triggered it. That gives Planning history, Dashboard checkpoint cards, and AI Coaching the same truthful lineage instead of flattening everything into a generic manual edit.
+
+That was the right boundary to preserve. The saved result should still read as a manual override because the athlete explicitly changed the short horizon before saving, but downstream surfaces also need to explain why that override exists in the first place. Keeping checkpoint provenance as `manual_edit` while attaching execution lineage inside `near_term_edit.origin_*` preserves both sides of that contract without multiplying checkpoint types or branching the explainability model.
+
+The final widget-state hardening in the shared execution editor was equally important because it removed the last noisy runtime seam in the new feedback loop. The earlier crash fix solved the hard failure when a stale positive value outlived a zero-max row, but the runtime still warned that `actual_tss` inputs were being initialized from both `value=` and Session State, and response-strategy acceptance was still one direct session-state write away from another post-instantiation exception. Moving those presets through pending-key sync before widget creation and letting the widget key own its value eliminated the remaining warning while keeping the execution-editing UX unchanged.
+
+The latest slice turns the corrective microcycle from a recommendation into a decision surface. Planning no longer asks the user to either trust the execution replan blindly or abandon it and start manual editing from scratch. The product can now open the projected microcycle directly inside the existing near-term draft editor, where the same `Было → Станет`, risk, safer-variant, and follow-up-strategy workflow already exists.
+
+That keeps the contract intentionally explicit. Applying the execution checkpoint as-is still preserves the exact execution-driven replan; opening the microcycle as a draft is now clearly labeled as a manual override path. This is a better product boundary than silently merging the two behaviors, because it preserves the difference between “accept the coaching adjustment” and “override the short horizon after inspecting it”.
+
+The latest slice closes the next abstraction gap in execution feedback. The product no longer stops at a persisted fact window plus a weekly headline; it now turns that evidence into an explicit corrective microcycle for the next 2-3 days, including one concrete action, the next-window expectation, and one guardrail that survive local replanning, checkpoint persistence, dashboard summary cards, planning version history, and AI-coach prompt context. That makes the handoff from “what happened” to “what do I do next” materially more coach-like.
+
+This was also the right level of scope for the next planning improvement. A separate planning mode would have fractured the checkpoint story and forced every downstream surface to decide whether to trust weekly review, day-level reconciliation, or a parallel follow-up entity. Keeping the microcycle inside the existing execution checkpoint contract means every surface now reads the same lineage: fact window, weekly review, then short corrective window.
+
+The latest slice closes the next execution-feedback trust gap. The product no longer stops at "140 of 180 TSS happened"; it now turns day-level facts into a compact weekly review with a headline, concrete deviations such as a lost key or long session, and an explicit follow-up response strategy that survives rebuild, checkpoint persistence, dashboard cards, planning history, and AI coaching context. That makes the execution-feedback loop feel more like coaching and less like a bookkeeping delta.
+
+This slice also tightened a real runtime seam, not just the UX copy. The shared execution editor had a latent Streamlit-state failure where an old widget value could survive after the allowed max dropped to zero and crash the page. Moving to outcome-aware actual-TSS resolution plus separate logical/widget keys keeps the editor stable while preserving the user-visible day-level workflow, and the new smoke coverage plus full `145 passed` run make that regression much harder to reintroduce silently.
+
+The latest slice turns planning checkpoints from "whatever was saved last" into explicit plan versions with lineage. Each saved checkpoint now records whether it came from the initial build, a manual near-term edit, an execution-feedback replan, or a restore of a prior version; the planning page can compare the active plan against several recent versions and restore any of them; and dashboard plus AI coaching now surface that provenance directly instead of relying on raw checkpoint labels alone.
+
+That change also fixed a subtle trust bug. Before explicit provenance, a manual edit or restored version could still carry an inherited `plan_adjustment` payload and therefore look like a fresh execution checkpoint to downstream explainability surfaces. Gating execution-feedback summaries on the checkpoint's real source keeps the coaching story honest: execution feedback remains an operational signal, while manual edits and restored versions stay version-history events.
+
+The new execution-reconciliation slice makes that operational signal far more concrete. Instead of saving only a coarse week-level status, the product can now capture what happened day by day in the near-term window, compress that into a persisted `planned vs actual` fact summary, and use that summary consistently in local replanning, checkpoint cards, and AI coaching context. This materially improves trust because the product can now explain not only that a checkpoint exists, but what real short-term load delta created it.
+
+Equally important, this was implemented without breaking the planning contract itself. `daily_plan` remains a forward-looking plan used for exports and editing, while historical reality is stored as a separate normalized `execution_reconciliation` summary inside the checkpoint payload. That keeps planning semantics clean while still letting the adaptive engine react to real execution.
+
+The first hardening slice immediately justified the new plan. The upstream `garth` project itself now says that new logins are broken and the library is deprecated, while the local virtual environment adds an extra layer of corruption on top by shipping a namespace package with missing public API exports. The right response was not to add more retries, but to make AI Trainer stop treating `garth` fresh login as a normal path and to fail soft into `garminconnect` instead.
+
+The next hardening slice turned that into a real product contract. Fresh Garmin authentication now belongs solely to `garminconnect`, while `garth` remains available only as legacy diagnostics and optional runtime context. That is a more honest user-facing model and a better base for future integrations such as `Intervals.icu`, which fits the planning/export side of the product better than the primary ingestion path.
+
+The first Planning V2 slice is now real, not hypothetical. The planning page can export its generated daily plan to `Intervals.icu` through a dedicated service adapter, the environment contract is documented in `.env.example`, and the UI behaves sensibly even when the integration is not configured yet. That is the correct shape for this phase: additive, testable, and useful before the larger adaptive-planning work begins.
+
+The first live user verification also revealed a useful production detail: `Intervals.icu` is not rejecting the API key or the endpoint shape, but it does reject the default `urllib` client signature. That bug belongs in the adapter boundary, not in the planning UI. Fixing it there keeps the integration predictable for both connection checks and future event creation.
+
+The next Planning V2 slice keeps that same additive pattern. The planner still emits the old aligned daily tuples for forecast and load simulation, but now also emits explicit session metadata that explains what each day is meant to be. That immediately improves the planning page table and makes exports less generic: a `quality` bike day can now carry a meaningful name, a better Intervals.icu description, and a different FIT/TCX step structure from a `recovery` run.
+
+This slice also clarified the safe boundary for real browser verification in this repository. Booting the app from the current worktree is now verified again, but a full demo-mode clickthrough would mutate the local cache and therefore should be treated as an explicit acceptance step, not as a silent background check. For day-to-day coding, the full smoke suite plus a boot-level browser sanity check is the right default checkpoint unless the user wants to spend a fresh demo or real-provider session on product acceptance.
+
+The new acceptance-mode slice turns that boundary into an actual contributor tool. Instead of tiptoeing around the normal demo-mode button, a contributor can now run `./run_acceptance.sh`, which launches the app on a dedicated port against a unique temporary SQLite database, auto-loads the deterministic demo dataset, disables real Garmin login, and provides an explicit UI reset path for reseeding the dataset mid-session. That is a much better base for future browser-based acceptance checks on planning features because the runtime itself is now safe by construction.
+
+The real acceptance loop is now closed for this slice. The app can discover the configured `Intervals.icu` account, validate the connection from the planning page, send at least one planned workout event, and confirm that event through provider-side read-back. That is enough evidence to treat the integration as production-shaped rather than prototype-shaped.
+
+The isolated acceptance runtime is now also proven as a contributor checkpoint, not just as an implementation detail. A fresh `8510` session showed a new temporary SQLite path in the UI, disabled the real Garmin login path, rendered both the planning and AI coaching pages against seeded data, and exposed the existing export/sync surfaces after building a plan. Restarting that runtime and interacting with the narrow `500..505` target-TSS control then confirmed the last planning regression fix directly in the real browser: the value advanced from `500` to `501`, which would have been impossible with the old hardcoded `step=25`.
+
+The remaining nuance is verification hygiene rather than product behavior. The Codex in-app browser's dev-log feed kept stale entries from earlier local sessions, including old port-`8501` noise and a pre-fix slider warning, so a strict "console must be empty" rule would misclassify a healthy acceptance run. The correct hardening standard for this repository is therefore a green smoke suite plus functional browser proof on a fresh isolated runtime, not raw log emptiness.
+
+The next Planning V2 slice finally gives the planner a truthful answer to "what if this week didn't happen the way we planned?" Instead of forcing the user to rebuild the whole cycle or silently accept stale numbers, the planning page now accepts a local execution checkpoint (`выполнено / пропущено / урезано / ограничено`), mutates only the near-term horizon, and optionally returns a small safe amount of load inside a short local window when the user selects `Наверстать аккуратно`. That keeps the adaptation grounded in the next 7-14 days instead of smearing it across the whole season.
+
+This slice is valuable not only because it changes numbers, but because it changes trust. The planning page now explains the local replanning story in the same place where it already explains availability and interruption logic: the scenario card includes the checkpoint, the planner-decision card includes local return load when it exists, and the weekly comparison stays aligned with exportable plan data. In the fresh acceptance verification on `http://localhost:8510`, the app rendered the new `♻️ Локальная перепланировка` controls, accepted a reduced-week checkpoint, built the plan successfully, showed the new `🧠 Почему план такой` headline for local replanning, and still exposed the full ICS / Intervals.icu / FIT export surface afterward.
+
+The follow-up slice makes that replanning durable instead of page-local. The app now writes a compact planning checkpoint to SQLite whenever the user builds or rebuilds a plan, reloads the latest checkpoint and short history into state, shows that recent checkpoint story on the dashboard, and gives AI coaching the same persisted context even when the planning page is no longer the active session surface.
+
+That persistence boundary is intentionally narrow. Instead of storing the full export-oriented daily plan payload, AI Trainer now persists only the goal metadata, weekly summary rows, and constraint summary needed to explain what changed most recently. That keeps the database contract simpler while still letting the dashboard and AI coach talk coherently about the latest plan adjustment, interruption state, and target load envelope. Focused smoke coverage passes for checkpoint round-tripping and handoff behavior, and the full smoke suite now passes at `94 passed`.
+
+The final acceptance pass turned that design into a real contributor checkpoint instead of a plausible one. Running the isolated app on `http://localhost:8510`, then restarting it against the exact same temporary SQLite file, exposed two product-level issues that normal unit coverage would not have caught cleanly: acceptance bootstrap was reseeding the DB on restart, and preserved isolated datasets were not restoring the session flags required to stay in demo-mode product flow. Fixing those two boundaries was necessary before persistence could be claimed honestly.
+
+The acceptance evidence is now concrete and current. The isolated DB contains a saved planning checkpoint row for `Триатлон / Олимпийка`; after a cold restart on that same DB, the dashboard again shows `🗂️ Последний planning checkpoint` with the saved timestamp and load summary, and the AI coaching page shows the same checkpoint block plus the plan-aware explainability handoff. With the acceptance bootstrap contract corrected and the full smoke suite now green at `96 passed`, persisted planning checkpoints are proven as a real end-to-end product behavior rather than a page-local implementation detail.
+
+The next Planning V2 slice closes that persistence loop into an operational one. The dashboard no longer just displays the saved checkpoint; it now lets the user record what actually happened (`выполнено / пропущено / урезано / ограничено`), rebuild the short-horizon plan from the persisted checkpoint context, and save the updated result back to SQLite without returning to the planning page. That is an important product shift: planning context is no longer just explainable after the fact, it is actionable from the daily execution surface.
+
+The real browser proof for that slice is concrete. On the isolated acceptance runtime at `http://localhost:8510`, the dashboard rendered `🗂️ Последний planning checkpoint` plus `♻️ Факт выполнения`, accepted a reduced-load execution checkpoint at `60%`, saved a new checkpoint timestamp, changed the summary from `Нет · Сумма 1197 TSS` to `Нагрузка урезана · Сумма 1157 TSS`, and showed the success delta (`-40`) in place. With focused checkpoint/execution smoke coverage added and the full smoke suite now green at `98 passed`, the execution-feedback loop is proven as a real end-to-end workflow rather than a page-local control.
+
+The next bridge slice makes that workflow visible inside coaching, not only inside planning or checkpoint cards. Actionable execution checkpoints are now part of the shared explainability contract itself. When readiness is otherwise stable, they can become the top-level focus (`Разберите execution checkpoint и ближайший план`). When readiness is already red, they still inject concrete guardrails into the recovery briefing so the product does not revert to sounding like a pure readiness engine.
+
+The live acceptance proof for that change is more nuanced and therefore more valuable. On a fresh isolated runtime at `http://localhost:8511`, the athlete still started in a recovery-first state after a reduced-load checkpoint, so the correct behavior was not to replace the recovery focus with something artificial. Instead, after building a plan and applying `Нагрузка урезана` at `60%`, the dashboard changed `Сегодня`, `Ближайшие 2-3 дня`, and `Следить за` to mention the reduced week explicitly, including `Локальный replan уже изменил объём на -40 TSS.` Opening AI coaching from that next step carried the same checkpoint-aware guardrails into `Переход с дашборда` and `Почему такой старт`. With the full smoke suite now green at `102 passed`, execution feedback is proven as a first-class coaching signal rather than only a planning artifact.
+
+The next Coach Explainability runtime slice turns that shared reasoning into a stricter operational contract for the moment that matters most: the first coaching reply after a guided handoff. Dashboard and recommended-entry prompts now carry a compact `operational_brief` contract through session state, the runtime appends a provider-facing suffix only for that one turn, and the final rendered answer is wrapped into a deterministic `Сегодня / Ближайшие 2-3 дня / Не делать / Почему` structure even when the underlying provider responds in ordinary prose. That gives the product a more trustworthy handoff without locking the rest of the chat into a rigid template; the smoke suite now passes at `106 passed`, including focused checks that the dashboard handoff click stores the contract and that the modern chat path consumes it exactly once.
+
+The final live acceptance proof for that slice is now also explicit instead of inferred from tests and code paths. On the active `http://localhost:8511` acceptance runtime, the dashboard handoff still showed the preview contract, clicking through into AI coaching produced a first assistant message headed `🎯 Operational Brief` with the expected `Сегодня / Ближайшие 2-3 дня / Не делать / Почему` sections, and the very next follow-up question returned a normal free-form analysis message rather than reusing the structured wrapper. That closes the last behavioral gap in the objective: the contract is both deterministic on the first handoff turn and genuinely one-shot afterward.
+
+The next Planning V2 slice makes the current plan editable at the point where users actually need control: the next week. Instead of forcing a full rebuild when reality shifts slightly, the planning page now exposes `✍️ Редактировать ближайшие 7-10 дней`, lets the user change day role, dominant sport, and TSS in place, then rewrites the near-term daily rows, session metadata, weekly totals, and checkpoint snapshot without disturbing the rest of the cycle.
+
+The acceptance evidence for that slice is concrete and user-visible. The first browser pass on the existing `http://localhost:8511` tab correctly exposed a stale-runtime trap: because acceptance runs with `--server.fileWatcherType none`, the old tab still showed the previous planning build and did not contain the new editor. Launching a fresh isolated runtime on `http://localhost:8512` closed that gap. On the fresh instance, building a plan rendered the new near-term section, opening the editor exposed seven editable days, changing the first day's TSS from `11` to `0` produced the flash `Ближний горизонт обновлён: 7 дн., Δ -11 TSS.`, and the explainability block immediately added `Ручная правка ближнего горизонта: 7 дн. в ближайших 7 дн., Δ -11 TSS.` while total planned load dropped from `1591` to `1580` TSS. With focused smoke coverage green (`22 passed`) and the full smoke suite now green at `110 passed`, the product has a real near-term editing checkpoint instead of only a replanning abstraction.
+
+The next Planning V2 slice changed the planner from a pure target-and-ramp calculator into a constrained planner. It still uses the same Banister forecasting and export surfaces, but now the user can express how much training time actually exists, which weekdays are usable, whether the next block is affected by illness, holiday, or limited availability, and whether missed load should be protected or partially caught up. That is the first real step toward adaptive planning rather than static load projection.
+
+Revision note (2026-06-12 23:33+04:00): recorded the availability-and-interruption slice after verifying the new controls and constraint summary in the real planning UI and re-running the smoke suite (`52 passed`).
+
+The explainability slice turned that adaptive logic into something a user can actually read. Before this change, the planning page could generate a better adaptive plan, but the output still behaved like a flat chart plus raw weekly rows. Now the page frames the scenario before generation, then explains the outcome after generation through a headline, compact metrics, a scenario card, a planner-decision card, and a before/after weekly table. The planner is still the same engine underneath, but the user no longer has to reverse-engineer why the numbers changed.
+
+The latest Planning UX hardening slice closes a subtler trust gap inside that editor. A manual `Δ TSS` is not self-explanatory: `+40` can be reasonable on a fresh athlete but dangerous if it removes the only rest day on top of `Накопленная усталость`, while `-30` can be healthy recovery or an unintended collapse of the week's only quality stimulus. The product now computes that distinction once inside the near-term edit model, then reuses the same normalized badge, reasons, and guardrail in the planning draft preview, persisted checkpoint summary, dashboard, and AI coaching prompt context. The result is not just more UI copy; it is a shared safety contract that survives persistence and remains visible where the user actually decides whether to trust the edit.
+
+The follow-up slice turns that safety contract into an actionable editor behavior. The product no longer stops at “this looks risky”; it can now propose a safer version of the same draft, show the lower-risk outcome before anything is saved, and rewrite the live draft with one click. That keeps the interaction local and concrete: the athlete still sees exactly which day was softened or restored, but no longer has to deduce the safer combination of day edits and post-edit strategy unaided.
+
+The acceptance evidence for that slice is strong enough to treat it as complete. The smoke suite now passes at `54 passed`, and a fresh Streamlit instance launched from the current worktree on `http://localhost:8502` shows the updated `🧭 Сценарий и ограничения` pre-plan section and, after pressing `🧭 Построить план до старта`, the new `🧠 Почему план такой` and `↔️ До / После По Неделям` sections. That closes the loop for this sprint: the planning UI is now aligned with the adaptive engine already added in the previous slice.
+
+Revision note (2026-06-19 21:15+04:00): recorded the execution-aware weekly-review slice after wiring `execution_weekly_review` plus response-strategy persistence through planning execution/checkpoints/coaching, fixing the stale `number_input` crash in the shared execution editor, re-running focused smoke coverage (`34 passed`) plus the full smoke suite (`145 passed`), and verifying a fresh isolated acceptance boot on `http://localhost:8520` with `HTTP 200` on `/` plus `/_stcore/health -> ok` after skipping occupied local ports `8510` and `8512`.
+
+Revision note (2026-06-12 23:59+04:00): recorded the Planning UX + Explainability slice after browser-verifying the new planning page on a temporary `8502` Streamlit instance and re-running the smoke suite (`54 passed`).
+
+The latest hardening slices confirm that `ui/pages/ai_coaching.py` can now be decomposed by responsibility rather than by file-size panic. Provider setup, entry/handoff, chat shell, monthly progress reporting, and now the execution runtime each have a dedicated boundary, and the page has dropped further to `1045` lines without breaking the legacy helper contract expected by `app.py` and the smoke suite. That is the right pattern for the final lap: the execution engine is no longer tangled together with unrelated Streamlit scaffolding, so the remaining page weight is increasingly honest and presentation-focused.
+
+The new runtime split is especially important because it clarifies what the product actually considers reusable coaching logic. Prompt construction, conversation-history assembly, tool-call parsing, and final response post-processing now live in `models/ai_coach_runtime.py`, while the page retains only UI concerns such as placeholder copy, `st.chat_message(...)`, persistence, reruns, and optional speech playback. That gives the repository a much cleaner base for the next extraction wave around result formatting and any future non-UI AI-coach integrations.
+
+The final AI coaching hardening slice finished that decomposition cleanly. Markdown tool formatting plus speech/streaming helpers now live in `ui/components/ai_coach_output.py`, `ui/pages/ai_coaching.py` is down to `356` lines, and the old import surface used by `app.py` and legacy tests still works unchanged. The focused smoke added for this boundary also surfaced a subtle pre-existing bug where streamed sentences were concatenated without a space; fixing it inside the new output module improved UX while the full smoke suite moved up to `76 passed`.
+
+The next Planning V2 slice finally makes the weekly plan feel more like coaching and less like arithmetic. The planner still starts from the existing weekly TSS target, constraint handling, and per-sport expansion, but it now overlays explicit day roles such as `off`, `recovery`, `easy`, `quality`, and `long`, then rebalances the daily totals accordingly. That keeps the established export and simulation surfaces intact while making the weekly shape much more believable.
+
+That slice also created a useful new explainability seam. The planning page can now show not just `сколько TSS` falls on each day, but what that day is supposed to be for: a recovery slot, a key quality session, or the week's long session. Focused smoke coverage caught a real product-level inconsistency during implementation: a running plan had accidentally placed the `long` label on a lighter day than a recovery slot because the old weekly weights and weekend preference disagreed. Fixing that inside the new role layer made the planner's structure more truthful instead of merely more verbose, and the full smoke suite moved up to `78 passed`.
+
+The next Planning V2 slice made the planner sensitive to the athlete's starting load state, not just the event target and calendar constraints. `apply_planning_constraints(...)` now receives live `CTL`, `ATL`, and `TSB`, classifies the starting state as `fresh`, `balanced`, `fatigued`, or `deep_fatigue`, and uses that state to soften the first weeks when the athlete is already carrying too much fatigue. In the opposite direction, the same state can make `catch up` slightly more permissive after holiday or limited-availability blocks when the athlete starts fresh instead of stale.
+
+That slice also exposed an important boundary condition in the UI contract. When the realistic target weekly TSS collapsed to a single allowed value, Streamlit rejected the `slider(min=500, max=500)` call outright. The fix was to treat that as a fixed-value control instead of trying to force a degenerate slider. That keeps Planning V2 stable when availability caps the target harder than the nominal distance range.
+
+The validation evidence is again strong enough to keep moving forward without reopening older work. The adaptive-planning smoke tests now cover deep-fatigue start states and fresh-start catch-up behavior, the planning-page explainability tests cover the collapsed target-TSS control, and the full smoke suite passes at `58 passed`.
+
+Revision note (2026-06-13 00:20+04:00): recorded the load-aware planning slice and the fixed-value target-TSS control after re-running the full smoke suite (`58 passed`).
+
+The first Coach Explainability slice is intentionally modest but strategically important. Instead of trying to make the AI sound better through prompt edits alone, it introduces a shared reasoning layer that turns the same signals — `TSB`, `CTL`, `ATL`, readiness, recovery state, and recent plan constraints — into one explainability summary. The dashboard now uses that summary to frame `Следующий шаг`, while AI coaching uses the same summary to decide what the recommended first question should be.
+
+That immediately improves product coherence. A user who sees `Сначала разберите восстановление` on the dashboard will now encounter the same underlying logic when opening AI coaching, along with a short `Почему такой старт` block that lists the key signals behind the suggestion. This is not yet the full daily briefing vision, but it is the first moment where multiple surfaces in the product start speaking the same language about readiness.
+
+The validation evidence is straightforward and sufficient for this slice. New smoke coverage now exercises the shared explainability helper directly, while the existing dashboard and AI-coaching smoke tests still pass on top of the refactor. The full smoke suite passes at `61 passed`.
+
+Revision note (2026-06-13 00:46+04:00): recorded the first Coach Explainability slice after adding the shared readiness helper, wiring it into dashboard and AI coaching, and re-running the full smoke suite (`61 passed`).
+
+Revision note (2026-06-14 03:35+04:00): recorded the final isolated acceptance checkpoint after real browser verification on `http://localhost:8510`, direct validation of the narrow target-TSS slider fix, and a full smoke re-run (`89 passed`).
+
+Revision note (2026-06-14 07:47+04:00): recorded the local-replanning slice after adding the `plan_adjustment` horizon overlay, browser-verifying the new planning flow on a fresh acceptance runtime, and re-running the full smoke suite (`91 passed`).
+
+Revision note (2026-06-14 08:01+04:00): recorded the persisted-checkpoint slice after adding compact planning checkpoint storage plus dashboard/AI handoff recovery, validating focused checkpoint smoke coverage (`8 passed`), and re-running the full smoke suite (`94 passed`).
+
+Revision note (2026-06-14 16:02+04:00): recorded the final persisted-planning acceptance checkpoint after fixing acceptance restart reseeding plus demo-session rehydration, browser-verifying the same saved planning checkpoint on dashboard and AI coaching after a cold restart of `http://localhost:8510`, and re-running the full smoke suite (`96 passed`).
+
+Revision note (2026-06-14 16:44+04:00): recorded the dashboard execution-feedback slice after browser-verifying the real reduced-load replan on the isolated acceptance runtime at `http://localhost:8510` and re-running the full smoke suite (`98 passed`).
+
+Revision note (2026-06-14 17:08+04:00): recorded the execution-aware coaching slice after extending the shared explainability helper with persisted execution-feedback signals, browser-verifying the checkpoint-aware dashboard and AI-coach copy on a fresh isolated runtime at `http://localhost:8511`, and re-running the full smoke suite (`102 passed`).
+
+Revision note (2026-06-14 22:32+04:00): recorded the near-term editing slice after adding the in-place 7-10 day editor, verifying the stale-runtime trap on the old `8511` tab, browser-verifying a real manual edit on a fresh isolated runtime at `http://localhost:8512`, and re-running focused smoke coverage (`22 passed`) plus the full smoke suite (`110 passed`).
+
+The follow-up bridge slice makes those near-term edits durable outside the planning page itself. Instead of staying as an in-memory annotation on the current plan, the saved `near_term_edit` signal is now normalized once, stored inside the compact planning checkpoint, shown in the dashboard checkpoint card and history, repeated in the AI coaching checkpoint entry, and pulled into the shared explainability line that frames the current plan context.
+
+The final acceptance proof for that slice is intentionally persistence-first. On a fresh isolated runtime at `http://localhost:8513`, a cold reload against the same temporary SQLite database showed `Ручная правка: 3 дн. / 7 дн. · Δ -15 TSS` inside `🗂️ Последний planning checkpoint` on the dashboard and repeated the same signal plus `ручную правку ближнего горизонта: 3 дн. в ближайших 7 дн., Δ -15 TSS.` inside AI coaching explainability. Inline browser automation against the editor widgets itself remained flaky, so the deterministic acceptance path was to seed the isolated checkpoint directly and verify the user-visible persisted surfaces after reload. With focused smoke coverage green at `21 passed` and the full smoke suite now green at `112 passed`, manual near-term edits are proven as a durable cross-surface coaching signal rather than a planning-page-only tweak.
+
+Revision note (2026-06-14 22:58+04:00): recorded the manual near-term edit propagation slice after adding the shared persisted summary helper, re-running focused smoke coverage (`21 passed`) plus the full smoke suite (`112 passed`), and browser-verifying the saved signal on dashboard and AI coaching after a cold reload of the isolated `http://localhost:8513` runtime.
+
+The next planning UX slice made the near-term editor easier to trust before the user commits anything. Instead of hiding changes inside a submit-only form, the page now maintains a live draft with a compact `Черновик правок` summary, explicit `Было → Станет` rows, and a visible distinction between the already saved checkpoint and the still-editable draft. That makes the editor more usable for a human and easier to reason about in automated verification, even though the underlying planning contract stays the same.
+
+This slice also surfaced and fixed a real modeling inconsistency rather than only a UI weakness. Turning a day into `off` previously still produced a non-zero duration floor, so the UI could claim `Отдых` while the derived template still looked like a short session. The duration helper now returns `0` for zero-load days, which makes preview, persisted `session_templates`, and downstream exports all agree on what an actual rest day means.
+
+The validation result is strong where this slice actually lives. On system Python, focused planning and coaching smoke coverage passed for the hardened draft boundary plus the persisted-planning explainability boundary (`24 passed` across planning helper/explainability tests and another `21 passed` across checkpoint/dashboard/AI-handoff tests), and `test_ui_page_exports` now passes with the lazy `ui.pages` package wrappers (`6 passed`). Two broader checkpoints remain blocked by separate repository-level environment issues: full smoke collection still stalls at eager `services` package import, and `./run_acceptance.sh` currently hangs inside `scripts/doctor_env.py` while probing the damaged `ai_trainer_env` runtime. Those are now clearly infrastructure follow-ups rather than planning-UX regressions.
+
+Revision note (2026-06-16 23:38+04:00): recorded the planning UX hardening slice after replacing the near-term editor form with a live draft/reset/apply flow, fixing zero-load day durations, making `ui.pages` exports lazy for cheaper helper imports, and validating the slice through focused system-Python smoke coverage (`51 passed` total across the relevant planning/coaching/page-export tests). Full smoke and fresh acceptance boot remain blocked by pre-existing `services/__init__.py` and `ai_trainer_env` environment drift.
+
+The next Coach Explainability slice makes the shared reasoning contract meaningfully more product-like. Instead of stopping at `что спросить у AI`, the helper now also emits a concrete daily briefing with `Сегодня`, `Ближайшие 2-3 дня`, and `Следить за`, while weaving planning constraints back into both the visible explanation and the AI prompt itself. That closes an important gap: readiness guidance is no longer detached from the adaptive plan the user just built.
+
+The dashboard-to-coach transition is now also a real handoff rather than a navigation hint. Pressing the primary AI action on the dashboard stores a specific recommended question, its reasoning, and the short operational briefing in session state; the AI coaching page then surfaces that package at the top of the chat so the user can either send it immediately or dismiss it. This makes `Следующий шаг` behave like an actual workflow continuation instead of a generic link.
+
+The acceptance evidence is again clear enough to keep moving. New smoke coverage now validates the richer explainability payload, the dashboard handoff state, and the AI entry-point override, while the full smoke suite passes at `64 passed`.
+
+Revision note (2026-06-13 01:09+04:00): recorded the richer daily-briefing and dashboard-to-AI handoff slice after re-running the full smoke suite (`64 passed`).
+
+The next hardening slice attacked a different kind of risk: page-level sprawl. `ui/pages/ai_coaching.py` had grown into one large file responsible for provider selection, provider status, first-run recommendations, dashboard handoff UI, chat rendering, tool calling, and progress reporting. The refactor pulled the provider boundary into `ui/components/ai_coach_provider.py` and the first-run entry boundary into `ui/components/ai_coach_entry.py`, while keeping the existing helper names visible from `ui.pages.ai_coaching` so the rest of the repository did not need to change all at once.
+
+That is not the end of modularization, but it is a meaningful hardening checkpoint. The page file is now materially smaller, the explainability handoff logic has a dedicated home, and the provider selection flow is isolated enough to change independently of the chat engine. Just as importantly, the smoke suite stayed green without forcing a simultaneous test rewrite, which means the extraction improved structure without destabilizing the product.
+
+Revision note (2026-06-13 11:51+04:00): recorded the AI coaching modularization slice after extracting provider and entry/handoff helpers into `ui/components/*` and re-running the full smoke suite (`64 passed`).
+
+The next hardening slice continued the same refactor one layer deeper by targeting the chat shell instead of the provider setup. The page-level responsibilities around state bootstrap, sidebar diagnostics, message rendering, first-run empty state, quick questions, and chat input now live in `ui/components/ai_coach_chat.py`, while `ui/pages/ai_coaching.py` mostly orchestrates page entry and the lower-level chat/tooling functions that still remain.
+
+That is a useful structural checkpoint because it separates Streamlit page chrome from the response engine. The file is still large, but the remaining size is now concentrated more honestly in tool calling, prompt construction, and progress-report generation rather than in repetitive UI scaffolding. Focused smoke coverage for the new chat-shell state bootstrap also means this slice improved both maintainability and test visibility instead of just moving code around.
+
+Revision note (2026-06-13 19:38+04:00): recorded the AI coaching chat-shell modularization slice after extracting the chat UI/state helpers into `ui/components/ai_coach_chat.py`, adding focused smoke coverage, and re-running the full smoke suite (`67 passed`).
+
+The workspace-move follow-up closed two classes of risk at once. Operationally, the repository is back to a reproducible local checkpoint: the full smoke suite now passes again on system Python, the acceptance launcher survives a moved checkout because it runs Streamlit through `python -m streamlit`, and the clean acceptance boot on `http://localhost:8510` proves the runtime path instead of only the tests. Product-wise, the next Planning UX slice is now more honest: the near-term editor previews touched weeks plus the future persisted `Ручная правка` label before apply, and the saved weekly note no longer exaggerates how many days were really edited.
+
+That changes what the next contributor should focus on. The immediate blockers are no longer environment drift or draft-trustworthiness inside the near-term editor. The remaining Planning V2 work can move back up a level toward richer adaptive behavior and explanation rather than spending another cycle on basic launcher reliability or draft-state honesty.
+
+Revision note (2026-06-17 19:40+04:00): recorded the workspace-move hardening closure plus the next Planning UX hardening slice after re-running the full smoke suite (`124 passed`), verifying acceptance startup/health on a fresh isolated `http://localhost:8510` runtime, adding week-level draft preview, fixing overstated manual-edit day counts, and making the width-compat layer quiet on modern Streamlit.
+
+The next slice made that manual-edit story materially more coach-like. The product no longer stops at “the next 7-10 days were edited”; it now also stores and explains what happens next: keep the delta local, return part of it carefully, or protect recovery by softening the following weeks. That is a real shift from a truthful editor toward a truthful adaptive planner, because the user can now see both the local change and the chosen recovery/catch-up consequence before saving, after saving, and later from the dashboard or AI coaching entry point.
+
+The validation evidence is strong enough to treat this as a completed planning behavior slice rather than just UI polish. Focused planning/coaching smoke coverage passed at `39 passed`, the full smoke suite increased again to `127 passed`, and a fresh acceptance boot on `http://localhost:8510` still returned `HTTP 200` plus `/_stcore/health -> ok`. The next meaningful Planning V2 work can therefore move further outward into richer adaptation inputs or recommendation quality instead of revisiting manual-edit persistence or local follow-up semantics.
+
+The newest slice closes the remaining trust gap in that workflow: reversibility. A risky draft is now safer to try not only because the product can warn or soften it, but because the saved manual edit is no longer a one-way operation. The planning page can show exactly how the current checkpoint differs from the prior version, restore that prior version from persisted data instead of approximation, and save the restored version back as the new current state. That moves near-term editing closer to a real coaching workflow: the athlete can experiment locally, inspect consequences, and still back out cleanly without rebuilding the whole plan from scratch.
+
+Revision note (2026-06-17 20:01+04:00): recorded the post-edit-strategy slice after adding persisted `keep / catch_up / protect_recovery` behavior for manual near-term edits, re-running focused smoke coverage (`39 passed`) plus the full smoke suite (`127 passed`), and verifying fresh acceptance startup/health on the isolated `http://localhost:8510` runtime.
+
+Revision note (2026-06-19 20:35+04:00): recorded the execution-driven corrective-microcycle slice after deriving and persisting `execution_corrective_microcycle`, propagating it through Planning, Dashboard, and AI Coaching explainability surfaces, and extending smoke coverage across checkpoint, handoff, and prompt-generation boundaries before final validation.
+
+Revision note (2026-06-19 22:05+04:00): recorded the microcycle decision-path slice after adding the `apply as-is` versus `open as seeded near-term draft` workflow on Planning, reusing the existing near-term draft safety rails for execution-derived short-horizon overrides, and extending smoke coverage around the new seed bridge before final validation.
+
+Revision note (2026-06-19 22:40+04:00): recorded the execution-lineage persistence slice after teaching manual near-term overrides to retain their originating execution checkpoint/review/microcycle story, finishing the remaining shared-execution-editor widget-state hotfix, re-running focused smoke coverage (`46 passed`) plus the full smoke suite (`148 passed`), and verifying a fresh isolated acceptance boot on `http://localhost:8520` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
+
+Revision note (2026-06-19 22:59+04:00): recorded the execution-drift adaptation-pressure slice after deriving and persisting `execution_adaptation_pressure`, using it to cap rebound across the next 1-2 weeks, surfacing the same post-window mode on Planning, Dashboard, and AI Coaching, re-running focused smoke coverage (`48 passed`) plus the full smoke suite (`150 passed`), and verifying a fresh isolated acceptance boot on `http://localhost:8521` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
+
+Revision note (2026-06-20 10:19+04:00): recorded the explicit follow-up-mode override slice after extending `execution_adaptation_pressure` to persist both recommended and selected post-window modes, wiring the shared execution editor to preview the post-window weekly effect before save, re-running focused smoke coverage (`50 passed` across planning execution, planning explainability, coach explainability, checkpoint history, and recommended-prompt boundaries) plus the full smoke suite (`152 passed`), and verifying a fresh isolated acceptance boot on `http://localhost:8522` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
+
+Revision note (2026-06-20 11:05+04:00): recorded the Planning workspace declutter slice after splitting the page into explicit `build / adjust / export` modes, collapsing non-critical shell elements, fixing the remaining near-term editor Session State warning, re-running focused planning smoke coverage (`15 passed` and `12 passed`) plus the full smoke suite (`155 passed`), and verifying a fresh isolated acceptance clickthrough on `http://localhost:8510` where the new mode split rendered correctly and the adjust flow no longer emitted server warnings.
+
+Revision note (2026-06-20 11:25+04:00): recorded the weekly-anchor fix after making late-week plan builds start from the next Monday, computing `weeks_to_race` from that same anchor, adding an explicit `Старт плана` explanation in the UI, re-running focused planning smoke coverage (`16 passed` and `12 passed`) plus the full smoke suite (`156 passed`), and verifying on a fresh isolated `http://localhost:8510` runtime that Saturday `20.06.2026` now shows `Старт плана: 22.06.2026` while preserving the page-mode split.
+
+The newest slice closes the next obvious execution-feedback gap: the app now uses locally synced Garmin activity history to remove repetitive day-level data entry before the athlete commits a checkpoint. The important product boundary is still intact. Actual activities do not silently overwrite the plan and they do not auto-save a replan; instead they become explicit, visible suggestions inside the shared editor, which keeps Planning, Dashboard, and later AI explainability aligned around one confirmed source of truth.
+
+The acceptance nuance matters for future contributors. Because late-week plan generation now starts on the next Monday, the standard acceptance seed naturally renders a future near-term plan while the demo activities remain on the current week; that means a live Garmin-prefill proof requires an intentionally overlapping checkpoint in the isolated database. With that controlled setup in place, the isolated `http://localhost:8510` runtime showed both the global prefill banner and row-level Garmin suggestion copy, while focused smoke coverage and the full smoke suite stayed green at `159 passed`. The next Planning V2 step can therefore move back up to richer adaptive behavior instead of revisiting basic execution data capture.
+
+Revision note (2026-06-20 11:54+04:00): recorded the Garmin-prefill slice after indexing recent local activities into the shared execution editor, adding conservative same-day/same-sport prefill smoke coverage (`15 passed` in `test_planning_execution.py`), re-running focused planning smoke coverage (`16 passed` in `test_planning_page_explainability.py`) plus the full smoke suite (`159 passed`), and browser-verifying the live dashboard copy on a fresh isolated `http://localhost:8510` acceptance runtime with a controlled overlapping checkpoint in the isolated DB.
+
+Revision note (2026-06-20 17:45+04:00): recorded the weekly `plan vs fact` Planning overlay slice after adding a shared day-status calendar to both Planning workspaces, localizing the calendar labels, extending planning smoke coverage to the new week-resolution and merge-state helpers (`19 passed` in `test_planning_page_explainability.py`), re-running focused execution smoke (`15 passed` in `test_planning_execution.py`) plus the full smoke suite (`162 passed`), and verifying the new Planning markers on the live isolated `http://localhost:8510` runtime through a page-level fallback because direct in-app browser automation is currently blocked by the platform `node_repl/js` `missing field sandboxPolicy` error.
+
+Revision note (2026-06-20 18:00+04:00): recorded the first post-launch fix for that overlay after replacing the multiline Markdown card fragments with one compact HTML helper, adding a regression assertion that the generated card grid contains no newline-separated sibling blocks, re-running focused planning smoke (`20 passed`) plus the full smoke suite (`163 passed`), and noting that an already open acceptance tab must be restarted to load the fix because acceptance launch disables file watching.
+
+Revision note (2026-06-20 18:10+04:00): recorded the execution-review localization cleanup after moving `date / phase / sport / role` labels into the `models/planning_execution.py` row contract, switching the shared execution editor to the localized fields, re-running focused execution smoke (`15 passed`) plus the full smoke suite (`163 passed`), and noting that fresh acceptance runtimes are required to see the change because existing acceptance tabs do not hot-reload.
+
+Revision note (2026-06-20 18:20+04:00): recorded the mismatch-first execution-review slice after adding a shared partition helper for signalled vs quiet rows, moving unchanged days into a collapsed fallback block, extending focused execution smoke with row-state attention/partition assertions (`17 passed`), and re-running the full smoke suite (`165 passed`) before checkpointing the UX-only change.
+
+Revision note (2026-06-20 18:35+04:00): recorded the week-to-editor focus bridge after adding weekly summary helpers plus day-jump buttons to the `План и факт` block, teaching the shared execution editor to honor a focused day and pending two-week horizon, extending focused planning/execution smoke with week-summary and focused-row split assertions (`39 passed`), and re-running the full smoke suite (`167 passed`) before checkpointing the integrated UX flow.
+
+Revision note (2026-06-24 / Codex): recorded P1a-full (`02e15a5`, gate welcome Garmin copy on `garmin_disabled()` via pure `resolve_welcome_garmin_mode()`) and P1b (`de00a2f`, route Garmin auth through `logging` and teach the Playwright probes to collect `stAlert`). Full smoke suite at `192 passed`. These two slices together resolve the acceptance-probe "silent 429" false negative, but they do not themselves deliver a clean live end-to-end run; that is deferred to P1c below.
+
+### Follow-up: P1c — repeat the live acceptance run once the Garmin `429` rate-limit clears
+
+**Status (2026-06-24): COMPLETE — real end-to-end achieved.** The live probe drove the full path: real Garmin login (web/SSO fallback of `garminconnect` succeeding despite persistent `429` on the `mobile+cffi`/`mobile+requests` sub-strategies) → "Синхронизировать данные" → 30-day sync persisted to the isolated DB (35 activities, 30 sleep, 31 HRV) → dashboard rendered **real metrics: `2026-06-24 · CTL 24.8 · TSB -19.9`**, all six pages + AI coach green (`0` exceptions, `0` alerts).
+
+**Root cause of the earlier "no data" result was a harness gap, not the product.** Three harness defects hid the real end-to-end: (1) the probe never clicked "Синхронизировать данные", so it only ever saw the post-login empty-state checklist; (2) `"уже выполнено ✅"` in that checklist was misread by the operator as a login-success signal — it is a static onboarding guide line in `ui/pages/dashboard.py::_render_empty_dashboard_state`, not an auth confirmation; (3) `shows_real_activity_count` asserted a hardcoded `"95" in after`, which only ever matched one historical dataset. Fixed in `tests/e2e_acceptance_live.py`: added the sync click + generous post-sync wait, and replaced the magic number with a regex that looks for a real numeric token outside the welcome-checklist step markers.
+
+**Why this exists.** The first live Playwright run was blocked by a Garmin IP rate-limit (`429 — IP rate limited by Garmin`), which is an external provider throttle, not an application bug. Nothing in P1a/P1b fixes that throttle; the fixes only make it visible. A clean real-data end-to-end run is still required to close P1 before merging `codex/iteration1-stabilize` into `main`.
+
+**When to run.** Garmin's mobile-login rate-limit is IP-based and typically resets on the order of hours, not minutes. Retry no sooner than ~4–6 hours after the last failed login attempt. Do not loop-retry faster than that — repeated `429`s only extend the cooldown.
+
+**How to verify the throttle has cleared (pre-flight, cheap).** Before standing up the full acceptance instance, a one-off login probe avoids burning a full Streamlit boot against a still-throttled endpoint:
+
+```bash
+ai_trainer_env/bin/python - <<'PY'
+from data.garmin_client import GarminClient
+c = GarminClient()
+ok = c.authenticate("<GARMIN_EMAIL from .env>", "<GARMIN_PASSWORD from .env>")
+print("auth_ok=", ok, "kind=", c.auth_error_kind, "msg=", c.auth_error)
+PY
+```
+
+Expect `auth_ok=True`. If it still returns `kind=rate_limited_with_401`, wait longer; do not retry immediately.
+
+**Full run, once pre-flight passes.**
+
+```bash
+# 1. Acceptance instance with real Garmin login explicitly enabled (P1a depends on this).
+ACCEPTANCE_PORT=8521 ACCEPTANCE_DISABLE_GARMIN=0 ACCEPTANCE_AUTO_DEMO=0 ACCEPTANCE_SKIP_DOCTOR=1 ./run_acceptance.sh &
+# Wait for  HTTP 200 on http://localhost:8521/_stcore/health  before continuing.
+
+# 2. Smoke probe (connection + dashboard render).
+ai_trainer_env/bin/python tests/e2e_acceptance_live.py
+
+# 3. Deep per-page probe (dashboard, plan, activities, HRV, sleep, coach + AI message).
+ai_trainer_env/bin/python tests/e2e_acceptance_flows.py
+```
+
+**How to read the result (post-P1a/P1b).** Three outcomes, and the acceptance report now distinguishes them honestly:
+
+- **Green, real data loaded.** `e2e_acceptance_live.py` shows `shows_real_activity_count: true` / `has_real_date_range: true` and zero alerts; the welcome banner reads "реальный Garmin login разрешён" (not "отключён"). This is the success signal — P1 is closed.
+- **429 still active.** `collect_errors()` now surfaces the Garmin `st.error` alert as `[error] …` in the report (previously this read as `errors_after: 0` and looked silent). Wait longer; this is external, not a regression.
+- **A different alert/exception on a real-data page.** This is the actual class of demo-vs-real drift P1 was meant to catch. Triage as a new fix slice; record it in Surprises & Discoveries.
+
+**Stop signal.** Stop retrying for the day after ~2–3 attempts still show `429`; Garmin's throttle window can extend into many hours. P1c is a gating task for merging the branch, but it is not a code task — it is a "wait, then run" task.
+
+**Cleanup after the run.**
+
+```bash
+pkill -f "run_acceptance.sh"; kill <streamlit PID on 8521>
+```
+

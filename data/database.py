@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import pandas as pd
 from datetime import datetime
@@ -207,6 +208,17 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS planning_checkpoints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                goal_type TEXT,
+                distance TEXT,
+                weeks_to_race INTEGER,
+                checkpoint_data TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         self._ensure_training_status_columns(conn)
         conn.commit()
         conn.close()
@@ -220,6 +232,117 @@ class Database:
             if column not in existing_columns:
                 cursor.execute(f'ALTER TABLE training_status ADD COLUMN {column} {column_type}')
         conn.commit()
+
+    def save_planning_checkpoint(self, checkpoint_data):
+        """Сохраняет компактный planning checkpoint для dashboard/AI handoff."""
+        if not checkpoint_data or not isinstance(checkpoint_data, dict):
+            raise ValueError("checkpoint_data must be a non-empty dict")
+
+        payload = json.dumps(checkpoint_data, ensure_ascii=False)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO planning_checkpoints (goal_type, distance, weeks_to_race, checkpoint_data)
+            VALUES (?, ?, ?, ?)
+            ''',
+            (
+                self.clean_value(checkpoint_data.get('goal_type')),
+                self.clean_value(checkpoint_data.get('distance')),
+                self.clean_value(checkpoint_data.get('weeks_to_race')),
+                payload,
+            ),
+        )
+        checkpoint_id = cursor.lastrowid
+        cursor.execute(
+            '''
+            SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at
+            FROM planning_checkpoints
+            WHERE id = ?
+            ''',
+            (checkpoint_id,),
+        )
+        row = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        return self._deserialize_planning_checkpoint_row(row)
+
+    def get_latest_planning_checkpoint(self):
+        """Возвращает последний planning checkpoint или None."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at
+            FROM planning_checkpoints
+            ORDER BY id DESC
+            LIMIT 1
+            '''
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return self._deserialize_planning_checkpoint_row(row)
+
+    def get_planning_checkpoint(self, checkpoint_id):
+        """Возвращает planning checkpoint по id или None."""
+        if checkpoint_id is None:
+            return None
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at
+            FROM planning_checkpoints
+            WHERE id = ?
+            LIMIT 1
+            ''',
+            (int(checkpoint_id),),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return self._deserialize_planning_checkpoint_row(row)
+
+    def get_recent_planning_checkpoints(self, limit=3):
+        """Возвращает последние planning checkpoints для dashboard/AI surfaces."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at
+            FROM planning_checkpoints
+            ORDER BY id DESC
+            LIMIT ?
+            ''',
+            (max(1, int(limit or 1)),),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [item for item in (self._deserialize_planning_checkpoint_row(row) for row in rows) if item]
+
+    def _deserialize_planning_checkpoint_row(self, row):
+        if not row:
+            return None
+
+        checkpoint_payload = {}
+        raw_payload = row[4]
+        if raw_payload:
+            try:
+                checkpoint_payload = json.loads(raw_payload)
+            except json.JSONDecodeError:
+                checkpoint_payload = {}
+
+        result = dict(checkpoint_payload) if isinstance(checkpoint_payload, dict) else {}
+        result.update(
+            {
+                'id': row[0],
+                'goal_type': row[1] or result.get('goal_type'),
+                'distance': row[2] or result.get('distance'),
+                'weeks_to_race': row[3] if row[3] is not None else result.get('weeks_to_race'),
+                'created_at': row[5],
+            }
+        )
+        return result
     
     def save_activities(self, activities_df):
         """Сохранение активностей"""
@@ -546,6 +669,11 @@ class Database:
             
         try:
             cursor.execute('DELETE FROM training_status')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
+            cursor.execute('DELETE FROM planning_checkpoints')
         except sqlite3.OperationalError:
             pass
         

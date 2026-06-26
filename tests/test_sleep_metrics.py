@@ -2,8 +2,12 @@
 from __future__ import annotations
 
 import pandas as pd
+import pytest
 
 from utils.sleep_metrics import compute_sleep_regularity
+
+
+pytestmark = pytest.mark.smoke
 
 
 def test_sleep_regularity_basic_case():

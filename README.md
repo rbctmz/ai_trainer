@@ -22,8 +22,11 @@ source ai_trainer_env/bin/activate  # macOS/Linux
 # или
 ai_trainer_env\Scripts\activate     # Windows
 
-# Установка зависимостей
+# Установка runtime-зависимостей
 pip install -r requirements.txt
+
+# Для разработки и тестов
+pip install -r requirements-dev.txt
 ```
 
 ### 2. Настройка окружения
@@ -83,6 +86,25 @@ streamlit run app.py
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 streamlit run app.py
 ```
+
+#### Если `./run.sh` сообщает о поврежденных runtime-зависимостях
+```bash
+# Одноразовая диагностика
+python scripts/doctor_env.py check --runtime
+
+# Одноразовое восстановление
+python scripts/doctor_env.py repair --runtime
+```
+
+#### Если проект лежит в iCloud/`~/Documents` и Streamlit/pytest подвисают
+```bash
+# Проверка локальной доступности workspace
+python scripts/doctor_env.py check --workspace
+```
+
+Если проверка сообщает про `dataless/offloaded workspace files` или iCloud-backed workspace:
+- В Finder выполните `Download Now` или `Keep Downloaded` для папки репозитория.
+- Лучше перенесите проект в локальную директорию вроде `~/Code/ai_trainer` или `~/GitHub/ai_trainer`.
 
 Приложение откроется в браузере по адресу: http://localhost:8501
 
@@ -186,8 +208,11 @@ ai_trainer/
 # source ai_trainer_env/bin/activate  (macOS/Linux)
 # ai_trainer_env\Scripts\activate     (Windows)
 
-# Запуск всех тестов
-python -m pytest tests/
+# Contributor-safe smoke path
+python -m pytest tests/smoke -q
+
+# Более широкий локальный прогон без live/debug сценариев
+python -m pytest -m "not live and not debug" tests/
 
 # Тестирование AI провайдеров
 python tests/test_ai_providers_advanced.py
@@ -226,10 +251,34 @@ export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 streamlit run app.py
 ```
 
+### Ошибка `ImportError: cannot import name 'Dataframe_pb2'`
+- Причина: некоторые версии `streamlit` на macOS могут устанавливаться с конфликтом имён файлов в `streamlit/proto`.
+- Решение: выполните `python scripts/doctor_env.py repair --runtime`, затем повторите `./run.sh`.
+
+### `python -m pytest` не запускается
+- Причина: dev-зависимости установлены не полностью или пакет `pytest` в текущем `venv` повреждён.
+- Решение:
+```bash
+pip install -r requirements-dev.txt
+python scripts/doctor_env.py repair --dev
+python -m pytest tests/smoke -q
+```
+
 ### Проблемы с AI провайдерами
 - **Провайдер показывает ❌**: Проверьте API ключ в `.env`
 - **Медленные ответы**: Используйте более быстрые модели (GPT-3.5, Claude-haiku) или локальный Ollama
 - **Ollama не подключается**: Убедитесь что `ollama serve` запущен
+
+## 🗺️ Roadmap & Feedback
+
+Мы разрабатываем проект открыто. Голосуйте за фичи, сообщайте о багах или предлагайте свои идеи!
+
+| | | |
+|---|---|---|
+| 📋 **Roadmap** | [github.com/rbctmz/ai_trainer/projects/2](https://github.com/rbctmz/ai_trainer/projects/2) | Текущие приоритеты и статус разработки |
+| 💡 **Feature Requests** | [Discussions](https://github.com/rbctmz/ai_trainer/discussions/new?category=Feature%20Requests) | Предложите идею или проголосуйте 👍 |
+| 🐛 **Bug Reports** | [Open an issue](https://github.com/rbctmz/ai_trainer/issues/new/choose) | Сообщите о проблеме через шаблон |
+| ❓ **Q&A** | [Discussions](https://github.com/rbctmz/ai_trainer/discussions/new?category=Q%20%26%20A) | Задайте вопрос сообществу |
 
 ## 🤝 Вклад в проект
 

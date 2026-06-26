@@ -2,17 +2,43 @@
 Клиент для работы с Garmin Connect через библиотеку garth
 """
 
-import garth
 from datetime import datetime, timedelta
-import streamlit as st
+import logging
 import sys
 import os
 from typing import Any, Dict
 from pydantic import ValidationError
 
-# Добавляем путь к логгеру
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from utils.logger import garmin_logger
+try:
+    import garth as _garth
+except Exception as garth_import_error:  # pragma: no cover - depends on local env
+    _garth = None
+    _GARTH_IMPORT_ERROR = garth_import_error
+else:
+    _GARTH_IMPORT_ERROR = None
+
+garmin_logger = logging.getLogger("garmin_sync")
+
+
+def _probe_garth_support(module: Any) -> tuple[bool, str | None]:
+    """Validate that the imported garth package exposes the auth surface we need."""
+    if module is None:
+        return False, "garth import failed"
+
+    required_attributes = ("login", "connectapi")
+    missing = [name for name in required_attributes if not hasattr(module, name)]
+    if missing:
+        return False, f"garth package is missing required API: {', '.join(missing)}"
+
+    return True, None
+
+
+GARTH_SUPPORTED, GARTH_UNAVAILABLE_REASON = _probe_garth_support(_garth)
+garth = _garth
+GARTH_FRESH_LOGIN_SUPPORTED = False
+GARTH_FRESH_LOGIN_DISABLED_REASON = (
+    "garth is deprecated upstream; fresh logins are disabled because Garmin changed the auth flow"
+)
 
 class GarthClient:
     """Улучшенный клиент для работы с Garmin Connect через garth"""
@@ -23,9 +49,26 @@ class GarthClient:
         self.username = None
         self._cached_profile: Dict[str, Any] | None = None
         self._profile_fetch_failed = False
+        self.available = GARTH_SUPPORTED
+        if _GARTH_IMPORT_ERROR is not None:
+            self.unavailable_reason = f"garth import failed: {_GARTH_IMPORT_ERROR}"
+        else:
+            self.unavailable_reason = GARTH_UNAVAILABLE_REASON
     
     def authenticate(self, email, password):
         """Аутентификация через garth"""
+        if not self.available or garth is None:
+            self.auth_error = self.unavailable_reason or "garth unavailable"
+            self.is_authenticated = False
+            garmin_logger.warning(f"⚠️ Пропуск авторизации через garth: {self.auth_error}")
+            return False
+
+        if not GARTH_FRESH_LOGIN_SUPPORTED:
+            self.auth_error = GARTH_FRESH_LOGIN_DISABLED_REASON
+            self.is_authenticated = False
+            garmin_logger.info(f"ℹ️ Пропуск fresh login через garth: {self.auth_error}")
+            return False
+
         garmin_logger.info(f"🔐 Попытка авторизации через garth для {email}")
         try:
             garth.login(email, password)
@@ -39,6 +82,18 @@ class GarthClient:
             self.is_authenticated = False
             garmin_logger.error(f"❌ Ошибка авторизации через garth: {e}")
             return False
+
+    def get_runtime_info(self) -> Dict[str, Any]:
+        """Return diagnostic information about the local garth runtime."""
+        return {
+            "available": self.available,
+            "authenticated": self.is_authenticated,
+            "username": self.username,
+            "mode": "legacy_diagnostic",
+            "fresh_login_supported": GARTH_FRESH_LOGIN_SUPPORTED,
+            "fresh_login_reason": GARTH_FRESH_LOGIN_DISABLED_REASON,
+            "unavailable_reason": self.unavailable_reason,
+        }
     
     def get_sleep_data_garth(self, date):
         """Получение данных сна через garth API"""
@@ -697,8 +752,15 @@ class GarthClient:
     
     def test_connection(self):
         """Тестирование подключения и доступных данных"""
+        if not self.available:
+            info = self.get_runtime_info()
+            info["error"] = self.unavailable_reason or "garth unavailable"
+            return info
+
         if not self.is_authenticated:
-            return {"error": "Не авторизован"}
+            info = self.get_runtime_info()
+            info["error"] = "Не авторизован"
+            return info
         
         results = {
             "authenticated": True,

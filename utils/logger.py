@@ -5,6 +5,7 @@ import logging
 import os
 from datetime import datetime
 
+
 class GarminLogger:
     """Логгер для отладки интеграции с Garmin"""
     
@@ -104,5 +105,21 @@ class GarminLogger:
         else:
             self.debug(f"GARTH STRING: {obj_name} - {str(obj)}")
 
+
+class LazyGarminLogger:
+    """Ленивая обертка, чтобы импорт модуля не создавал файловые хендлеры."""
+
+    def __init__(self):
+        self._logger = None
+
+    def _get_logger(self):
+        if self._logger is None:
+            self._logger = GarminLogger()
+        return self._logger
+
+    def __getattr__(self, name):
+        return getattr(self._get_logger(), name)
+
+
 # Глобальный экземпляр логгера
-garmin_logger = GarminLogger()
+garmin_logger = LazyGarminLogger()

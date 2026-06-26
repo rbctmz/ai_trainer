@@ -34,14 +34,21 @@ class StateManager:
         return key in self._session
 
     _PRIMITIVE_DEFAULTS: Dict[str, Any] = {
+        "acceptance_bootstrapped": False,
+        "ai_coach_handoff": None,
         "dark_mode": False,
+        "demo_mode": False,
         "selected_page": "📊 Дашборд",
         "confirm_clear": False,
         "context_loaded": False,
         "current_chat_id": None,
         "goal_plan": None,
+        "last_execution_feedback_result": None,
         "last_ai_weekly_plan_text": None,
+        "latest_planning_checkpoint": None,
         "page": "📊 Дашборд",
+        "pending_ai_response_contract": None,
+        "planning_checkpoint_cache_loaded": False,
         "planner_goal_type": None,
         "selected_provider": None,
         "switch_to_chat_tab": False,
@@ -50,6 +57,7 @@ class StateManager:
 
     _MUTABLE_DEFAULT_FACTORIES: Dict[str, Callable[[], Any]] = {
         "chat_messages": list,
+        "planning_checkpoint_history": list,
         "planner_mix": dict,
         "planner_weights": dict,
     }
@@ -64,6 +72,10 @@ class StateManager:
     # ------------------------------------------------------------------
     def _bootstrap_defaults(self) -> None:
         if "dark_mode" not in self._session:
+            # Seed from Streamlit's native theme base. With .streamlit/config.toml
+            # [theme] base = "light" (or a user's Settings choice), this honors
+            # the OS prefers-color-scheme via Streamlit's built-in handling
+            # rather than a fragile JS roundtrip.
             theme_state = self._session.get("_theme")
             base_theme = None
             if isinstance(theme_state, dict):
@@ -181,6 +193,14 @@ class StateManager:
         self._session["use_custom_theme"] = bool(value)
 
     @property
+    def demo_mode(self) -> bool:
+        return bool(self._session.get("demo_mode", False))
+
+    @demo_mode.setter
+    def demo_mode(self, value: bool) -> None:
+        self._session["demo_mode"] = bool(value)
+
+    @property
     def current_chat_id(self):
         return self._session.get("current_chat_id")
 
@@ -211,6 +231,48 @@ class StateManager:
     @goal_plan.setter
     def goal_plan(self, value):
         self._session["goal_plan"] = value
+
+    @property
+    def latest_planning_checkpoint(self):
+        if not self._session.get("planning_checkpoint_cache_loaded", False):
+            self.refresh_planning_checkpoint_cache()
+        return self._session.get("latest_planning_checkpoint")
+
+    @latest_planning_checkpoint.setter
+    def latest_planning_checkpoint(self, value) -> None:
+        self._session["latest_planning_checkpoint"] = value
+        self._session["planning_checkpoint_cache_loaded"] = True
+
+    @property
+    def planning_checkpoint_history(self):
+        if not self._session.get("planning_checkpoint_cache_loaded", False):
+            self.refresh_planning_checkpoint_cache()
+        return self._session.get("planning_checkpoint_history", [])
+
+    @planning_checkpoint_history.setter
+    def planning_checkpoint_history(self, value) -> None:
+        self._session["planning_checkpoint_history"] = value
+        self._session["planning_checkpoint_cache_loaded"] = True
+
+    @property
+    def resolved_goal_plan_context(self):
+        from models.planning_checkpoints import resolve_goal_plan_context
+
+        return resolve_goal_plan_context(
+            self.goal_plan,
+            self.latest_planning_checkpoint,
+        )
+
+    @property
+    def latest_execution_feedback(self):
+        from models.planning_checkpoints import summarize_execution_feedback_transition
+
+        history = self.planning_checkpoint_history
+        previous_checkpoint = history[1] if len(history) > 1 else None
+        return summarize_execution_feedback_transition(
+            previous_checkpoint,
+            self.latest_planning_checkpoint,
+        )
 
     @property
     def planner_goal_type(self):
@@ -260,6 +322,14 @@ class StateManager:
     def switch_to_chat_tab(self, value: bool) -> None:
         self._session["switch_to_chat_tab"] = value
 
+    @property
+    def ai_coach_handoff(self):
+        return self._session.get("ai_coach_handoff")
+
+    @ai_coach_handoff.setter
+    def ai_coach_handoff(self, value) -> None:
+        self._session["ai_coach_handoff"] = value
+
     # ------------------------------------------------------------------
     # Snapshot helpers
     # ------------------------------------------------------------------
@@ -274,6 +344,7 @@ class StateManager:
 
         integrations_state = IntegrationState(
             garmin_authenticated=getattr(self.garmin_client, "is_authenticated", False),
+            demo_mode=self.demo_mode,
             last_sync_status=self._session.get("last_sync_status"),
             syncing_in_progress=self._session.get("syncing_in_progress", False),
         )
@@ -290,6 +361,14 @@ class StateManager:
     # ------------------------------------------------------------------
     # Convenience helpers for transient data
     # ------------------------------------------------------------------
+    def refresh_planning_checkpoint_cache(self, limit: int = 6):
+        latest = self.database.get_latest_planning_checkpoint()
+        history = self.database.get_recent_planning_checkpoints(limit=limit)
+        self._session["latest_planning_checkpoint"] = latest
+        self._session["planning_checkpoint_history"] = history
+        self._session["planning_checkpoint_cache_loaded"] = True
+        return history
+
     def reset_planner_overrides(self) -> None:
         self._session.pop("planner_mix", None)
         self._session.pop("planner_weights", None)

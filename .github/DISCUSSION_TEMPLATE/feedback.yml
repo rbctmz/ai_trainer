@@ -1,0 +1,23 @@
+title: ""
+labels: []
+body:
+  - type: dropdown
+    id: category
+    attributes:
+      label: Category
+      description: What type of feedback is this?
+      options:
+        - 🐛 Bug report
+        - 💡 Suggestion
+        - ❓ Question
+        - 💬 General feedback
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Tell us what's on your mind.
+      placeholder: "I noticed that... / I think it would be better if... / How do I..."
+    validations:
+      required: true

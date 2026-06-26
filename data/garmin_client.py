@@ -1,22 +1,9 @@
 from garminconnect import Garmin
 from datetime import datetime, timedelta
+import logging
 import pandas as pd
-import streamlit as st
-import sys
-import os
 
-# Добавляем путь к логгеру
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-try:
-    from utils.logger import garmin_logger
-except ImportError:
-    # Fallback если логгер недоступен
-    class DummyLogger:
-        def info(self, msg): print(f"INFO: {msg}")
-        def debug(self, msg): print(f"DEBUG: {msg}")
-        def warning(self, msg): print(f"WARNING: {msg}")
-        def error(self, msg): print(f"ERROR: {msg}")
-    garmin_logger = DummyLogger()
+garmin_logger = logging.getLogger("garmin_sync")
 
 # Импорт garth клиента
 try:
@@ -28,7 +15,87 @@ except ImportError:
         GARTH_AVAILABLE = True
     except ImportError:
         GARTH_AVAILABLE = False
-        print("WARNING: garth_client не найден, использование только garminconnect")
+        garmin_logger.warning("garth_client не найден, использование только garminconnect")
+
+
+def _summarize_auth_error(error):
+    """Normalize noisy garminconnect auth failures into one actionable message."""
+    raw_message = str(error or "").strip()
+    normalized = raw_message.lower()
+    has_rate_limit = "429" in normalized or "rate limited" in normalized
+    has_portal_403 = (
+        "portal login failed" in normalized and "403" in normalized
+    ) or (
+        "all login strategies exhausted" in normalized and "403" in normalized
+    )
+    has_invalid_credentials = (
+        "401 unauthorized" in normalized
+        or "invalid username or password" in normalized
+    )
+    has_widget_fallback_noise = (
+        "unexpected title" in normalized
+        or "garmin authentication application" in normalized
+    )
+
+    detail_parts = []
+    if has_rate_limit:
+        detail_parts.append("Garmin временно ограничил вход с этого IP (429).")
+    if has_portal_403:
+        detail_parts.append("Portal login Garmin завершился HTTP 403.")
+    if has_invalid_credentials:
+        detail_parts.append("Garmin также вернул 401 Unauthorized.")
+    if has_widget_fallback_noise:
+        detail_parts.append("Встроенный widget fallback тоже не подтвердил логин.")
+
+    if has_rate_limit and has_portal_403:
+        summary = (
+            "Garmin сначала ограничил вход с этого IP (429), а затем заблокировал portal login "
+            "через HTTP 403. Это больше похоже на временную provider-side блокировку, чем на ошибку Planning. "
+            "Подождите 30-60 минут, отключите VPN/relay/adblock при наличии и попробуйте другую сеть."
+        )
+        kind = "rate_limited_with_portal_403"
+    elif has_portal_403:
+        summary = (
+            "Garmin отклонил portal login через HTTP 403. Это похоже на временную блокировку "
+            "или защиту на стороне Garmin, а не на ошибку Planning. Попробуйте повторить вход позже, "
+            "без VPN/relay/adblock, либо с другой сети."
+        )
+        kind = "portal_forbidden"
+    elif has_rate_limit and has_invalid_credentials:
+        summary = (
+            "Garmin временно ограничил вход с этого IP (429), а повторная авторизация "
+            "завершилась 401 Unauthorized. Подождите 30-60 минут или смените сеть, "
+            "затем перепроверьте логин и пароль."
+        )
+        kind = "rate_limited_with_401"
+    elif has_rate_limit:
+        summary = (
+            "Garmin временно ограничил вход с этого IP (429). "
+            "Подождите 30-60 минут или попробуйте другую сеть."
+        )
+        kind = "rate_limited"
+    elif has_invalid_credentials:
+        summary = (
+            "Garmin отклонил логин или пароль (401 Unauthorized). "
+            "Проверьте введенные учетные данные."
+        )
+        kind = "invalid_credentials"
+    elif has_widget_fallback_noise:
+        summary = (
+            "Garmin не подтвердил fallback-авторизацию через widget flow. "
+            "Попробуйте повторить вход позже."
+        )
+        kind = "widget_fallback"
+    else:
+        summary = raw_message or "Не удалось авторизоваться в Garmin Connect."
+        kind = "unknown"
+
+    return {
+        "kind": kind,
+        "summary": summary,
+        "details": " ".join(detail_parts).strip(),
+        "raw": raw_message,
+    }
 
 class GarminClient:
     def __init__(self):
@@ -36,36 +103,56 @@ class GarminClient:
         self.garth_client = GarthClient() if GARTH_AVAILABLE else None
         self.is_authenticated = False
         self.auth_error = None
+        self.auth_error_raw = None
+        self.auth_error_kind = None
+        self.last_error = None
         self.use_garth = False
+
+    def _clear_last_error(self):
+        """Очищает последнюю не-UI ошибку клиента."""
+        self.last_error = None
+
+    def _remember_error(self, context, message):
+        """Сохраняет ошибку для последующей отрисовки в UI-слое."""
+        self.last_error = {
+            "context": context,
+            "message": message,
+        }
+        garmin_logger.error(f"{context}: {message}")
+
+    def pop_last_error(self):
+        """Возвращает и очищает последнюю ошибку клиента."""
+        error = self.last_error
+        self.last_error = None
+        return error
     
     def authenticate(self, email, password):
-        """Аутентификация в Garmin Connect с поддержкой garth"""
-        # Сначала пробуем garth
-        if self.garth_client and GARTH_AVAILABLE:
-            try:
-                if self.garth_client.authenticate(email, password):
-                    self.is_authenticated = True
-                    self.auth_error = None
-                    self.use_garth = True
-                    print("DEBUG: Авторизация через garth успешна")
-                    return True
-            except Exception as e:
-                print(f"DEBUG: Ошибка авторизации через garth: {e}")
-        
-        # Если garth не сработал, используем garminconnect
+        """Authenticate through garminconnect. garth remains diagnostics-only."""
         try:
             self.client = Garmin(email, password)
             self.client.login()
             self.is_authenticated = True
             self.auth_error = None
+            self.auth_error_raw = None
+            self.auth_error_kind = None
+            self._clear_last_error()
             self.use_garth = False
-            print("DEBUG: Авторизация через garminconnect успешна")
+            garmin_logger.info("Авторизация через garminconnect успешна")
             return True
         except Exception as e:
-            self.auth_error = str(e)
+            error_info = _summarize_auth_error(e)
+            self.auth_error = error_info["summary"]
+            self.auth_error_raw = error_info["raw"]
+            self.auth_error_kind = error_info["kind"]
             self.is_authenticated = False
             self.use_garth = False
-            print(f"DEBUG: Ошибка авторизации через garminconnect: {e}")
+            garmin_logger.error(
+                "Ошибка авторизации через garminconnect: %s [%s]",
+                self.auth_error,
+                self.auth_error_kind,
+            )
+            if self.auth_error_raw and self.auth_error_raw != self.auth_error:
+                garmin_logger.debug("Технические детали авторизации Garmin: %s", self.auth_error_raw)
             return False
     
     def get_activities(self, start_date, end_date, limit=100):
@@ -88,12 +175,13 @@ class GarminClient:
                     }
                 )
                 if activities and isinstance(activities, list):
-                    print(f"DEBUG: Получено {len(activities)} активностей через garth")
+                    self._clear_last_error()
+                    garmin_logger.debug("Получено %d активностей через garth", len(activities))
                     return activities[:limit]
                 else:
-                    print("DEBUG: garth не вернул активности, пробуем альтернативный метод")
+                    garmin_logger.debug("garth не вернул активности, пробуем альтернативный метод")
             except Exception as e:
-                print(f"DEBUG: Ошибка получения активностей через garth: {e}")
+                garmin_logger.debug("Ошибка получения активностей через garth: %s", e)
         
         # Используем стандартный garminconnect клиент
         if self.client:
@@ -103,12 +191,13 @@ class GarminClient:
                     end_date.strftime("%Y-%m-%d"),
                     activitytype=None
                 )
+                self._clear_last_error()
                 return activities[:limit] if activities else []
             except Exception as e:
-                st.error(f"Ошибка получения активностей: {e}")
+                self._remember_error("activities", f"Ошибка получения активностей: {e}")
                 return []
-        
-        st.error("Нет доступного клиента для получения активностей")
+
+        self._remember_error("activities", "Нет доступного клиента для получения активностей")
         return []
     
     def get_activity_details(self, activity_id):
@@ -122,20 +211,23 @@ class GarminClient:
                 import garth
                 activity_details = garth.connectapi(f"/activity-service/activity/{activity_id}")
                 if activity_details:
-                    print(f"DEBUG: Детали активности {activity_id} получены через garth")
+                    self._clear_last_error()
+                    garmin_logger.debug("Детали активности %s получены через garth", activity_id)
                     return activity_details
             except Exception as e:
-                print(f"DEBUG: Ошибка получения деталей активности через garth: {e}")
+                garmin_logger.debug("Ошибка получения деталей активности через garth: %s", e)
         
         # Используем стандартный garminconnect клиент
         if self.client:
             try:
-                return self.client.get_activity_by_id(activity_id)
+                activity_details = self.client.get_activity_by_id(activity_id)
+                self._clear_last_error()
+                return activity_details
             except Exception as e:
-                st.error(f"Ошибка получения деталей активности: {e}")
+                self._remember_error("activity_details", f"Ошибка получения деталей активности: {e}")
                 return None
-        
-        st.error("Нет доступного клиента для получения деталей активности")
+
+        self._remember_error("activity_details", "Нет доступного клиента для получения деталей активности")
         return None
     
     def get_hrv_data(self, date):
@@ -173,10 +265,10 @@ class GarminClient:
         # Используем стандартный garminconnect клиент как fallback
         if self.client:
             try:
-                print(f"DEBUG: Пробуем получить стресс через garminconnect для {date.strftime('%Y-%m-%d')}")
+                garmin_logger.debug("Пробуем получить стресс через garminconnect для %s", date.strftime('%Y-%m-%d'))
                 stress_result = self.client.get_stress_data(date.strftime("%Y-%m-%d"))
                 if stress_result:
-                    print(f"DEBUG: Стресс получен через garminconnect: {type(stress_result)}")
+                    garmin_logger.debug("Стресс получен через garminconnect: %s", type(stress_result))
                     # Конвертируем в нужный формат
                     if isinstance(stress_result, list) and len(stress_result) > 0:
                         # Берем средний стресс за день
@@ -191,7 +283,7 @@ class GarminClient:
                             return {'avgStressLevel': avg}
                 return stress_result
             except Exception as e:
-                print(f"DEBUG: Стресс данные недоступны через garminconnect: {e}")
+                garmin_logger.debug("Стресс данные недоступны через garminconnect: %s", e)
                 # Стресс данные могут быть недоступны
                 return None
         
@@ -229,14 +321,32 @@ class GarminClient:
         if self.use_garth and self.garth_client:
             profile = self.garth_client.get_user_profile()
             if profile:
+                self._clear_last_error()
                 return profile
         
         # Используем стандартный garminconnect клиент
         if self.client:
             try:
-                return self.client.get_user_profile()
+                profile = self.client.get_user_profile()
+                if isinstance(profile, dict):
+                    normalized_profile = dict(profile)
+                    display_name = getattr(self.client, "display_name", None)
+                    full_name = getattr(self.client, "full_name", None)
+
+                    if display_name:
+                        normalized_profile.setdefault('displayName', display_name)
+                        normalized_profile.setdefault('display_name', display_name)
+                    if full_name:
+                        normalized_profile.setdefault('fullName', full_name)
+                        normalized_profile.setdefault('full_name', full_name)
+
+                    self._clear_last_error()
+                    return normalized_profile
+
+                self._clear_last_error()
+                return profile
             except Exception as e:
-                st.error(f"Ошибка получения профиля: {e}")
+                self._remember_error("user_profile", f"Ошибка получения профиля: {e}")
                 return None
         
         return None
@@ -259,6 +369,9 @@ class GarminClient:
             self.garth_client.disconnect()
         self.is_authenticated = False
         self.auth_error = None
+        self.auth_error_raw = None
+        self.auth_error_kind = None
+        self._clear_last_error()
         self.use_garth = False
     
     # =================== НОВЫЕ МЕТОДЫ ФАЗА 1 ===================
@@ -293,14 +406,14 @@ class GarminClient:
                 try:
                     result = method_func()
                     if result:
-                        print(f"DEBUG: Данные сна получены через {method_name} для {date_str}")
+                        garmin_logger.debug("Данные сна получены через %s для %s", method_name, date_str)
                         return result
                 except Exception as e:
-                    print(f"DEBUG: {method_name} failed for {date_str}: {e}")
+                    garmin_logger.debug("%s failed for %s: %s", method_name, date_str, e)
                     continue
-        
+
         # Если ничего не сработало
-        print(f"DEBUG: Все методы получения данных сна не сработали для {date_str}")
+        garmin_logger.warning("Все методы получения данных сна не сработали для %s", date_str)
         return None
     
     def get_resting_heart_rate(self, date):
@@ -377,24 +490,24 @@ class GarminClient:
             )
 
         if not methods_to_try:
-            print("DEBUG: Нет доступных клиентов для получения статуса тренированности")
+            garmin_logger.warning("Нет доступных клиентов для получения статуса тренированности")
             return None
-        
+
         for method_name, method_func in methods_to_try:
             try:
                 result = method_func()
                 if result:
-                    print(f"DEBUG: Статус тренированности получен через {method_name}")
+                    garmin_logger.debug("Статус тренированности получен через %s", method_name)
                     try:
-                        garmin_logger.debug(f"TRAINING STATUS RAW ({method_name}): {result}")
+                        garmin_logger.debug("TRAINING STATUS RAW (%s): %s", method_name, result)
                     except Exception:
                         pass
                     return result
             except Exception as e:
-                print(f"DEBUG: {method_name} failed: {e}")
+                garmin_logger.debug("%s failed: %s", method_name, e)
                 continue
-        
-        print("DEBUG: Все методы получения статуса тренированности не сработали")
+
+        garmin_logger.warning("Все методы получения статуса тренированности не сработали")
         return None
     
     def get_vo2_max(self):
@@ -457,17 +570,27 @@ class GarminClient:
         return comprehensive_data
     
     def test_garth_connection(self):
-        """Тестирование подключения через garth"""
-        if not self.use_garth or not self.garth_client:
-            return {"available": False, "reason": "garth не используется"}
-        
+        """Return legacy garth diagnostic info and, when possible, live checks."""
+        if not self.garth_client:
+            return {
+                "available": False,
+                "mode": "legacy_diagnostic",
+                "error": "garth клиент недоступен в окружении",
+            }
+
         return self.garth_client.test_connection()
     
     def get_connection_info(self):
         """Информация о типе подключения"""
+        garth_runtime = self.garth_client.get_runtime_info() if self.garth_client else None
         return {
             "authenticated": self.is_authenticated,
             "using_garth": self.use_garth,
-            "garth_available": GARTH_AVAILABLE,
-            "auth_error": self.auth_error
+            "garth_available": bool(garth_runtime and garth_runtime.get("available")),
+            "garth_mode": "legacy_diagnostic",
+            "garth_runtime": garth_runtime,
+            "auth_error": self.auth_error,
+            "auth_error_raw": self.auth_error_raw,
+            "auth_error_kind": self.auth_error_kind,
+            "last_error": self.last_error,
         }

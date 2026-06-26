@@ -233,6 +233,94 @@ class AnthropicProvider(AIProvider):
         ]
 
 
+class DeepSeekProvider(AIProvider):
+    """Провайдер DeepSeek через OpenAI-совместимый API."""
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        settings: Type[Settings] = Settings,
+    ) -> None:
+        self.settings = settings
+        self.api_key = api_key or settings.DEEPSEEK_API_KEY
+        self.model = model or settings.DEEPSEEK_MODEL
+        self.base_url = base_url or settings.DEEPSEEK_BASE_URL
+        self.client = None
+
+        if self.api_key:
+            try:
+                from openai import OpenAI
+                self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            except ImportError:
+                print("OpenAI библиотека не установлена")
+            except Exception as e:
+                print(f"Ошибка инициализации DeepSeek: {e}")
+
+    def generate_response(self, prompt: str, system_prompt: str = "") -> str:
+        if not self.client:
+            return "DeepSeek провайдер не настроен"
+
+        try:
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            messages.append({"role": "user", "content": prompt})
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=1000,
+                temperature=0.7,
+            )
+
+            return response.choices[0].message.content
+
+        except Exception as e:
+            return f"Ошибка DeepSeek: {e}"
+
+    def is_available(self) -> bool:
+        return self.client is not None and self.api_key is not None
+
+    def get_model_name(self) -> str:
+        return f"DeepSeek {self.model}"
+
+    def test_connection(self) -> Dict[str, any]:
+        if not self.client:
+            return {
+                'success': False,
+                'error': 'Клиент не инициализирован. Проверьте API ключ.'
+            }
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[{"role": "user", "content": "Test"}],
+                max_tokens=5,
+            )
+            return {
+                'success': True,
+                'message': 'Подключение успешно',
+                'model': self.model,
+                'base_url': self.base_url,
+                'response_length': len(response.choices[0].message.content),
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Ошибка подключения: {str(e)}'
+            }
+
+    def get_available_models(self) -> List[str]:
+        return [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "deepseek-chat",
+            "deepseek-reasoner",
+        ]
+
+
 class GoogleGeminiProvider(AIProvider):
     """Провайдер Google Gemini с поддержкой новых моделей"""
     
@@ -241,9 +329,12 @@ class GoogleGeminiProvider(AIProvider):
         api_key: Optional[str] = None,
         model: Optional[str] = None,
         settings: Type[Settings] = Settings,
+        emit_warnings: bool = True,
     ) -> None:
         self.settings = settings
         self.api_key = api_key or settings.GOOGLE_API_KEY
+        self.emit_warnings = emit_warnings
+        self.init_error: Optional[str] = None
         self.model_name = model or settings.GOOGLE_MODEL
         self.model = None
         
@@ -254,7 +345,7 @@ class GoogleGeminiProvider(AIProvider):
                     import google.protobuf
                     version = google.protobuf.__version__
                     major_version = int(version.split('.')[0])
-                    if major_version >= 5:
+                    if major_version >= 5 and self.emit_warnings:
                         print(f"Предупреждение: protobuf версии {version} может вызывать проблемы с Google AI")
                         print("Рекомендуется: pip install protobuf==4.24.0")
                 except:
@@ -264,15 +355,21 @@ class GoogleGeminiProvider(AIProvider):
                 genai.configure(api_key=self.api_key)
                 self.model = genai.GenerativeModel(self.model_name)
             except ImportError:
-                print("Google Generative AI библиотека не установлена")
+                self.init_error = "Google Generative AI библиотека не установлена"
+                self._emit_init_warning(self.init_error)
             except Exception as e:
-                print(f"Ошибка инициализации Google Gemini: {e}")
-                print("Попробуйте: pip install protobuf==4.24.0")
+                self.init_error = f"Ошибка инициализации Google Gemini: {e}"
+                self._emit_init_warning(self.init_error)
+                self._emit_init_warning("Попробуйте: pip install protobuf==4.24.0")
                 self.model = None
+
+    def _emit_init_warning(self, message: str) -> None:
+        if self.emit_warnings:
+            print(message)
     
     def generate_response(self, prompt: str, system_prompt: str = "") -> str:
         if not self.model:
-            return "Google Gemini провайдер не настроен"
+            return self.init_error or "Google Gemini провайдер не настроен"
         
         try:
             # Gemini не имеет отдельного system prompt, объединяем
@@ -295,7 +392,7 @@ class GoogleGeminiProvider(AIProvider):
         if not self.model:
             return {
                 'success': False,
-                'error': 'Модель не инициализирована. Проверьте API ключ и настройки protobuf.'
+                'error': self.init_error or 'Модель не инициализирована. Проверьте API ключ и настройки protobuf.'
             }
         
         try:
@@ -443,6 +540,10 @@ class OllamaProvider(AIProvider):
 
 class AIProviderFactory:
     """Фабрика для создания AI провайдеров"""
+
+    @staticmethod
+    def _google_probe_provider() -> GoogleGeminiProvider:
+        return GoogleGeminiProvider(emit_warnings=False)
     
     @staticmethod
     def create_provider(provider_type: str, **kwargs) -> Optional[AIProvider]:
@@ -450,7 +551,7 @@ class AIProviderFactory:
         Создать провайдер по типу
         
         Args:
-            provider_type: 'openai', 'anthropic', 'google', 'ollama'
+            provider_type: 'openai', 'anthropic', 'deepseek', 'google', 'ollama'
             **kwargs: параметры для конкретного провайдера
         """
         # Динамический импорт Mock провайдера
@@ -462,6 +563,7 @@ class AIProviderFactory:
         providers = {
             'openai': OpenAIProvider,
             'anthropic': AnthropicProvider,
+            'deepseek': DeepSeekProvider,
             'google': GoogleGeminiProvider,
             'ollama': OllamaProvider
         }
@@ -494,7 +596,8 @@ class AIProviderFactory:
         providers = {
             'OpenAI': OpenAIProvider(),
             'Anthropic': AnthropicProvider(),
-            'Google Gemini': GoogleGeminiProvider(),
+            'DeepSeek': DeepSeekProvider(),
+            'Google Gemini': AIProviderFactory._google_probe_provider(),
             'Ollama': OllamaProvider(host=Settings.OLLAMA_HOST, model=Settings.OLLAMA_MODEL)
         }
         
@@ -516,11 +619,12 @@ class AIProviderFactory:
         except ImportError:
             mock_available = False
         
-        # Приоритет: OpenAI -> Anthropic -> Google -> Ollama -> Mock
+        # Приоритет: OpenAI -> Anthropic -> DeepSeek -> Google -> Ollama -> Mock
         providers = [
             OpenAIProvider(),
-            AnthropicProvider(), 
-            GoogleGeminiProvider(),
+            AnthropicProvider(),
+            DeepSeekProvider(),
+            AIProviderFactory._google_probe_provider(),
             OllamaProvider(host=Settings.OLLAMA_HOST, model=Settings.OLLAMA_MODEL)
         ]
         

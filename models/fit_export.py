@@ -14,32 +14,91 @@ def _estimate_step_durations(total_tss: float) -> Dict[str, float]:
     }
 
 
-def build_steps_for_sport(total_tss: float, sport: str) -> List[Dict]:
+def _sport_targets(sport: str) -> Dict[str, str]:
+    sport_l = (sport or 'run').lower()
+    if 'bike' in sport_l or 'вел' in sport_l:
+        return {
+            'easy': 'power_zone_1_2',
+            'steady': 'power_zone_2_3',
+            'hard': 'power_zone_4',
+            'cooldown': 'power_zone_1',
+        }
+    if 'swim' in sport_l or 'плав' in sport_l:
+        return {
+            'easy': 'pace_easy',
+            'steady': 'pace_mod',
+            'hard': 'pace_threshold',
+            'cooldown': 'pace_easy',
+        }
+    return {
+        'easy': 'hr_zone_1_2',
+        'steady': 'hr_zone_2_3',
+        'hard': 'hr_zone_4',
+        'cooldown': 'hr_zone_1',
+    }
+
+
+def _build_role_blueprint(session_role: str) -> List[Dict[str, object]]:
+    role = (session_role or 'easy').lower()
+    if role == 'off':
+        return [
+            {'name': 'Rest / Mobility', 'intensity': 'rest', 'target_level': 'easy', 'share': 1.0},
+        ]
+    if role == 'recovery':
+        return [
+            {'name': 'Warmup', 'intensity': 'easy', 'target_level': 'easy', 'share': 0.20},
+            {'name': 'Recovery Endurance', 'intensity': 'easy', 'target_level': 'easy', 'share': 0.60},
+            {'name': 'Cooldown', 'intensity': 'easy', 'target_level': 'cooldown', 'share': 0.20},
+        ]
+    if role == 'quality':
+        return [
+            {'name': 'Warmup', 'intensity': 'easy', 'target_level': 'easy', 'share': 0.20},
+            {'name': 'Main Intervals', 'intensity': 'moderate', 'target_level': 'hard', 'share': 0.45},
+            {'name': 'Reset', 'intensity': 'easy', 'target_level': 'steady', 'share': 0.15},
+            {'name': 'Cooldown', 'intensity': 'easy', 'target_level': 'cooldown', 'share': 0.20},
+        ]
+    if role == 'long':
+        return [
+            {'name': 'Warmup', 'intensity': 'easy', 'target_level': 'easy', 'share': 0.10},
+            {'name': 'Endurance Block', 'intensity': 'moderate', 'target_level': 'steady', 'share': 0.55},
+            {'name': 'Steady Finish', 'intensity': 'moderate', 'target_level': 'hard', 'share': 0.20},
+            {'name': 'Cooldown', 'intensity': 'easy', 'target_level': 'cooldown', 'share': 0.15},
+        ]
+    return [
+        {'name': 'Warmup', 'intensity': 'easy', 'target_level': 'easy', 'share': 0.15},
+        {'name': 'Aerobic Endurance', 'intensity': 'moderate', 'target_level': 'steady', 'share': 0.70},
+        {'name': 'Cooldown', 'intensity': 'easy', 'target_level': 'cooldown', 'share': 0.15},
+    ]
+
+
+def build_steps_for_sport(total_tss: float, sport: str, session_role: str = 'easy', phase: str | None = None) -> List[Dict]:
     """Формирует список шагов тренировки для workout_step сообщений.
     Каждый шаг описывает таргет в терминах вида спорта.
     Возвращает список словарей: {'name','intensity','target','tss'}
     """
-    sport_l = (sport or 'run').lower()
-    dist = _estimate_step_durations(total_tss)
+    del phase  # пока фаза не меняет структуру шага, но сигнатура готова для будущих шаблонов.
 
-    if 'bike' in sport_l or 'вел' in sport_l:
-        return [
-            {'name': 'Warmup', 'intensity': 'easy', 'target': 'power_zone_1_2', 'tss': dist['warmup']},
-            {'name': 'Steady', 'intensity': 'moderate', 'target': 'power_zone_2_3', 'tss': dist['main']},
-            {'name': 'Cooldown', 'intensity': 'easy', 'target': 'power_zone_1', 'tss': dist['cooldown']},
-        ]
-    elif 'swim' in sport_l or 'плав' in sport_l:
-        return [
-            {'name': 'Warmup', 'intensity': 'easy', 'target': 'pace_easy', 'tss': dist['warmup']},
-            {'name': 'Steady', 'intensity': 'moderate', 'target': 'pace_mod', 'tss': dist['main']},
-            {'name': 'Cooldown', 'intensity': 'easy', 'target': 'pace_easy', 'tss': dist['cooldown']},
-        ]
-    else:  # run
-        return [
-            {'name': 'Warmup', 'intensity': 'easy', 'target': 'hr_zone_1_2', 'tss': dist['warmup']},
-            {'name': 'Steady', 'intensity': 'moderate', 'target': 'hr_zone_2_3', 'tss': dist['main']},
-            {'name': 'Cooldown', 'intensity': 'easy', 'target': 'hr_zone_1', 'tss': dist['cooldown']},
-        ]
+    total = max(0.0, float(total_tss or 0.0))
+    targets = _sport_targets(sport)
+    blueprint = _build_role_blueprint(session_role)
+    shares = [float(step.get('share', 0.0) or 0.0) for step in blueprint]
+    distributed = [round(total * share, 1) for share in shares]
+    diff = round(total - sum(distributed), 1)
+    if distributed:
+        distributed[-1] = round(distributed[-1] + diff, 1)
+
+    steps: List[Dict] = []
+    for idx, step in enumerate(blueprint):
+        target_level = str(step.get('target_level', 'steady'))
+        steps.append(
+            {
+                'name': str(step.get('name', f'Step {idx + 1}')),
+                'intensity': str(step.get('intensity', 'moderate')),
+                'target': targets.get(target_level, targets['steady']),
+                'tss': max(0.0, distributed[idx] if idx < len(distributed) else 0.0),
+            }
+        )
+    return steps
 
 
 def generate_fit_csv(workout_name: str, sport: str, steps: List[Dict], created: datetime | None = None) -> str:

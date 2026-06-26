@@ -2,7 +2,700 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, date
 from math import ceil
-from typing import List, Dict, Tuple
+from typing import Any, Dict, List, Mapping, Sequence, Tuple
+
+from models.planning_summary import summarize_execution_adaptation_pressure
+
+WEEKDAY_LABELS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+SESSION_ROLE_LABELS_RU = {
+    "off": "Отдых",
+    "recovery": "Восстановление",
+    "easy": "Легкая",
+    "quality": "Качество",
+    "long": "Длительная",
+}
+SPORT_LABELS_RU = {
+    "run": "бег",
+    "bike": "вело",
+    "swim": "плавание",
+    "off": "отдых",
+}
+
+
+def _round_to_5(value: float) -> int:
+    return int(round(float(value) / 5.0) * 5)
+
+
+def recommended_training_days(goal_type: str) -> int:
+    g = (goal_type or '').lower()
+    if 'триатлон' in g or 'tri' in g:
+        return 6
+    if 'бег' in g or 'run' in g:
+        return 5
+    if 'вело' in g or 'bike' in g or 'cycle' in g:
+        return 5
+    return 5
+
+
+def estimated_tss_per_hour(goal_type: str) -> int:
+    g = (goal_type or '').lower()
+    if 'триатлон' in g or 'tri' in g:
+        return 42
+    if 'бег' in g or 'run' in g:
+        return 50
+    if 'вело' in g or 'bike' in g or 'cycle' in g:
+        return 45
+    return 45
+
+
+def normalize_available_day_indices(available_day_indices: List[int] | None) -> List[int]:
+    if not available_day_indices:
+        return list(range(7))
+    valid = sorted({int(idx) for idx in available_day_indices if 0 <= int(idx) <= 6})
+    return valid or list(range(7))
+
+
+def available_day_density_factor(available_day_count: int, goal_type: str) -> float:
+    recommended = max(1, recommended_training_days(goal_type))
+    raw_ratio = available_day_count / recommended
+    # Смягчаем штраф за меньшее число тренировочных дней, чтобы план не становился чрезмерно консервативным.
+    return max(0.45, min(1.0, raw_ratio * 0.7 + 0.3))
+
+
+def summarize_availability(
+    goal_type: str,
+    available_hours: float,
+    available_day_indices: List[int] | None = None,
+) -> Dict[str, object]:
+    day_indices = normalize_available_day_indices(available_day_indices)
+    tss_per_hour = estimated_tss_per_hour(goal_type)
+    density_factor = available_day_density_factor(len(day_indices), goal_type)
+    weekly_capacity_tss = max(50, _round_to_5(max(0.0, float(available_hours or 0.0)) * tss_per_hour * density_factor))
+    return {
+        'available_hours': round(float(available_hours or 0.0), 1),
+        'available_day_indices': day_indices,
+        'available_day_labels': [WEEKDAY_LABELS_RU[idx] for idx in day_indices],
+        'available_day_count': len(day_indices),
+        'recommended_days': recommended_training_days(goal_type),
+        'density_factor': round(density_factor, 2),
+        'tss_per_hour': tss_per_hour,
+        'weekly_capacity_tss': weekly_capacity_tss,
+    }
+
+
+def constrain_weights_to_available_days(
+    weights: Dict[str, List[float]],
+    available_day_indices: List[int] | None = None,
+) -> Dict[str, List[float]]:
+    allowed_days = set(normalize_available_day_indices(available_day_indices))
+    constrained: Dict[str, List[float]] = {}
+    for sport, values in weights.items():
+        masked = [
+            float(values[idx] if idx < len(values) else 0.0) if idx in allowed_days else 0.0
+            for idx in range(7)
+        ]
+        constrained[sport] = _normalize_weights(masked)
+    return constrained
+
+
+def _interruption_label(interruption_type: str) -> str:
+    mapping = {
+        'limited': 'Ограниченная доступность',
+        'holiday': 'Отпуск',
+        'illness': 'Болезнь',
+        'injury': 'Травма',
+        'none': 'Нет',
+    }
+    return mapping.get((interruption_type or 'none').lower(), 'Нет')
+
+
+def _interruption_week_factor(interruption_type: str, week_index: int) -> float:
+    schedules = {
+        'limited': [0.75, 0.85, 0.95, 1.0],
+        'holiday': [0.60, 0.70, 0.85, 0.95],
+        'illness': [0.35, 0.50, 0.70, 0.85],
+        'injury': [0.20, 0.35, 0.55, 0.75],
+        'none': [1.0],
+    }
+    factors = schedules.get((interruption_type or 'none').lower(), [1.0])
+    return factors[min(max(0, week_index), len(factors) - 1)]
+
+
+def _plan_adjustment_label(status: str) -> str:
+    mapping = {
+        'completed': 'Выполнено по плану',
+        'skipped': 'Пропущены сессии',
+        'reduced': 'Нагрузка урезана',
+        'unavailable': 'Неделя ограничена',
+        'none': 'Нет',
+    }
+    return mapping.get((status or 'none').lower(), 'Нет')
+
+
+def normalize_plan_adjustment(
+    plan_adjustment: Mapping[str, Any] | None,
+    available_day_count: int,
+) -> Dict[str, Any]:
+    raw = dict(plan_adjustment or {})
+    status = str(raw.get('status', 'none') or 'none').strip().lower()
+    if status not in {'none', 'completed', 'skipped', 'reduced', 'unavailable'}:
+        status = 'none'
+
+    weeks_default = 1 if status != 'none' else 0
+    try:
+        weeks = int(raw.get('weeks', weeks_default))
+    except (TypeError, ValueError):
+        weeks = weeks_default
+    weeks = min(max(0, weeks), 2)
+
+    day_count = max(1, int(available_day_count or 0))
+    try:
+        missed_sessions = int(raw.get('missed_sessions', 0))
+    except (TypeError, ValueError):
+        missed_sessions = 0
+    missed_sessions = min(max(0, missed_sessions), day_count)
+
+    try:
+        reduced_load_share = float(raw.get('reduced_load_share', 0.70))
+    except (TypeError, ValueError):
+        reduced_load_share = 0.70
+    reduced_load_share = max(0.35, min(0.95, reduced_load_share))
+
+    execution_reconciliation = raw.get('execution_reconciliation')
+    if not isinstance(execution_reconciliation, Mapping):
+        execution_reconciliation = None
+    execution_weekly_review = raw.get('execution_weekly_review')
+    if not isinstance(execution_weekly_review, Mapping):
+        execution_weekly_review = None
+    execution_corrective_microcycle = raw.get('execution_corrective_microcycle')
+    if not isinstance(execution_corrective_microcycle, Mapping):
+        execution_corrective_microcycle = None
+    execution_adaptation_pressure = summarize_execution_adaptation_pressure(
+        raw.get('execution_adaptation_pressure')
+    )
+
+    catch_up_strategy_override = str(raw.get('catch_up_strategy_override') or '').strip().lower()
+    if catch_up_strategy_override not in {'catch_up', 'protect_recovery'}:
+        catch_up_strategy_override = ''
+
+    try:
+        completion_share_default = None
+        if execution_reconciliation:
+            completion_share_default = execution_reconciliation.get('completion_share')
+        elif 'completion_share' in raw:
+            completion_share_default = raw.get('completion_share')
+        elif status == 'reduced':
+            completion_share_default = reduced_load_share
+        completion_share = (
+            float(completion_share_default)
+            if completion_share_default is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        completion_share = None
+    if completion_share is not None:
+        completion_share = max(0.0, min(1.0, completion_share))
+
+    changed_day_count = 0
+    reduced_day_count = 0
+    unavailable_day_count = 0
+    planned_total_tss = 0
+    actual_total_tss = 0
+    delta_tss = 0
+    compact_label = ''
+    description = ''
+    changed_rows = []
+    if execution_reconciliation:
+        try:
+            changed_day_count = int(execution_reconciliation.get('changed_day_count', 0) or 0)
+        except (TypeError, ValueError):
+            changed_day_count = 0
+        try:
+            reduced_day_count = int(execution_reconciliation.get('reduced_day_count', 0) or 0)
+        except (TypeError, ValueError):
+            reduced_day_count = 0
+        try:
+            unavailable_day_count = int(execution_reconciliation.get('unavailable_day_count', 0) or 0)
+        except (TypeError, ValueError):
+            unavailable_day_count = 0
+        try:
+            planned_total_tss = int(execution_reconciliation.get('planned_total_tss', 0) or 0)
+        except (TypeError, ValueError):
+            planned_total_tss = 0
+        try:
+            actual_total_tss = int(execution_reconciliation.get('actual_total_tss', 0) or 0)
+        except (TypeError, ValueError):
+            actual_total_tss = 0
+        try:
+            delta_tss = int(execution_reconciliation.get('delta_tss', actual_total_tss - planned_total_tss) or 0)
+        except (TypeError, ValueError):
+            delta_tss = actual_total_tss - planned_total_tss
+        compact_label = str(execution_reconciliation.get('compact_label', '') or '')
+        description = str(execution_reconciliation.get('description', '') or '')
+        changed_rows = [
+            dict(item)
+            for item in execution_reconciliation.get('changed_rows', [])
+            if isinstance(item, Mapping)
+        ][:10]
+
+    return {
+        'status': status,
+        'label': _plan_adjustment_label(status),
+        'weeks': weeks,
+        'missed_sessions': missed_sessions,
+        'reduced_load_share': reduced_load_share,
+        'completion_share': completion_share,
+        'available_day_count': day_count,
+        'changed_day_count': changed_day_count,
+        'reduced_day_count': reduced_day_count,
+        'unavailable_day_count': unavailable_day_count,
+        'planned_total_tss': planned_total_tss,
+        'actual_total_tss': actual_total_tss,
+        'delta_tss': delta_tss,
+        'compact_label': compact_label,
+        'description': description,
+        'changed_rows': changed_rows,
+        'execution_reconciliation': {
+            'status': status,
+            'planned_total_tss': planned_total_tss,
+            'actual_total_tss': actual_total_tss,
+            'delta_tss': delta_tss,
+            'changed_day_count': changed_day_count,
+            'missed_day_count': missed_sessions,
+            'reduced_day_count': reduced_day_count,
+            'unavailable_day_count': unavailable_day_count,
+            'completion_share': completion_share if completion_share is not None else reduced_load_share,
+            'compact_label': compact_label,
+            'description': description,
+            'changed_rows': changed_rows,
+        } if execution_reconciliation else None,
+        'execution_weekly_review': dict(execution_weekly_review) if execution_weekly_review else None,
+        'execution_corrective_microcycle': dict(execution_corrective_microcycle) if execution_corrective_microcycle else None,
+        'execution_adaptation_pressure': dict(execution_adaptation_pressure) if execution_adaptation_pressure else None,
+        'catch_up_strategy_override': catch_up_strategy_override or None,
+        'is_active': status in {'skipped', 'reduced', 'unavailable'} and weeks > 0,
+    }
+
+
+def _plan_adjustment_week_factor(plan_adjustment: Mapping[str, Any], week_index: int) -> float:
+    status = str(plan_adjustment.get('status', 'none') or 'none').lower()
+    completion_share = plan_adjustment.get('completion_share')
+    try:
+        completion_share = float(completion_share) if completion_share is not None else None
+    except (TypeError, ValueError):
+        completion_share = None
+    if completion_share is not None and status in {'skipped', 'reduced', 'unavailable'}:
+        return min(1.0, max(0.0, completion_share + 0.10 * max(0, week_index)))
+    if status == 'skipped':
+        day_count = max(1, int(plan_adjustment.get('available_day_count', 1) or 1))
+        missed_sessions = max(1, int(plan_adjustment.get('missed_sessions', 1) or 1))
+        completion_share = max(0.45, 1.0 - (missed_sessions / day_count) * 0.85)
+        return min(1.0, completion_share + 0.10 * max(0, week_index))
+    if status == 'reduced':
+        reduced_load_share = float(plan_adjustment.get('reduced_load_share', 0.70) or 0.70)
+        return min(0.95, max(0.35, reduced_load_share + 0.10 * max(0, week_index)))
+    if status == 'unavailable':
+        factors = [0.45, 0.70]
+        return factors[min(max(0, week_index), len(factors) - 1)]
+    return 1.0
+
+
+def _plan_adjustment_note(plan_adjustment: Mapping[str, Any], factor: float) -> str:
+    status = str(plan_adjustment.get('status', 'none') or 'none').lower()
+    percent = int(round(float(factor) * 100))
+    execution_reconciliation = plan_adjustment.get('execution_reconciliation')
+    if isinstance(execution_reconciliation, Mapping):
+        planned_total_tss = int(execution_reconciliation.get('planned_total_tss', 0) or 0)
+        actual_total_tss = int(execution_reconciliation.get('actual_total_tss', 0) or 0)
+        changed_day_count = int(execution_reconciliation.get('changed_day_count', 0) or 0)
+        unavailable_day_count = int(execution_reconciliation.get('unavailable_day_count', 0) or 0)
+        missed_day_count = int(execution_reconciliation.get('missed_day_count', 0) or 0)
+        reduced_day_count = int(execution_reconciliation.get('reduced_day_count', 0) or 0)
+        note = f"checkpoint: факт {actual_total_tss}/{planned_total_tss} TSS"
+        if unavailable_day_count > 0:
+            note += f" · недоступно {unavailable_day_count} дн."
+        elif missed_day_count > 0:
+            note += f" · пропуск {missed_day_count} дн."
+        elif reduced_day_count > 0:
+            note += f" · облегчено {reduced_day_count} дн."
+        elif changed_day_count > 0:
+            note += f" · изменено {changed_day_count} дн."
+        return f"{note} → {percent}%"
+    if status == 'skipped':
+        missed_sessions = max(1, int(plan_adjustment.get('missed_sessions', 1) or 1))
+        return f"checkpoint: пропущено {missed_sessions} сесс. → {percent}%"
+    if status == 'reduced':
+        return f"checkpoint: урезанная неделя → {percent}%"
+    if status == 'unavailable':
+        return f"checkpoint: ограниченная неделя → {percent}%"
+    return f"checkpoint: {percent}%"
+
+
+def _metric_or_none(value: float | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def assess_start_load_state(
+    current_ctl: float | None = None,
+    current_atl: float | None = None,
+    current_tsb: float | None = None,
+) -> Dict[str, object]:
+    """Оценивает стартовое состояние спортсмена перед построением плана."""
+    ctl = _metric_or_none(current_ctl)
+    atl = _metric_or_none(current_atl)
+    tsb = _metric_or_none(current_tsb)
+    atl_ratio = None
+    if ctl is not None and ctl > 0 and atl is not None:
+        atl_ratio = atl / ctl
+
+    state = "balanced"
+    label = "Нейтральный старт"
+    guard_factors: List[float] = []
+    catch_up_share_cap: float | None = None
+    catch_up_share_floor: float | None = None
+    catch_up_ramp_rate = 0.08
+
+    if (tsb is not None and tsb <= -25) or (atl_ratio is not None and atl_ratio >= 1.6):
+        state = "deep_fatigue"
+        label = "Глубокая усталость"
+        guard_factors = [0.75, 0.85, 0.95]
+        catch_up_share_cap = 0.25
+        catch_up_ramp_rate = 0.05
+    elif (tsb is not None and tsb <= -10) or (atl_ratio is not None and atl_ratio >= 1.25):
+        state = "fatigued"
+        label = "Накопленная усталость"
+        guard_factors = [0.90, 0.95]
+        catch_up_share_cap = 0.45
+        catch_up_ramp_rate = 0.07
+    elif (tsb is not None and tsb >= 10) and (atl_ratio is None or atl_ratio <= 0.9):
+        state = "fresh"
+        label = "Свежий старт"
+        catch_up_share_floor = 0.70
+        catch_up_ramp_rate = 0.10
+
+    return {
+        "state": state,
+        "label": label,
+        "guard_factors": guard_factors,
+        "catch_up_share_cap": catch_up_share_cap,
+        "catch_up_share_floor": catch_up_share_floor,
+        "catch_up_ramp_rate": catch_up_ramp_rate,
+        "atl_ratio": round(atl_ratio, 2) if atl_ratio is not None else None,
+        "ctl": ctl,
+        "atl": atl,
+        "tsb": tsb,
+    }
+
+
+def apply_planning_constraints(
+    weekly_tss: List[int],
+    phases: List[str],
+    goal_type: str,
+    available_hours: float,
+    available_day_indices: List[int] | None = None,
+    interruption_type: str = 'none',
+    interruption_weeks: int = 0,
+    catch_up_strategy: str = 'protect_recovery',
+    current_tsb: float | None = None,
+    current_ctl: float | None = None,
+    current_atl: float | None = None,
+    plan_adjustment: Mapping[str, Any] | None = None,
+) -> Tuple[List[int], List[Dict[str, object]], Dict[str, object]]:
+    """Ограничивает недельный план доступностью и локально перепланирует ближайшие недели при сбое."""
+    availability = summarize_availability(goal_type, available_hours, available_day_indices)
+    weekly_capacity_tss = int(availability['weekly_capacity_tss'])
+    load_state = assess_start_load_state(
+        current_ctl=current_ctl,
+        current_atl=current_atl,
+        current_tsb=current_tsb,
+    )
+    normalized_adjustment = normalize_plan_adjustment(
+        plan_adjustment,
+        int(availability['available_day_count']),
+    )
+
+    adjusted_plan = [max(0, int(round(value))) for value in weekly_tss]
+    details: List[Dict[str, object]] = []
+    capacity_loss = 0
+
+    for week_index, value in enumerate(adjusted_plan):
+        note_parts: List[str] = []
+        if value > weekly_capacity_tss:
+            capacity_loss += value - weekly_capacity_tss
+            value = weekly_capacity_tss
+            note_parts.append(f"потолок {weekly_capacity_tss} TSS")
+        adjusted_plan[week_index] = value
+        details.append({
+            'week_index': week_index,
+            'phase': phases[week_index] if week_index < len(phases) else 'Base',
+            'capacity_tss': weekly_capacity_tss,
+            'adjustment_note': '',
+            'notes': note_parts,
+        })
+
+    interruption_type = (interruption_type or 'none').lower()
+    interruption_weeks = min(max(0, int(interruption_weeks)), len(adjusted_plan))
+    apply_load_guard = not (interruption_type in {'illness', 'injury'} and interruption_weeks > 0)
+    load_guard_loss = 0
+    if apply_load_guard:
+        for week_index, factor in enumerate(load_state['guard_factors']):
+            if week_index >= len(adjusted_plan):
+                break
+            phase = (phases[week_index] if week_index < len(phases) else '').lower()
+            if phase == 'taper':
+                continue
+            before = adjusted_plan[week_index]
+            after = min(before, max(0, _round_to_5(before * factor)))
+            if after != before:
+                load_guard_loss += before - after
+                adjusted_plan[week_index] = after
+                details[week_index]['notes'].append(
+                    f"{load_state['label']} {int(round((1.0 - factor) * 100))}%"
+                )
+
+    interruption_loss = 0
+
+    for week_index in range(interruption_weeks):
+        factor = _interruption_week_factor(interruption_type, week_index)
+        before = adjusted_plan[week_index]
+        after = min(before, max(0, _round_to_5(before * factor)))
+        if after != before:
+            interruption_loss += before - after
+            adjusted_plan[week_index] = after
+            details[week_index]['notes'].append(
+                f"{_interruption_label(interruption_type)} {int(round((1.0 - factor) * 100))}%"
+            )
+
+    catch_up_strategy = (catch_up_strategy or 'protect_recovery').lower()
+    recoverable_loss = 0
+    recovered_tss = 0
+
+    if catch_up_strategy == 'catch_up' and interruption_loss > 0:
+        recovery_share = 0.60
+        if interruption_type in {'illness', 'injury'}:
+            recovery_share = min(recovery_share, 0.40)
+        if current_tsb is not None and current_tsb <= -15:
+            recovery_share = min(recovery_share, 0.35)
+        if load_state['catch_up_share_cap'] is not None:
+            recovery_share = min(recovery_share, float(load_state['catch_up_share_cap']))
+        if load_state['catch_up_share_floor'] is not None and interruption_type in {'limited', 'holiday'}:
+            recovery_share = max(recovery_share, float(load_state['catch_up_share_floor']))
+        recoverable_loss = _round_to_5(interruption_loss * recovery_share)
+        remaining = recoverable_loss
+
+        for week_index in range(interruption_weeks, len(adjusted_plan)):
+            phase = (phases[week_index] if week_index < len(phases) else '').lower()
+            if phase == 'taper':
+                continue
+            current_value = adjusted_plan[week_index]
+            extra_capacity = max(0, weekly_capacity_tss - current_value)
+            ramp_room = max(10, _round_to_5(current_value * float(load_state['catch_up_ramp_rate'])))
+            add = _round_to_5(min(extra_capacity, ramp_room, remaining))
+            if add <= 0:
+                continue
+            adjusted_plan[week_index] += add
+            remaining -= add
+            recovered_tss += add
+            details[week_index]['notes'].append(f"возврат +{add} TSS")
+            if remaining <= 0:
+                break
+
+    if catch_up_strategy != 'catch_up' and interruption_loss > 0 and interruption_weeks > 0:
+        details[interruption_weeks - 1]['notes'].append("без компенсации нагрузки")
+
+    plan_adjustment_loss = 0
+    plan_adjustment_recoverable = 0
+    plan_adjustment_recovered = 0
+    if normalized_adjustment['is_active']:
+        affected_weeks = min(int(normalized_adjustment['weeks']), len(adjusted_plan))
+        adaptation_pressure = normalized_adjustment.get('execution_adaptation_pressure')
+        follow_up_mode = ''
+        follow_up_label = ''
+        growth_cap_tss_per_week = 0
+        rebuild_horizon_weeks = 0
+        recovery_share_cap = 0.0
+        if isinstance(adaptation_pressure, Mapping):
+            follow_up_mode = str(adaptation_pressure.get('follow_up_mode') or '').strip().lower()
+            follow_up_label = str(adaptation_pressure.get('follow_up_label') or '').strip()
+            growth_cap_tss_per_week = int(adaptation_pressure.get('growth_cap_tss_per_week', 0) or 0)
+            rebuild_horizon_weeks = int(adaptation_pressure.get('rebuild_horizon_weeks', 0) or 0)
+            try:
+                recovery_share_cap = float(adaptation_pressure.get('recovery_share_cap', 0.0) or 0.0)
+            except (TypeError, ValueError):
+                recovery_share_cap = 0.0
+        for week_index in range(affected_weeks):
+            factor = _plan_adjustment_week_factor(normalized_adjustment, week_index)
+            before = adjusted_plan[week_index]
+            after = min(before, max(0, _round_to_5(before * factor)))
+            if after == before:
+                continue
+            plan_adjustment_loss += before - after
+            adjusted_plan[week_index] = after
+            details[week_index]['notes'].append(_plan_adjustment_note(normalized_adjustment, factor))
+
+        if (
+            catch_up_strategy == 'catch_up'
+            and plan_adjustment_loss > 0
+            and follow_up_mode in {'', 'catch_up'}
+        ):
+            recovery_share_by_status = {
+                'skipped': 0.50,
+                'reduced': 0.40,
+                'unavailable': 0.35,
+            }
+            recovery_share = recovery_share_by_status.get(normalized_adjustment['status'], 0.0)
+            if current_tsb is not None and current_tsb <= -15:
+                recovery_share = min(recovery_share, 0.30)
+            if load_state['catch_up_share_cap'] is not None:
+                recovery_share = min(recovery_share, float(load_state['catch_up_share_cap']))
+            if recovery_share_cap > 0:
+                recovery_share = min(recovery_share, recovery_share_cap)
+            plan_adjustment_recoverable = _round_to_5(plan_adjustment_loss * recovery_share)
+            remaining = plan_adjustment_recoverable
+            recovery_window_end = min(len(adjusted_plan), affected_weeks + 2)
+
+            for week_index in range(affected_weeks, recovery_window_end):
+                phase = (phases[week_index] if week_index < len(phases) else '').lower()
+                if phase == 'taper':
+                    continue
+                current_value = adjusted_plan[week_index]
+                extra_capacity = max(0, weekly_capacity_tss - current_value)
+                ramp_room = max(10, _round_to_5(current_value * min(float(load_state['catch_up_ramp_rate']), 0.08)))
+                add = _round_to_5(min(extra_capacity, ramp_room, remaining))
+                if add <= 0:
+                    continue
+                adjusted_plan[week_index] += add
+                remaining -= add
+                plan_adjustment_recovered += add
+                details[week_index]['notes'].append(f"локальный возврат +{add} TSS")
+                if remaining <= 0:
+                    break
+
+        if plan_adjustment_loss > 0 and affected_weeks > 0:
+            if follow_up_mode == 'hold':
+                details[affected_weeks - 1]['notes'].append("режим hold: удержать текущий потолок")
+            elif follow_up_mode == 'protect_recovery':
+                details[affected_weeks - 1]['notes'].append("режим protect_recovery: объём не догоняется автоматически")
+            elif catch_up_strategy != 'catch_up':
+                details[affected_weeks - 1]['notes'].append("локальный объём не догоняется автоматически")
+
+        if growth_cap_tss_per_week > 0 and rebuild_horizon_weeks > 0 and affected_weeks > 0:
+            rebound_window_end = min(len(adjusted_plan), affected_weeks + rebuild_horizon_weeks)
+            for week_index in range(affected_weeks, rebound_window_end):
+                previous_value = adjusted_plan[week_index - 1]
+                allowed_value = max(previous_value, previous_value + growth_cap_tss_per_week)
+                if adjusted_plan[week_index] <= allowed_value:
+                    continue
+                adjusted_plan[week_index] = allowed_value
+                mode_note = follow_up_label or "режим после execution drift"
+                details[week_index]['notes'].append(
+                    f"{mode_note.lower()} · ceiling +{growth_cap_tss_per_week} TSS/нед."
+                )
+
+    for week_index, value in enumerate(adjusted_plan):
+        details[week_index]['adjusted_tss'] = value
+        details[week_index]['adjustment_note'] = ' · '.join(details[week_index]['notes']) or '—'
+
+    summary_notes = [
+        f"Доступно {availability['available_hours']} ч/нед ≈ потолок {weekly_capacity_tss} TSS",
+        f"Дни: {', '.join(availability['available_day_labels'])}",
+    ]
+    if load_state['state'] == 'deep_fatigue':
+        summary_notes.append("Стартовое состояние: глубокая усталость — первые недели дополнительно смягчены")
+    elif load_state['state'] == 'fatigued':
+        summary_notes.append("Стартовое состояние: накопленная усталость — старт плана сделан мягче")
+    elif load_state['state'] == 'fresh':
+        summary_notes.append("Стартовое состояние: свежесть — план не ограничен дополнительно и может вернуть больше нагрузки после отпуска")
+    if load_guard_loss > 0:
+        summary_notes.append(f"Стартовая усталость дополнительно сняла ~{load_guard_loss} TSS в первые недели")
+    if capacity_loss > 0:
+        summary_notes.append(f"Ограничение по доступности сняло ~{capacity_loss} TSS относительно базового плана")
+    if interruption_type != 'none' and interruption_weeks > 0:
+        summary_notes.append(f"{_interruption_label(interruption_type)} на {interruption_weeks} нед.")
+    if interruption_loss > 0 and catch_up_strategy == 'catch_up':
+        summary_notes.append(
+            f"Стратегия «Наверстать аккуратно» вернула {recovered_tss} из {recoverable_loss} TSS"
+        )
+    elif interruption_loss > 0:
+        summary_notes.append("Стратегия «Беречь восстановление» не догоняет пропущенный объём автоматически")
+    if normalized_adjustment['status'] == 'completed':
+        summary_notes.append("Checkpoint: неделя выполнена по плану — локальная перепланировка не потребовалась")
+    elif normalized_adjustment['is_active']:
+        summary_notes.append(
+            f"Checkpoint: {normalized_adjustment['label']} на {normalized_adjustment['weeks']} нед."
+        )
+        if normalized_adjustment.get('execution_reconciliation'):
+            summary_notes.append(
+                "Факт ближнего окна: "
+                f"{normalized_adjustment['actual_total_tss']} из {normalized_adjustment['planned_total_tss']} TSS, "
+                f"изменено {normalized_adjustment['changed_day_count']} дн."
+            )
+        execution_weekly_review = normalized_adjustment.get('execution_weekly_review')
+        if isinstance(execution_weekly_review, Mapping):
+            weekly_headline = str(execution_weekly_review.get('headline') or '').strip()
+            selected_response_label = str(execution_weekly_review.get('selected_response_label') or '').strip()
+            if weekly_headline:
+                note = f"Weekly review: {weekly_headline}."
+                if selected_response_label:
+                    note += f" Ответ: {selected_response_label}."
+                summary_notes.append(note)
+        execution_corrective_microcycle = normalized_adjustment.get('execution_corrective_microcycle')
+        if isinstance(execution_corrective_microcycle, Mapping):
+            microcycle_headline = str(execution_corrective_microcycle.get('headline') or '').strip()
+            if microcycle_headline:
+                summary_notes.append(f"Execution microcycle: {microcycle_headline}.")
+        execution_adaptation_pressure = normalized_adjustment.get('execution_adaptation_pressure')
+        if isinstance(execution_adaptation_pressure, Mapping):
+            compact_label = str(execution_adaptation_pressure.get('compact_label') or '').strip()
+            follow_up_window_description = str(
+                execution_adaptation_pressure.get('follow_up_window_description') or ''
+            ).strip()
+            reason = str(execution_adaptation_pressure.get('reason') or '').strip()
+            if compact_label:
+                note = f"Execution drift pressure: {compact_label}."
+                if follow_up_window_description:
+                    note += f" {follow_up_window_description}"
+                if reason:
+                    note += f" {reason}"
+                summary_notes.append(note)
+        if plan_adjustment_loss > 0 and catch_up_strategy == 'catch_up' and plan_adjustment_recoverable > 0:
+            summary_notes.append(
+                f"Локальная перепланировка вернула {plan_adjustment_recovered} из {plan_adjustment_recoverable} TSS в ближайшем окне"
+            )
+        elif plan_adjustment_loss > 0:
+            summary_notes.append("Локальная перепланировка не размазывает пропущенный объём по всему циклу")
+    if current_tsb is not None and current_tsb <= -15 and catch_up_strategy == 'catch_up':
+        summary_notes.append("Текущий TSB низкий — возврат объёма дополнительно ограничен, чтобы не усиливать усталость")
+
+    summary = {
+        **availability,
+        'interruption_type': interruption_type,
+        'interruption_label': _interruption_label(interruption_type),
+        'interruption_weeks': interruption_weeks,
+        'catch_up_strategy': catch_up_strategy,
+        'capacity_loss_tss': capacity_loss,
+        'interruption_loss_tss': interruption_loss,
+        'recoverable_loss_tss': recoverable_loss,
+        'recovered_tss': recovered_tss,
+        'plan_adjustment': normalized_adjustment,
+        'plan_adjustment_loss_tss': plan_adjustment_loss,
+        'plan_adjustment_recoverable_tss': plan_adjustment_recoverable,
+        'plan_adjustment_recovered_tss': plan_adjustment_recovered,
+        'execution_adaptation_pressure': normalized_adjustment.get('execution_adaptation_pressure'),
+        'current_tsb': current_tsb,
+        'current_ctl': current_ctl,
+        'current_atl': current_atl,
+        'load_state': load_state['state'],
+        'load_state_label': load_state['label'],
+        'load_guard_loss_tss': load_guard_loss,
+        'notes': summary_notes,
+    }
+    return adjusted_plan, details, summary
 
 
 def triathlon_target_weekly_tss(distance: str) -> Tuple[int, int]:
@@ -259,6 +952,252 @@ def _normalize_weights(weights: List[float]) -> List[float]:
     return [max(0.0, x) / s for x in weights]
 
 
+def _prefer_sunday_long_day(goal_type: str) -> bool:
+    del goal_type
+    return False
+
+
+def _pick_preferred_day(preferred: List[int], allowed_days: List[int], excluded: set[int] | None = None) -> int | None:
+    excluded = excluded or set()
+    for day_idx in preferred:
+        if day_idx in allowed_days and day_idx not in excluded:
+            return day_idx
+    for day_idx in allowed_days:
+        if day_idx not in excluded:
+            return day_idx
+    return None
+
+
+def _session_quality_count(phase: str, active_day_count: int, load_state: str) -> int:
+    p = (phase or "Base").lower()
+    if active_day_count < 3:
+        return 0
+
+    if p in {"build", "peak"}:
+        count = 2 if active_day_count >= 5 else 1
+    elif p == "taper":
+        count = 1 if active_day_count >= 4 else 0
+    else:
+        count = 1 if active_day_count >= 4 else 0
+
+    if load_state == "fatigued":
+        count = max(0, count - 1)
+    elif load_state == "deep_fatigue":
+        count = max(0, count - 1)
+
+    if load_state == "fresh" and p in {"build", "peak"} and active_day_count >= 6:
+        count = max(count, 2)
+
+    return min(count, max(0, active_day_count - 1))
+
+
+def _session_recovery_count(active_day_count: int, quality_count: int, load_state: str, phase: str) -> int:
+    if active_day_count < 4:
+        return 0
+
+    recovery_count = 1
+    if load_state in {"fatigued", "deep_fatigue"} and active_day_count >= 5:
+        recovery_count = 2
+    elif (phase or "").lower() == "taper" and active_day_count >= 5:
+        recovery_count = 2
+
+    max_recovery = max(0, active_day_count - quality_count - 1)
+    return min(recovery_count, max_recovery)
+
+
+def _build_recovery_aware_day_roles(
+    active_days: List[int],
+    phase: str,
+    goal_type: str,
+    load_state: str,
+) -> List[str]:
+    roles = ["off"] * 7
+    if not active_days:
+        return roles
+
+    for day_idx in active_days:
+        roles[day_idx] = "easy"
+
+    preferred_long = [6, 5, 4, 3, 2, 1, 0] if _prefer_sunday_long_day(goal_type) else [5, 6, 4, 3, 2, 1, 0]
+    long_day = _pick_preferred_day(preferred_long, active_days)
+    if long_day is not None:
+        roles[long_day] = "long"
+
+    quality_count = _session_quality_count(phase, len(active_days), load_state)
+    quality_preferred = [1, 3, 2, 4, 0, 6, 5]
+    reserved = {long_day} if long_day is not None else set()
+    quality_days: List[int] = []
+    for _ in range(quality_count):
+        quality_day = _pick_preferred_day(quality_preferred, active_days, reserved | set(quality_days))
+        if quality_day is None:
+            break
+        quality_days.append(quality_day)
+        roles[quality_day] = "quality"
+
+    recovery_target = _session_recovery_count(len(active_days), len(quality_days), load_state, phase)
+    recovery_days: List[int] = []
+    key_days = sorted([day for day in quality_days if day is not None] + ([long_day] if long_day is not None else []))
+    for key_day in key_days:
+        next_active = next(
+            (
+                day_idx
+                for day_idx in active_days
+                if day_idx > key_day and roles[day_idx] == "easy" and day_idx not in recovery_days
+            ),
+            None,
+        )
+        if next_active is not None:
+            recovery_days.append(next_active)
+            if len(recovery_days) >= recovery_target:
+                break
+        prev_active = next(
+            (
+                day_idx
+                for day_idx in reversed(active_days)
+                if day_idx < key_day and roles[day_idx] == "easy" and day_idx not in recovery_days
+            ),
+            None,
+        )
+        if prev_active is not None:
+            recovery_days.append(prev_active)
+            if len(recovery_days) >= recovery_target:
+                break
+
+    if len(recovery_days) < recovery_target:
+        for day_idx in [0, 2, 4, 6, 1, 3, 5]:
+            if day_idx in active_days and roles[day_idx] == "easy" and day_idx not in recovery_days:
+                recovery_days.append(day_idx)
+                if len(recovery_days) >= recovery_target:
+                    break
+
+    for day_idx in recovery_days[:recovery_target]:
+        roles[day_idx] = "recovery"
+
+    return roles
+
+
+def _role_multipliers_for_week(phase: str, load_state: str) -> Dict[str, float]:
+    p = (phase or "Base").lower()
+    if p == "build":
+        multipliers = {"off": 0.0, "recovery": 0.55, "easy": 0.92, "quality": 1.18, "long": 1.30}
+    elif p == "peak":
+        multipliers = {"off": 0.0, "recovery": 0.55, "easy": 0.88, "quality": 1.22, "long": 1.25}
+    elif p == "taper":
+        multipliers = {"off": 0.0, "recovery": 0.65, "easy": 0.95, "quality": 1.05, "long": 1.05}
+    else:
+        multipliers = {"off": 0.0, "recovery": 0.58, "easy": 0.95, "quality": 1.10, "long": 1.25}
+
+    if load_state == "fresh":
+        multipliers["quality"] += 0.05
+        multipliers["long"] += 0.05
+    elif load_state == "fatigued":
+        multipliers["recovery"] += 0.15
+        multipliers["easy"] += 0.03
+        multipliers["quality"] = max(0.75, multipliers["quality"] - 0.12)
+        multipliers["long"] = max(0.85, multipliers["long"] - 0.10)
+    elif load_state == "deep_fatigue":
+        multipliers["recovery"] += 0.20
+        multipliers["easy"] += 0.08
+        multipliers["quality"] = max(0.70, multipliers["quality"] - 0.20)
+        multipliers["long"] = max(0.80, multipliers["long"] - 0.15)
+
+    return multipliers
+
+
+def _dominant_sport(parts: Dict[str, float]) -> str:
+    active = {sport: float(value or 0.0) for sport, value in parts.items() if float(value or 0.0) > 0.0}
+    if not active:
+        return "off"
+    return max(active.items(), key=lambda item: item[1])[0]
+
+
+def _build_day_focus_label(role: str, sport: str) -> str:
+    if role == "off":
+        return "Отдых"
+    role_label = SESSION_ROLE_LABELS_RU.get(role, role.title())
+    sport_label = SPORT_LABELS_RU.get(sport, sport)
+    return f"{role_label} • {sport_label}"
+
+
+def _apply_recovery_aware_day_structure(
+    week_parts: List[Dict[str, float]],
+    week_total_tss: int,
+    phase: str,
+    goal_type: str,
+    load_state: str,
+) -> Tuple[List[Dict[str, float]], List[str], List[str]]:
+    active_days = [idx for idx, parts in enumerate(week_parts) if sum(float(value or 0.0) for value in parts.values()) > 0.0]
+    roles = _build_recovery_aware_day_roles(active_days, phase, goal_type, load_state)
+    multipliers = _role_multipliers_for_week(phase, load_state)
+
+    base_totals = [sum(float(value or 0.0) for value in parts.values()) for parts in week_parts]
+    weighted_totals = [base_totals[idx] * multipliers.get(roles[idx], 1.0) for idx in range(7)]
+    weighted_sum = sum(weighted_totals)
+
+    if weighted_sum <= 0:
+        focuses = [_build_day_focus_label(roles[idx], _dominant_sport(week_parts[idx])) for idx in range(7)]
+        return week_parts, roles, focuses
+
+    scale = float(week_total_tss) / weighted_sum
+    adjusted_parts: List[Dict[str, float]] = []
+    for idx, parts in enumerate(week_parts):
+        day_total = base_totals[idx]
+        if day_total <= 0:
+            adjusted_parts.append({"run": 0.0, "bike": 0.0, "swim": 0.0})
+            continue
+
+        scaled_total = weighted_totals[idx] * scale
+        ratio = scaled_total / day_total if day_total > 0 else 0.0
+        adjusted_parts.append(
+            {
+                "run": round(float(parts.get("run", 0.0)) * ratio, 1),
+                "bike": round(float(parts.get("bike", 0.0)) * ratio, 1),
+                "swim": round(float(parts.get("swim", 0.0)) * ratio, 1),
+            }
+        )
+
+    total_after = round(sum(sum(parts.values()) for parts in adjusted_parts), 1)
+    diff = round(float(week_total_tss) - total_after, 1)
+    if abs(diff) >= 0.1 and active_days:
+        target_day = _pick_preferred_day(
+            [idx for idx, role in enumerate(roles) if role == "long"] + list(reversed(active_days)),
+            active_days,
+        )
+        if target_day is not None:
+            sport = _dominant_sport(adjusted_parts[target_day])
+            if sport == "off":
+                sport = "run"
+            adjusted_parts[target_day][sport] = round(max(0.0, adjusted_parts[target_day].get(sport, 0.0) + diff), 1)
+
+    focuses = [_build_day_focus_label(roles[idx], _dominant_sport(adjusted_parts[idx])) for idx in range(7)]
+    return adjusted_parts, roles, focuses
+
+
+def _build_week_structure_metadata(
+    roles: List[str],
+    focuses: List[str],
+) -> Dict[str, object]:
+    long_days = [idx for idx, role in enumerate(roles) if role == "long"]
+    quality_days = [idx for idx, role in enumerate(roles) if role == "quality"]
+    recovery_days = [idx for idx, role in enumerate(roles) if role == "recovery"]
+
+    key_labels = [f"{WEEKDAY_LABELS_RU[idx]} {focuses[idx].lower()}" for idx in quality_days + long_days]
+    recovery_labels = [WEEKDAY_LABELS_RU[idx] for idx in recovery_days]
+    structure_summary = (
+        f"{len(quality_days)} качеств. дн., "
+        f"{len(recovery_days)} восстановит. дн., "
+        f"длительная: {WEEKDAY_LABELS_RU[long_days[0]] if long_days else '—'}"
+    )
+
+    return {
+        "day_roles": roles,
+        "day_focuses": focuses,
+        "key_sessions": "; ".join(key_labels) if key_labels else "—",
+        "recovery_days": ", ".join(recovery_labels) if recovery_labels else "—",
+        "structure_summary": structure_summary,
+    }
+
+
 def goal_weekly_mix(goal_type: str, distance: str, phase: str) -> Dict[str, float]:
     g = (goal_type or '').lower()
     if 'триатлон' in g or 'tri' in g:
@@ -277,6 +1216,9 @@ def expand_weekly_to_daily_triathlon(
     start_date: date,
     mix_overrides: Dict[str, Dict[str, float]] | None = None,
     weights_overrides: Dict[str, Dict[str, List[float]]] | None = None,
+    available_day_indices: List[int] | None = None,
+    goal_type: str = "Триатлон",
+    load_state: str = "balanced",
 ) -> Tuple[List[Tuple[datetime, float, Dict[str, float]]], List[Dict[str, object]]]:
     """Разворачивает недельный triathlon-план в поминутную ленту по дням с разбивкой по видам спорта.
     Возвращает:
@@ -308,28 +1250,45 @@ def expand_weekly_to_daily_triathlon(
             }
         else:
             weights = daily_weights_for_phase(phase)
+        weights = constrain_weights_to_available_days(weights, available_day_indices)
 
         # Сумма по видам на неделю
         run_week = w_tss * mix['run']
         bike_week = w_tss * mix['bike']
         swim_week = w_tss * mix['swim']
-
-        # Запись в сводку по неделе
-        weekly_summary.append({
-            'week_start': current.date(),
-            'phase': phase,
-            'weekly_tss': int(round(w_tss)),
-            'bike': round(bike_week, 1),
-            'run': round(run_week, 1),
-            'swim': round(swim_week, 1),
-        })
-
+        week_parts: List[Dict[str, float]] = []
         for i in range(7):
             run_d = round(run_week * weights['run'][i], 1)
             bike_d = round(bike_week * weights['bike'][i], 1)
             swim_d = round(swim_week * weights['swim'][i], 1)
-            total = round(run_d + bike_d + swim_d, 1)
-            daily.append((current, total, {'run': run_d, 'bike': bike_d, 'swim': swim_d}))
+            week_parts.append({'run': run_d, 'bike': bike_d, 'swim': swim_d})
+
+        adjusted_week_parts, day_roles, day_focuses = _apply_recovery_aware_day_structure(
+            week_parts,
+            int(round(w_tss)),
+            phase,
+            goal_type,
+            load_state,
+        )
+
+        bike_total = round(sum(parts.get('bike', 0.0) for parts in adjusted_week_parts), 1)
+        run_total = round(sum(parts.get('run', 0.0) for parts in adjusted_week_parts), 1)
+        swim_total = round(sum(parts.get('swim', 0.0) for parts in adjusted_week_parts), 1)
+        structure_meta = _build_week_structure_metadata(day_roles, day_focuses)
+
+        weekly_summary.append({
+            'week_start': current.date(),
+            'phase': phase,
+            'weekly_tss': int(round(w_tss)),
+            'bike': bike_total,
+            'run': run_total,
+            'swim': swim_total,
+            **structure_meta,
+        })
+
+        for parts in adjusted_week_parts:
+            total = round(parts.get('run', 0.0) + parts.get('bike', 0.0) + parts.get('swim', 0.0), 1)
+            daily.append((current, total, parts))
             current += timedelta(days=1)
 
     return daily, weekly_summary
@@ -340,15 +1299,127 @@ def flatten_daily_total(daily: List[Tuple[datetime, float, Dict[str, float]]]) -
     return [(dt, total) for dt, total, _ in daily]
 
 
+def _estimate_session_duration_minutes(total_tss: float, sport: str, session_role: str) -> int:
+    base_minutes_per_tss = {
+        "run": 1.0,
+        "bike": 1.8,
+        "swim": 1.4,
+        "off": 0.8,
+    }
+    role_multiplier = {
+        "off": 0.75,
+        "recovery": 1.25,
+        "easy": 1.10,
+        "quality": 0.95,
+        "long": 1.35,
+    }
+    sport_key = sport if sport in base_minutes_per_tss else "run"
+    role_key = session_role if session_role in role_multiplier else "easy"
+    total = max(0.0, float(total_tss or 0.0))
+    if total <= 0:
+        return 0
+    estimated = total * base_minutes_per_tss[sport_key] * role_multiplier[role_key]
+    return max(30, min(240, int(round(estimated / 5.0) * 5)))
+
+
+def _build_session_export_name(goal_type: str, distance: str, session_focus: str) -> str:
+    goal_label = " ".join(part for part in [str(goal_type or "").strip(), str(distance or "").strip()] if part)
+    focus_label = str(session_focus or "").strip()
+    if focus_label and focus_label != "—":
+        return f"{goal_label} — {focus_label}" if goal_label else focus_label
+    return goal_label or "План тренировки"
+
+
+def _build_session_description(
+    goal_type: str,
+    distance: str,
+    phase: str,
+    session_role: str,
+    session_focus: str,
+    sport: str,
+    total_tss: float,
+    parts: Mapping[str, float],
+    duration_minutes: int,
+) -> str:
+    lines = [
+        "План из AI Trainer",
+        f"Цель: {goal_type} / {distance}",
+        f"Фаза: {phase or 'Base'}",
+    ]
+    if session_focus and session_focus != "—":
+        lines.append(f"Фокус: {session_focus}")
+    lines.append(f"Роль дня: {SESSION_ROLE_LABELS_RU.get(session_role, session_role)}")
+    lines.append(f"Основной спорт: {SPORT_LABELS_RU.get(sport, sport)}")
+    lines.append(f"Оценка длительности: {duration_minutes} мин")
+    lines.append(f"Total TSS: {round(float(total_tss or 0.0), 1)}")
+    lines.append(f"Run: {round(float(parts.get('run', 0.0) or 0.0), 1)}")
+    lines.append(f"Bike: {round(float(parts.get('bike', 0.0) or 0.0), 1)}")
+    lines.append(f"Swim: {round(float(parts.get('swim', 0.0) or 0.0), 1)}")
+    return "\n".join(lines)
+
+
+def build_daily_session_templates(
+    daily: List[Tuple[datetime, float, Dict[str, float]]],
+    weekly_summary: Sequence[Mapping[str, object]],
+    goal_type: str,
+    distance: str,
+) -> List[Dict[str, Any]]:
+    """Строит метаданные сессий, выровненные с daily plan без смены его контракта."""
+    templates: List[Dict[str, Any]] = []
+
+    for idx, (dt, total, parts) in enumerate(daily):
+        week_idx = idx // 7
+        day_idx = idx % 7
+        week_meta = weekly_summary[week_idx] if week_idx < len(weekly_summary) else {}
+        day_roles = list(week_meta.get("day_roles") or ["easy"] * 7)
+        day_focuses = list(week_meta.get("day_focuses") or ["—"] * 7)
+        session_role = str(day_roles[day_idx] if day_idx < len(day_roles) else "easy")
+        session_focus = str(day_focuses[day_idx] if day_idx < len(day_focuses) else "—")
+        sport = _dominant_sport(parts)
+        phase = str(week_meta.get("phase", "Base") or "Base")
+        duration_minutes = _estimate_session_duration_minutes(total, sport, session_role)
+        export_name = _build_session_export_name(goal_type, distance, session_focus)
+        description = _build_session_description(
+            goal_type=goal_type,
+            distance=distance,
+            phase=phase,
+            session_role=session_role,
+            session_focus=session_focus,
+            sport=sport,
+            total_tss=total,
+            parts=parts,
+            duration_minutes=duration_minutes,
+        )
+
+        templates.append(
+            {
+                "date": dt.strftime("%Y-%m-%d"),
+                "week_index": week_idx,
+                "day_index": day_idx,
+                "phase": phase,
+                "session_role": session_role,
+                "session_focus": session_focus,
+                "sport": sport,
+                "sport_label": SPORT_LABELS_RU.get(sport, sport),
+                "duration_minutes": duration_minutes,
+                "template_key": f"{phase.lower()}:{session_role}:{sport}",
+                "export_name": export_name,
+                "description": description,
+            }
+        )
+
+    return templates
+
+
 def create_ics_from_daily(
     daily: List[Tuple[datetime, float, Dict[str, float]]],
     title_prefix: str = "Planned Training",
     duration_minutes: int = 60,
+    session_templates: Sequence[Mapping[str, Any]] | None = None,
 ) -> str:
     """Генерирует ICS календарь из дневного плана.
     Создаёт по одному событию в день с суммарным TSS и разбивкой в описании.
     """
-    from datetime import timezone
     import uuid
 
     def fmt_dt(dt: datetime) -> str:
@@ -361,13 +1432,20 @@ def create_ics_from_daily(
         'VERSION:2.0',
         'PRODID:-//AI Trainer//Goal Planner//EN'
     ]
-    for dt, total, parts in daily:
+    for idx, (dt, total, parts) in enumerate(daily):
+        session_template = session_templates[idx] if session_templates and idx < len(session_templates) else {}
+        resolved_duration = int(session_template.get("duration_minutes", duration_minutes) or duration_minutes)
+        resolved_duration = max(30, resolved_duration)
         start = fmt_dt(dt)
-        end_dt = dt.replace(hour=8, minute=0, second=0, microsecond=0)
+        end_dt = dt.replace(hour=7, minute=0, second=0, microsecond=0) + timedelta(minutes=resolved_duration)
         end = end_dt.strftime('%Y%m%dT%H%M%S')
         uid = uuid.uuid4().hex
-        desc = f"Total TSS: {total}\nRun: {parts.get('run',0)}\nBike: {parts.get('bike',0)}\nSwim: {parts.get('swim',0)}"
-        title = f"{title_prefix} (TSS {int(round(total))})"
+        desc = str(
+            session_template.get("description")
+            or f"Total TSS: {total}\nRun: {parts.get('run',0)}\nBike: {parts.get('bike',0)}\nSwim: {parts.get('swim',0)}"
+        )
+        base_title = str(session_template.get("export_name") or title_prefix)
+        title = f"{base_title} (TSS {int(round(total))})"
         lines += [
             'BEGIN:VEVENT',
             f'UID:{uid}',

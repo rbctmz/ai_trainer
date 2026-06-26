@@ -18,7 +18,8 @@ class UIState:
 class IntegrationState:
     """External integrations and connection-related flags."""
     garmin_authenticated: bool = False
-    last_sync_status: Optional[str] = None
+    demo_mode: bool = False
+    last_sync_status: Optional[Dict[str, Any]] = None
     syncing_in_progress: bool = False
 
 
