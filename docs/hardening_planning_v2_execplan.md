@@ -112,8 +112,25 @@ This repository should borrow those product patterns while staying faithful to t
 - [x] (2026-06-19 19:25+04:00) Completed the next Planning V2 + Explainability slice: planning checkpoints are now explicit saved plan versions with provenance (`initial_plan / manual_edit / execution_feedback / restore_version`) instead of just raw summaries. The planning page now shows recent version history with week-level compare + restore for any recent checkpoint, dashboard and AI coaching expose the active version lineage, and execution-feedback summaries no longer misfire after an ordinary manual edit or restored version merely because the inherited `plan_adjustment` label stayed the same. Validation passed on focused smoke coverage across checkpoint, planning, dashboard, and coaching boundaries (`39 passed` across the targeted files), the full smoke suite (`138 passed`), and a fresh isolated acceptance boot on `http://localhost:8510` with `HTTP 200` on `/` plus `/_stcore/health -> ok`.
 - [x] (2026-06-19 20:20+04:00) Completed the next Planning V2 + Explainability slice: execution feedback is now day-level instead of only week-level. Planning and Dashboard both render the same shared execution-reconciliation editor, the model now turns per-day outcomes into a concrete near-term fact summary (`planned vs actual TSS`, changed-day counts, inferred checkpoint type, and completion share), local replanning uses that summary without mixing actuals into `daily_plan`, and dashboard plus AI coaching now surface the same fact window after the checkpoint is saved. Validation passed on focused smoke coverage across planning execution, checkpoint history, dashboard handoff, planning explainability, coach explainability, recommended prompt, and page exports (`47 passed` across the targeted files), the full smoke suite (`141 passed`), and a fresh isolated acceptance boot on `http://localhost:8512` with `HTTP 200` on `/` plus `/_stcore/health -> ok` after skipping occupied legacy ports `8510/8511`.
 - [x] (2026-06-19 21:15+04:00) Completed the next Planning V2 + Explainability slice: execution feedback now derives a compact weekly review on top of the new day-level facts instead of stopping at raw `planned vs actual` totals. Planning and Dashboard surface that weekly review with explicit deviations plus a selected response strategy, the planning model persists the same `execution_weekly_review` and `catch_up_strategy_override` through rebuild/checkpoint/history flows, AI coaching prompt context now carries the same weekly review into explainability and handoff copy, and the shared execution editor no longer crashes on stale `number_input` state when a row's allowed TSS collapses to zero. Validation passed on focused smoke coverage (`34 passed` across planning execution, checkpoint history, dashboard handoff, coach explainability, and recommended prompt), the full smoke suite (`145 passed`), and a fresh isolated acceptance boot on `http://localhost:8520` with `HTTP 200` on `/` plus `/_stcore/health -> ok` after skipping already occupied local ports `8510` and `8512`.
-- [ ] Planning V2 — adaptive planning driven by load, availability, and interruptions.
-- [ ] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
+- [x] Planning V2 — adaptive planning driven by load, availability, and interruptions.
+  Closed (2026-06-26): the Planning V2 scope for this iteration shipped. The
+  goal-plan builder was separated from the execution-adjustment workspace, the
+  multi-week `план ↔ факт` timeline detects accumulated drift and surfaces a
+  replan entrypoint, weekly review derives deviations + a selected response
+  strategy from day-level facts, clean Garmin-matched windows get a one-click
+  confirmation path, and local post-edit redistribution scales the next 1–2
+  weeks without a full plan rebuild. The accumulation of slices above (the
+  dated `[x]` entries ending 2026-06-21) is the delivery evidence; this parent
+  checkbox stayed open only as a stale formal marker.
+- [x] Coach Explainability — clearer reasoning and daily guidance on top of live metrics.
+  Closed (2026-06-26): the explainability scope shipped alongside Planning V2.
+  Execution feedback is day-level, checkpoints are explicit saved versions
+  with provenance (`initial_plan / manual_edit / execution_feedback /
+  restore_version`) and restore, the adaptive coach briefing + AI prompt
+  context carry the same weekly review / handoff copy, and the dashboard
+  demotes the latest checkpoint into a compact plan card routing to Planning.
+  The dated `[x]` slices ending 2026-06-19 are the delivery evidence; this
+  parent checkbox stayed open only as a stale formal marker.
 
 ## Surprises & Discoveries
 
@@ -961,4 +978,45 @@ ai_trainer_env/bin/python tests/e2e_acceptance_flows.py
 ```bash
 pkill -f "run_acceptance.sh"; kill <streamlit PID on 8521>
 ```
+
+---
+
+## Iteration 1 closeout (2026-06-26)
+
+Iteration 1 (`codex/iteration1-stabilize`, PR #1) merged into `main` as
+merge-commit `58ac299` after 22 session commits on top of an already-large
+modularization/planning history. This section records the final state and the
+honest debt remaining.
+
+### Shipped (measured)
+- Acceptance: Playwright live + per-flow harness, real Garmin → sync →
+  dashboard end-to-end confirmed on real metrics (CTL 24.8 / TSB -19.9).
+- Theme: Material theme engine deleted; cockpit `--ic-*` is the single design
+  language across welcome/admin/activities/hrv/sleep (dashboard/planning were
+  already cockpit). Plotly palette re-pointed to `--ic-*`; `st.dataframe`
+  width="stretch" translated for Streamlit 1.4x.
+- Tests: `196 passed` on `main` (grew from ~3 at iteration start).
+
+### Two things that did not go to plan (recorded honestly)
+- **Auto-detect system color scheme** (`c7d5396`) was attempted via an
+  `st.components.v1.html` JS roundtrip and proven non-working (iframe sandbox
+  does not execute the `<script>`). It was then reverted (`24af9e8`) in favor
+  of `.streamlit/config.toml` `base="light"` plus a manual 🌙/☀️ toggle.
+  Lesson recorded in the Decision Log: Streamlit has no native
+  `prefers-color-scheme` following; a real implementation would need a custom
+  component, not a probe.
+- **`st.components.v1.html` deprecation** surfaced during the theme work; the
+  TTS path in `ai_coach_output.py` was migrated to `st.html(unsafe_allow_javascript=True)`.
+
+### Known debt (intentionally deferred)
+- **AI coach chat is not on the cockpit design.** It still uses its own
+  `CHAT_PAGE_STYLES` bespoke CSS and Streamlit-native chat primitives. It was
+  explicitly scoped out of the cockpit migration by decision; it is the next
+  cohesive UI slice, not a regression.
+- **Two large files** (`planning.py` ~3.3k lines, `modern_ui.py` ~1.7k) are
+  functional and tested but are candidates for future decomposition if active
+  churn returns to them.
+- **Parent checkboxes** `Planning V2` and `Coach Explainability` above were
+  closed as delivered in this closeout; their delivery evidence is the chain
+  of dated `[x]` slices, not a single terminal commit.
 
