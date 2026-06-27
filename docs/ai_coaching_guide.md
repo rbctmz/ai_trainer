@@ -39,7 +39,7 @@ DEEPSEEK_MODEL=deepseek-v4-flash
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 
 GOOGLE_API_KEY=your_google_key
-GOOGLE_MODEL=models/gemini-1.5-flash-latest
+GOOGLE_MODEL=gemini-2.5-flash
 
 OLLAMA_HOST=http://localhost:11434
 OLLAMA_MODEL=gemma3:4b
@@ -98,7 +98,7 @@ Avoid using live provider tests as the default loop; they may require secrets, n
 - For Ollama, verify `ollama serve` and `ollama list`.
 - For DeepSeek, verify `DEEPSEEK_BASE_URL` if using a proxy.
 
-### Gemini protobuf/runtime problems
+### Gemini runtime problems
 
 Use the app launcher or runtime doctor instead of ad-hoc package edits:
 

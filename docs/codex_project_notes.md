@@ -46,7 +46,7 @@
 - `tests/` contains API provider unit tests, HRV trend checks, sleep regularity coverage, etc. (`pytest` runner documented in README).
 - Debug scripts in `debug/` (Ollama connectivity, data inspection).
 - `examples/` hosts demo flows for AI features.
-- `run.sh` sets protobuf workaround and launches Streamlit; `setup_env.sh` installs extra deps for Gemini fix.
+- `run.sh` applies conservative Google/gRPC runtime defaults and launches Streamlit; use `scripts/doctor_env.py` for dependency diagnostics/repair.
 
 ## Documentation Assets
 - `docs/modernization_plan/` and `docs/redesign_guide/`: historical UI modernization material. Treat as archive/reference unless a current ExecPlan says otherwise.
@@ -61,7 +61,7 @@
 6. **Internationalization**: app currently mixes RU/EN labels—decide on localization strategy or add translation layer.
 
 ## Quick Reference
-- Entry point: `streamlit run app.py` or `./run.sh` (protobuf fix).
+- Entry point: `streamlit run app.py` or `./run.sh` (runtime checks/defaults).
 - Core configs: `config/settings.py`, `.env`.
 - Database file (default): `ai_trainer.db` in repo root.
 - AI provider selection + validation handled in `ui/components/ai_coach_provider.py` through `AIProviderFactory`.

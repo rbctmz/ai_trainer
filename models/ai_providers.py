@@ -6,10 +6,9 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, List, Type
 import os
-import warnings
 from config.settings import Settings
 
-# Исправление для Google Gemini protobuf конфликта
+# Консервативный runtime default для Google/gRPC stack в локальном окружении.
 os.environ.setdefault('PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION', 'python')
 
 
@@ -323,7 +322,7 @@ class DeepSeekProvider(AIProvider):
 
 
 class GoogleGeminiProvider(AIProvider):
-    """Провайдер Google Gemini с поддержкой новых моделей"""
+    """Провайдер Google Gemini через актуальный Google Gen AI SDK."""
     
     def __init__(
         self,
@@ -337,79 +336,87 @@ class GoogleGeminiProvider(AIProvider):
         self.emit_warnings = emit_warnings
         self.init_error: Optional[str] = None
         self.model_name = model or settings.GOOGLE_MODEL
-        self.model = None
+        self.sdk_model_name = self._normalize_model_name(self.model_name)
+        self.client = None
         
         if self.api_key:
             try:
-                # Проверяем protobuf версию перед импортом
-                try:
-                    import google.protobuf
-                    version = google.protobuf.__version__
-                    major_version = int(version.split('.')[0])
-                    if major_version >= 5 and self.emit_warnings:
-                        print(f"Предупреждение: protobuf версии {version} может вызывать проблемы с Google AI")
-                        print("Рекомендуется: pip install protobuf==4.24.0")
-                except:
-                    pass
-                
-                with warnings.catch_warnings():
-                    warnings.filterwarnings(
-                        "ignore",
-                        message=r"\s*All support for the `google\.generativeai` package has ended.*",
-                        category=FutureWarning,
-                    )
-                    import google.generativeai as genai
-                genai.configure(api_key=self.api_key)
-                self.model = genai.GenerativeModel(self.model_name)
+                from google import genai
+                self.client = genai.Client(api_key=self.api_key)
             except ImportError:
-                self.init_error = "Google Generative AI библиотека не установлена"
+                self.init_error = "Google Gen AI SDK не установлен"
                 self._emit_init_warning(self.init_error)
             except Exception as e:
                 self.init_error = f"Ошибка инициализации Google Gemini: {e}"
                 self._emit_init_warning(self.init_error)
-                self._emit_init_warning("Попробуйте: pip install protobuf==4.24.0")
-                self.model = None
+                self.client = None
 
     def _emit_init_warning(self, message: str) -> None:
         if self.emit_warnings:
             print(message)
+
+    @staticmethod
+    def _normalize_model_name(model_name: str) -> str:
+        """Google Gen AI SDK принимает model id без legacy `models/` prefix."""
+        return model_name.removeprefix("models/")
+
+    @staticmethod
+    def _response_text(response: object) -> str:
+        try:
+            text = getattr(response, "text", "")
+        except Exception:
+            return ""
+        return text or ""
     
     def generate_response(self, prompt: str, system_prompt: str = "") -> str:
-        if not self.model:
+        if not self.client:
             return self.init_error or "Google Gemini провайдер не настроен"
         
         try:
-            # Gemini не имеет отдельного system prompt, объединяем
-            full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-            
-            response = self.model.generate_content(full_prompt)
-            return response.text
+            config = {
+                "temperature": 0.7,
+                "max_output_tokens": 1000,
+            }
+            if system_prompt:
+                config["system_instruction"] = system_prompt
+
+            response = self.client.models.generate_content(
+                model=self.sdk_model_name,
+                contents=prompt,
+                config=config,
+            )
+            return self._response_text(response)
             
         except Exception as e:
             return f"Ошибка Google Gemini: {e}"
     
     def is_available(self) -> bool:
-        return self.model is not None and self.api_key is not None
+        return self.client is not None and self.api_key is not None
     
     def get_model_name(self) -> str:
         return f"Google {self.model_name}"
     
     def test_connection(self) -> Dict[str, any]:
         """Тестирование подключения к Google Gemini"""
-        if not self.model:
+        if not self.client:
             return {
                 'success': False,
-                'error': self.init_error or 'Модель не инициализирована. Проверьте API ключ и настройки protobuf.'
+                'error': self.init_error or 'Клиент не инициализирован. Проверьте API ключ.'
             }
         
         try:
             # Простой тестовый запрос
-            response = self.model.generate_content("Test")
+            response = self.client.models.generate_content(
+                model=self.sdk_model_name,
+                contents="Test",
+                config={"max_output_tokens": 5},
+            )
+            response_text = self._response_text(response)
             return {
                 'success': True,
                 'message': 'Подключение успешно',
                 'model': self.model_name,
-                'response_length': len(response.text) if response.text else 0
+                'response_length': len(response_text)
             }
         except Exception as e:
             return {
@@ -419,15 +426,12 @@ class GoogleGeminiProvider(AIProvider):
     
     def get_available_models(self) -> List[str]:
         """Получить список доступных моделей Google"""
-        # Актуальные модели Gemini по состоянию на 2024-2025
         return [
-            "gemini-2.0-flash-exp",      # Экспериментальная версия 2.0
-            "gemini-1.5-pro-latest",     # Последняя версия 1.5 Pro
-            "gemini-1.5-flash-latest",   # Последняя версия 1.5 Flash 
-            "gemini-1.5-pro",            # Стабильная 1.5 Pro
-            "gemini-1.5-flash",          # Стабильная 1.5 Flash
-            "gemini-pro",                # Legacy модель
-            "gemini-pro-vision"          # Legacy модель с поддержкой изображений
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+            "gemini-2.0-flash",
+            "gemini-1.5-flash",
+            "gemini-1.5-pro",
         ]
 
 

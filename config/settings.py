@@ -24,7 +24,7 @@ class Settings:
     DEEPSEEK_BASE_URL = os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com")
     
     GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-    GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "models/gemini-1.5-flash-latest")
+    GOOGLE_MODEL = os.getenv("GOOGLE_MODEL", "gemini-2.5-flash")
     
     OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")

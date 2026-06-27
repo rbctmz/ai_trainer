@@ -1,7 +1,7 @@
 #!/bin/bash
-# Скрипт для постоянного исправления Google Gemini protobuf проблемы
+# Legacy helper для постоянной настройки Google/gRPC runtime default
 
-echo "🚀 Настройка переменной окружения для Google Gemini"
+echo "🚀 Настройка Google/gRPC runtime default"
 
 # Определяем файл конфигурации оболочки
 if [[ "$SHELL" == *"zsh"* ]]; then
@@ -20,7 +20,7 @@ if grep -q "PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION" "$CONFIG_FILE" 2>/dev/null; 
     echo "✅ Переменная окружения уже настроена в $CONFIG_FILE"
 else
     echo "" >> "$CONFIG_FILE"
-    echo "# Google Gemini protobuf fix for AI Trainer" >> "$CONFIG_FILE"
+    echo "# Google/gRPC runtime default for AI Trainer" >> "$CONFIG_FILE"
     echo "export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python" >> "$CONFIG_FILE"
     echo "✅ Переменная окружения добавлена в $CONFIG_FILE"
 fi
