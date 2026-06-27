@@ -27,6 +27,9 @@ pip install -r requirements.txt
 
 # Для разработки и тестов
 pip install -r requirements-dev.txt
+
+# One-time browser install for Playwright-based acceptance probes
+python -m playwright install chromium
 ```
 
 ### 2. Настройка окружения
@@ -229,6 +232,10 @@ python -m pytest -m "not live and not debug" tests/
 # Изолированный acceptance-запуск с временной БД
 ACCEPTANCE_PORT=8510 ./run_acceptance.sh
 
+# Live acceptance probes against a running acceptance instance
+ACCEPTANCE_BASE_URL=http://localhost:8510/ python tests/e2e_acceptance_live.py
+ACCEPTANCE_BASE_URL=http://localhost:8510/ python tests/e2e_acceptance_flows.py
+
 # Тестирование AI провайдеров
 python tests/test_ai_providers_advanced.py
 python tests/test_provider_features.py
@@ -277,6 +284,13 @@ python scripts/doctor_env.py repair --runtime
 pip install -r requirements-dev.txt
 python scripts/doctor_env.py repair --dev
 python -m pytest tests/smoke -q
+```
+
+### Playwright просит установить браузер
+- Причина: Python-пакет `playwright` установлен, но Chromium не скачан для текущего окружения.
+- Решение:
+```bash
+python -m playwright install chromium
 ```
 
 ### Проблемы с AI провайдерами

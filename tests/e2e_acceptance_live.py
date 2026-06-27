@@ -1,7 +1,9 @@
 """Live end-to-end acceptance probe via Playwright against running Streamlit.
 
-Runs against http://localhost:8521 (launched separately). Verifies the full
-websocket-rendered UI, not just the static shell. Reports per-flow outcomes.
+Runs against a separately launched Streamlit instance. The target URL can be
+overridden via ACCEPTANCE_BASE_URL, otherwise the probe falls back to
+http://localhost:${ACCEPTANCE_PORT:-8521}/. Verifies the full websocket-
+rendered UI, not just the static shell. Reports per-flow outcomes.
 
 Drives the real Garmin login flow (credentials from .env) to take the app
 past demo onboarding and verify that the dashboard renders the real
@@ -10,15 +12,46 @@ already-synced data.
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 import time
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError as exc:
+    raise SystemExit(
+        "Playwright is not installed in this Python environment. "
+        "Run `pip install -r requirements-dev.txt` and "
+        "`python -m playwright install chromium`."
+    ) from exc
 
-URL = "http://localhost:8521/"
 REPORT = Path("logs/e2e_acceptance_report.json")
 SCREENSHOT_DIR = Path("logs/e2e_screenshots")
+
+
+def resolve_base_url() -> str:
+    """Resolve the acceptance instance URL from env with a localhost fallback."""
+    explicit_url = os.getenv("ACCEPTANCE_BASE_URL", "").strip()
+    if explicit_url:
+        return explicit_url.rstrip("/") + "/"
+    port = os.getenv("ACCEPTANCE_PORT", "8521").strip() or "8521"
+    return f"http://localhost:{port}/"
+
+
+def has_real_date_token(text: str) -> bool:
+    """Detect an ISO-like date token rendered from real synced data."""
+    return bool(re.search(r"\b20\d{2}-\d{2}-\d{2}\b", text))
+
+
+def has_real_dashboard_summary(text: str) -> bool:
+    """Detect the real post-sync dashboard summary line with CTL/TSB values."""
+    return (
+        has_real_date_token(text)
+        and bool(re.search(r"\bCTL\s+-?\d+(?:\.\d+)?\b", text))
+        and bool(re.search(r"\bTSB\s+-?\d+(?:\.\d+)?\b", text))
+    )
 
 
 def load_env_creds() -> tuple[str | None, str | None]:
@@ -75,9 +108,36 @@ def collect_errors(page) -> list[str]:
     return errs
 
 
+def wait_for_post_sync_dashboard(page, timeout_ms: int = 180000) -> dict:
+    """Wait until the onboarding sync button disappears and real metrics render."""
+    deadline = time.time() + timeout_ms / 1000
+    last_body = ""
+    sync_button = page.get_by_role("button", name="Синхронизировать данные").first
+
+    while time.time() < deadline:
+        wait_for_ready(page, 10000)
+        body_text = page.locator("body").inner_text(timeout=10000)
+        last_body = body_text
+        sync_button_visible = sync_button.count() > 0
+        if has_real_dashboard_summary(body_text) and not sync_button_visible:
+            return {
+                "ready": True,
+                "body_text": body_text,
+                "sync_button_visible": False,
+            }
+        time.sleep(1.0)
+
+    return {
+        "ready": False,
+        "body_text": last_body,
+        "sync_button_visible": sync_button.count() > 0,
+    }
+
+
 def main() -> int:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     findings: dict = {"flows": {}, "errors_total": 0}
+    url = resolve_base_url()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
@@ -86,8 +146,8 @@ def main() -> int:
         console_msgs: list[str] = []
         page.on("console", lambda msg: console_msgs.append(f"{msg.type}: {msg.text}") if msg.type in ("error", "warning") else None)
 
-        print("→ loading", URL, flush=True)
-        page.goto(URL, wait_until="networkidle", timeout=60000)
+        print("→ loading", url, flush=True)
+        page.goto(url, wait_until="networkidle", timeout=60000)
         wait_for_ready(page)
 
         # --- Flow 1: Dashboard / main view ---
@@ -98,7 +158,7 @@ def main() -> int:
 
         dashboard_checks = {
             "title_present": "ai trainer" in title.lower() or "ai trainer" in body_lower,
-            "has_real_date_range": any(m in body_text for m in ("2026-06", "июн", "jun")),
+            "has_real_date_range": has_real_date_token(body_text),
             "has_metric_or_section": any(
                 m in body_lower
                 for m in ("readiness", "готовност", "activity", "активност", "sleep", "сон", "training", "трениров")
@@ -151,23 +211,25 @@ def main() -> int:
                     sync_btn = page.get_by_role("button", name="Синхронизировать данные").first
                     sync_btn.wait_for(timeout=10000)
                     sync_btn.click(timeout=8000)
-                    # real Garmin sync of 30 days can take a while; wait generously
-                    wait_for_ready(page, 180000)
-                    time.sleep(3.0)
+                    post_sync = wait_for_post_sync_dashboard(page)
                     connect_result["sync_clicked"] = True
                 except Exception as sync_exc:
+                    post_sync = {
+                        "ready": False,
+                        "body_text": page.locator("body").inner_text(timeout=10000),
+                        "sync_button_visible": True,
+                    }
                     connect_result["sync_clicked"] = False
                     connect_result["sync_error"] = str(sync_exc)[:200]
 
                 errs = collect_errors(page)
                 page.screenshot(path=str(SCREENSHOT_DIR / "02_after_connect.png"), full_page=True)
-                after = page.locator("body").inner_text(timeout=10000)
+                after = post_sync["body_text"]
                 # Detect a real activity count without a magic number: look for a
                 # digit that is not the welcome checklist's "1." step markers.
-                import re as _re
                 real_count_markers = [
                     m
-                    for m in _re.findall(r"\b(\d{1,4})\b", after)
+                    for m in re.findall(r"\b(\d{1,4})\b", after)
                     if m not in {"1", "2", "3", "4", "30"}
                 ]
                 connect_result.update(
@@ -175,11 +237,15 @@ def main() -> int:
                         "exceptions_after": len(errs),
                         "errors_after": errs[:2],
                         "body_excerpt_after": after[:800],
+                        "sync_button_visible_after": post_sync["sync_button_visible"],
+                        "has_real_date_range_after": has_real_date_token(after),
+                        "has_real_dashboard_summary": has_real_dashboard_summary(after),
                         "shows_real_activity_count": bool(real_count_markers),
                         "shows_real_metric": any(
                             m in after
                             for m in ("активност", "activity", "готовност", "readiness", "HRV", "сон", "sleep", "training", "трениров")
                         ),
+                        "shows_real_dashboard_metric": post_sync["ready"],
                     }
                 )
                 print("  connect:", json.dumps({k: v for k, v in connect_result.items() if k != "body_excerpt_after"}, ensure_ascii=False), flush=True)
