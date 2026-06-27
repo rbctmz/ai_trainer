@@ -1,211 +1,123 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides repository-specific guidance for Claude Code when working in AI Trainer.
 
 ## Project Overview
 
-This is an AI-powered personal endurance training coach project that integrates with Garmin Connect to provide personalized training recommendations. The project is built using Python with Streamlit for the web interface.
+AI Trainer is a Streamlit-based endurance training cockpit. It ingests Garmin Connect data into a local SQLite cache, analyzes workload, HRV, sleep, planning execution, and exposes multi-provider AI coaching over that local context.
 
-## Architecture and Structure
+## Current Architecture
 
-Based on the development plan, the project follows this structure:
+`app.py` is a thin Streamlit composition shell. It sets page config, applies compatibility/theme setup, renders navigation, and delegates the real product surfaces to page/component modules.
 
-```
+Key directories:
+
+```text
 ai_trainer/
-├── app.py                 # Main Streamlit application
-├── config/
-│   ├── __init__.py
-│   └── settings.py        # Configuration and constants
-├── data/
-│   ├── __init__.py
-│   ├── garmin_client.py   # Garmin Connect API integration
-│   ├── data_processor.py  # Activity data processing
-│   └── database.py        # SQLite database operations
-├── models/
-│   ├── __init__.py
-│   ├── banister.py        # Banister fitness/fatigue model
-│   ├── hrv_analyzer.py    # Heart Rate Variability analysis
-│   ├── ai_providers.py    # Universal AI provider architecture
-│   └── ai_coach_universal.py # Universal AI coaching system
-├── utils/
-│   ├── __init__.py
-│   ├── metrics.py         # Training metrics calculations (TSS, NP, etc.)
-│   └── visualizations.py  # Plotly visualization functions
-├── tests/                 # Test files
-├── debug/                 # Debug scripts
-├── examples/              # Demo and example scripts
-├── docs/                  # Documentation files
-├── requirements.txt
-└── .env                   # Environment variables
+├── app.py                  # Streamlit shell and top-level routing
+├── config/settings.py      # Environment-backed settings and defaults
+├── data/                   # Garmin clients, SQLite persistence, ETL processors
+├── services/               # Sync, Garmin service boundary, demo and acceptance mode
+├── state/                  # StateManager facade over st.session_state
+├── ui/pages/               # Dashboard, planning, HRV, sleep, activities, admin, AI pages
+├── ui/components/          # Sidebar, AI coach, provider setup, execution feedback widgets
+├── models/                 # AI providers, coach runtime, planning, metrics/explainability
+├── utils/                  # Modern UI, Plotly theme, visualization and compatibility helpers
+├── tests/smoke/            # Contributor-safe smoke suite
+├── tests/                  # Broader unit, diagnostic, live, and integration tests
+├── docs/                   # Current docs, ExecPlans, and historical plans
+└── run_acceptance.sh       # Isolated Streamlit launch with temp DB/demo dataset
 ```
 
 ## Development Commands
 
-### Environment Setup
 ```bash
-# Create virtual environment
+# Create and activate environment
 python -m venv ai_trainer_env
-
-# Activate environment
-source ai_trainer_env/bin/activate  # Linux/Mac
-# ai_trainer_env\Scripts\activate  # Windows
+source ai_trainer_env/bin/activate
 
 # Install dependencies
 pip install -r requirements.txt
+pip install -r requirements-dev.txt
+
+# Run the app
+./run.sh
+
+# Safe test path for ordinary development
+python -m pytest tests/smoke -q
+
+# Broader local pass without live external systems or diagnostics
+python -m pytest -m "not live and not debug" tests/
+
+# Focused tests
+python -m pytest tests/test_ai_coach.py
+python -m pytest tests/smoke/test_planning_execution.py
+
+# Isolated browser/acceptance runtime
+ACCEPTANCE_PORT=8510 ./run_acceptance.sh
 ```
 
-### Running the Application
-```bash
-# Start the Streamlit application
-streamlit run app.py
-```
+Do not treat plain `python -m pytest tests/` as the normal contributor command. The tree still contains live/diagnostic tests that may require Garmin credentials, network, local AI runtimes, or historical assumptions.
 
-### Testing
-```bash
-# Run all tests
-python -m pytest tests/
+## Integrations
 
-# Run specific test files
-python tests/test_ai_coach.py
-python tests/test_provider_features.py
+### Garmin
 
-# Run debug scripts
-python debug/debug_ollama.py
+Runtime authentication is through `garminconnect`. The `garth` integration remains as a legacy diagnostic/runtime-inspection path, not a fresh-login strategy. Current code intentionally disables fresh `garth` login because upstream auth changed.
 
-# Run examples
-python examples/demo_ai_features.py
-```
+Use service helpers in `services/garmin.py` and `services/sync.py` instead of reaching into UI code from data clients.
 
-## Key Dependencies
+### AI Providers
 
-- **streamlit**: Web interface framework
-- **pandas**: Data manipulation and analysis  
-- **numpy**: Numerical computations
-- **scipy**: Scientific computing (optimization, signal processing)
-- **plotly**: Interactive visualizations
-- **garminconnect**: Garmin Connect API client
-- **python-fitparse**: FIT file parsing
-- **pyhrv**: Heart rate variability analysis
-- **scikit-learn**: Machine learning algorithms
-- **openai**: OpenAI API integration
-- **anthropic**: Anthropic Claude API integration  
-- **google-generativeai**: Google Gemini API integration
-- **ollama**: Local AI model integration
-- **sqlalchemy**: Database ORM
+Supported provider types are OpenAI, Anthropic, DeepSeek, Google Gemini, Ollama, and Mock AI for demo mode. Provider setup lives in `ui/components/ai_coach_provider.py`, with provider implementations in `models/ai_providers.py`.
 
-## Core Components
+Environment-backed API keys are intentionally hidden in the UI. Leaving a provider key field empty should continue to use the `.env` value when present.
 
-### Garmin Integration
-- Authentication with Garmin Connect credentials
-- Automatic activity synchronization
-- HRV and sleep data retrieval
-- Activity details and metrics extraction
+### Demo and Acceptance
 
-### Training Models
-- **Banister Model**: Fitness and fatigue prediction using exponential averages
-- **HRV Analysis**: Recovery assessment using RMSSD and DFA α1
-- **Training Metrics**: TSS, NP, CTL, ATL, TSB calculations
-
-### Universal AI Coaching
-- Multi-provider architecture supporting OpenAI, Anthropic, Google, Ollama
-- Automatic provider selection and fallback
-- Personalized training analysis and recommendations
-- Weekly planning with goal-based customization
-- Workout-specific analysis and guidance
-- Metrics explanation in simple language
-- Context-aware question answering
-
-### Data Storage
-- SQLite database for local data caching
-- Activity data persistence
-- User settings and preferences
-- HRV tracking history
+Demo mode uses deterministic local data and Mock AI. Acceptance mode uses an isolated temporary SQLite database and can disable real Garmin login. Use it for UI/browser checks when real user data should not be touched.
 
 ## Environment Variables
 
-Required variables in `.env`:
+Common variables:
 
-**AI Providers (choose one or more):**
-- `OPENAI_API_KEY`: OpenAI API key
-- `ANTHROPIC_API_KEY`: Anthropic Claude API key  
-- `GOOGLE_API_KEY`: Google AI Studio API key
-- `OLLAMA_HOST`: Ollama server URL (default: http://localhost:11434)
-- `DEFAULT_AI_PROVIDER`: Preferred provider (openai, anthropic, google, ollama)
+- `OPENAI_API_KEY`, `OPENAI_MODEL`
+- `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`
+- `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`
+- `GOOGLE_API_KEY`, `GOOGLE_MODEL`
+- `OLLAMA_HOST`, `OLLAMA_MODEL`
+- `DEFAULT_AI_PROVIDER`
+- `GARMIN_EMAIL`, `GARMIN_PASSWORD`
+- `DATABASE_PATH`
+- `INTERVALS_ICU_API_KEY`, `INTERVALS_ICU_ATHLETE_ID`, `INTERVALS_ICU_BASE_URL`
+- `ACCEPTANCE_MODE`, `ACCEPTANCE_AUTO_DEMO`, `ACCEPTANCE_DISABLE_GARMIN`
+- `SHOW_DEVELOPMENT_TOOLS`
+- `USER_FTP`, `USER_LTHR`, `USER_MAX_HR`
 
-**Garmin Connect:**
-- `GARMIN_EMAIL`: Garmin Connect email (optional - can be entered in UI)
-- `GARMIN_PASSWORD`: Garmin Connect password (optional - can be entered in UI)
+Secrets belong only in `.env` or the local runtime environment, never in tracked files.
 
-**User Settings:**
-- `USER_FTP`: Functional Threshold Power (default: 250W)
-- `USER_LTHR`: Lactate Threshold Heart Rate (default: 170 bpm)
-- `USER_MAX_HR`: Maximum Heart Rate (default: 185 bpm)
+## Coding Notes
 
-## Key Features
-
-1. **Training Dashboard**: Overview of recent activities, metrics, and trends
-2. **Activity Analysis**: Detailed breakdown of individual workouts
-3. **HRV Monitoring**: Recovery tracking and threshold estimation
-4. **Performance Modeling**: Banister model for fitness/fatigue balance
-5. **Universal AI Coaching**: Multi-provider AI system with personalized recommendations, planning, and education
-6. **Data Synchronization**: Automatic Garmin Connect integration
-
-## Development Notes
-
-- The project uses metric units (km, minutes, watts, bpm)
-- Training Stress Score (TSS) is central to the fitness modeling
-- HRV analysis focuses on RMSSD and DFA α1 metrics
-- Universal AI architecture allows switching between providers seamlessly
-- AI coaching prompts are optimized for endurance training context
-- Provider factory pattern enables easy addition of new AI services
-- All user data is stored locally in SQLite database
-
-## Testing Guidelines
-
-⚠️ **IMPORTANT: All test files MUST be created in the `tests/` directory!**
-
-- **NEVER** create test files in the project root
-- Use naming convention: `test_<component>.py` for tests
-- Debug scripts should be named: `debug_<feature>.py`
-- Utility scripts: `add_*.py`, `clean_*.py`, etc.
-- Always add `sys.path.append('..')` in test files to import project modules
+- Prefer existing page/component/service boundaries over adding logic to `app.py`.
+- Prefer `utils/modern_ui.py` and existing `ui/components/*` helpers for Streamlit UI.
+- Keep data clients UI-agnostic; return structured status/errors and let UI render them.
+- Many docs and strings are Russian-first; keep the language style already used in the file.
+- Large planning/dashboard changes should use an ExecPlan per `.agent/PLANS.md`.
+- Keep smoke tests green after each coherent slice.
 
 ## Troubleshooting
 
-### AI Provider Issues
-- **Provider shows as ❌**: Check API key in `.env` file
-- **Slow responses**: Try faster models (GPT-3.5, Claude-haiku) or local Ollama
-- **Google protobuf error**: Run `pip install protobuf==4.24.0`
-- **Ollama connection**: Ensure `ollama serve` is running
-
-### Common Commands for Problems
 ```bash
-# Install missing AI libraries
-pip install anthropic google-generativeai ollama
+# Runtime diagnostics
+python scripts/doctor_env.py check --runtime
+python scripts/doctor_env.py repair --runtime
 
-# Fix Google Gemini protobuf conflicts:
-# Quick fix - use the launch script
-./run.sh
+# Dev/test diagnostics
+python scripts/doctor_env.py check --dev
+python scripts/doctor_env.py repair --dev
 
-# Or set environment variable before running
-export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-streamlit run app.py
-
-# For permanent fix
-./setup_env.sh
-
-# Reset environment if needed
-rm -rf ai_trainer_env && python -m venv ai_trainer_env
-
-# Check Ollama status
-ollama list
-ollama pull llama2
-
-# Run dependency fixes automatically
-python3 fix_dependencies.py
+# Workspace/iCloud availability
+python scripts/doctor_env.py check --workspace
 ```
 
-### Data Issues
-- **Empty dashboard**: Sync with Garmin Connect first
-- **Date parsing errors**: Check `CLAUDE.md` for date handling patterns
-- **Duplicate TSS entries**: Banister model automatically handles via groupby
+If Streamlit or pytest behaves strangely under an iCloud-backed path, keep the repository fully downloaded or move it to a local-only directory.

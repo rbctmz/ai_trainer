@@ -1,4 +1,8 @@
-# Проблемы с получением данных Garmin
+# Архив: проблемы с получением данных Garmin
+
+> Статус на 2026-06-26: исторический диагностический документ. Текущая
+> реализация Garmin sync живёт в `services/sync.py`, auth/runtime hardening
+> описан в `docs/hardening_planning_v2_execplan.md`.
 
 ## 📊 Текущая ситуация
 

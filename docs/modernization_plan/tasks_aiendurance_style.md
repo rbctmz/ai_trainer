@@ -1,4 +1,8 @@
-# 📋 Задачи для Claude Code: Модернизация AI Trainer в стиле AIEndurance
+# Архив: задачи для Claude Code по модернизации AI Trainer
+
+> Статус на 2026-06-26: исторический task list. Он инструктирует редактировать
+> старые функции в `app.py`; текущая архитектура использует `ui/pages/*`,
+> `ui/components/*`, `services/*` и `state/*`.
 
 ## 🎯 Цель
 Модернизировать интерфейс AI Trainer, взяв лучшие UI/UX решения из AIEndurance.

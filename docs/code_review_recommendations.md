@@ -10,6 +10,12 @@ Smoke-набор `tests/smoke` (150 тестов) на момент ревью �
 изменениях в файлах ниже ссылки быстро устареют — при выполнении работ
 обновляйте их вместе с кодом и фиксируйте новый baseline в журнале решений.
 
+**Status refresh (2026-06-26):** документ остаётся полезным как living audit,
+но часть пунктов уже закрыта или устарела. Актуальная smoke-проверка на `main`:
+`196 passed`. Широкий локальный прогон без `live/debug` сейчас упирается в
+устаревший `tests/test_garth_integration.py`, а не в smoke-path. Перед
+выполнением задач ниже сверяйте их с текущим деревом.
+
 Это живой документ: по мере выполнения рекомендаций отмечайте статус в чек-листе
 раздела «План работ» и фиксируйте решения в «Журнале решений» внизу.
 
@@ -173,13 +179,13 @@ Streamlit-консоль и неуправляем.
 
 ### 8. Мёртвые закоммиченные дубликаты
 
-`utils/modern_ui_backup.py`, `utils/modern_ui_improved.py` — **никто не
-импортирует** (проверено grep), но они в `git ls-files`. Засоряют кодовую базу
-и bitrot.
+Status refresh 2026-06-26: `utils/modern_ui_backup.py` и
+`utils/modern_ui_improved.py` уже отсутствуют в текущем дереве. Этот подпункт
+считать закрытым для этих двух файлов.
 
-**Действие.** `git rm`. Аналогично проверить `models/tcx_export.py` против
-`tcx_activity_export.py`, `models/ai_coach.py` против
-`ai_coach_universal.py` — оставить активные, убрать мёртвые.
+**Оставшееся действие.** Аналогично проверить `models/tcx_export.py` против
+`tcx_activity_export.py`, `models/ai_coach.py` против `ai_coach_universal.py` —
+оставить активные, убрать мёртвые.
 
 ### 9. Тип-ошибки в сигнатурах
 
@@ -232,9 +238,8 @@ coaching-сценариев 1000 токенов часто обрезают дл
 
 ### 15. Untracked-файлы в рабочем дереве
 
-`docs/AI_Feature_Development_Workflow.md` и `tests/test_garmin_profile.py` —
-новые, не закоммичены. Либо закоммитить, либо удалить; не оставлять в
-подвешенном состоянии.
+Status refresh 2026-06-26: `tests/test_garmin_profile.py` уже отслеживается.
+Перед использованием этого пункта повторно проверить `git status --short`.
 
 ### 16. `ai_trainer_env/` в статусе git
 
@@ -256,10 +261,10 @@ coaching-сценариев 1000 токенов часто обрезают дл
 
 - [ ] Удалить дубликаты методов `save_activities` и `clear_all_data` в
       `data/database.py` (п.1).
-- [ ] Удалить `utils/modern_ui_backup.py`, `utils/modern_ui_improved.py` (п.8).
+- [x] Удалить `utils/modern_ui_backup.py`, `utils/modern_ui_improved.py` (п.8; уже отсутствуют в текущем дереве).
 - [ ] Поправить `any` → `Any` в `models/ai_providers.py` (п.9).
 - [ ] Поднять `import pandas`/`numpy` из тела `clean_value` (п.11).
-- [ ] Закоммитить или удалить untracked `tests/test_garmin_profile.py` (п.15).
+- [x] Закоммитить или удалить untracked `tests/test_garmin_profile.py` (п.15; файл уже отслеживается).
 
 ### Этап 1b — инфраструктурный cleanup (отдельный коммит)
 
