@@ -8,6 +8,9 @@ from services.data_cache import clear_data_caches
 from state import StateManager
 
 DEMO_PROVIDER = "mock"
+DATASET_ORIGIN_KEY = "dataset_origin"
+DATASET_ORIGIN_DEMO = "demo"
+DATASET_ORIGIN_REAL = "real"
 
 
 def is_demo_mode(state: StateManager) -> bool:
@@ -22,6 +25,27 @@ def restore_demo_mode_session(state: StateManager) -> None:
     state.ai_coach = None
     state.demo_mode = True
     state.selected_page = "📊 Дашборд"
+
+
+def dataset_origin(state: StateManager) -> str | None:
+    """Return persisted dataset provenance for the current database."""
+    try:
+        value = state.database.get_user_setting(DATASET_ORIGIN_KEY)
+    except Exception:
+        return None
+    if not value:
+        return None
+    return str(value)
+
+
+def mark_dataset_origin(state: StateManager, origin: str) -> None:
+    """Persist dataset provenance for the current database."""
+    state.database.set_user_setting(DATASET_ORIGIN_KEY, origin)
+
+
+def mark_real_dataset(state: StateManager) -> None:
+    """Mark the current dataset as originating from a real Garmin sync."""
+    mark_dataset_origin(state, DATASET_ORIGIN_REAL)
 
 
 def activate_demo_mode(state: StateManager) -> dict[str, int]:
@@ -42,6 +66,7 @@ def activate_demo_mode(state: StateManager) -> dict[str, int]:
     database.sync_sleep_data(sleep_data)
     database.sync_daily_health(health_data)
     database.sync_training_status(training_status)
+    mark_dataset_origin(state, DATASET_ORIGIN_DEMO)
     clear_data_caches()
 
     state.clear_cached_context()
@@ -248,7 +273,13 @@ def _format_clock(total_minutes: int) -> str:
 __all__ = [
     "DEMO_PROVIDER",
     "activate_demo_mode",
+    "DATASET_ORIGIN_DEMO",
+    "DATASET_ORIGIN_KEY",
+    "DATASET_ORIGIN_REAL",
+    "dataset_origin",
     "deactivate_demo_mode",
     "is_demo_mode",
+    "mark_dataset_origin",
+    "mark_real_dataset",
     "restore_demo_mode_session",
 ]

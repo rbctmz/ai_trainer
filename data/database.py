@@ -645,7 +645,41 @@ class Database:
         
         conn.commit()
         conn.close()
-    
+
+    def get_user_setting(self, key, default=None):
+        """Получение пользовательской настройки по ключу."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute('SELECT value FROM user_settings WHERE key = ?', (key,))
+        row = cursor.fetchone()
+        conn.close()
+        if row is None:
+            return default
+        return row[0]
+
+    def set_user_setting(self, key, value):
+        """Сохранение пользовательской настройки."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            '''
+            INSERT INTO user_settings (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(key) DO UPDATE SET
+                value = excluded.value,
+                updated_at = CURRENT_TIMESTAMP
+            ''',
+            (key, value),
+        )
+        conn.commit()
+        conn.close()
+
+    def delete_user_setting(self, key):
+        """Удаление пользовательской настройки."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute('DELETE FROM user_settings WHERE key = ?', (key,))
+        conn.commit()
+        conn.close()
+
     def get_database_stats(self):
         """Получение статистики по базе данных"""
         conn = sqlite3.connect(self.db_path)

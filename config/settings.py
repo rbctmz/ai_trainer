@@ -43,6 +43,7 @@ class Settings:
     
     # База данных
     DATABASE_PATH = os.getenv("DATABASE_PATH", "ai_trainer.db")
+    CHATS_DIR = os.getenv("CHATS_DIR", "chats")
 
     # Acceptance mode: isolated runtime for safe browser verification
     ACCEPTANCE_MODE = _env_flag("ACCEPTANCE_MODE", "0")

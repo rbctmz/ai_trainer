@@ -244,9 +244,11 @@ class GarminClient:
         # Используем стандартный garminconnect клиент
         if self.client:
             try:
-                return self.client.get_hrv_data(date.strftime("%Y-%m-%d"))
+                result = self.client.get_hrv_data(date.strftime("%Y-%m-%d"))
+                self._clear_last_error()
+                return result
             except Exception as e:
-                # HRV данные часто недоступны, это не критичная ошибка
+                self._remember_error("hrv_data", f"Ошибка получения HRV за {date.strftime('%Y-%m-%d')}: {e}")
                 return None
         
         return None
@@ -280,11 +282,13 @@ class GarminClient:
                     elif isinstance(stress_result, dict):
                         avg = stress_result.get('avgStressLevel') or stress_result.get('averageStressLevel')
                         if avg:
+                            self._clear_last_error()
                             return {'avgStressLevel': avg}
+                self._clear_last_error()
                 return stress_result
             except Exception as e:
                 garmin_logger.debug("Стресс данные недоступны через garminconnect: %s", e)
-                # Стресс данные могут быть недоступны
+                self._remember_error("stress_data", f"Ошибка получения стресса за {date.strftime('%Y-%m-%d')}: {e}")
                 return None
         
         return None
@@ -305,9 +309,11 @@ class GarminClient:
             try:
                 # Body Battery возвращает данные за период
                 date_str = date.strftime("%Y-%m-%d")
-                return self.client.get_body_battery(date_str, date_str)
+                result = self.client.get_body_battery(date_str, date_str)
+                self._clear_last_error()
+                return result
             except Exception as e:
-                # Body Battery данные могут быть недоступны
+                self._remember_error("body_battery", f"Ошибка получения Body Battery за {date.strftime('%Y-%m-%d')}: {e}")
                 return None
         
         return None
@@ -383,6 +389,7 @@ class GarminClient:
             return None
         
         date_str = date.strftime("%Y-%m-%d")
+        method_errors = []
         garmin_logger.info(f"😴 Получение данных сна для {date_str} (garth: {self.use_garth})")
         
         # Если используем garth, пробуем его методы
@@ -407,13 +414,17 @@ class GarminClient:
                     result = method_func()
                     if result:
                         garmin_logger.debug("Данные сна получены через %s для %s", method_name, date_str)
+                        self._clear_last_error()
                         return result
                 except Exception as e:
                     garmin_logger.debug("%s failed for %s: %s", method_name, date_str, e)
+                    method_errors.append(f"{method_name}: {e}")
                     continue
 
         # Если ничего не сработало
         garmin_logger.warning("Все методы получения данных сна не сработали для %s", date_str)
+        if method_errors:
+            self._remember_error("sleep_data", f"Ошибка получения сна за {date_str}: {'; '.join(method_errors[:2])}")
         return None
     
     def get_resting_heart_rate(self, date):
@@ -423,9 +434,10 @@ class GarminClient:
         
         try:
             rhr_data = self.client.get_resting_heart_rate(date.strftime("%Y-%m-%d"))
+            self._clear_last_error()
             return rhr_data
         except Exception as e:
-            # Пульс покоя может быть недоступен
+            self._remember_error("resting_heart_rate", f"Ошибка получения пульса покоя за {date.strftime('%Y-%m-%d')}: {e}")
             return None
     
     def get_daily_steps(self, date):
@@ -450,8 +462,10 @@ class GarminClient:
         
         try:
             summary = self.client.get_stats(date.strftime("%Y-%m-%d"))
+            self._clear_last_error()
             return summary
         except Exception as e:
+            self._remember_error("daily_summary", f"Ошибка получения сводки за {date.strftime('%Y-%m-%d')}: {e}")
             return None
     
     def get_training_status(self):
@@ -493,6 +507,7 @@ class GarminClient:
             garmin_logger.warning("Нет доступных клиентов для получения статуса тренированности")
             return None
 
+        method_errors = []
         for method_name, method_func in methods_to_try:
             try:
                 result = method_func()
@@ -502,12 +517,16 @@ class GarminClient:
                         garmin_logger.debug("TRAINING STATUS RAW (%s): %s", method_name, result)
                     except Exception:
                         pass
+                    self._clear_last_error()
                     return result
             except Exception as e:
                 garmin_logger.debug("%s failed: %s", method_name, e)
+                method_errors.append(f"{method_name}: {e}")
                 continue
 
         garmin_logger.warning("Все методы получения статуса тренированности не сработали")
+        if method_errors:
+            self._remember_error("training_status", f"Ошибка получения training status: {'; '.join(method_errors[:2])}")
         return None
     
     def get_vo2_max(self):
@@ -517,8 +536,10 @@ class GarminClient:
         
         try:
             vo2_data = self.client.get_vo2_max()
+            self._clear_last_error()
             return vo2_data
         except Exception as e:
+            self._remember_error("vo2_max", f"Ошибка получения VO2 max: {e}")
             return None
     
     def get_training_readiness(self):
@@ -528,8 +549,10 @@ class GarminClient:
         
         try:
             readiness = self.client.get_training_readiness()
+            self._clear_last_error()
             return readiness
         except Exception as e:
+            self._remember_error("training_readiness", f"Ошибка получения readiness: {e}")
             return None
     
     def get_comprehensive_daily_data(self, date):

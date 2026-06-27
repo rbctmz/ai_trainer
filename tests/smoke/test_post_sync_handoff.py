@@ -61,10 +61,21 @@ class _FakeStreamlit:
 
 class _DummyState:
     def __init__(self) -> None:
+        self.database = type(
+            "_DummyDatabase",
+            (),
+            {"set_user_setting": staticmethod(lambda *_args, **_kwargs: None)},
+        )()
         self.demo_mode = False
         self.syncing_in_progress = False
         self.last_sync_status = {"stale": True}
         self.selected_page = "⚙️ Управление данными"
+        self.context_loaded = True
+        self.data_context = {"stale": True}
+
+    def clear_cached_context(self) -> None:
+        self.context_loaded = False
+        self.data_context = None
 
 
 def test_sync_data_stores_dashboard_handoff_and_redirects(monkeypatch: pytest.MonkeyPatch):
@@ -90,6 +101,8 @@ def test_sync_data_stores_dashboard_handoff_and_redirects(monkeypatch: pytest.Mo
 
     assert state.syncing_in_progress is False
     assert state.selected_page == "📊 Дашборд"
+    assert state.context_loaded is False
+    assert state.data_context is None
     assert state.last_sync_status["severity"] == "success"
     assert state.last_sync_status["activity_changes"] == 1
 
