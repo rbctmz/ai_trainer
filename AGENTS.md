@@ -18,5 +18,8 @@ Recent history follows Conventional Commits (`feat:`, `refactor:`, `chore:`); us
 ## Environment & Security Tips
 Store secrets only in `.env`, never in version control. The SQLite cache `ai_trainer.db` is local-only; wipe it with `tests/clean_database.py` before sharing datasets. Logs under `logs/` might contain personal metrics—purge or redact them before publishing branches.
 
+## Development Workflow
+Use `docs/AI_Feature_Development_Workflow.md` as the canonical workflow for non-trivial feature and architecture work: SpecDD, BDD, TDD, Contract First, Self-Review, and Minimal Complexity. Keep the process lightweight for small docs-only or one-line fixes, but start significant work from a spec, acceptance criteria, and the repo's existing contracts.
+
 # ExecPlans
 When writing complex features or significant refactors, use an ExecPlan (as described in .agent/PLANS.md) from design to implementation.
