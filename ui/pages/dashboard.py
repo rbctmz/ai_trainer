@@ -501,10 +501,20 @@ def _render_empty_dashboard_state(state: StateManager, on_sync: Callable[[int], 
     st.caption("💡 **Совет:** Синхронизируйте последние 30 дней тренировок или временно откройте продукт на sample dataset.")
 
 
-def _calculate_current_status() -> dict[str, Any]:
-    activities_df = load_activities(30)
-    hrv_df = load_hrv(90)
-    sleep_df = load_sleep(7)
+def _calculate_current_status(
+    activities_df: pd.DataFrame | None = None,
+    hrv_df: pd.DataFrame | None = None,
+    sleep_df: pd.DataFrame | None = None,
+) -> dict[str, Any]:
+    # Streamlit path leaves the arguments empty and uses the cached loaders.
+    # Headless callers (e.g. the FastAPI layer) can pass dataframes directly
+    # so this function never touches Streamlit session state.
+    if activities_df is None:
+        activities_df = load_activities(30)
+    if hrv_df is None:
+        hrv_df = load_hrv(90)
+    if sleep_df is None:
+        sleep_df = load_sleep(7)
 
     status: dict[str, Any] = {
         "critical_status": None,
