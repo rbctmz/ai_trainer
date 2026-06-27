@@ -928,6 +928,8 @@ Revision note (2026-06-20 18:35+04:00): recorded the week-to-editor focus bridge
 
 Revision note (2026-06-24 / Codex): recorded P1a-full (`02e15a5`, gate welcome Garmin copy on `garmin_disabled()` via pure `resolve_welcome_garmin_mode()`) and P1b (`de00a2f`, route Garmin auth through `logging` and teach the Playwright probes to collect `stAlert`). Full smoke suite at `192 passed`. These two slices together resolve the acceptance-probe "silent 429" false negative, but they do not themselves deliver a clean live end-to-end run; that is deferred to P1c below.
 
+Revision note (2026-06-27 / Codex): hardened the live acceptance harness after the post-runtime rerun findings. `requirements-dev.txt` now includes `playwright`, the repo docs now document the one-time `python -m playwright install chromium` browser step, both live probes resolve their target from `ACCEPTANCE_BASE_URL` (falling back to `ACCEPTANCE_PORT` / `8521`), the smoke probe now waits for the real post-sync dashboard summary (`date + CTL + TSB` with the onboarding sync button gone) instead of accepting arbitrary numeric tokens, the deep per-page probe no longer depends on a prior smoke probe to click "Синхронизировать данные", and the AI-coach probe now waits for a completed assistant response instead of accepting the transient "Генерирую ответ..." placeholder as success. Validation: `ai_trainer_env/bin/python -m pytest tests/smoke -q` passed at `198 passed`; a fresh smoke rerun on `ACCEPTANCE_PORT=8524` was green via `ai_trainer_env/bin/python tests/e2e_acceptance_live.py` with `shows_real_dashboard_metric: true`; and a fresh standalone deep rerun on `ACCEPTANCE_PORT=8525` was green for self-sync + AI completion (`sync_status: clicked`, `ai_response_completed: true`, zero page exceptions). Residual finding exposed by the stricter probe, not fixed in this slice: that standalone deep rerun still rendered empty-state HRV/Sleep pages while Dashboard/Planning/AI context showed live metrics, and the isolated DB persisted only `activities` after that single-probe path. Treat that as the next product/runtime bug, not a harness blocker.
+
 ### Follow-up: P1c — repeat the live acceptance run once the Garmin `429` rate-limit clears
 
 **Status (2026-06-24): COMPLETE — real end-to-end achieved.** The live probe drove the full path: real Garmin login (web/SSO fallback of `garminconnect` succeeding despite persistent `429` on the `mobile+cffi`/`mobile+requests` sub-strategies) → "Синхронизировать данные" → 30-day sync persisted to the isolated DB (35 activities, 30 sleep, 31 HRV) → dashboard rendered **real metrics: `2026-06-24 · CTL 24.8 · TSB -19.9`**, all six pages + AI coach green (`0` exceptions, `0` alerts).
@@ -956,20 +958,24 @@ Expect `auth_ok=True`. If it still returns `kind=rate_limited_with_401`, wait lo
 **Full run, once pre-flight passes.**
 
 ```bash
+# 0. One-time per virtualenv: install the Playwright Chromium binary used by the probes.
+ai_trainer_env/bin/python -m playwright install chromium
+
 # 1. Acceptance instance with real Garmin login explicitly enabled (P1a depends on this).
 ACCEPTANCE_PORT=8521 ACCEPTANCE_DISABLE_GARMIN=0 ACCEPTANCE_AUTO_DEMO=0 ACCEPTANCE_SKIP_DOCTOR=1 ./run_acceptance.sh &
 # Wait for  HTTP 200 on http://localhost:8521/_stcore/health  before continuing.
 
-# 2. Smoke probe (connection + dashboard render).
-ai_trainer_env/bin/python tests/e2e_acceptance_live.py
+# 2. Smoke probe (connection + dashboard render). The scripts honor
+# ACCEPTANCE_BASE_URL, so reruns can target any fresh port without import hacks.
+ACCEPTANCE_BASE_URL=http://localhost:8521/ ai_trainer_env/bin/python tests/e2e_acceptance_live.py
 
 # 3. Deep per-page probe (dashboard, plan, activities, HRV, sleep, coach + AI message).
-ai_trainer_env/bin/python tests/e2e_acceptance_flows.py
+ACCEPTANCE_BASE_URL=http://localhost:8521/ ai_trainer_env/bin/python tests/e2e_acceptance_flows.py
 ```
 
 **How to read the result (post-P1a/P1b).** Three outcomes, and the acceptance report now distinguishes them honestly:
 
-- **Green, real data loaded.** `e2e_acceptance_live.py` shows `shows_real_activity_count: true` / `has_real_date_range: true` and zero alerts; the welcome banner reads "реальный Garmin login разрешён" (not "отключён"). This is the success signal — P1 is closed.
+- **Green, real data loaded.** `e2e_acceptance_live.py` shows `shows_real_dashboard_metric: true`, `has_real_dashboard_summary: true`, `sync_button_visible_after: false`, and zero alerts; the welcome banner reads "реальный Garmin login разрешён" (not "отключён"). This is the success signal — P1 is closed.
 - **429 still active.** `collect_errors()` now surfaces the Garmin `st.error` alert as `[error] …` in the report (previously this read as `errors_after: 0` and looked silent). Wait longer; this is external, not a regression.
 - **A different alert/exception on a real-data page.** This is the actual class of demo-vs-real drift P1 was meant to catch. Triage as a new fix slice; record it in Surprises & Discoveries.
 

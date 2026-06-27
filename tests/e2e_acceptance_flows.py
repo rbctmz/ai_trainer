@@ -2,29 +2,59 @@
 
 Connects with real Garmin credentials, then visits Planning, Activities,
 HRV, Sleep, and AI Coach in turn, capturing exceptions + characteristic
-content that proves real data flows through each surface.
+content that proves real data flows through each surface. The target URL can
+be overridden via ACCEPTANCE_BASE_URL; otherwise the probe falls back to
+http://localhost:${ACCEPTANCE_PORT:-8521}/.
 """
 from __future__ import annotations
 
 import json
+import os
+import re
 import sys
 import time
 from pathlib import Path
 
-from playwright.sync_api import sync_playwright
+try:
+    from playwright.sync_api import sync_playwright
+except ImportError as exc:
+    raise SystemExit(
+        "Playwright is not installed in this Python environment. "
+        "Run `pip install -r requirements-dev.txt` and "
+        "`python -m playwright install chromium`."
+    ) from exc
 
-URL = "http://localhost:8521/"
 REPORT = Path("logs/e2e_flows_report.json")
 SCREENSHOT_DIR = Path("logs/e2e_screenshots")
+AI_LOADING_MARKERS = (
+    "Генерирую ответ",
+    "Обрабатываю данные",
+    "Analyzing your data",
+    "Processing data",
+)
+
+
+def resolve_base_url() -> str:
+    explicit_url = os.getenv("ACCEPTANCE_BASE_URL", "").strip()
+    if explicit_url:
+        return explicit_url.rstrip("/") + "/"
+    port = os.getenv("ACCEPTANCE_PORT", "8521").strip() or "8521"
+    return f"http://localhost:{port}/"
 
 
 def load_env_creds() -> tuple[str, str]:
+    env = Path(".env")
+    if not env.exists():
+        raise SystemExit("`.env` not found. Live acceptance requires GARMIN credentials.")
     data: dict[str, str] = {}
-    for line in Path(".env").read_text().splitlines():
+    for line in env.read_text().splitlines():
         if "=" in line and not line.startswith("#"):
             k, _, v = line.partition("=")
             data[k.strip()] = v.strip().strip('"').strip("'")
-    return data["GARMIN_EMAIL"], data["GARMIN_PASSWORD"]
+    try:
+        return data["GARMIN_EMAIL"], data["GARMIN_PASSWORD"]
+    except KeyError as exc:
+        raise SystemExit("GARMIN_EMAIL/GARMIN_PASSWORD are required for live acceptance.") from exc
 
 
 def wait_for_ready(page, timeout_ms: int = 90000) -> None:
@@ -55,6 +85,64 @@ def collect_errors(page) -> list[str]:
         if kind in ("error", "warning"):
             errs.append(f"[{kind}] {alert.nth(i).inner_text(timeout=2000)[:400]}")
     return errs
+
+
+def extract_chat_message_count(text: str) -> int | None:
+    match = re.search(r"Сообщений в чате:\s*(\d+)", text)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
+def has_pending_ai_response(text: str) -> bool:
+    return any(marker in text for marker in AI_LOADING_MARKERS)
+
+
+def extract_ai_response_excerpt(body_text: str, user_input: str) -> str:
+    marker = body_text.rfind(user_input)
+    if marker == -1:
+        return body_text[-600:]
+    excerpt = body_text[marker + len(user_input):].strip()
+    return excerpt[:600]
+
+
+def wait_for_ai_response_completion(
+    page,
+    user_input: str,
+    expected_min_message_count: int | None,
+    timeout_ms: int = 120000,
+) -> dict:
+    deadline = time.time() + timeout_ms / 1000
+    last_body = ""
+    last_count = None
+
+    while time.time() < deadline:
+        wait_for_ready(page, 10000)
+        body_text = page.locator("body").inner_text(timeout=10000)
+        last_body = body_text
+        current_count = extract_chat_message_count(body_text)
+        if current_count is not None:
+            last_count = current_count
+
+        enough_messages = (
+            expected_min_message_count is None
+            or (last_count is not None and last_count >= expected_min_message_count)
+        )
+        if user_input in body_text and enough_messages and not has_pending_ai_response(body_text):
+            return {
+                "completed": True,
+                "body_text": body_text,
+                "message_count": last_count,
+                "response_excerpt": extract_ai_response_excerpt(body_text, user_input),
+            }
+        time.sleep(1.0)
+
+    return {
+        "completed": False,
+        "body_text": last_body,
+        "message_count": last_count,
+        "response_excerpt": extract_ai_response_excerpt(last_body, user_input) if last_body else "",
+    }
 
 
 def goto_page(page, label: str) -> dict:
@@ -95,15 +183,17 @@ def main() -> int:
     SCREENSHOT_DIR.mkdir(parents=True, exist_ok=True)
     email, password = load_env_creds()
     findings: dict = {"flows": {}}
+    url = resolve_base_url()
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_context(viewport={"width": 1440, "height": 1200}).new_page()
 
-        page.goto(URL, wait_until="networkidle", timeout=60000)
+        page.goto(url, wait_until="networkidle", timeout=60000)
         wait_for_ready(page)
 
         # --- connect: expand the Garmin Connect details if collapsed ---
+        connect_result: dict = {"creds_available": True}
         details = page.locator("details").first
         is_open = details.evaluate("el => el.open === true")
         if not is_open:
@@ -118,7 +208,21 @@ def main() -> int:
         page.get_by_role("button", name="Подключиться").first.click()
         wait_for_ready(page, 120000)
         time.sleep(2)
-        findings["flows"]["connect_exceptions"] = len(collect_errors(page))
+        try:
+            sync_btn = page.get_by_role("button", name="Синхронизировать данные").first
+            sync_btn.wait_for(timeout=10000)
+            sync_btn.click(timeout=8000)
+            wait_for_ready(page, 180000)
+            time.sleep(3.0)
+            connect_result["sync_status"] = "clicked"
+        except Exception as sync_exc:
+            connect_result["sync_status"] = "not_available"
+            connect_result["sync_note"] = str(sync_exc)[:200]
+
+        connect_errors = collect_errors(page)
+        connect_result["exceptions"] = len(connect_errors)
+        connect_result["errors"] = connect_errors[:2]
+        findings["flows"]["connect"] = connect_result
         page.screenshot(path=str(SCREENSHOT_DIR / "flows_00_connected.png"), full_page=True)
 
         # --- visit each page (short_name from ui/navigation.py _PRIMARY_NAV_ITEMS) ---
@@ -138,6 +242,9 @@ def main() -> int:
         # --- AI coach: try sending a message and check for real response ---
         try:
             coach = findings["flows"].get("Коуч", {})
+            user_prompt = "Какая у меня сегодня готовность по данным Garmin?"
+            body_before_ai = page.locator("body").inner_text(timeout=10000)
+            ai_message_count_before = extract_chat_message_count(body_before_ai)
             # find a text area for chat input
             ta = page.get_by_label("сообщение", exact=False).first
             try:
@@ -145,18 +252,31 @@ def main() -> int:
             except Exception:
                 ta = page.locator('textarea').last
                 ta.wait_for(timeout=4000)
-            ta.fill("Какая у меня сегодня готовность по данным Garmin?")
+            ta.fill(user_prompt)
             page.keyboard.press("Enter")
-            # wait for AI response (up to 60s)
-            wait_for_ready(page, 60000)
-            time.sleep(3)
+            ai_result = wait_for_ai_response_completion(
+                page,
+                user_prompt,
+                expected_min_message_count=(
+                    ai_message_count_before + 2
+                    if ai_message_count_before is not None
+                    else None
+                ),
+            )
             errs = collect_errors(page)
             coach["ai_exceptions"] = len(errs)
             coach["ai_errors"] = errs[:2]
-            coach["ai_body_after"] = page.locator("body").inner_text(timeout=10000)[-1500:]
+            coach["ai_message_count_before"] = ai_message_count_before
+            coach["ai_message_count_after"] = ai_result["message_count"]
+            coach["ai_response_completed"] = ai_result["completed"]
+            coach["ai_response_excerpt"] = ai_result["response_excerpt"]
+            coach["ai_body_after"] = ai_result["body_text"][-1500:]
             page.screenshot(path=str(SCREENSHOT_DIR / "flows_07_coach_response.png"), full_page=True)
             findings["flows"]["Коуч"] = coach
-            print(f"  Коуч AI response: exceptions={len(errs)}", flush=True)
+            print(
+                f"  Коуч AI response: completed={ai_result['completed']}, exceptions={len(errs)}",
+                flush=True,
+            )
         except Exception as e:
             findings["flows"]["ai_coach_interaction"] = {"error": f"{e!s}"[:200]}
             print("  AI coach interaction: skipped/failed", str(e)[:120], flush=True)
@@ -166,7 +286,8 @@ def main() -> int:
     REPORT.write_text(json.dumps(findings, ensure_ascii=False, indent=2))
     print(f"\nreport: {REPORT}", flush=True)
     total_exc = sum(v.get("exceptions", 0) for v in findings["flows"].values() if isinstance(v, dict))
-    return 0 if total_exc == 0 else 1
+    ai_completed = bool(findings["flows"].get("Коуч", {}).get("ai_response_completed"))
+    return 0 if total_exc == 0 and ai_completed else 1
 
 
 if __name__ == "__main__":
