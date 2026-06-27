@@ -7,9 +7,12 @@ import sys
 import os
 sys.path.append('.')
 
+import pytest
 from models.ai_providers import *
 from data.database import Database
 import pandas as pd
+
+pytestmark = pytest.mark.live
 
 # Динамический импорт Mock провайдера
 try:
@@ -156,7 +159,7 @@ RMSSD: {latest_hrv['rmssd']:.1f} мс
             print(result['response'])
             print()
     
-    return len(working_providers) > 0
+    assert working_providers, "Ни один AI провайдер не сгенерировал успешный ответ"
 
 def test_provider_switching():
     """Тест автоматического переключения провайдеров"""
@@ -178,10 +181,10 @@ def test_provider_switching():
         )
         
         print(f"📝 Ответ: {response}")
-        return True
+        assert response
     else:
         print(f"❌ Ни один провайдер не доступен")
-        return False
+        pytest.skip("Ни один AI провайдер не доступен в текущем окружении")
 
 if __name__ == "__main__":
     print("🚀 Запуск продвинутого теста AI провайдеров...")

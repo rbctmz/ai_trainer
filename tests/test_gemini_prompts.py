@@ -6,9 +6,12 @@
 import sys
 sys.path.append('.')
 
+import pytest
 from models.training_prompts import TrainingPrompts, get_analysis_prompt
 from models.ai_providers import GoogleGeminiProvider
 from data.database import Database
+
+pytestmark = pytest.mark.live
 
 def test_gemini_with_training_data():
     """Тест Gemini с реальными тренировочными данными"""
@@ -21,7 +24,7 @@ def test_gemini_with_training_data():
     
     if not gemini.is_available():
         print("❌ Google Gemini недоступен")
-        return False
+        pytest.skip("Google Gemini недоступен в текущем окружении")
     
     print(f"✅ Используем: {gemini.get_model_name()}")
     
@@ -113,10 +116,9 @@ def test_gemini_with_training_data():
     if successful:
         print(f"\n🎉 GEMINI УСПЕШНО РАБОТАЕТ КАК AI ТРЕНЕР!")
         print(f"💡 Специализированные prompts дают качественные ответы")
-        return True
     else:
         print(f"\n⚠️ Проблемы с тестированием")
-        return False
+    assert successful, "Gemini не вернул успешных ответов для training prompts"
 
 def test_simple_gemini():
     """Простой тест Gemini"""
@@ -128,7 +130,7 @@ def test_simple_gemini():
     
     if not gemini.is_available():
         print("❌ Gemini недоступен")
-        return False
+        pytest.skip("Google Gemini недоступен в текущем окружении")
     
     # Простой вопрос
     response = gemini.generate_response(
@@ -139,7 +141,7 @@ def test_simple_gemini():
     print(f"🎯 Простой вопрос -> ответ:")
     print(f"💬 {response}")
     
-    return True
+    assert response
 
 if __name__ == "__main__":
     print("🚀 Тестирование Google Gemini как AI тренера...")

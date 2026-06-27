@@ -7,7 +7,10 @@
 
 import sys
 sys.path.append('..')
+import pytest
 from models.ai_providers import AIProviderFactory
+
+pytestmark = pytest.mark.live
 
 def test_provider_features():
     print("🔧 Тестирование новых функций AI провайдеров")

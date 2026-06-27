@@ -5,18 +5,20 @@
 
 import sys
 import os
-sys.path.append('..')
+import tempfile
+from pathlib import Path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from models.chat_manager import ChatManager
 
-def test_modern_chat():
+def test_modern_chat(tmp_path):
     """Тестирует новый менеджер чатов"""
     print("=" * 80)
     print("🗣️ ТЕСТ СОВРЕМЕННОГО ИНТЕРФЕЙСА ЧАТА")
     print("=" * 80)
     
     # Инициализация менеджера
-    chat_manager = ChatManager()
+    chat_manager = ChatManager(chats_dir=str(tmp_path / "chats"))
     
     print("\n🔧 Инициализация завершена")
     print(f"📁 Директория чатов: {chat_manager.chats_dir}")
@@ -39,6 +41,7 @@ def test_modern_chat():
     
     for role, content in test_messages:
         success = chat_manager.add_message(chat_id, role, content)
+        assert success is True
         print(f"  ✅ Добавлено сообщение от {role}: {content[:30]}...")
     
     # 3. Загрузка сообщений
@@ -46,6 +49,7 @@ def test_modern_chat():
     
     messages = chat_manager.get_chat_messages(chat_id)
     print(f"✅ Загружено {len(messages)} сообщений")
+    assert len(messages) == len(test_messages)
     
     for i, msg in enumerate(messages, 1):
         role_name = "🤔 Пользователь" if msg["role"] == "user" else "🤖 AI"
@@ -56,10 +60,11 @@ def test_modern_chat():
     
     # Создаем еще один чат для разнообразия
     chat_id2 = chat_manager.create_new_chat()
-    chat_manager.add_message(chat_id2, "user", "Второй тестовый чат")
+    assert chat_manager.add_message(chat_id2, "user", "Второй тестовый чат") is True
     
     chats = chat_manager.get_chat_list()
     print(f"✅ Найдено {len(chats)} чатов")
+    assert len(chats) == 2
     
     for chat in chats:
         print(f"  💬 {chat['title']} (ID: {chat['id']}, сообщений: {chat['message_count']})")
@@ -77,12 +82,14 @@ def test_modern_chat():
     
     search_results = chat_manager.search_chats("метрики")
     print(f"✅ Найдено {len(search_results)} чатов с 'метрики'")
+    assert len(search_results) == 1
     
     # 7. Экспорт чата
     print("\n📤 Тестирование экспорта...")
     
     exported_text = chat_manager.export_chat(chat_id)
     print(f"✅ Экспорт выполнен, размер: {len(exported_text)} символов")
+    assert "метрики" in exported_text
     
     print("\n📄 Превью экспорта:")
     print("─" * 50)
@@ -94,10 +101,12 @@ def test_modern_chat():
     
     deleted = chat_manager.delete_chat(chat_id2)
     print(f"✅ Чат {chat_id2} удален: {deleted}")
+    assert deleted is True
     
     # Проверяем что чат действительно удален
     updated_chats = chat_manager.get_chat_list()
     print(f"  📚 Осталось чатов: {len(updated_chats)}")
+    assert len(updated_chats) == 1
     
     # 9. Финальные проверки
     print("\n🔍 Финальная проверка функциональности...")
@@ -111,6 +120,8 @@ def test_modern_chat():
         print(f"  🔄 Обновлен: {main_chat['updated_at'][:19]}")
     else:
         print("❌ Основной чат не найден!")
+    assert main_chat is not None
+    assert len(main_chat["messages"]) == len(test_messages)
     
     # Резюме
     print(f"\n" + "=" * 80)
@@ -149,7 +160,7 @@ def test_modern_chat():
 Запустите приложение и протестируйте новый интерфейс чата.
     """)
     
-    return chat_id  # Возвращаем ID для дальнейшего тестирования
 
 if __name__ == "__main__":
-    test_modern_chat()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        test_modern_chat(Path(tmp_dir))

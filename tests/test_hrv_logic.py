@@ -8,6 +8,7 @@ sys.path.append('.')
 
 from data.database import Database
 import pandas as pd
+import pytest
 
 def test_hrv_logic():
     """Тест логики отображения HRV"""
@@ -25,7 +26,7 @@ def test_hrv_logic():
     
     if hrv_df.empty:
         print("📭 Будет показано: 'Нет данных HRV за последние 30 дней'")
-        return False
+        pytest.skip("В локальной базе нет HRV данных для диагностического теста")
     else:
         print("✅ HRV данные найдены, будет показан анализ")
         
@@ -50,13 +51,13 @@ def test_hrv_logic():
             
             if valid_rmssd > 0:
                 print("✅ Будут показаны метрики и графики HRV")
-                return True
+                assert valid_rmssd > 0
             else:
                 print("❌ Все RMSSD значения NaN - анализ будет ограничен")
-                return False
+                pytest.fail("Все RMSSD значения NaN")
         else:
             print("❌ После фильтрации данных нет")
-            return False
+            pytest.fail("После фильтрации HRV данных нет")
 
 if __name__ == "__main__":
     success = test_hrv_logic()

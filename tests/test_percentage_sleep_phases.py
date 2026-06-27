@@ -63,53 +63,24 @@ def test_percentage_based_sleep_phases():
             print(f"  - Sleep Score: {processed_sleep.get('sleep_score')} (ожидали {expected_score})")
             print(f"  - Пробуждения: {processed_sleep.get('awakenings_count')} (ожидали {expected_awakenings})")
             
-            # Проверяем корректность
-            success = True
-            issues = []
-            
-            if processed_sleep.get('total_sleep_minutes') != expected_total:
-                issues.append(f"Общий сон: получили {processed_sleep.get('total_sleep_minutes')}, ожидали {expected_total}")
-                success = False
-            
-            if processed_sleep.get('deep_sleep_minutes') != expected_deep:
-                issues.append(f"Глубокий сон: получили {processed_sleep.get('deep_sleep_minutes')}, ожидали {expected_deep}")
-                success = False
-                
-            if processed_sleep.get('light_sleep_minutes') != expected_light:
-                issues.append(f"Легкий сон: получили {processed_sleep.get('light_sleep_minutes')}, ожидали {expected_light}")
-                success = False
-                
-            if processed_sleep.get('rem_sleep_minutes') != expected_rem:
-                issues.append(f"REM сон: получили {processed_sleep.get('rem_sleep_minutes')}, ожидали {expected_rem}")
-                success = False
-                
-            if processed_sleep.get('sleep_score') != expected_score:
-                issues.append(f"Sleep score: получили {processed_sleep.get('sleep_score')}, ожидали {expected_score}")
-                success = False
-                
-            if processed_sleep.get('awakenings_count') != expected_awakenings:
-                issues.append(f"Пробуждения: получили {processed_sleep.get('awakenings_count')}, ожидали {expected_awakenings}")
-                success = False
-            
-            if success:
-                print("🎉 ПРОЦЕНТНЫЙ ПОДХОД РАБОТАЕТ ИДЕАЛЬНО!")
-                print("✅ Все значения корректны")
-                return True
-            else:
-                print("❌ Найдены проблемы:")
-                for issue in issues:
-                    print(f"  - {issue}")
-                return False
+            assert processed_sleep.get('total_sleep_minutes') == expected_total
+            assert processed_sleep.get('deep_sleep_minutes') == expected_deep
+            assert processed_sleep.get('light_sleep_minutes') == expected_light
+            assert processed_sleep.get('rem_sleep_minutes') == expected_rem
+            assert processed_sleep.get('sleep_score') == expected_score
+            assert processed_sleep.get('awakenings_count') == expected_awakenings
+            print("🎉 ПРОЦЕНТНЫЙ ПОДХОД РАБОТАЕТ ИДЕАЛЬНО!")
+            print("✅ Все значения корректны")
                 
         else:
             print("❌ Обработка вернула None")
-            return False
+            assert processed_sleep is not None
             
     except Exception as e:
         print(f"❌ Ошибка обработки: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
 def test_fallback_to_seconds():
     """Тестируем что старый подход через секунды тоже работает"""
@@ -147,18 +118,16 @@ def test_fallback_to_seconds():
             print(f"  - Легкий сон: {actual_light} мин (ожидали {expected_light})")
             print(f"  - REM сон: {actual_rem} мин (ожидали {expected_rem})")
             
-            if actual_deep == expected_deep and actual_light == expected_light and actual_rem == expected_rem:
-                print("✅ Fallback к секундам работает корректно")
-                return True
-            else:
-                print("❌ Fallback к секундам работает некорректно")
-                return False
+            assert actual_deep == expected_deep
+            assert actual_light == expected_light
+            assert actual_rem == expected_rem
+            print("✅ Fallback к секундам работает корректно")
         else:
             print("❌ Обработка fallback вернула None")
-            return False
+            assert processed_sleep is not None
     except Exception as e:
         print(f"❌ Ошибка fallback: {e}")
-        return False
+        raise
 
 if __name__ == "__main__":
     print("🚀 Тестирование нового подхода к фазам сна...")

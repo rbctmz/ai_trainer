@@ -5,6 +5,8 @@
 
 import sys
 import os
+import tempfile
+from pathlib import Path
 sys.path.append('..')
 
 try:
@@ -15,13 +17,13 @@ except ImportError:
 
 import sqlite3
 
-def test_new_tables_creation():
+def test_new_tables_creation(tmp_path):
     """Тестирование создания новых таблиц"""
     print("🧪 Тестирование создания новых таблиц для Фазы 1...")
     
     # Создаем тестовую БД
-    test_db_path = "test_phase1_tables.db"
-    db = Database(test_db_path)
+    test_db_path = tmp_path / "test_phase1_tables.db"
+    db = Database(str(test_db_path))
     
     # Проверяем, что новые таблицы созданы
     conn = sqlite3.connect(test_db_path)
@@ -115,27 +117,23 @@ def test_new_tables_creation():
     
     print("   ✅ Очистка БД работает для всех таблиц")
     
-    # Очистка тестового файла
-    if os.path.exists(test_db_path):
-        os.remove(test_db_path)
-    
     print("\n✅ Все тесты новых таблиц прошли успешно!")
-    return True
 
 def main():
     """Основная функция тестирования"""
     print("🚀 Тестирование структуры БД для Фазы 1\n")
     
     try:
-        if test_new_tables_creation():
-            print("\n🎉 Структура БД успешно обновлена!")
-            print("\n📋 Созданные таблицы:")
-            print("   ✅ sleep_data - данные сна (время, фазы, качество)")
-            print("   ✅ daily_health - ежедневные показатели (пульс покоя, шаги)")
-            print("   ✅ training_status - статус тренированности (VO2 max, готовность)")
-            print("\n🔧 Обновленные методы:")
-            print("   ✅ get_database_stats() - включает новые таблицы")
-            print("   ✅ clear_all_data() - очищает все таблицы")
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            test_new_tables_creation(Path(tmp_dir))
+        print("\n🎉 Структура БД успешно обновлена!")
+        print("\n📋 Созданные таблицы:")
+        print("   ✅ sleep_data - данные сна (время, фазы, качество)")
+        print("   ✅ daily_health - ежедневные показатели (пульс покоя, шаги)")
+        print("   ✅ training_status - статус тренированности (VO2 max, готовность)")
+        print("\n🔧 Обновленные методы:")
+        print("   ✅ get_database_stats() - включает новые таблицы")
+        print("   ✅ clear_all_data() - очищает все таблицы")
         
     except Exception as e:
         print(f"\n❌ Ошибка в тестах: {e}")

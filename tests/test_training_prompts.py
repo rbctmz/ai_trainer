@@ -6,11 +6,13 @@
 import sys
 sys.path.append('.')
 
+import pytest
 from models.training_prompts import TrainingPrompts, get_analysis_prompt
 from models.ai_providers import AIProviderFactory
 from data.database import Database
 import pandas as pd
 
+@pytest.mark.live
 def test_specialized_prompts():
     """Тест специализированных prompts для анализа тренировок"""
     
@@ -30,7 +32,7 @@ def test_specialized_prompts():
     ai_provider = AIProviderFactory.get_first_available()
     if not ai_provider:
         print("❌ Ни один AI провайдер недоступен")
-        return False
+        pytest.skip("Ни один AI провайдер не доступен в текущем окружении")
     
     print(f"🤖 Используем: {ai_provider.get_model_name()}")
     
@@ -122,7 +124,7 @@ def test_specialized_prompts():
             print(result['response'])
             print()
     
-    return len(successful_tests) > 0
+    assert successful_tests, "Ни один specialized prompt не получил успешный AI ответ"
 
 def test_prompt_components():
     """Тест компонентов prompt системы"""
@@ -156,7 +158,8 @@ def test_prompt_components():
         print(hrv_stats)
     
     print(f"\n✅ Компоненты prompt системы работают корректно")
-    return True
+    required_keywords = ['TSS', 'HRV', 'тренер']
+    assert all(keyword.lower() in system_prompt.lower() for keyword in required_keywords)
 
 if __name__ == "__main__":
     print("🚀 Запуск тестирования специализированных prompts...")

@@ -6,6 +6,9 @@
 import sys
 import os
 import sqlite3
+import tempfile
+from pathlib import Path
+import pytest
 
 # Добавляем путь к корневой папке проекта
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -82,47 +85,29 @@ def test_with_exact_log_data():
             if actual_deep > 0 and actual_light > 0 and actual_rem > 0:
                 print("🎉 КРИТИЧЕСКИЙ УСПЕХ: Все фазы сна больше не равны 0!")
                 
-                # Проверяем точность расчетов
-                success = True
-                if actual_total != total_minutes:
-                    print(f"⚠️ Общий сон: получили {actual_total}, ожидали {total_minutes}")
-                    success = False
-                if actual_deep != expected_deep:
-                    print(f"⚠️ Глубокий сон: получили {actual_deep}, ожидали {expected_deep}")
-                    success = False
-                if actual_light != expected_light:
-                    print(f"⚠️ Легкий сон: получили {actual_light}, ожидали {expected_light}")
-                    success = False
-                if actual_rem != expected_rem:
-                    print(f"⚠️ REM сон: получили {actual_rem}, ожидали {expected_rem}")
-                    success = False
-                if actual_score != expected_score:
-                    print(f"⚠️ Sleep score: получили {actual_score}, ожидали {expected_score}")
-                    success = False
-                if actual_awakenings != expected_awakenings:
-                    print(f"⚠️ Пробуждения: получили {actual_awakenings}, ожидали {expected_awakenings}")
-                    success = False
-                
-                if success:
-                    print("✅ Все значения точно совпадают с ожидаемыми!")
-                
-                return True
+                assert actual_total == total_minutes
+                assert actual_deep == expected_deep
+                assert actual_light == expected_light
+                assert actual_rem == expected_rem
+                assert actual_score == expected_score
+                assert actual_awakenings == expected_awakenings
+                print("✅ Все значения точно совпадают с ожидаемыми!")
             else:
                 print("❌ ПРОБЛЕМА: Некоторые фазы сна все еще равны 0")
                 print(f"  - Глубокий: {actual_deep}, Легкий: {actual_light}, REM: {actual_rem}")
-                return False
+                assert actual_deep > 0 and actual_light > 0 and actual_rem > 0
                 
         else:
             print("❌ Обработка вернула None")
-            return False
+            assert processed_sleep is not None
             
     except Exception as e:
         print(f"❌ Ошибка обработки: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        raise
 
-def test_simulated_database_save():
+def test_simulated_database_save(tmp_path):
     """Тестируем сохранение обработанных данных в базу"""
     print("\n🔍 Тестирование сохранения в базу данных...")
     
@@ -150,13 +135,13 @@ def test_simulated_database_save():
             # Сохраняем в базу
             test_date = '2025-08-16'  # Тестовая дата
             
-            db = Database()
+            db = Database(str(tmp_path / "sleep_save.db"))
             sleep_data_dict = {test_date: processed_sleep}
             result = db.sync_sleep_data(sleep_data_dict)
             print(f"✅ Результат сохранения: {result}")
             
             # Проверяем сохранение
-            conn = sqlite3.connect('ai_trainer.db')
+            conn = sqlite3.connect(db.db_path)
             cursor = conn.cursor()
             cursor.execute("SELECT total_sleep_minutes, deep_sleep_minutes, light_sleep_minutes, rem_sleep_minutes FROM sleep_data WHERE date = ?", (test_date,))
             saved_data = cursor.fetchone()
@@ -168,35 +153,29 @@ def test_simulated_database_save():
                 
                 if deep_saved > 0 and light_saved > 0 and rem_saved > 0:
                     print("🎉 БАЗА ДАННЫХ: Все фазы сна успешно сохранены!")
-                    return True
+                    assert True
                 else:
                     print("❌ БАЗА ДАННЫХ: Фазы сна сохранились как нули")
-                    return False
+                    pytest.fail("Фазы сна сохранились как нули")
             else:
                 print("❌ Данные не найдены в базе")
-                return False
+                assert saved_data is not None
         else:
             print("❌ Не удалось обработать данные для сохранения")
-            return False
+            assert processed_sleep is not None
             
     except Exception as e:
         print(f"❌ Ошибка сохранения: {e}")
-        return False
+        raise
 
 if __name__ == "__main__":
     print("🚀 Тест с точной структурой данных из логов Garmin...")
     
-    test1_passed = test_with_exact_log_data()
-    test2_passed = test_simulated_database_save()
+    test_with_exact_log_data()
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        test_simulated_database_save(Path(tmp_dir))
     
-    if test1_passed and test2_passed:
-        print("\n🏆 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
-        print("✅ Процентный подход работает с точной структурой логов")
-        print("✅ Данные корректно сохраняются в базу")
-        print("🎉 ПРОБЛЕМА С НУЛЕВЫМИ ФАЗАМИ СНА ПОЛНОСТЬЮ РЕШЕНА!")
-    else:
-        print("\n⚠️ Некоторые тесты не прошли")
-        if not test1_passed:
-            print("❌ Проблема с обработкой данных")
-        if not test2_passed:
-            print("❌ Проблема с сохранением в базу")
+    print("\n🏆 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
+    print("✅ Процентный подход работает с точной структурой логов")
+    print("✅ Данные корректно сохраняются в базу")
+    print("🎉 ПРОБЛЕМА С НУЛЕВЫМИ ФАЗАМИ СНА ПОЛНОСТЬЮ РЕШЕНА!")
