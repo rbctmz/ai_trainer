@@ -1,7 +1,7 @@
 import json
 import sqlite3
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from config.settings import Settings
 
 class Database:
@@ -94,6 +94,11 @@ class Database:
             return value
         else:
             return str(value)
+
+    @staticmethod
+    def _cutoff_date(days):
+        """Return YYYY-MM-DD cutoff for recent-data queries."""
+        return (datetime.now() - timedelta(days=float(days))).strftime('%Y-%m-%d')
     
     def init_tables(self):
         """Создание таблиц БД"""
@@ -344,35 +349,19 @@ class Database:
         )
         return result
     
-    def save_activities(self, activities_df):
-        """Сохранение активностей"""
-        if activities_df.empty:
-            return
-            
-        conn = sqlite3.connect(self.db_path)
-        
-        # Преобразуем дату в строку для корректного сохранения в SQLite
-        df_to_save = activities_df.copy()
-        if 'date' in df_to_save.columns:
-            df_to_save['date'] = pd.to_datetime(df_to_save['date']).dt.strftime('%Y-%m-%d')
-        
-        df_to_save.to_sql('activities', conn, if_exists='replace', index=False)
-        conn.close()
-    
     def get_activities(self, days=30):
         """Получение активностей из БД"""
         conn = sqlite3.connect(self.db_path)
         
         # Если данные есть, получаем их с фильтрацией
-        from datetime import datetime, timedelta
-        cutoff_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        cutoff_date = self._cutoff_date(days)
         
-        query = f'''
+        query = '''
             SELECT * FROM activities 
-            WHERE date >= '{cutoff_date}'
+            WHERE date >= ?
             ORDER BY date DESC
         '''
-        df = pd.read_sql_query(query, conn)
+        df = pd.read_sql_query(query, conn, params=(cutoff_date,))
         conn.close()
         
         # Преобразование даты в datetime если она есть  
@@ -489,29 +478,6 @@ class Database:
         return {
             'test_activities_deleted': total_deleted,
             'duplicates_deleted': duplicates_deleted
-        }
-    
-    def clear_all_data(self):
-        """Полная очистка всех данных (ОСТОРОЖНО!)"""
-        conn = sqlite3.connect(self.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute('DELETE FROM activities')
-        activities_deleted = cursor.rowcount
-        
-        cursor.execute('DELETE FROM hrv_data')
-        hrv_deleted = cursor.rowcount
-        
-        cursor.execute('DELETE FROM user_settings')
-        settings_deleted = cursor.rowcount
-        
-        conn.commit()
-        conn.close()
-        
-        return {
-            'activities_deleted': activities_deleted,
-            'hrv_deleted': hrv_deleted,
-            'settings_deleted': settings_deleted
         }
     
     def sync_activities(self, activities):
@@ -914,16 +880,16 @@ class Database:
         """Получение данных сна за последние N дней"""
         conn = sqlite3.connect(self.db_path)
         
-        cutoff_date = (datetime.now() - pd.Timedelta(days=days)).date()
+        cutoff_date = self._cutoff_date(days)
         
-        query = f'''
+        query = '''
             SELECT * FROM sleep_data 
-            WHERE date >= '{cutoff_date}'
+            WHERE date >= ?
             ORDER BY date DESC
         '''
         
         try:
-            df = pd.read_sql_query(query, conn)
+            df = pd.read_sql_query(query, conn, params=(cutoff_date,))
         except pd.io.sql.DatabaseError:
             # Таблица не существует
             df = pd.DataFrame()
@@ -940,16 +906,16 @@ class Database:
         """Получение ежедневных показателей здоровья за последние N дней"""
         conn = sqlite3.connect(self.db_path)
         
-        cutoff_date = (datetime.now() - pd.Timedelta(days=days)).date()
+        cutoff_date = self._cutoff_date(days)
         
-        query = f'''
+        query = '''
             SELECT * FROM daily_health 
-            WHERE date >= '{cutoff_date}'
+            WHERE date >= ?
             ORDER BY date DESC
         '''
         
         try:
-            df = pd.read_sql_query(query, conn)
+            df = pd.read_sql_query(query, conn, params=(cutoff_date,))
         except pd.io.sql.DatabaseError:
             # Таблица не существует
             df = pd.DataFrame()
@@ -966,16 +932,16 @@ class Database:
         """Получение истории статуса тренированности за последние N дней"""
         conn = sqlite3.connect(self.db_path)
         
-        cutoff_date = (datetime.now() - pd.Timedelta(days=days)).date()
+        cutoff_date = self._cutoff_date(days)
         
-        query = f'''
+        query = '''
             SELECT * FROM training_status 
-            WHERE date >= '{cutoff_date}'
+            WHERE date >= ?
             ORDER BY date DESC
         '''
         
         try:
-            df = pd.read_sql_query(query, conn)
+            df = pd.read_sql_query(query, conn, params=(cutoff_date,))
         except pd.io.sql.DatabaseError:
             # Таблица не существует
             df = pd.DataFrame()
