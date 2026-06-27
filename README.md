@@ -61,7 +61,7 @@ USER_MAX_HR=185                        # Максимальный пульс (у
 ./run.sh
 ```
 
-Если скрипт не исполняется, сделайте его и `setup_env.sh` исполняемыми: `chmod +x run.sh setup_env.sh`.
+Если скрипт не исполняется, сделайте его исполняемым: `chmod +x run.sh`.
 
 #### Альтернативный запуск
 ```bash
@@ -81,12 +81,11 @@ streamlit run app.py
 
 #### Если возникает ошибка с Google Gemini
 ```bash
-# Запустите один раз для постоянного исправления
-./setup_env.sh
+# Проверьте runtime-зависимости
+python scripts/doctor_env.py check --runtime
 
-# Или используйте временное решение перед запуском
-export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-streamlit run app.py
+# При необходимости выполните одноразовое восстановление
+python scripts/doctor_env.py repair --runtime
 ```
 
 #### Если `./run.sh` сообщает о поврежденных runtime-зависимостях
@@ -183,7 +182,7 @@ ai_trainer/
 - **openai** - OpenAI GPT модели
 - **anthropic** - Anthropic Claude
 - **DeepSeek** - OpenAI-compatible DeepSeek API
-- **google-generativeai** - Google Gemini
+- **google-genai** - Google Gemini
 - **ollama** - Локальные LLM модели
 
 ## 📝 Статус разработки
@@ -257,14 +256,14 @@ ollama pull mistral
 
 ## 🐛 Решение проблем
 
-### Ошибка Google Gemini protobuf
+### Ошибка Google Gemini runtime
 ```bash
-# Быстрое решение
+# Стандартный запуск уже применяет runtime defaults
 ./run.sh
 
-# Или установка переменной окружения
-export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
-streamlit run app.py
+# Диагностика и восстановление зависимостей
+python scripts/doctor_env.py check --runtime
+python scripts/doctor_env.py repair --runtime
 ```
 
 ### Ошибка `ImportError: cannot import name 'Dataframe_pb2'`

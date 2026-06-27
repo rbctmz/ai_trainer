@@ -23,7 +23,7 @@ function run_streamlit() {
 echo "🚀 Запуск AI Trainer..."
 echo "📌 Применение исправления для Google Gemini API..."
 
-# Устанавливаем переменную окружения для исправления protobuf
+# Консервативный runtime default для Google/gRPC stack
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 
 echo "🩺 Проверка runtime-зависимостей..."

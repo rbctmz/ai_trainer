@@ -326,14 +326,13 @@ def render_ai_provider_setup(state: StateManager) -> Dict[str, Any]:
                 Settings.GOOGLE_API_KEY,
             )
             available_models = [
-                "models/gemini-2.5-flash",
-                "models/gemini-2.0-flash-exp",
-                "models/gemini-2.0-flash",
-                "models/gemini-1.5-flash-latest",
-                "models/gemini-1.5-flash",
-                "models/gemini-1.5-flash-8b",
+                "gemini-2.5-flash",
+                "gemini-2.5-pro",
+                "gemini-2.0-flash",
+                "gemini-1.5-flash",
+                "gemini-1.5-pro",
             ]
-            current_model = Settings.GOOGLE_MODEL
+            current_model = Settings.GOOGLE_MODEL.removeprefix("models/")
             try:
                 default_index = available_models.index(current_model)
             except ValueError:

@@ -25,16 +25,16 @@ def main():
     # Список исправлений
     fixes = [
         {
-            "cmd": "pip3 install protobuf==4.24.0",
-            "desc": "Исправление Google Gemini protobuf конфликта"
+            "cmd": "pip3 install 'protobuf>=4.25.0,<5.0.0' 'grpcio-status>=1.49.1,<1.63.0'",
+            "desc": "Обновление Google/gRPC runtime stack"
         },
         {
             "cmd": "pip3 install --upgrade anthropic",
             "desc": "Обновление Anthropic библиотеки"
         },
         {
-            "cmd": "pip3 install --upgrade google-generativeai",
-            "desc": "Обновление Google AI библиотеки"
+            "cmd": "pip3 install --upgrade google-genai",
+            "desc": "Обновление Google Gen AI SDK"
         },
         {
             "cmd": "pip3 install --upgrade ollama",

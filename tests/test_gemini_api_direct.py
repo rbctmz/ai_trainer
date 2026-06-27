@@ -13,6 +13,11 @@ import pytest
 from config.settings import Settings
 
 
+pytestmark = pytest.mark.live
+
+GEMINI_REST_MODEL = "gemini-2.5-flash"
+
+
 @pytest.fixture(scope="module")
 def api_key():
     key = Settings.GOOGLE_API_KEY
@@ -28,7 +33,7 @@ def test_gemini_curl(api_key: str):
 
     curl_command = [
         'curl',
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+        f'https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_REST_MODEL}:generateContent',
         '-H', 'Content-Type: application/json',
         '-H', f'X-goog-api-key: {api_key}',
         '-X', 'POST',
@@ -79,7 +84,7 @@ def test_gemini_requests(api_key: str):
     print("\n🐍 ТЕСТ GEMINI API ЧЕРЕЗ PYTHON REQUESTS")
     print("=" * 50)
 
-    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent"
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{GEMINI_REST_MODEL}:generateContent"
 
     headers = {
         "Content-Type": "application/json",

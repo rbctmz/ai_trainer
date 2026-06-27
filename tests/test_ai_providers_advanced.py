@@ -73,9 +73,9 @@ RMSSD: {latest_hrv['rmssd']:.1f} мс
         ('OpenAI GPT-4', OpenAIProvider(model="gpt-4-turbo")),
         ('OpenAI GPT-3.5', OpenAIProvider(model="gpt-3.5-turbo")),
         ('Anthropic Claude', AnthropicProvider(model="claude-3-haiku-20240307")),
-        ('Google Gemini 2.0', GoogleGeminiProvider(model="gemini-2.0-flash-exp")),
-        ('Google Gemini 1.5 Pro', GoogleGeminiProvider(model="gemini-1.5-pro-latest")),
-        ('Google Gemini 1.5 Flash', GoogleGeminiProvider(model="gemini-1.5-flash-latest")),
+        ('Google Gemini 2.5 Flash', GoogleGeminiProvider(model="gemini-2.5-flash")),
+        ('Google Gemini 2.5 Pro', GoogleGeminiProvider(model="gemini-2.5-pro")),
+        ('Google Gemini 2.0 Flash', GoogleGeminiProvider(model="gemini-2.0-flash")),
         ('Ollama Llama3.1', OllamaProvider(model="llama3.1:8b"))
     ]
     

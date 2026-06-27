@@ -20,7 +20,7 @@ def test_gemini_with_training_data():
     print("=" * 60)
     
     # Создаем Google Gemini провайдер
-    gemini = GoogleGeminiProvider(model="gemini-2.0-flash-exp")
+    gemini = GoogleGeminiProvider(model="gemini-2.5-flash")
     
     if not gemini.is_available():
         print("❌ Google Gemini недоступен")
@@ -126,7 +126,7 @@ def test_simple_gemini():
     print(f"\n🧪 ПРОСТОЙ ТЕСТ GEMINI")
     print("-" * 30)
     
-    gemini = GoogleGeminiProvider(model="gemini-2.0-flash-exp")
+    gemini = GoogleGeminiProvider(model="gemini-2.5-flash")
     
     if not gemini.is_available():
         print("❌ Gemini недоступен")
