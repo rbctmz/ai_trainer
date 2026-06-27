@@ -6,8 +6,8 @@
 
 - Python 3.10+ (проект проверен на 3.11)
 - `pip` и модуль `venv` для управления зависимостями
-- Учётная запись Garmin Connect (нужна для синхронизации данных)
-- API-ключ хотя бы одного AI‑провайдера из списка ниже
+- Учётная запись Garmin Connect (нужна для реальной синхронизации данных; демо-режим работает без неё)
+- API-ключ хотя бы одного AI‑провайдера из списка ниже (для реального AI; демо-режим использует Mock AI)
 
 ## 🚀 Быстрый старт
 
@@ -31,7 +31,7 @@ pip install -r requirements-dev.txt
 
 ### 2. Настройка окружения
 
-Создайте файл `.env` в корне проекта со следующими переменными. Обязателен только ключ провайдера, которого вы планируете использовать (хотя бы один из OpenAI/Anthropic/Gemini/Ollama). Остальные параметры можно оставить пустыми или удалить, если они вам не нужны.
+Создайте файл `.env` в корне проекта со следующими переменными. Для реального AI обязателен только ключ провайдера, которого вы планируете использовать (OpenAI/Anthropic/DeepSeek/Gemini или локальный Ollama). Остальные параметры можно оставить пустыми или удалить, если они вам не нужны.
 
 > 💡 Для совместной работы удобно держать шаблон `.env.example` без секретных данных и копировать его в `.env` при настройке.
 
@@ -39,8 +39,10 @@ pip install -r requirements-dev.txt
 # AI Провайдеры (выберите один или несколько)
 OPENAI_API_KEY=your_openai_key         # OpenAI GPT
 ANTHROPIC_API_KEY=your_anthropic_key   # Claude
+DEEPSEEK_API_KEY=your_deepseek_key     # DeepSeek
 GOOGLE_API_KEY=your_google_key         # Gemini
 OLLAMA_HOST=http://localhost:11434     # Локальные модели
+DEFAULT_AI_PROVIDER=deepseek           # openai/anthropic/deepseek/google/ollama
 
 # Garmin Connect (опционально)
 GARMIN_EMAIL=your_email@example.com
@@ -112,6 +114,7 @@ python scripts/doctor_env.py check --workspace
 
 ### Основной функционал
 - **🔗 Интеграция с Garmin Connect** - Автоматическая синхронизация активностей и HRV данных
+- **🎮 Демо-режим** - Изолированный локальный набор данных и Mock AI для безопасного знакомства без Garmin/API
 - **📈 Дашборд тренировок** - Интерактивная визуализация прогресса и метрик
 - **💓 Анализ HRV** - Мониторинг восстановления через RMSSD и DFA α1
 - **📋 Анализ TSS** - Расчёт тренировочного стресса и баланса CTL/ATL/TSB
@@ -119,7 +122,7 @@ python scripts/doctor_env.py check --workspace
 - **⚙️ Модель Банистера** - Прогнозирование fitness/fatigue баланса
 
 ### 🤖 Универсальная система AI коучинга
-- **Мультипровайдерная архитектура** - Поддержка OpenAI, Anthropic Claude, Google Gemini, Ollama
+- **Мультипровайдерная архитектура** - Поддержка OpenAI, Anthropic Claude, DeepSeek, Google Gemini, Ollama и Mock AI
 - **Интерактивный выбор моделей** - Динамические dropdown-списки с автообнаружением
 - **Тестирование подключения** - Валидация API ключей перед использованием
 - **Персонализированные рекомендации**:
@@ -133,13 +136,18 @@ python scripts/doctor_env.py check --workspace
 
 ```
 ai_trainer/
-├── app.py                     # Главное Streamlit приложение с UI
+├── app.py                     # Тонкий Streamlit shell: конфиг, навигация, callbacks
 ├── config/
 │   └── settings.py            # Конфигурация и константы
 ├── data/
 │   ├── garmin_client.py       # API клиент Garmin Connect
 │   ├── data_processor.py      # Обработка данных активностей
 │   └── database.py            # SQLite для локального кеширования
+├── services/                  # Garmin/sync/demo/acceptance orchestration
+├── state/                     # StateManager поверх st.session_state
+├── ui/
+│   ├── pages/                 # Dashboard, Planning, AI Coaching, HRV, Sleep, Activities
+│   └── components/            # Sidebar, provider setup, chat, execution feedback
 ├── models/
 │   ├── ai_providers.py        # Универсальная архитектура AI провайдеров
 │   ├── ai_coach_universal.py  # Универсальная система коучинга
@@ -147,6 +155,7 @@ ai_trainer/
 │   ├── hrv_analyzer.py        # Анализ HRV (RMSSD, DFA α1)
 │   └── mock_ai_provider.py    # Mock провайдер для тестирования
 ├── utils/
+│   ├── modern_ui.py           # Cockpit UI helpers and shared CSS
 │   ├── metrics.py             # Расчёт метрик (TSS, NP, CTL, ATL)
 │   ├── sleep_metrics.py       # Регулярность сна, агрегация по дням недели
 │   └── visualizations.py      # Plotly визуализации
@@ -173,6 +182,7 @@ ai_trainer/
 ### AI провайдеры
 - **openai** - OpenAI GPT модели
 - **anthropic** - Anthropic Claude
+- **DeepSeek** - OpenAI-compatible DeepSeek API
 - **google-generativeai** - Google Gemini
 - **ollama** - Локальные LLM модели
 
@@ -184,6 +194,9 @@ ai_trainer/
 - Расчёт всех ключевых метрик (TSS, NP, CTL, ATL, TSB)
 - Универсальная система AI провайдеров
 - Динамический выбор AI моделей с автообнаружением
+- Demo/acceptance режимы с изолированной БД и Mock AI
+- Planning V2: версии планов, execution feedback, Garmin plan/fact review
+- Intervals.icu экспорт запланированных тренировок (при наличии API key)
 - Тестирование подключения к провайдерам
 - Анализ HRV (RMSSD, DFA α1)
 - Регулярность режима сна с рекомендациями
@@ -195,10 +208,10 @@ ai_trainer/
   - Экспертные ответы на вопросы
   - Образовательный контент
 
-### 🔄 В разработке
-- Расширенная визуализация HRV трендов
-- Интеграция с дополнительными устройствами
-- Экспорт тренировочных планов
+### 🔄 В разработке / ближайший долг
+- Декомпозиция крупных модулей Planning/Dashboard
+- Единый signals engine для dashboard/planning/AI
+- Уточнение и очистка старых диагностических тестов
 
 ## 🛠️ Команды разработки
 
@@ -213,6 +226,9 @@ python -m pytest tests/smoke -q
 
 # Более широкий локальный прогон без live/debug сценариев
 python -m pytest -m "not live and not debug" tests/
+
+# Изолированный acceptance-запуск с временной БД
+ACCEPTANCE_PORT=8510 ./run_acceptance.sh
 
 # Тестирование AI провайдеров
 python tests/test_ai_providers_advanced.py

@@ -6,10 +6,13 @@
 import sys
 import os
 from datetime import datetime, timedelta
+import pytest
 
 sys.path.append('.')
 
 from data.garmin_client import GarminClient
+
+pytestmark = pytest.mark.live
 
 def test_new_auth():
     """Тест с новыми учетными данными"""
@@ -19,15 +22,16 @@ def test_new_auth():
     
     client = GarminClient()
     
-    # Используем обновленные креды
-    email = "greg.kisel@yandex.ru"
-    password = "cigNi9-suctem-pasgaj"
+    email = os.getenv("GARMIN_EMAIL")
+    password = os.getenv("GARMIN_PASSWORD")
+    if not email or not password:
+        pytest.skip("GARMIN_EMAIL/GARMIN_PASSWORD не заданы для live Garmin auth test")
     
     print(f"🔐 Подключаемся к Garmin Connect как {email}...")
     
     if not client.authenticate(email, password):
         print(f"❌ Ошибка аутентификации: {client.auth_error}")
-        return False
+        pytest.fail(f"Ошибка аутентификации Garmin: {client.auth_error}")
     
     print("✅ Успешно подключен к Garmin Connect!")
     
@@ -106,10 +110,10 @@ def test_new_auth():
     total_data = sum(data_found.values())
     if total_data > 0:
         print(f"\n🎉 Подключение успешно! Найдены данные.")
-        return True
+        assert True
     else:
         print(f"\n⚠️  Подключение успешно, но данные не найдены.")
-        return False
+        pytest.fail("Garmin auth успешен, но данные за проверяемый период не найдены")
 
 if __name__ == "__main__":
     success = test_new_auth()

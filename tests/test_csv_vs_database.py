@@ -6,11 +6,14 @@
 import sys
 import os
 import sqlite3
+import pytest
 
 # Добавляем путь к корневой папке проекта
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from data.database import Database
+
+pytestmark = pytest.mark.debug
 
 def test_database_vs_csv():
     """Проверяем что хранится в базе данных vs что попало в CSV"""
@@ -44,13 +47,13 @@ def test_database_vs_csv():
         if all_zeros:
             print("❌ ПРОБЛЕМА НАЙДЕНА: В базе данных тоже все нули!")
             print("🔍 Это означает что проблема НЕ в CSV экспорте, а в сохранении в базу")
-            return False
+            pytest.fail("В базе данных все фазы сна равны нулю")
         else:
             print("✅ В базе есть ненулевые значения - проблема в CSV экспорте")
-            return True
+            assert True
     else:
         print("❌ В базе нет данных о сне")
-        return False
+        pytest.skip("В локальной базе нет данных о сне для диагностики CSV")
 
 def test_database_methods():
     """Тестируем методы Database класса"""
@@ -76,13 +79,13 @@ def test_database_methods():
         
         if non_zero_deep or non_zero_light or non_zero_rem:
             print("✅ Database.get_sleep_data() возвращает ненулевые значения")
-            return True
+            assert True
         else:
             print("❌ Database.get_sleep_data() возвращает только нули")
-            return False
+            pytest.fail("Database.get_sleep_data() возвращает только нулевые фазы сна")
     else:
         print("❌ Database.get_sleep_data() не вернул данных")
-        return False
+        pytest.skip("В локальной базе нет sleep_data для диагностики")
 
 def test_recent_sync():
     """Проверяем что происходило при последней синхронизации"""
@@ -113,13 +116,13 @@ def test_recent_sync():
         
         if has_phases:
             print("✅ В недавних записях есть фазы сна!")
-            return True
+            assert True
         else:
             print("❌ В недавних записях все фазы сна равны 0")
-            return False
+            pytest.fail("В недавних записях все фазы сна равны 0")
     else:
         print("❌ Не найдено записей, сохраненных сегодня")
-        return False
+        pytest.skip("В локальной базе нет свежих записей для диагностики")
 
 if __name__ == "__main__":
     print("🚀 Диагностика: База данных vs CSV экспорт...")

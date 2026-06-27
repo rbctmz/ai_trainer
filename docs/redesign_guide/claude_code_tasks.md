@@ -1,4 +1,9 @@
-# 📋 CLAUDE CODE TASK TRACKER
+# Архив: Claude Code task tracker
+
+> Статус на 2026-06-26: исторический task tracker для старой UI-модернизации.
+> Не использовать как текущий backlog. Актуальные приоритеты находятся в
+> `docs/hardening_planning_v2_execplan.md`, `docs/code_review_recommendations.md`
+> и корневом `README.md`.
 > Система управления задачами для модернизации AI Trainer
 
 ## 🎯 Правила работы
@@ -117,7 +122,7 @@
 - [Общий план модернизации](./ai_trainer_redesign_guide.md)
 - [Примеры кода](./code_examples_modernization.py)
 - [Дорожная карта](./implementation_roadmap.md)
-- [Основной план](../implementation_roadmap.md)
+- [Текущая карта документации](../README.md)
 
 ---
 

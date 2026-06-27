@@ -6,6 +6,7 @@
 from abc import ABC, abstractmethod
 from typing import Optional, Dict, List, Type
 import os
+import warnings
 from config.settings import Settings
 
 # Исправление для Google Gemini protobuf конфликта
@@ -351,7 +352,13 @@ class GoogleGeminiProvider(AIProvider):
                 except:
                     pass
                 
-                import google.generativeai as genai
+                with warnings.catch_warnings():
+                    warnings.filterwarnings(
+                        "ignore",
+                        message=r"\s*All support for the `google\.generativeai` package has ended.*",
+                        category=FutureWarning,
+                    )
+                    import google.generativeai as genai
                 genai.configure(api_key=self.api_key)
                 self.model = genai.GenerativeModel(self.model_name)
             except ImportError:

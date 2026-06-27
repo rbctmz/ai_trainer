@@ -6,6 +6,7 @@
 import sys
 import pandas as pd
 import numpy as np
+import pytest
 
 sys.path.append('.')
 
@@ -24,7 +25,7 @@ def test_hrv_trend():
     
     if hrv_df.empty:
         print("❌ Нет HRV данных для тестирования тренда")
-        return False
+        pytest.skip("В локальной базе нет HRV данных для тестирования тренда")
     
     print(f"📊 Всего HRV записей: {len(hrv_df)}")
     
@@ -34,7 +35,7 @@ def test_hrv_trend():
     
     if len(valid_data) < 2:
         print("❌ Недостаточно данных для вычисления тренда (нужно минимум 2)")
-        return False
+        pytest.skip("Недостаточно HRV данных для вычисления тренда")
     
     # Сортируем по дате
     valid_data = valid_data.sort_values('date').reset_index(drop=True)
@@ -96,14 +97,14 @@ def test_hrv_trend():
         for _, row in valid_data.tail(5).iterrows():
             print(f"  {row['date'].strftime('%Y-%m-%d')}: {row['rmssd']:.1f} мс")
         
-        return True
+        assert len(trend_values) == len(valid_data)
         
     except ImportError:
         print("❌ Ошибка: scikit-learn не установлен")
-        return False
+        pytest.skip("scikit-learn не установлен")
     except Exception as e:
         print(f"❌ Ошибка при вычислении тренда: {e}")
-        return False
+        raise
 
 if __name__ == "__main__":
     success = test_hrv_trend()

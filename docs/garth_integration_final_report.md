@@ -1,4 +1,13 @@
-# Финальный отчет: Интеграция garth для решения проблемы данных сна
+# Архив: интеграция garth для решения проблемы данных сна
+
+> Статус на 2026-06-26: исторический документ. Не использовать как текущую
+> инструкцию по Garmin auth. В актуальном коде runtime-auth идёт через
+> `garminconnect`; fresh login через `garth` намеренно отключён, потому что
+> upstream auth flow Garmin изменился. `garth` остаётся legacy diagnostic /
+> runtime-inspection surface. Текущий контракт см. в `data/garth_client.py`,
+> `data/garmin_client.py` и smoke-тестах `tests/smoke/test_garth_runtime_hardening.py`.
+
+Ниже сохранён исходный отчёт 2025 года для истории решений.
 
 ## 🎯 Проблема
 

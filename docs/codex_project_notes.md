@@ -5,18 +5,17 @@
 - **Core pillars**: data ingestion (Garmin API + local SQLite cache), analytics (Banister, HRV, workload modeling, sleep regularity), AI coaching layer, and modernized UI with light/dark themes.
 
 ## Runtime Architecture
-- `app.py`: all Streamlit UI logic. Key components:
-  - Preference & theming (`apply_theme`, `get_plotly_theme`, `ModernUI` helpers).
-  - Data synchronization flows (trigger Garmin fetch, persist to DB, recalc metrics).
-  - Visualization views (dashboards, HRV trends, sleep regularity, workload charts, AI coach interface).
-  - Workout export pipeline producing FIT/TCX/CSV via `models.fit_export` and related helpers.
+- `app.py`: thin Streamlit composition shell. It sets page config, applies Streamlit compatibility/theme setup, renders navigation/sidebar wiring, and delegates page work to `ui/pages/*`.
 - `config/settings.py`: single source of environment-driven configuration (API keys, FTP/LTHR defaults, DB path, etc.).
+- `state/manager.py`: typed facade over `st.session_state` with lazy dependencies for database, Garmin client, AI tools, and chat state.
+- `services/`: UI-agnostic orchestration for Garmin auth/sync, demo mode, acceptance mode, data cache invalidation, and Intervals.icu.
+- `ui/`: page renderers and reusable Streamlit components. Dashboard, planning, activities, HRV, sleep, admin, welcome, and AI coaching live under `ui/pages`; provider setup, chat, Garmin sidebar, and execution feedback live under `ui/components`.
 - `data/`: Garmin API wrappers and data ETL.
-  - `garmin_client.py`: combines `garminconnect` & optional `garth` client for improved auth reliability, exposes retrieval helpers for activities/HRV/stress/body battery/etc.
+  - `garmin_client.py`: uses `garminconnect` for runtime auth/data retrieval and keeps `garth` as legacy diagnostics/runtime inspection only; fresh `garth` login is intentionally disabled.
   - `data_processor.py`: normalizes activity payloads into pandas DataFrame, computes fallback TSS + sports translation.
   - `database.py`: SQLite schema + CRUD for activities, HRV, sleep, daily health, training status. Uses pandas I/O and date coercion fixes.
 - `models/`:
-  - `ai_providers.py`: polymorphic layer for OpenAI, Anthropic, Gemini, Ollama, plus mock provider. Handles availability detection, test connections, model enumeration.
+  - `ai_providers.py`: polymorphic layer for OpenAI, Anthropic, DeepSeek, Gemini, Ollama, plus mock provider. Handles availability detection, test connections, model enumeration.
   - `ai_coach_universal.py`: orchestrates prompts for analyses, planning, workout review, metrics explanations, structured weekly plans.
   - `banister.py`: CTL/ATL/TSB modeling, Banister performance simulation, recommendations, scenario simulation.
   - `hrv_analyzer.py`: aggregates HRV metrics (RMSSD, DFA α1), smoothing, readiness scoring, detection of trends/anomalies.
@@ -27,16 +26,16 @@
   - `metrics.py`: additional metric computations (Intensity Factor, normalized power, load summaries).
   - `sleep_metrics.py`: sleep schedule regularity, weekday aggregation, ModernUI-ready recommendations.
   - `visualizations.py`: Plotly dashboards + chart factories; now aligned with theme helpers.
-  - `modern_ui.py` (+ backups): shared HTML/CSS snippets, responsive card rendering, theme colors.
+  - `modern_ui.py`: shared HTML/CSS snippets, responsive card rendering, cockpit theme colors.
   - `logger.py` (in package) and others support structured logging.
 
 ## Persistence & Data Flow
 1. User configures API keys in `.env` (template available in `.env.example`).
-2. Streamlit session authenticates with Garmin through `GarminClient` (prefers `garth` for resilience).
+2. Streamlit session authenticates with Garmin through `GarminClient`/`garminconnect`; `garth` is diagnostics-only.
 3. Activities & wellness data saved to SQLite via `Database` helpers; pandas ensures typing normalization.
 4. `ActivityProcessor` + `metrics.py` compute TSS, CTL/ATL, HRV readiness; results memoized in session state for UI + AI.
 5. AI interactions: `AIProviderFactory` selects available provider; `UniversalAICoach` crafts prompts using `ai_data_context` to provide historial context; responses displayed alongside charts.
-6. Workout planning/export: UI collects structured plan → `training_planner` builds weekly TSS targets → `fit_export` / `tcx_export` serialize to downloadable files.
+6. Workout planning/export: UI collects structured plan → `training_planner` builds weekly TSS targets → planning checkpoints persist versions/execution feedback → FIT/TCX/Intervals.icu export surfaces serialize planned workouts.
 
 ## UI & Theming
 - Modern design built around Material-like palette with consistent CSS variables for light/dark modes.
@@ -50,7 +49,7 @@
 - `run.sh` sets protobuf workaround and launches Streamlit; `setup_env.sh` installs extra deps for Gemini fix.
 
 ## Documentation Assets
-- `docs/modernization_plan/`: comprehensive plan from earlier modernization effort (UI redesign, component templates, migration notes).
+- `docs/modernization_plan/` and `docs/redesign_guide/`: historical UI modernization material. Treat as archive/reference unless a current ExecPlan says otherwise.
 - `docs/dashboard_optimization_plan.md`: targeted UI/dashboard improvements checklist.
 
 ## Open Questions / Follow-up Areas
@@ -65,5 +64,5 @@
 - Entry point: `streamlit run app.py` or `./run.sh` (protobuf fix).
 - Core configs: `config/settings.py`, `.env`.
 - Database file (default): `ai_trainer.db` in repo root.
-- AI provider selection + validation handled in `app.py` (sidebar controls) referencing `AIProviderFactory`.
+- AI provider selection + validation handled in `ui/components/ai_coach_provider.py` through `AIProviderFactory`.
 - Export artifacts saved to temp directories and offered via Streamlit download buttons.

@@ -1,276 +1,129 @@
-# 🤖 Руководство по AI Коучингу
+# Руководство по AI Coaching
 
 ## Обзор
 
-AI коучинг в AI Trainer позволяет получать персонализированные рекомендации по тренировкам от различных AI провайдеров. Система поддерживает множество провайдеров и автоматически выбирает доступный.
+AI Coaching в AI Trainer работает поверх локального тренировочного контекста: активности, HRV, сон, readiness, planning checkpoints, execution feedback и история чатов. UI провайдера живёт в `ui/components/ai_coach_provider.py`, сами провайдеры — в `models/ai_providers.py`.
+
+Демо-режим не требует внешнего API: он автоматически использует `Mock AI (Demo)` и детерминированный локальный dataset.
 
 ## Поддерживаемые провайдеры
 
-### 1. OpenAI (GPT)
-- **Модели**: GPT-3.5-turbo, GPT-4, GPT-4-turbo
-- **Требования**: API ключ от OpenAI
-- **Получить ключ**: https://platform.openai.com/api-keys
+| Провайдер | Тип | Основные настройки |
+|---|---|---|
+| OpenAI | cloud | `OPENAI_API_KEY`, `OPENAI_MODEL` |
+| Anthropic | cloud | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` |
+| DeepSeek | cloud/OpenAI-compatible | `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL` |
+| Google Gemini | cloud | `GOOGLE_API_KEY`, `GOOGLE_MODEL` |
+| Ollama | local | `OLLAMA_HOST`, `OLLAMA_MODEL` |
+| Mock AI | local demo | no secrets required |
 
-### 2. Anthropic (Claude)
-- **Модели**: Claude-3-haiku, Claude-3-sonnet, Claude-3-opus
-- **Требования**: API ключ от Anthropic
-- **Получить ключ**: https://console.anthropic.com/
+Current defaults are centralized in `config/settings.py`. Do not hard-code model names in page code; use `Settings` or provider model discovery.
 
-### 3. Google (Gemini)
-- **Модели**: Gemini-pro, Gemini-pro-vision
-- **Требования**: API ключ от Google AI Studio
-- **Получить ключ**: https://makersuite.google.com/app/apikey
+## Environment Setup
 
-### 4. Ollama (Локальные модели)
-- **Модели**: Llama2, Mistral, CodeLlama и др.
-- **Требования**: Установленный Ollama локально
-- **Установка**: https://ollama.ai/
-
-## Настройка
-
-### Шаг 1: Создайте файл .env
+Create `.env` from the example and add only the providers you need:
 
 ```bash
 cp .env.example .env
 ```
 
-### Шаг 2: Добавьте API ключи
-
-Откройте `.env` и добавьте ключи для нужных провайдеров:
-
 ```env
-# OpenAI
-OPENAI_API_KEY=sk-...your-key...
+OPENAI_API_KEY=your_openai_key
 OPENAI_MODEL=gpt-3.5-turbo
 
-# Anthropic
-ANTHROPIC_API_KEY=sk-ant-...your-key...
+ANTHROPIC_API_KEY=your_anthropic_key
 ANTHROPIC_MODEL=claude-3-haiku-20240307
 
-# Google
-GOOGLE_API_KEY=...your-key...
-GOOGLE_MODEL=gemini-pro
+DEEPSEEK_API_KEY=your_deepseek_key
+DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_BASE_URL=https://api.deepseek.com
 
-# Ollama (локально)
+GOOGLE_API_KEY=your_google_key
+GOOGLE_MODEL=models/gemini-1.5-flash-latest
+
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama2
+OLLAMA_MODEL=gemma3:4b
 
-# Провайдер по умолчанию
-DEFAULT_AI_PROVIDER=openai
+DEFAULT_AI_PROVIDER=deepseek
 ```
 
-### Шаг 3: Установка Ollama (опционально)
+Secrets from `.env` must not be rendered back into the UI. The provider setup form intentionally leaves password fields empty; when the user does not type an override, the hidden `.env` value is used automatically.
 
-Для использования локальных моделей:
+## Using AI Coaching
+
+1. Start the app:
 
 ```bash
-# macOS
-brew install ollama
+./run.sh
+```
 
-# Linux
-curl -fsSL https://ollama.ai/install.sh | sh
+2. Enter demo mode or authenticate with Garmin and sync real data.
+3. Open `AI Коучинг`.
+4. If a real provider is configured, the page attempts to auto-connect it. In demo mode, Mock AI is connected automatically.
+5. If needed, choose another provider in the sidebar and connect it manually.
 
-# Запуск
+The AI page uses the current local context. A useful answer depends more on synced/planned data quality than on the provider alone.
+
+## Ollama
+
+For local private answers:
+
+```bash
 ollama serve
-
-# Загрузка модели
-ollama pull llama2
+ollama pull gemma3:4b
 ```
 
-## Использование в приложении
+Set `OLLAMA_HOST` and `OLLAMA_MODEL` in `.env`. Ollama keeps prompts local, but response quality and latency depend on the installed model and machine resources.
 
-### 1. Запустите приложение
+## Testing
 
 ```bash
-streamlit run app.py
+# Contributor-safe coverage for provider and AI UI contracts
+python -m pytest tests/smoke/test_ai_provider_probes.py -q
+python -m pytest tests/smoke/test_ai_coaching_demo_flow.py -q
+python -m pytest tests/smoke/test_ai_coaching_real_flow.py -q
+
+# Broader local pass without live external systems
+python -m pytest -m "not live and not debug" tests/
 ```
 
-### 2. Подключитесь к Garmin Connect
+Avoid using live provider tests as the default loop; they may require secrets, network access, account balance, or local Ollama.
 
-В боковой панели введите учетные данные Garmin и синхронизируйте данные.
+## Troubleshooting
 
-### 3. Перейдите в раздел AI Коучинг
+### Provider is unavailable
 
-Выберите "🤖 AI Коучинг" в главном меню.
+- Check the relevant API key in `.env`.
+- Check provider account balance/quota.
+- For Ollama, verify `ollama serve` and `ollama list`.
+- For DeepSeek, verify `DEEPSEEK_BASE_URL` if using a proxy.
 
-### 4. Настройте провайдера
+### Gemini protobuf/runtime problems
 
-В боковой панели:
-1. Выберите провайдера из списка
-2. Введите API ключ (если требуется)
-3. Нажмите "🔌 Подключить AI"
-
-### 5. Используйте функции коучинга
-
-#### 📊 Анализ состояния
-Получите оценку вашей текущей формы на основе метрик CTL/ATL/TSB.
-
-#### 📅 Недельный план
-Создайте персонализированный план тренировок на неделю с учётом ваших целей.
-
-#### 🏃 Анализ тренировки
-Получите детальный разбор выполненной тренировки с рекомендациями.
-
-#### ❓ Вопрос коучу
-Задайте любой вопрос о тренировках, восстановлении, питании.
-
-#### 📚 Объяснение метрик
-Узнайте, что означают различные тренировочные метрики простым языком.
-
-## Тестирование
-
-### Быстрый тест через скрипт
+Use the app launcher or runtime doctor instead of ad-hoc package edits:
 
 ```bash
-python test_ai_coach.py
+./run.sh
+python scripts/doctor_env.py check --runtime
+python scripts/doctor_env.py repair --runtime
 ```
 
-Скрипт автоматически:
-- Проверит доступные провайдеры
-- Подключится к первому доступному
-- Протестирует основные функции
+### The UI shows one provider but answers like another
 
-### Тестирование с конкретным провайдером
+This should be covered by smoke tests. Manual provider changes must clear stale `state.ai_coach` when the provider type changes. The relevant contract is in `ui/components/ai_coach_provider.py`.
 
-```python
-from models.ai_providers import AIProviderFactory
-from models.ai_coach_universal import UniversalAICoach
+### Answers are generic
 
-# Создание провайдера
-provider = AIProviderFactory.create_provider(
-    "openai",
-    api_key="your-key",
-    model="gpt-3.5-turbo"
-)
+Check that local context exists:
 
-# Создание коуча
-coach = UniversalAICoach(provider)
+- Garmin sync or demo mode has activities.
+- HRV/sleep/training status data exists where expected.
+- A planning checkpoint exists if asking about a plan.
+- Execution feedback has been saved if asking about deviations.
 
-# Тестовые метрики
-metrics = {
-    'ctl': 42.5,
-    'atl': 38.2,
-    'tsb': 4.3,
-    'form': 'Хорошая форма'
-}
+## Safety Notes
 
-# Получение анализа
-analysis = coach.analyze_current_state(metrics)
-print(analysis)
-```
-
-## Решение проблем
-
-### Провайдер недоступен
-
-**Проблема**: "❌ OpenAI" в списке провайдеров
-
-**Решение**:
-1. Проверьте наличие API ключа в `.env`
-2. Убедитесь, что ключ действителен
-3. Проверьте баланс аккаунта
-
-### Ошибка подключения
-
-**Проблема**: "Не удалось подключиться к провайдеру"
-
-**Решение**:
-1. Проверьте интернет-соединение
-2. Для Ollama - убедитесь, что сервер запущен
-3. Проверьте правильность URL/хоста
-
-### Медленные ответы
-
-**Проблема**: AI отвечает очень долго
-
-**Решение**:
-1. Используйте более быструю модель (GPT-3.5 вместо GPT-4)
-2. Попробуйте локальные модели через Ollama
-3. Проверьте загруженность системы
-
-### Ошибка protobuf (Google)
-
-**Проблема**: Конфликт версий protobuf
-
-**Решение**:
-```bash
-pip uninstall protobuf
-pip install protobuf==4.24.0
-```
-
-## Рекомендации по выбору провайдера
-
-### Для быстрых ответов
-- **OpenAI GPT-3.5-turbo** - быстрый и недорогой
-- **Claude-3-haiku** - очень быстрый, хорошее качество
-- **Ollama Llama2** - локально, без затрат
-
-### Для качественного анализа
-- **GPT-4** - лучшее качество анализа
-- **Claude-3-opus** - отличное понимание контекста
-- **Gemini-pro** - хороший баланс качества/скорости
-
-### Для конфиденциальности
-- **Ollama** - все данные остаются локально
-- Никакая информация не отправляется в облако
-
-## Примеры промптов
-
-### Анализ формы
-"Моя CTL 45, ATL 52, TSB -7. Готов ли я к интенсивной тренировке?"
-
-### План восстановления
-"Вчера был марафон. Как восстанавливаться в ближайшую неделю?"
-
-### Подготовка к старту
-"Через 3 недели полумарафон. Как подвестись к старту?"
-
-### Объяснение метрик
-"Что такое TSB и как его использовать?"
-
-## API для разработчиков
-
-### Создание своего провайдера
-
-```python
-from models.ai_providers import AIProvider
-
-class CustomProvider(AIProvider):
-    def __init__(self, **kwargs):
-        super().__init__()
-        # Инициализация
-    
-    def generate_response(self, prompt: str, system_prompt: str = "") -> str:
-        # Ваша логика генерации
-        return response
-    
-    def is_available(self) -> bool:
-        # Проверка доступности
-        return True
-    
-    def get_model_name(self) -> str:
-        return "Custom Model"
-```
-
-### Регистрация провайдера
-
-```python
-AIProviderFactory.register_provider("custom", CustomProvider)
-```
-
-## Безопасность
-
-- **Никогда** не коммитьте API ключи в репозиторий
-- Используйте `.env` файл для хранения ключей
-- Регулярно ротируйте ключи
-- Следите за использованием API
-
-## Поддержка
-
-- **Issues**: https://github.com/yourusername/ai_trainer/issues
-- **Документация**: `/docs`
-- **Примеры**: `/examples`
-
-## Лицензия
-
-MIT License - см. LICENSE файл
+- Do not log API keys or Garmin credentials.
+- Do not pre-fill secret fields from `.env`.
+- Keep demo/acceptance mode isolated from real Garmin sync.
+- Prefer Mock AI for screenshots, acceptance checks, and docs examples.

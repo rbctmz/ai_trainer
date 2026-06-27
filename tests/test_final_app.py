@@ -5,6 +5,7 @@
 
 import sys
 import pandas as pd
+import pytest
 
 sys.path.append('.')
 
@@ -89,10 +90,10 @@ def test_final_app():
         
         print(f"\n✅ ТЕСТ ПРОШЕЛ УСПЕШНО!")
         print(f"🎉 Все компоненты HRV анализа работают корректно!")
-        return True
+        assert rmssd_count > 0
     else:
         print(f"  ❌ Нет HRV данных в базе")
-        return False
+        pytest.skip("В локальной базе нет HRV данных для final app diagnostic")
 
 def main():
     success = test_final_app()

@@ -1,4 +1,10 @@
-# Финальное решение проблемы данных Garmin
+# Архив: финальное решение проблемы данных Garmin
+
+> Статус на 2026-06-26: исторический отчёт 2025 года. Он полезен как контекст
+> расследования Garmin data issues, но не является текущим acceptance/status
+> документом. Актуальный статус Garmin auth/sync, `garth` diagnostics-only
+> контракт и live acceptance evidence см. в
+> `docs/hardening_planning_v2_execplan.md`.
 
 ## 📊 Итоговая ситуация
 

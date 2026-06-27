@@ -17,18 +17,17 @@ def test_garth_sleep_data():
     
     # Симуляция данных как они приходят от garth (конвертированные)
     garth_converted_data = {
-        'sleepTimeSeconds': 25200,  # 7 часов
-        'deepSleepSeconds': 5400,   # 1.5 часа
-        'lightSleepSeconds': 14400, # 4 часа
-        'remSleepSeconds': 5400,    # 1.5 часа
-        'awakeTimeSeconds': 600,    # 10 минут
-        'raw_data': {
-            'startGMT': '2025-08-15T22:30:00.000Z',
-            'endGMT': '2025-08-16T05:30:00.000Z',
-            'overallSleepScore': 85,
+        'dailySleepDTO': {
+            'sleepTimeSeconds': 25200,  # 7 часов
             'deepSleepSeconds': 5400,
             'lightSleepSeconds': 14400,
-            'remSleepSeconds': 5400
+            'remSleepSeconds': 5400,
+            'awakeSleepSeconds': 600,
+            'sleepStartTimestampLocal': 1755297000000,
+            'sleepEndTimestampLocal': 1755322200000,
+        },
+        'sleepScores': {
+            'overall': {'value': 85}
         }
     }
     
@@ -56,21 +55,26 @@ def test_garth_sleep_data():
         
     else:
         print("❌ Обработка не удалась")
-    
-    return result
+    assert result is not None
+    assert result.get('total_sleep_minutes') == 25200 // 60
+    assert result.get('sleep_score') == 85
 
 def test_direct_garth_data():
     """Тестируем прямые данные garth"""
     print("\n🧪 Тестирование прямых данных garth...")
     
     direct_data = {
-        'sleepTimeSeconds': 28800,  # 8 часов
-        'deepSleepSeconds': 7200,   # 2 часа  
-        'lightSleepSeconds': 14400, # 4 часа
-        'remSleepSeconds': 7200,    # 2 часа
-        'startGMT': '2025-08-15T22:00:00.000Z',
-        'endGMT': '2025-08-16T06:00:00.000Z',
-        'overallSleepScore': 90
+        'dailySleepDTO': {
+            'sleepTimeSeconds': 28800,  # 8 часов
+            'deepSleepSeconds': 7200,   # 2 часа
+            'lightSleepSeconds': 14400, # 4 часа
+            'remSleepSeconds': 7200,    # 2 часа
+            'sleepStartTimestampLocal': 1755295200000,
+            'sleepEndTimestampLocal': 1755324000000,
+        },
+        'sleepScores': {
+            'overall': {'value': 90}
+        }
     }
     
     print(f"📥 Прямые данные garth: {direct_data}")
@@ -79,10 +83,9 @@ def test_direct_garth_data():
     
     if result:
         print(f"✅ Обработка прямых данных успешна: {result}")
-        return True
     else:
         print("❌ Обработка прямых данных не удалась")
-        return False
+    assert result is not None
 
 if __name__ == "__main__":
     print("🚀 Запуск тестов обработки данных сна...")
