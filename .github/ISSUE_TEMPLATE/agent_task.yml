@@ -1,0 +1,90 @@
+name: Agent task
+description: Feature or fix to be implemented by Codex or another coding agent
+labels: ["status: needs triage"]
+body:
+  - type: dropdown
+    id: type
+    attributes:
+      label: Type
+      options:
+        - feature
+        - fix
+        - refactor
+        - docs
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      multiple: true
+      options:
+        - ai-coaching
+        - ui-ux
+        - core
+        - infrastructure
+        - planning
+        - data
+    validations:
+      required: true
+
+  - type: textarea
+    id: purpose
+    attributes:
+      label: Purpose
+      description: What can the user do after this change that they couldn't before? One paragraph.
+      placeholder: "After this change, the coach can..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: execplan
+    attributes:
+      label: ExecPlan
+      description: Path to the ExecPlan file in the repo, or write "to be created" and describe the scope.
+      placeholder: "docs/coach_approval_mutations_execplan.md (commit abc1234)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: scope
+    attributes:
+      label: Files in scope
+      description: List the files that will be created or modified.
+      placeholder: |
+        - models/ai_tools.py — new tools
+        - api/routers/coach.py — SSE event
+        - web/app/coach/page.tsx — UI handler
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Observable behavior a human can verify. Phrase as "given X, when Y, then Z."
+      placeholder: |
+        - Given an active plan exists, when the user asks the coach to adjust the plan, then a ProposalCard appears with Confirm/Cancel buttons.
+        - Clicking Confirm POSTs to /api/planning/adjust and shows a success message.
+        - Clicking Cancel removes the card without saving.
+    validations:
+      required: true
+
+  - type: input
+    id: smoke
+    attributes:
+      label: Smoke baseline
+      description: Current smoke test count. Do not regress.
+      placeholder: "239 pass, 1 pre-existing fail (test_google_provider_uses_google_genai_client)"
+    validations:
+      required: true
+
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies
+      description: Issues or PRs this depends on (optional).
+      placeholder: "Depends on #15"
+    validations:
+      required: false
