@@ -1,68 +1,63 @@
 # Заметки проекта Codex — AI Trainer
 
 ## Обзор
-- **Цель**: Streamlit-приложение, которое загружает тренировочные данные из Garmin Connect, анализирует нагрузку (TSS/CTL/ATL/TSB), HRV и генерирует коучинговые рекомендации с использованием интеграции нескольких LLM-провайдеров.
-- **Ключевые направления**: сбор данных (Garmin API + локальный SQLite-кэш), аналитика (модель Банистера, HRV, моделирование нагрузки, регулярность сна), слой AI-коучинга и современный интерфейс с светлой/тёмной темами.
+
+- **Назначение**: тренировочный кокпит для аналитики Garmin-данных, планирования и AI-коучинга.
+- **Текущее состояние**: активная миграция со Streamlit на FastAPI + Next.js.
+- **Рабочее правило**: новые продуктовые изменения идут по web-first траектории, но Streamlit остаётся поддерживаемым fallback-контуром до закрытия parity.
 
 ## Архитектура во время выполнения
-- `app.py`: тонкий Streamlit shell. Он настраивает страницу, применяет compatibility/theme setup, связывает навигацию/sidebar callbacks и делегирует страницы в `ui/pages/*`.
-- `config/settings.py`: единый источник конфигурации, зависящей от окружения (API-ключи, значения по умолчанию FTP/LTHR, путь к БД и т.д.).
-- `state/manager.py`: типизированный фасад над `st.session_state` с ленивыми зависимостями для БД, Garmin client, AI tools и chat state.
-- `services/`: UI-агностичная оркестрация Garmin auth/sync, demo mode, acceptance mode, data cache и Intervals.icu.
-- `ui/`: page renderers и переиспользуемые Streamlit-компоненты. Dashboard, Planning, Activities, HRV, Sleep, Admin, Welcome и AI Coaching живут в `ui/pages`; provider setup, chat, Garmin sidebar и execution feedback — в `ui/components`.
-- `data/`: обёртки для Garmin API и ETL для данных.
-  - `garmin_client.py`: использует `garminconnect` для runtime auth/data retrieval и держит `garth` только как legacy diagnostics/runtime inspection; fresh `garth` login намеренно отключён.
-  - `data_processor.py`: нормализация payload-ов активностей в `pandas.DataFrame`, вычисление запасного (fallback) TSS и трансляция видов спорта.
-  - `database.py`: схема SQLite + CRUD для активностей, HRV, сна, ежедневного здоровья, статуса тренировок. Использует ввод/вывод pandas и исправления приведения дат.
-- `models/`:
-  - `ai_providers.py`: полиморфный слой для OpenAI, Anthropic, DeepSeek, Gemini, Ollama и мок-провайдера. Управляет обнаружением доступности, тестовыми подключениями и перечислением моделей.
-  - `ai_coach_universal.py`: оркестрация подсказок для анализа, планирования, разбора тренировок, объяснения метрик, структурированных недельных планов.
-  - `banister.py`: моделирование CTL/ATL/TSB, симуляция производительности по Банистеру, рекомендации, симуляция сценариев.
-  - `hrv_analyzer.py`: агрегация HRV-метрик (RMSSD, DFA α1), сглаживание, оценка готовности, обнаружение трендов/аномалий.
-  - `training_planner.py`: правило-ориентированный помощник для вывода недельных целей по TSS и фазных планов (разгрузка/тапер), используется для инициации подсказок AI по планированию.
-  - `fit_export.py`, `tcx_export.py`, `tcx_activity_export.py`: конвертируют структурированные тренировки в совместимые с Garmin FIT/TCX, а также генерируют промежуточный CSV. Оборачивают опциональную поддержку Garmin FIT SDK.
-  - `ai_data_context.py`: строит структурированные пакеты контекста (сводки истории, снимки нагрузки), потребляемые подсказками AI.
-- `utils/`:
-  - `metrics.py`: дополнительные расчёты метрик (Intensity Factor, normalized power, сводки нагрузки).
-  - `sleep_metrics.py`: регулярность режима сна, агрегация по дням недели, рекомендации для ModernUI.
-  - `visualizations.py`: дашборды Plotly и фабрики графиков; теперь согласовано с помощниками темы.
-  - `modern_ui.py`: общие фрагменты HTML/CSS, рендеринг адаптивных карточек, cockpit-палитра.
-  - `logger.py` (в пакете) и другие утилиты поддерживают структурированное логирование.
 
-## Хранение и поток данных
-1. Пользователь настраивает API-ключи в `.env` (шаблон доступен в `.env.example`).
-2. Сессия Streamlit аутентифицируется в Garmin через `GarminClient`/`garminconnect`; `garth` используется только для диагностики.
-3. Активности и данные о самочувствии сохраняются в SQLite через помощники `Database`; pandas обеспечивает нормализацию типов.
-4. `ActivityProcessor` + `metrics.py` вычисляют TSS, CTL/ATL, готовность по HRV; результаты мемоизируются в состоянии сессии для UI и AI.
-5. Взаимодействия с AI: `AIProviderFactory` выбирает доступного провайдера; `UniversalAICoach` формирует подсказки с использованием `ai_data_context` для предоставления исторического контекста; ответы отображаются рядом с графиками.
-6. Планирование/экспорт тренировок: UI собирает структурированный план → `training_planner` формирует недельные цели по TSS → planning checkpoints сохраняют версии и execution feedback → FIT/TCX/Intervals.icu surfaces сериализуют плановые тренировки.
+- `web/`: основное направление UI во время миграции. Здесь уже есть dashboard, coach, planning, HRV и activities.
+- `api/`: контрактный слой FastAPI для web-фронта. Новые product-flow должны проходить через этот boundary, а не через Streamlit state.
+- `app.py`: legacy Streamlit shell. Всё ещё нужен как fallback, acceptance, admin/diagnostic surface и для поведения, которое ещё не доведено до web parity.
+- `config/settings.py`: единый источник конфигурации из окружения.
+- `services/`: UI-агностичная оркестрация Garmin auth/sync, demo mode, acceptance mode, refresh данных и внешних интеграций.
+- `data/`: обёртки Garmin API, ETL и помощники SQLite persistence.
+- `models/`: AI providers, coaching runtime, planning logic, Banister/HRV analytics, export helpers и builders структурированного контекста.
+- `state/`: Streamlit-oriented state helpers; не использовать `st.session_state` как контракт для новых product-flow.
+- `ui/`: legacy Streamlit pages/components. Их стоит поддерживать, ужимать или извлекать из них reusable logic, но не растить как основной product surface.
+- `utils/`: общие метрики, визуализации, sleep analytics и Streamlit/theme helpers.
 
-## UI и темы
-- Современный дизайн основан на палитре, похожей на Material, с едиными CSS-переменными для светлой и тёмной тем.
-- `ModernUI` централизует компоненты карточек, отзывчивые сетки, стиль мини-графиков, наборы иконок.
-- Обширный кастомный HTML вставляется через `st.markdown`, чтобы обойти ограничения стилизации Streamlit.
+## Поток данных
+
+1. Garmin- и provider-credentials читаются из `.env` через `config/settings.py`.
+2. Общая Python-логика в `services/`, `data/` и `models/` загружает и вычисляет activity, HRV, planning и AI context.
+3. `api/` публикует это поведение через явные HTTP-контракты для `web/`.
+4. `web/` рендерит основной migrated product flow.
+5. Streamlit всё ещё использует те же backend/domain-модули для fallback и acceptance-сценариев.
+
+## Политика продуктовых поверхностей
+
+- Для новых product-facing задач предпочитай `api/` + `web/`.
+- Держи доменные правила в Python, а не в ad hoc frontend-only логике.
+- Изменения в Streamlit допустимы для bugfix, acceptance/admin tooling, compatibility bridges или извлечения reusable logic.
+- Не поставляй новые product-фичи только в `ui/pages/*`, если задача не помечена как legacy-only.
 
 ## Тестирование и инструменты
-- Папка `tests/` содержит unit-тесты для провайдеров API, проверки трендов HRV, регулярности сна и т.д. (запуск `pytest` описан в README).
-- Отладочные скрипты в `debug/` (подключение к Ollama, инспекция данных).
-- Папка `examples/` содержит демонстрационные сценарии для AI-функций.
-- `run.sh` применяет консервативные Google/gRPC runtime defaults и запускает Streamlit; для диагностики/восстановления зависимостей используйте `scripts/doctor_env.py`.
 
-## Документация
-- `docs/modernization_plan/` и `docs/redesign_guide/`: исторические материалы по UI-модернизации. Считать архивом/reference, если текущий ExecPlan не говорит обратного.
-- `docs/dashboard_optimization_plan.md`: целевой чеклист улучшений UI/дашборда.
+- Базовая contributor-safe команда: `python -m pytest tests/smoke -q`
+- Более широкий локальный прогон: `python -m pytest -m "not live and not debug" tests/`
+- Web/API runtime: `./run_web.sh`
+- Legacy Streamlit runtime: `./run.sh`
+- Acceptance runtime: `ACCEPTANCE_PORT=8510 ./run_acceptance.sh`
 
-## Открытые вопросы / дальнейшие задачи
-1. **Управление состоянием**: реализовано модульное разделение страницы Streamlit на подпакеты (`state/`, `ui/`, `services/`) и обёрнут `app.py` через `StateManager` для улучшения читаемости и тестируемости.
-2. **Стратегия кэширования**: пересмотреть использование `st.cache_data`/`st.cache_resource` (используется в приложении) для выборок данных; обеспечить инвалидизацию кэша при синхронизации.
-3. **Рост базы данных**: оценить политику хранения/архивации для больших исторических наборов данных; возможно добавить очистку или инкрементальные обновления вместо полного перезаписывания в `save_activities`.
-4. **Моделирование фитнеса**: интегрировать готовность по HRV и выводы Банистера в комбинированную метрику готовности; согласовать пороговые значения интерпретации.
-5. **Тестирование**: расширить покрытие unit-тестами для новых планировщиков/экспортеров и утилит тем; добавить интеграционный smoketest синхронизации Garmin с мок-данными.
-6. **Интернационализация**: приложение сейчас смешивает метки RU/EN — принять стратегию локализации или добавить слой переводов.
+## Опорные документы
+
+- `docs/architecture/adr_0001_web_primary_ui.md`: политика миграции и граница ответственности
+- `docs/AI_Feature_Development_Workflow.md`: workflow SpecDD/BDD/TDD/Contract First
+- `docs/SPEC_WEB_MIGRATION.md`: scope, фазы и контракты миграции
+
+## Открытые дальнейшие задачи
+
+1. Закрыть parity для сценариев, которые ещё зависят от Streamlit-only UI.
+2. Продолжать вынос reusable logic из legacy UI в shared headless модули.
+3. Не допускать расхождения между API contracts и предположениями web/frontend.
+4. В live Garmin acceptance явно отмечать, что именно проверено: web, Streamlit fallback или оба пути.
 
 ## Быстрая справка
-- Точка входа: `streamlit run app.py` или `./run.sh` (runtime checks/defaults).
-- Основные настройки: `config/settings.py`, `.env`.
-- Файл базы данных (по умолчанию): `ai_trainer.db` в корне репозитория.
-- Выбор и валидация AI-провайдера обрабатывается в `ui/components/ai_coach_provider.py` через `AIProviderFactory`.
-- Экспортные артефакты сохраняются во временных директориях и предлагаются для скачивания через кнопки Streamlit.
+
+- Предпочтительное направление новых product changes: `api/` + `web/`
+- Legacy fallback: `streamlit run app.py` или `./run.sh`
+- Shared backend/domain source of truth: `services/`, `models/`, `data/`
+- Политика миграции: `docs/architecture/adr_0001_web_primary_ui.md`
