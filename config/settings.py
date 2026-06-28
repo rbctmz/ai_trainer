@@ -28,6 +28,11 @@ class Settings:
     
     OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
     OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "gemma3:4b")
+
+    # Maximum assistant output size for AI-generated answers. The previous
+    # hardcoded 1000-token cap was too low for coach responses with tool-backed
+    # context and caused mid-sentence truncation.
+    AI_RESPONSE_MAX_TOKENS = int(os.getenv("AI_RESPONSE_MAX_TOKENS", 1800))
     
     # Провайдер по умолчанию
     DEFAULT_AI_PROVIDER = os.getenv("DEFAULT_AI_PROVIDER", "openai")

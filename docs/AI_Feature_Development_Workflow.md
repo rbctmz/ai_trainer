@@ -38,6 +38,27 @@
 
 ---
 
+# REPO-SPECIFIC ARCHITECTURE GUARDRAILS
+
+Для AI Trainer миграция ещё в процессе:
+- `web/` + `api/` — основной вектор новых продуктовых изменений
+- `services/`, `models/`, `data/` — источник бизнес-логики
+- `app.py`, `ui/`, `state/manager.py` — legacy Streamlit fallback, а не целевая поверхность для новых фич
+
+Если задача затрагивает user-facing product flow:
+1. сначала зафиксируй spec
+2. потом опиши/обнови API contract
+3. потом покрой backend behavior тестами
+4. потом реализуй shared Python logic
+5. только потом подключай `web/`
+
+Не делай:
+- новые продуктовые фичи только в Streamlit
+- дублирование бизнес-логики между Streamlit и web/API
+- перенос доменных правил в frontend-only код без необходимости
+
+---
+
 # WORKFLOW
 
 Следуй pipeline:

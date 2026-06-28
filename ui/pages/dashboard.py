@@ -25,6 +25,7 @@ from services.data_cache import load_activities, load_hrv, load_sleep
 from state import StateManager
 from ui.components.execution_feedback import render_execution_feedback_editor
 from ui.plotly_theme import get_plotly_theme
+from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
 
 
 logger = logging.getLogger(__name__)
@@ -99,6 +100,13 @@ def _get_dashboard_goal_plan(state: StateManager) -> dict[str, Any]:
     goal_plan = getattr(state, "resolved_goal_plan_context", None)
     if not isinstance(goal_plan, dict) or not goal_plan:
         goal_plan = getattr(state, "goal_plan", None)
+    if not isinstance(goal_plan, dict) or not goal_plan:
+        # Headless API mode: state.goal_plan is never set; fall back to DB checkpoint.
+        # latest_planning_checkpoint has lazy-loading via refresh_planning_checkpoint_cache().
+        checkpoint = getattr(state, "latest_planning_checkpoint", None)
+        if isinstance(checkpoint, dict):
+            from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+            goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
     return goal_plan if isinstance(goal_plan, dict) else {}
 
 
@@ -149,25 +157,7 @@ def _build_activity_day_tss(activities_df: pd.DataFrame) -> dict[date, float]:
 
 def _format_dashboard_sport_label(sport: Any) -> str:
     """Return a compact reader-facing sport label for Dashboard cards."""
-    raw = str(sport or "—").strip()
-    normalized = raw.lower()
-    labels = {
-        "bike": "вело",
-        "biking": "вело",
-        "cycling": "вело",
-        "ride": "вело",
-        "run": "бег",
-        "running": "бег",
-        "trailrun": "трейл",
-        "swim": "плавание",
-        "swimming": "плавание",
-        "walk": "ходьба",
-        "walking": "ходьба",
-        "brick": "brick",
-        "rest": "отдых",
-        "—": "—",
-    }
-    return labels.get(normalized, raw)
+    return sport_label(sport)
 
 
 def _build_dashboard_v2_summary(
@@ -215,6 +205,8 @@ def _build_dashboard_v2_summary(
             "subtitle": "Откройте Planning, если нужно уточнить ближайшие тренировки.",
             "tss": 0,
             "sport": "—",
+            "sport_key": "other",
+            "sport_label": "—",
             "action": "planning",
             "button": "Открыть Planning",
         }
@@ -223,21 +215,26 @@ def _build_dashboard_v2_summary(
             "title": "Сегодня восстановление",
             "subtitle": "План не ставит тренировочную нагрузку на сегодня.",
             "tss": 0,
-            "sport": "rest",
+            "sport": "отдых",
+            "sport_key": "off",
+            "sport_label": "отдых",
             "action": "planning",
             "button": "Посмотреть неделю",
         }
     else:
         duration = today_plan["duration_minutes"]
         duration_label = f"{duration} мин · " if duration > 0 else ""
+        today_sport_label = _format_dashboard_sport_label(today_plan["sport"])
         workout = {
             "title": today_plan["name"],
             "subtitle": (
-                f"{duration_label}{_format_dashboard_sport_label(today_plan['sport'])} · "
+                f"{duration_label}{today_sport_label} · "
                 f"{_format_tss_value(today_plan['total_tss'])} TSS"
             ),
             "tss": int(round(today_plan["total_tss"])),
-            "sport": _format_dashboard_sport_label(today_plan["sport"]),
+            "sport": today_sport_label,
+            "sport_key": normalize_sport_key(today_plan["sport"]),
+            "sport_label": today_sport_label,
             "action": "planning",
             "button": "Открыть план",
         }
@@ -267,9 +264,11 @@ def _build_dashboard_v2_summary(
             label = "нет плана"
             tss = 0
             sport = "—"
+            sport_key = "other"
             status = "empty"
         else:
             tss = int(round(float(planned.get("total_tss") or 0.0)))
+            sport_key = normalize_sport_key(planned.get("sport") or "—")
             sport = _format_dashboard_sport_label(planned.get("sport") or "—")
             if tss <= 0:
                 label = "отдых"
@@ -283,10 +282,12 @@ def _build_dashboard_v2_summary(
         next_days.append(
             {
                 "date": day.isoformat(),
-                "label": day.strftime("%a %d.%m"),
+                "label": format_date_label(day, "weekday_short"),
                 "status": status,
                 "status_label": label,
                 "sport": sport,
+                "sport_key": sport_key,
+                "sport_label": sport,
                 "tss": tss,
             }
         )
@@ -312,6 +313,7 @@ def _build_dashboard_v2_summary(
     return {
         "today": {
             "date": today.isoformat(),
+            "date_label": format_date_label(today, "weekday_short"),
             "state_label": state_label,
             "tone": tone,
             "readiness": int(round(readiness_number)),
@@ -501,10 +503,20 @@ def _render_empty_dashboard_state(state: StateManager, on_sync: Callable[[int], 
     st.caption("💡 **Совет:** Синхронизируйте последние 30 дней тренировок или временно откройте продукт на sample dataset.")
 
 
-def _calculate_current_status() -> dict[str, Any]:
-    activities_df = load_activities(30)
-    hrv_df = load_hrv(90)
-    sleep_df = load_sleep(7)
+def _calculate_current_status(
+    activities_df: pd.DataFrame | None = None,
+    hrv_df: pd.DataFrame | None = None,
+    sleep_df: pd.DataFrame | None = None,
+) -> dict[str, Any]:
+    # Streamlit path leaves the arguments empty and uses the cached loaders.
+    # Headless callers (e.g. the FastAPI layer) can pass dataframes directly
+    # so this function never touches Streamlit session state.
+    if activities_df is None:
+        activities_df = load_activities(30)
+    if hrv_df is None:
+        hrv_df = load_hrv(90)
+    if sleep_df is None:
+        sleep_df = load_sleep(7)
 
     status: dict[str, Any] = {
         "critical_status": None,

@@ -1,68 +1,63 @@
 # Codex Project Notes – AI Trainer
 
 ## Overview
-- **Purpose**: Streamlit app that ingests Garmin Connect training data, analyzes workload (TSS/CTL/ATL/TSB), HRV, and produces coaching insights via multi-provider LLM integration. 
-- **Core pillars**: data ingestion (Garmin API + local SQLite cache), analytics (Banister, HRV, workload modeling, sleep regularity), AI coaching layer, and modernized UI with light/dark themes.
+
+- **Purpose**: training cockpit for Garmin-backed endurance analytics, planning, and AI coaching.
+- **Current state**: active migration from Streamlit to FastAPI + Next.js.
+- **Working rule**: new product development is web-first, but Streamlit remains a supported fallback until parity is complete.
 
 ## Runtime Architecture
-- `app.py`: thin Streamlit composition shell. It sets page config, applies Streamlit compatibility/theme setup, renders navigation/sidebar wiring, and delegates page work to `ui/pages/*`.
-- `config/settings.py`: single source of environment-driven configuration (API keys, FTP/LTHR defaults, DB path, etc.).
-- `state/manager.py`: typed facade over `st.session_state` with lazy dependencies for database, Garmin client, AI tools, and chat state.
-- `services/`: UI-agnostic orchestration for Garmin auth/sync, demo mode, acceptance mode, data cache invalidation, and Intervals.icu.
-- `ui/`: page renderers and reusable Streamlit components. Dashboard, planning, activities, HRV, sleep, admin, welcome, and AI coaching live under `ui/pages`; provider setup, chat, Garmin sidebar, and execution feedback live under `ui/components`.
-- `data/`: Garmin API wrappers and data ETL.
-  - `garmin_client.py`: uses `garminconnect` for runtime auth/data retrieval and keeps `garth` as legacy diagnostics/runtime inspection only; fresh `garth` login is intentionally disabled.
-  - `data_processor.py`: normalizes activity payloads into pandas DataFrame, computes fallback TSS + sports translation.
-  - `database.py`: SQLite schema + CRUD for activities, HRV, sleep, daily health, training status. Uses pandas I/O and date coercion fixes.
-- `models/`:
-  - `ai_providers.py`: polymorphic layer for OpenAI, Anthropic, DeepSeek, Gemini, Ollama, plus mock provider. Handles availability detection, test connections, model enumeration.
-  - `ai_coach_universal.py`: orchestrates prompts for analyses, planning, workout review, metrics explanations, structured weekly plans.
-  - `banister.py`: CTL/ATL/TSB modeling, Banister performance simulation, recommendations, scenario simulation.
-  - `hrv_analyzer.py`: aggregates HRV metrics (RMSSD, DFA α1), smoothing, readiness scoring, detection of trends/anomalies.
-  - `training_planner.py`: rule-based helper to derive weekly TSS targets and phased plans (deload/taper), used to seed AI planning prompts.
-  - `fit_export.py`, `tcx_export.py`, `tcx_activity_export.py`: convert structured workouts into Garmin-compatible FIT/TCX, plus CSV intermediate generation. Wrap optional Garmin FIT SDK support.
-  - `ai_data_context.py`: builds structured context packages (history summaries, workload snapshots) consumed by AI prompts.
-- `utils/`:
-  - `metrics.py`: additional metric computations (Intensity Factor, normalized power, load summaries).
-  - `sleep_metrics.py`: sleep schedule regularity, weekday aggregation, ModernUI-ready recommendations.
-  - `visualizations.py`: Plotly dashboards + chart factories; now aligned with theme helpers.
-  - `modern_ui.py`: shared HTML/CSS snippets, responsive card rendering, cockpit theme colors.
-  - `logger.py` (in package) and others support structured logging.
 
-## Persistence & Data Flow
-1. User configures API keys in `.env` (template available in `.env.example`).
-2. Streamlit session authenticates with Garmin through `GarminClient`/`garminconnect`; `garth` is diagnostics-only.
-3. Activities & wellness data saved to SQLite via `Database` helpers; pandas ensures typing normalization.
-4. `ActivityProcessor` + `metrics.py` compute TSS, CTL/ATL, HRV readiness; results memoized in session state for UI + AI.
-5. AI interactions: `AIProviderFactory` selects available provider; `UniversalAICoach` crafts prompts using `ai_data_context` to provide historial context; responses displayed alongside charts.
-6. Workout planning/export: UI collects structured plan → `training_planner` builds weekly TSS targets → planning checkpoints persist versions/execution feedback → FIT/TCX/Intervals.icu export surfaces serialize planned workouts.
+- `web/`: primary UI direction during migration. Dashboard, coach, planning, HRV, and activities are already exposed here.
+- `api/`: FastAPI contract layer for the web frontend. New product-facing flows should cross this boundary instead of reaching into Streamlit state.
+- `app.py`: legacy Streamlit shell. Still useful for fallback, acceptance, admin/diagnostic flows, and any behavior not fully migrated yet.
+- `config/settings.py`: single source of environment-backed configuration.
+- `services/`: UI-agnostic orchestration for Garmin auth/sync, demo mode, acceptance mode, data refresh, and external integrations.
+- `data/`: Garmin API wrappers, ETL, and SQLite persistence helpers.
+- `models/`: AI providers, coaching runtime, planning logic, Banister/HRV analytics, export helpers, and structured context builders.
+- `state/`: Streamlit-oriented state helpers; do not treat `st.session_state` as the contract for new product flows.
+- `ui/`: legacy Streamlit pages/components. Maintain, shrink, or extract from them; avoid growing them with new product-specific logic.
+- `utils/`: shared metrics, visualizations, sleep analytics, and Streamlit/theme helpers.
 
-## UI & Theming
-- Modern design built around Material-like palette with consistent CSS variables for light/dark modes.
-- `ModernUI` centralizes card components, responsive grids, mini-chart styling, icon stacks.
-- Extensive custom HTML injected via `st.markdown` to overcome Streamlit styling limits.
+## Data Flow
+
+1. Garmin and provider credentials are loaded from `.env` via `config/settings.py`.
+2. Shared Python logic in `services/`, `data/`, and `models/` loads and computes activity, HRV, planning, and AI context data.
+3. `api/` exposes that behavior through explicit HTTP contracts for `web/`.
+4. `web/` renders the main migrated product flows.
+5. Streamlit still consumes the same backend/domain modules for fallback and acceptance scenarios.
+
+## Product Surface Policy
+
+- Prefer `api/` + `web/` for new product-facing work.
+- Keep domain rules in Python, not in ad hoc frontend-only logic.
+- Streamlit changes are acceptable for bug fixes, acceptance/admin tooling, compatibility bridges, or extraction of reusable logic.
+- Do not ship new product behavior only in `ui/pages/*` unless the task is explicitly legacy-only.
 
 ## Testing & Tooling
-- `tests/` contains API provider unit tests, HRV trend checks, sleep regularity coverage, etc. (`pytest` runner documented in README).
-- Debug scripts in `debug/` (Ollama connectivity, data inspection).
-- `examples/` hosts demo flows for AI features.
-- `run.sh` applies conservative Google/gRPC runtime defaults and launches Streamlit; use `scripts/doctor_env.py` for dependency diagnostics/repair.
 
-## Documentation Assets
-- `docs/modernization_plan/` and `docs/redesign_guide/`: historical UI modernization material. Treat as archive/reference unless a current ExecPlan says otherwise.
-- `docs/dashboard_optimization_plan.md`: targeted UI/dashboard improvements checklist.
+- Default contributor-safe command: `python -m pytest tests/smoke -q`
+- Broader local pass: `python -m pytest -m "not live and not debug" tests/`
+- Web/API local runtime: `./run_web.sh`
+- Legacy Streamlit runtime: `./run.sh`
+- Acceptance runtime: `ACCEPTANCE_PORT=8510 ./run_acceptance.sh`
 
-## Open Questions / Follow-up Areas
-1. **State management**: Streamlit page now split across `state/`, `ui/`, `services/`, and `StateManager` wraps session state for readability/testability.
-2. **Caching strategy**: review usage of `st.cache_data`/`st.cache_resource` (present in app) for data fetches; ensure cache invalidation on sync.
-3. **Database growth**: evaluate retention/archival for large historical datasets; maybe add pruning or incremental updates instead of full replace in `save_activities`.
-4. **Fitness modeling**: integrate HRV readiness and Banister outputs into combined readiness metric; align interpretation thresholds.
-5. **Testing**: expand unit coverage for new planners/exporters and theme utilities; add integration smoke test for Garmin sync using mocked data.
-6. **Internationalization**: app currently mixes RU/EN labels—decide on localization strategy or add translation layer.
+## Documentation Anchors
+
+- `docs/architecture/adr_0001_web_primary_ui.md`: migration policy and ownership boundary
+- `docs/AI_Feature_Development_Workflow.md`: SpecDD/BDD/TDD/Contract First workflow
+- `docs/SPEC_WEB_MIGRATION.md`: migration scope, phases, and contracts
+
+## Open Follow-up Areas
+
+1. Finish parity for flows that still depend on Streamlit-only UI behavior.
+2. Keep extracting reusable logic from legacy UI paths into shared headless modules.
+3. Prevent drift between API contracts and web/frontend assumptions.
+4. Keep live Garmin acceptance coverage honest about whether a result validates web, Streamlit fallback, or both.
 
 ## Quick Reference
-- Entry point: `streamlit run app.py` or `./run.sh` (runtime checks/defaults).
-- Core configs: `config/settings.py`, `.env`.
-- Database file (default): `ai_trainer.db` in repo root.
-- AI provider selection + validation handled in `ui/components/ai_coach_provider.py` through `AIProviderFactory`.
-- Export artifacts saved to temp directories and offered via Streamlit download buttons.
+
+- Preferred direction for new product work: `api/` + `web/`
+- Legacy fallback: `streamlit run app.py` or `./run.sh`
+- Shared backend/domain source of truth: `services/`, `models/`, `data/`
+- Migration policy: `docs/architecture/adr_0001_web_primary_ui.md`

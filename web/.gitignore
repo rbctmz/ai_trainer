@@ -1,0 +1,12 @@
+/node_modules
+/.next
+/out
+/build
+.env.local
+*.tsbuildinfo
+next-env.d.ts.bak
+
+# Re-include config files that the repo-root ".gitignore" excludes via "*.json".
+!package.json
+!package-lock.json
+!tsconfig.json

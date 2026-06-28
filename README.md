@@ -2,10 +2,13 @@
 
 Интеллектуальный анализатор тренировочных данных с интеграцией Garmin Connect для персонализированного планирования тренировок.
 
+Репозиторий находится в активной миграции со Streamlit на web-стек FastAPI + Next.js. Новые продуктовые сценарии идут через `api/` + `web/`, при этом Streamlit остаётся рабочим fallback-контуром до полной parity.
+
 ## 📋 Требования
 
 - Python 3.10+ (проект проверен на 3.11)
 - `pip` и модуль `venv` для управления зависимостями
+- Node.js и `npm` для web-интерфейса
 - Учётная запись Garmin Connect (нужна для реальной синхронизации данных; демо-режим работает без неё)
 - API-ключ хотя бы одного AI‑провайдера из списка ниже (для реального AI; демо-режим использует Mock AI)
 
@@ -24,6 +27,9 @@ ai_trainer_env\Scripts\activate     # Windows
 
 # Установка runtime-зависимостей
 pip install -r requirements.txt
+
+# Web/API слой
+pip install -r requirements-web.txt
 
 # Для разработки и тестов
 pip install -r requirements-dev.txt
@@ -59,14 +65,27 @@ USER_MAX_HR=185                        # Максимальный пульс (у
 
 ### 3. Запуск приложения
 
-#### Быстрый запуск (рекомендуется)
+#### Web stack (основной вектор миграции)
+```bash
+./run_web.sh
+```
+
+Если скрипт не исполняется, сделайте его исполняемым: `chmod +x run_web.sh`.
+
+`run_web.sh` поднимает:
+- web UI: http://localhost:3000
+- FastAPI docs: http://localhost:8000/docs
+
+Скрипт также автоматически устанавливает `requirements-web.txt` и `web`-зависимости, если они ещё не установлены.
+
+#### Legacy Streamlit fallback
 ```bash
 ./run.sh
 ```
 
 Если скрипт не исполняется, сделайте его исполняемым: `chmod +x run.sh`.
 
-#### Альтернативный запуск
+#### Альтернативный запуск Streamlit
 ```bash
 export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python
 streamlit run app.py
@@ -110,7 +129,9 @@ python scripts/doctor_env.py check --workspace
 - В Finder выполните `Download Now` или `Keep Downloaded` для папки репозитория.
 - Лучше перенесите проект в локальную директорию вроде `~/Code/ai_trainer` или `~/GitHub/ai_trainer`.
 
-Приложение откроется в браузере по адресу: http://localhost:8501
+Во время миграции обе поверхности поддерживаются:
+- `http://localhost:3000` — web UI
+- `http://localhost:8501` — legacy Streamlit UI
 
 ## 📊 Возможности
 
@@ -136,9 +157,11 @@ python scripts/doctor_env.py check --workspace
 
 ## 🏗️ Архитектура проекта
 
-```
+```text
 ai_trainer/
-├── app.py                     # Тонкий Streamlit shell: конфиг, навигация, callbacks
+├── api/                       # FastAPI контракты для web-фронта
+├── web/                       # Next.js UI, миграционный product surface
+├── app.py                     # Legacy Streamlit shell: fallback/dev/acceptance surface
 ├── config/
 │   └── settings.py            # Конфигурация и константы
 ├── data/
@@ -146,10 +169,10 @@ ai_trainer/
 │   ├── data_processor.py      # Обработка данных активностей
 │   └── database.py            # SQLite для локального кеширования
 ├── services/                  # Garmin/sync/demo/acceptance orchestration
-├── state/                     # StateManager поверх st.session_state
+├── state/                     # Streamlit-oriented state helpers
 ├── ui/
-│   ├── pages/                 # Dashboard, Planning, AI Coaching, HRV, Sleep, Activities
-│   └── components/            # Sidebar, provider setup, chat, execution feedback
+│   ├── pages/                 # Legacy Streamlit pages
+│   └── components/            # Legacy Streamlit components
 ├── models/
 │   ├── ai_providers.py        # Универсальная архитектура AI провайдеров
 │   ├── ai_coach_universal.py  # Универсальная система коучинга
@@ -157,7 +180,7 @@ ai_trainer/
 │   ├── hrv_analyzer.py        # Анализ HRV (RMSSD, DFA α1)
 │   └── mock_ai_provider.py    # Mock провайдер для тестирования
 ├── utils/
-│   ├── modern_ui.py           # Cockpit UI helpers and shared CSS
+│   ├── modern_ui.py           # Streamlit UI helpers and shared CSS
 │   ├── metrics.py             # Расчёт метрик (TSS, NP, CTL, ATL)
 │   ├── sleep_metrics.py       # Регулярность сна, агрегация по дням недели
 │   └── visualizations.py      # Plotly визуализации
@@ -169,8 +192,12 @@ ai_trainer/
 
 ## 🔧 Технологический стек
 
+### Product surfaces
+- **FastAPI** - Контрактный backend для product/web flows
+- **Next.js 14** - Основной web UI во время миграции
+- **Streamlit** - Legacy fallback/admin/acceptance surface
+
 ### Основные библиотеки
-- **Streamlit** - Современный веб-интерфейс
 - **pandas/numpy** - Обработка и анализ данных
 - **scipy** - Научные вычисления (оптимизация, обработка сигналов)
 - **plotly** - Интерактивные визуализации
@@ -192,6 +219,7 @@ ai_trainer/
 
 ### ✅ Завершённые функции
 - Полная интеграция с Garmin Connect
+- Web migration MVP: FastAPI + Next.js dashboard/coach/hrv/activities/planning
 - Интерактивный дашборд тренировок
 - Расчёт всех ключевых метрик (TSS, NP, CTL, ATL, TSB)
 - Универсальная система AI провайдеров
@@ -211,6 +239,7 @@ ai_trainer/
   - Образовательный контент
 
 ### 🔄 В разработке / ближайший долг
+- Доведение parity между web и legacy Streamlit поверхностями
 - Декомпозиция крупных модулей Planning/Dashboard
 - Единый signals engine для dashboard/planning/AI
 - Уточнение и очистка старых диагностических тестов

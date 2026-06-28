@@ -4,29 +4,35 @@ This file provides repository-specific guidance for Claude Code when working in 
 
 ## Project Overview
 
-AI Trainer is a Streamlit-based endurance training cockpit. It ingests Garmin Connect data into a local SQLite cache, analyzes workload, HRV, sleep, planning execution, and exposes multi-provider AI coaching over that local context.
+AI Trainer is an endurance training cockpit built around Garmin Connect data, local SQLite persistence, workload/HRV analytics, planning execution, and multi-provider AI coaching.
+
+The repository is in an active migration from Streamlit to a web stack:
+
+- `web/` is the primary product direction for new UI work
+- `api/` is the contract layer for that UI
+- Streamlit remains a supported fallback surface until migration parity is complete
+
+Do not describe the project as "Streamlit-only" anymore.
 
 ## Current Architecture
 
-`app.py` is a thin Streamlit composition shell. It sets page config, applies compatibility/theme setup, renders navigation, and delegates the real product surfaces to page/component modules.
-
-Key directories:
-
 ```text
 ai_trainer/
-├── app.py                  # Streamlit shell and top-level routing
-├── config/settings.py      # Environment-backed settings and defaults
-├── data/                   # Garmin clients, SQLite persistence, ETL processors
-├── services/               # Sync, Garmin service boundary, demo and acceptance mode
-├── state/                  # StateManager facade over st.session_state
-├── ui/pages/               # Dashboard, planning, HRV, sleep, activities, admin, AI pages
-├── ui/components/          # Sidebar, AI coach, provider setup, execution feedback widgets
-├── models/                 # AI providers, coach runtime, planning, metrics/explainability
-├── utils/                  # Modern UI, Plotly theme, visualization and compatibility helpers
-├── tests/smoke/            # Contributor-safe smoke suite
-├── tests/                  # Broader unit, diagnostic, live, and integration tests
-├── docs/                   # Current docs, ExecPlans, and historical plans
-└── run_acceptance.sh       # Isolated Streamlit launch with temp DB/demo dataset
+├── api/                     # FastAPI routes and schemas for web flows
+├── web/                     # Next.js UI under active migration
+├── app.py                   # Legacy Streamlit shell and fallback routing
+├── config/settings.py       # Environment-backed settings and defaults
+├── data/                    # Garmin clients, SQLite persistence, ETL processors
+├── services/                # Sync, Garmin service boundary, demo and acceptance mode
+├── state/                   # Streamlit-oriented state helpers
+├── ui/pages/                # Legacy Streamlit pages
+├── ui/components/           # Legacy Streamlit widgets and helpers
+├── models/                  # AI providers, coach runtime, planning, metrics/explainability
+├── utils/                   # Shared helpers, Plotly/theme helpers, compatibility utilities
+├── tests/smoke/             # Contributor-safe smoke suite
+├── tests/                   # Broader unit, diagnostic, live, and integration tests
+├── docs/                    # Current docs, ExecPlans, ADRs, and historical plans
+└── run_acceptance.sh        # Isolated Streamlit launch with temp DB/demo dataset
 ```
 
 ## Development Commands
@@ -39,8 +45,12 @@ source ai_trainer_env/bin/activate
 # Install dependencies
 pip install -r requirements.txt
 pip install -r requirements-dev.txt
+pip install -r requirements-web.txt
 
-# Run the app
+# Web/API path during migration
+./run_web.sh
+
+# Legacy Streamlit fallback
 ./run.sh
 
 # Safe test path for ordinary development
@@ -59,6 +69,13 @@ ACCEPTANCE_PORT=8510 ./run_acceptance.sh
 
 Do not treat plain `python -m pytest tests/` as the normal contributor command. The tree still contains live/diagnostic tests that may require Garmin credentials, network, local AI runtimes, or historical assumptions.
 
+## Product Surface Rules
+
+- New product-facing work should start from shared Python logic plus explicit API contracts in `api/`, then be wired into `web/`.
+- Streamlit work is still valid for bug fixes, acceptance/admin tooling, fallback behavior, or extracting reusable logic out of legacy UI code.
+- Do not add new product behavior only to `ui/pages/*` unless the task is explicitly legacy-only.
+- Do not duplicate business logic between Streamlit and API/web flows.
+
 ## Integrations
 
 ### Garmin
@@ -69,7 +86,7 @@ Use service helpers in `services/garmin.py` and `services/sync.py` instead of re
 
 ### AI Providers
 
-Supported provider types are OpenAI, Anthropic, DeepSeek, Google Gemini, Ollama, and Mock AI for demo mode. Provider setup lives in `ui/components/ai_coach_provider.py`, with provider implementations in `models/ai_providers.py`.
+Supported provider types are OpenAI, Anthropic, DeepSeek, Google Gemini, Ollama, and Mock AI for demo mode. Provider setup in the legacy surface lives in `ui/components/ai_coach_provider.py`, with provider implementations in `models/ai_providers.py`.
 
 Environment-backed API keys are intentionally hidden in the UI. Leaving a provider key field empty should continue to use the `.env` value when present.
 
@@ -98,11 +115,12 @@ Secrets belong only in `.env` or the local runtime environment, never in tracked
 
 ## Coding Notes
 
-- Prefer existing page/component/service boundaries over adding logic to `app.py`.
-- Prefer `utils/modern_ui.py` and existing `ui/components/*` helpers for Streamlit UI.
-- Keep data clients UI-agnostic; return structured status/errors and let UI render them.
+- Prefer shared service/model logic over adding business rules to UI files.
+- For new UI work, prefer `api/` + `web/`.
+- For legacy Streamlit work, prefer existing `utils/modern_ui.py` and `ui/components/*` helpers.
+- Keep data clients UI-agnostic; return structured status/errors and let the UI render them.
 - Many docs and strings are Russian-first; keep the language style already used in the file.
-- Large planning/dashboard changes should use an ExecPlan per `.agent/PLANS.md`.
+- Large planning/dashboard/API changes should use an ExecPlan per `.agent/PLANS.md`.
 - Keep smoke tests green after each coherent slice.
 
 ## Troubleshooting

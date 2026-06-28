@@ -8,6 +8,7 @@ This directory contains current project docs, active/historical ExecPlans, and a
 - `AGENTS.md` at repository root: repository instructions for coding agents.
 - `CLAUDE.md` at repository root: Claude Code orientation.
 - `docs/AI_Feature_Development_Workflow.md`: canonical SpecDD/BDD/TDD/Contract First workflow for non-trivial feature work.
+- `docs/architecture/adr_0001_web_primary_ui.md`: active migration policy; web-first for new product work, Streamlit still supported as fallback during parity work.
 - `docs/codex_project_notes.md` and `docs/codex_project_notes_ru.md`: compact architecture notes.
 - `docs/ai_coaching_guide.md`: current AI provider and AI Coaching behavior.
 - `docs/ollama_setup.md`: local model setup.
@@ -41,7 +42,8 @@ The following documents are retained for decision history and old UI exploration
 
 - If a doc describes an old architecture, add an archive/status note rather than silently leaving it active.
 - Keep quick-start commands aligned with `README.md`, `AGENTS.md`, and `CLAUDE.md`.
-- Keep process guidance aligned between `AGENTS.md` and `docs/AI_Feature_Development_Workflow.md`.
+- Keep process guidance aligned between `AGENTS.md`, `docs/AI_Feature_Development_Workflow.md`, and `docs/architecture/adr_0001_web_primary_ui.md`.
+- During the migration window, explicitly say whether a doc section targets `web`/`api` or legacy Streamlit fallback.
 - Use `python -m pytest tests/smoke -q` as the default contributor-safe test command in docs.
 - Avoid absolute machine paths in new docs.
 - Do not document `.env` values in a way that exposes real secrets or encourages pre-filling secret UI fields.

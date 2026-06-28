@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from models import ai_coach_runtime
+from ui.components.ai_coach_output import format_tool_result
 from ui.pages import ai_coaching
 
 
@@ -28,8 +29,8 @@ class _DummyProvider:
         self.response = response
         self.calls = []
 
-    def generate_response(self, prompt: str, _context: str) -> str:
-        self.calls.append(prompt)
+    def generate_response(self, prompt: str, system_prompt: str) -> str:
+        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
         return self.response
 
 
@@ -49,6 +50,18 @@ class _DummyPlaceholder:
         self.messages.append(text)
 
 
+def test_system_prompt_mandates_hrv_tool_for_recovery_questions():
+    prompt = ai_coach_runtime.create_chat_system_prompt_with_tools(None)
+    assert "analyze_hrv_trends" in prompt
+    assert "Утверждать" in prompt and "HRV нет" in prompt
+
+
+def test_synthesis_prompt_forbids_hrv_absent_without_tool():
+    system_prompt = ai_coach_runtime.create_chat_synthesis_system_prompt()
+    assert "НЕЛЬЗЯ" in system_prompt
+    assert "не вызывался" in system_prompt
+
+
 def test_runtime_builds_prompt_from_history_and_tools():
     ai_tools = _DummyAiTools()
     provider = _DummyProvider("raw ai response")
@@ -66,6 +79,7 @@ def test_runtime_builds_prompt_from_history_and_tools():
     assert response == "raw ai response"
     assert len(provider.calls) == 1
     prompt = provider.calls[0]
+    prompt = prompt["prompt"]
     assert "TEST TOOL" in prompt
     assert "USER: Как форма сегодня?" in prompt
     assert "ASSISTANT: Форма стабильная." in prompt
@@ -88,6 +102,7 @@ def test_runtime_appends_response_contract_suffix_to_prompt():
     )
 
     prompt = provider.calls[0]
+    prompt = prompt["prompt"]
     assert "Что делать после облегчённой недели?" in prompt
     assert "Верни ответ строго в формате" in prompt
 
@@ -137,6 +152,112 @@ def test_runtime_wraps_final_response_into_operational_brief():
     assert "### Почему" in final
     assert "### Разбор AI" in final
     assert "Нагрузку стоит возвращать аккуратно" in final
+
+
+def test_runtime_synthesizes_final_answer_after_tool_execution():
+    ai_tools = _DummyAiTools(
+        responses={
+            "sample_tool": {
+                "success": True,
+                "result": {"value": 42},
+            }
+        }
+    )
+    provider = _DummyProvider("Финальный ответ с конкретной рекомендацией.")
+
+    final = ai_coach_runtime.finalize_ai_chat_response(
+        "Сейчас соберу данные: [TOOL: sample_tool, days=7]",
+        ai_tools,
+        tool_result_formatter=lambda name, data: f"{name}:{data['value']}",
+        provider=provider,
+        user_input="Что делать сегодня?",
+        history_messages=[{"role": "user", "content": "Как форма?"}],
+    )
+
+    assert final == "Финальный ответ с конкретной рекомендацией."
+    assert ai_tools.calls == [("sample_tool", {"days": 7})]
+    assert len(provider.calls) == 1
+    assert "РЕЗУЛЬТАТЫ ИНСТРУМЕНТОВ" in provider.calls[0]["prompt"]
+    assert "sample_tool:42" in provider.calls[0]["prompt"]
+    assert "ЗАВЕРШЁННЫЙ финальный ответ" in provider.calls[0]["system_prompt"]
+
+
+def test_collect_tool_results_preserves_raw_proposal_payload():
+    ai_tools = _DummyAiTools(
+        responses={
+            "sample_tool": {
+                "success": True,
+                "result": {
+                    "is_proposal": True,
+                    "action": "build_plan",
+                    "params": {"goal_type": "Триатлон"},
+                    "preview": {"total_weeks": 8},
+                },
+            }
+        }
+    )
+
+    rendered, tool_results = ai_coach_runtime.collect_tool_results(
+        "Предлагаю так: [TOOL: sample_tool]",
+        ai_tools,
+        tool_result_formatter=lambda name, _data: f"{name}:ok",
+    )
+
+    assert rendered == "Предлагаю так: sample_tool:ok"
+    assert tool_results[0]["raw_result"]["is_proposal"] is True
+    assert tool_results[0]["raw_result"]["preview"]["total_weeks"] == 8
+
+
+def test_tool_formatter_localizes_activity_payloads():
+    rendered = format_tool_result(
+        "get_recent_activities",
+        {
+            "count": 1,
+            "activities": [
+                {
+                    "date": "2026-06-27",
+                    "date_label": "Сб 27.06",
+                    "sport": "open_water_swimming",
+                    "sport_label": "плавание",
+                    "duration_minutes": 52,
+                    "tss": 21,
+                }
+            ],
+        },
+    )
+
+    assert "open_water_swimming" not in rendered
+    assert "Сб 27.06" in rendered
+    assert "плавание" in rendered
+
+
+def test_tool_formatter_localizes_training_status_payloads():
+    rendered = format_tool_result(
+        "get_training_status",
+        {
+            "period_days": 7,
+            "latest": {
+                "training_status": "PRODUCTIVE",
+                "training_status_label": "Продуктивно",
+                "training_readiness": 72,
+                "training_load_7d": 355,
+                "vo2_max": 40.6,
+            },
+            "summary": {
+                "avg_training_readiness": 68.5,
+                "avg_training_load_7d": 340.0,
+                "avg_vo2_max": 40.6,
+                "status_distribution": {"Продуктивно": 2},
+            },
+            "history": [
+                {"date": "2026-06-27", "date_label": "Сб 27.06", "training_readiness": 72},
+            ],
+        },
+    )
+
+    assert "PRODUCTIVE" not in rendered
+    assert "Продуктивно" in rendered
+    assert "Сб 27.06" in rendered
 
 
 def test_page_wrappers_preserve_runtime_contract(monkeypatch: pytest.MonkeyPatch):
