@@ -45,3 +45,26 @@ jobs:
                 `See \`AGENTS.md\` and \`.agent/PLANS.md\` for project conventions.`,
               ].join('\n')
             });
+
+      - name: Set queued labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const num = context.payload.issue.number;
+            await github.rest.issues.addLabels({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: num,
+              labels: ['status: queued', 'agent: codex']
+            });
+            for (const name of ['status: needs triage', 'status: blocked', 'status: in progress']) {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: num,
+                  name
+                });
+              } catch {}
+            }
