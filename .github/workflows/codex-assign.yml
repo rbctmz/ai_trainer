@@ -2,7 +2,7 @@ name: Codex auto-assign
 
 on:
   issues:
-    types: [opened]
+    types: [opened, reopened]
 
 jobs:
   assign-codex:
