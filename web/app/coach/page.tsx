@@ -71,11 +71,6 @@ export default function CoachPage() {
             acc += e.content;
             setPartial(acc);
             scrollDown();
-          } else if (e.type === "replace") {
-            // Tools were resolved server-side — swap the live draft for the final text.
-            acc = e.content;
-            setPartial(acc);
-            scrollDown();
           } else if (e.type === "done") {
             setMessages((m) => [...m, { role: "assistant", content: acc }]);
             setPartial("");
