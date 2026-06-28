@@ -88,6 +88,16 @@ def coach_chat(req: ChatRequest, db: Database = Depends(get_database)) -> Stream
                         "status": "done",
                     }
                 )
+                raw_result = item.get("raw_result") or {}
+                if raw_result.get("is_proposal"):
+                    yield _sse(
+                        {
+                            "type": "proposal",
+                            "action": raw_result.get("action"),
+                            "params": raw_result.get("params", {}),
+                            "preview": raw_result.get("preview", {}),
+                        }
+                    )
 
             if tool_results and supports_streaming(provider):
                 synthesis_prompt = build_chat_synthesis_prompt(

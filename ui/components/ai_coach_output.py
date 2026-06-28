@@ -516,6 +516,57 @@ def format_tool_result(tool_name, data):
 {chr(10).join(recent_lines) if recent_lines else "• Нет свежих записей"}
 """
 
+    elif tool_name == "propose_plan_build":
+        preview = data.get("preview", {}) if isinstance(data, dict) else {}
+        params = data.get("params", {}) if isinstance(data, dict) else {}
+        goal = preview.get("goal", {}) if isinstance(preview, dict) else {}
+
+        return f"""
+## 🧭 Предложение нового плана
+
+### 🎯 Цель:
+• Вид спорта: {goal.get('goal_type') or params.get('goal_type') or 'н/д'}
+• Дистанция: {goal.get('distance') or params.get('distance') or 'н/д'}
+• Старт: {goal.get('event_date') or params.get('event_date') or 'н/д'}
+• Часов в неделю: {params.get('available_hours', 'н/д')}
+
+### 📈 Что получилось:
+• Недель в плане: {preview.get('total_weeks', 'н/д')}
+• Целевой недельный TSS: {preview.get('target_weekly_tss', 'н/д')}
+• Пик TSS/нед: {preview.get('peak_tss', 'н/д')}
+• Общий TSS: {preview.get('total_tss', 'н/д')}
+
+### ✅ Дальше:
+Подтверди карточку ниже, если хочешь сохранить именно этот план в активный.
+"""
+
+    elif tool_name == "propose_plan_adjustment":
+        preview = data.get("preview", {}) if isinstance(data, dict) else {}
+        params = data.get("params", {}) if isinstance(data, dict) else {}
+        completion = preview.get("completion_share")
+        completion_pct = (
+            f"{round(float(completion or 0) * 100):.0f}%"
+            if completion is not None
+            else "н/д"
+        )
+
+        return f"""
+## 🔧 Предложение корректировки плана
+
+### 📋 Основание:
+• Недель для пересборки: {params.get('weeks', 'н/д')}
+• Пропущено сессий: {preview.get('missed_sessions', 'н/д')}
+• Выполнение: {completion_pct}
+
+### 📈 Что изменится:
+• Статус: {preview.get('adjustment_label') or preview.get('adjustment_status') or 'н/д'}
+• Новый пик TSS/нед: {preview.get('peak_tss', 'н/д')}
+• Новый общий TSS: {preview.get('total_tss', 'н/д')}
+
+### ✅ Дальше:
+Подтверди карточку ниже, если хочешь применить именно эту корректировку.
+"""
+
     elif tool_name == "get_activities_by_date_range":
         if data["count"] == 0:
             return f"📭 **Нет тренировок в период {data['period']}**"

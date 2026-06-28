@@ -182,6 +182,32 @@ def test_runtime_synthesizes_final_answer_after_tool_execution():
     assert "ЗАВЕРШЁННЫЙ финальный ответ" in provider.calls[0]["system_prompt"]
 
 
+def test_collect_tool_results_preserves_raw_proposal_payload():
+    ai_tools = _DummyAiTools(
+        responses={
+            "sample_tool": {
+                "success": True,
+                "result": {
+                    "is_proposal": True,
+                    "action": "build_plan",
+                    "params": {"goal_type": "Триатлон"},
+                    "preview": {"total_weeks": 8},
+                },
+            }
+        }
+    )
+
+    rendered, tool_results = ai_coach_runtime.collect_tool_results(
+        "Предлагаю так: [TOOL: sample_tool]",
+        ai_tools,
+        tool_result_formatter=lambda name, _data: f"{name}:ok",
+    )
+
+    assert rendered == "Предлагаю так: sample_tool:ok"
+    assert tool_results[0]["raw_result"]["is_proposal"] is True
+    assert tool_results[0]["raw_result"]["preview"]["total_weeks"] == 8
+
+
 def test_tool_formatter_localizes_activity_payloads():
     rendered = format_tool_result(
         "get_recent_activities",

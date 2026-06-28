@@ -11,16 +11,18 @@ Right now the AI coach can only read data — it cannot touch the training plan 
 
 ## Progress
 
-- [ ] Milestone 1: Add `propose_plan_build` and `propose_plan_adjustment` tools to `models/ai_tools.py`
-- [ ] Milestone 2: Update system prompt in `models/ai_coach_runtime.py` to mandate proposal tools
-- [ ] Milestone 3: Emit `proposal` SSE event in `api/routers/coach.py` when tool result has `is_proposal: True`
-- [ ] Milestone 4: Add `ProposalCard` component and handle `proposal` event in `web/app/coach/page.tsx`
-- [ ] Milestone 5: Smoke tests in `tests/smoke/test_ai_tools_proposal.py`; verify `python -m pytest tests/smoke -q` stays at 232 pass
+- [x] Milestone 1: Add `propose_plan_build` and `propose_plan_adjustment` tools to `models/ai_tools.py`
+- [x] Milestone 2: Update system prompt in `models/ai_coach_runtime.py` to mandate proposal tools
+- [x] Milestone 3: Emit `proposal` SSE event in `api/routers/coach.py` when tool result has `is_proposal: True`
+- [x] Milestone 4: Add `ProposalCard` component and handle `proposal` event in `web/app/coach/page.tsx`
+- [ ] Milestone 5: Smoke tests in `tests/smoke/test_ai_tools_proposal.py`; verify `python -m pytest tests/smoke -q` stays at 232 pass (running)
 
 
 ## Surprises & Discoveries
 
-(fill as you go)
+- `AITools.execute_tool()` historically assumed every successful tool returns an arbitrary payload and wraps it into `{"success": True, "result": ...}`. Proposal tools need graceful domain errors (`missing event_date`, `no active plan`) without throwing, so `execute_tool()` now preserves explicit `{"success": False, "error": ...}` results instead of re-wrapping them as success.
+- The original ExecPlan suggested a smoke test against `Settings.DATABASE_PATH`. That is brittle for contributor-safe CI because it depends on a populated local cache. The implementation switched to temp SQLite fixtures seeded with synthetic activities, then exercised the real planning engine on top of that fixture.
+- The web contract already had `tool_call` chips and streaming final tokens; adding a separate `proposal` SSE event let the UI show a persistent confirm/cancel card without parsing assistant markdown or inventing frontend heuristics.
 
 
 ## Decision Log
@@ -40,6 +42,10 @@ Right now the AI coach can only read data — it cannot touch the training plan 
 - Decision: Proposal data is surfaced to the frontend via a new `{"type": "proposal", ...}` SSE event, not via inline text.
   Rationale: The coach text response should explain the proposal in natural language while the UI renders the structured preview and confirm/cancel buttons. Mixing structured data into the markdown text would be fragile.
   Date/Author: 2026-06-28 / Claude Code
+
+- Decision: Proposal smoke coverage uses temp seeded SQLite databases instead of the real `Settings.DATABASE_PATH`.
+  Rationale: This keeps `tests/smoke` contributor-safe and CI-stable while still exercising the real planning path (`build_plan`, `reconciliation`, `apply_adjustment`) end to end. The test now validates planner behavior, not local machine state.
+  Date/Author: 2026-06-28 / Codex
 
 
 ## Outcomes & Retrospective

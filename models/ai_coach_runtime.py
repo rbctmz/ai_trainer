@@ -48,6 +48,9 @@ def create_chat_system_prompt_with_tools(ai_tools: Any, data_context: Any = None
 • Если вопрос требует период/дату, вызывай инструмент с параметром days/start/end, а затем цитируй фактические значения из результата
 • Метрики CTL/ATL/TSB и анализ нагрузки получай через соответствующие инструменты, вместо общих оценок
 • Утверждать «данных HRV нет» или «readiness нет» можно ТОЛЬКО если инструмент был вызван и вернул пустой результат
+• Для предложения собрать новый план ОБЯЗАТЕЛЬНО вызывай **propose_plan_build** с параметрами goal_type, distance, event_date, available_hours. Не описывай такой план только словами.
+• Для предложения скорректировать активный план ОБЯЗАТЕЛЬНО вызывай **propose_plan_adjustment**. Не обещай корректировку без вызова инструмента.
+• НИКОГДА не говори «я составлю план» или «план будет готов» без вызова **propose_plan_build** или **propose_plan_adjustment**
 """
 
     tools_description = ""
@@ -245,6 +248,7 @@ def collect_tool_results(
                         "tool_name": tool_name,
                         "params": params,
                         "formatted_result": formatted_result,
+                        "raw_result": data,
                         "success": True,
                     }
                 )

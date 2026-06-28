@@ -108,6 +108,10 @@ TOOL_LABELS_RU = {
     "get_training_status": "Статус Garmin",
     "analyze_training_status": "Статус тренированности",
     "get_daily_health_stats": "Ежедневное здоровье",
+    "get_active_plan": "Активный план",
+    "get_upcoming_workouts": "Ближайшие тренировки",
+    "propose_plan_build": "Предложение плана",
+    "propose_plan_adjustment": "Предложение корректировки",
 }
 
 TREND_LABELS_RU = {

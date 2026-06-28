@@ -8,6 +8,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Callable
+from api import planning_service
 from data.database import Database
 from models.banister import BanisterModel
 from models.hrv_analyzer import HRVAnalyzer
@@ -61,6 +62,8 @@ class AITools:
             "get_daily_health_stats": self.get_daily_health_stats,
             "get_active_plan": self.get_active_plan,
             "get_upcoming_workouts": self.get_upcoming_workouts,
+            "propose_plan_build": self.propose_plan_build,
+            "propose_plan_adjustment": self.propose_plan_adjustment,
         }
     
     def get_available_tools(self) -> Dict[str, str]:
@@ -87,6 +90,15 @@ class AITools:
             "get_daily_health_stats": "Получить ежедневные показатели здоровья (шаги, ЧСС, калории) за период (days=30)",
             "get_active_plan": "Получить активный тренировочный план: цель, дистанцию, дату старта, фазы, недельные TSS-таргеты, итоговый TSS и пик",
             "get_upcoming_workouts": "Получить ближайшие плановые тренировки из активного плана (days=7)",
+            "propose_plan_build": (
+                "Предложить собрать новый план подготовки. Параметры: goal_type (Триатлон/Бег/Вело/Плавание), "
+                "distance (Sprint/Olympic/Half/Full или 5K/10K/21K/42K), event_date (YYYY-MM-DD), "
+                "available_hours (часов в неделю), available_days (необязательно, через запятую: mon,tue,...)."
+            ),
+            "propose_plan_adjustment": (
+                "Предложить корректировку активного плана по факту выполнения недели. "
+                "Параметры: weeks (целое, по умолчанию 1)."
+            ),
         }
     
     def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
@@ -99,6 +111,13 @@ class AITools:
         
         try:
             result = self.tools[tool_name](**kwargs)
+            if isinstance(result, dict) and result.get("success") is False and result.get("error"):
+                return {
+                    "success": False,
+                    "tool": tool_name,
+                    "parameters": kwargs,
+                    "error": str(result.get("error")),
+                }
             return {
                 "success": True,
                 "tool": tool_name,
@@ -674,6 +693,102 @@ class AITools:
         else:
             return "плохое"
 
+    def propose_plan_build(
+        self,
+        goal_type: str = "Триатлон",
+        distance: str = "Half",
+        event_date: str = "",
+        available_hours: float = 10.0,
+        available_days: str = "",
+    ) -> Dict[str, Any]:
+        """Построить preview нового плана без сохранения в БД."""
+        if not str(event_date or "").strip():
+            return {
+                "success": False,
+                "error": "Укажи дату старта через event_date, например 2026-10-01.",
+            }
+
+        days_list = [day.strip() for day in str(available_days or "").split(",") if day.strip()] or None
+
+        try:
+            preview = planning_service.build_plan(
+                self.db,
+                goal_type=goal_type,
+                distance=distance,
+                event_date=str(event_date).strip(),
+                available_hours=float(available_hours),
+                available_days=days_list,
+                persist=False,
+            )
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+        return {
+            "is_proposal": True,
+            "action": "build_plan",
+            "params": {
+                "goal_type": goal_type,
+                "distance": distance,
+                "event_date": str(event_date).strip(),
+                "available_hours": float(available_hours),
+                "available_days": days_list,
+            },
+            "preview": {
+                "goal": preview.get("goal", {}),
+                "total_weeks": len(preview.get("weeks", []) or []),
+                "peak_tss": preview.get("totals", {}).get("peak_tss"),
+                "total_tss": preview.get("totals", {}).get("total_tss"),
+                "target_weekly_tss": preview.get("weekly_target", {}).get("target_weekly_tss"),
+                "forecast_message": preview.get("forecast", {}).get("message"),
+            },
+        }
+
+    def propose_plan_adjustment(self, weeks: int = 1) -> Dict[str, Any]:
+        """Построить preview корректировки активного плана без сохранения."""
+        try:
+            resolved_weeks = int(weeks)
+        except (TypeError, ValueError):
+            return {"success": False, "error": "weeks должен быть целым числом."}
+
+        try:
+            recon = planning_service.reconciliation(self.db, weeks=resolved_weeks)
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+        if not recon.get("has_plan"):
+            return {"success": False, "error": "Нет активного плана для корректировки."}
+
+        rows = list(recon.get("rows") or [])
+        try:
+            preview = planning_service.apply_adjustment(
+                self.db,
+                rows=rows,
+                weeks=resolved_weeks,
+                persist=False,
+            )
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+        adjustment = preview.get("adjustment", {}) or {}
+        totals = preview.get("totals", {}) or {}
+        return {
+            "is_proposal": True,
+            "action": "adjust_plan",
+            "params": {
+                "rows": rows,
+                "weeks": resolved_weeks,
+            },
+            "preview": {
+                "adjustment_status": adjustment.get("status"),
+                "adjustment_label": adjustment.get("label"),
+                "missed_sessions": adjustment.get("missed_sessions"),
+                "completion_share": adjustment.get("completion_share"),
+                "peak_tss": totals.get("peak_tss"),
+                "total_tss": totals.get("total_tss"),
+                "forecast_message": preview.get("forecast", {}).get("message"),
+            },
+        }
+
     def format_tool_descriptions_for_ai(self) -> str:
         """Форматирует описания инструментов для AI"""
         tools_desc = "ДОСТУПНЫЕ ИНСТРУМЕНТЫ:\n\n"
@@ -697,6 +812,8 @@ class AITools:
 - [TOOL: get_activities_by_date_range, start_date=2025-05-01, end_date=2025-05-31] - активности за май 2025
 - [TOOL: get_active_plan] - активный тренировочный план (цель, фазы, TSS-таргеты)
 - [TOOL: get_upcoming_workouts, days=7] - тренировки на ближайшие 7 дней из плана
+- [TOOL: propose_plan_build, goal_type=Триатлон, distance=Half, event_date=2026-10-01, available_hours=10] - предложить новый план
+- [TOOL: propose_plan_adjustment, weeks=1] - предложить корректировку активного плана
 
 ВАЖНО: Используй инструменты для получения точных, актуальных данных вместо общих предположений.
 """

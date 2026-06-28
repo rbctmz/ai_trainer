@@ -3,9 +3,11 @@
 import { useRef, useState } from "react";
 import useSWR from "swr";
 import { Markdown } from "@/components/Markdown";
+import { ProposalCard } from "@/components/ui/ProposalCard";
 import { fetcher, streamCoachChat } from "@/lib/api";
 import {
   ChatMessage,
+  CoachProposalAction,
   ChatSummary,
   DashboardResponse,
   TodayState,
@@ -36,6 +38,11 @@ export default function CoachPage() {
   const [streaming, setStreaming] = useState(false);
   const [partial, setPartial] = useState("");
   const [tools, setTools] = useState<ToolFlash[]>([]);
+  const [proposal, setProposal] = useState<{
+    action: CoachProposalAction;
+    params: Record<string, unknown>;
+    preview: Record<string, unknown>;
+  } | null>(null);
   const chatId = useRef<string | null>(null);
   const scroller = useRef<HTMLDivElement>(null);
 
@@ -67,6 +74,13 @@ export default function CoachPage() {
           if (e.type === "meta") chatId.current = e.chat_id;
           else if (e.type === "tool_call")
             setTools((t) => [...t, { name: e.name }]);
+          else if (e.type === "proposal") {
+            setProposal({
+              action: e.action,
+              params: e.params ?? {},
+              preview: e.preview ?? {},
+            });
+          }
           else if (e.type === "token") {
             acc += e.content;
             setPartial(acc);
@@ -101,6 +115,7 @@ export default function CoachPage() {
     setMessages([]);
     setPartial("");
     setTools([]);
+    setProposal(null);
   }
 
   async function loadChat(id: string) {
@@ -113,6 +128,7 @@ export default function CoachPage() {
       );
       setPartial("");
       setTools([]);
+      setProposal(null);
       scrollDown();
     } catch {
       // ignore load failure; keep current view
@@ -150,6 +166,20 @@ export default function CoachPage() {
                 </span>
               ))}
             </div>
+          ) : null}
+
+          {proposal ? (
+            <ProposalCard
+              action={proposal.action}
+              params={proposal.params}
+              preview={proposal.preview}
+              onConfirmed={(message) => {
+                setMessages((m) => [...m, { role: "assistant", content: message }]);
+                setProposal(null);
+                scrollDown();
+              }}
+              onCancelled={() => setProposal(null)}
+            />
           ) : null}
 
           {partial ? <Bubble role="assistant" content={partial} streaming /> : null}
