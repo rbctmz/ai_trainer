@@ -7,6 +7,8 @@ on:
 jobs:
   assign-codex:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     if: contains(github.event.issue.body, '### ExecPlan')
     steps:
       - name: Post Codex task comment
