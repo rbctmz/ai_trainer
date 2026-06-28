@@ -58,7 +58,7 @@ def test_activities_with_data(tmp_path):
             {
                 "activity_id": "x1",
                 "date": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
-                "sport": "running",
+                "sport": "open_water_swimming",
                 "duration_minutes": 45,
                 "distance_km": 9.0,
                 "tss": 40.0,
@@ -68,8 +68,29 @@ def test_activities_with_data(tmp_path):
     payload = list_activities(days=30, db=db)
     assert payload["has_data"] is True
     assert payload["count"] == 1
-    assert payload["items"][0]["sport"] == "running"
+    assert payload["items"][0]["sport"] == "swim"
+    assert payload["items"][0]["sport_label"] == "плавание"
+    assert payload["items"][0]["date_label"].count(".") == 2
     assert payload["totals"]["tss"] == 40.0
+
+
+def test_hrv_with_data_exposes_date_labels(tmp_path):
+    from api.routers.hrv import hrv_summary
+
+    db = Database(str(tmp_path / "h.db"))
+    db.save_hrv_data(
+        {
+            "2026-06-26": {"rmssd": 31.0, "stress_score": 22.0, "recovery_score": 70.0},
+            "2026-06-27": {"rmssd": 29.5, "stress_score": 25.0, "recovery_score": 66.0},
+        }
+    )
+
+    payload = hrv_summary(days=30, db=db)
+
+    assert payload["has_data"] is True
+    assert payload["latest"]["date"] == "2026-06-27"
+    assert payload["latest"]["date_label"] == "27.06.2026"
+    assert payload["trend"][-1]["date_label"] == "27.06.2026"
 
 
 def test_coach_chat_streams_with_mock(tmp_path, monkeypatch):
@@ -121,7 +142,10 @@ def test_coach_chat_synthesizes_final_answer_after_tools(tmp_path, monkeypatch):
     events = _events(resp)
 
     assert events[0]["type"] == "meta"
-    assert any(event["type"] == "tool_call" for event in events)
+    tool_events = [event for event in events if event["type"] == "tool_call"]
+    assert tool_events
+    assert tool_events[0]["name"] == "Активности"
+    assert tool_events[0]["tool_name"] == "get_activities"
     assert events[-1]["type"] == "done"
 
     chat_id = events[0]["chat_id"]

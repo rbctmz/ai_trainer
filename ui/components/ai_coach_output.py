@@ -8,6 +8,13 @@ from typing import Any, Dict, Optional
 
 import pandas as pd
 import streamlit as st
+from utils.product_semantics import (
+    format_date_label,
+    sport_emoji,
+    sport_label,
+    training_status_label,
+    trend_label,
+)
 
 
 def speak_text(text: str, voice: str = "default"):
@@ -122,20 +129,13 @@ def format_tool_result(tool_name, data):
         if data["count"] == 0:
             return "📭 **Нет недавних активностей**"
 
-        sport_emojis = {
-            "cycling": "🚴",
-            "running": "🏃",
-            "swimming": "🏊",
-            "open_water_swimming": "🏊‍♂️",
-            "walking": "🚶",
-        }
-
         activities_text = f"## 🏃‍♂️ Последние {min(5, data['count'])} тренировок:\n\n"
         for i, activity in enumerate(data["activities"][:5], 1):
-            sport = activity.get("sport", "unknown")
-            emoji = sport_emojis.get(sport, "⚡")
-            description = activity.get("description", f"{sport} - {activity.get('duration_minutes', 0):.0f}мин")
-            activities_text += f"{i}. **{activity['date']}** {emoji} {description}\n"
+            sport = activity.get("sport_label") or sport_label(activity.get("sport"))
+            emoji = sport_emoji(activity.get("sport"))
+            date_text = activity.get("date_label") or format_date_label(activity.get("date"), "weekday_short")
+            description = activity.get("description") or f"{sport} — {activity.get('duration_minutes', 0):.0f} мин"
+            activities_text += f"{i}. **{date_text}** {emoji} {description}\n"
 
         return activities_text
 
@@ -158,20 +158,11 @@ def format_tool_result(tool_name, data):
             f"- Общее время: **{total_duration/60:.1f} ч**\n\n"
         )
 
-        sport_emojis = {
-            "cycling": "🚴",
-            "running": "🏃",
-            "swimming": "🏊",
-            "open_water_swimming": "🏊‍♂️",
-            "walking": "🚶",
-            "strength": "💪",
-        }
-
         rows = []
         for activity in activities[:7]:
-            date = activity.get("date", "N/A")
-            sport = activity.get("sport", "unknown")
-            emoji = sport_emojis.get(sport.lower(), "⚡") if isinstance(sport, str) else "⚡"
+            date = activity.get("date_label") or format_date_label(activity.get("date"), "weekday_short")
+            sport = activity.get("sport_label") or sport_label(activity.get("sport"))
+            emoji = sport_emoji(activity.get("sport"))
             duration = activity.get("duration_minutes", 0) or 0
             tss = activity.get("tss", 0) or 0
             description = activity.get("description")
@@ -187,13 +178,15 @@ def format_tool_result(tool_name, data):
     elif tool_name == "analyze_hrv_trends":
         recovery_emoji = {"отличное": "🟢", "хорошее": "🟡", "удовлетворительное": "🟠", "плохое": "🔴"}
         trend_emoji = {"improving": "📈", "declining": "📉"}
+        trend_direction = data.get("trend_direction")
+        trend_text = data.get("trend_direction_label") or trend_label(trend_direction)
 
         return f"""
 **💓 Анализ HRV:**
 • Текущий RMSSD: {data['current_rmssd']:.1f} мс
 • Среднее за 7 дней: {data['recent_avg_7days']:.1f} мс
 • Базовый уровень: {data['baseline_median']:.1f} мс
-• Тренд: {trend_emoji.get(data['trend_direction'], '')} {data['trend_direction']}
+• Тренд: {trend_emoji.get(trend_direction, '')} {trend_text}
 • Восстановление: {recovery_emoji.get(data['recovery_state'], '')} {data['recovery_state']}
 """
 
@@ -415,13 +408,7 @@ def format_tool_result(tool_name, data):
         readiness_rows = []
         for entry in history:
             readiness = entry.get("training_readiness")
-            date_value = entry.get("date")
-            if isinstance(date_value, str):
-                date_str = date_value
-            elif hasattr(date_value, "strftime"):
-                date_str = date_value.strftime("%Y-%m-%d")
-            else:
-                date_str = str(date_value)
+            date_str = entry.get("date_label") or format_date_label(entry.get("date"), "weekday_short")
             if readiness is not None and not (hasattr(pd, "isna") and pd.isna(readiness)):
                 readiness_rows.append((date_str, readiness))
         readiness_rows = readiness_rows[:7]
@@ -440,7 +427,7 @@ def format_tool_result(tool_name, data):
 ## 📈 Статус тренированности (последние {data.get('period_days', 30)} дней)
 
 ### 🔝 Последний статус:
-• Статус Garmin: {latest.get('training_status', 'н/д')}
+• Статус Garmin: {latest.get('training_status_label') or training_status_label(latest.get('training_status'))}
 • Readiness: {fmt_number(latest.get('training_readiness'), '.0f')} / 100
 • Нагрузка 7 дней: {fmt_number(latest.get('training_load_7d'), '.0f')}
 • VO₂max: {fmt_number(latest.get('vo2_max'), '.1f')}
@@ -493,7 +480,7 @@ def format_tool_result(tool_name, data):
             return f"ℹ️ **{data['message']}**"
 
         stats = data.get("stats", {})
-        trend = data.get("trend_steps", "н/д")
+        trend = data.get("trend_steps_label") or trend_label(data.get("trend_steps"))
         recent = data.get("recent_entries", [])
 
         def fmt_number(value, fmt: str = ".1f", default: str = "н/д"):
@@ -508,7 +495,7 @@ def format_tool_result(tool_name, data):
 
         recent_lines = []
         for entry in recent[:5]:
-            date = entry.get("date")
+            date = entry.get("date_label") or format_date_label(entry.get("date"), "weekday_short")
             steps = fmt_number(entry.get("steps"), ".0f")
             resting_hr = fmt_number(entry.get("resting_hr"), ".0f")
             active_minutes = fmt_number(entry.get("active_minutes"), ".0f")
@@ -535,31 +522,21 @@ def format_tool_result(tool_name, data):
 
         stats = data["statistics"]
 
-        sport_emojis = {
-            "cycling": "🚴",
-            "running": "🏃",
-            "swimming": "🏊",
-            "open_water_swimming": "🏊‍♂️",
-            "walking": "🚶",
-            "strength": "💪",
-            "yoga": "🧘",
-            "other": "⚡",
-        }
-
         sports_text = []
         for sport, count in stats["sports_distribution"].items():
-            emoji = sport_emojis.get(sport, "⚡")
+            emoji = sport_emoji(sport)
             sports_text.append(f"{emoji} {sport}: {count}")
 
         activities_preview = ""
         if "activities" in data and data["activities"]:
             activities_preview = "\n\n**📋 Некоторые тренировки:**"
             for i, activity in enumerate(data["activities"][:5], 1):
-                sport_emoji = sport_emojis.get(activity["sport"], "⚡")
-                date_formatted = activity["date"]
+                sport_icon = sport_emoji(activity.get("sport"))
+                date_formatted = activity.get("date_label") or format_date_label(activity.get("date"), "weekday_short")
+                activity_sport = activity.get("sport_label") or sport_label(activity.get("sport"))
                 activities_preview += (
-                    f"\n{i}. **{date_formatted}** {sport_emoji} {activity['sport']} - "
-                    f"{activity['duration_minutes']:.0f}мин (TSS: {activity['tss']:.0f})"
+                    f"\n{i}. **{date_formatted}** {sport_icon} {activity_sport} - "
+                    f"{activity['duration_minutes']:.0f} мин (TSS: {activity['tss']:.0f})"
                 )
 
         return f"""

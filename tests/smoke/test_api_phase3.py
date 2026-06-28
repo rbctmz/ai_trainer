@@ -64,7 +64,10 @@ def test_sleep_with_demo_data(tmp_path):
     out = sleep_summary(days=30, db=demo_db)
     assert out["has_data"] is True
     assert out["latest"] is not None
+    assert out["latest"]["date_label"].count(".") == 2
+    assert out["latest"]["stages_list"][0]["label"] == "Глубокий"
     assert len(out["trend"]) >= 1
+    assert out["trend"][0]["date_label"].count(".") == 2
 
 
 def test_get_database_demo_routing(monkeypatch, tmp_path):

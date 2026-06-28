@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends
 
 from api.deps import get_database
 from data.database import Database
+from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
 
@@ -32,11 +33,14 @@ def list_activities(days: int = 30, db: Database = Depends(get_database)) -> dic
     df = df.sort_values("date", ascending=False)
     items = []
     for _, row in df.iterrows():
+        raw_sport = row.get("sport") or "—"
         items.append(
             {
                 "activity_id": str(row.get("activity_id")),
                 "date": pd.to_datetime(row["date"]).strftime("%Y-%m-%d"),
-                "sport": str(row.get("sport") or "—"),
+                "date_label": format_date_label(row.get("date")),
+                "sport": normalize_sport_key(raw_sport),
+                "sport_label": sport_label(raw_sport),
                 **{key: _num(row.get(key)) for key in _NUMERIC},
             }
         )

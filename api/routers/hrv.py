@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends
 from api.deps import get_database
 from data.database import Database
 from models.hrv_analyzer import HRVAnalyzer
+from utils.product_semantics import format_date_label
 
 router = APIRouter(prefix="/api/hrv", tags=["hrv"])
 
@@ -36,6 +37,7 @@ def hrv_summary(days: int = 30, db: Database = Depends(get_database)) -> dict[st
     trend = [
         {
             "date": pd.to_datetime(row["date"]).strftime("%Y-%m-%d"),
+            "date_label": format_date_label(row["date"]),
             "rmssd": round(float(row["rmssd"]), 1),
         }
         for _, row in df.iterrows()
@@ -47,6 +49,7 @@ def hrv_summary(days: int = 30, db: Database = Depends(get_database)) -> dict[st
         "has_data": True,
         "latest": {
             "date": pd.to_datetime(latest_row["date"]).strftime("%Y-%m-%d"),
+            "date_label": format_date_label(latest_row["date"]),
             "rmssd": round(latest_rmssd, 1),
             "recovery_score": round(score, 0) if score is not None else None,
             "recovery_info": info,

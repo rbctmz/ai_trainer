@@ -4,6 +4,7 @@ from __future__ import annotations
 import pytest
 
 from models import ai_coach_runtime
+from ui.components.ai_coach_output import format_tool_result
 from ui.pages import ai_coaching
 
 
@@ -167,6 +168,58 @@ def test_runtime_synthesizes_final_answer_after_tool_execution():
     assert "РЕЗУЛЬТАТЫ ИНСТРУМЕНТОВ" in provider.calls[0]["prompt"]
     assert "sample_tool:42" in provider.calls[0]["prompt"]
     assert "ЗАВЕРШЁННЫЙ финальный ответ" in provider.calls[0]["system_prompt"]
+
+
+def test_tool_formatter_localizes_activity_payloads():
+    rendered = format_tool_result(
+        "get_recent_activities",
+        {
+            "count": 1,
+            "activities": [
+                {
+                    "date": "2026-06-27",
+                    "date_label": "Сб 27.06",
+                    "sport": "open_water_swimming",
+                    "sport_label": "плавание",
+                    "duration_minutes": 52,
+                    "tss": 21,
+                }
+            ],
+        },
+    )
+
+    assert "open_water_swimming" not in rendered
+    assert "Сб 27.06" in rendered
+    assert "плавание" in rendered
+
+
+def test_tool_formatter_localizes_training_status_payloads():
+    rendered = format_tool_result(
+        "get_training_status",
+        {
+            "period_days": 7,
+            "latest": {
+                "training_status": "PRODUCTIVE",
+                "training_status_label": "Продуктивно",
+                "training_readiness": 72,
+                "training_load_7d": 355,
+                "vo2_max": 40.6,
+            },
+            "summary": {
+                "avg_training_readiness": 68.5,
+                "avg_training_load_7d": 340.0,
+                "avg_vo2_max": 40.6,
+                "status_distribution": {"Продуктивно": 2},
+            },
+            "history": [
+                {"date": "2026-06-27", "date_label": "Сб 27.06", "training_readiness": 72},
+            ],
+        },
+    )
+
+    assert "PRODUCTIVE" not in rendered
+    assert "Продуктивно" in rendered
+    assert "Сб 27.06" in rendered
 
 
 def test_page_wrappers_preserve_runtime_contract(monkeypatch: pytest.MonkeyPatch):

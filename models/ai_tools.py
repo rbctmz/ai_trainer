@@ -11,6 +11,22 @@ from typing import Dict, Any, List, Optional, Callable
 from data.database import Database
 from models.banister import BanisterModel
 from models.hrv_analyzer import HRVAnalyzer
+from utils.product_semantics import (
+    format_date_label,
+    normalize_training_status_key,
+    normalize_sport_key,
+    sport_label,
+    training_status_label,
+    trend_label,
+)
+
+
+def _localized_sports_distribution(values) -> Dict[str, int]:
+    distribution: Dict[str, int] = {}
+    for raw_sport, count in dict(values).items():
+        label = sport_label(raw_sport)
+        distribution[label] = distribution.get(label, 0) + int(count)
+    return distribution
 
 
 class AITools:
@@ -102,9 +118,13 @@ class AITools:
         # Конвертируем в удобный формат
         activities = []
         for _, row in df.iterrows():
+            raw_sport = row.get("sport", "unknown")
+            localized_sport = sport_label(raw_sport)
             activity = {
                 "date": row["date"].strftime("%Y-%m-%d") if pd.notna(row["date"]) else None,
-                "sport": row.get("sport", "unknown"),
+                "date_label": format_date_label(row.get("date")),
+                "sport": normalize_sport_key(raw_sport),
+                "sport_label": localized_sport,
                 "duration_minutes": float(row.get("duration_minutes", 0)) if pd.notna(row.get("duration_minutes")) else 0,
                 "distance_km": float(row.get("distance_km", 0)) if pd.notna(row.get("distance_km")) else 0,
                 "tss": float(row.get("tss", 0)) if pd.notna(row.get("tss")) else 0,
@@ -159,7 +179,11 @@ class AITools:
             "total_tss": float(df["tss"].sum()) if "tss" in df.columns else 0,
             "avg_tss_per_session": float(df["tss"].mean()) if "tss" in df.columns else 0,
             "activities_per_week": float(len(df) * 7 / days),
-            "sports_distribution": df["sport"].value_counts().to_dict() if "sport" in df.columns else {},
+            "sports_distribution": (
+                _localized_sports_distribution(df["sport"].value_counts().to_dict())
+                if "sport" in df.columns
+                else {}
+            ),
             "avg_duration_minutes": float(df["duration_minutes"].mean()),
             "avg_heart_rate": float(df["avg_hr"].mean()) if "avg_hr" in df.columns and not df["avg_hr"].isna().all() else 0
         }
@@ -204,13 +228,20 @@ class AITools:
         activities = []
         
         for _, row in recent.iterrows():
+            raw_sport = row.get("sport", "unknown")
+            localized_sport = sport_label(raw_sport)
             activity = {
                 "date": row["date"].strftime("%Y-%m-%d"),
-                "sport": row.get("sport", "unknown"),
+                "date_label": format_date_label(row.get("date"), "weekday_short"),
+                "sport": normalize_sport_key(raw_sport),
+                "sport_label": localized_sport,
                 "duration_minutes": float(row.get("duration_minutes", 0)),
                 "distance_km": float(row.get("distance_km", 0)) if pd.notna(row.get("distance_km")) else 0,
                 "tss": float(row.get("tss", 0)) if pd.notna(row.get("tss")) else 0,
-                "description": f"{row.get('sport', 'unknown')} - {row.get('duration_minutes', 0):.0f}мин - TSS:{row.get('tss', 0):.0f}"
+                "description": (
+                    f"{localized_sport} — {row.get('duration_minutes', 0):.0f} мин, "
+                    f"TSS {row.get('tss', 0):.0f}"
+                ),
             }
             activities.append(activity)
         
@@ -270,6 +301,7 @@ class AITools:
         # Недавние vs базовые значения
         recent_avg = df.head(7)["rmssd"].mean()
         baseline_avg = df["rmssd"].median()
+        trend_direction = "improving" if trend_coefficient > 0 else "declining"
         
         return {
             "period_days": days,
@@ -277,7 +309,8 @@ class AITools:
             "current_rmssd": float(df.iloc[0]["rmssd"]),
             "recent_avg_7days": float(recent_avg),
             "baseline_median": float(baseline_avg),
-            "trend_direction": "improving" if trend_coefficient > 0 else "declining",
+            "trend_direction": trend_direction,
+            "trend_direction_label": trend_label(trend_direction),
             "trend_slope": float(trend_coefficient),
             "recovery_state": self._assess_recovery_state(recent_avg, baseline_avg),
             "variability": float(df["rmssd"].std())
@@ -374,21 +407,28 @@ class AITools:
     def get_activity_by_sport(self, sport: str, days: int = 30) -> Dict[str, Any]:
         """Получить активности по виду спорта"""
         df = self.db.get_activities(days)
+        requested_sport = normalize_sport_key(sport)
+        requested_label = sport_label(sport)
         
         if df.empty:
-            return {"message": f"Нет активностей за {days} дней", "sport": sport}
+            return {"message": f"Нет активностей за {days} дней", "sport": requested_sport, "sport_label": requested_label}
         
-        sport_df = df[df["sport"].str.lower() == sport.lower()] if "sport" in df.columns else pd.DataFrame()
+        sport_df = (
+            df[df["sport"].apply(normalize_sport_key) == requested_sport]
+            if "sport" in df.columns
+            else pd.DataFrame()
+        )
         
         if sport_df.empty:
             available_sports = df["sport"].unique().tolist() if "sport" in df.columns else []
             return {
-                "message": f"Нет активностей по виду спорта '{sport}'",
-                "available_sports": available_sports
+                "message": f"Нет активностей по виду спорта '{requested_label}'",
+                "available_sports": sorted({sport_label(value) for value in available_sports}),
             }
         
         return {
-            "sport": sport,
+            "sport": requested_sport,
+            "sport_label": requested_label,
             "count": len(sport_df),
             "total_distance": float(sport_df["distance_km"].sum()) if "distance_km" in sport_df.columns else 0,
             "total_duration": float(sport_df["duration_minutes"].sum()),
@@ -685,9 +725,12 @@ class AITools:
             # Форматируем результат
             activities = []
             for _, row in filtered_df.iterrows():
+                raw_sport = row.get("sport", "unknown")
                 activity = {
                     "date": row["date"].strftime("%Y-%m-%d"),
-                    "sport": row.get("sport", "unknown"),
+                    "date_label": format_date_label(row.get("date"), "weekday_short"),
+                    "sport": normalize_sport_key(raw_sport),
+                    "sport_label": sport_label(raw_sport),
                     "duration_minutes": float(row.get("duration_minutes", 0)),
                     "distance_km": float(row.get("distance_km", 0)) if pd.notna(row.get("distance_km")) else 0,
                     "tss": float(row.get("tss", 0)) if pd.notna(row.get("tss")) else 0,
@@ -702,7 +745,11 @@ class AITools:
                 "total_distance_km": float(filtered_df["distance_km"].sum()) if "distance_km" in filtered_df.columns else 0,
                 "total_tss": float(filtered_df["tss"].sum()) if "tss" in filtered_df.columns else 0,
                 "avg_tss_per_session": float(filtered_df["tss"].mean()) if "tss" in filtered_df.columns else 0,
-                "sports_distribution": filtered_df["sport"].value_counts().to_dict() if "sport" in filtered_df.columns else {},
+                "sports_distribution": (
+                    _localized_sports_distribution(filtered_df["sport"].value_counts().to_dict())
+                    if "sport" in filtered_df.columns
+                    else {}
+                ),
                 "period": f"{start_date} - {end_date}"
             }
             
@@ -829,6 +876,10 @@ class AITools:
         latest_date = latest.get("date")
         if isinstance(latest_date, pd.Timestamp):
             latest["date"] = latest_date.strftime("%Y-%m-%d")
+        latest_status = latest.get("training_status")
+        latest["date_label"] = format_date_label(latest.get("date"))
+        latest["training_status_key"] = normalize_training_status_key(latest_status)
+        latest["training_status_label"] = training_status_label(latest_status)
         
         history_records: List[Dict[str, Any]] = []
         for _, row in sorted_df.head(10).iterrows():
@@ -836,6 +887,10 @@ class AITools:
             record_date = record.get("date")
             if isinstance(record_date, pd.Timestamp):
                 record["date"] = record_date.strftime("%Y-%m-%d")
+            record["date_label"] = format_date_label(record.get("date"))
+            record_status = record.get("training_status")
+            record["training_status_key"] = normalize_training_status_key(record_status)
+            record["training_status_label"] = training_status_label(record_status)
             history_records.append(record)
         
         summary = {
@@ -843,11 +898,10 @@ class AITools:
             "avg_training_load_7d": df["training_load_7d"].mean() if "training_load_7d" in df.columns else None,
             "avg_vo2_max": df["vo2_max"].mean() if "vo2_max" in df.columns else None,
             "status_distribution": (
-                df["training_status"]
-                .dropna()
-                .str.upper()
-                .value_counts()
-                .to_dict()
+                {
+                    training_status_label(status): int(count)
+                    for status, count in df["training_status"].dropna().value_counts().to_dict().items()
+                }
                 if "training_status" in df.columns
                 else {}
             )
@@ -877,7 +931,7 @@ class AITools:
         insights: List[str] = []
         latest_status = latest_row.get("training_status")
         if latest_status:
-            insights.append(f"Garmin фиксирует статус: {latest_status}")
+            insights.append(f"Garmin фиксирует статус: {training_status_label(latest_status)}")
         
         readiness_info: Dict[str, Any] = {}
         if "training_readiness" in df.columns and not df["training_readiness"].isna().all():
@@ -926,16 +980,17 @@ class AITools:
             elif current_load < avg_load * 0.7:
                 insights.append("Нагрузка ниже привычной — можно добавить объема")
         
-        summary_text = latest_status or "нет данных"
+        summary_text = training_status_label(latest_status)
         latest_date = latest_row.get("date")
         if isinstance(latest_date, pd.Timestamp):
-            summary_text = f"{summary_text} от {latest_date.strftime('%Y-%m-%d')}"
+            summary_text = f"{summary_text} от {format_date_label(latest_date)}"
         elif latest_date:
-            summary_text = f"{summary_text} от {latest_date}"
+            summary_text = f"{summary_text} от {format_date_label(latest_date)}"
         
         return {
             "latest": {
-                "summary": summary_text
+                "summary": summary_text,
+                "training_status_label": training_status_label(latest_status),
             },
             "insights": insights,
             "readiness_assessment": readiness_info,
@@ -979,12 +1034,14 @@ class AITools:
             record_date = record.get("date")
             if isinstance(record_date, pd.Timestamp):
                 record["date"] = record_date.strftime("%Y-%m-%d")
+            record["date_label"] = format_date_label(record.get("date"), "weekday_short")
             recent_entries.append(record)
         
         return {
             "period_days": days,
             "stats": stats,
-            "trend_steps": trend or "н/д",
+            "trend_steps": trend or "unknown",
+            "trend_steps_label": trend_label(trend or "unknown"),
             "recent_entries": recent_entries
         }
     

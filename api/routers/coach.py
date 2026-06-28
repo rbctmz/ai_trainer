@@ -23,6 +23,7 @@ from models.ai_coach_runtime import (
 from models.ai_tools import AITools
 from models.chat_manager import ChatManager
 from ui.components.ai_coach_output import format_tool_result
+from utils.product_semantics import tool_label
 
 router = APIRouter(prefix="/api/coach", tags=["coach"])
 
@@ -79,7 +80,14 @@ def coach_chat(req: ChatRequest, db: Database = Depends(get_database)) -> Stream
             )
 
             for item in tool_results:
-                yield _sse({"type": "tool_call", "name": item["tool_name"], "status": "done"})
+                yield _sse(
+                    {
+                        "type": "tool_call",
+                        "name": tool_label(item["tool_name"]),
+                        "tool_name": item["tool_name"],
+                        "status": "done",
+                    }
+                )
 
             if tool_results and supports_streaming(provider):
                 synthesis_prompt = build_chat_synthesis_prompt(

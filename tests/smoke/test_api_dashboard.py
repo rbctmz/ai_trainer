@@ -7,6 +7,7 @@ wired into the app. They are contributor-safe (temp SQLite, no network).
 from __future__ import annotations
 
 import importlib
+from datetime import datetime
 
 import pytest
 
@@ -56,7 +57,10 @@ def test_dashboard_summary_contract_with_data(tmp_path):
     for key in ("today", "workout", "week", "next_days", "plan", "next_action"):
         assert key in summary, f"missing summary key: {key}"
     assert summary["today"]["tone"] in {"danger", "warning", "success", "neutral"}
+    assert summary["today"]["date_label"].split()[0] in {"Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"}
     assert len(summary["next_days"]) == 7
+    assert summary["next_days"][0]["label"].split()[0] == ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"][datetime.now().weekday()]
+    assert "sport_label" in summary["next_days"][0]
 
 
 def test_app_exposes_dashboard_route():

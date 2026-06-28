@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends
 
 from api.deps import get_database
 from data.database import Database
+from utils.product_semantics import format_date_label
 
 router = APIRouter(prefix="/api/sleep", tags=["sleep"])
 
@@ -40,6 +41,7 @@ def sleep_summary(days: int = 30, db: Database = Depends(get_database)) -> dict[
     trend = [
         {
             "date": pd.to_datetime(row["date"]).strftime("%Y-%m-%d"),
+            "date_label": format_date_label(row.get("date")),
             "hours": hours(row.get("total_sleep_minutes")) or 0,
             "score": _num(row.get("sleep_score")),
         }
@@ -53,6 +55,7 @@ def sleep_summary(days: int = 30, db: Database = Depends(get_database)) -> dict[
         "has_data": True,
         "latest": {
             "date": pd.to_datetime(latest["date"]).strftime("%Y-%m-%d"),
+            "date_label": format_date_label(latest.get("date")),
             "hours": hours(latest.get("total_sleep_minutes")),
             "score": _num(latest.get("sleep_score")),
             "efficiency": _num(latest.get("sleep_efficiency")),
@@ -62,6 +65,11 @@ def sleep_summary(days: int = 30, db: Database = Depends(get_database)) -> dict[
                 "light": hours(latest.get("light_sleep_minutes")),
                 "rem": hours(latest.get("rem_sleep_minutes")),
             },
+            "stages_list": [
+                {"key": "deep", "label": "Глубокий", "hours": hours(latest.get("deep_sleep_minutes"))},
+                {"key": "rem", "label": "REM", "hours": hours(latest.get("rem_sleep_minutes"))},
+                {"key": "light", "label": "Лёгкий", "hours": hours(latest.get("light_sleep_minutes"))},
+            ],
         },
         "averages": {"hours": avg_hours, "score": avg_score, "window_days": len(df)},
         "trend": trend,
