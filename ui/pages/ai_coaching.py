@@ -252,6 +252,9 @@ def process_modern_chat_message(user_input):
                 format_tool_result,
                 response_post_processor=lambda response: maybe_append_progress_report(state, user_input, response),
                 response_contract=response_contract,
+                provider=state.ai_coach.provider,
+                user_input=user_input,
+                history_messages=chat_messages[:-1],
             )
 
             simulate_streaming_response(response_placeholder, final_response)
@@ -299,6 +302,9 @@ def process_chat_message(user_input):
                     format_tool_result,
                     response_post_processor=lambda response: maybe_append_progress_report(state, user_input, response),
                     response_contract=response_contract,
+                    provider=state.ai_coach.provider,
+                    user_input=user_input,
+                    history_messages=state.chat_messages[:-1],
                 )
 
                 st.markdown(final_response)

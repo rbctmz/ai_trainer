@@ -56,17 +56,26 @@ def supports_streaming(provider: AIProvider) -> bool:
     )
 
 
-def stream_tokens(provider: AIProvider, prompt: str) -> Iterator[str]:
+def stream_tokens(
+    provider: AIProvider,
+    prompt: str,
+    system_prompt: str = "",
+) -> Iterator[str]:
     """Yield text deltas from an OpenAI-compatible provider (stream=True).
 
     Mirrors the non-streaming call params in DeepSeekProvider.generate_response.
     """
     client = provider.client
     model = getattr(provider, "model", None)
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
+
     response = client.chat.completions.create(
         model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=1000,
+        messages=messages,
+        max_tokens=Settings.AI_RESPONSE_MAX_TOKENS,
         temperature=0.7,
         stream=True,
     )

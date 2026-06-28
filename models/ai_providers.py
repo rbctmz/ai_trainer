@@ -84,7 +84,7 @@ class OpenAIProvider(AIProvider):
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_tokens=1000,
+                max_tokens=self.settings.AI_RESPONSE_MAX_TOKENS,
                 temperature=0.7
             )
             
@@ -176,7 +176,7 @@ class AnthropicProvider(AIProvider):
             
             response = self.client.messages.create(
                 model=self.model,
-                max_tokens=1000,
+                max_tokens=self.settings.AI_RESPONSE_MAX_TOKENS,
                 temperature=0.7,
                 system=system_prompt if system_prompt else None,
                 messages=messages
@@ -271,7 +271,7 @@ class DeepSeekProvider(AIProvider):
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
-                max_tokens=1000,
+                max_tokens=self.settings.AI_RESPONSE_MAX_TOKENS,
                 temperature=0.7,
             )
 
@@ -375,7 +375,7 @@ class GoogleGeminiProvider(AIProvider):
         try:
             config = {
                 "temperature": 0.7,
-                "max_output_tokens": 1000,
+                "max_output_tokens": self.settings.AI_RESPONSE_MAX_TOKENS,
             }
             if system_prompt:
                 config["system_instruction"] = system_prompt

@@ -28,8 +28,8 @@ class _DummyProvider:
         self.response = response
         self.calls = []
 
-    def generate_response(self, prompt: str, _context: str) -> str:
-        self.calls.append(prompt)
+    def generate_response(self, prompt: str, system_prompt: str) -> str:
+        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
         return self.response
 
 
@@ -66,6 +66,7 @@ def test_runtime_builds_prompt_from_history_and_tools():
     assert response == "raw ai response"
     assert len(provider.calls) == 1
     prompt = provider.calls[0]
+    prompt = prompt["prompt"]
     assert "TEST TOOL" in prompt
     assert "USER: Как форма сегодня?" in prompt
     assert "ASSISTANT: Форма стабильная." in prompt
@@ -88,6 +89,7 @@ def test_runtime_appends_response_contract_suffix_to_prompt():
     )
 
     prompt = provider.calls[0]
+    prompt = prompt["prompt"]
     assert "Что делать после облегчённой недели?" in prompt
     assert "Верни ответ строго в формате" in prompt
 
@@ -137,6 +139,34 @@ def test_runtime_wraps_final_response_into_operational_brief():
     assert "### Почему" in final
     assert "### Разбор AI" in final
     assert "Нагрузку стоит возвращать аккуратно" in final
+
+
+def test_runtime_synthesizes_final_answer_after_tool_execution():
+    ai_tools = _DummyAiTools(
+        responses={
+            "sample_tool": {
+                "success": True,
+                "result": {"value": 42},
+            }
+        }
+    )
+    provider = _DummyProvider("Финальный ответ с конкретной рекомендацией.")
+
+    final = ai_coach_runtime.finalize_ai_chat_response(
+        "Сейчас соберу данные: [TOOL: sample_tool, days=7]",
+        ai_tools,
+        tool_result_formatter=lambda name, data: f"{name}:{data['value']}",
+        provider=provider,
+        user_input="Что делать сегодня?",
+        history_messages=[{"role": "user", "content": "Как форма?"}],
+    )
+
+    assert final == "Финальный ответ с конкретной рекомендацией."
+    assert ai_tools.calls == [("sample_tool", {"days": 7})]
+    assert len(provider.calls) == 1
+    assert "РЕЗУЛЬТАТЫ ИНСТРУМЕНТОВ" in provider.calls[0]["prompt"]
+    assert "sample_tool:42" in provider.calls[0]["prompt"]
+    assert "ЗАВЕРШЁННЫЙ финальный ответ" in provider.calls[0]["system_prompt"]
 
 
 def test_page_wrappers_preserve_runtime_contract(monkeypatch: pytest.MonkeyPatch):

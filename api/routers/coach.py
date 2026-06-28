@@ -1,17 +1,9 @@
-"""Coach endpoints: streaming chat + history.
-
-Streaming reuses the shared runtime (`models.ai_coach_runtime`) and the
-file-based `ChatManager`. The provider call itself is synchronous (providers
-expose `generate_response`, not native streaming), so we run it inside the SSE
-generator and then stream the finished answer in word chunks — the same
-"simulated streaming" UX the Streamlit app uses, now over Server-Sent Events.
-"""
+"""Coach endpoints: streaming chat + history."""
 from __future__ import annotations
 
 import json
-import re
 import uuid
-from typing import Any, Iterator, List, Optional
+from typing import Any, Iterator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -21,9 +13,10 @@ from api.coach_service import resolve_provider, stream_tokens, supports_streamin
 from api.deps import get_database
 from data.database import Database
 from models.ai_coach_runtime import (
-    apply_response_contract_to_user_input,
-    build_chat_turn_prompt,
-    create_chat_system_prompt_with_tools,
+    apply_response_contract_to_final_response,
+    collect_tool_results,
+    create_chat_synthesis_system_prompt,
+    build_chat_synthesis_prompt,
     finalize_ai_chat_response,
     generate_ai_chat_response,
 )
@@ -32,8 +25,6 @@ from models.chat_manager import ChatManager
 from ui.components.ai_coach_output import format_tool_result
 
 router = APIRouter(prefix="/api/coach", tags=["coach"])
-
-_TOOL_PATTERN = re.compile(r"\[TOOL:\s*([^,\]]+)")
 
 
 class ChatRequest(BaseModel):
@@ -74,42 +65,57 @@ def coach_chat(req: ChatRequest, db: Database = Depends(get_database)) -> Stream
     def stream() -> Iterator[str]:
         yield _sse({"type": "meta", "chat_id": chat_id})
         try:
-            if supports_streaming(provider):
-                # Live token streaming (DeepSeek/OpenAI). Stream raw deltas as
-                # they generate, then resolve any [TOOL:...] markers and send a
-                # `replace` with the finalized text if it changed.
-                system_prompt = create_chat_system_prompt_with_tools(ai_tools)
-                full_prompt = build_chat_turn_prompt(
-                    system_prompt,
-                    history,
-                    apply_response_contract_to_user_input(message, None),
+            # First pass: hidden planning/tool-selection step.
+            raw = generate_ai_chat_response(
+                provider=provider,
+                ai_tools=ai_tools,
+                user_input=message,
+                history_messages=history,
+            )
+            _rendered_response, tool_results = collect_tool_results(
+                raw,
+                ai_tools,
+                format_tool_result,
+            )
+
+            for item in tool_results:
+                yield _sse({"type": "tool_call", "name": item["tool_name"], "status": "done"})
+
+            if tool_results and supports_streaming(provider):
+                synthesis_prompt = build_chat_synthesis_prompt(
+                    history_messages=history,
+                    user_input=message,
+                    tool_results=tool_results,
                 )
-                raw = ""
-                for delta in stream_tokens(provider, full_prompt):
-                    raw += delta
+                synthesis_system_prompt = create_chat_synthesis_system_prompt()
+                streamed_final = ""
+                for delta in stream_tokens(
+                    provider,
+                    synthesis_prompt,
+                    system_prompt=synthesis_system_prompt,
+                ):
+                    streamed_final += delta
                     yield _sse({"type": "token", "content": delta})
 
-                for tool_name in _detect_tools(raw):
-                    yield _sse({"type": "tool_call", "name": tool_name, "status": "done"})
-
-                final = finalize_ai_chat_response(raw, ai_tools, format_tool_result)
-                if final != raw:
-                    yield _sse({"type": "replace", "content": final})
-                chat_manager.add_message(chat_id, "assistant", final)
+                final = (
+                    apply_response_contract_to_final_response(streamed_final, None)
+                    if streamed_final.strip()
+                    else _rendered_response
+                )
             else:
-                # Fallback (e.g. Mock): generate fully, then simulate streaming.
-                raw = generate_ai_chat_response(
+                final = finalize_ai_chat_response(
+                    raw,
+                    ai_tools,
+                    format_tool_result,
+                    response_contract=None,
                     provider=provider,
-                    ai_tools=ai_tools,
                     user_input=message,
                     history_messages=history,
                 )
-                for tool_name in _detect_tools(raw):
-                    yield _sse({"type": "tool_call", "name": tool_name, "status": "done"})
-                final = finalize_ai_chat_response(raw, ai_tools, format_tool_result)
-                chat_manager.add_message(chat_id, "assistant", final)
                 for chunk in _chunk(final):
                     yield _sse({"type": "token", "content": chunk})
+
+            chat_manager.add_message(chat_id, "assistant", final)
 
             yield _sse({"type": "done", "message_id": str(uuid.uuid4())[:8], "chat_id": chat_id})
         except Exception as exc:  # surface errors to the client instead of hanging
@@ -155,15 +161,6 @@ def coach_history_detail(chat_id: str) -> dict[str, Any]:
             for m in chat.get("messages", [])
         ],
     }
-
-
-def _detect_tools(raw: str) -> List[str]:
-    seen: List[str] = []
-    for match in _TOOL_PATTERN.finditer(raw or ""):
-        name = match.group(1).strip()
-        if name not in seen:
-            seen.append(name)
-    return seen
 
 
 def _chunk(text: str) -> Iterator[str]:

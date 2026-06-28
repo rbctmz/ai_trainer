@@ -95,5 +95,42 @@ def test_coach_chat_streams_with_mock(tmp_path, monkeypatch):
     assert roles == ["user", "assistant"]
 
 
+def test_coach_chat_synthesizes_final_answer_after_tools(tmp_path, monkeypatch):
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "CHATS_DIR", str(tmp_path / "chats"), raising=False)
+
+    from api.routers import coach as coach_mod
+
+    class _DummyProvider:
+        def __init__(self):
+            self.calls = []
+
+        def generate_response(self, prompt: str, system_prompt: str = "") -> str:
+            self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+            if system_prompt:
+                return "Финальный actionable ответ без обещаний вернуться позже."
+            return "Сейчас соберу данные. [TOOL: get_activities, days=7] Потом вернусь с планом."
+
+    provider = _DummyProvider()
+    monkeypatch.setattr(coach_mod, "resolve_provider", lambda _ptype=None: provider)
+    monkeypatch.setattr(coach_mod, "supports_streaming", lambda _provider: False)
+
+    req = coach_mod.ChatRequest(message="Что делать сегодня?")
+    resp = coach_mod.coach_chat(req, Database(str(tmp_path / "c.db")))
+    events = _events(resp)
+
+    assert events[0]["type"] == "meta"
+    assert any(event["type"] == "tool_call" for event in events)
+    assert events[-1]["type"] == "done"
+
+    chat_id = events[0]["chat_id"]
+    detail = coach_mod.coach_history_detail(chat_id)
+    final = detail["messages"][-1]["content"]
+    assert final == "Финальный actionable ответ без обещаний вернуться позже."
+    assert "вернусь с планом" not in final
+    assert len(provider.calls) == 2
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))

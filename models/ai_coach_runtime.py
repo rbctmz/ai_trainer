@@ -7,6 +7,9 @@ from typing import Any, Callable, Dict, Iterable, Optional
 from models.ai_data_context import AIDataContext
 
 
+_TOOL_PATTERN = re.compile(r"\[TOOL:\s*([^,\]]+)(?:,\s*([^\]]*))?\]")
+
+
 def create_chat_system_prompt_with_tools(ai_tools: Any, data_context: Any = None) -> str:
     """Создает системный промпт с инструментами для доступа к данным."""
     base_prompt = """
@@ -48,6 +51,29 @@ def create_chat_system_prompt_with_tools(ai_tools: Any, data_context: Any = None
         tools_description = ai_tools.format_tool_descriptions_for_ai()
 
     return f"{base_prompt}\n\n{tools_description}".rstrip()
+
+
+def create_chat_synthesis_system_prompt() -> str:
+    """System prompt for the final user-facing answer after tool execution."""
+    return """
+Ты — персональный AI тренер по выносливости.
+
+Ты уже получил результаты нужных инструментов и теперь должен дать
+ЗАВЕРШЁННЫЙ финальный ответ пользователю.
+
+ОБЯЗАТЕЛЬНО:
+• отвечай по-русски
+• дай итоговый ответ в одном сообщении
+• используй конкретные цифры и выводы из результатов инструментов
+• сначала дай краткий вывод, затем практические рекомендации
+• если данные неполные, скажи это прямо, но всё равно предложи лучший следующий шаг
+
+НЕЛЬЗЯ:
+• писать, что ты ещё соберёшь данные
+• писать, что вернёшься позже с ответом
+• оставлять черновые формулировки вроде «сейчас проанализирую»
+• упоминать служебный синтаксис [TOOL: ...]
+""".strip()
 
 
 def create_chat_system_prompt(data_context: Any) -> str:
@@ -116,6 +142,33 @@ def build_chat_turn_prompt(system_prompt: str, history_messages: Iterable[Dict[s
 """
 
 
+def build_chat_synthesis_prompt(
+    history_messages: Iterable[Dict[str, Any]],
+    user_input: str,
+    tool_results: Iterable[Dict[str, Any]],
+    response_contract: Any = None,
+) -> str:
+    """Build the prompt for the second-pass final synthesis over tool data."""
+    conversation_history = build_conversation_history(history_messages)
+    rendered_tool_results = "\n\n".join(
+        f"### {result['tool_name']}\n{result['formatted_result']}"
+        for result in tool_results
+    ).strip()
+
+    return f"""
+ИСТОРИЯ РАЗГОВОРА:{conversation_history}
+
+ВОПРОС ПОЛЬЗОВАТЕЛЯ: {apply_response_contract_to_user_input(user_input, response_contract)}
+
+РЕЗУЛЬТАТЫ ИНСТРУМЕНТОВ:
+{rendered_tool_results}
+
+Сформируй завершённый ответ пользователю на основе результатов выше.
+Не пиши, что ты ещё будешь собирать или анализировать данные позже.
+Сразу дай финальный вывод и практические рекомендации.
+"""
+
+
 def normalize_response_contract(contract: Any) -> Dict[str, Any] | None:
     if not isinstance(contract, dict):
         return None
@@ -163,13 +216,13 @@ def generate_ai_chat_response(
     return provider.generate_response(full_prompt, "")
 
 
-def process_tool_calls(
+def collect_tool_results(
     ai_response: str,
     ai_tools: Any,
     tool_result_formatter: Callable[[str, Any], str],
-) -> str:
-    """Обрабатывает вызовы инструментов в ответе AI."""
-    tool_pattern = r"\[TOOL:\s*([^,\]]+)(?:,\s*([^\]]*))?\]"
+) -> tuple[str, list[Dict[str, Any]]]:
+    """Execute tool markers and return both the rendered text and tool payloads."""
+    tool_results: list[Dict[str, Any]] = []
 
     def replace_tool_call(match):
         tool_name = match.group(1).strip()
@@ -181,13 +234,76 @@ def process_tool_calls(
 
             if result.get("success"):
                 data = result["result"]
-                return tool_result_formatter(tool_name, data)
-            return f"❌ Ошибка инструмента: {result.get('error', 'Неизвестная ошибка')}"
+                formatted_result = tool_result_formatter(tool_name, data)
+                tool_results.append(
+                    {
+                        "tool_name": tool_name,
+                        "params": params,
+                        "formatted_result": formatted_result,
+                        "success": True,
+                    }
+                )
+                return formatted_result
+
+            error_text = f"❌ Ошибка инструмента: {result.get('error', 'Неизвестная ошибка')}"
+            tool_results.append(
+                {
+                    "tool_name": tool_name,
+                    "params": params,
+                    "formatted_result": error_text,
+                    "success": False,
+                }
+            )
+            return error_text
 
         except Exception as exc:  # pragma: no cover - defensive path
-            return f"❌ Ошибка выполнения {tool_name}: {str(exc)}"
+            error_text = f"❌ Ошибка выполнения {tool_name}: {str(exc)}"
+            tool_results.append(
+                {
+                    "tool_name": tool_name,
+                    "params": params,
+                    "formatted_result": error_text,
+                    "success": False,
+                }
+            )
+            return error_text
 
-    return re.sub(tool_pattern, replace_tool_call, ai_response)
+    rendered_response = _TOOL_PATTERN.sub(replace_tool_call, ai_response)
+    return rendered_response, tool_results
+
+
+def synthesize_ai_chat_response(
+    provider: Any,
+    history_messages: Iterable[Dict[str, Any]],
+    user_input: str,
+    tool_results: Iterable[Dict[str, Any]],
+    response_contract: Any = None,
+) -> str:
+    """Run the second pass that turns tool results into a final user answer."""
+    synthesis_prompt = build_chat_synthesis_prompt(
+        history_messages=history_messages,
+        user_input=user_input,
+        tool_results=tool_results,
+        response_contract=response_contract,
+    )
+    return provider.generate_response(
+        synthesis_prompt,
+        create_chat_synthesis_system_prompt(),
+    )
+
+
+def process_tool_calls(
+    ai_response: str,
+    ai_tools: Any,
+    tool_result_formatter: Callable[[str, Any], str],
+) -> str:
+    """Обрабатывает вызовы инструментов в ответе AI."""
+    rendered_response, _tool_results = collect_tool_results(
+        ai_response,
+        ai_tools,
+        tool_result_formatter,
+    )
+    return rendered_response
 
 
 def finalize_ai_chat_response(
@@ -196,9 +312,28 @@ def finalize_ai_chat_response(
     tool_result_formatter: Callable[[str, Any], str],
     response_post_processor: Optional[Callable[[str], str]] = None,
     response_contract: Any = None,
+    provider: Any = None,
+    user_input: Optional[str] = None,
+    history_messages: Iterable[Dict[str, Any]] = (),
 ) -> str:
     """Превращает сырой ответ AI в финальный пользовательский ответ."""
-    final_response = process_tool_calls(ai_response, ai_tools, tool_result_formatter)
+    rendered_response, tool_results = collect_tool_results(
+        ai_response,
+        ai_tools,
+        tool_result_formatter,
+    )
+
+    if provider is not None and user_input is not None and tool_results:
+        final_response = synthesize_ai_chat_response(
+            provider=provider,
+            history_messages=history_messages,
+            user_input=user_input,
+            tool_results=tool_results,
+            response_contract=response_contract,
+        ) or rendered_response
+    else:
+        final_response = rendered_response
+
     if response_post_processor is not None:
         final_response = response_post_processor(final_response)
     return apply_response_contract_to_final_response(final_response, response_contract)
