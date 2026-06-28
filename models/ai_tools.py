@@ -11,6 +11,7 @@ from typing import Dict, Any, List, Optional, Callable
 from data.database import Database
 from models.banister import BanisterModel
 from models.hrv_analyzer import HRVAnalyzer
+from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from utils.product_semantics import (
     format_date_label,
     normalize_training_status_key,
@@ -57,7 +58,9 @@ class AITools:
             "get_sleep_stats": self.get_sleep_stats,
             "get_training_status": self.get_training_status,
             "analyze_training_status": self.analyze_training_status,
-            "get_daily_health_stats": self.get_daily_health_stats
+            "get_daily_health_stats": self.get_daily_health_stats,
+            "get_active_plan": self.get_active_plan,
+            "get_upcoming_workouts": self.get_upcoming_workouts,
         }
     
     def get_available_tools(self) -> Dict[str, str]:
@@ -81,7 +84,9 @@ class AITools:
             "get_sleep_stats": "Получить статистику сна (days=30)",
             "get_training_status": "Получить историю статуса тренированности и readiness (days=30)",
             "analyze_training_status": "Глубокий анализ статуса тренированности и нагрузки (days=30)",
-            "get_daily_health_stats": "Получить ежедневные показатели здоровья (шаги, ЧСС, калории) за период (days=30)"
+            "get_daily_health_stats": "Получить ежедневные показатели здоровья (шаги, ЧСС, калории) за период (days=30)",
+            "get_active_plan": "Получить активный тренировочный план: цель, дистанцию, дату старта, фазы, недельные TSS-таргеты, итоговый TSS и пик",
+            "get_upcoming_workouts": "Получить ближайшие плановые тренировки из активного плана (days=7)",
         }
     
     def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
@@ -690,6 +695,8 @@ class AITools:
 - [TOOL: analyze_training_status, days=21] - выводы по readiness и нагрузке
 - [TOOL: get_daily_health_stats, days=14] - показатели шагов и ЧСС покоя
 - [TOOL: get_activities_by_date_range, start_date=2025-05-01, end_date=2025-05-31] - активности за май 2025
+- [TOOL: get_active_plan] - активный тренировочный план (цель, фазы, TSS-таргеты)
+- [TOOL: get_upcoming_workouts, days=7] - тренировки на ближайшие 7 дней из плана
 
 ВАЖНО: Используй инструменты для получения точных, актуальных данных вместо общих предположений.
 """
@@ -1045,6 +1052,93 @@ class AITools:
             "recent_entries": recent_entries
         }
     
+    def get_active_plan(self) -> Dict[str, Any]:
+        """Получить активный тренировочный план из последнего checkpoint."""
+        goal_plan = restore_goal_plan_from_checkpoint(self.db.get_latest_planning_checkpoint())
+        if not goal_plan:
+            return {"has_plan": False, "message": "Активный план не найден. Пользователь ещё не построил план."}
+
+        weekly_tss_plan = list(goal_plan.get("weekly_tss_plan") or [])
+        total_tss = int(sum(int(w or 0) for w in weekly_tss_plan))
+        peak_tss = int(max(weekly_tss_plan)) if weekly_tss_plan else 0
+
+        phases_raw = list(goal_plan.get("phases") or [])
+        # Build compact phase summary: phase_name → [week indices]
+        phase_weeks: Dict[str, List[int]] = {}
+        for i, phase in enumerate(phases_raw):
+            phase_weeks.setdefault(str(phase), []).append(i + 1)
+
+        weekly_summary_raw = list(goal_plan.get("weekly_summary") or [])
+        weeks_compact = []
+        for i, w in enumerate(weekly_summary_raw[:8]):  # first 8 weeks max for readability
+            ws = w.get("week_start")
+            weeks_compact.append({
+                "week": i + 1,
+                "week_start": ws.isoformat() if hasattr(ws, "isoformat") else str(ws),
+                "phase": str(w.get("phase") or (phases_raw[i] if i < len(phases_raw) else "")),
+                "weekly_tss": int(float(w.get("weekly_tss") or 0)),
+            })
+
+        return {
+            "has_plan": True,
+            "goal": {
+                "goal_type": str(goal_plan.get("goal_type") or ""),
+                "distance": str(goal_plan.get("distance") or ""),
+                "event_date": str(goal_plan.get("event_date") or ""),
+                "weeks_to_race": int(goal_plan.get("weeks_to_race") or 0),
+            },
+            "phases": list(dict.fromkeys(phases_raw)),
+            "totals": {"total_tss": total_tss, "peak_tss": peak_tss, "total_weeks": len(weekly_tss_plan)},
+            "weekly_tss_plan": [int(v or 0) for v in weekly_tss_plan],
+            "weeks_preview": weeks_compact,
+        }
+
+    def get_upcoming_workouts(self, days: int = 7) -> Dict[str, Any]:
+        """Получить ближайшие плановые тренировки из активного плана."""
+        goal_plan = restore_goal_plan_from_checkpoint(self.db.get_latest_planning_checkpoint())
+        if not goal_plan:
+            return {"has_plan": False, "message": "Активный план не найден."}
+
+        daily_plan = list(goal_plan.get("daily_plan") or [])
+        templates = list(goal_plan.get("session_templates") or [])
+
+        today = datetime.now().date()
+        cutoff = today + timedelta(days=days)
+
+        sessions = []
+        for i, item in enumerate(daily_plan):
+            if not isinstance(item, (list, tuple)) or len(item) < 3:
+                continue
+            dt, total, parts = item
+            session_date = dt.date() if hasattr(dt, "date") else dt
+            if not (today <= session_date <= cutoff):
+                continue
+            total_tss = int(round(float(total or 0)))
+            if total_tss <= 0:
+                continue  # skip rest days
+            tpl = templates[i] if i < len(templates) else {}
+            sport = str((tpl or {}).get("sport") or "")
+            if not sport or sport == "—":
+                sport = max(dict(parts or {}).items(), key=lambda kv: float(kv[1] or 0), default=("bike", 0))[0] if parts else "bike"
+            sessions.append({
+                "date": session_date.isoformat(),
+                "sport": sport,
+                "sport_label": str((tpl or {}).get("sport_label") or sport),
+                "tss": total_tss,
+                "name": str((tpl or {}).get("export_name") or (tpl or {}).get("session_focus") or "Сессия"),
+                "phase": str((tpl or {}).get("phase") or ""),
+            })
+
+        if not sessions:
+            return {
+                "has_plan": True,
+                "message": f"Нет плановых тренировок в ближайшие {days} дней (возможно, уже выполнены или до них ещё далеко).",
+                "days": days,
+                "sessions": [],
+            }
+
+        return {"has_plan": True, "days": days, "sessions": sessions}
+
     def analyze_sleep_patterns(self, days: int = 30) -> Dict[str, Any]:
         """Анализ паттернов и качества сна"""
         try:
