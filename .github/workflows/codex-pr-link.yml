@@ -16,14 +16,23 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const body   = context.payload.pull_request.body || '';
+            const pr = context.payload.pull_request;
+            const body = pr.body || '';
+            const title = pr.title || '';
+            const branch = pr.head.ref || '';
             const action = context.payload.action;
-            const merged = context.payload.pull_request.merged;
-            const branch = context.payload.pull_request.head.ref || '';
+            const merged = pr.merged;
 
-            // Parse Closes/Fixes/Resolves #N from PR body
-            const matches = [...body.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)];
-            const issueNums = matches.map(m => parseInt(m[1]));
+            const issueNums = new Set();
+            for (const match of body.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
+              issueNums.add(parseInt(match[1], 10));
+            }
+            for (const match of title.matchAll(/(?:^|\s)#(\d+)\b/g)) {
+              issueNums.add(parseInt(match[1], 10));
+            }
+            for (const match of branch.matchAll(/(?:^|[\/_-])issue[\/_-]?(\d+)(?:$|[\/_-])/gi)) {
+              issueNums.add(parseInt(match[1], 10));
+            }
 
             for (const num of issueNums) {
               if (action === 'opened') {
@@ -33,7 +42,7 @@ jobs:
                   issue_number: num,
                   labels: ['status: in progress'],
                 });
-                for (const name of ['status: queued', 'status: blocked']) {
+                for (const name of ['status: queued', 'status: blocked', 'status: needs triage']) {
                   try {
                     await github.rest.issues.removeLabel({
                       owner: context.repo.owner,

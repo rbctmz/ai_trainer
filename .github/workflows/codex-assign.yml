@@ -3,35 +3,64 @@ name: Codex auto-assign
 on:
   issues:
     types: [opened, reopened]
+  issue_comment:
+    types: [created]
 
 jobs:
   assign-codex:
     runs-on: ubuntu-latest
     permissions:
       issues: write
-    if: contains(github.event.issue.body, '### ExecPlan')
     steps:
-      - name: Post Codex task comment
+      - name: Queue Codex task
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const body = context.payload.issue.body || '';
-            const title = context.payload.issue.title;
+            const issue = context.payload.issue;
+            if (!issue || issue.pull_request) return;
+
+            const body = issue.body || '';
+            if (!body.includes('### ExecPlan')) return;
+
+            const isIssueEvent = context.eventName === 'issues';
+            const isCommentEvent = context.eventName === 'issue_comment';
+            const action = context.payload.action;
+
+            const trustedAssociations = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
+            const ignoredActors = new Set(['github-actions[bot]', 'chatgpt-codex-connector[bot]']);
+
+            let shouldQueue = false;
+            if (isIssueEvent && ['opened', 'reopened'].includes(action)) {
+              shouldQueue = true;
+            } else if (isCommentEvent) {
+              const comment = context.payload.comment || {};
+              const commentBody = comment.body || '';
+              const actor = comment.user?.login || '';
+              const association = comment.author_association || '';
+              shouldQueue =
+                trustedAssociations.has(association) &&
+                !ignoredActors.has(actor) &&
+                /@codex\b/i.test(commentBody);
+            }
+
+            if (!shouldQueue) return;
 
             const extract = (label) => {
               const m = body.match(new RegExp(`### ${label}\\n+([\\s\\S]+?)(?=\\n###|$)`));
               return m ? m[1].trim() : '_see issue body_';
             };
 
+            const title = issue.title;
             const execplan   = extract('ExecPlan');
             const acceptance = extract('Acceptance criteria');
             const smoke      = extract('Smoke baseline');
+            const issueNumber = issue.number;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: context.payload.issue.number,
+              issue_number: issueNumber,
               body: [
                 `@codex Please implement this task: **${title}**`,
                 ``,
@@ -42,20 +71,16 @@ jobs:
                 ``,
                 `**Smoke baseline:** ${smoke} — do not regress.`,
                 ``,
+                `When opening the PR, include \`Closes #${issueNumber}\` in the PR body.`,
+                ``,
                 `See \`AGENTS.md\` and \`.agent/PLANS.md\` for project conventions.`,
               ].join('\n')
             });
 
-      - name: Set queued labels
-        uses: actions/github-script@v7
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          script: |
-            const num = context.payload.issue.number;
             await github.rest.issues.addLabels({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              issue_number: num,
+              issue_number: issueNumber,
               labels: ['status: queued', 'agent: codex']
             });
             for (const name of ['status: needs triage', 'status: blocked', 'status: in progress']) {
@@ -63,7 +88,7 @@ jobs:
                 await github.rest.issues.removeLabel({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  issue_number: num,
+                  issue_number: issueNumber,
                   name
                 });
               } catch {}
