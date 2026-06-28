@@ -100,6 +100,13 @@ def _get_dashboard_goal_plan(state: StateManager) -> dict[str, Any]:
     goal_plan = getattr(state, "resolved_goal_plan_context", None)
     if not isinstance(goal_plan, dict) or not goal_plan:
         goal_plan = getattr(state, "goal_plan", None)
+    if not isinstance(goal_plan, dict) or not goal_plan:
+        # Headless API mode: state.goal_plan is never set; fall back to DB checkpoint.
+        # latest_planning_checkpoint has lazy-loading via refresh_planning_checkpoint_cache().
+        checkpoint = getattr(state, "latest_planning_checkpoint", None)
+        if isinstance(checkpoint, dict):
+            from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+            goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
     return goal_plan if isinstance(goal_plan, dict) else {}
 
 

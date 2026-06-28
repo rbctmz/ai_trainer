@@ -17,7 +17,7 @@ import os
 from functools import lru_cache
 from typing import Any, Dict
 
-from fastapi import Query
+from fastapi import Depends, Query
 
 from config.settings import Settings
 from data.database import Database
@@ -91,9 +91,10 @@ def make_headless_state(database: Database | None = None) -> StateManager:
     return StateManager(session)
 
 
-def get_headless_state() -> StateManager:
+def get_headless_state(db: Database = Depends(get_database)) -> StateManager:
     """FastAPI dependency: a fresh StateManager backed by an attribute dict.
 
-    Stateless per request — heavy data lives in SQLite and is read lazily.
+    Binds the request's Database so lazy-loading (e.g. planning checkpoint)
+    uses the correct handle — including demo/acceptance isolation.
     """
-    return make_headless_state()
+    return make_headless_state(database=db)
