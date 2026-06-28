@@ -93,7 +93,7 @@ def test_google_provider_uses_google_genai_client(monkeypatch: pytest.MonkeyPatc
     assert calls[0]["contents"] == "user prompt"
     assert calls[0]["config"] == {
         "temperature": 0.7,
-        "max_output_tokens": 1000,
+        "max_output_tokens": ai_providers.Settings.AI_RESPONSE_MAX_TOKENS,
         "system_instruction": "system prompt",
     }
 
