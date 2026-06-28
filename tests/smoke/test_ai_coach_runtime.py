@@ -50,6 +50,18 @@ class _DummyPlaceholder:
         self.messages.append(text)
 
 
+def test_system_prompt_mandates_hrv_tool_for_recovery_questions():
+    prompt = ai_coach_runtime.create_chat_system_prompt_with_tools(None)
+    assert "analyze_hrv_trends" in prompt
+    assert "Утверждать" in prompt and "HRV нет" in prompt
+
+
+def test_synthesis_prompt_forbids_hrv_absent_without_tool():
+    system_prompt = ai_coach_runtime.create_chat_synthesis_system_prompt()
+    assert "НЕЛЬЗЯ" in system_prompt
+    assert "не вызывался" in system_prompt
+
+
 def test_runtime_builds_prompt_from_history_and_tools():
     ai_tools = _DummyAiTools()
     provider = _DummyProvider("raw ai response")
