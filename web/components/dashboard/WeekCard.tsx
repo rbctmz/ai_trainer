@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PlanCard, WeekLoad } from "@/lib/types";
 
 export function WeekCard({ week, plan }: { week: WeekLoad; plan: PlanCard }) {
@@ -36,12 +37,16 @@ export function WeekCard({ week, plan }: { week: WeekLoad; plan: PlanCard }) {
         <span>прогноз {week.forecast_tss}</span>
       </div>
 
-      <div className="mt-4 border-t border-surface-border pt-3">
+      <Link
+        href="/planning"
+        className="mt-4 block border-t border-surface-border pt-3 transition hover:opacity-80"
+      >
         <div className="text-sm font-semibold text-ink">{plan.title}</div>
         {plan.subtitle ? (
           <div className="text-xs text-ink-soft">{plan.subtitle}</div>
         ) : null}
-      </div>
+        <div className="mt-1 text-xs font-medium text-tone-neutral">{plan.button} →</div>
+      </Link>
     </div>
   );
 }

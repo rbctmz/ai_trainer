@@ -2,6 +2,7 @@
 
 import { useRef, useState } from "react";
 import useSWR from "swr";
+import { Markdown } from "@/components/Markdown";
 import { fetcher, streamCoachChat } from "@/lib/api";
 import {
   ChatMessage,
@@ -68,6 +69,11 @@ export default function CoachPage() {
             setTools((t) => [...t, { name: e.name }]);
           else if (e.type === "token") {
             acc += e.content;
+            setPartial(acc);
+            scrollDown();
+          } else if (e.type === "replace") {
+            // Tools were resolved server-side — swap the live draft for the final text.
+            acc = e.content;
             setPartial(acc);
             scrollDown();
           } else if (e.type === "done") {
@@ -280,13 +286,13 @@ function Bubble({
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
       <div
-        className={`max-w-[85%] whitespace-pre-wrap rounded-2xl px-3.5 py-2.5 text-sm ${
+        className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm ${
           isUser
-            ? "bg-ink text-white"
+            ? "whitespace-pre-wrap bg-ink text-white"
             : "border border-surface-border bg-surface-muted text-ink"
         }`}
       >
-        {content}
+        {isUser ? content : <Markdown>{content}</Markdown>}
         {streaming ? <span className="ml-0.5 animate-pulse">▍</span> : null}
       </div>
     </div>

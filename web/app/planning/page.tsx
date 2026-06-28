@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import useSWR from "swr";
-import { ApiError, fetcher, postJSON } from "@/lib/api";
+import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
 import {
   AdjustResult,
   BuiltPlan,
@@ -375,7 +375,7 @@ function ExportMode() {
           {data.goal?.goal_type} · {data.goal?.distance}
         </div>
         <a
-          href="/api/planning/export/ics"
+          href={withDemo("/api/planning/export/ics")}
           className="ml-auto rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-ink/90"
         >
           📅 Весь план в календарь (ICS)
@@ -427,7 +427,7 @@ function DownloadLink({
 }) {
   return (
     <a
-      href={`/api/planning/export/workout/${index}?fmt=${fmt}`}
+      href={withDemo(`/api/planning/export/workout/${index}?fmt=${fmt}`)}
       className="rounded-md border border-surface-border px-2 py-1 text-xs text-tone-neutral transition hover:bg-surface-muted"
     >
       {label}

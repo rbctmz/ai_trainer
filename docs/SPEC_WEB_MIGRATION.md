@@ -288,11 +288,15 @@ GET /api/hrv/summary?days=30
 - Фронт `web/app/planning/page.tsx`: три таба (Собрать/Скорректировать/Экспорт), статус-панель, таблица недель по фазам, inline-SVG прогноз CTL/ATL/TSB, скачивание файлов через прокси.
 - Проверено: build зелёный (9 страниц), smoke 216 passed (+`test_api_planning.py`), HTTP-прогон всех эндпоинтов на реальной БД; связность persist→Дашборд подтверждена в браузере.
 
-### Фаза 3 — Полировка (1 неделя)
-- [ ] Sleep страница
-- [ ] Onboarding (первый запуск без данных)
-- [ ] Demo mode в веб-версии
-- [ ] Убрать Streamlit-лейблы разработчика
+### Фаза 3 — Полировка (1 неделя) ✅
+- [x] Sleep страница: `GET /api/sleep/summary` + `web/app/sleep/page.tsx` (метрики, фазы сна, bar-тренд).
+- [x] Onboarding (первый запуск без данных): welcome-блок на дашборде с CTA «Синк» / «Демо».
+- [x] Demo mode в веб-версии: изолированная demo-БД (`*_demo.db`, реальная не трогается), `POST /api/demo/seed`/`clear`, флаг `?demo=1` через `get_database`, переключатель в Nav (`lib/api.ts::withDemo`).
+- [x] Кнопка синхронизации Garmin: `POST /api/sync` (обёртка `services/sync.py`, auth из .env) + кнопка на дашборде.
+- [x] Живой стриминг коуча: `stream=True` для DeepSeek/OpenAI (`api/coach_service.stream_tokens`), по-токенный SSE + `replace` после резолва инструментов; mock остаётся на симуляции.
+- [x] Dev-лейблы: веб-поверхность новая, Streamlit-лейблов в ней нет by construction.
+- Фикс: headless `StateManager` теперь поверх attribute-dict (`SessionDict`) — поддерживает запись (нужно для demo seeding).
+- Проверено: build зелёный (10 страниц), smoke 223 passed (+`test_api_phase3.py`), demo-изоляция проверена (реальная БД нетронута). Требуют живого окружения: реальный синк Garmin (creds/сеть, возможен 429) и по-токенный стрим DeepSeek (ключ).
 
 ### Фаза 4 — После MVP
 - [ ] Деплой (Railway / Fly.io / VPS)

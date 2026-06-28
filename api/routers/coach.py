@@ -17,10 +17,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from api.coach_service import resolve_provider
+from api.coach_service import resolve_provider, stream_tokens, supports_streaming
 from api.deps import get_database
 from data.database import Database
 from models.ai_coach_runtime import (
+    apply_response_contract_to_user_input,
+    build_chat_turn_prompt,
+    create_chat_system_prompt_with_tools,
     finalize_ai_chat_response,
     generate_ai_chat_response,
 )
@@ -71,20 +74,42 @@ def coach_chat(req: ChatRequest, db: Database = Depends(get_database)) -> Stream
     def stream() -> Iterator[str]:
         yield _sse({"type": "meta", "chat_id": chat_id})
         try:
-            raw = generate_ai_chat_response(
-                provider=provider,
-                ai_tools=ai_tools,
-                user_input=message,
-                history_messages=history,
-            )
-            for tool_name in _detect_tools(raw):
-                yield _sse({"type": "tool_call", "name": tool_name, "status": "done"})
+            if supports_streaming(provider):
+                # Live token streaming (DeepSeek/OpenAI). Stream raw deltas as
+                # they generate, then resolve any [TOOL:...] markers and send a
+                # `replace` with the finalized text if it changed.
+                system_prompt = create_chat_system_prompt_with_tools(ai_tools)
+                full_prompt = build_chat_turn_prompt(
+                    system_prompt,
+                    history,
+                    apply_response_contract_to_user_input(message, None),
+                )
+                raw = ""
+                for delta in stream_tokens(provider, full_prompt):
+                    raw += delta
+                    yield _sse({"type": "token", "content": delta})
 
-            final = finalize_ai_chat_response(raw, ai_tools, format_tool_result)
-            chat_manager.add_message(chat_id, "assistant", final)
+                for tool_name in _detect_tools(raw):
+                    yield _sse({"type": "tool_call", "name": tool_name, "status": "done"})
 
-            for chunk in _chunk(final):
-                yield _sse({"type": "token", "content": chunk})
+                final = finalize_ai_chat_response(raw, ai_tools, format_tool_result)
+                if final != raw:
+                    yield _sse({"type": "replace", "content": final})
+                chat_manager.add_message(chat_id, "assistant", final)
+            else:
+                # Fallback (e.g. Mock): generate fully, then simulate streaming.
+                raw = generate_ai_chat_response(
+                    provider=provider,
+                    ai_tools=ai_tools,
+                    user_input=message,
+                    history_messages=history,
+                )
+                for tool_name in _detect_tools(raw):
+                    yield _sse({"type": "tool_call", "name": tool_name, "status": "done"})
+                final = finalize_ai_chat_response(raw, ai_tools, format_tool_result)
+                chat_manager.add_message(chat_id, "assistant", final)
+                for chunk in _chunk(final):
+                    yield _sse({"type": "token", "content": chunk})
 
             yield _sse({"type": "done", "message_id": str(uuid.uuid4())[:8], "chat_id": chat_id})
         except Exception as exc:  # surface errors to the client instead of hanging

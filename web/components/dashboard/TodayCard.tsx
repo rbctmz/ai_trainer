@@ -1,4 +1,19 @@
+import Link from "next/link";
 import { TodayState, WorkoutCard } from "@/lib/types";
+
+/** Map a dashboard card action to a web route. */
+export function actionHref(action?: string): string {
+  switch (action) {
+    case "ai_chat":
+    case "recovery_plan":
+      return "/coach";
+    case "hrv_analysis":
+      return "/hrv";
+    case "planning":
+    default:
+      return "/planning";
+  }
+}
 
 export function TodayCard({
   workout,
@@ -24,12 +39,12 @@ export function TodayCard({
         </div>
       ) : null}
 
-      <button
-        className="mt-4 w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-white transition hover:bg-ink/90"
-        type="button"
+      <Link
+        href={actionHref(workout.action)}
+        className="mt-4 block w-full rounded-lg bg-ink px-4 py-2.5 text-center text-sm font-medium text-white transition hover:bg-ink/90"
       >
         {workout.button}
-      </button>
+      </Link>
     </div>
   );
 }

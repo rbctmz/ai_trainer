@@ -5,10 +5,13 @@ holds its own AI logic — it just picks a provider and calls the shared runtime
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import Iterator, Optional
 
 from config.settings import Settings
 from models.ai_providers import AIProvider, AIProviderFactory
+
+# Providers exposing an OpenAI-compatible streaming client.
+_STREAMABLE = {"DeepSeekProvider", "OpenAIProvider"}
 
 # Friendly aliases the frontend may send (per SPEC_WEB_MIGRATION coach contract).
 _ALIASES = {
@@ -43,3 +46,35 @@ def resolve_provider(provider_type: Optional[str] = None) -> Optional[AIProvider
             return provider
 
     return AIProviderFactory.get_first_available()
+
+
+def supports_streaming(provider: AIProvider) -> bool:
+    """Whether we can stream tokens live from this provider."""
+    return (
+        provider.__class__.__name__ in _STREAMABLE
+        and getattr(provider, "client", None) is not None
+    )
+
+
+def stream_tokens(provider: AIProvider, prompt: str) -> Iterator[str]:
+    """Yield text deltas from an OpenAI-compatible provider (stream=True).
+
+    Mirrors the non-streaming call params in DeepSeekProvider.generate_response.
+    """
+    client = provider.client
+    model = getattr(provider, "model", None)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=1000,
+        temperature=0.7,
+        stream=True,
+    )
+    for chunk in response:
+        choices = getattr(chunk, "choices", None)
+        if not choices:
+            continue
+        delta = getattr(choices[0], "delta", None)
+        content = getattr(delta, "content", None) if delta else None
+        if content:
+            yield content
