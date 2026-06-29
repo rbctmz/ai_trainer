@@ -2,10 +2,10 @@ import { TodayState, Tone } from "@/lib/types";
 import { InfoTip } from "@/components/ui/Tooltip";
 
 const toneStyles: Record<Tone, { bar: string; chip: string; text: string }> = {
-  danger: { bar: "bg-tone-danger", chip: "bg-red-50 text-tone-danger", text: "text-tone-danger" },
-  warning: { bar: "bg-tone-warning", chip: "bg-amber-50 text-tone-warning", text: "text-tone-warning" },
-  success: { bar: "bg-tone-success", chip: "bg-emerald-50 text-tone-success", text: "text-tone-success" },
-  neutral: { bar: "bg-tone-neutral", chip: "bg-blue-50 text-tone-neutral", text: "text-tone-neutral" },
+  danger: { bar: "bg-tone-danger", chip: "bg-tone-danger/10 text-tone-danger", text: "text-tone-danger" },
+  warning: { bar: "bg-tone-warning", chip: "bg-tone-warning/10 text-tone-warning", text: "text-tone-warning" },
+  success: { bar: "bg-tone-success", chip: "bg-tone-success/10 text-tone-success", text: "text-tone-success" },
+  neutral: { bar: "bg-tone-neutral", chip: "bg-tone-neutral/10 text-tone-neutral", text: "text-tone-neutral" },
 };
 
 function Metric({ label, value, tip }: { label: string; value: string; tip?: string }) {

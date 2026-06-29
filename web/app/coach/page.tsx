@@ -160,7 +160,7 @@ export default function CoachPage() {
               {tools.map((t, i) => (
                 <span
                   key={i}
-                  className="rounded-full bg-blue-50 px-2.5 py-1 text-xs text-tone-neutral"
+                  className="rounded-full bg-tone-neutral/10 px-2.5 py-1 text-xs text-tone-neutral"
                 >
                   🔧 {t.name}
                 </span>

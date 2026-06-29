@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { isDemo, setDemo } from "@/lib/api";
+import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 const links = [
   { href: "/dashboard", label: "Дашборд" },
@@ -49,16 +50,17 @@ export function Nav() {
             title="Демо-режим: изолированные тестовые данные"
             className={`ml-1 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
               demo
-                ? "border-tone-warning bg-amber-50 text-tone-warning"
+                ? "border-tone-warning bg-tone-warning/10 text-tone-warning"
                 : "border-surface-border text-ink-faint hover:bg-surface-muted"
             }`}
           >
             {demo ? "● Демо" : "Демо"}
           </button>
+          <ThemeToggle />
         </div>
       </nav>
       {demo ? (
-        <div className="rounded-lg bg-amber-50 px-3 py-1.5 text-xs text-tone-warning">
+        <div className="rounded-lg bg-tone-warning/10 px-3 py-1.5 text-xs text-tone-warning">
           Демо-режим: показаны тестовые данные из изолированной базы. Реальные данные не затронуты.
         </div>
       ) : null}

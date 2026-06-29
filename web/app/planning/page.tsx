@@ -218,7 +218,7 @@ function BuildMode() {
         </button>
 
         {error ? (
-          <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-tone-danger">
+          <div className="mt-3 rounded-lg bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
             {error}
           </div>
         ) : null}
@@ -337,7 +337,7 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
             {busy ? "Пересобираю…" : "♻️ Пересобрать план"}
           </button>
           {error ? (
-            <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-tone-danger">
+            <div className="mt-3 rounded-lg bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
               {error}
             </div>
           ) : null}

@@ -139,7 +139,7 @@ export function ProposalCard({
   }
 
   return (
-    <div className="rounded-card border border-blue-200 bg-blue-50 p-4 shadow-card">
+    <div className="rounded-card border border-tone-neutral/30 bg-tone-neutral/10 p-4 shadow-card">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-ink">
@@ -149,7 +149,7 @@ export function ProposalCard({
             Изменение попадёт в активный план только после подтверждения.
           </p>
         </div>
-        <span className="rounded-full bg-white/80 px-2 py-1 text-[11px] font-medium text-tone-neutral">
+        <span className="rounded-full bg-surface/80 px-2 py-1 text-[11px] font-medium text-tone-neutral">
           Нужен confirm
         </span>
       </div>
@@ -200,7 +200,7 @@ export function ProposalCard({
       </ul>
 
       {error ? (
-        <div className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-tone-danger">
+        <div className="mt-3 rounded-lg border border-tone-danger/30 bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
           {error}
         </div>
       ) : null}

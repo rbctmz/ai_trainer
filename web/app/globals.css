@@ -4,6 +4,30 @@
 
 :root {
   color-scheme: light;
+  --color-ink:            #0F172A;
+  --color-ink-soft:       #475569;
+  --color-ink-faint:      #94A3B8;
+  --color-surface:        #FFFFFF;
+  --color-surface-muted:  #F8FAFC;
+  --color-surface-border: #E2E8F0;
+  --color-tone-danger:    #EF4444;
+  --color-tone-warning:   #F59E0B;
+  --color-tone-success:   #10B981;
+  --color-tone-neutral:   #3B82F6;
+}
+
+.dark {
+  color-scheme: dark;
+  --color-ink:            #F1F5F9;
+  --color-ink-soft:       #94A3B8;
+  --color-ink-faint:      #475569;
+  --color-surface:        #0F172A;
+  --color-surface-muted:  #1E293B;
+  --color-surface-border: #334155;
+  --color-tone-danger:    #F87171;
+  --color-tone-warning:   #FCD34D;
+  --color-tone-success:   #34D399;
+  --color-tone-neutral:   #60A5FA;
 }
 
 body {

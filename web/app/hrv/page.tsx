@@ -129,7 +129,7 @@ function Sparkline({ points, baseline }: { points: number[]; baseline: number })
 
 function ErrorCard() {
   return (
-    <div className="rounded-card border border-red-200 bg-red-50 p-4 text-sm text-tone-danger">
+    <div className="rounded-card border border-tone-danger/30 bg-tone-danger/10 p-4 text-sm text-tone-danger">
       Не удалось загрузить HRV. Запущен ли API на :8000?
     </div>
   );

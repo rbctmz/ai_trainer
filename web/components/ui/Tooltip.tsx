@@ -166,7 +166,7 @@ export function Tooltip({
       </div>
       {open && (
         <div
-          className="absolute bottom-full right-0 z-50 mb-2 w-60 rounded-xl border border-surface-border bg-white p-3 shadow-xl"
+          className="absolute bottom-full right-0 z-50 mb-2 w-60 rounded-xl border border-surface-border bg-surface p-3 shadow-xl"
           onMouseEnter={show}
           onMouseLeave={hide}
         >

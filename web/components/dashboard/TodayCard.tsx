@@ -34,7 +34,7 @@ export function TodayCard({
       ) : null}
 
       {overreached ? (
-        <div className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-tone-danger">
+        <div className="mt-3 rounded-lg bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
           TSB {today.tsb} — высокая усталость. Осторожнее с интенсивностью.
         </div>
       ) : null}

@@ -3,7 +3,7 @@ import { DayStatus, NextDay } from "@/lib/types";
 const statusStyles: Record<DayStatus, string> = {
   today: "border-tone-neutral ring-1 ring-tone-neutral",
   planned: "border-surface-border",
-  done: "border-tone-success bg-emerald-50",
+  done: "border-tone-success bg-tone-success/10",
   rest: "border-surface-border bg-surface-muted",
   empty: "border-dashed border-surface-border",
 };

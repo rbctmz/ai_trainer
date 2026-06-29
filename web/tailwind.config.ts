@@ -7,25 +7,25 @@ const config: Config = {
     "./components/**/*.{ts,tsx}",
     "./lib/**/*.{ts,tsx}",
   ],
+  darkMode: "class",
   theme: {
     extend: {
       colors: {
-        // Semantic tones used by dashboard state cards.
         tone: {
-          danger: "#EF4444",
-          warning: "#F59E0B",
-          success: "#10B981",
-          neutral: "#3B82F6",
+          danger:  "var(--color-tone-danger)",
+          warning: "var(--color-tone-warning)",
+          success: "var(--color-tone-success)",
+          neutral: "var(--color-tone-neutral)",
         },
         ink: {
-          DEFAULT: "#0F172A",
-          soft: "#475569",
-          faint: "#94A3B8",
+          DEFAULT: "var(--color-ink)",
+          soft:    "var(--color-ink-soft)",
+          faint:   "var(--color-ink-faint)",
         },
         surface: {
-          DEFAULT: "#FFFFFF",
-          muted: "#F8FAFC",
-          border: "#E2E8F0",
+          DEFAULT: "var(--color-surface)",
+          muted:   "var(--color-surface-muted)",
+          border:  "var(--color-surface-border)",
         },
       },
       borderRadius: {
