@@ -3,17 +3,27 @@
 import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { fetcher, isDemo, postJSON, setDemo } from "@/lib/api";
-import { DashboardResponse, SyncResult } from "@/lib/types";
+import { DashboardResponse, DashboardWidgets, SyncResult } from "@/lib/types";
 import { StatusRow } from "@/components/dashboard/StatusRow";
 import { TodayCard } from "@/components/dashboard/TodayCard";
 import { WeekCard } from "@/components/dashboard/WeekCard";
 import { WeekStrip } from "@/components/dashboard/WeekStrip";
+import { DailyOutlook } from "@/components/dashboard/DailyOutlook";
+import { TrainingScore } from "@/components/dashboard/TrainingScore";
+import { SleepWidget } from "@/components/dashboard/SleepWidget";
+import { RaceProjection } from "@/components/dashboard/RaceProjection";
 
 export default function DashboardPage() {
   const { data, error, isLoading, mutate } = useSWR<DashboardResponse>(
     "/api/dashboard/summary",
     fetcher,
-    { refreshInterval: 5 * 60 * 1000 }, // revalidate every 5 min (per spec)
+    { refreshInterval: 5 * 60 * 1000 },
+  );
+
+  const { data: widgets } = useSWR<DashboardWidgets>(
+    data?.has_data ? "/api/dashboard/widgets" : null,
+    fetcher,
+    { refreshInterval: 5 * 60 * 1000 },
   );
 
   return (
@@ -41,6 +51,11 @@ export default function DashboardPage() {
       {data?.summary ? (
         <>
           <StatusRow today={data.summary.today} />
+
+          {widgets?.daily_outlook && (
+            <DailyOutlook data={widgets.daily_outlook} />
+          )}
+
           <div className="grid gap-4 sm:grid-cols-2">
             <TodayCard
               workout={data.summary.workout}
@@ -48,7 +63,18 @@ export default function DashboardPage() {
             />
             <WeekCard week={data.summary.week} plan={data.summary.plan} />
           </div>
+
           <WeekStrip days={data.summary.next_days} />
+
+          {widgets && (
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <SleepWidget />
+              <TrainingScore data={widgets.training_score} />
+              {widgets.race_projection && (
+                <RaceProjection data={widgets.race_projection} />
+              )}
+            </div>
+          )}
         </>
       ) : null}
     </main>
