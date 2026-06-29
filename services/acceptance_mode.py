@@ -71,6 +71,11 @@ def _has_existing_isolated_data(state: StateManager) -> bool:
         return False
 
 
+def _is_demo_dataset(state: StateManager) -> bool:
+    """Return whether the preserved isolated dataset originated from demo mode."""
+    return demo_mode_service.dataset_origin(state) == demo_mode_service.DATASET_ORIGIN_DEMO
+
+
 def bootstrap_session(state: StateManager) -> dict[str, Any]:
     """Seed the isolated acceptance dataset once per browser session."""
     info = runtime_info(state)
@@ -89,8 +94,11 @@ def bootstrap_session(state: StateManager) -> dict[str, Any]:
         return info
 
     if _has_existing_isolated_data(state):
-        demo_mode_service.restore_demo_mode_session(state)
         info["preserved_existing_data"] = True
+        info["restored_demo_session"] = False
+        if _is_demo_dataset(state):
+            demo_mode_service.restore_demo_mode_session(state)
+            info["restored_demo_session"] = True
         return info
 
     info["seed_result"] = demo_mode_service.activate_demo_mode(state)

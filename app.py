@@ -204,7 +204,9 @@ def sync_data(days=30, state=None):
 
     try:
         result = sync_service.sync_garmin_data(state, days=days, on_progress=render_progress)
+        demo_mode_service.mark_real_dataset(state)
         state.last_sync_status = sync_service.build_sync_status_payload(result, days=days)
+        state.clear_cached_context()
         state.selected_page = "📊 Дашборд"
         status_text.empty()
         sync_stats.empty()

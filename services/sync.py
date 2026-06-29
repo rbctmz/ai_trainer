@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
+import time
 from typing import Any, Callable, Dict
 
 from config.settings import Settings
@@ -19,6 +20,21 @@ logger = logging.getLogger(__name__)
 
 SyncCounts = Dict[str, int]
 SyncProgressCallback = Callable[["SyncProgressUpdate"], None]
+_TRANSIENT_ERROR_MARKERS = (
+    "429",
+    "rate limit",
+    "rate-limit",
+    "too many requests",
+    "timed out",
+    "timeout",
+    "temporar",
+    "503",
+    "502",
+    "connection aborted",
+    "connection reset",
+    "connection error",
+    "remote disconnected",
+)
 
 
 def _empty_activity_counts() -> SyncCounts:
@@ -68,7 +84,14 @@ def build_sync_status_payload(result: GarminSyncResult, days: int) -> dict[str, 
         + result.training_status_result["updated"]
     )
 
-    if activity_changes > 0:
+    if result.warnings:
+        title = "Синхронизация Garmin завершена частично"
+        summary = (
+            f"За последние {days} дней удалось получить не все данные. "
+            "Проверьте замечания ниже, затем решите, нужен ли повторный запуск."
+        )
+        severity = "warning"
+    elif activity_changes > 0:
         title = "Синхронизация Garmin завершена"
         summary = (
             f"Загружены свежие тренировки и метрики за последние {days} дней. "
@@ -82,13 +105,6 @@ def build_sync_status_payload(result: GarminSyncResult, days: int) -> dict[str, 
             "но HRV, сон или статус тренированности обновились."
         )
         severity = "success"
-    elif result.warnings:
-        title = "Синхронизация Garmin завершена частично"
-        summary = (
-            f"За последние {days} дней удалось получить не все данные. "
-            "Проверьте замечания ниже, затем решите, нужен ли повторный запуск."
-        )
-        severity = "warning"
     else:
         title = "Новых Garmin данных не найдено"
         summary = (
@@ -157,7 +173,8 @@ def sync_garmin_data(
         message="💓 Загрузка HRV и данных восстановления...",
         step_text="Шаг 3/5: Загрузка HRV...",
     )
-    hrv_data = _collect_hrv_data(client, date_list, on_progress)
+    hrv_data, hrv_warnings = _collect_hrv_data(client, date_list, on_progress)
+    _extend_warnings(result.warnings, hrv_warnings)
 
     _emit_progress(
         on_progress,
@@ -165,10 +182,11 @@ def sync_garmin_data(
         message="😴 Загрузка данных сна...",
         step_text="Шаг 4/5: Загрузка сна и здоровья...",
     )
-    sleep_data, daily_health_data = _collect_phase1_daily_data(
+    sleep_data, daily_health_data, phase1_warnings = _collect_phase1_daily_data(
         client,
         date_list[: min(len(date_list), days + 1)],
     )
+    _extend_warnings(result.warnings, phase1_warnings)
 
     _emit_progress(
         on_progress,
@@ -176,7 +194,8 @@ def sync_garmin_data(
         message="🎯 Загрузка статуса тренированности...",
         step_text="Шаг 4/5: Загрузка сна и здоровья...",
     )
-    training_status_data = _collect_training_status_data(client)
+    training_status_data, training_status_warnings = _collect_training_status_data(client)
+    _extend_warnings(result.warnings, training_status_warnings)
 
     _emit_progress(
         on_progress,
@@ -242,6 +261,65 @@ def _db_date(date_value: datetime) -> str:
     return date_value.strftime("%Y-%m-%d")
 
 
+def _pop_client_error(client: Any) -> dict[str, Any] | None:
+    pop_error = getattr(client, "pop_last_error", None)
+    if callable(pop_error):
+        try:
+            return pop_error()
+        except Exception:  # pragma: no cover - defensive path
+            return None
+    return None
+
+
+def _should_retry_client_error(error: dict[str, Any] | None) -> bool:
+    if not error:
+        return False
+    message = str(error.get("message") or "").lower()
+    return any(marker in message for marker in _TRANSIENT_ERROR_MARKERS)
+
+
+def _call_client_method(
+    client: Any,
+    method_name: str,
+    *args: Any,
+    warning_context: str,
+    max_attempts: int = 3,
+) -> tuple[Any, dict[str, Any] | None]:
+    method = getattr(client, method_name)
+    last_error: dict[str, Any] | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        result = method(*args)
+        last_error = _pop_client_error(client)
+        if last_error and _should_retry_client_error(last_error) and attempt < max_attempts:
+            logger.warning(
+                "Повтор Garmin %s после transient ошибки (%s/%s): %s",
+                warning_context,
+                attempt,
+                max_attempts,
+                last_error.get("message"),
+            )
+            time.sleep(0.5 * attempt)
+            continue
+        return result, last_error
+
+    return None, last_error
+
+
+def _append_warning(warnings: list[str], message: str) -> None:
+    message = str(message or "").strip()
+    if not message or message in warnings:
+        return
+    if len(warnings) >= 8:
+        return
+    warnings.append(message)
+
+
+def _extend_warnings(warnings: list[str], new_warnings: list[str]) -> None:
+    for message in new_warnings:
+        _append_warning(warnings, message)
+
+
 def _sync_activities(database: Any, activities: list[dict[str, Any]]) -> SyncCounts:
     if not activities:
         return _empty_activity_counts()
@@ -269,8 +347,9 @@ def _collect_hrv_data(
     client: Any,
     date_list: list[datetime],
     on_progress: SyncProgressCallback | None,
-) -> dict[str, dict[str, Any]]:
+) -> tuple[dict[str, dict[str, Any]], list[str]]:
     hrv_data: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
     batch_size = 5
     total_batches = max(1, len(date_list) // batch_size + (1 if len(date_list) % batch_size else 0))
 
@@ -280,7 +359,14 @@ def _collect_hrv_data(
         for date_value in batch_dates:
             date_str = _db_date(date_value)
 
-            hrv_day_data = client.get_hrv_data(date_value)
+            hrv_day_data, hrv_error = _call_client_method(
+                client,
+                "get_hrv_data",
+                date_value,
+                warning_context=f"HRV {date_str}",
+            )
+            if hrv_error:
+                _append_warning(warnings, f"⚠️ Garmin HRV {date_str}: {hrv_error.get('message')}")
             rmssd_value = None
 
             logger.debug("DEBUG HRV: Получены данные HRV для %s: %s", date_str, type(hrv_day_data))
@@ -297,7 +383,14 @@ def _collect_hrv_data(
                     rmssd_value = hrv_day_data["rmssd"]
 
             stress_score = None
-            stress_data = client.get_stress_data(date_value)
+            stress_data, stress_error = _call_client_method(
+                client,
+                "get_stress_data",
+                date_value,
+                warning_context=f"stress {date_str}",
+            )
+            if stress_error:
+                _append_warning(warnings, f"⚠️ Garmin stress {date_str}: {stress_error.get('message')}")
             logger.debug("DEBUG STRESS SYNC: Получены данные стресса для %s: %s", date_str, type(stress_data))
             if stress_data:
                 logger.debug("DEBUG STRESS SYNC: Структура данных стресса: %s", stress_data)
@@ -308,7 +401,14 @@ def _collect_hrv_data(
                 stress_score = stress_data
 
             recovery_score = None
-            body_battery_data = client.get_body_battery_data(date_value)
+            body_battery_data, body_battery_error = _call_client_method(
+                client,
+                "get_body_battery_data",
+                date_value,
+                warning_context=f"body battery {date_str}",
+            )
+            if body_battery_error:
+                _append_warning(warnings, f"⚠️ Garmin Body Battery {date_str}: {body_battery_error.get('message')}")
             if body_battery_data and isinstance(body_battery_data, list) and len(body_battery_data) > 0:
                 entry = body_battery_data[0]
                 if "bodyBatteryValuesArray" in entry and entry["bodyBatteryValuesArray"]:
@@ -331,21 +431,29 @@ def _collect_hrv_data(
             step_text="Шаг 3/5: Загрузка HRV...",
         )
 
-    return hrv_data
+    return hrv_data, warnings
 
 
 def _collect_phase1_daily_data(
     client: Any,
     dates_to_process: list[datetime],
-) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]], list[str]]:
     sleep_data: dict[str, dict[str, Any]] = {}
     daily_health_data: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
 
     for date_value in dates_to_process:
         date_str = _db_date(date_value)
 
         try:
-            sleep_raw = client.get_sleep_data(date_value)
+            sleep_raw, sleep_error = _call_client_method(
+                client,
+                "get_sleep_data",
+                date_value,
+                warning_context=f"sleep {date_str}",
+            )
+            if sleep_error:
+                _append_warning(warnings, f"⚠️ Garmin sleep {date_str}: {sleep_error.get('message')}")
             logger.debug("DEBUG SYNC: Получены данные сна для %s: %s", date_str, type(sleep_raw))
 
             if sleep_raw:
@@ -357,10 +465,25 @@ def _collect_phase1_daily_data(
                     sleep_data[date_key] = processed_sleep
         except Exception as exc:
             logger.debug("DEBUG SYNC: Ошибка обработки данных сна для %s: %s", date_str, exc)
+            _append_warning(warnings, f"⚠️ Обработка сна {date_str}: {exc}")
 
         try:
-            daily_summary = client.get_daily_summary(date_value)
-            resting_hr = client.get_resting_heart_rate(date_value)
+            daily_summary, daily_summary_error = _call_client_method(
+                client,
+                "get_daily_summary",
+                date_value,
+                warning_context=f"daily summary {date_str}",
+            )
+            if daily_summary_error:
+                _append_warning(warnings, f"⚠️ Garmin daily summary {date_str}: {daily_summary_error.get('message')}")
+            resting_hr, resting_hr_error = _call_client_method(
+                client,
+                "get_resting_heart_rate",
+                date_value,
+                warning_context=f"resting HR {date_str}",
+            )
+            if resting_hr_error:
+                _append_warning(warnings, f"⚠️ Garmin resting HR {date_str}: {resting_hr_error.get('message')}")
 
             if daily_summary or resting_hr:
                 processed_health = Phase1DataProcessor.process_daily_health_data(
@@ -369,19 +492,38 @@ def _collect_phase1_daily_data(
                 )
                 if processed_health:
                     daily_health_data[date_str] = processed_health
-        except Exception:
-            pass
+        except Exception as exc:
+            _append_warning(warnings, f"⚠️ Обработка ежедневного здоровья {date_str}: {exc}")
 
-    return sleep_data, daily_health_data
+    return sleep_data, daily_health_data, warnings
 
 
-def _collect_training_status_data(client: Any) -> dict[str, dict[str, Any]]:
+def _collect_training_status_data(client: Any) -> tuple[dict[str, dict[str, Any]], list[str]]:
     training_status_data: dict[str, dict[str, Any]] = {}
+    warnings: list[str] = []
 
     try:
-        training_status = client.get_training_status()
-        vo2_data = client.get_vo2_max()
-        readiness_data = client.get_training_readiness()
+        training_status, training_status_error = _call_client_method(
+            client,
+            "get_training_status",
+            warning_context="training status",
+        )
+        if training_status_error:
+            _append_warning(warnings, f"⚠️ Garmin training status: {training_status_error.get('message')}")
+        vo2_data, vo2_error = _call_client_method(
+            client,
+            "get_vo2_max",
+            warning_context="VO2 max",
+        )
+        if vo2_error:
+            _append_warning(warnings, f"⚠️ Garmin VO2 max: {vo2_error.get('message')}")
+        readiness_data, readiness_error = _call_client_method(
+            client,
+            "get_training_readiness",
+            warning_context="training readiness",
+        )
+        if readiness_error:
+            _append_warning(warnings, f"⚠️ Garmin readiness: {readiness_error.get('message')}")
 
         if training_status or vo2_data:
             processed_status = Phase1DataProcessor.process_training_status_data(
@@ -391,10 +533,10 @@ def _collect_training_status_data(client: Any) -> dict[str, dict[str, Any]]:
             )
             if processed_status:
                 training_status_data[datetime.now().strftime("%Y-%m-%d")] = processed_status
-    except Exception:
-        pass
+    except Exception as exc:
+        _append_warning(warnings, f"⚠️ Обработка training status: {exc}")
 
-    return training_status_data
+    return training_status_data, warnings
 
 
 def _build_sync_details(

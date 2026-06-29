@@ -6,6 +6,7 @@ from typing import Optional
 import pandas as pd
 import streamlit as st
 
+from data.database import Database
 from state import get_state_manager
 
 
@@ -20,35 +21,53 @@ def _copy_df(df: Optional[pd.DataFrame]) -> pd.DataFrame:
         return pd.DataFrame()
 
 
-@st.cache_data(show_spinner=False)
-def load_activities(days: int) -> pd.DataFrame:
-    db = get_state_manager().database
-    return _copy_df(db.get_activities(days))
+def _resolve_db_path(explicit_db_path: Optional[str] = None) -> str:
+    if explicit_db_path:
+        return explicit_db_path
+    return str(get_state_manager().database.db_path)
 
 
 @st.cache_data(show_spinner=False)
-def load_hrv(days: int) -> pd.DataFrame:
-    db = get_state_manager().database
-    return _copy_df(db.get_hrv_data(days))
+def _load_activities_cached(db_path: str, days: int) -> pd.DataFrame:
+    return _copy_df(Database(db_path).get_activities(days))
 
 
 @st.cache_data(show_spinner=False)
-def load_sleep(days: int) -> pd.DataFrame:
-    db = get_state_manager().database
-    return _copy_df(db.get_sleep_data(days))
+def _load_hrv_cached(db_path: str, days: int) -> pd.DataFrame:
+    return _copy_df(Database(db_path).get_hrv_data(days))
 
 
 @st.cache_data(show_spinner=False)
-def load_daily_health(days: int) -> pd.DataFrame:
-    db = get_state_manager().database
-    return _copy_df(db.get_daily_health(days))
+def _load_sleep_cached(db_path: str, days: int) -> pd.DataFrame:
+    return _copy_df(Database(db_path).get_sleep_data(days))
+
+
+@st.cache_data(show_spinner=False)
+def _load_daily_health_cached(db_path: str, days: int) -> pd.DataFrame:
+    return _copy_df(Database(db_path).get_daily_health(days))
+
+
+def load_activities(days: int, db_path: Optional[str] = None) -> pd.DataFrame:
+    return _load_activities_cached(_resolve_db_path(db_path), days)
+
+
+def load_hrv(days: int, db_path: Optional[str] = None) -> pd.DataFrame:
+    return _load_hrv_cached(_resolve_db_path(db_path), days)
+
+
+def load_sleep(days: int, db_path: Optional[str] = None) -> pd.DataFrame:
+    return _load_sleep_cached(_resolve_db_path(db_path), days)
+
+
+def load_daily_health(days: int, db_path: Optional[str] = None) -> pd.DataFrame:
+    return _load_daily_health_cached(_resolve_db_path(db_path), days)
 
 
 def clear_data_caches() -> None:
-    load_activities.clear()
-    load_hrv.clear()
-    load_sleep.clear()
-    load_daily_health.clear()
+    _load_activities_cached.clear()
+    _load_hrv_cached.clear()
+    _load_sleep_cached.clear()
+    _load_daily_health_cached.clear()
 
 
 __all__ = [

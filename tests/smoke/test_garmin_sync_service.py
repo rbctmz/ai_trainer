@@ -114,6 +114,29 @@ class _StubState:
         self.database = _StubDatabase()
 
 
+class _FlakySleepClient(_StubGarminClient):
+    def __init__(self) -> None:
+        super().__init__()
+        self.sleep_calls = 0
+
+    def get_sleep_data(self, _date):
+        self.sleep_calls += 1
+        if self.sleep_calls == 1:
+            self._last_error = {
+                "context": "sleep_data",
+                "message": "429 Too Many Requests from Garmin sleep endpoint",
+            }
+            return None
+        self._last_error = None
+        return super().get_sleep_data(_date)
+
+
+class _FlakySleepState(_StubState):
+    def __init__(self) -> None:
+        self.garmin_client = _FlakySleepClient()
+        self.database = _StubDatabase()
+
+
 def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.MonkeyPatch):
     state = _StubState()
     progress_updates: list[sync_service.SyncProgressUpdate] = []
@@ -176,3 +199,30 @@ def test_sync_status_payload_summarizes_fresh_training_data():
         "🆕 2 новых активностей",
         "🔄 1 активность обновлена",
     ]
+
+
+def test_sync_status_payload_marks_partial_when_warnings_exist():
+    result = sync_service.GarminSyncResult(
+        activity_result={"new": 2, "updated": 0, "skipped": 0},
+        warnings=["⚠️ Garmin sleep 2026-01-02: 429 Too Many Requests"],
+        success_messages=["🆕 2 новых активностей"],
+    )
+
+    payload = sync_service.build_sync_status_payload(result, days=30)
+
+    assert payload["severity"] == "warning"
+    assert payload["title"] == "Синхронизация Garmin завершена частично"
+    assert payload["activity_changes"] == 2
+    assert payload["notices"][0].startswith("⚠️ Garmin sleep")
+
+
+def test_sync_service_retries_transient_sleep_errors(monkeypatch: pytest.MonkeyPatch):
+    state = _FlakySleepState()
+    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    monkeypatch.setattr(sync_service.time, "sleep", lambda _seconds: None)
+
+    result = sync_service.sync_garmin_data(state, days=1, on_progress=None)
+
+    assert state.garmin_client.sleep_calls >= 2
+    assert result.sleep_result["new"] >= 1
+    assert not any("Garmin sleep" in warning for warning in result.warnings)

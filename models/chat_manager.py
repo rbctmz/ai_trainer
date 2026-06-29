@@ -9,12 +9,14 @@ import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
+from config.settings import Settings
+
 
 class ChatManager:
     """Управляет чатами AI тренера"""
     
-    def __init__(self, chats_dir: str = "chats"):
-        self.chats_dir = chats_dir
+    def __init__(self, chats_dir: Optional[str] = None):
+        self.chats_dir = chats_dir or Settings.CHATS_DIR
         self.ensure_chats_directory()
     
     def ensure_chats_directory(self):

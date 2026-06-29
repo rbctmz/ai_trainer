@@ -378,16 +378,9 @@ class StateManager:
         self._session["context_loaded"] = False
         self._session["data_context"] = None
 
-
-_manager: Optional[StateManager] = None
-
-
 def get_state_manager() -> StateManager:
-    """Get a singleton-ish state manager tied to st.session_state."""
-    global _manager
-    if _manager is None:
-        _manager = StateManager()
-    return _manager
+    """Return a fresh wrapper around the current Streamlit session state."""
+    return StateManager()
 
 
 __all__ = ["StateManager", "get_state_manager"]

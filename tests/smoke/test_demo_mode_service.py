@@ -16,6 +16,7 @@ class _StubDatabase:
         self.sleep = None
         self.health = None
         self.training_status = None
+        self.user_settings = {}
 
     def clear_all_data(self):
         self.clear_calls += 1
@@ -34,6 +35,9 @@ class _StubDatabase:
 
     def sync_training_status(self, training_status):
         self.training_status = training_status
+
+    def set_user_setting(self, key, value):
+        self.user_settings[key] = value
 
 
 class _StubState:
@@ -81,6 +85,7 @@ def test_activate_demo_mode_seeds_temporary_dataset(monkeypatch: pytest.MonkeyPa
     assert len(state.database.sleep) == result["sleep_days"] > 0
     assert len(state.database.health) == result["health_days"] > 0
     assert len(state.database.training_status) == result["training_status_days"] > 0
+    assert state.database.user_settings[demo_mode.DATASET_ORIGIN_KEY] == demo_mode.DATASET_ORIGIN_DEMO
     assert cache_clears == ["cleared"]
 
 
