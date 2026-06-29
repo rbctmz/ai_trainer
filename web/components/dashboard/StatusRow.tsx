@@ -21,9 +21,9 @@ function Metric({ label, value }: { label: string; value: string }) {
 export function StatusRow({ today }: { today: TodayState }) {
   const tone = toneStyles[today.tone] ?? toneStyles.neutral;
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
       <div
-        className={`col-span-2 overflow-hidden rounded-card border border-surface-border bg-surface p-4 shadow-card`}
+        className={`col-span-2 sm:col-span-1 overflow-hidden rounded-card border border-surface-border bg-surface p-4 shadow-card`}
       >
         <div className="flex items-center gap-2">
           <span className={`h-2.5 w-2.5 rounded-full ${tone.bar}`} />
