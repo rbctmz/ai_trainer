@@ -7,6 +7,11 @@ on:
       - main
       - "codex/**"
 
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
 jobs:
   request-review:
     runs-on: ubuntu-latest

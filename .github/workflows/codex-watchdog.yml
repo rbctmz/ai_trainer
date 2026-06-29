@@ -19,6 +19,15 @@ jobs:
           script: |
             const TIMEOUT_MS = 30 * 60 * 1000; // 30 min
             const now = Date.now();
+            const referencesIssue = (pr, issueNumber) => {
+              const body = pr.body || '';
+              const title = pr.title || '';
+              const ref = pr.head?.ref || '';
+              const byBody = new RegExp(`(?:closes|fixes|resolves)\\s+#${issueNumber}\\b`, 'i').test(body);
+              const byTitle = new RegExp(`(?:^|\\s)#${issueNumber}\\b`, 'i').test(title);
+              const byBranch = new RegExp(`(?:^|[\\/_-])(?:issue[\\/_-]?)?${issueNumber}(?:$|[\\/_-])`, 'i').test(ref);
+              return byBody || byTitle || byBranch;
+            };
 
             const issues = await github.paginate(github.rest.issues.listForRepo, {
               owner: context.repo.owner,
@@ -50,14 +59,7 @@ jobs:
               if (age < TIMEOUT_MS) continue;
 
               // Check if a linked PR exists
-              const linked = allPRs.some(pr => {
-                const body = pr.body || '';
-                const ref  = pr.head.ref || '';
-                return (
-                  body.match(new RegExp(`(?:closes|fixes|resolves)\\s+#${issue.number}\\b`, 'i')) ||
-                  ref.startsWith('codex/')
-                );
-              });
+              const linked = allPRs.some(pr => referencesIssue(pr, issue.number));
 
               if (linked) {
                 // PR exists — mark in progress
@@ -67,14 +69,16 @@ jobs:
                   issue_number: issue.number,
                   labels: ['status: in progress'],
                 });
-                try {
-                  await github.rest.issues.removeLabel({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    issue_number: issue.number,
-                    name: 'status: queued',
-                  });
-                } catch {}
+                for (const name of ['status: queued', 'status: blocked', 'status: needs triage']) {
+                  try {
+                    await github.rest.issues.removeLabel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      issue_number: issue.number,
+                      name,
+                    });
+                  } catch {}
+                }
               } else {
                 // No PR — mark blocked and re-ping
                 await github.rest.issues.addLabels({
