@@ -2,7 +2,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { SleepSummary } from "@/lib/types";
 
-export function SleepWidget() {
+export function SleepWidget({ className = "" }: { className?: string }) {
   const { data, isLoading } = useSWR<SleepSummary>(
     "/api/sleep/summary",
     fetcher,
@@ -10,7 +10,7 @@ export function SleepWidget() {
 
   if (isLoading) {
     return (
-      <div className="rounded-card border border-surface-border bg-surface p-4 shadow-card animate-pulse h-24" />
+      <div className={`rounded-card border border-surface-border bg-surface p-4 shadow-card animate-pulse h-24 ${className}`} />
     );
   }
 
@@ -25,7 +25,7 @@ export function SleepWidget() {
     :                "text-tone-danger";
 
   return (
-    <div className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+    <div className={`rounded-card border border-surface-border bg-surface p-4 shadow-card ${className}`}>
       <div className="text-xs font-medium uppercase tracking-wide text-ink-faint mb-1">
         Сон
       </div>

@@ -58,8 +58,8 @@ export default function DashboardPage() {
 
           {widgets && (
             <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-4">
-                <SleepWidget />
+              <div className="flex flex-col gap-4">
+                <SleepWidget className="flex-1" />
                 {widgets.race_projection && (
                   <RaceProjection data={widgets.race_projection} />
                 )}
