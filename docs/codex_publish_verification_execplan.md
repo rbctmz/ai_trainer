@@ -15,11 +15,16 @@ After this change, the repository should stop treating a Codex summary comment a
 - [x] (2026-06-29 08:28Z) Strengthened `.github/workflows/codex-assign.yml` so the canonical task prompt now requires a pushed branch, a PR against `main`, `Closes #<issue>` in the PR body, and a final comment that includes the real PR URL plus pushed commit SHA.
 - [x] (2026-06-29 08:29Z) Validated both workflow files with Python YAML parsing and checked `git diff --check` for formatting regressions.
 - [x] (2026-06-29 08:31Z) Staged only the workflow and ExecPlan files, committed them on `codex/automation-publish-guard`, pushed the branch, and opened PR `#19`.
+- [x] (2026-06-29 08:47Z) Confirmed the first live post-merge probe on issue `#10` missed the retry because the new connector used a `### Summary` heading instead of `**Summary**`.
+- [ ] Expand the publish-verifier matcher to accept both summary heading styles, publish the patch, and re-run issue `#10`.
 
 ## Surprises & Discoveries
 
 - Observation: the issue loop already verifies queueing, PR linking, and timeout blocking, but it never inspects Codex completion comments for evidence that the publish step actually happened.
   Evidence: issue `#10` remained labeled `status: queued` / `agent: codex` after a summary comment that claimed `Committed changes on the current branch: 5dfbacb ...`, and `gh api repos/rbctmz/ai_trainer/commits/5dfbacb` returned `No commit found for SHA: 5dfbacb`.
+
+- Observation: the first version of the publish verifier was too strict about summary formatting. It only matched `**Summary**`, but the newer connector emitted `### Summary`, so the workflow completed successfully while skipping the retry comment.
+  Evidence: GitHub Actions run `28359707608` for workflow `Codex publish verifier` completed with `success` at `2026-06-29T08:44:19Z`, yet issue `#10` stayed at 6 comments and the newest bot comment began with `### Summary`.
 
 ## Decision Log
 
@@ -33,7 +38,7 @@ After this change, the repository should stop treating a Codex summary comment a
 
 ## Outcomes & Retrospective
 
-The repository now has a direct publish-gap recovery path in addition to the existing queue, PR-link, and watchdog loops. If Codex leaves another completion summary without publishing a real branch or PR, GitHub Actions will immediately post one targeted retry comment instead of silently waiting for the 30-minute watchdog. The implementation is published in PR `#19`, whose initial checks show the automation-specific `link` and `request-review` jobs passing while contributor-safe pytest starts.
+The repository now has a direct publish-gap recovery path in addition to the existing queue, PR-link, and watchdog loops, but the first live probe exposed one remaining format mismatch. The workflow logic is correct, yet its summary detector must accept both `**Summary**` and `### Summary` so that new connector output actually triggers the retry path. This follow-up patch is therefore a narrow compatibility correction, not a redesign.
 
 ## Context and Orientation
 
@@ -98,3 +103,5 @@ Revision note (2026-06-29): created this ExecPlan to cover the publish-step gap 
 Revision note (2026-06-29): updated the plan after implementation to record the new verifier workflow, the stronger assign prompt, and the YAML validation evidence.
 
 Revision note (2026-06-29): updated the plan after publish to record commit/push/PR completion and the initial PR check state.
+
+Revision note (2026-06-29): updated the plan after the first live post-merge probe on issue `#10` exposed a summary-heading format mismatch in the verifier.

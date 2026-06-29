@@ -29,7 +29,10 @@ jobs:
             if (!labels.has('agent: codex') || !labels.has('status: queued')) return;
 
             const body = comment.body || '';
-            if (!/\*\*Summary\*\*/.test(body)) return;
+            const hasSummaryHeading =
+              /\*\*Summary\*\*/.test(body) ||
+              /^\s{0,3}#{1,6}\s+Summary\b/m.test(body);
+            if (!hasSummaryHeading) return;
             if (!/(Committed changes|Opened PR:)/.test(body)) return;
 
             const issueNumber = issue.number;
