@@ -56,16 +56,6 @@ export default function DashboardPage() {
             <DailyOutlook data={widgets.daily_outlook} />
           )}
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <TodayCard
-              workout={data.summary.workout}
-              today={data.summary.today}
-            />
-            <WeekCard week={data.summary.week} plan={data.summary.plan} />
-          </div>
-
-          <WeekStrip days={data.summary.next_days} />
-
           {widgets && (
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-4">
@@ -77,6 +67,16 @@ export default function DashboardPage() {
               <TrainingScore data={widgets.training_score} />
             </div>
           )}
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <TodayCard
+              workout={data.summary.workout}
+              today={data.summary.today}
+            />
+            <WeekCard week={data.summary.week} plan={data.summary.plan} />
+          </div>
+
+          <WeekStrip days={data.summary.next_days} />
         </>
       ) : null}
     </main>
