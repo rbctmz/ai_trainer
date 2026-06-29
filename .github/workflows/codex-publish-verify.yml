@@ -34,6 +34,12 @@ jobs:
               /^\s{0,3}#{1,6}\s+Summary\b/m.test(body);
             if (!hasSummaryHeading) return;
             if (!/(Committed changes|Opened PR:)/.test(body)) return;
+            const fatalPublishBlocker = [
+              /no configured `?origin`? remote/i,
+              /fatal:\s*['`"]?origin['`"]?\s+does not appear to be a git repository/i,
+              /could not push the branch to GitHub/i,
+              /could not push the branch to GitHub or provide a real GitHub PR URL/i,
+            ].some((pattern) => pattern.test(body));
 
             const issueNumber = issue.number;
             const referencesIssue = (pr, targetIssue) => {
@@ -72,7 +78,52 @@ jobs:
               if (isQueueStart(entry)) lastQueueStart = index;
             });
 
-            const alreadyRetried = comments.slice(lastQueueStart + 1).some(entry =>
+            const commentsInCycle = comments.slice(lastQueueStart + 1);
+
+            const alreadyBlockedForPublishEnv = commentsInCycle.some(entry =>
+              entry.id !== comment.id &&
+              entry.user?.login === 'github-actions[bot]' &&
+              (entry.body || '').includes('**Publish environment blocked**')
+            );
+            if (fatalPublishBlocker && alreadyBlockedForPublishEnv) return;
+
+            if (fatalPublishBlocker) {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                labels: ['status: blocked'],
+              });
+              for (const name of ['status: queued']) {
+                try {
+                  await github.rest.issues.removeLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    issue_number: issueNumber,
+                    name,
+                  });
+                } catch {}
+              }
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+                body: [
+                  `@codex **Publish environment blocked** for issue #${issueNumber}: the executor reported that no usable GitHub publish remote exists.`,
+                  ``,
+                  `This is not a normal \"retry the PR step\" case. The current executor can finish local commits but cannot publish a real branch or PR to GitHub.`,
+                  ``,
+                  `Required recovery before retrying this task:`,
+                  `- configure a working \`origin\` remote for the executor checkout, or`,
+                  `- switch the executor to a GitHub-native publish path that does not depend on \`origin\``,
+                  ``,
+                  `Issue state is being moved to \`status: blocked\` immediately so the watchdog does not keep re-queueing a known infrastructure failure.`,
+                ].join('\n')
+              });
+              return;
+            }
+
+            const alreadyRetried = commentsInCycle.some(entry =>
               entry.id !== comment.id &&
               entry.user?.login === 'github-actions[bot]' &&
               (entry.body || '').includes('**Publish verification failed**')
