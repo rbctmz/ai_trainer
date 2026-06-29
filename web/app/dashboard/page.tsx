@@ -67,12 +67,14 @@ export default function DashboardPage() {
           <WeekStrip days={data.summary.next_days} />
 
           {widgets && (
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <SleepWidget />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-4">
+                <SleepWidget />
+                {widgets.race_projection && (
+                  <RaceProjection data={widgets.race_projection} />
+                )}
+              </div>
               <TrainingScore data={widgets.training_score} />
-              {widgets.race_projection && (
-                <RaceProjection data={widgets.race_projection} />
-              )}
             </div>
           )}
         </>
