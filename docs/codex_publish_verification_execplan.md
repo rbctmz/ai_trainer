@@ -14,7 +14,7 @@ After this change, the repository should stop treating a Codex summary comment a
 - [x] (2026-06-29 08:28Z) Added `.github/workflows/codex-publish-verify.yml` to watch Codex summary comments and post one publish-retry `@codex` comment per queue cycle when no linked PR exists.
 - [x] (2026-06-29 08:28Z) Strengthened `.github/workflows/codex-assign.yml` so the canonical task prompt now requires a pushed branch, a PR against `main`, `Closes #<issue>` in the PR body, and a final comment that includes the real PR URL plus pushed commit SHA.
 - [x] (2026-06-29 08:29Z) Validated both workflow files with Python YAML parsing and checked `git diff --check` for formatting regressions.
-- [ ] Stage only the workflow and ExecPlan files, commit on `codex/automation-publish-guard`, push, and open a PR for review.
+- [x] (2026-06-29 08:31Z) Staged only the workflow and ExecPlan files, committed them on `codex/automation-publish-guard`, pushed the branch, and opened PR `#19`.
 
 ## Surprises & Discoveries
 
@@ -33,7 +33,7 @@ After this change, the repository should stop treating a Codex summary comment a
 
 ## Outcomes & Retrospective
 
-The repository now has a direct publish-gap recovery path in addition to the existing queue, PR-link, and watchdog loops. If Codex leaves another completion summary without publishing a real branch or PR, GitHub Actions will immediately post one targeted retry comment instead of silently waiting for the 30-minute watchdog. The remaining work is operational: publish this branch and merge it so the live issue loop can exercise the new verifier.
+The repository now has a direct publish-gap recovery path in addition to the existing queue, PR-link, and watchdog loops. If Codex leaves another completion summary without publishing a real branch or PR, GitHub Actions will immediately post one targeted retry comment instead of silently waiting for the 30-minute watchdog. The implementation is published in PR `#19`, whose initial checks show the automation-specific `link` and `request-review` jobs passing while contributor-safe pytest starts.
 
 ## Context and Orientation
 
@@ -96,3 +96,5 @@ The new workflow uses `actions/github-script@v7`, the same helper already used i
 Revision note (2026-06-29): created this ExecPlan to cover the publish-step gap discovered on issue `#10`, where Codex reported a local commit without publishing any GitHub branch or pull request.
 
 Revision note (2026-06-29): updated the plan after implementation to record the new verifier workflow, the stronger assign prompt, and the YAML validation evidence.
+
+Revision note (2026-06-29): updated the plan after publish to record commit/push/PR completion and the initial PR check state.
