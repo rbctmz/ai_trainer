@@ -16,9 +16,11 @@ jobs:
       repository-projects: write
     steps:
       - name: Sync roadmap project status
+        env:
+          ROADMAP_PROJECT_TOKEN: ${{ secrets.ROADMAP_PROJECT_TOKEN }}
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.ROADMAP_PROJECT_TOKEN || github.token }}
           script: |
             const PROJECT_OWNER = 'rbctmz';
             const PROJECT_NUMBER = 2;
@@ -114,13 +116,31 @@ jobs:
               });
             };
 
+            const tokenSource = process.env.ROADMAP_PROJECT_TOKEN
+              ? 'ROADMAP_PROJECT_TOKEN'
+              : 'GITHUB_TOKEN';
+
             const allPRs = await github.paginate(github.rest.pulls.list, {
               owner: context.repo.owner,
               repo: context.repo.repo,
               state: 'all',
               per_page: 100,
             });
-            const projectItems = await getProjectItems();
+            let projectItems;
+            try {
+              projectItems = await getProjectItems();
+            } catch (error) {
+              const message = error.message || '';
+              const isProjectAccessError =
+                /Could not resolve to a ProjectV2/.test(message) ||
+                /NOT_FOUND/.test(message);
+              if (!isProjectAccessError) throw error;
+              core.warning(
+                `Roadmap sync skipped: unable to access user Project v2 with ${tokenSource}. ` +
+                `Configure repository secret ROADMAP_PROJECT_TOKEN with GitHub Project write access to enable automation.`
+              );
+              return;
+            }
 
             const syncIssueItem = async (issueNumber) => {
               const item = projectItems.find(node =>

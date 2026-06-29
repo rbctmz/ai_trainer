@@ -12,7 +12,9 @@ After this change, the Roadmap project at `users/rbctmz/projects/2` should stop 
 
 - [x] (2026-06-29 14:35Z) Confirmed the mismatch that motivated issue `#25`: roadmap cards were diverging from issue labels and PR state, including blocked work still showing `Todo`.
 - [x] (2026-06-29 14:43Z) Implemented `.github/workflows/project-roadmap-sync.yml` to sync the project `Status` field from issue labels/state and PR open/merged state, with `workflow_dispatch` support for backfill.
-- [ ] Validate the workflow YAML, publish the branch, and open a PR that closes issue `#25`.
+- [x] (2026-06-29 14:47Z) Published the branch and opened PR `#28`.
+- [x] (2026-06-29 14:53Z) Live validation on PR `#28` showed that repository `GITHUB_TOKEN` cannot resolve the private user-owned Project v2.
+- [ ] Update the workflow to use a dedicated project token when available and degrade to a warning instead of a failing check when project access is unavailable.
 
 ## Surprises & Discoveries
 
@@ -21,6 +23,9 @@ After this change, the Roadmap project at `users/rbctmz/projects/2` should stop 
 
 - Observation: the roadmap contains both issue items and PR items from this repository.
   Evidence: `gh project item-list 2 --owner rbctmz --format json` returned issue cards like `#10` and PR cards like `#13`.
+
+- Observation: the default repository `GITHUB_TOKEN` cannot access the private user-owned Roadmap project.
+  Evidence: workflow run `28381056657` failed with `Could not resolve to a ProjectV2 with the number 2.`, while local owner-authenticated `gh project view 2 --owner rbctmz --format json` succeeds.
 
 ## Decision Log
 
@@ -36,9 +41,13 @@ After this change, the Roadmap project at `users/rbctmz/projects/2` should stop 
   Rationale: the linked PR is the strongest signal that work is underway, and this matches the repository’s existing `codex-pr-link` logic.
   Date/Author: 2026-06-29 / Codex
 
+- Decision: support repository secret `ROADMAP_PROJECT_TOKEN` and skip with a warning when that secret is absent or lacks access.
+  Rationale: the automation belongs in the repo, but a private user-owned Project v2 cannot be mutated by the default repository token. Failing every PR would be worse than surfacing the missing secret explicitly.
+  Date/Author: 2026-06-29 / Codex
+
 ## Outcomes & Retrospective
 
-Pending validation and publication.
+The core state-mapping logic is implemented, and live PR validation immediately exposed the real operational boundary: private user-owned Project v2 access requires a stronger token than `GITHUB_TOKEN`. This follow-up patch keeps the workflow usable in contributor PRs while making the missing secret explicit.
 
 ## Context and Orientation
 
@@ -63,7 +72,7 @@ For PR items, compute:
 - merged PR => `Done`
 - closed-unmerged PR => `Todo`
 
-Apply the computed option only to the project `Status` field. Do not modify `Priority`, `Category`, `Effort`, labels, assignees, or any repository issue state.
+Apply the computed option only to the project `Status` field. Do not modify `Priority`, `Category`, `Effort`, labels, assignees, or any repository issue state. Because the Roadmap project is private and user-owned, the workflow must prefer repository secret `ROADMAP_PROJECT_TOKEN` when available and otherwise skip with a warning rather than fail the job.
 
 ## Concrete Steps
 
@@ -91,7 +100,7 @@ The workflow should be readable as a direct mapping from repository workflow sta
 - a blocked issue item such as `#10` resolves to `Todo`
 - a merged PR item such as `#13` resolves to `Done`
 
-The acceptance bar is that the project `Status` field becomes a mechanical reflection of repository workflow state, while all other project metadata remains untouched.
+The acceptance bar is that, once a project-capable token is configured, the project `Status` field becomes a mechanical reflection of repository workflow state while all other project metadata remains untouched. Before that token exists, the workflow should skip cleanly with an explicit warning instead of failing PR checks.
 
 ## Idempotence and Recovery
 
@@ -114,4 +123,4 @@ Current roadmap evidence before the sync:
 
 ## Interfaces and Dependencies
 
-This workflow depends on GitHub GraphQL project mutations and the repository’s existing issue/PR linking logic. It uses `actions/github-script@v7`, reads `issues` and `pull-requests`, and writes only `repository-projects`. No Python application code or frontend files are involved.
+This workflow depends on GitHub GraphQL project mutations and the repository’s existing issue/PR linking logic. It uses `actions/github-script@v7`, reads `issues` and `pull-requests`, and writes only `repository-projects`. Because the target project is a private user-owned Project v2, repository secret `ROADMAP_PROJECT_TOKEN` is the intended credential for live automation.
