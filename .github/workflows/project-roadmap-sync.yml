@@ -1,0 +1,210 @@
+name: Project roadmap sync
+
+on:
+  issues:
+    types: [opened, reopened, closed, labeled, unlabeled]
+  pull_request:
+    types: [opened, reopened, edited, closed]
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: read
+      pull-requests: read
+      repository-projects: write
+    steps:
+      - name: Sync roadmap project status
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const PROJECT_OWNER = 'rbctmz';
+            const PROJECT_NUMBER = 2;
+            const PROJECT_ID = 'PVT_kwHOBymzFc4BbL8C';
+            const STATUS_FIELD_ID = 'PVTSSF_lAHOBymzFc4BbL8CzhV-ROg';
+            const STATUS_OPTIONS = {
+              todo: 'f75ad846',
+              inProgress: '47fc9ee4',
+              done: '98236657',
+            };
+            const REPO_NAME = `${context.repo.owner}/${context.repo.repo}`;
+
+            const referencesIssue = (pr, issueNumber) => {
+              const body = pr.body || '';
+              const title = pr.title || '';
+              const ref = pr.head?.ref || '';
+              const byBody = new RegExp(`(?:closes|fixes|resolves)\\s+#${issueNumber}\\b`, 'i').test(body);
+              const byTitle = new RegExp(`(?:^|\\s)#${issueNumber}\\b`, 'i').test(title);
+              const byBranch = new RegExp(`(?:^|[\\/_-])(?:issue[\\/_-]?)?${issueNumber}(?:$|[\\/_-])`, 'i').test(ref);
+              return byBody || byTitle || byBranch;
+            };
+
+            const extractIssueNumbersFromPr = (pr) => {
+              const issueNums = new Set();
+              const body = pr.body || '';
+              const title = pr.title || '';
+              const branch = pr.head?.ref || '';
+              for (const match of body.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
+                issueNums.add(parseInt(match[1], 10));
+              }
+              for (const match of title.matchAll(/(?:^|\s)#(\d+)\b/g)) {
+                issueNums.add(parseInt(match[1], 10));
+              }
+              for (const match of branch.matchAll(/(?:^|[\/_-])issue[\/_-]?(\d+)(?:$|[\/_-])/gi)) {
+                issueNums.add(parseInt(match[1], 10));
+              }
+              return [...issueNums];
+            };
+
+            const getProjectItems = async () => {
+              const query = `
+                query($owner: String!, $number: Int!) {
+                  user(login: $owner) {
+                    projectV2(number: $number) {
+                      items(first: 100) {
+                        nodes {
+                          id
+                          content {
+                            __typename
+                            ... on Issue {
+                              number
+                              state
+                              repository { nameWithOwner }
+                            }
+                            ... on PullRequest {
+                              number
+                              state
+                              merged
+                              repository { nameWithOwner }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              `;
+              const result = await github.graphql(query, {
+                owner: PROJECT_OWNER,
+                number: PROJECT_NUMBER,
+              });
+              return result.user.projectV2.items.nodes;
+            };
+
+            const setItemStatus = async (itemId, optionId) => {
+              const mutation = `
+                mutation($projectId: ID!, $itemId: ID!, $fieldId: ID!, $optionId: String!) {
+                  updateProjectV2ItemFieldValue(input: {
+                    projectId: $projectId
+                    itemId: $itemId
+                    fieldId: $fieldId
+                    value: { singleSelectOptionId: $optionId }
+                  }) {
+                    projectV2Item { id }
+                  }
+                }
+              `;
+              await github.graphql(mutation, {
+                projectId: PROJECT_ID,
+                itemId,
+                fieldId: STATUS_FIELD_ID,
+                optionId,
+              });
+            };
+
+            const allPRs = await github.paginate(github.rest.pulls.list, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+              per_page: 100,
+            });
+            const projectItems = await getProjectItems();
+
+            const syncIssueItem = async (issueNumber) => {
+              const item = projectItems.find(node =>
+                node.content?.__typename === 'Issue' &&
+                node.content.repository?.nameWithOwner === REPO_NAME &&
+                node.content.number === issueNumber
+              );
+              if (!item) {
+                core.info(`No project item found for issue #${issueNumber}`);
+                return;
+              }
+
+              const { data: issue } = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: issueNumber,
+              });
+              const labels = new Set((issue.labels || []).map(label =>
+                typeof label === 'string' ? label : label.name
+              ));
+              const hasOpenLinkedPr = allPRs.some(pr =>
+                pr.state === 'open' && referencesIssue(pr, issueNumber)
+              );
+
+              let optionId = STATUS_OPTIONS.todo;
+              if (issue.state === 'closed') {
+                optionId = STATUS_OPTIONS.done;
+              } else if (labels.has('status: in progress') || hasOpenLinkedPr) {
+                optionId = STATUS_OPTIONS.inProgress;
+              }
+
+              await setItemStatus(item.id, optionId);
+              core.info(`Synced issue #${issueNumber} to status option ${optionId}`);
+            };
+
+            const syncPullRequestItem = async (prNumber) => {
+              const item = projectItems.find(node =>
+                node.content?.__typename === 'PullRequest' &&
+                node.content.repository?.nameWithOwner === REPO_NAME &&
+                node.content.number === prNumber
+              );
+              if (!item) {
+                core.info(`No project item found for PR #${prNumber}`);
+                return;
+              }
+
+              const { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+
+              let optionId = STATUS_OPTIONS.todo;
+              if (pr.state === 'open') {
+                optionId = STATUS_OPTIONS.inProgress;
+              } else if (pr.merged_at) {
+                optionId = STATUS_OPTIONS.done;
+              }
+
+              await setItemStatus(item.id, optionId);
+              core.info(`Synced PR #${prNumber} to status option ${optionId}`);
+            };
+
+            if (context.eventName === 'workflow_dispatch') {
+              for (const item of projectItems) {
+                if (item.content?.repository?.nameWithOwner !== REPO_NAME) continue;
+                if (item.content.__typename === 'Issue') {
+                  await syncIssueItem(item.content.number);
+                } else if (item.content.__typename === 'PullRequest') {
+                  await syncPullRequestItem(item.content.number);
+                }
+              }
+              return;
+            }
+
+            if (context.eventName === 'issues') {
+              await syncIssueItem(context.payload.issue.number);
+              return;
+            }
+
+            if (context.eventName === 'pull_request') {
+              const pr = context.payload.pull_request;
+              await syncPullRequestItem(pr.number);
+              for (const issueNumber of extractIssueNumbersFromPr(pr)) {
+                await syncIssueItem(issueNumber);
+              }
+            }
