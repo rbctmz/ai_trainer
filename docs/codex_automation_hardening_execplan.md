@@ -13,7 +13,7 @@ After this change, a structured agent task issue in this repository will move th
 - [x] (2026-06-28 19:54Z) Read `.agent/PLANS.md`, inspected the tracked GitHub automation files in `.github/workflows/`, and confirmed the current state on live issue `#17`.
 - [x] (2026-06-28 19:57Z) Created the hardening edits for `codex-assign.yml`, `codex-watchdog.yml`, and `codex-pr-link.yml`.
 - [x] (2026-06-28 19:57Z) Parsed all three workflow YAML files locally with `python3 + yaml.safe_load`.
-- [ ] Stage, commit, and summarize the automation changes.
+- [x] (2026-06-28 19:59Z) Staged and committed the automation changes on `codex/automation-hardening`, pushed the branch, and opened PR `#18`.
 
 ## Surprises & Discoveries
 
@@ -42,7 +42,7 @@ After this change, a structured agent task issue in this repository will move th
 
 ## Outcomes & Retrospective
 
-The hardening slice is now implemented in a dedicated branch. The repository-side state machine is materially stronger than before: trusted human `@codex` comments can re-queue an already-open issue, the watchdog no longer treats any `codex/*` branch as proof of linkage, and PR open/merge events use richer issue extraction than “body contains Closes #N” alone. The remaining work is purely delivery: commit, optionally push/open a PR, and then let the new workflows manage a live issue such as `#17`.
+The hardening slice is now implemented and published for review in PR `#18`. The repository-side state machine is materially stronger than before: trusted human `@codex` comments can re-queue an already-open issue, the watchdog no longer treats any `codex/*` branch as proof of linkage, and PR open/merge events use richer issue extraction than “body contains Closes #N” alone. The remaining work is merge-and-observe on a live issue such as `#17`.
 
 ## Context and Orientation
 
@@ -132,6 +132,11 @@ The live evidence that motivates this work:
     -> contains owner @codex pings
     -> contains Codex summary claiming “Opened PR”
     -> no actual linked PR was found
+
+Delivery artifact:
+
+    Branch: codex/automation-hardening
+    PR: https://github.com/rbctmz/ai_trainer/pull/18
 
 ## Interfaces and Dependencies
 
