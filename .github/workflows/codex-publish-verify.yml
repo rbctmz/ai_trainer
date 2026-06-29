@@ -1,0 +1,96 @@
+name: Codex publish verifier
+
+on:
+  issue_comment:
+    types: [created]
+
+jobs:
+  verify-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: read
+    steps:
+      - name: Verify Codex publish step
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const issue = context.payload.issue;
+            const comment = context.payload.comment;
+            if (!issue || issue.pull_request || !comment) return;
+
+            const actor = comment.user?.login || '';
+            if (actor !== 'chatgpt-codex-connector[bot]') return;
+
+            const labels = new Set((issue.labels || []).map(label =>
+              typeof label === 'string' ? label : label.name
+            ));
+            if (!labels.has('agent: codex') || !labels.has('status: queued')) return;
+
+            const body = comment.body || '';
+            if (!/\*\*Summary\*\*/.test(body)) return;
+            if (!/(Committed changes|Opened PR:)/.test(body)) return;
+
+            const issueNumber = issue.number;
+            const referencesIssue = (pr, targetIssue) => {
+              const prBody = pr.body || '';
+              const prTitle = pr.title || '';
+              const branch = pr.head?.ref || '';
+              const byBody = new RegExp(`(?:closes|fixes|resolves)\\s+#${targetIssue}\\b`, 'i').test(prBody);
+              const byTitle = new RegExp(`(?:^|\\s)#${targetIssue}\\b`, 'i').test(prTitle);
+              const byBranch = new RegExp(`(?:^|[\\/_-])(?:issue[\\/_-]?)?${targetIssue}(?:$|[\\/_-])`, 'i').test(branch);
+              return byBody || byTitle || byBranch;
+            };
+
+            const allPRs = await github.paginate(github.rest.pulls.list, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'all',
+            });
+            if (allPRs.some(pr => referencesIssue(pr, issueNumber))) return;
+
+            const { data: comments } = await github.rest.issues.listComments({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              per_page: 100,
+            });
+
+            const isQueueStart = (entry) => {
+              const entryBody = entry.body || '';
+              if (entry.user?.login !== 'github-actions[bot]') return false;
+              return entryBody.startsWith('@codex Please implement this task:') ||
+                entryBody.includes('⚠️ **Watchdog**: @codex was pinged 30+ minutes ago but no PR appeared.');
+            };
+
+            let lastQueueStart = -1;
+            comments.forEach((entry, index) => {
+              if (isQueueStart(entry)) lastQueueStart = index;
+            });
+
+            const alreadyRetried = comments.slice(lastQueueStart + 1).some(entry =>
+              entry.id !== comment.id &&
+              entry.user?.login === 'github-actions[bot]' &&
+              (entry.body || '').includes('**Publish verification failed**')
+            );
+            if (alreadyRetried) return;
+
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: [
+                `@codex **Publish verification failed** for issue #${issueNumber}: GitHub cannot find a real linked PR yet.`,
+                ``,
+                `Your previous run produced a summary comment, but there is still no pushed branch or PR visible on GitHub.`,
+                ``,
+                `Please continue from the existing work and finish the publish step now:`,
+                `- push the branch to \`origin\``,
+                `- open a PR against \`main\``,
+                `- include \`Closes #${issueNumber}\` in the PR body`,
+                `- reply with the actual PR URL and pushed commit SHA`,
+                ``,
+                `Do not report success until the PR exists on GitHub.`,
+              ].join('\n')
+            });
