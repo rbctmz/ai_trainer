@@ -1,4 +1,5 @@
 import { TrainingScoreData, TrainingScoreSub } from "@/lib/types";
+import { InfoTip } from "@/components/ui/Tooltip";
 
 function ScoreBar({ score }: { score: number }) {
   const color =
@@ -40,8 +41,9 @@ export function TrainingScore({ data }: { data: TrainingScoreData }) {
   return (
     <div className="rounded-card border border-surface-border bg-surface p-4 shadow-card space-y-4">
       <div className="flex items-center justify-between">
-        <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+        <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-ink-faint">
           Training Score
+          <InfoTip metric="training_score" />
         </div>
         <div className={`text-2xl font-bold ${ringColor}`}>
           {data.total}

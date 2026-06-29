@@ -1,6 +1,8 @@
+"use client";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { SleepSummary } from "@/lib/types";
+import { InfoTip } from "@/components/ui/Tooltip";
 
 export function SleepWidget({ className = "" }: { className?: string }) {
   const { data, isLoading } = useSWR<SleepSummary>(
@@ -34,7 +36,10 @@ export function SleepWidget({ className = "" }: { className?: string }) {
           {hours != null ? `${hours} ч` : "—"}
         </span>
         {score != null && (
-          <span className="text-sm text-ink-soft mb-0.5">оценка {score}</span>
+          <span className="flex items-center gap-1 text-sm text-ink-soft mb-0.5">
+            оценка {score}
+            <InfoTip metric="sleep_score" />
+          </span>
         )}
       </div>
       {latest?.stages && (
