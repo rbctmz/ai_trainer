@@ -62,6 +62,28 @@ def test_synthesis_prompt_forbids_hrv_absent_without_tool():
     assert "не вызывался" in system_prompt
 
 
+def test_synthesis_prompt_contains_verbosity_rule():
+    system_prompt = ai_coach_runtime.create_chat_synthesis_system_prompt()
+    assert "300" in system_prompt
+    assert "3–5" in system_prompt
+
+
+def test_synthesis_prompt_injects_phase_when_goal_plan_provided():
+    from datetime import date, timedelta
+    event_date = (date.today() + timedelta(days=90)).isoformat()
+    goal_plan = {"goal_type": "Триатлон", "distance": "Олимпийка",
+                 "event_date": event_date, "weeks_to_race": 16}
+    prompt = ai_coach_runtime.create_chat_synthesis_system_prompt(goal_plan=goal_plan)
+    assert "ПЛАН И ФАЗА" in prompt
+    assert "Дней до старта" in prompt
+    assert "Текущая фаза" in prompt
+
+
+def test_synthesis_prompt_no_phase_without_plan():
+    prompt = ai_coach_runtime.create_chat_synthesis_system_prompt(goal_plan=None)
+    assert "ПЛАН И ФАЗА" not in prompt
+
+
 def test_runtime_builds_prompt_from_history_and_tools():
     ai_tools = _DummyAiTools()
     provider = _DummyProvider("raw ai response")
