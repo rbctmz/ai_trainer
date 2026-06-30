@@ -56,6 +56,7 @@ jobs:
             const acceptance = extract('Acceptance criteria');
             const smoke      = extract('Smoke baseline');
             const issueNumber = issue.number;
+            const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}.git`;
 
             await github.rest.issues.createComment({
               owner: context.repo.owner,
@@ -70,6 +71,13 @@ jobs:
                 acceptance,
                 ``,
                 `**Smoke baseline:** ${smoke} — do not regress.`,
+                ``,
+                `Publish preflight before you spend more time or create local-only delivery artifacts:`,
+                `- ensure the working branch name contains \`issue-${issueNumber}\``,
+                `- run \`git remote get-url origin\`; if it fails or points somewhere else, set \`origin\` to \`${repoUrl}\``,
+                `- if \`gh\` is available, run \`gh auth status\` and \`gh auth setup-git\` before the first push`,
+                `- verify a real publish path exists before finishing: \`git ls-remote --heads origin\` or an equivalent GitHub-native branch/PR path`,
+                `- if publish preflight fails, stop immediately and report a summary line that starts with \`Publish preflight blocker:\` plus the exact cause; do not claim success and do not leave local-only delivery as "done"`,
                 ``,
                 `Required delivery before reporting success:`,
                 `- keep working on a branch name that contains \`issue-${issueNumber}\``,
