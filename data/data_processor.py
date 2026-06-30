@@ -11,11 +11,16 @@ class ActivityProcessor:
         'trainingStressScore',
         'activityTrainingStressScore',
     )
-    _SWIM_HR_ZONE_TSS_WEIGHTS = (0.25, 0.5, 0.75, 1.0, 1.25)
+    _SWIM_HR_ZONE_TSS_WEIGHTS = (0.0, 0.4, 0.5, 0.6, 1.8)
+    _RUN_HR_ZONE_TSS_WEIGHTS = (0.45, 0.7, 1.0, 1.2, 1.5)
     _RUN_FALLBACK_TSS_PER_HOUR = 50.0
     _BIKE_FALLBACK_TSS_PER_HOUR = 60.0
     _SWIM_FALLBACK_TSS_PER_HOUR = 25.0
-    _WALK_FALLBACK_TSS_PER_HOUR = 8.5
+    _WALK_SHORT_TSS_PER_HOUR = 9.0
+    _WALK_LONG_TSS_PER_HOUR = 7.0
+    _WALK_SHORT_SESSION_THRESHOLD_MINUTES = 45.0
+    _WALK_MIN_MOVING_MINUTES_FOR_FLOOR = 8.0
+    _WALK_MIN_TSS_FLOOR = 2.0
     _STRENGTH_FALLBACK_TSS_PER_HOUR = 22.0
     _OTHER_FALLBACK_TSS_PER_HOUR = 20.0
 
@@ -100,8 +105,16 @@ class ActivityProcessor:
             return 0.0, 'no_duration'
 
         if sport_key == 'walk':
-            base_tss = cls._WALK_FALLBACK_TSS_PER_HOUR
+            base_tss = (
+                cls._WALK_SHORT_TSS_PER_HOUR
+                if duration_minutes < cls._WALK_SHORT_SESSION_THRESHOLD_MINUTES
+                else cls._WALK_LONG_TSS_PER_HOUR
+            )
             method = 'heuristic_duration_walk'
+            walk_tss = round(duration_hours * base_tss, 1)
+            if duration_minutes >= cls._WALK_MIN_MOVING_MINUTES_FOR_FLOOR:
+                walk_tss = max(cls._WALK_MIN_TSS_FLOOR, walk_tss)
+            return walk_tss, method
         elif sport_key == 'swim':
             base_tss = cls._SWIM_FALLBACK_TSS_PER_HOUR
             method = 'heuristic_duration_swim'
@@ -253,6 +266,14 @@ class ActivityProcessor:
                     'tss_method': 'hr_tss_swim',
                 }
         elif sport_key == 'run':
+            run_zone_tss = cls._zone_weighted_tss(activity_data, cls._RUN_HR_ZONE_TSS_WEIGHTS)
+            if run_zone_tss is not None:
+                return {
+                    'tss': run_zone_tss,
+                    'source_tss': garmin_training_load,
+                    'garmin_training_load': garmin_training_load,
+                    'tss_method': 'hr_zone_tss_run',
+                }
             hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
             if hr_tss is not None:
                 return {

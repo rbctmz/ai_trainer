@@ -327,7 +327,7 @@ class Database:
             return left == right
 
     def _repair_legacy_activity_tss(self, conn: sqlite3.Connection) -> None:
-        """Мигрирует старые строки, где Garmin load ошибочно был сохранён как TSS."""
+        """Пересчитывает сохраненный activity TSS по текущим resolver-правилам."""
         from data.data_processor import ActivityProcessor
 
         conn.row_factory = sqlite3.Row
@@ -336,8 +336,6 @@ class Database:
             '''
             SELECT *
             FROM activities
-            WHERE tss_method = 'garmin_training_load'
-               OR (garmin_training_load IS NULL AND source_tss IS NOT NULL)
             '''
         )
         rows = cursor.fetchall()
