@@ -94,10 +94,16 @@ export interface HrvSummary {
 export interface Activity {
   activity_id: string;
   date: string;
+  date_label?: string;
   sport: string;
+  sport_label?: string;
   duration_minutes: number | null;
+  moving_duration_minutes?: number | null;
   distance_km: number | null;
   tss: number | null;
+  source_tss?: number | null;
+  tss_method?: string | null;
+  tss_source?: "garmin" | "computed" | "unknown";
   avg_hr: number | null;
   max_hr: number | null;
   elevation_gain: number | null;

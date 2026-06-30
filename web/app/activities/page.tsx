@@ -4,22 +4,6 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { ActivitiesResponse } from "@/lib/types";
 
-const sportLabels: Record<string, string> = {
-  cycling: "вело",
-  bike: "вело",
-  ride: "вело",
-  running: "бег",
-  run: "бег",
-  swimming: "плавание",
-  swim: "плавание",
-  walking: "ходьба",
-  walk: "ходьба",
-};
-
-function sportLabel(s: string): string {
-  return sportLabels[s.toLowerCase()] ?? s;
-}
-
 export default function ActivitiesPage() {
   const { data, error, isLoading } = useSWR<ActivitiesResponse>(
     "/api/activities?days=30",
@@ -63,8 +47,8 @@ export default function ActivitiesPage() {
                     key={a.activity_id}
                     className="border-b border-surface-border last:border-0 hover:bg-surface-muted"
                   >
-                    <td className="px-4 py-2.5 text-ink-soft">{a.date}</td>
-                    <td className="px-4 py-2.5 text-ink">{sportLabel(a.sport)}</td>
+                    <td className="px-4 py-2.5 text-ink-soft">{a.date_label ?? a.date}</td>
+                    <td className="px-4 py-2.5 text-ink">{a.sport_label ?? a.sport}</td>
                     <td className="px-4 py-2.5 text-right tabular-nums text-ink">
                       {a.duration_minutes ?? "—"}
                     </td>

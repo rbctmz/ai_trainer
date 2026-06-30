@@ -22,8 +22,10 @@ class _StubGarminClient:
                 "startTimeLocal": "2026-01-01T10:00:00",
                 "activityType": {"typeKey": "running"},
                 "duration": 3600,
+                "movingDuration": 3420,
                 "distance": 10000,
                 "averageHR": 150,
+                "activityTrainingLoad": 47.4,
             }
         ]
 
@@ -167,6 +169,9 @@ def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.Monke
     assert "🆕 1 новых активностей" in result.success_messages
 
     assert state.database.activities
+    assert state.database.activities[0]["tss"] == 47.4
+    assert state.database.activities[0]["source_tss"] == 47.4
+    assert state.database.activities[0]["tss_method"] == "garmin_training_load"
     assert state.database.hrv
     assert state.database.sleep
     assert state.database.health
