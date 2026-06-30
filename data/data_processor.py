@@ -11,6 +11,7 @@ class ActivityProcessor:
         'trainingStressScore',
         'activityTrainingStressScore',
     )
+    _SWIM_HR_ZONE_TSS_WEIGHTS = (0.25, 0.5, 0.75, 1.0, 1.25)
     _RUN_FALLBACK_TSS_PER_HOUR = 50.0
     _BIKE_FALLBACK_TSS_PER_HOUR = 60.0
     _SWIM_FALLBACK_TSS_PER_HOUR = 25.0
@@ -33,6 +34,14 @@ class ActivityProcessor:
             value = cls._safe_float(activity.get(key))
             if value is not None and value > 0:
                 return round(value, 1)
+        return None
+
+    @classmethod
+    def _extract_first_numeric(cls, activity, *keys):
+        for key in keys:
+            value = cls._safe_float(activity.get(key))
+            if value is not None:
+                return value
         return None
 
     @classmethod
@@ -67,6 +76,22 @@ class ActivityProcessor:
         duration_hours = duration_minutes / 60
         intensity_factor = avg_power / ftp
         return round(duration_hours * intensity_factor ** 2 * 100, 1)
+
+    @classmethod
+    def _zone_weighted_tss(cls, activity_data, weights):
+        total = 0.0
+        has_zone_data = False
+
+        for zone_index, weight in enumerate(weights, start=1):
+            seconds = cls._safe_float(activity_data.get(f'hr_time_in_zone_{zone_index}_seconds'))
+            if seconds is None or seconds <= 0:
+                continue
+            has_zone_data = True
+            total += (seconds / 60) * weight
+
+        if not has_zone_data:
+            return None
+        return round(total, 1)
 
     @classmethod
     def _heuristic_tss(cls, sport_key, duration_minutes):
@@ -138,7 +163,7 @@ class ActivityProcessor:
                     'distance_km': float(activity.get('distance', 0)) / 1000 if activity.get('distance') else 0,
                     'avg_hr': activity.get('averageHR') if activity.get('averageHR') else None,
                     'max_hr': activity.get('maxHR') if activity.get('maxHR') else None,
-                    'avg_power': activity.get('avgPower') if activity.get('avgPower') else None,
+                    'avg_power': ActivityProcessor._extract_first_numeric(activity, 'avgPower', 'averagePower'),
                     'max_power': activity.get('maxPower') if activity.get('maxPower') else None,
                     'elevation_gain': float(activity.get('elevationGain', 0)) if activity.get('elevationGain') else 0,
                     'calories': int(activity.get('calories', 0)) if activity.get('calories') else 0,
@@ -146,7 +171,15 @@ class ActivityProcessor:
                     'anaerobic_effect': float(activity.get('anaerobicTrainingEffect', 0)) if activity.get('anaerobicTrainingEffect') else None,
                     'activity_name': activity.get('activityName', ''),
                     'description': activity.get('description', ''),
+                    'garmin_training_load': ActivityProcessor._extract_source_tss(activity),
                     'source_tss': ActivityProcessor._extract_source_tss(activity),
+                    'moderate_intensity_minutes': ActivityProcessor._safe_float(activity.get('moderateIntensityMinutes')),
+                    'vigorous_intensity_minutes': ActivityProcessor._safe_float(activity.get('vigorousIntensityMinutes')),
+                    'hr_time_in_zone_1_seconds': ActivityProcessor._safe_float(activity.get('hrTimeInZone_1')),
+                    'hr_time_in_zone_2_seconds': ActivityProcessor._safe_float(activity.get('hrTimeInZone_2')),
+                    'hr_time_in_zone_3_seconds': ActivityProcessor._safe_float(activity.get('hrTimeInZone_3')),
+                    'hr_time_in_zone_4_seconds': ActivityProcessor._safe_float(activity.get('hrTimeInZone_4')),
+                    'hr_time_in_zone_5_seconds': ActivityProcessor._safe_float(activity.get('hrTimeInZone_5')),
                 })
                 
             except Exception as e:
@@ -164,19 +197,20 @@ class ActivityProcessor:
     def resolve_tss(cls, activity_data, ftp=None, lthr=None):
         """Resolve the stored activity load and explain where it came from."""
         source_tss = cls._safe_float(activity_data.get('source_tss'))
-        if source_tss is not None and source_tss > 0:
-            rounded = round(source_tss, 1)
-            return {
-                'tss': rounded,
-                'source_tss': rounded,
-                'tss_method': 'garmin_training_load',
-            }
+        garmin_training_load = cls._safe_float(activity_data.get('garmin_training_load'))
+        if garmin_training_load is None and source_tss is not None and source_tss > 0:
+            garmin_training_load = round(source_tss, 1)
+        elif garmin_training_load is not None and garmin_training_load > 0:
+            garmin_training_load = round(garmin_training_load, 1)
+        else:
+            garmin_training_load = None
 
         duration_minutes = cls._tss_duration_minutes(activity_data)
         if duration_minutes <= 0:
             return {
                 'tss': 0.0,
-                'source_tss': None,
+                'source_tss': garmin_training_load,
+                'garmin_training_load': garmin_training_load,
                 'tss_method': 'no_duration',
             }
 
@@ -189,29 +223,50 @@ class ActivityProcessor:
             if power_tss is not None:
                 return {
                     'tss': power_tss,
-                    'source_tss': None,
+                    'source_tss': garmin_training_load,
+                    'garmin_training_load': garmin_training_load,
                     'tss_method': 'power_tss_bike',
                 }
             hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
             if hr_tss is not None:
                 return {
                     'tss': hr_tss,
-                    'source_tss': None,
+                    'source_tss': garmin_training_load,
+                    'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_tss_bike',
+                }
+        elif sport_key == 'swim':
+            swim_zone_tss = cls._zone_weighted_tss(activity_data, cls._SWIM_HR_ZONE_TSS_WEIGHTS)
+            if swim_zone_tss is not None:
+                return {
+                    'tss': swim_zone_tss,
+                    'source_tss': garmin_training_load,
+                    'garmin_training_load': garmin_training_load,
+                    'tss_method': 'hr_zone_tss_swim',
+                }
+            hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
+            if hr_tss is not None:
+                return {
+                    'tss': hr_tss,
+                    'source_tss': garmin_training_load,
+                    'garmin_training_load': garmin_training_load,
+                    'tss_method': 'hr_tss_swim',
                 }
         elif sport_key == 'run':
             hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
             if hr_tss is not None:
                 return {
                     'tss': hr_tss,
-                    'source_tss': None,
+                    'source_tss': garmin_training_load,
+                    'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_tss_run',
                 }
 
         estimated_tss, method = cls._heuristic_tss(sport_key, duration_minutes)
         return {
             'tss': estimated_tss,
-            'source_tss': None,
+            'source_tss': garmin_training_load,
+            'garmin_training_load': garmin_training_load,
             'tss_method': method,
         }
 

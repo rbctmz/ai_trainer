@@ -101,9 +101,10 @@ export interface Activity {
   moving_duration_minutes?: number | null;
   distance_km: number | null;
   tss: number | null;
+  garmin_training_load?: number | null;
   source_tss?: number | null;
   tss_method?: string | null;
-  tss_source?: "garmin" | "computed" | "unknown";
+  tss_source?: "power" | "heart_rate" | "heuristic" | "none" | "unknown";
   avg_hr: number | null;
   max_hr: number | null;
   elevation_gain: number | null;
