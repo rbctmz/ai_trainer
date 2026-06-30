@@ -29,13 +29,22 @@ jobs:
             if (!labels.has('agent: codex') || !labels.has('status: queued')) return;
 
             const body = comment.body || '';
+            const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}.git`;
             const hasSummaryHeading =
               /\*\*Summary\*\*/.test(body) ||
               /^\s{0,3}#{1,6}\s+Summary\b/m.test(body);
             if (!hasSummaryHeading) return;
-            if (!/(Committed changes|Opened PR:)/.test(body)) return;
+            const hasPublishArtifacts = /(Committed changes|Opened PR:)/.test(body);
+            const hasPreflightBlocker = /publish preflight blocker:/i.test(body);
+            if (!hasPublishArtifacts && !hasPreflightBlocker) return;
             const fatalPublishBlocker = [
+              /publish preflight blocker:/i,
               /no configured `?origin`? remote/i,
+              /unable to configure (?:a )?working `?origin`? remote/i,
+              /unable to bootstrap (?:a )?(?:github )?publish path/i,
+              /could not establish a usable github publish path/i,
+              /gh auth status.*not logged into/i,
+              /authentication failed.*github\.com/i,
               /fatal:\s*['`"]?origin['`"]?\s+does not appear to be a git repository/i,
               /could not push the branch to GitHub/i,
               /could not push the branch to GitHub or provide a real GitHub PR URL/i,
@@ -109,13 +118,14 @@ jobs:
                 repo: context.repo.repo,
                 issue_number: issueNumber,
                 body: [
-                  `@codex **Publish environment blocked** for issue #${issueNumber}: the executor reported that no usable GitHub publish remote exists.`,
+                  `@codex **Publish environment blocked** for issue #${issueNumber}: the executor could not establish a usable GitHub publish path.`,
                   ``,
-                  `This is not a normal \"retry the PR step\" case. The current executor can finish local commits but cannot publish a real branch or PR to GitHub.`,
+                  `This is not a normal \"retry the PR step\" case. The current executor can finish local work but cannot publish a real branch or PR to GitHub.`,
                   ``,
                   `Required recovery before retrying this task:`,
-                  `- configure a working \`origin\` remote for the executor checkout, or`,
-                  `- switch the executor to a GitHub-native publish path that does not depend on \`origin\``,
+                  `- ensure \`origin\` points at \`${repoUrl}\``,
+                  `- if \`gh\` is available, run \`gh auth status\` and \`gh auth setup-git\``,
+                  `- verify \`git ls-remote --heads origin\` or an equivalent GitHub-native branch/PR path before reporting success`,
                   ``,
                   `Issue state is being moved to \`status: blocked\` immediately so the watchdog does not keep re-queueing a known infrastructure failure.`,
                 ].join('\n')
@@ -140,10 +150,13 @@ jobs:
                 `Your previous run produced a summary comment, but there is still no pushed branch or PR visible on GitHub.`,
                 ``,
                 `Please continue from the existing work and finish the publish step now:`,
+                `- if \`origin\` is missing or wrong, set it to \`${repoUrl}\``,
+                `- if \`gh\` is available, run \`gh auth status\` and \`gh auth setup-git\` before pushing`,
                 `- push the branch to \`origin\``,
                 `- open a PR against \`main\``,
                 `- include \`Closes #${issueNumber}\` in the PR body`,
                 `- reply with the actual PR URL and pushed commit SHA`,
+                `- if publish is still impossible, report a line starting with \`Publish preflight blocker:\` and the exact cause instead of claiming success`,
                 ``,
                 `Do not report success until the PR exists on GitHub.`,
               ].join('\n')
