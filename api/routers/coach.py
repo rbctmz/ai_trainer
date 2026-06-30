@@ -22,6 +22,7 @@ from models.ai_coach_runtime import (
 )
 from models.ai_tools import AITools
 from models.chat_manager import ChatManager
+from api.planning_service import get_active_plan
 from ui.components.ai_coach_output import format_tool_result
 from utils.product_semantics import tool_label
 
@@ -62,6 +63,7 @@ def coach_chat(req: ChatRequest, db: Database = Depends(get_database)) -> Stream
     chat_manager.add_message(chat_id, "user", message)
     history = chat_manager.get_chat_messages(chat_id)[:-1]
     ai_tools = AITools(db)
+    goal_plan = get_active_plan(db)
 
     def stream() -> Iterator[str]:
         yield _sse({"type": "meta", "chat_id": chat_id})
@@ -105,7 +107,7 @@ def coach_chat(req: ChatRequest, db: Database = Depends(get_database)) -> Stream
                     user_input=message,
                     tool_results=tool_results,
                 )
-                synthesis_system_prompt = create_chat_synthesis_system_prompt()
+                synthesis_system_prompt = create_chat_synthesis_system_prompt(goal_plan=goal_plan)
                 streamed_final = ""
                 for delta in stream_tokens(
                     provider,

@@ -2,9 +2,40 @@
 from __future__ import annotations
 
 import re
+from datetime import date
 from typing import Any, Callable, Dict, Iterable, Optional
 
 from models.ai_data_context import AIDataContext
+
+
+def _build_phase_context(goal_plan: Optional[Dict]) -> str:
+    """Return a short phase/race block for injection into the synthesis prompt."""
+    if not goal_plan:
+        return ""
+    event_date_str = goal_plan.get("event_date")
+    if not event_date_str:
+        return ""
+    try:
+        from models.training_planner import compute_phase_schedule
+        event_dt = date.fromisoformat(str(event_date_str)[:10])
+        days_to_race = (event_dt - date.today()).days
+        if days_to_race < 0:
+            return ""
+        weeks_remaining = days_to_race // 7
+        total_weeks = int(goal_plan.get("weeks_to_race") or (weeks_remaining + 1))
+        phases = compute_phase_schedule(total_weeks)
+        current_idx = max(0, total_weeks - weeks_remaining - 1)
+        current_phase = phases[current_idx] if phases else "Base"
+        goal_type = goal_plan.get("goal_type", "")
+        distance = goal_plan.get("distance", "")
+        return (
+            f"\n\n=== ПЛАН И ФАЗА ===\n"
+            f"• Цель: {goal_type} {distance}\n"
+            f"• Дней до старта: {days_to_race}\n"
+            f"• Текущая фаза: {current_phase}"
+        )
+    except Exception:
+        return ""
 
 
 _TOOL_PATTERN = re.compile(r"\[TOOL:\s*([^,\]]+)(?:,\s*([^\]]*))?\]")
@@ -60,27 +91,30 @@ def create_chat_system_prompt_with_tools(ai_tools: Any, data_context: Any = None
     return f"{base_prompt}\n\n{tools_description}".rstrip()
 
 
-def create_chat_synthesis_system_prompt() -> str:
+def create_chat_synthesis_system_prompt(goal_plan: Optional[Dict] = None) -> str:
     """System prompt for the final user-facing answer after tool execution."""
-    return """
-Ты — персональный AI тренер по выносливости.
+    phase_ctx = _build_phase_context(goal_plan)
+    return f"""
+Ты — персональный AI тренер по выносливости.{phase_ctx}
 
 Ты уже получил результаты нужных инструментов и теперь должен дать
 ЗАВЕРШЁННЫЙ финальный ответ пользователю.
 
+ФОРМАТ ОТВЕТА:
+• Начни с 3–5 ключевых тезисов (каждый — одна строка с конкретной цифрой или выводом)
+• Весь ответ — не более ~300 слов; расширяй только если пользователь явно просит подробнее
+• Структурируй кратко: тезисы → 1–2 практических вывода → следующий шаг
+
 ОБЯЗАТЕЛЬНО:
 • отвечай по-русски
-• дай итоговый ответ в одном сообщении
 • используй конкретные цифры и выводы из результатов инструментов
-• сначала дай краткий вывод, затем практические рекомендации
-• если данные неполные, скажи это прямо, но всё равно предложи лучший следующий шаг
+• если данные неполные, скажи прямо, но всё равно предложи лучший следующий шаг
 
 НЕЛЬЗЯ:
-• писать, что ты ещё соберёшь данные
-• писать, что вернёшься позже с ответом
+• писать, что ты ещё соберёшь данные или вернёшься позже
 • оставлять черновые формулировки вроде «сейчас проанализирую»
 • упоминать служебный синтаксис [TOOL: ...]
-• говорить «HRV отсутствует», «данных readiness нет», «нет данных по HRV» если в результатах инструментов этот инструмент не вызывался — в таком случае просто не упоминай HRV или скажи «не проверял в этом запросе»
+• говорить «HRV отсутствует», «данных readiness нет», если инструмент не вызывался — просто не упоминай или скажи «не проверял в этом запросе»
 """.strip()
 
 

@@ -197,6 +197,13 @@ export default function CoachPage() {
 
         {messages.length === 0 ? (
           <div className="flex flex-wrap gap-2 px-4">
+            <button
+              type="button"
+              onClick={() => send("Дай ежедневный брифинг: моё текущее состояние, план на сегодня и главный акцент недели. Коротко.")}
+              className="rounded-full border border-tone-neutral/40 bg-tone-neutral/10 px-3 py-1.5 text-xs font-medium text-tone-neutral transition hover:bg-tone-neutral/20"
+            >
+              📋 Ежедневный брифинг
+            </button>
             {suggestions.map((s) => (
               <button
                 key={s}
