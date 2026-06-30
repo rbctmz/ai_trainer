@@ -5,6 +5,50 @@ from datetime import datetime, timedelta
 from config.settings import Settings
 
 class Database:
+    _ACTIVITY_COLUMN_ORDER = [
+        'activity_id',
+        'date',
+        'sport',
+        'duration_minutes',
+        'moving_duration_minutes',
+        'distance_km',
+        'avg_hr',
+        'max_hr',
+        'avg_power',
+        'max_power',
+        'elevation_gain',
+        'calories',
+        'training_effect',
+        'anaerobic_effect',
+        'activity_name',
+        'description',
+        'source_tss',
+        'tss_method',
+        'tss',
+    ]
+
+    _ACTIVITY_COLUMN_TYPES = {
+        'activity_id': 'TEXT PRIMARY KEY',
+        'date': 'DATE',
+        'sport': 'TEXT',
+        'duration_minutes': 'REAL',
+        'moving_duration_minutes': 'REAL',
+        'distance_km': 'REAL',
+        'avg_hr': 'REAL',
+        'max_hr': 'REAL',
+        'avg_power': 'REAL',
+        'max_power': 'REAL',
+        'elevation_gain': 'REAL',
+        'calories': 'INTEGER',
+        'training_effect': 'REAL',
+        'anaerobic_effect': 'REAL',
+        'activity_name': 'TEXT',
+        'description': 'TEXT',
+        'source_tss': 'REAL',
+        'tss_method': 'TEXT',
+        'tss': 'REAL',
+    }
+
     _TRAINING_STATUS_COLUMN_ORDER = [
         'vo2_max',
         'fitness_age',
@@ -111,13 +155,20 @@ class Database:
                 date DATE,
                 sport TEXT,
                 duration_minutes REAL,
+                moving_duration_minutes REAL,
                 distance_km REAL,
-                avg_hr INTEGER,
-                max_hr INTEGER,
-                avg_power INTEGER,
-                max_power INTEGER,
+                avg_hr REAL,
+                max_hr REAL,
+                avg_power REAL,
+                max_power REAL,
                 elevation_gain REAL,
                 calories INTEGER,
+                training_effect REAL,
+                anaerobic_effect REAL,
+                activity_name TEXT,
+                description TEXT,
+                source_tss REAL,
+                tss_method TEXT,
                 tss REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -224,9 +275,20 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        self._ensure_activity_columns(conn)
         self._ensure_training_status_columns(conn)
         conn.commit()
         conn.close()
+
+    def _ensure_activity_columns(self, conn: sqlite3.Connection) -> None:
+        """Добавление недостающих колонок в таблицу activities (для обратной совместимости)."""
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(activities)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        for column, column_type in self._ACTIVITY_COLUMN_TYPES.items():
+            if column not in existing_columns:
+                cursor.execute(f'ALTER TABLE activities ADD COLUMN {column} {column_type}')
+        conn.commit()
     
     def _ensure_training_status_columns(self, conn: sqlite3.Connection) -> None:
         """Добавление недостающих колонок в таблицу training_status (для обратной совместимости)."""
@@ -423,27 +485,18 @@ class Database:
     def save_activities(self, activities):
         """Сохранение списка активностей в БД"""
         conn = sqlite3.connect(self.db_path)
+        columns = ', '.join(self._ACTIVITY_COLUMN_ORDER)
+        placeholders = ', '.join('?' for _ in self._ACTIVITY_COLUMN_ORDER)
         
         for activity in activities:
-            conn.execute('''
-                INSERT OR REPLACE INTO activities 
-                (activity_id, date, sport, duration_minutes, distance_km, avg_hr, max_hr, 
-                 avg_power, max_power, elevation_gain, calories, tss)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                self.clean_value(activity.get('activity_id')),
-                self.clean_value(activity.get('date')),
-                self.clean_value(activity.get('sport')),
-                self.clean_value(activity.get('duration_minutes')),
-                self.clean_value(activity.get('distance_km')),
-                self.clean_value(activity.get('avg_hr')),
-                self.clean_value(activity.get('max_hr')),
-                self.clean_value(activity.get('avg_power')),
-                self.clean_value(activity.get('max_power')),
-                self.clean_value(activity.get('elevation_gain')),
-                self.clean_value(activity.get('calories')),
-                self.clean_value(activity.get('tss'))
-            ))
+            values = tuple(self.clean_value(activity.get(column)) for column in self._ACTIVITY_COLUMN_ORDER)
+            conn.execute(
+                f'''
+                INSERT OR REPLACE INTO activities ({columns})
+                VALUES ({placeholders})
+                ''',
+                values,
+            )
         
         conn.commit()
         conn.close()
@@ -487,6 +540,10 @@ class Database:
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        activity_columns = [column for column in self._ACTIVITY_COLUMN_ORDER if column != 'activity_id']
+        update_sql = ', '.join(f"{column}=?" for column in activity_columns)
+        insert_columns = ', '.join(self._ACTIVITY_COLUMN_ORDER)
+        insert_placeholders = ', '.join('?' for _ in self._ACTIVITY_COLUMN_ORDER)
         
         # Получаем существующие activity_id
         cursor.execute('SELECT activity_id FROM activities')
@@ -506,48 +563,27 @@ class Database:
             # Проверяем, существует ли уже такая активность
             if activity_id in existing_ids:
                 # Обновляем существующую запись
-                cursor.execute('''
+                values = [self.clean_value(activity.get(column)) for column in activity_columns]
+                values.append(activity_id)
+                cursor.execute(
+                    f'''
                     UPDATE activities SET
-                    date=?, sport=?, duration_minutes=?, distance_km=?, 
-                    avg_hr=?, max_hr=?, avg_power=?, max_power=?, 
-                    elevation_gain=?, calories=?, tss=?
+                    {update_sql}
                     WHERE activity_id=?
-                ''', (
-                    self.clean_value(activity.get('date')),
-                    self.clean_value(activity.get('sport')),
-                    self.clean_value(activity.get('duration_minutes')),
-                    self.clean_value(activity.get('distance_km')),
-                    self.clean_value(activity.get('avg_hr')),
-                    self.clean_value(activity.get('max_hr')),
-                    self.clean_value(activity.get('avg_power')),
-                    self.clean_value(activity.get('max_power')),
-                    self.clean_value(activity.get('elevation_gain')),
-                    self.clean_value(activity.get('calories')),
-                    self.clean_value(activity.get('tss')),
-                    activity_id
-                ))
+                    ''',
+                    tuple(values),
+                )
                 updated_count += 1
             else:
                 # Вставляем новую запись
-                cursor.execute('''
-                    INSERT INTO activities 
-                    (activity_id, date, sport, duration_minutes, distance_km, avg_hr, max_hr, 
-                     avg_power, max_power, elevation_gain, calories, tss)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    activity_id,
-                    self.clean_value(activity.get('date')),
-                    self.clean_value(activity.get('sport')),
-                    self.clean_value(activity.get('duration_minutes')),
-                    self.clean_value(activity.get('distance_km')),
-                    self.clean_value(activity.get('avg_hr')),
-                    self.clean_value(activity.get('max_hr')),
-                    self.clean_value(activity.get('avg_power')),
-                    self.clean_value(activity.get('max_power')),
-                    self.clean_value(activity.get('elevation_gain')),
-                    self.clean_value(activity.get('calories')),
-                    self.clean_value(activity.get('tss'))
-                ))
+                values = tuple(self.clean_value(activity.get(column)) for column in self._ACTIVITY_COLUMN_ORDER)
+                cursor.execute(
+                    f'''
+                    INSERT INTO activities ({insert_columns})
+                    VALUES ({insert_placeholders})
+                    ''',
+                    values,
+                )
                 existing_ids.add(activity_id)  # Добавляем в кэш
                 new_count += 1
         

@@ -60,8 +60,11 @@ def test_activities_with_data(tmp_path):
                 "date": (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d"),
                 "sport": "open_water_swimming",
                 "duration_minutes": 45,
+                "moving_duration_minutes": 42,
                 "distance_km": 9.0,
                 "tss": 40.0,
+                "source_tss": 40.0,
+                "tss_method": "garmin_training_load",
             }
         ]
     )
@@ -71,6 +74,10 @@ def test_activities_with_data(tmp_path):
     assert payload["items"][0]["sport"] == "swim"
     assert payload["items"][0]["sport_label"] == "плавание"
     assert payload["items"][0]["date_label"].count(".") == 2
+    assert payload["items"][0]["moving_duration_minutes"] == 42.0
+    assert payload["items"][0]["source_tss"] == 40.0
+    assert payload["items"][0]["tss_method"] == "garmin_training_load"
+    assert payload["items"][0]["tss_source"] == "garmin"
     assert payload["totals"]["tss"] == 40.0
 
 

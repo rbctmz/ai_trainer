@@ -12,7 +12,24 @@ from utils.product_semantics import format_date_label, normalize_sport_key, spor
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
 
-_NUMERIC = ("duration_minutes", "distance_km", "tss", "avg_hr", "max_hr", "elevation_gain", "calories")
+_NUMERIC = (
+    "duration_minutes",
+    "moving_duration_minutes",
+    "distance_km",
+    "tss",
+    "source_tss",
+    "avg_hr",
+    "max_hr",
+    "elevation_gain",
+    "calories",
+)
+
+
+def _text(value: Any) -> str | None:
+    if value is None or pd.isna(value):
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _num(value: Any) -> float | None:
@@ -34,6 +51,16 @@ def list_activities(days: int = 30, db: Database = Depends(get_database)) -> dic
     items = []
     for _, row in df.iterrows():
         raw_sport = row.get("sport") or "—"
+        tss_method = _text(row.get("tss_method"))
+        source_tss = _num(row.get("source_tss"))
+        if tss_method == "garmin_training_load":
+            tss_source = "garmin"
+        elif tss_method:
+            tss_source = "computed"
+        elif source_tss is not None:
+            tss_source = "garmin"
+        else:
+            tss_source = "unknown"
         items.append(
             {
                 "activity_id": str(row.get("activity_id")),
@@ -42,6 +69,8 @@ def list_activities(days: int = 30, db: Database = Depends(get_database)) -> dic
                 "sport": normalize_sport_key(raw_sport),
                 "sport_label": sport_label(raw_sport),
                 **{key: _num(row.get(key)) for key in _NUMERIC},
+                "tss_method": tss_method,
+                "tss_source": tss_source,
             }
         )
 

@@ -328,19 +328,19 @@ def _sync_activities(database: Any, activities: list[dict[str, Any]]) -> SyncCou
     if df.empty:
         return _empty_activity_counts()
 
-    tss_values = []
+    resolved_activities = []
     for _, row in df.iterrows():
         activity_dict = row.to_dict()
-        tss_values.append(
-            ActivityProcessor.calculate_tss(
+        activity_dict.update(
+            ActivityProcessor.resolve_tss(
                 activity_dict,
                 ftp=Settings.USER_FTP,
                 lthr=Settings.USER_LTHR,
             )
         )
+        resolved_activities.append(activity_dict)
 
-    df["tss"] = tss_values
-    return database.sync_activities(df.to_dict("records"))
+    return database.sync_activities(resolved_activities)
 
 
 def _collect_hrv_data(
