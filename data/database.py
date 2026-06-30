@@ -22,7 +22,15 @@ class Database:
         'anaerobic_effect',
         'activity_name',
         'description',
+        'garmin_training_load',
         'source_tss',
+        'moderate_intensity_minutes',
+        'vigorous_intensity_minutes',
+        'hr_time_in_zone_1_seconds',
+        'hr_time_in_zone_2_seconds',
+        'hr_time_in_zone_3_seconds',
+        'hr_time_in_zone_4_seconds',
+        'hr_time_in_zone_5_seconds',
         'tss_method',
         'tss',
     ]
@@ -44,7 +52,15 @@ class Database:
         'anaerobic_effect': 'REAL',
         'activity_name': 'TEXT',
         'description': 'TEXT',
+        'garmin_training_load': 'REAL',
         'source_tss': 'REAL',
+        'moderate_intensity_minutes': 'REAL',
+        'vigorous_intensity_minutes': 'REAL',
+        'hr_time_in_zone_1_seconds': 'REAL',
+        'hr_time_in_zone_2_seconds': 'REAL',
+        'hr_time_in_zone_3_seconds': 'REAL',
+        'hr_time_in_zone_4_seconds': 'REAL',
+        'hr_time_in_zone_5_seconds': 'REAL',
         'tss_method': 'TEXT',
         'tss': 'REAL',
     }
@@ -167,7 +183,15 @@ class Database:
                 anaerobic_effect REAL,
                 activity_name TEXT,
                 description TEXT,
+                garmin_training_load REAL,
                 source_tss REAL,
+                moderate_intensity_minutes REAL,
+                vigorous_intensity_minutes REAL,
+                hr_time_in_zone_1_seconds REAL,
+                hr_time_in_zone_2_seconds REAL,
+                hr_time_in_zone_3_seconds REAL,
+                hr_time_in_zone_4_seconds REAL,
+                hr_time_in_zone_5_seconds REAL,
                 tss_method TEXT,
                 tss REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -276,6 +300,7 @@ class Database:
             )
         ''')
         self._ensure_activity_columns(conn)
+        self._repair_legacy_activity_tss(conn)
         self._ensure_training_status_columns(conn)
         conn.commit()
         conn.close()
@@ -288,6 +313,73 @@ class Database:
         for column, column_type in self._ACTIVITY_COLUMN_TYPES.items():
             if column not in existing_columns:
                 cursor.execute(f'ALTER TABLE activities ADD COLUMN {column} {column_type}')
+        conn.commit()
+
+    @staticmethod
+    def _numeric_equal(left, right, digits: int = 1) -> bool:
+        if left is None and right is None:
+            return True
+        if left is None or right is None:
+            return False
+        try:
+            return round(float(left), digits) == round(float(right), digits)
+        except (TypeError, ValueError):
+            return left == right
+
+    def _repair_legacy_activity_tss(self, conn: sqlite3.Connection) -> None:
+        """Мигрирует старые строки, где Garmin load ошибочно был сохранён как TSS."""
+        from data.data_processor import ActivityProcessor
+
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT *
+            FROM activities
+            WHERE tss_method = 'garmin_training_load'
+               OR (garmin_training_load IS NULL AND source_tss IS NOT NULL)
+            '''
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            return
+
+        for row in rows:
+            activity = dict(row)
+            resolved = ActivityProcessor.resolve_tss(
+                activity,
+                ftp=Settings.USER_FTP,
+                lthr=Settings.USER_LTHR,
+            )
+            needs_update = (
+                not self._numeric_equal(activity.get('tss'), resolved['tss'])
+                or activity.get('tss_method') != resolved['tss_method']
+                or not self._numeric_equal(activity.get('source_tss'), resolved['source_tss'])
+                or not self._numeric_equal(
+                    activity.get('garmin_training_load'),
+                    resolved['garmin_training_load'],
+                )
+            )
+            if not needs_update:
+                continue
+
+            cursor.execute(
+                '''
+                UPDATE activities
+                SET tss = ?,
+                    tss_method = ?,
+                    source_tss = ?,
+                    garmin_training_load = ?
+                WHERE activity_id = ?
+                ''',
+                (
+                    self.clean_value(resolved['tss']),
+                    self.clean_value(resolved['tss_method']),
+                    self.clean_value(resolved['source_tss']),
+                    self.clean_value(resolved['garmin_training_load']),
+                    self.clean_value(activity.get('activity_id')),
+                ),
+            )
         conn.commit()
     
     def _ensure_training_status_columns(self, conn: sqlite3.Connection) -> None:

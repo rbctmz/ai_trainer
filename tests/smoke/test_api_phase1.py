@@ -62,9 +62,10 @@ def test_activities_with_data(tmp_path):
                 "duration_minutes": 45,
                 "moving_duration_minutes": 42,
                 "distance_km": 9.0,
-                "tss": 40.0,
+                "tss": 28.0,
+                "garmin_training_load": 40.0,
                 "source_tss": 40.0,
-                "tss_method": "garmin_training_load",
+                "tss_method": "hr_tss_swim",
             }
         ]
     )
@@ -75,10 +76,11 @@ def test_activities_with_data(tmp_path):
     assert payload["items"][0]["sport_label"] == "плавание"
     assert payload["items"][0]["date_label"].count(".") == 2
     assert payload["items"][0]["moving_duration_minutes"] == 42.0
+    assert payload["items"][0]["garmin_training_load"] == 40.0
     assert payload["items"][0]["source_tss"] == 40.0
-    assert payload["items"][0]["tss_method"] == "garmin_training_load"
-    assert payload["items"][0]["tss_source"] == "garmin"
-    assert payload["totals"]["tss"] == 40.0
+    assert payload["items"][0]["tss_method"] == "hr_tss_swim"
+    assert payload["items"][0]["tss_source"] == "heart_rate"
+    assert payload["totals"]["tss"] == 28.0
 
 
 def test_hrv_with_data_exposes_date_labels(tmp_path):

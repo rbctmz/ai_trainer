@@ -17,6 +17,7 @@ _NUMERIC = (
     "moving_duration_minutes",
     "distance_km",
     "tss",
+    "garmin_training_load",
     "source_tss",
     "avg_hr",
     "max_hr",
@@ -52,13 +53,14 @@ def list_activities(days: int = 30, db: Database = Depends(get_database)) -> dic
     for _, row in df.iterrows():
         raw_sport = row.get("sport") or "—"
         tss_method = _text(row.get("tss_method"))
-        source_tss = _num(row.get("source_tss"))
-        if tss_method == "garmin_training_load":
-            tss_source = "garmin"
-        elif tss_method:
-            tss_source = "computed"
-        elif source_tss is not None:
-            tss_source = "garmin"
+        if tss_method and tss_method.startswith("power_tss_"):
+            tss_source = "power"
+        elif tss_method and (tss_method.startswith("hr_tss_") or tss_method.startswith("hr_zone_tss_")):
+            tss_source = "heart_rate"
+        elif tss_method and tss_method.startswith("heuristic_"):
+            tss_source = "heuristic"
+        elif tss_method == "no_duration":
+            tss_source = "none"
         else:
             tss_source = "unknown"
         items.append(
