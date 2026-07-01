@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 SyncCounts = Dict[str, int]
 SyncProgressCallback = Callable[["SyncProgressUpdate"], None]
+DEFAULT_SYNC_DAYS = 30
 _TRANSIENT_ERROR_MARKERS = (
     "429",
     "rate limit",
@@ -67,11 +68,101 @@ class GarminSyncResult:
     warnings: list[str] = field(default_factory=list)
     details: list[str] = field(default_factory=list)
     success_messages: list[str] = field(default_factory=list)
+    mode: str = "full"
+    days: int = DEFAULT_SYNC_DAYS
+
+    def totals(self) -> SyncCounts:
+        """Aggregate new/updated/skipped counts across every synced domain."""
+        domain_results = (
+            self.activity_result,
+            self.hrv_result,
+            self.sleep_result,
+            self.health_result,
+            self.training_status_result,
+        )
+        return {
+            "new": sum(counts.get("new", 0) for counts in domain_results),
+            "updated": sum(counts.get("updated", 0) for counts in domain_results),
+            "skipped": self.activity_result.get("skipped", 0),
+        }
 
 
-def build_sync_status_payload(result: GarminSyncResult, days: int) -> dict[str, Any]:
+@dataclass(frozen=True)
+class SyncWindow:
+    """Resolved date range for one sync run."""
+
+    start_date: datetime
+    end_date: datetime
+    days: int
+    mode: str  # "full" | "incremental"
+
+
+def resolve_sync_window(
+    database: Any,
+    days: int | None = None,
+    now: datetime | None = None,
+) -> SyncWindow:
+    """Pick the date range to sync.
+
+    Explicit ``days`` forces a full reload of that period. Without it the window
+    starts at the oldest of the per-table latest dates, re-syncing that boundary
+    day on purpose: same-day activities and evolving daily metrics arrive after
+    the first sync of the day, and the date-keyed UPDATE path absorbs the overlap
+    without duplicates.
+    """
+    end_date = now or datetime.now()
+
+    if days is not None:
+        days = max(1, int(days))
+        return SyncWindow(end_date - timedelta(days=days), end_date, days, "full")
+
+    get_latest = getattr(database, "get_latest_data_dates", None)
+    latest_dates: dict[str, str | None] = {}
+    if callable(get_latest):
+        try:
+            latest_dates = get_latest() or {}
+        except Exception:  # pragma: no cover - defensive path
+            latest_dates = {}
+
+    known_dates = sorted(value for value in latest_dates.values() if value)
+    if not known_dates:
+        return SyncWindow(
+            end_date - timedelta(days=DEFAULT_SYNC_DAYS),
+            end_date,
+            DEFAULT_SYNC_DAYS,
+            "full",
+        )
+
+    try:
+        start_date = datetime.strptime(known_dates[0], "%Y-%m-%d")
+    except ValueError:
+        return SyncWindow(
+            end_date - timedelta(days=DEFAULT_SYNC_DAYS),
+            end_date,
+            DEFAULT_SYNC_DAYS,
+            "full",
+        )
+
+    gap_days = (end_date.date() - start_date.date()).days
+    if gap_days < 0:
+        gap_days = 0
+    if gap_days > DEFAULT_SYNC_DAYS:
+        start_date = end_date - timedelta(days=DEFAULT_SYNC_DAYS)
+        gap_days = DEFAULT_SYNC_DAYS
+
+    return SyncWindow(start_date, end_date, max(1, gap_days), "incremental")
+
+
+def build_sync_status_payload(result: GarminSyncResult, days: int | None = None) -> dict[str, Any]:
     """Build a dashboard-friendly summary of the latest sync outcome."""
+    if days is None:
+        days = result.days
     synced_at = datetime.now().isoformat(timespec="seconds")
+    period_label = (
+        f"последние {days} дней"
+        if result.mode == "full"
+        else "период с последней синхронизации"
+    )
     activity_changes = result.activity_result["new"] + result.activity_result["updated"]
     recovery_changes = (
         result.hrv_result["new"]
@@ -87,28 +178,28 @@ def build_sync_status_payload(result: GarminSyncResult, days: int) -> dict[str, 
     if result.warnings:
         title = "Синхронизация Garmin завершена частично"
         summary = (
-            f"За последние {days} дней удалось получить не все данные. "
+            f"За {period_label} удалось получить не все данные. "
             "Проверьте замечания ниже, затем решите, нужен ли повторный запуск."
         )
         severity = "warning"
     elif activity_changes > 0:
         title = "Синхронизация Garmin завершена"
         summary = (
-            f"Загружены свежие тренировки и метрики за последние {days} дней. "
+            f"Загружены свежие тренировки и метрики за {period_label}. "
             "Теперь можно сразу перейти к интерпретации формы и ближайшей нагрузки."
         )
         severity = "success"
     elif recovery_changes > 0:
         title = "Синхронизация Garmin обновила сигналы восстановления"
         summary = (
-            f"Новых активностей за последние {days} дней не появилось, "
+            f"Новых активностей за {period_label} не появилось, "
             "но HRV, сон или статус тренированности обновились."
         )
         severity = "success"
     else:
         title = "Новых Garmin данных не найдено"
         summary = (
-            f"За последние {days} дней новых записей не появилось. "
+            f"За {period_label} новых записей не появилось. "
             "Можно продолжить анализ по уже сохранённым данным."
         )
         severity = "info"
@@ -119,6 +210,8 @@ def build_sync_status_payload(result: GarminSyncResult, days: int) -> dict[str, 
         "summary": summary,
         "synced_at": synced_at,
         "days": days,
+        "mode": result.mode,
+        "counts": result.totals(),
         "activity_changes": activity_changes,
         "recovery_changes": recovery_changes,
         "highlights": list(result.success_messages[:4]),
@@ -128,25 +221,33 @@ def build_sync_status_payload(result: GarminSyncResult, days: int) -> dict[str, 
 
 def sync_garmin_data(
     state: StateManager,
-    days: int = 30,
+    days: int | None = None,
     on_progress: SyncProgressCallback | None = None,
 ) -> GarminSyncResult:
-    """Synchronize Garmin activities and related health metrics into local storage."""
+    """Synchronize Garmin activities and related health metrics into local storage.
+
+    ``days=None`` runs an incremental sync from the last known data in the DB;
+    an explicit ``days`` forces a full reload of that period.
+    """
     if not garmin_service.is_authenticated(state):
         raise ValueError("Не подключен к Garmin Connect")
 
     client = garmin_service.get_client(state)
     database = state.database
-    result = GarminSyncResult()
+    window = resolve_sync_window(database, days)
+    result = GarminSyncResult(mode=window.mode, days=window.days)
 
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=days)
+    start_date, end_date, days = window.start_date, window.end_date, window.days
     date_list = _build_date_list(start_date, end_date)
 
     _emit_progress(
         on_progress,
         percent=10,
-        message=f"📊 Загрузка активностей за {days} дней...",
+        message=(
+            f"📊 Загрузка активностей за {days} дней..."
+            if window.mode == "full"
+            else "📊 Загрузка новых данных с последней синхронизации..."
+        ),
         step_text="Шаг 1/5: Получение активностей...",
     )
 
@@ -588,8 +689,11 @@ def _build_success_messages(result: GarminSyncResult) -> list[str]:
 
 
 __all__ = [
+    "DEFAULT_SYNC_DAYS",
     "GarminSyncResult",
     "SyncProgressUpdate",
+    "SyncWindow",
     "build_sync_status_payload",
+    "resolve_sync_window",
     "sync_garmin_data",
 ]

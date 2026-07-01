@@ -623,6 +623,23 @@ class Database:
             'duplicates_deleted': duplicates_deleted
         }
     
+    def get_latest_data_dates(self):
+        """Последние даты (YYYY-MM-DD) по таблицам синка для инкрементального режима"""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+
+        latest = {}
+        for table in ('activities', 'hrv_data', 'sleep_data', 'daily_health'):
+            try:
+                cursor.execute(f'SELECT MAX(substr(date, 1, 10)) FROM {table}')
+                row = cursor.fetchone()
+                latest[table] = row[0] if row and row[0] else None
+            except sqlite3.OperationalError:
+                latest[table] = None
+
+        conn.close()
+        return latest
+
     def sync_activities(self, activities):
         """Умная синхронизация активностей без дублей"""
         if not activities:
