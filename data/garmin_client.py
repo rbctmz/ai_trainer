@@ -431,14 +431,45 @@ class GarminClient:
         """Получение пульса покоя за день"""
         if not self.is_authenticated:
             return None
-        
-        try:
-            rhr_data = self.client.get_resting_heart_rate(date.strftime("%Y-%m-%d"))
-            self._clear_last_error()
-            return rhr_data
-        except Exception as e:
-            self._remember_error("resting_heart_rate", f"Ошибка получения пульса покоя за {date.strftime('%Y-%m-%d')}: {e}")
-            return None
+
+        date_str = date.strftime("%Y-%m-%d")
+        # garminconnect >= 0.3 переименовал метод в get_rhr_day
+        methods_to_try = [
+            ('get_rhr_day', lambda: self.client.get_rhr_day(date_str)),
+            ('get_resting_heart_rate', lambda: self.client.get_resting_heart_rate(date_str)),
+        ]
+
+        method_errors = []
+        for method_name, method_func in methods_to_try:
+            if not hasattr(self.client, method_name):
+                continue
+            try:
+                rhr_data = method_func()
+            except Exception as e:
+                method_errors.append(f"{method_name}: {e}")
+                continue
+            if rhr_data:
+                self._clear_last_error()
+                return self._normalize_rhr_payload(rhr_data)
+
+        if method_errors:
+            self._remember_error("resting_heart_rate", f"Ошибка получения пульса покоя за {date_str}: {'; '.join(method_errors[:2])}")
+        return None
+
+    @staticmethod
+    def _normalize_rhr_payload(rhr_data):
+        """Привести ответ RHR к форме {'restingHeartRate': N} для процессора"""
+        if isinstance(rhr_data, dict):
+            if rhr_data.get('restingHeartRate') is not None:
+                return rhr_data
+            # get_rhr_day (garminconnect >= 0.3) отдаёт allMetrics.metricsMap
+            metrics = rhr_data.get('allMetrics') or {}
+            entries = (metrics.get('metricsMap') or {}).get('WELLNESS_RESTING_HEART_RATE')
+            if isinstance(entries, list) and entries and isinstance(entries[0], dict):
+                value = entries[0].get('value')
+                if value is not None:
+                    return {'restingHeartRate': value}
+        return rhr_data
     
     def get_daily_steps(self, date):
         """Получение шагов и общей активности за день"""
@@ -533,27 +564,83 @@ class GarminClient:
         """Получение текущего VO2 max"""
         if not self.is_authenticated:
             return None
-        
-        try:
-            vo2_data = self.client.get_vo2_max()
-            self._clear_last_error()
-            return vo2_data
-        except Exception as e:
-            self._remember_error("vo2_max", f"Ошибка получения VO2 max: {e}")
-            return None
-    
+
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        # garminconnect >= 0.3: VO2 max живёт в get_max_metrics(cdate)
+        methods_to_try = [
+            ('get_max_metrics', lambda: self.client.get_max_metrics(current_date)),
+            ('get_vo2_max', lambda: self.client.get_vo2_max()),
+        ]
+
+        method_errors = []
+        for method_name, method_func in methods_to_try:
+            if not hasattr(self.client, method_name):
+                continue
+            try:
+                vo2_data = method_func()
+            except Exception as e:
+                method_errors.append(f"{method_name}: {e}")
+                continue
+            if vo2_data:
+                self._clear_last_error()
+                return self._normalize_vo2_payload(vo2_data)
+
+        if method_errors:
+            self._remember_error("vo2_max", f"Ошибка получения VO2 max: {'; '.join(method_errors[:2])}")
+        return None
+
+    @staticmethod
+    def _normalize_vo2_payload(vo2_data):
+        """Привести ответ VO2 к форме {'vo2MaxValue', 'fitnessAge'} для процессора"""
+        if isinstance(vo2_data, list):
+            vo2_data = vo2_data[0] if vo2_data else None
+        if isinstance(vo2_data, dict):
+            if vo2_data.get('vo2MaxValue') is not None:
+                return vo2_data
+            generic = vo2_data.get('generic')
+            if isinstance(generic, dict):
+                return {
+                    'vo2MaxValue': generic.get('vo2MaxPreciseValue') or generic.get('vo2MaxValue'),
+                    'fitnessAge': generic.get('fitnessAge'),
+                }
+        return vo2_data
+
     def get_training_readiness(self):
         """Получение готовности к тренировке"""
         if not self.is_authenticated:
             return None
-        
-        try:
-            readiness = self.client.get_training_readiness()
-            self._clear_last_error()
-            return readiness
-        except Exception as e:
-            self._remember_error("training_readiness", f"Ошибка получения readiness: {e}")
-            return None
+
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        # garminconnect >= 0.3 требует cdate; легаси-версии зовутся без аргументов
+        methods_to_try = [
+            ('with_date', lambda: self.client.get_training_readiness(current_date)),
+            ('no_args', lambda: self.client.get_training_readiness()),
+        ]
+
+        method_errors = []
+        for method_name, method_func in methods_to_try:
+            try:
+                readiness = method_func()
+            except TypeError as e:
+                method_errors.append(f"get_training_readiness[{method_name}]: {e}")
+                continue
+            except Exception as e:
+                method_errors.append(f"get_training_readiness[{method_name}]: {e}")
+                break
+            if readiness:
+                self._clear_last_error()
+                return self._normalize_readiness_payload(readiness)
+
+        if method_errors:
+            self._remember_error("training_readiness", f"Ошибка получения readiness: {'; '.join(method_errors[:2])}")
+        return None
+
+    @staticmethod
+    def _normalize_readiness_payload(readiness):
+        """Ответ readiness в 0.3.x — список записей за день; процессору нужен dict"""
+        if isinstance(readiness, list):
+            return readiness[0] if readiness and isinstance(readiness[0], dict) else None
+        return readiness
     
     def get_comprehensive_daily_data(self, date):
         """Получение всех доступных данных за день одним вызовом"""
