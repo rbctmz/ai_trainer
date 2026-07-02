@@ -310,7 +310,7 @@ export interface TrainingScoreData {
 
 export interface DailyOutlookData {
   text: string;
-  tone: "warning" | "neutral";
+  tone: "danger" | "warning" | "neutral" | "success";
 }
 
 export interface RaceProjectionData {

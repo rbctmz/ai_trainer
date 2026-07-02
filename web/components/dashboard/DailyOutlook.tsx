@@ -1,10 +1,14 @@
 import { DailyOutlookData } from "@/lib/types";
 
+const TONE_BORDER: Record<DailyOutlookData["tone"], string> = {
+  danger: "border-l-tone-danger",
+  warning: "border-l-tone-warning",
+  neutral: "border-l-tone-neutral",
+  success: "border-l-tone-success",
+};
+
 export function DailyOutlook({ data }: { data: DailyOutlookData }) {
-  const border =
-    data.tone === "warning"
-      ? "border-l-tone-warning"
-      : "border-l-tone-success";
+  const border = TONE_BORDER[data.tone] ?? "border-l-tone-neutral";
 
   return (
     <div

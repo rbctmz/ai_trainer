@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, date
 from math import ceil
-from typing import Any, Dict, List, Mapping, Sequence, Tuple
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
 
 from models.planning_summary import summarize_execution_adaptation_pressure
 
@@ -878,6 +878,38 @@ def compute_phase_schedule(weeks_total: int) -> List[str]:
     while len(phases) < weeks_total:
         phases.append('Taper')
     return phases
+
+
+def current_periodization_phase(goal_plan: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """Resolve today's periodization phase (Base/Build/Peak/Taper) from an active goal plan.
+
+    Returns None when there is no active plan or event_date — callers should
+    treat "no phase" as a valid state (e.g. no goal set yet), not fall back to
+    a guessed phase like 'Base'.
+    """
+    if not goal_plan:
+        return None
+    event_date_str = goal_plan.get('event_date')
+    if not event_date_str:
+        return None
+    try:
+        event_dt = date.fromisoformat(str(event_date_str)[:10])
+    except (TypeError, ValueError):
+        return None
+    days_to_race = (event_dt - date.today()).days
+    if days_to_race < 0:
+        return None
+    weeks_remaining = days_to_race // 7
+    total_weeks = int(goal_plan.get('weeks_to_race') or (weeks_remaining + 1))
+    phases = compute_phase_schedule(total_weeks)
+    if not phases:
+        return None
+    current_idx = max(0, min(len(phases) - 1, total_weeks - weeks_remaining - 1))
+    return {
+        'phase': phases[current_idx],
+        'days_to_race': days_to_race,
+        'total_weeks': total_weeks,
+    }
 
 
 def triathlon_weekly_mix(distance: str, phase: str) -> Dict[str, float]:
