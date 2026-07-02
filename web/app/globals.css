@@ -14,6 +14,11 @@
   --color-tone-warning:   #F59E0B;
   --color-tone-success:   #10B981;
   --color-tone-neutral:   #3B82F6;
+  /* Primary/inverse button surface. Fixed across themes on purpose — unlike
+     `ink` (which flips light/dark to stay readable as body text), a CTA
+     button needs a background that never collides with the page surface. */
+  --color-accent:            #1D4ED8;
+  --color-accent-foreground: #FFFFFF;
 }
 
 .dark {

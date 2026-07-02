@@ -41,7 +41,7 @@ export function TodayCard({
 
       <Link
         href={actionHref(workout.action)}
-        className="mt-4 block w-full rounded-lg bg-ink px-4 py-2.5 text-center text-sm font-medium text-white transition hover:bg-ink/90"
+        className="mt-4 block w-full rounded-lg bg-accent px-4 py-2.5 text-center text-sm font-medium text-accent-foreground transition hover:bg-accent/90"
       >
         {workout.button}
       </Link>

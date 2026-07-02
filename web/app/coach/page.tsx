@@ -320,7 +320,7 @@ function Bubble({
       <div
         className={`max-w-[85%] rounded-2xl px-3.5 py-2.5 text-sm ${
           isUser
-            ? "whitespace-pre-wrap bg-ink text-white"
+            ? "whitespace-pre-wrap bg-accent text-accent-foreground"
             : "border border-surface-border bg-surface-muted text-ink"
         }`}
       >
@@ -362,7 +362,7 @@ function InputBar({
           type="button"
           onClick={onSend}
           disabled={disabled || !value.trim()}
-          className="rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-ink/90 disabled:opacity-40"
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
         >
           Отправить
         </button>

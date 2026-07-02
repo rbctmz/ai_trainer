@@ -203,7 +203,7 @@ function Onboarding() {
           type="button"
           onClick={tryDemo}
           disabled={busy}
-          className="rounded-lg bg-ink px-5 py-2 text-sm font-medium text-white transition hover:bg-ink/90 disabled:opacity-50"
+          className="rounded-lg bg-accent px-5 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-50"
         >
           {busy ? "Готовлю демо…" : "🎮 Попробовать демо"}
         </button>
