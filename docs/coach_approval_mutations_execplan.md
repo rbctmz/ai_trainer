@@ -15,7 +15,7 @@ Right now the AI coach can only read data — it cannot touch the training plan 
 - [x] Milestone 2: Update system prompt in `models/ai_coach_runtime.py` to mandate proposal tools
 - [x] Milestone 3: Emit `proposal` SSE event in `api/routers/coach.py` when tool result has `is_proposal: True`
 - [x] Milestone 4: Add `ProposalCard` component and handle `proposal` event in `web/app/coach/page.tsx`
-- [ ] Milestone 5: Smoke tests in `tests/smoke/test_ai_tools_proposal.py`; verify `python -m pytest tests/smoke -q` stays at 232 pass (running)
+- [x] Milestone 5: Smoke tests in `tests/smoke/test_ai_tools_proposal.py`; verify `python -m pytest tests/smoke -q` stays green apart from the pre-existing Google provider probe fail (`239 passed, 1 failed`)
 
 
 ## Surprises & Discoveries
@@ -50,7 +50,14 @@ Right now the AI coach can only read data — it cannot touch the training plan 
 
 ## Outcomes & Retrospective
 
-(fill at completion)
+- Coach can now propose real plan mutations instead of hallucinating them: `propose_plan_build` and `propose_plan_adjustment` call the same planning engine as `/planning`, but with `persist=False`, so preview and persisted result stay aligned.
+- The streaming contract is now explicit end to end: tool chip(s) still appear, proposal payload is emitted as a dedicated SSE event, and the web coach renders a persistent confirmation card with `Подтвердить / Отменить`.
+- Confirm flows now POST into the existing FastAPI planning endpoints, so no duplicate mutation path was added for the coach.
+- Verification:
+  - `npm run build` in `web/` — green
+  - `./ai_trainer_env/bin/python -m pytest tests/smoke/test_ai_tools_proposal.py tests/smoke/test_ai_coach_runtime.py -q` — `18 passed`
+  - `./ai_trainer_env/bin/python -m pytest tests/smoke -q` — `239 passed, 1 failed`
+  - Remaining fail is pre-existing: `tests/smoke/test_ai_provider_probes.py::test_google_provider_uses_google_genai_client` expects `max_output_tokens == 1000`, actual baseline is `1800`
 
 
 ## Context and Orientation
