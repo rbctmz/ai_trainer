@@ -611,28 +611,37 @@ class GarminClient:
             return None
 
         current_date = datetime.now().strftime("%Y-%m-%d")
-        # garminconnect >= 0.3 требует cdate; легаси-версии зовутся без аргументов
-        methods_to_try = [
-            ('with_date', lambda: self.client.get_training_readiness(current_date)),
-            ('no_args', lambda: self.client.get_training_readiness()),
-        ]
+        if not hasattr(self.client, 'get_training_readiness'):
+            return None
 
-        method_errors = []
-        for method_name, method_func in methods_to_try:
+        try:
+            readiness = self.client.get_training_readiness(current_date)
+        except TypeError as date_error:
+            # garminconnect < 0.3 exposed this method without cdate.
             try:
-                readiness = method_func()
-            except TypeError as e:
-                method_errors.append(f"get_training_readiness[{method_name}]: {e}")
-                continue
-            except Exception as e:
-                method_errors.append(f"get_training_readiness[{method_name}]: {e}")
-                break
+                readiness = self.client.get_training_readiness()
+            except Exception as legacy_error:
+                self._remember_error(
+                    "training_readiness",
+                    "Ошибка получения readiness: "
+                    f"get_training_readiness[with_date]: {date_error}; "
+                    f"get_training_readiness[no_args]: {legacy_error}",
+                )
+                return None
             if readiness:
                 self._clear_last_error()
                 return self._normalize_readiness_payload(readiness)
+            self._clear_last_error()
+            return None
+        except Exception as e:
+            self._remember_error("training_readiness", f"Ошибка получения readiness: get_training_readiness[with_date]: {e}")
+            return None
 
-        if method_errors:
-            self._remember_error("training_readiness", f"Ошибка получения readiness: {'; '.join(method_errors[:2])}")
+        if readiness:
+            self._clear_last_error()
+            return self._normalize_readiness_payload(readiness)
+
+        self._clear_last_error()
         return None
 
     @staticmethod
