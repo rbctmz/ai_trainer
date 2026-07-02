@@ -8,7 +8,8 @@ from datetime import date, timedelta
 
 import pytest
 
-from api.routers.dashboard import _generate_daily_outlook, _tsb_zone
+from api.routers.dashboard import _generate_daily_outlook
+from models.banister import tsb_zone as _tsb_zone
 from models.training_planner import current_periodization_phase
 
 _PHASES = {"Base", "Build", "Peak", "Taper"}

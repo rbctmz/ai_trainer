@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends
 from api.deps import get_database, get_headless_state
 from api.operational_state import build_operational_state, latest_iso_from_frame
 from data.database import Database
+from models.banister import tsb_zone
 from state import StateManager
 from ui.pages.dashboard import (
     _build_activity_day_tss,
@@ -133,19 +134,20 @@ def _calculate_training_score(
         cons = 50
     cons_label = f"{int(adherence * 100)}% выполнения"
 
-    # Load Mgmt (0–100): TSB zone
+    # Load Mgmt (0–100): smooth score curve stays independent of the
+    # canonical 4-zone boundaries (it's a continuous contribution to the
+    # composite Training Score, not a zone description) — only the label
+    # is aligned to tsb_zone() so it stops disagreeing with the rest of
+    # this page about what the same TSB value means.
     if -10 <= tsb <= 20:
         load = 85
-        load_label = "Оптимальная зона"
     elif tsb > 20:
         load = 70
-        load_label = "Очень свежий"
     elif tsb > -25:
         load = 55
-        load_label = "Умеренная усталость"
     else:
         load = max(15, 40 + int(tsb * 1.2))
-        load_label = "Высокая усталость"
+    load_label = tsb_zone(tsb)["label"]
 
     total = int(fitness * 0.30 + prog * 0.25 + cons * 0.25 + load * 0.20)
     total_label = (
@@ -165,29 +167,6 @@ def _calculate_training_score(
     }
 
 
-# Canonical TSB zones — the single source of truth for how a TSB value is
-# described to the user. Mirrored (by hand; Python has no build step that
-# shares code with the frontend) in web/components/ui/Tooltip.tsx's
-# TsbContent. Boundaries -20/-10/+10 are the same ones ui/pages/dashboard.py
-# uses for state_label, so the "СОСТОЯНИЕ" card and the TSB explanation never
-# disagree about where one zone ends and the next begins.
-_TSB_ZONES: list[tuple[float, str, str, str]] = [
-    # (upper bound exclusive, label, tone, daily-outlook clause)
-    (-20, "Высокая усталость", "danger", "высокая усталость — приоритет восстановлению"),
-    (-10, "Накопленная усталость", "warning", "накопленная усталость — контролируйте интенсивность"),
-    (10, "Стабильная нагрузка", "neutral", "стабильная нагрузка — придерживайтесь плана"),
-    (float("inf"), "Свежесть", "success", "хорошая свежесть — можно работать на качество"),
-]
-
-
-def _tsb_zone(tsb: float) -> dict[str, str]:
-    for upper, label, tone, clause in _TSB_ZONES:
-        if tsb < upper:
-            return {"label": label, "tone": tone, "clause": clause}
-    last = _TSB_ZONES[-1]
-    return {"label": last[1], "tone": last[2], "clause": last[3]}
-
-
 def _generate_daily_outlook(
     goal_plan: dict[str, Any] | None,
     ctl: float,
@@ -199,7 +178,7 @@ def _generate_daily_outlook(
     from models.training_planner import current_periodization_phase
 
     parts: list[str] = []
-    zone = _tsb_zone(tsb)
+    zone = tsb_zone(tsb)
     resolved_phase = current_periodization_phase(goal_plan)
     if resolved_phase:
         parts.append(f"Фаза «{resolved_phase['phase']}», {zone['clause']} (TSB {tsb:+.1f}).")
