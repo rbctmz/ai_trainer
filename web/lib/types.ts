@@ -176,6 +176,8 @@ export interface SyncResult {
   title: string;
   summary: string;
   severity: "success" | "warning" | "error" | string;
+  mode?: "incremental" | "full" | string;
+  counts?: { new: number; updated: number; skipped: number };
   [key: string]: unknown;
 }
 

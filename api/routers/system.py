@@ -1,7 +1,9 @@
 """System endpoints: Garmin sync + demo dataset.
 
 - POST /api/sync          → authenticate via env creds and pull fresh Garmin data
-                            into the real local cache.
+                            into the real local cache. Without parameters the sync
+                            is incremental (from the last known data); pass
+                            {"days": N} in the body (or ?days=N) for a full reload.
 - POST /api/demo/seed     → populate the ISOLATED demo database with the
                             deterministic sample dataset (never touches the real
                             ai_trainer.db).
@@ -12,6 +14,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel
 
 from api.deps import demo_database, make_headless_state, real_database
 from config.settings import Settings
@@ -28,8 +31,13 @@ def _state_with_db(db) -> StateManager:
     return make_headless_state(database=db)
 
 
+class SyncRequest(BaseModel):
+    days: int | None = None
+
+
 @router.post("/sync")
-def sync(days: int = 30) -> Dict[str, Any]:
+def sync(payload: SyncRequest | None = None, days: int | None = None) -> Dict[str, Any]:
+    requested_days = days if days is not None else (payload.days if payload else None)
     if not (Settings.GARMIN_EMAIL and Settings.GARMIN_PASSWORD):
         raise HTTPException(
             status_code=400,
@@ -47,11 +55,11 @@ def sync(days: int = 30) -> Dict[str, Any]:
         raise HTTPException(status_code=502, detail="Garmin login failed")
 
     try:
-        result = sync_service.sync_garmin_data(state, days=days)
+        result = sync_service.sync_garmin_data(state, days=requested_days)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Sync failed: {exc}")
 
-    return sync_service.build_sync_status_payload(result, days=days)
+    return sync_service.build_sync_status_payload(result)
 
 
 @router.post("/demo/seed")

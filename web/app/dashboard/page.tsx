@@ -93,7 +93,10 @@ function SyncButton({ onDone }: { onDone: () => void }) {
     setMsg(null);
     try {
       const r = await postJSON<SyncResult>("/api/sync", {});
-      setMsg(r.title || "Готово");
+      const detail = r.counts
+        ? ` +${r.counts.new} новых, ${r.counts.updated} обновлено`
+        : "";
+      setMsg((r.title || "Готово") + detail);
       onDone();
       mutate(() => true); // refresh all SWR keys
     } catch (e) {
