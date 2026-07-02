@@ -8,9 +8,33 @@ import numpy as np
 from datetime import datetime, timedelta
 from typing import Dict, Any, Optional, List
 from data.database import Database
-from models.banister import BanisterModel
+from models.banister import BanisterModel, tsb_zone
 from models.hrv_analyzer import HRVAnalyzer
 from utils.metrics import MetricsCalculator
+
+# _predict_form used to split TSB into 5 buckets (10/0/-15/-30) against the
+# canonical tsb_zone()'s 4 (-20/-10/+10). 'good_form' (the old 0 < tsb <= 10
+# bucket) is retired here and folds into 'maintaining' -- a TSB of, say, 7
+# now says 'maintaining' instead of 'good_form' in the AI coach prompt built
+# by format_context_for_ai. Intentional consequence of unification (#63).
+_TSB_TONE_TO_FORM_PREDICTION = {
+    "success": "peaked",
+    "neutral": "maintaining",
+    "warning": "building_fitness",
+    "danger": "overreaching",
+}
+
+# _generate_load_recommendations used its own 5-bucket split (15/5/-10/-25).
+# "Хорошая форма. Можно планировать интенсивные тренировки" (the old
+# 5 < tsb <= 15 bucket) is retired here; that range now shows the
+# "Отличная форма..." sentence instead. Intentional consequence of
+# unification (#63).
+_TSB_TONE_TO_LOAD_RECOMMENDATION = {
+    "success": "Отличная форма! Подходящее время для соревнований или тестовых тренировок",
+    "neutral": "Нормальное состояние для продолжения планомерных тренировок",
+    "warning": "Период накопления усталости. Хорошо для базового периода",
+    "danger": "Высокая усталость. Рассмотрите восстановительную неделю",
+}
 
 
 class AIDataContext:
@@ -623,39 +647,20 @@ class AIDataContext:
             return 'stable'
     
     def _predict_form(self, banister_metrics: Dict[str, float]) -> str:
-        """Предсказывает форму на основе метрик Банистера"""
+        """Предсказывает форму на основе метрик Банистера (canonical TSB zone)"""
         tsb = banister_metrics.get('tsb', 0)
-        
-        if tsb > 10:
-            return 'peaked'
-        elif tsb > 0:
-            return 'good_form'
-        elif tsb > -15:
-            return 'maintaining'
-        elif tsb > -30:
-            return 'building_fitness'
-        else:
-            return 'overreaching'
+        return _TSB_TONE_TO_FORM_PREDICTION[tsb_zone(tsb)["tone"]]
     
     def _generate_load_recommendations(self, banister_metrics: Dict[str, float]) -> List[str]:
-        """Генерирует рекомендации по нагрузке"""
+        """Генерирует рекомендации по нагрузке (canonical TSB zone)"""
         recommendations = []
-        
+
         tsb = banister_metrics.get('tsb', 0)
         ctl = banister_metrics.get('ctl', 0)
         atl = banister_metrics.get('atl', 0)
-        
-        if tsb > 15:
-            recommendations.append("Отличная форма! Подходящее время для соревнований или тестовых тренировок")
-        elif tsb > 5:
-            recommendations.append("Хорошая форма. Можно планировать интенсивные тренировки")
-        elif tsb > -10:
-            recommendations.append("Нормальное состояние для продолжения планомерных тренировок")
-        elif tsb > -25:
-            recommendations.append("Период накопления усталости. Хорошо для базового периода")
-        else:
-            recommendations.append("Высокая усталость. Рассмотрите восстановительную неделю")
-        
+
+        recommendations.append(_TSB_TONE_TO_LOAD_RECOMMENDATION[tsb_zone(tsb)["tone"]])
+
         if atl > ctl * 1.5:
             recommendations.append("Острая нагрузка высока. Добавьте восстановительные дни")
         
