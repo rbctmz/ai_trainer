@@ -13,6 +13,7 @@ class ActivityProcessor:
     )
     _SWIM_HR_ZONE_TSS_WEIGHTS = (0.0, 0.4, 0.5, 0.6, 1.8)
     _RUN_HR_ZONE_TSS_WEIGHTS = (0.45, 0.7, 1.0, 1.2, 1.5)
+    _BIKE_HR_ZONE_TSS_WEIGHTS = (0.2, 0.35, 0.65, 0.95, 1.3)
     _RUN_FALLBACK_TSS_PER_HOUR = 50.0
     _BIKE_FALLBACK_TSS_PER_HOUR = 60.0
     _SWIM_FALLBACK_TSS_PER_HOUR = 25.0
@@ -239,6 +240,14 @@ class ActivityProcessor:
                     'source_tss': garmin_training_load,
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'power_tss_bike',
+                }
+            bike_zone_tss = cls._zone_weighted_tss(activity_data, cls._BIKE_HR_ZONE_TSS_WEIGHTS)
+            if bike_zone_tss is not None:
+                return {
+                    'tss': bike_zone_tss,
+                    'source_tss': garmin_training_load,
+                    'garmin_training_load': garmin_training_load,
+                    'tss_method': 'hr_zone_tss_bike',
                 }
             hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
             if hr_tss is not None:

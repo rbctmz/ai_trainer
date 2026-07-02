@@ -259,6 +259,63 @@ def test_run_zone_calibration_tracks_validated_ic_example(tmp_path):
     assert row["tss"] < row["garmin_training_load"]
 
 
+@pytest.mark.parametrize(
+    ("activity_id", "payload", "expected_tss"),
+    [
+        (
+            "bike-cal-easy-reference",
+            {
+                "duration": 2400.5,
+                "movingDuration": 2065.0,
+                "distance": 8779.99,
+                "averageHR": 110,
+                "maxHR": 133,
+                "activityTrainingLoad": 18.9,
+                "hrTimeInZone_1": 552.067,
+                "hrTimeInZone_2": 1775.44,
+                "hrTimeInZone_3": 73.0,
+                "hrTimeInZone_4": 0.0,
+                "hrTimeInZone_5": 0.0,
+            },
+            13.0,
+        ),
+        (
+            "bike-cal-threshold-reference",
+            {
+                "duration": 1933.5,
+                "movingDuration": 1686.0,
+                "distance": 8852.63,
+                "averageHR": 126,
+                "maxHR": 154,
+                "activityTrainingLoad": 72.5,
+                "hrTimeInZone_1": 208.192,
+                "hrTimeInZone_2": 666.0,
+                "hrTimeInZone_3": 721.601,
+                "hrTimeInZone_4": 335.163,
+                "hrTimeInZone_5": 0.0,
+            },
+            18.0,
+        ),
+    ],
+)
+def test_bike_zone_calibration_tracks_validated_ic_examples(tmp_path, activity_id, payload, expected_tss):
+    db = Database(str(tmp_path / f"{activity_id}.db"))
+
+    activity = {
+        "activityId": activity_id,
+        "startTimeLocal": _recent_iso(),
+        "activityType": {"typeKey": "cycling"},
+        **payload,
+    }
+    result = _sync_activities(db, [activity])
+
+    assert result == {"new": 1, "updated": 0, "skipped": 0}
+
+    row = _activity_row(db, activity_id)
+    assert row["tss_method"] == "hr_zone_tss_bike"
+    assert row["tss"] == pytest.approx(expected_tss, abs=1.0)
+
+
 def test_legacy_garmin_load_rows_are_backfilled_to_computed_tss(tmp_path):
     db_path = tmp_path / "legacy.db"
     conn = sqlite3.connect(db_path)

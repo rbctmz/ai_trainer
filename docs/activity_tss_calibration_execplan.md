@@ -20,6 +20,9 @@ After this change, a user should be able to sync Garmin, open `http://localhost:
 - [x] (2026-07-01 09:19Z) Ran targeted smoke tests green: `python3 -m pytest tests/smoke/test_activity_tss_reconciliation.py tests/smoke/test_api_phase1.py tests/smoke/test_garmin_sync_service.py -q`.
 - [x] (2026-07-01 09:20Z) Ran the full contributor-safe smoke suite green: `python3 -m pytest tests/smoke -q` (`257 passed`).
 - [x] (2026-07-01 09:21Z) Verified the recalibrated local `ai_trainer.db` rows through the activities API helper: June 30 swim `64.8`, June 30 walk `2.0`, June 27 run `51.0`, June 25 swim `8.2`, June 24 walk `9.9`.
+- [x] (2026-07-02 08:10Z) Checked public IntervalCoach Help/Changelog pages for an exact TSS formula. The available static content and changelog references mention training load/TSS concepts but do not expose a reproducible calculation algorithm.
+- [x] (2026-07-02 08:16Z) Added a second calibration pass for cycling activities without power data after the user-validated July 1 examples showed AI Trainer `24.0 / 25.7 TSS` versus IntervalCoach `13 / 18 TSS`.
+- [x] (2026-07-02 08:20Z) Added failing bike calibration tests for the two July 1 rides, then fixed them by adding a bike HR-zone summary path between power TSS and average-HR fallback.
 
 ## Surprises & Discoveries
 
@@ -34,6 +37,12 @@ After this change, a user should be able to sync Garmin, open `http://localhost:
 
 - Observation: broad recalculation on `Database(...)` open is necessary if we want the local activities table to reflect the new calibration without forcing the user to wait for a fresh sync window.
   Evidence: a persisted `hr_zone_tss_swim` row remained at `62.7` until the database repair pass was widened beyond the old `garmin_training_load`-only migration query.
+
+- Observation: public IntervalCoach docs/changelog are useful product references, but they do not currently publish the exact completed-activity TSS algorithm in static help content.
+  Evidence: the Help Center and Changelog pages mention TSS, load, FTP, threshold, recovery, and readiness, but no exposed article text gave a formula precise enough to implement.
+
+- Observation: the next post-`#37` mismatch was cycling without power data, not swimming/running/walking.
+  Evidence: the July 1 rides have no `avg_power`, so AI Trainer used `hr_tss_bike` and produced `24.0 / 25.7 TSS`, while IntervalCoach showed `13 / 18 TSS`. Garmin summary already contains `hrTimeInZone_1..5`, so the missing path is zone-based bike load.
 
 ## Decision Log
 
@@ -53,9 +62,15 @@ After this change, a user should be able to sync Garmin, open `http://localhost:
   Rationale: this keeps local historical rows consistent with the current resolver after formula changes and avoids a user-visible split between newly synced rows and older cached rows.
   Date/Author: 2026-07-01 / Codex
 
+- Decision: for cycling, keep power-first behavior, but prefer Garmin HR-zone summary over average-HR/LTHR fallback when no power is available.
+  Rationale: power TSS is still the best available bike signal when present. When power is absent, average HR overstates easy/low-intensity bike rides compared with the validated IntervalCoach examples, while HR-zone summary preserves the workout distribution.
+  Date/Author: 2026-07-02 / Codex
+
 ## Outcomes & Retrospective
 
 This pass tightened the calibrated examples materially without changing the API contract from `#35`. The local verified values now land much closer to the IntervalCoach references: June 30 swim moved from `62.7` to `64.8`, June 30 walk from `1.4` to `2.0`, June 27 run from `57.9` to `51.0`, June 25 swim from `13.8` to `8.2`, and June 24 walk from `12.0` to `9.9`.
+
+The second pass extended the same summary-payload model to cycling without power. The July 1 bike rows now have a dedicated acceptance target: the easy ride should land near `13 TSS`, and the harder ride should land near `18 TSS` instead of falling through to inflated average-HR TSS.
 
 The remaining gap is that this is still a summary-payload model. It is now good enough for the validated examples, but future calibration work could still justify per-activity detail or FIT-derived signals if new evidence shows summary zones are insufficient for other sports or edge cases.
 
@@ -103,6 +118,7 @@ The important outcomes to observe are:
 - June 30 swim remains near `65 TSS` and still exposes Garmin load separately.
 - June 26 easy swims move down toward the validated `5 TSS` values instead of `6.4 / 7.6`.
 - June 27 run moves down from `57.9` toward the validated `51`.
+- July 1 cycling rows without power move down from `24.0 / 25.7` toward validated `13 / 18`.
 - validated walks stay in low single digits and do not regress back toward Garmin load.
 
 ## Validation and Acceptance
@@ -114,6 +130,8 @@ For walks, representative short sessions must remain around `2-5 TSS`, and long 
 For swims, the June 30 swim-like summary must stay in the mid-60 band while the easy June 25/26 swim-like summaries move materially closer to the validated `5-8` range than the current implementation.
 
 For runs, the June 27 aerobic-pickups-like summary must no longer overshoot into the high-50s when the validated reference is `51 TSS`.
+
+For cycling, power data remains first priority. When power is absent but HR zones are present, the July 1 validated rides should use `hr_zone_tss_bike` and land around `13 / 18 TSS`, not the inflated average-HR `24 / 25.7` values.
 
 No regression is allowed to the `#35` contract: `garmin_training_load` must remain separate from product-facing `tss`.
 
@@ -137,6 +155,13 @@ Current local evidence before this calibration pass:
 
 These are the examples the updated tests should encode.
 
+Second-pass bike evidence from 2026-07-01:
+
+    2026-07-01 bike 40.0 min / moving 34.4 min -> AI Trainer 24.0 vs IC 13
+    2026-07-01 bike 32.2 min / moving 28.1 min -> AI Trainer 25.7 vs IC 18
+
+Both rows have Garmin HR-zone summaries but no `avg_power`. The calibrated bike zone weights are therefore intentionally used only after power TSS is unavailable.
+
 ## Interfaces and Dependencies
 
 At the end of this work, `data.data_processor.ActivityProcessor.resolve_tss(activity_data, ftp=None, lthr=None)` must still return a dictionary with at least:
@@ -153,3 +178,5 @@ At the end of this work, `data.data_processor.ActivityProcessor.resolve_tss(acti
 Revision note (2026-07-01): created as the explicit follow-up ExecPlan for issue `#37` after merged PR `#36` fixed the semantic bug but left sport-specific calibration gaps against IntervalCoach.
 
 Revision note (2026-07-01, implementation update): completed the first calibration pass with summary-zone swim/run formulas, walk heuristic retuning, and database-open recalibration for persisted rows.
+
+Revision note (2026-07-02): added the cycling-without-power second pass after new user-validated IntervalCoach examples showed `13 / 18 TSS` for the July 1 rides while AI Trainer still showed `24.0 / 25.7`.
