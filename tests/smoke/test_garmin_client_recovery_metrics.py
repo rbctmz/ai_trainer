@@ -97,6 +97,13 @@ class _LegacyReadinessStub:
         return {"readinessScore": 66}
 
 
+class _ModernReadinessEmptyStub:
+    """garminconnect >= 0.3: cdate обязателен, но readiness за день может отсутствовать."""
+
+    def get_training_readiness(self, _cdate):
+        return []
+
+
 def test_readiness_modern_client_takes_first_entry(monkeypatch: pytest.MonkeyPatch):
     client = _make_client(monkeypatch, _ModernReadinessStub())
 
@@ -110,6 +117,15 @@ def test_readiness_legacy_client_falls_back_to_no_args(monkeypatch: pytest.Monke
     client = _make_client(monkeypatch, _LegacyReadinessStub())
 
     assert client.get_training_readiness() == {"readinessScore": 66}
+
+
+def test_readiness_modern_empty_response_does_not_call_legacy_no_args(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    client = _make_client(monkeypatch, _ModernReadinessEmptyStub())
+
+    assert client.get_training_readiness() is None
+    assert client.pop_last_error() is None
 
 
 # --- error paths ---
