@@ -23,6 +23,7 @@ from api.routers import (  # noqa: E402  (after env setup)
     activities,
     coach,
     dashboard,
+    decisions,
     hrv,
     planning,
     sleep,
@@ -53,6 +54,7 @@ app.add_middleware(
 
 app.include_router(dashboard.router)
 app.include_router(coach.router)
+app.include_router(decisions.router)
 app.include_router(hrv.router)
 app.include_router(activities.router)
 app.include_router(planning.router)
