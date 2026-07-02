@@ -27,6 +27,10 @@ const config: Config = {
           muted:   "var(--color-surface-muted)",
           border:  "var(--color-surface-border)",
         },
+        accent: {
+          DEFAULT:    "var(--color-accent)",
+          foreground: "var(--color-accent-foreground)",
+        },
       },
       borderRadius: {
         card: "16px",

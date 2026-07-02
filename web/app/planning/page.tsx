@@ -103,7 +103,7 @@ export default function PlanningPage() {
             type="button"
             onClick={() => setTab(t)}
             className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
-              tab === t ? "bg-ink text-white" : "text-ink-soft hover:bg-surface-muted"
+              tab === t ? "bg-accent text-accent-foreground" : "text-ink-soft hover:bg-surface-muted"
             }`}
           >
             {TAB_LABELS[t]}
@@ -197,7 +197,7 @@ function BuildMode() {
                   onClick={() => toggleDay(d.value)}
                   className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
                     days.includes(d.value)
-                      ? "border-ink bg-ink text-white"
+                      ? "border-accent bg-accent text-accent-foreground"
                       : "border-surface-border text-ink-soft hover:bg-surface-muted"
                   }`}
                 >
@@ -212,7 +212,7 @@ function BuildMode() {
           type="button"
           onClick={build}
           disabled={building || days.length === 0}
-          className="mt-5 w-full rounded-lg bg-ink px-4 py-2.5 text-sm font-medium text-white transition hover:bg-ink/90 disabled:opacity-40 sm:w-auto sm:px-8"
+          className="mt-5 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40 sm:w-auto sm:px-8"
         >
           {building ? "Собираю план…" : "🧭 Собрать план"}
         </button>
@@ -332,7 +332,7 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
             type="button"
             onClick={submit}
             disabled={busy}
-            className="rounded-lg bg-ink px-6 py-2.5 text-sm font-medium text-white transition hover:bg-ink/90 disabled:opacity-40"
+            className="rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
           >
             {busy ? "Пересобираю…" : "♻️ Пересобрать план"}
           </button>
@@ -376,7 +376,7 @@ function ExportMode() {
         </div>
         <a
           href={withDemo("/api/planning/export/ics")}
-          className="ml-auto rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-ink/90"
+          className="ml-auto rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90"
         >
           📅 Весь план в календарь (ICS)
         </a>

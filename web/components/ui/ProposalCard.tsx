@@ -210,7 +210,7 @@ export function ProposalCard({
           type="button"
           onClick={handleConfirm}
           disabled={loading}
-          className="rounded-lg bg-ink px-4 py-2 text-sm font-medium text-white transition hover:bg-ink/90 disabled:opacity-40"
+          className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
         >
           {loading ? "Сохраняю…" : "Подтвердить"}
         </button>

@@ -38,7 +38,7 @@ export function Nav() {
                 key={l.href}
                 href={l.href}
                 className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition ${
-                  active ? "bg-ink text-white" : "text-ink-soft hover:bg-surface-muted"
+                  active ? "bg-accent text-accent-foreground" : "text-ink-soft hover:bg-surface-muted"
                 }`}
               >
                 {l.label}
