@@ -11,6 +11,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends
 
 from api.deps import get_database
+from api.operational_state import build_operational_state, latest_iso_from_frame
 from data.database import Database
 from models.hrv_analyzer import HRVAnalyzer
 from utils.product_semantics import format_date_label
@@ -19,14 +20,32 @@ router = APIRouter(prefix="/api/hrv", tags=["hrv"])
 
 
 @router.get("/summary")
-def hrv_summary(days: int = 30, db: Database = Depends(get_database)) -> dict[str, Any]:
+def hrv_summary(
+    days: int = 30,
+    demo: bool = False,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
     df = db.get_hrv_data(days)
     if df is None or df.empty:
-        return {"has_data": False, "latest": None, "baseline": None, "trend": [], "signals": []}
+        return {
+            "has_data": False,
+            "latest": None,
+            "baseline": None,
+            "trend": [],
+            "signals": [],
+            "operational_state": build_operational_state(db, demo=demo, has_data=False),
+        }
 
     df = df.dropna(subset=["rmssd"]).sort_values("date")
     if df.empty:
-        return {"has_data": False, "latest": None, "baseline": None, "trend": [], "signals": []}
+        return {
+            "has_data": False,
+            "latest": None,
+            "baseline": None,
+            "trend": [],
+            "signals": [],
+            "operational_state": build_operational_state(db, demo=demo, has_data=False),
+        }
 
     latest_row = df.iloc[-1]
     latest_rmssd = float(latest_row["rmssd"])
@@ -57,6 +76,12 @@ def hrv_summary(days: int = 30, db: Database = Depends(get_database)) -> dict[st
         "baseline": {"rmssd": round(baseline, 1), "window_days": len(df)},
         "trend": trend,
         "signals": signals,
+        "operational_state": build_operational_state(
+            db,
+            demo=demo,
+            has_data=True,
+            latest_data_at=latest_iso_from_frame(df),
+        ),
     }
 
 

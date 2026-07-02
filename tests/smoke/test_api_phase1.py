@@ -44,7 +44,11 @@ def test_activities_empty_envelope(tmp_path):
     from api.routers.activities import list_activities
 
     payload = list_activities(days=30, db=Database(str(tmp_path / "e.db")))
-    assert payload == {"has_data": False, "count": 0, "totals": {}, "items": []}
+    assert payload["has_data"] is False
+    assert payload["count"] == 0
+    assert payload["totals"] == {}
+    assert payload["items"] == []
+    assert payload["operational_state"]["status"] == "empty"
 
 
 def test_activities_with_data(tmp_path):

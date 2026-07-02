@@ -13,6 +13,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends
 
 from api.deps import get_database, get_headless_state
+from api.operational_state import build_operational_state, latest_iso_from_frame
 from data.database import Database
 from state import StateManager
 from ui.pages.dashboard import (
@@ -29,13 +30,18 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 @router.get("/summary")
 def dashboard_summary(
+    demo: bool = False,
     db: Database = Depends(get_database),
     state: StateManager = Depends(get_headless_state),
 ) -> Dict[str, Any]:
     """Command-center summary: today's state, workout, week load, next action."""
     activities_df = db.get_activities(30)
     if activities_df is None or activities_df.empty:
-        return {"has_data": False, "summary": None}
+        return {
+            "has_data": False,
+            "summary": None,
+            "operational_state": build_operational_state(db, demo=demo, has_data=False),
+        }
 
     hrv_df = db.get_hrv_data(90)
     sleep_df = db.get_sleep_data(7)
@@ -48,7 +54,16 @@ def dashboard_summary(
         latest_training_status,
         activities_df,
     )
-    return {"has_data": True, "summary": summary}
+    return {
+        "has_data": True,
+        "summary": summary,
+        "operational_state": build_operational_state(
+            db,
+            demo=demo,
+            has_data=True,
+            latest_data_at=latest_iso_from_frame(activities_df),
+        ),
+    }
 
 
 # ---------------------------------------------------------------------------

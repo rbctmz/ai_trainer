@@ -10,6 +10,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends
 
 from api.deps import get_database
+from api.operational_state import build_operational_state, latest_iso_from_frame
 from data.database import Database
 from utils.product_semantics import format_date_label
 
@@ -26,10 +27,20 @@ def _num(value: Any) -> float | None:
 
 
 @router.get("/summary")
-def sleep_summary(days: int = 30, db: Database = Depends(get_database)) -> dict[str, Any]:
+def sleep_summary(
+    days: int = 30,
+    demo: bool = False,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
     df = db.get_sleep_data(days)
     if df is None or df.empty:
-        return {"has_data": False, "latest": None, "averages": None, "trend": []}
+        return {
+            "has_data": False,
+            "latest": None,
+            "averages": None,
+            "trend": [],
+            "operational_state": build_operational_state(db, demo=demo, has_data=False),
+        }
 
     df = df.sort_values("date")
     latest = df.iloc[-1]
@@ -73,4 +84,10 @@ def sleep_summary(days: int = 30, db: Database = Depends(get_database)) -> dict[
         },
         "averages": {"hours": avg_hours, "score": avg_score, "window_days": len(df)},
         "trend": trend,
+        "operational_state": build_operational_state(
+            db,
+            demo=demo,
+            has_data=True,
+            latest_data_at=latest_iso_from_frame(df),
+        ),
     }
