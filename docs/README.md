@@ -8,6 +8,7 @@ This directory contains current project docs, active/historical ExecPlans, and a
 - `AGENTS.md` at repository root: repository instructions for coding agents.
 - `CLAUDE.md` at repository root: Claude Code orientation.
 - `docs/AI_Feature_Development_Workflow.md`: canonical SpecDD/BDD/TDD/Contract First workflow for non-trivial feature work.
+- `docs/loop_engineering_instruction.md`: current issue-first agent loop and GitHub automation operating model.
 - `docs/architecture/adr_0001_web_primary_ui.md`: active migration policy; web-first for new product work, Streamlit still supported as fallback during parity work.
 - `docs/codex_project_notes.md` and `docs/codex_project_notes_ru.md`: compact architecture notes.
 - `docs/ai_coaching_guide.md`: current AI provider and AI Coaching behavior.
