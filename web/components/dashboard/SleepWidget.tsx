@@ -3,6 +3,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { SleepSummary } from "@/lib/types";
 import { InfoTip } from "@/components/ui/Tooltip";
+import { MiniBars } from "@/components/ui/MiniBars";
 
 export function SleepWidget({ className = "" }: { className?: string }) {
   const { data, isLoading } = useSWR<SleepSummary>(
@@ -19,6 +20,7 @@ export function SleepWidget({ className = "" }: { className?: string }) {
   const latest = data?.latest;
   const hours = latest?.hours;
   const score = latest?.score;
+  const recentTrend = (data?.trend ?? []).slice(-10);
 
   const hoursColor =
     hours == null ? "text-ink-faint"
@@ -47,6 +49,19 @@ export function SleepWidget({ className = "" }: { className?: string }) {
           {latest.stages.deep  != null && <span>Глуб {latest.stages.deep}ч</span>}
           {latest.stages.rem   != null && <span>REM {latest.stages.rem}ч</span>}
           {latest.stages.light != null && <span>Лёгк {latest.stages.light}ч</span>}
+        </div>
+      )}
+      {recentTrend.length >= 2 && (
+        <div className="mt-4">
+          <div className="mb-1.5 text-[11px] text-ink-faint">
+            Последние {recentTrend.length} дн.
+          </div>
+          <MiniBars
+            values={recentTrend.map((t) => t.hours)}
+            labels={recentTrend.map((t) => t.date)}
+            unit=" ч"
+            height="h-14"
+          />
         </div>
       )}
     </div>

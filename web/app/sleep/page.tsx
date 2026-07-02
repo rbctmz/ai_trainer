@@ -3,6 +3,7 @@
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { SleepSummary } from "@/lib/types";
+import { MiniBars } from "@/components/ui/MiniBars";
 
 export default function SleepPage() {
   const { data, error, isLoading } = useSWR<SleepSummary>(
@@ -53,7 +54,12 @@ export default function SleepPage() {
                 </span>
               ) : null}
             </div>
-            <Bars values={data.trend.map((t) => t.hours)} />
+            <MiniBars
+              values={data.trend.map((t) => t.hours)}
+              labels={data.trend.map((t) => t.date)}
+              unit=" ч"
+              height="h-32"
+            />
           </div>
         </>
       ) : null}
@@ -96,23 +102,6 @@ function Stages({
           </span>
         ))}
       </div>
-    </div>
-  );
-}
-
-function Bars({ values }: { values: number[] }) {
-  if (values.length < 2) return <div className="text-sm text-ink-faint">Недостаточно точек.</div>;
-  const max = Math.max(...values, 8);
-  return (
-    <div className="flex h-32 items-end gap-0.5">
-      {values.map((v, i) => (
-        <div
-          key={i}
-          className="flex-1 rounded-t bg-tone-neutral/80"
-          style={{ height: `${(v / max) * 100}%` }}
-          title={`${v} ч`}
-        />
-      ))}
     </div>
   );
 }
