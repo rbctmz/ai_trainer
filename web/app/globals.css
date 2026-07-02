@@ -2,37 +2,42 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Colors are space-separated R G B triplets (Tailwind's documented format for
+   CSS-variable-based colors), not hex strings. This lets opacity modifiers
+   like bg-tone-neutral/80 generate rgb(var(--color-tone-neutral) / 0.8) —
+   valid CSS. A hex string here would make that declaration invalid and the
+   browser would silently fall back to fully transparent. */
 :root {
   color-scheme: light;
-  --color-ink:            #0F172A;
-  --color-ink-soft:       #475569;
-  --color-ink-faint:      #94A3B8;
-  --color-surface:        #FFFFFF;
-  --color-surface-muted:  #F8FAFC;
-  --color-surface-border: #E2E8F0;
-  --color-tone-danger:    #EF4444;
-  --color-tone-warning:   #F59E0B;
-  --color-tone-success:   #10B981;
-  --color-tone-neutral:   #3B82F6;
+  --color-ink:            15 23 42;
+  --color-ink-soft:       71 85 105;
+  --color-ink-faint:      148 163 184;
+  --color-surface:        255 255 255;
+  --color-surface-muted:  248 250 252;
+  --color-surface-border: 226 232 240;
+  --color-tone-danger:    239 68 68;
+  --color-tone-warning:   245 158 11;
+  --color-tone-success:   16 185 129;
+  --color-tone-neutral:   59 130 246;
   /* Primary/inverse button surface. Fixed across themes on purpose — unlike
      `ink` (which flips light/dark to stay readable as body text), a CTA
      button needs a background that never collides with the page surface. */
-  --color-accent:            #1D4ED8;
-  --color-accent-foreground: #FFFFFF;
+  --color-accent:            29 78 216;
+  --color-accent-foreground: 255 255 255;
 }
 
 .dark {
   color-scheme: dark;
-  --color-ink:            #F1F5F9;
-  --color-ink-soft:       #94A3B8;
-  --color-ink-faint:      #475569;
-  --color-surface:        #0F172A;
-  --color-surface-muted:  #1E293B;
-  --color-surface-border: #334155;
-  --color-tone-danger:    #F87171;
-  --color-tone-warning:   #FCD34D;
-  --color-tone-success:   #34D399;
-  --color-tone-neutral:   #60A5FA;
+  --color-ink:            241 245 249;
+  --color-ink-soft:       148 163 184;
+  --color-ink-faint:      71 85 105;
+  --color-surface:        15 23 42;
+  --color-surface-muted:  30 41 59;
+  --color-surface-border: 51 65 85;
+  --color-tone-danger:    248 113 113;
+  --color-tone-warning:   252 211 77;
+  --color-tone-success:   52 211 153;
+  --color-tone-neutral:   96 165 250;
 }
 
 body {
