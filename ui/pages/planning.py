@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Mapping
 import pandas as pd
 import streamlit as st
 
+from models.banister import tsb_zone
 from models.planning_near_term import (
     EDITABLE_NEAR_TERM_HORIZON_MAX,
     EDITABLE_NEAR_TERM_HORIZON_MIN,
@@ -39,6 +40,14 @@ PLANNING_WORKSPACE_MODES = (
     "Скорректировать выполнение",
     "Экспорт и детали",
 )
+# Near-duplicate of api/planning_service.py::_TSB_TONE_TO_FORECAST_MESSAGE
+# (same canonical tones, this page's own wording) -- see issue #63.
+_TSB_TONE_TO_FORECAST_MESSAGE = {
+    "success": "🟢 Отличный прогноз! Вы будете в пиковой форме.",
+    "neutral": "🟡 Хорошая нагрузка для поддержания формы.",
+    "warning": "🟠 Внимание: возможно накопление усталости.",
+    "danger": "🔴 Предупреждение: высокий риск переутомления!",
+}
 SPORT_LABELS_RU = {
     "run": "бег",
     "bike": "вело",
@@ -2140,14 +2149,7 @@ def render_planning_page(state: "StateManager") -> None:
                     st.plotly_chart(fig_future, width="stretch")
 
                     final_tsb = future_tsb[-1]
-                    if final_tsb > 5:
-                        forecast_message = "🟢 Отличный прогноз! Вы будете в пиковой форме."
-                    elif final_tsb > -10:
-                        forecast_message = "🟡 Хорошая нагрузка для поддержания формы."
-                    elif final_tsb > -30:
-                        forecast_message = "🟠 Внимание: возможно накопление усталости."
-                    else:
-                        forecast_message = "🔴 Предупреждение: высокий риск переутомления!"
+                    forecast_message = _TSB_TONE_TO_FORECAST_MESSAGE[tsb_zone(final_tsb)["tone"]]
 
                     st.info(f"**Прогноз через {simulation_weeks} недель:** TSB = {final_tsb:.1f} - {forecast_message}")
     elif not has_goal_plan:
