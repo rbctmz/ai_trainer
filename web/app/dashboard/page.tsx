@@ -3,7 +3,7 @@
 import { useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { fetcher, isDemo, postJSON, setDemo } from "@/lib/api";
-import { DashboardResponse, DashboardWidgets, SyncResult } from "@/lib/types";
+import { DashboardResponse, DashboardWidgets, SyncJobResponse } from "@/lib/types";
 import { StatusRow } from "@/components/dashboard/StatusRow";
 import { TodayCard } from "@/components/dashboard/TodayCard";
 import { WeekCard } from "@/components/dashboard/WeekCard";
@@ -92,11 +92,15 @@ function SyncButton({ onDone }: { onDone: () => void }) {
     setBusy(true);
     setMsg(null);
     try {
-      const r = await postJSON<SyncResult>("/api/sync", {});
-      const detail = r.counts
-        ? ` +${r.counts.new} новых, ${r.counts.updated} обновлено`
-        : "";
-      setMsg((r.title || "Готово") + detail);
+      const started = await postJSON<SyncJobResponse>("/api/sync", {});
+      setMsg(formatSyncJob(started));
+      const final = isTerminalSyncState(started.sync_state)
+        ? started
+        : await waitForSyncJob((next) => setMsg(formatSyncJob(next)));
+      setMsg(formatSyncJob(final));
+      if (final.sync_state === "failed") {
+        throw new Error(formatSyncJob(final));
+      }
       onDone();
       mutate(() => true); // refresh all SWR keys
     } catch (e) {
@@ -121,6 +125,51 @@ function SyncButton({ onDone }: { onDone: () => void }) {
       </button>
     </div>
   );
+}
+
+async function waitForSyncJob(onUpdate: (job: SyncJobResponse) => void): Promise<SyncJobResponse> {
+  for (let attempt = 0; attempt < 240; attempt += 1) {
+    const job = await fetcher<SyncJobResponse>("/api/sync");
+    onUpdate(job);
+    if (isTerminalSyncState(job.sync_state)) return job;
+    await delay(2000);
+  }
+  throw new Error("Синхронизация всё ещё выполняется. Проверьте статус позже.");
+}
+
+function isTerminalSyncState(state: string): boolean {
+  return state === "succeeded" || state === "partial" || state === "failed";
+}
+
+function formatSyncJob(job: SyncJobResponse): string {
+  if (job.sync_state === "running") {
+    const progress = job.progress;
+    if (progress?.message) {
+      const prefix = Number.isFinite(progress.percent) ? `${progress.percent}% · ` : "";
+      return `${prefix}${progress.message}`;
+    }
+    return job.reused ? "Синхронизация уже выполняется…" : "Синхронизация Garmin запущена…";
+  }
+
+  if (job.sync_state === "failed") {
+    return job.error?.message || "Ошибка синхронизации";
+  }
+
+  const result = job.result;
+  if (result) {
+    const detail = result.counts
+      ? ` +${result.counts.new} новых, ${result.counts.updated} обновлено`
+      : "";
+    return (result.title || "Готово") + detail;
+  }
+
+  return job.sync_state === "partial"
+    ? "Синхронизация Garmin завершена частично"
+    : "Синхронизация Garmin завершена";
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 function Onboarding() {

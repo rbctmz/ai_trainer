@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 
 from data.database import Database
 from services import sync as sync_service
@@ -100,7 +101,9 @@ def test_old_activity_payload_is_explicitly_stale(tmp_path):
 
 def test_sync_status_contracts_are_machine_readable(tmp_path, monkeypatch):
     from api.routers import system as system_mod
+    from api.sync_jobs import sync_job_manager
 
+    sync_job_manager.reset_for_tests()
     idle = system_mod.sync_status(db=Database(str(tmp_path / "idle.db")))
     assert idle["sync_state"] == "idle"
     assert idle["operational_state"]["sync_state"] == "idle"
@@ -122,14 +125,17 @@ def test_sync_status_contracts_are_machine_readable(tmp_path, monkeypatch):
     monkeypatch.setattr(system_mod.garmin_service, "authenticate", lambda *_args, **_kwargs: True)
     monkeypatch.setattr(system_mod.sync_service, "sync_garmin_data", lambda *_args, **_kwargs: result)
 
-    completed = system_mod.sync(system_mod.SyncRequest(days=1))
-    assert completed["sync_state"] == "succeeded"
+    started = system_mod.sync(system_mod.SyncRequest(days=1))
+    assert started["sync_state"] == "running"
+    completed = _wait_for_sync_state(system_mod, "succeeded", db=db)
     assert completed["operational_state"]["sync_state"] == "succeeded"
     assert completed["operational_state"]["error"] is None
 
     partial = sync_service.GarminSyncResult(warnings=["sleep unavailable"], mode="full", days=7)
+    sync_job_manager.reset_for_tests()
     monkeypatch.setattr(system_mod.sync_service, "sync_garmin_data", lambda *_args, **_kwargs: partial)
-    partial_payload = system_mod.sync(system_mod.SyncRequest(days=7))
+    system_mod.sync(system_mod.SyncRequest(days=7))
+    partial_payload = _wait_for_sync_state(system_mod, "partial", db=db)
     assert partial_payload["sync_state"] == "partial"
     assert partial_payload["operational_state"]["sync_state"] == "partial"
 
@@ -154,3 +160,13 @@ def test_coach_stream_meta_and_history_expose_operational_state(tmp_path, monkey
 
     detail = coach_mod.coach_history_detail(chat_id, db=Database(str(tmp_path / "coach.db")))
     assert detail["operational_state"]["status"] == "empty"
+
+
+def _wait_for_sync_state(system_mod, expected: str, *, db: Database, timeout: float = 5.0) -> dict:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        payload = system_mod.sync_status(db=db)
+        if payload.get("sync_state") == expected:
+            return payload
+        time.sleep(0.02)
+    raise AssertionError(f"timed out waiting for {expected}")
