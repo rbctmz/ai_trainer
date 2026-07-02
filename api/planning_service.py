@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 import pandas as pd
 
 from data.database import Database
-from models.banister import BanisterModel
+from models.banister import BanisterModel, tsb_zone
 from models.fit_export import build_steps_for_sport, generate_fit_csv
 from models.planning_checkpoints import (
     build_planning_checkpoint,
@@ -269,6 +269,14 @@ def _weeks_payload(weekly_summary: List[Dict[str, Any]], phases: List[str]) -> L
     return out
 
 
+_TSB_TONE_TO_FORECAST_MESSAGE = {
+    "success": "🟢 Отличный прогноз — выход в пиковую форму.",
+    "neutral": "🟡 Хорошая нагрузка для поддержания формы.",
+    "warning": "🟠 Возможно накопление усталости — следите за восстановлением.",
+    "danger": "🔴 Высокий риск переутомления — снизьте нагрузку.",
+}
+
+
 def _forecast(banister, metrics, daily_plan, start_week: date) -> Dict[str, Any]:
     daily_seq = flatten_daily_total(daily_plan)  # list[(datetime, total)]
     start_dt = datetime.combine(start_week, datetime.min.time())
@@ -289,14 +297,7 @@ def _forecast(banister, metrics, daily_plan, start_week: date) -> Dict[str, Any]
             )
 
     final_tsb = round(float(tsb[-1]), 1) if tsb else 0.0
-    if final_tsb > 5:
-        message = "🟢 Отличный прогноз — выход в пиковую форму."
-    elif final_tsb > -10:
-        message = "🟡 Хорошая нагрузка для поддержания формы."
-    elif final_tsb > -30:
-        message = "🟠 Возможно накопление усталости — следите за восстановлением."
-    else:
-        message = "🔴 Высокий риск переутомления — снизьте нагрузку."
+    message = _TSB_TONE_TO_FORECAST_MESSAGE[tsb_zone(final_tsb)["tone"]]
 
     return {"points": points, "final_tsb": final_tsb, "message": message}
 
