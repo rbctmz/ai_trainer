@@ -9,7 +9,9 @@ dependency.
 """
 from __future__ import annotations
 
-from models.banister import tsb_zone
+from datetime import datetime
+
+from models.banister import BanisterModel, tsb_zone
 
 
 def test_tsb_zone_boundaries():
@@ -32,3 +34,28 @@ def test_tsb_zone_labels_and_clauses():
     success = tsb_zone(15.0)
     assert success["label"] == "Свежесть"
     assert success["clause"] == "хорошая свежесть — можно работать на качество"
+
+
+def test_get_current_metrics_form_uses_canonical_zone_label():
+    # A single zero-TSS day settles CTL=ATL=TSB=0, which is the "neutral"
+    # zone (-10 <= tsb < 10) -- confirms get_current_metrics wires its
+    # 'form' field through tsb_zone() instead of its old, now-removed
+    # 5/-10/-30 boundaries.
+    metrics = BanisterModel().get_current_metrics([0.0], [datetime(2026, 1, 1)])
+    assert metrics["form"] == tsb_zone(0.0)["label"] == "Стабильная нагрузка"
+
+
+def test_get_training_recommendation_matches_canonical_zone_boundaries():
+    banister = BanisterModel()
+
+    danger = banister.get_training_recommendation({"tsb": -20.1, "ctl": 50})
+    assert danger["intensity"] == "Очень низкая/Отдых"
+
+    warning = banister.get_training_recommendation({"tsb": -10.1, "ctl": 50})
+    assert warning["intensity"] == "Низкая"
+
+    neutral = banister.get_training_recommendation({"tsb": -10.0, "ctl": 50})
+    assert neutral["intensity"] == "Умеренная"
+
+    success = banister.get_training_recommendation({"tsb": 10.0, "ctl": 50})
+    assert success["intensity"] == "Высокая"
