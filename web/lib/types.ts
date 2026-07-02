@@ -173,12 +173,34 @@ export interface SleepSummary {
 
 // --- Sync ---
 export interface SyncResult {
+  sync_state?: "succeeded" | "partial" | "running" | "failed" | "idle" | string;
   title: string;
   summary: string;
   severity: "success" | "warning" | "error" | string;
   mode?: "incremental" | "full" | string;
   counts?: { new: number; updated: number; skipped: number };
   [key: string]: unknown;
+}
+
+export interface SyncProgress {
+  percent: number;
+  message: string;
+  step_text?: string | null;
+  stats_message?: string | null;
+}
+
+export interface SyncJobResponse {
+  job_id: string | null;
+  sync_state: "idle" | "running" | "succeeded" | "partial" | "failed" | string;
+  status?: string;
+  started_at?: string | null;
+  finished_at?: string | null;
+  days?: number | null;
+  progress?: SyncProgress | null;
+  result?: SyncResult | null;
+  error?: { message?: string } | null;
+  reused?: boolean;
+  operational_state?: Record<string, unknown>;
 }
 
 // --- Planning ---
