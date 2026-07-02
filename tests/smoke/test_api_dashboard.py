@@ -25,7 +25,9 @@ def test_dashboard_summary_empty_db_envelope(tmp_path):
     empty_db = Database(str(tmp_path / "empty.db"))
     payload = dashboard_summary(db=empty_db, state=_headless_state())
 
-    assert payload == {"has_data": False, "summary": None}
+    assert payload["has_data"] is False
+    assert payload["summary"] is None
+    assert payload["operational_state"]["status"] == "empty"
 
 
 def test_dashboard_summary_contract_with_data(tmp_path):

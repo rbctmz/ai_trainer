@@ -11,6 +11,7 @@ from pydantic import BaseModel
 
 from api.coach_service import resolve_provider, stream_tokens, supports_streaming
 from api.deps import get_database
+from api.operational_state import build_operational_state, latest_iso_from_database
 from data.database import Database
 from models.ai_coach_runtime import (
     apply_response_contract_to_final_response,
@@ -46,7 +47,11 @@ def _chat_manager() -> ChatManager:
 
 
 @router.post("/chat")
-def coach_chat(req: ChatRequest, db: Database = Depends(get_database)) -> StreamingResponse:
+def coach_chat(
+    req: ChatRequest,
+    db: Database = Depends(get_database),
+    demo: bool = False,
+) -> StreamingResponse:
     message = (req.message or "").strip()
     if not message:
         raise HTTPException(status_code=422, detail="message is empty")
@@ -64,9 +69,22 @@ def coach_chat(req: ChatRequest, db: Database = Depends(get_database)) -> Stream
     history = chat_manager.get_chat_messages(chat_id)[:-1]
     ai_tools = AITools(db)
     goal_plan = get_active_plan(db)
+    latest_data_at = latest_iso_from_database(db)
+    has_data = latest_data_at is not None
 
     def stream() -> Iterator[str]:
-        yield _sse({"type": "meta", "chat_id": chat_id})
+        yield _sse(
+            {
+                "type": "meta",
+                "chat_id": chat_id,
+                "operational_state": build_operational_state(
+                    db,
+                    demo=demo,
+                    has_data=has_data,
+                    latest_data_at=latest_data_at,
+                ),
+            }
+        )
         try:
             # First pass: hidden planning/tool-selection step.
             raw = generate_ai_chat_response(
@@ -139,7 +157,20 @@ def coach_chat(req: ChatRequest, db: Database = Depends(get_database)) -> Stream
 
             yield _sse({"type": "done", "message_id": str(uuid.uuid4())[:8], "chat_id": chat_id})
         except Exception as exc:  # surface errors to the client instead of hanging
-            yield _sse({"type": "error", "message": str(exc)})
+            error_message = str(exc)
+            yield _sse(
+                {
+                    "type": "error",
+                    "message": error_message,
+                    "operational_state": build_operational_state(
+                        db,
+                        demo=demo,
+                        has_data=has_data,
+                        latest_data_at=latest_data_at,
+                        error={"message": error_message},
+                    ),
+                }
+            )
 
     return StreamingResponse(
         stream(),
@@ -149,7 +180,10 @@ def coach_chat(req: ChatRequest, db: Database = Depends(get_database)) -> Stream
 
 
 @router.get("/history")
-def coach_history() -> dict[str, Any]:
+def coach_history(
+    demo: bool = False,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
     chats = _chat_manager().get_chat_list()
     return {
         "chats": [
@@ -160,12 +194,21 @@ def coach_history() -> dict[str, Any]:
                 "message_count": c.get("message_count", 0),
             }
             for c in chats
-        ]
+        ],
+        "operational_state": build_operational_state(
+            db,
+            demo=demo,
+            has_data=latest_iso_from_database(db) is not None,
+        ),
     }
 
 
 @router.get("/history/{chat_id}")
-def coach_history_detail(chat_id: str) -> dict[str, Any]:
+def coach_history_detail(
+    chat_id: str,
+    demo: bool = False,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
     chat = _chat_manager().load_chat(chat_id)
     if chat is None:
         raise HTTPException(status_code=404, detail="chat not found")
@@ -180,6 +223,11 @@ def coach_history_detail(chat_id: str) -> dict[str, Any]:
             }
             for m in chat.get("messages", [])
         ],
+        "operational_state": build_operational_state(
+            db,
+            demo=demo,
+            has_data=latest_iso_from_database(db) is not None,
+        ),
     }
 
 

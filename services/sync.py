@@ -182,6 +182,7 @@ def build_sync_status_payload(result: GarminSyncResult, days: int | None = None)
             "Проверьте замечания ниже, затем решите, нужен ли повторный запуск."
         )
         severity = "warning"
+        sync_state = "partial"
     elif activity_changes > 0:
         title = "Синхронизация Garmin завершена"
         summary = (
@@ -189,6 +190,7 @@ def build_sync_status_payload(result: GarminSyncResult, days: int | None = None)
             "Теперь можно сразу перейти к интерпретации формы и ближайшей нагрузки."
         )
         severity = "success"
+        sync_state = "succeeded"
     elif recovery_changes > 0:
         title = "Синхронизация Garmin обновила сигналы восстановления"
         summary = (
@@ -196,6 +198,7 @@ def build_sync_status_payload(result: GarminSyncResult, days: int | None = None)
             "но HRV, сон или статус тренированности обновились."
         )
         severity = "success"
+        sync_state = "succeeded"
     else:
         title = "Новых Garmin данных не найдено"
         summary = (
@@ -203,8 +206,10 @@ def build_sync_status_payload(result: GarminSyncResult, days: int | None = None)
             "Можно продолжить анализ по уже сохранённым данным."
         )
         severity = "info"
+        sync_state = "succeeded"
 
     return {
+        "sync_state": sync_state,
         "severity": severity,
         "title": title,
         "summary": summary,

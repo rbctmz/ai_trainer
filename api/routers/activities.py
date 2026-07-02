@@ -7,6 +7,7 @@ import pandas as pd
 from fastapi import APIRouter, Depends
 
 from api.deps import get_database
+from api.operational_state import build_operational_state, latest_iso_from_frame
 from data.database import Database
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
 
@@ -43,10 +44,20 @@ def _num(value: Any) -> float | None:
 
 
 @router.get("")
-def list_activities(days: int = 30, db: Database = Depends(get_database)) -> dict[str, Any]:
+def list_activities(
+    days: int = 30,
+    demo: bool = False,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
     df = db.get_activities(days)
     if df is None or df.empty:
-        return {"has_data": False, "count": 0, "totals": {}, "items": []}
+        return {
+            "has_data": False,
+            "count": 0,
+            "totals": {},
+            "items": [],
+            "operational_state": build_operational_state(db, demo=demo, has_data=False),
+        }
 
     df = df.sort_values("date", ascending=False)
     items = []
@@ -83,4 +94,15 @@ def list_activities(days: int = 30, db: Database = Depends(get_database)) -> dic
         "tss": _num(df["tss"].sum()) if "tss" in df else None,
     }
 
-    return {"has_data": True, "count": int(len(df)), "totals": totals, "items": items}
+    return {
+        "has_data": True,
+        "count": int(len(df)),
+        "totals": totals,
+        "items": items,
+        "operational_state": build_operational_state(
+            db,
+            demo=demo,
+            has_data=True,
+            latest_data_at=latest_iso_from_frame(df),
+        ),
+    }
