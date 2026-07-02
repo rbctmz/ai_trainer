@@ -14,13 +14,14 @@ function TooltipPopover({ content }: { content: React.ReactNode }) {
 function StateContent() {
   return (
     <>
-      <p className="mb-2 text-xs font-semibold text-ink">Тренировочное состояние</p>
+      <p className="mb-1.5 text-xs font-semibold text-ink">Тренировочное состояние</p>
+      <p className="mb-2 text-ink-soft">Комбинирует готовность (HRV/сон) и TSB — проверяется в этом порядке:</p>
       <div className="space-y-1.5">
         {[
-          { color: "text-tone-success",  label: "Суперкомпенсация", desc: "TSB > +10 — пик готовности. Время для гонки или личного рекорда." },
-          { color: "text-tone-success",  label: "Оптимально",        desc: "TSB 0..+10 — хорошо для качественных тренировок." },
-          { color: "text-tone-warning",  label: "Контролируемая нагрузка", desc: "TSB −10..0 — умеренная усталость, беречь интенсивность." },
-          { color: "text-tone-danger",   label: "Глубокая усталость", desc: "TSB < −10 — приоритет: восстановление." },
+          { color: "text-tone-danger",   label: "Критическое предупреждение", desc: "срабатывает специфический сигнал в данных (например, признаки перетренированности)." },
+          { color: "text-tone-success",  label: "Готов к работе",        desc: "готовность ≥ 75 и TSB > −10." },
+          { color: "text-tone-warning",  label: "Нужна разгрузка",       desc: "TSB < −20, независимо от готовности." },
+          { color: "text-tone-neutral",  label: "Контролируемая нагрузка", desc: "ничего из перечисленного выше — промежуточное состояние." },
         ].map(({ color, label, desc }) => (
           <div key={label} className="flex gap-1.5">
             <span className={`mt-0.5 shrink-0 ${color}`}>●</span>
@@ -52,6 +53,8 @@ function ReadinessContent() {
   );
 }
 
+// Mirrors api/routers/dashboard.py::_TSB_ZONES — keep boundaries/labels in
+// sync by hand if that table changes.
 function TsbContent() {
   return (
     <>
@@ -59,9 +62,10 @@ function TsbContent() {
       <p className="mb-2 text-ink-soft">Свежесть = долгосрочная форма (CTL) − краткосрочная усталость (ATL).</p>
       <div className="space-y-0.5">
         {[
-          ["< −10",  "text-tone-danger",  "высокая усталость"],
-          ["−10..+5","text-tone-warning", "тренировочный блок"],
-          ["+5..+15","text-tone-success", "идеал перед гонкой"],
+          ["< −20",   "text-tone-danger",  "высокая усталость"],
+          ["−20..−10","text-tone-warning", "накопленная усталость"],
+          ["−10..+10","text-tone-neutral", "стабильная нагрузка"],
+          ["> +10",   "text-tone-success", "свежесть"],
         ].map(([range, cls, label]) => (
           <div key={range} className="flex justify-between gap-4">
             <span className={cls}>{range}</span><span className="text-ink-soft">{label}</span>

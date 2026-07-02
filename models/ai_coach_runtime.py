@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-from datetime import date
 from typing import Any, Callable, Dict, Iterable, Optional
 
 from models.ai_data_context import AIDataContext
@@ -12,27 +11,18 @@ def _build_phase_context(goal_plan: Optional[Dict]) -> str:
     """Return a short phase/race block for injection into the synthesis prompt."""
     if not goal_plan:
         return ""
-    event_date_str = goal_plan.get("event_date")
-    if not event_date_str:
-        return ""
     try:
-        from models.training_planner import compute_phase_schedule
-        event_dt = date.fromisoformat(str(event_date_str)[:10])
-        days_to_race = (event_dt - date.today()).days
-        if days_to_race < 0:
+        from models.training_planner import current_periodization_phase
+        resolved = current_periodization_phase(goal_plan)
+        if resolved is None:
             return ""
-        weeks_remaining = days_to_race // 7
-        total_weeks = int(goal_plan.get("weeks_to_race") or (weeks_remaining + 1))
-        phases = compute_phase_schedule(total_weeks)
-        current_idx = max(0, total_weeks - weeks_remaining - 1)
-        current_phase = phases[current_idx] if phases else "Base"
         goal_type = goal_plan.get("goal_type", "")
         distance = goal_plan.get("distance", "")
         return (
             f"\n\n=== ПЛАН И ФАЗА ===\n"
             f"• Цель: {goal_type} {distance}\n"
-            f"• Дней до старта: {days_to_race}\n"
-            f"• Текущая фаза: {current_phase}"
+            f"• Дней до старта: {resolved['days_to_race']}\n"
+            f"• Текущая фаза: {resolved['phase']}"
         )
     except Exception:
         return ""

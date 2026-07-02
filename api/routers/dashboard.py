@@ -165,22 +165,47 @@ def _calculate_training_score(
     }
 
 
+# Canonical TSB zones — the single source of truth for how a TSB value is
+# described to the user. Mirrored (by hand; Python has no build step that
+# shares code with the frontend) in web/components/ui/Tooltip.tsx's
+# TsbContent. Boundaries -20/-10/+10 are the same ones ui/pages/dashboard.py
+# uses for state_label, so the "СОСТОЯНИЕ" card and the TSB explanation never
+# disagree about where one zone ends and the next begins.
+_TSB_ZONES: list[tuple[float, str, str, str]] = [
+    # (upper bound exclusive, label, tone, daily-outlook clause)
+    (-20, "Высокая усталость", "danger", "высокая усталость — приоритет восстановлению"),
+    (-10, "Накопленная усталость", "warning", "накопленная усталость — контролируйте интенсивность"),
+    (10, "Стабильная нагрузка", "neutral", "стабильная нагрузка — придерживайтесь плана"),
+    (float("inf"), "Свежесть", "success", "хорошая свежесть — можно работать на качество"),
+]
+
+
+def _tsb_zone(tsb: float) -> dict[str, str]:
+    for upper, label, tone, clause in _TSB_ZONES:
+        if tsb < upper:
+            return {"label": label, "tone": tone, "clause": clause}
+    last = _TSB_ZONES[-1]
+    return {"label": last[1], "tone": last[2], "clause": last[3]}
+
+
 def _generate_daily_outlook(
-    phase: str,
+    goal_plan: dict[str, Any] | None,
     ctl: float,
     tsb: float,
     hrv: float | None,
     sleep_hours: float | None,
     readiness: float,
 ) -> dict[str, Any]:
-    parts: list[str] = []
+    from models.training_planner import current_periodization_phase
 
-    if tsb > 10:
-        parts.append(f"Фаза «{phase}», хорошая свежесть (TSB {tsb:+.1f}) — можно работать на качество.")
-    elif tsb > -10:
-        parts.append(f"Фаза «{phase}», умеренная нагрузка (TSB {tsb:+.1f}) — придерживайтесь плана.")
+    parts: list[str] = []
+    zone = _tsb_zone(tsb)
+    resolved_phase = current_periodization_phase(goal_plan)
+    if resolved_phase:
+        parts.append(f"Фаза «{resolved_phase['phase']}», {zone['clause']} (TSB {tsb:+.1f}).")
     else:
-        parts.append(f"Фаза «{phase}», накопленная усталость (TSB {tsb:+.1f}) — контролируйте интенсивность.")
+        clause = zone["clause"][0].upper() + zone["clause"][1:]
+        parts.append(f"{clause} (TSB {tsb:+.1f}).")
 
     flags: list[str] = []
     if sleep_hours is not None and sleep_hours < 6.0:
@@ -192,10 +217,15 @@ def _generate_daily_outlook(
 
     if flags:
         parts.append(f"Красные флаги: {', '.join(flags)}. Снизьте интенсивность.")
-        tone = "warning"
+        flags_tone = "warning"
     else:
         parts.append("Сигналы восстановления в норме — ограничений нет.")
-        tone = "neutral"
+        flags_tone = "neutral"
+
+    # Card border reflects the worse of (TSB zone, red-flag severity) so it
+    # never looks calmer than the text it's framing.
+    _TONE_SEVERITY = {"danger": 3, "warning": 2, "neutral": 1, "success": 0}
+    tone = max((zone["tone"], flags_tone), key=lambda t: _TONE_SEVERITY[t])
 
     if ctl < 20:
         parts.append("Идёт набор базовой формы — ключевое сейчас регулярность.")
@@ -317,22 +347,13 @@ def dashboard_widgets(
     planned_week_tss = sum(float(plan_lookup.get(d, {}).get("total_tss") or 0) for d in week_days)
     actual_week_tss = sum(float(activity_tss_by_day.get(d, 0)) for d in week_days)
 
-    # Phase from checkpoint
-    checkpoint = getattr(state, "latest_planning_checkpoint", None)
-    phase = "Base"
-    if isinstance(checkpoint, dict):
-        snapshot = checkpoint.get("goal_plan_snapshot") or {}
-        raw_phase = snapshot.get("current_phase") or checkpoint.get("load_state_label") or ""
-        if raw_phase:
-            phase = str(raw_phase)
-
     return {
         "has_data": not empty,
         "training_score": _calculate_training_score(
             ctl, tsb, actual_week_tss, planned_week_tss, ramp_rate
         ),
         "daily_outlook": _generate_daily_outlook(
-            phase, ctl, tsb, hrv, sleep_hours, readiness
+            goal_plan, ctl, tsb, hrv, sleep_hours, readiness
         ),
         "race_projection": _calculate_race_projection(
             goal_plan, ctl, tsb, activities_df if not empty else None
