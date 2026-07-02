@@ -299,6 +299,19 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS coach_decisions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                decision_type TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                workout_id TEXT,
+                chat_id TEXT,
+                message_id TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         self._ensure_activity_columns(conn)
         self._repair_legacy_activity_tss(conn)
         self._ensure_training_status_columns(conn)
@@ -500,6 +513,96 @@ class Database:
             }
         )
         return result
+
+    def save_coach_decision(
+        self,
+        decision_type,
+        reason,
+        workout_id=None,
+        chat_id=None,
+        message_id=None,
+        date=None,
+    ):
+        """Сохраняет решение коуча для audit trail."""
+        allowed = {"Push", "Moderate", "Recovery", "Monitor"}
+        decision_type = str(decision_type or "").strip()
+        if decision_type not in allowed:
+            raise ValueError(f"decision_type must be one of {sorted(allowed)}")
+
+        reason = " ".join(str(reason or "").split())
+        if not reason:
+            raise ValueError("reason must be non-empty")
+
+        if date is None:
+            date = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        elif isinstance(date, datetime):
+            date = date.replace(microsecond=0).isoformat()
+        else:
+            date = str(date)
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO coach_decisions
+                (date, decision_type, reason, workout_id, chat_id, message_id)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ''',
+            (
+                self.clean_value(date),
+                self.clean_value(decision_type),
+                self.clean_value(reason),
+                self.clean_value(workout_id),
+                self.clean_value(chat_id),
+                self.clean_value(message_id),
+            ),
+        )
+        decision_id = cursor.lastrowid
+        cursor.execute(
+            '''
+            SELECT id, date, decision_type, reason, workout_id, chat_id, message_id, created_at
+            FROM coach_decisions
+            WHERE id = ?
+            ''',
+            (decision_id,),
+        )
+        row = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        return self._deserialize_coach_decision_row(row)
+
+    def get_coach_decisions(self, days=30, limit=100):
+        """Возвращает решения коуча за последние N дней, новые первыми."""
+        cutoff_date = self._cutoff_date(days)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT id, date, decision_type, reason, workout_id, chat_id, message_id, created_at
+            FROM coach_decisions
+            WHERE substr(date, 1, 10) >= ?
+            ORDER BY date DESC, id DESC
+            LIMIT ?
+            ''',
+            (cutoff_date, max(1, int(limit or 1))),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [self._deserialize_coach_decision_row(row) for row in rows]
+
+    def _deserialize_coach_decision_row(self, row):
+        if not row:
+            return None
+        return {
+            'id': row[0],
+            'date': row[1],
+            'decision_type': row[2],
+            'reason': row[3],
+            'workout_id': row[4],
+            'chat_id': row[5],
+            'message_id': row[6],
+            'created_at': row[7],
+        }
     
     def get_activities(self, days=30):
         """Получение активностей из БД"""
@@ -785,6 +888,11 @@ class Database:
             cursor.execute('DELETE FROM planning_checkpoints')
         except sqlite3.OperationalError:
             pass
+
+        try:
+            cursor.execute('DELETE FROM coach_decisions')
+        except sqlite3.OperationalError:
+            pass
         
         conn.commit()
         conn.close()
@@ -856,6 +964,12 @@ class Database:
             training_count = cursor.fetchone()[0]
         except sqlite3.OperationalError:
             training_count = 0
+
+        try:
+            cursor.execute('SELECT COUNT(*) FROM coach_decisions')
+            coach_decisions_count = cursor.fetchone()[0]
+        except sqlite3.OperationalError:
+            coach_decisions_count = 0
         
         conn.close()
         
@@ -865,7 +979,8 @@ class Database:
             'user_settings': settings_count,
             'sleep_data': sleep_count,
             'daily_health': health_count,
-            'training_status': training_count
+            'training_status': training_count,
+            'coach_decisions': coach_decisions_count
         }
     
     # =================== НОВЫЕ МЕТОДЫ СИНХРОНИЗАЦИИ ФАЗА 1 ===================

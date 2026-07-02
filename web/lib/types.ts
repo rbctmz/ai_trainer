@@ -156,6 +156,33 @@ export type CoachEvent =
   | { type: "done"; message_id: string; chat_id: string }
   | { type: "error"; message: string };
 
+// --- Decisions ---
+export type CoachDecisionType = "Push" | "Moderate" | "Recovery" | "Monitor";
+
+export interface CoachDecision {
+  id: number;
+  date: string;
+  time: string;
+  decision_type: CoachDecisionType;
+  reason: string;
+  workout_id?: string | null;
+  chat_id?: string | null;
+  message_id?: string | null;
+  created_at?: string | null;
+}
+
+export interface CoachDecisionDay {
+  date: string;
+  decisions: CoachDecision[];
+}
+
+export interface CoachDecisionsResponse {
+  has_data: boolean;
+  count: number;
+  days: CoachDecisionDay[];
+  operational_state?: Record<string, unknown>;
+}
+
 // --- Sleep ---
 export interface SleepSummary {
   has_data: boolean;

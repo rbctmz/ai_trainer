@@ -21,6 +21,7 @@ from models.ai_coach_runtime import (
     finalize_ai_chat_response,
     generate_ai_chat_response,
 )
+from models.coach_decisions import build_coach_decision
 from models.ai_tools import AITools
 from models.chat_manager import ChatManager
 from api.planning_service import get_active_plan
@@ -153,9 +154,11 @@ def coach_chat(
                 for chunk in _chunk(final):
                     yield _sse({"type": "token", "content": chunk})
 
+            message_id = str(uuid.uuid4())[:8]
+            _save_decision(db, final, chat_id=chat_id, message_id=message_id)
             chat_manager.add_message(chat_id, "assistant", final)
 
-            yield _sse({"type": "done", "message_id": str(uuid.uuid4())[:8], "chat_id": chat_id})
+            yield _sse({"type": "done", "message_id": message_id, "chat_id": chat_id})
         except Exception as exc:  # surface errors to the client instead of hanging
             error_message = str(exc)
             yield _sse(
@@ -238,3 +241,18 @@ def _chunk(text: str) -> Iterator[str]:
     for i in range(0, len(words), group):
         piece = " ".join(words[i : i + group])
         yield piece if i + group >= len(words) else piece + " "
+
+
+def _save_decision(db: Database, final: str, *, chat_id: str, message_id: str) -> None:
+    try:
+        decision = build_coach_decision(final, db=db)
+        db.save_coach_decision(
+            decision_type=decision.decision_type,
+            reason=decision.reason,
+            workout_id=decision.workout_id,
+            chat_id=chat_id,
+            message_id=message_id,
+        )
+    except Exception:
+        # Decision logging must not block the coach answer delivery.
+        return

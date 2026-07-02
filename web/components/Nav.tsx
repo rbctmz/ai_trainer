@@ -9,6 +9,7 @@ import { ThemeToggle } from "@/components/ui/ThemeToggle";
 const links = [
   { href: "/dashboard", label: "Дашборд" },
   { href: "/coach", label: "Коуч" },
+  { href: "/decisions", label: "Решения" },
   { href: "/planning", label: "План" },
   { href: "/hrv", label: "HRV" },
   { href: "/sleep", label: "Сон" },
