@@ -317,6 +317,23 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS coach_proposals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                params_json TEXT NOT NULL,
+                preview_json TEXT NOT NULL,
+                result_json TEXT,
+                error TEXT,
+                chat_id TEXT,
+                message_id TEXT,
+                resolved_at TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         self._ensure_activity_columns(conn)
         self._repair_legacy_activity_tss(conn)
         self._ensure_training_status_columns(conn)
@@ -608,6 +625,190 @@ class Database:
             'message_id': row[6],
             'created_at': row[7],
         }
+
+    def save_coach_proposal(
+        self,
+        action,
+        params,
+        preview,
+        chat_id=None,
+        message_id=None,
+        date=None,
+    ):
+        """Сохраняет pending-предложение коуча, требующее approve/reject."""
+        allowed_actions = {"build_plan", "adjust_plan"}
+        action = str(action or "").strip()
+        if action not in allowed_actions:
+            raise ValueError(f"action must be one of {sorted(allowed_actions)}")
+        if not isinstance(params, dict):
+            raise ValueError("params must be a dict")
+        if not isinstance(preview, dict):
+            raise ValueError("preview must be a dict")
+
+        if date is None:
+            date = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        elif isinstance(date, datetime):
+            date = date.replace(microsecond=0).isoformat()
+        else:
+            date = str(date)
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO coach_proposals
+                (date, action, status, params_json, preview_json, chat_id, message_id)
+            VALUES (?, ?, 'pending', ?, ?, ?, ?)
+            ''',
+            (
+                self.clean_value(date),
+                self.clean_value(action),
+                json.dumps(params, ensure_ascii=False, default=str),
+                json.dumps(preview, ensure_ascii=False, default=str),
+                self.clean_value(chat_id),
+                self.clean_value(message_id),
+            ),
+        )
+        proposal_id = cursor.lastrowid
+        cursor.execute(
+            '''
+            SELECT id, date, action, status, params_json, preview_json, result_json,
+                   error, chat_id, message_id, resolved_at, created_at
+            FROM coach_proposals
+            WHERE id = ?
+            ''',
+            (proposal_id,),
+        )
+        row = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        return self._deserialize_coach_proposal_row(row)
+
+    def get_coach_proposal(self, proposal_id):
+        """Возвращает одно предложение коуча по id или None."""
+        if proposal_id is None:
+            return None
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT id, date, action, status, params_json, preview_json, result_json,
+                   error, chat_id, message_id, resolved_at, created_at
+            FROM coach_proposals
+            WHERE id = ?
+            LIMIT 1
+            ''',
+            (int(proposal_id),),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return self._deserialize_coach_proposal_row(row)
+
+    def get_coach_proposals(self, days=30, status=None, limit=100):
+        """Возвращает предложения коуча за последние N дней, новые первыми."""
+        cutoff_date = self._cutoff_date(days)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        if status:
+            cursor.execute(
+                '''
+                SELECT id, date, action, status, params_json, preview_json, result_json,
+                       error, chat_id, message_id, resolved_at, created_at
+                FROM coach_proposals
+                WHERE substr(date, 1, 10) >= ? AND status = ?
+                ORDER BY date DESC, id DESC
+                LIMIT ?
+                ''',
+                (cutoff_date, str(status), max(1, int(limit or 1))),
+            )
+        else:
+            cursor.execute(
+                '''
+                SELECT id, date, action, status, params_json, preview_json, result_json,
+                       error, chat_id, message_id, resolved_at, created_at
+                FROM coach_proposals
+                WHERE substr(date, 1, 10) >= ?
+                ORDER BY date DESC, id DESC
+                LIMIT ?
+                ''',
+                (cutoff_date, max(1, int(limit or 1))),
+            )
+        rows = cursor.fetchall()
+        conn.close()
+        return [self._deserialize_coach_proposal_row(row) for row in rows]
+
+    def update_coach_proposal_status(self, proposal_id, status, result=None, error=None):
+        """Обновляет lifecycle proposal: approved/rejected/failed."""
+        allowed_statuses = {"pending", "approved", "rejected", "failed"}
+        status = str(status or "").strip()
+        if status not in allowed_statuses:
+            raise ValueError(f"status must be one of {sorted(allowed_statuses)}")
+
+        resolved_at = None
+        if status != "pending":
+            resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+        result_json = None
+        if result is not None:
+            result_json = json.dumps(result, ensure_ascii=False, default=str)
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE coach_proposals
+            SET status = ?, result_json = ?, error = ?, resolved_at = ?
+            WHERE id = ?
+            ''',
+            (
+                self.clean_value(status),
+                result_json,
+                self.clean_value(error),
+                self.clean_value(resolved_at),
+                int(proposal_id),
+            ),
+        )
+        cursor.execute(
+            '''
+            SELECT id, date, action, status, params_json, preview_json, result_json,
+                   error, chat_id, message_id, resolved_at, created_at
+            FROM coach_proposals
+            WHERE id = ?
+            ''',
+            (int(proposal_id),),
+        )
+        row = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        return self._deserialize_coach_proposal_row(row)
+
+    def _deserialize_coach_proposal_row(self, row):
+        if not row:
+            return None
+
+        def _loads(raw):
+            if not raw:
+                return {}
+            try:
+                value = json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                return {}
+            return value if isinstance(value, dict) else {}
+
+        return {
+            'id': row[0],
+            'date': row[1],
+            'action': row[2],
+            'status': row[3],
+            'params': _loads(row[4]),
+            'preview': _loads(row[5]),
+            'result': _loads(row[6]),
+            'error': row[7],
+            'chat_id': row[8],
+            'message_id': row[9],
+            'resolved_at': row[10],
+            'created_at': row[11],
+        }
     
     def get_activities(self, days=30):
         """Получение активностей из БД"""
@@ -898,6 +1099,11 @@ class Database:
             cursor.execute('DELETE FROM coach_decisions')
         except sqlite3.OperationalError:
             pass
+
+        try:
+            cursor.execute('DELETE FROM coach_proposals')
+        except sqlite3.OperationalError:
+            pass
         
         conn.commit()
         conn.close()
@@ -975,6 +1181,12 @@ class Database:
             coach_decisions_count = cursor.fetchone()[0]
         except sqlite3.OperationalError:
             coach_decisions_count = 0
+
+        try:
+            cursor.execute('SELECT COUNT(*) FROM coach_proposals')
+            coach_proposals_count = cursor.fetchone()[0]
+        except sqlite3.OperationalError:
+            coach_proposals_count = 0
         
         conn.close()
         
@@ -985,7 +1197,8 @@ class Database:
             'sleep_data': sleep_count,
             'daily_health': health_count,
             'training_status': training_count,
-            'coach_decisions': coach_decisions_count
+            'coach_decisions': coach_decisions_count,
+            'coach_proposals': coach_proposals_count
         }
     
     # =================== НОВЫЕ МЕТОДЫ СИНХРОНИЗАЦИИ ФАЗА 1 ===================

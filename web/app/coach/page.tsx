@@ -39,7 +39,9 @@ export default function CoachPage() {
   const [partial, setPartial] = useState("");
   const [tools, setTools] = useState<ToolFlash[]>([]);
   const [proposal, setProposal] = useState<{
+    proposal_id: number;
     action: CoachProposalAction;
+    status: string;
     params: Record<string, unknown>;
     preview: Record<string, unknown>;
   } | null>(null);
@@ -76,7 +78,9 @@ export default function CoachPage() {
             setTools((t) => [...t, { name: e.name }]);
           else if (e.type === "proposal") {
             setProposal({
+              proposal_id: e.proposal_id,
               action: e.action,
+              status: e.status,
               params: e.params ?? {},
               preview: e.preview ?? {},
             });
@@ -170,7 +174,9 @@ export default function CoachPage() {
 
           {proposal ? (
             <ProposalCard
+              proposalId={proposal.proposal_id}
               action={proposal.action}
+              status={proposal.status}
               params={proposal.params}
               preview={proposal.preview}
               onConfirmed={(message) => {
@@ -178,7 +184,13 @@ export default function CoachPage() {
                 setProposal(null);
                 scrollDown();
               }}
-              onCancelled={() => setProposal(null)}
+              onCancelled={(message) => {
+                if (message) {
+                  setMessages((m) => [...m, { role: "assistant", content: message }]);
+                }
+                setProposal(null);
+                scrollDown();
+              }}
             />
           ) : null}
 
