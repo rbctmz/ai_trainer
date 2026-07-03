@@ -20,7 +20,7 @@ The behavior is visible by running `./run_web.sh`, opening `http://localhost:300
 - [x] (2026-07-03 16:25+03:00) Ran focused backend contour: `23 passed`.
 - [x] (2026-07-03 16:28+03:00) Ran full smoke suite: `332 passed`.
 - [x] (2026-07-03 16:31+03:00) Ran `npm run build --prefix web`: green, 11 static pages.
-- [ ] Publish PR with `Closes #71`.
+- [x] (2026-07-03 16:39+03:00) Published PR #77 with `Closes #71`.
 
 ## Surprises & Discoveries
 
@@ -47,6 +47,8 @@ The behavior is visible by running `./run_web.sh`, opening `http://localhost:300
 ## Outcomes & Retrospective
 
 The implementation now turns coach planning proposals into durable pending actions. Proposal events in the chat stream carry a stored `proposal_id`; approving that id applies the same planning service paths as the Planning page and records the proposal as approved; rejecting it records a rejected proposal and leaves the active plan unchanged. `/api/decisions` continues to return the existing decision `days` shape and adds proposal groups for audit visibility. The web coach card now calls the approval API rather than bypassing the decision log.
+
+PR #77 is published against `main` and links issue #71 with `Closes #71`.
 
 Verification completed:
 
