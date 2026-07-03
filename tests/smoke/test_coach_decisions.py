@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from datetime import datetime, timedelta
 
 from data.database import Database
 
@@ -17,6 +18,29 @@ def _events(streaming_response) -> list[dict]:
         return out
 
     return asyncio.run(collect())
+
+
+def _seeded_db(tmp_path, name: str = "coach.db") -> Database:
+    db = Database(str(tmp_path / name))
+    base = datetime.now()
+    rows = []
+    for i in range(35):
+        rows.append(
+            {
+                "activity_id": f"coach-p{i}",
+                "date": (base - timedelta(days=i)).strftime("%Y-%m-%d"),
+                "sport": "cycling" if i % 2 else "running",
+                "duration_minutes": 60,
+                "distance_km": 20.0,
+                "tss": 45.0 + (i % 5) * 4.0,
+            }
+        )
+    db.save_activities(rows)
+    return db
+
+
+def _future_event_date(weeks: int = 8) -> str:
+    return (datetime.now() + timedelta(weeks=weeks)).strftime("%Y-%m-%d")
 
 
 def test_database_persists_coach_decisions(tmp_path):
@@ -42,6 +66,38 @@ def test_database_persists_coach_decisions(tmp_path):
     assert rows[0]["date"] == saved["date"]
 
 
+def test_database_persists_coach_proposals(tmp_path):
+    db = Database(str(tmp_path / "proposals.db"))
+
+    proposal = db.save_coach_proposal(
+        action="build_plan",
+        params={
+            "goal_type": "Триатлон",
+            "distance": "Olympic",
+            "event_date": "2026-09-01",
+            "available_hours": 10,
+            "available_days": ["mon", "wed", "sat"],
+        },
+        preview={"total_weeks": 8, "peak_tss": 240},
+        chat_id="chat-1",
+        message_id="msg-1",
+    )
+
+    assert proposal["id"]
+    assert proposal["status"] == "pending"
+    assert proposal["action"] == "build_plan"
+    assert proposal["params"]["distance"] == "Olympic"
+    assert proposal["preview"]["peak_tss"] == 240
+    assert proposal["chat_id"] == "chat-1"
+    assert proposal["message_id"] == "msg-1"
+
+    fetched = db.get_coach_proposal(proposal["id"])
+    assert fetched == proposal
+
+    rows = db.get_coach_proposals(days=30)
+    assert [row["id"] for row in rows] == [proposal["id"]]
+
+
 def test_decisions_api_groups_by_day_and_exposes_empty_state(tmp_path):
     from api.routers.decisions import list_decisions
 
@@ -62,6 +118,110 @@ def test_decisions_api_groups_by_day_and_exposes_empty_state(tmp_path):
     assert [item["decision_type"] for item in payload["days"][0]["decisions"]] == ["Push", "Monitor"]
     assert payload["days"][0]["decisions"][0]["time"] == "12:00"
     assert payload["operational_state"]["status"] == "ready"
+
+
+def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path):
+    from api.routers.decisions import list_decisions
+
+    db = Database(str(tmp_path / "decision_proposals.db"))
+    db.save_coach_decision("Monitor", "Недостаточно сильного сигнала.", date="2026-07-02T09:00:00")
+    proposal = db.save_coach_proposal(
+        action="build_plan",
+        params={
+            "goal_type": "Триатлон",
+            "distance": "Olympic",
+            "event_date": "2026-09-01",
+            "available_hours": 10,
+        },
+        preview={"total_weeks": 8},
+        date="2026-07-02T09:01:00",
+    )
+
+    payload = list_decisions(db=db)
+
+    assert payload["count"] == 1
+    assert len(payload["days"]) == 1
+    assert payload["proposal_count"] == 1
+    assert payload["proposal_days"][0]["date"] == "2026-07-02"
+    assert payload["proposal_days"][0]["proposals"][0]["id"] == proposal["id"]
+    assert payload["proposal_days"][0]["proposals"][0]["status"] == "pending"
+
+
+def test_approve_build_plan_proposal_persists_checkpoint(tmp_path):
+    from api.routers.decisions import approve_proposal
+
+    db = _seeded_db(tmp_path, "approve_build.db")
+    proposal = db.save_coach_proposal(
+        action="build_plan",
+        params={
+            "goal_type": "Триатлон",
+            "distance": "Olympic",
+            "event_date": _future_event_date(),
+            "available_hours": 10,
+            "available_days": ["mon", "wed", "sat", "sun"],
+        },
+        preview={"total_weeks": 8},
+    )
+
+    payload = approve_proposal(proposal["id"], db=db)
+
+    assert payload["proposal"]["status"] == "approved"
+    assert payload["proposal"]["resolved_at"]
+    assert payload["result"]["plan_id"]
+    latest = db.get_latest_planning_checkpoint()
+    assert latest is not None
+    assert str(latest["id"]) == str(payload["result"]["plan_id"])
+
+
+def test_reject_plan_proposal_does_not_mutate_active_plan(tmp_path):
+    from api.routers.decisions import reject_proposal
+
+    db = _seeded_db(tmp_path, "reject_build.db")
+    proposal = db.save_coach_proposal(
+        action="build_plan",
+        params={
+            "goal_type": "Триатлон",
+            "distance": "Olympic",
+            "event_date": _future_event_date(),
+            "available_hours": 10,
+        },
+        preview={"total_weeks": 8},
+    )
+
+    payload = reject_proposal(proposal["id"], db=db)
+
+    assert payload["proposal"]["status"] == "rejected"
+    assert db.get_latest_planning_checkpoint() is None
+
+
+def test_approve_adjust_plan_proposal_persists_adjusted_checkpoint(tmp_path):
+    from api import planning_service
+    from api.routers.decisions import approve_proposal
+
+    db = _seeded_db(tmp_path, "approve_adjust.db")
+    initial = planning_service.build_plan(
+        db,
+        goal_type="Триатлон",
+        distance="Olympic",
+        event_date=_future_event_date(),
+        available_hours=10,
+        available_days=["mon", "wed", "sat", "sun"],
+        persist=True,
+    )
+    rows = planning_service.reconciliation(db, weeks=1)["rows"]
+    proposal = db.save_coach_proposal(
+        action="adjust_plan",
+        params={"rows": rows, "weeks": 1},
+        preview={"adjustment_status": "preview"},
+    )
+
+    payload = approve_proposal(proposal["id"], db=db)
+
+    assert payload["proposal"]["status"] == "approved"
+    assert payload["result"]["plan_id"]
+    assert payload["result"]["plan_id"] != initial["plan_id"]
+    latest = db.get_latest_planning_checkpoint()
+    assert str(latest["id"]) == str(payload["result"]["plan_id"])
 
 
 def test_coach_completion_writes_decision_record(tmp_path, monkeypatch):
@@ -93,9 +253,59 @@ def test_coach_completion_writes_decision_record(tmp_path, monkeypatch):
     assert decision["message_id"] == events[-1]["message_id"]
 
 
+def test_coach_stream_persists_proposal_and_emits_id(tmp_path, monkeypatch):
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "CHATS_DIR", str(tmp_path / "chats"), raising=False)
+
+    from api.routers import coach as coach_mod
+    from models.mock_ai_provider import MockAIProvider
+
+    event_date = _future_event_date()
+
+    class ProposalProvider(MockAIProvider):
+        def __init__(self):
+            super().__init__(delay=0)
+            self.calls = 0
+
+        def generate_response(self, prompt: str, context: str = "") -> str:
+            self.calls += 1
+            if self.calls == 1:
+                return (
+                    "[TOOL: propose_plan_build, goal_type=Триатлон, "
+                    f"distance=Olympic, event_date={event_date}, available_hours=10]"
+                )
+            return "Готово: я подготовил предложение плана, его нужно подтвердить."
+
+    provider = ProposalProvider()
+    monkeypatch.setattr(coach_mod, "resolve_provider", lambda provider_type=None: provider)
+    monkeypatch.setattr(coach_mod, "supports_streaming", lambda _provider: False)
+
+    db = _seeded_db(tmp_path, "coach_proposal_stream.db")
+    req = coach_mod.ChatRequest(
+        message="Собери план на олимпийку.",
+        provider="mock",
+    )
+
+    events = _events(coach_mod.coach_chat(req, db))
+    proposals = [event for event in events if event["type"] == "proposal"]
+
+    assert len(proposals) == 1
+    assert proposals[0]["proposal_id"]
+    assert proposals[0]["status"] == "pending"
+
+    saved = db.get_coach_proposal(proposals[0]["proposal_id"])
+    assert saved["action"] == "build_plan"
+    assert saved["status"] == "pending"
+    assert saved["chat_id"] == events[0]["chat_id"]
+    assert saved["message_id"] == events[-1]["message_id"]
+
+
 def test_routes_register_decisions_endpoint():
     import importlib
 
     main = importlib.import_module("api.main")
     paths = set(main.app.openapi()["paths"].keys())
     assert "/api/decisions" in paths
+    assert "/api/decisions/proposals/{proposal_id}/approve" in paths
+    assert "/api/decisions/proposals/{proposal_id}/reject" in paths

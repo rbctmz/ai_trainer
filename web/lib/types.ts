@@ -141,7 +141,9 @@ export type CoachProposalAction = "build_plan" | "adjust_plan";
 
 export interface CoachProposalEvent {
   type: "proposal";
+  proposal_id: number;
   action: CoachProposalAction;
+  status: "pending" | "approved" | "rejected" | "failed" | string;
   params: Record<string, unknown>;
   preview: Record<string, unknown>;
 }
@@ -171,15 +173,38 @@ export interface CoachDecision {
   created_at?: string | null;
 }
 
+export interface CoachProposal {
+  id: number;
+  date: string;
+  time?: string;
+  action: CoachProposalAction;
+  status: "pending" | "approved" | "rejected" | "failed" | string;
+  params: Record<string, unknown>;
+  preview: Record<string, unknown>;
+  result?: Record<string, unknown>;
+  error?: string | null;
+  chat_id?: string | null;
+  message_id?: string | null;
+  resolved_at?: string | null;
+  created_at?: string | null;
+}
+
 export interface CoachDecisionDay {
   date: string;
   decisions: CoachDecision[];
+}
+
+export interface CoachProposalDay {
+  date: string;
+  proposals: CoachProposal[];
 }
 
 export interface CoachDecisionsResponse {
   has_data: boolean;
   count: number;
   days: CoachDecisionDay[];
+  proposal_count?: number;
+  proposal_days?: CoachProposalDay[];
   operational_state?: Record<string, unknown>;
 }
 

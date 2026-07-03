@@ -74,6 +74,7 @@ def coach_chat(
     has_data = latest_data_at is not None
 
     def stream() -> Iterator[str]:
+        message_id = str(uuid.uuid4())[:8]
         yield _sse(
             {
                 "type": "meta",
@@ -111,10 +112,19 @@ def coach_chat(
                 )
                 raw_result = item.get("raw_result") or {}
                 if raw_result.get("is_proposal"):
+                    saved_proposal = db.save_coach_proposal(
+                        action=raw_result.get("action"),
+                        params=raw_result.get("params", {}),
+                        preview=raw_result.get("preview", {}),
+                        chat_id=chat_id,
+                        message_id=message_id,
+                    )
                     yield _sse(
                         {
                             "type": "proposal",
+                            "proposal_id": saved_proposal.get("id"),
                             "action": raw_result.get("action"),
+                            "status": saved_proposal.get("status"),
                             "params": raw_result.get("params", {}),
                             "preview": raw_result.get("preview", {}),
                         }
@@ -154,7 +164,6 @@ def coach_chat(
                 for chunk in _chunk(final):
                     yield _sse({"type": "token", "content": chunk})
 
-            message_id = str(uuid.uuid4())[:8]
             _save_decision(db, final, chat_id=chat_id, message_id=message_id)
             chat_manager.add_message(chat_id, "assistant", final)
 

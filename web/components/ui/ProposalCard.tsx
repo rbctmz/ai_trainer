@@ -28,11 +28,22 @@ export interface AdjustPlanParams {
 }
 
 interface ProposalCardProps {
+  proposalId: number;
   action: CoachProposalAction;
+  status: string;
   params: Record<string, unknown>;
   preview: Record<string, unknown>;
   onConfirmed: (message: string) => void;
-  onCancelled: () => void;
+  onCancelled: (message?: string) => void;
+}
+
+interface ProposalApprovalResponse {
+  proposal: { id: number; status: string };
+  result: BuiltPlan | AdjustResult;
+}
+
+interface ProposalRejectResponse {
+  proposal: { id: number; status: string };
 }
 
 function asString(value: unknown): string {
@@ -98,7 +109,9 @@ function adjustConfirmedMessage(result: AdjustResult): string {
 }
 
 export function ProposalCard({
+  proposalId,
   action,
+  status,
   params,
   preview,
   onConfirmed,
@@ -118,21 +131,38 @@ export function ProposalCard({
 
     try {
       if (action === "build_plan") {
-        const response = await postJSON<BuiltPlan>("/api/planning/build", {
-          ...buildParams,
-          persist: true,
-        });
-        onConfirmed(buildConfirmedMessage(response));
+        const response = await postJSON<ProposalApprovalResponse>(
+          `/api/decisions/proposals/${proposalId}/approve`,
+          {},
+        );
+        onConfirmed(buildConfirmedMessage(response.result as BuiltPlan));
         return;
       }
 
-      const response = await postJSON<AdjustResult>("/api/planning/adjust", {
-        ...adjustParams,
-        persist: true,
-      });
-      onConfirmed(adjustConfirmedMessage(response));
+      const response = await postJSON<ProposalApprovalResponse>(
+        `/api/decisions/proposals/${proposalId}/approve`,
+        {},
+      );
+      onConfirmed(adjustConfirmedMessage(response.result as AdjustResult));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Не удалось применить изменение");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleReject() {
+    setLoading(true);
+    setError(null);
+
+    try {
+      await postJSON<ProposalRejectResponse>(
+        `/api/decisions/proposals/${proposalId}/reject`,
+        {},
+      );
+      onCancelled("Отклонено: план не изменён.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Не удалось отклонить предложение");
     } finally {
       setLoading(false);
     }
@@ -150,7 +180,7 @@ export function ProposalCard({
           </p>
         </div>
         <span className="rounded-full bg-surface/80 px-2 py-1 text-[11px] font-medium text-tone-neutral">
-          Нужен confirm
+          {status === "pending" ? "Нужен confirm" : status}
         </span>
       </div>
 
@@ -216,7 +246,7 @@ export function ProposalCard({
         </button>
         <button
           type="button"
-          onClick={onCancelled}
+          onClick={handleReject}
           disabled={loading}
           className="rounded-lg border border-surface-border bg-surface px-4 py-2 text-sm font-medium text-ink-soft transition hover:bg-surface-muted disabled:opacity-40"
         >
