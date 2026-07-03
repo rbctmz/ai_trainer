@@ -235,6 +235,48 @@ export interface PlanningStatus {
   metrics: { ctl: number; atl: number; tsb: number; form: string };
   has_plan: boolean;
   checkpoint: Record<string, unknown> | null;
+  demand?: PlanningDemand;
+  demand_options?: PlanningDemand[];
+}
+
+export interface PlanningDemand {
+  level: string;
+  label: string;
+  multiplier: number;
+  description?: string;
+}
+
+export interface WeeklyTargetRow {
+  key: "goal_need" | "availability_cap" | "recent_load" | "base_weekly_tss" | string;
+  label: string;
+  value: number;
+  unit: string;
+  detail: string;
+}
+
+export interface WeeklyTargetBreakdown {
+  rows: WeeklyTargetRow[];
+  availability: Record<string, unknown>;
+  recent_load: Record<string, unknown>;
+}
+
+export interface PlanningWeeklyTarget {
+  target_weekly_tss: number;
+  base_weekly_tss?: number;
+  final_target_weekly_tss?: number;
+  range_min: number;
+  range_max: number;
+  history: { last_week: number; avg_4: number; best_8: number };
+  demand?: PlanningDemand;
+  breakdown?: WeeklyTargetBreakdown;
+}
+
+export interface TargetPreview {
+  goal: { goal_type: string; distance: string };
+  weekly_target: PlanningWeeklyTarget;
+  breakdown: WeeklyTargetBreakdown;
+  demand: PlanningDemand;
+  options: PlanningDemand[];
 }
 
 export interface PlanWeek {
@@ -266,10 +308,7 @@ export interface BuiltPlan {
   };
   weekly_target: {
     target_weekly_tss: number;
-    range_min: number;
-    range_max: number;
-    history: { last_week: number; avg_4: number; best_8: number };
-  };
+  } & PlanningWeeklyTarget;
   totals: { peak_tss: number; total_tss: number };
   weeks: PlanWeek[];
   forecast: { points: ForecastPoint[]; final_tsb: number; message: string };
@@ -362,4 +401,23 @@ export interface AdjustResult {
   totals: { peak_tss: number; total_tss: number };
   weeks: PlanWeek[];
   forecast: { points: ForecastPoint[]; final_tsb: number; message: string };
+}
+
+export interface PlanningHistoryItem {
+  checkpoint_id: number | null;
+  date: string;
+  date_label: string;
+  type: "reduce" | "swap" | "regenerate" | string;
+  type_label: string;
+  source: string;
+  source_label: string;
+  outcome_note: string;
+  title: string;
+  total_tss: number;
+  peak_tss: number;
+}
+
+export interface PlanningHistory {
+  has_history: boolean;
+  items: PlanningHistoryItem[];
 }

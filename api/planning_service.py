@@ -27,6 +27,14 @@ from models.planning_execution import (
     build_execution_reconciliation_rows,
     rebuild_goal_plan_with_adjustment,
 )
+from models.planning_targets import (
+    DEFAULT_DEMAND_LEVEL,
+    build_weekly_target_breakdown,
+    demand_options,
+    demand_profile,
+    normalize_demand_level,
+    public_weekly_target_payload,
+)
 from models.tcx_activity_export import generate_tcx_activity
 from models.tcx_export import generate_tcx_workout
 from models.training_planner import (
@@ -37,10 +45,10 @@ from models.training_planner import (
     create_weekly_tss_plan,
     expand_weekly_to_daily_triathlon,
     flatten_daily_total,
-    goal_target_weekly_tss,
-    suggest_target_weekly_tss,
     weeks_until,
 )
+
+PLANNING_DEMAND_SETTING_KEY = "planning_demand_level"
 
 # English (API) → internal Russian labels used by the planner.
 GOAL_TYPE_MAP = {
@@ -91,6 +99,25 @@ def _day_indices(days: Optional[List[str]]) -> List[int]:
     return idx or list(range(7))
 
 
+def _persisted_demand_level(db: Database) -> str:
+    try:
+        value = db.get_user_setting(PLANNING_DEMAND_SETTING_KEY, DEFAULT_DEMAND_LEVEL)
+    except Exception:
+        value = DEFAULT_DEMAND_LEVEL
+    return normalize_demand_level(value)
+
+
+def get_demand(db: Database) -> Dict[str, Any]:
+    level = _persisted_demand_level(db)
+    return {"demand": demand_profile(level), "options": demand_options()}
+
+
+def set_demand(db: Database, level: str) -> Dict[str, Any]:
+    normalized = normalize_demand_level(level)
+    db.set_user_setting(PLANNING_DEMAND_SETTING_KEY, normalized)
+    return get_demand(db)
+
+
 def _current_metrics(db: Database):
     df = db.get_activities(90)
     banister = BanisterModel()
@@ -121,6 +148,43 @@ def current_status(db: Database) -> Dict[str, Any]:
         },
         "has_plan": checkpoint is not None,
         "checkpoint": checkpoint,
+        "demand": demand_profile(_persisted_demand_level(db)),
+        "demand_options": demand_options(),
+    }
+
+
+def target_preview(
+    db: Database,
+    *,
+    goal_type: str,
+    distance: str,
+    available_hours: float,
+    available_days: Optional[List[str]] = None,
+    demand: Optional[str] = None,
+) -> Dict[str, Any]:
+    _metrics, _banister, activities_df = _current_metrics(db)
+    gt = _internal_goal_type(goal_type)
+    dist = _internal_distance(distance)
+    day_indices = _day_indices(available_days)
+    demand_level = normalize_demand_level(demand or _persisted_demand_level(db))
+    breakdown = build_weekly_target_breakdown(
+        goal_type=gt,
+        distance=dist,
+        activities_df=activities_df,
+        available_hours=available_hours,
+        available_day_indices=day_indices,
+        demand=demand_level,
+    )
+    return {
+        "goal": {"goal_type": gt, "distance": dist},
+        "weekly_target": public_weekly_target_payload(breakdown),
+        "breakdown": {
+            "rows": list(breakdown.get("rows", []) or []),
+            "availability": dict(breakdown.get("availability", {}) or {}),
+            "recent_load": dict(breakdown.get("recent_load", {}) or {}),
+        },
+        "demand": dict(breakdown.get("demand", {}) or {}),
+        "options": demand_options(),
     }
 
 
@@ -132,6 +196,7 @@ def build_plan(
     event_date: str,
     available_hours: float,
     available_days: Optional[List[str]] = None,
+    demand: Optional[str] = None,
     persist: bool = True,
 ) -> Dict[str, Any]:
     metrics, banister, activities_df = _current_metrics(db)
@@ -144,9 +209,18 @@ def build_plan(
     weeks_to_race = max(1, weeks_until(goal_dt, from_date=start_week))
 
     start_weekly_tss_guess = int(float(metrics.get("ctl", 50) or 50) * 7)
-    auto = suggest_target_weekly_tss(gt, dist, activities_df)
-    t_min, t_max = goal_target_weekly_tss(gt, dist)
-    target_weekly_tss = int(auto.get("suggested") or int((t_min + t_max) / 2))
+    demand_level = normalize_demand_level(demand or _persisted_demand_level(db))
+    if demand is not None:
+        db.set_user_setting(PLANNING_DEMAND_SETTING_KEY, demand_level)
+    target_breakdown = build_weekly_target_breakdown(
+        goal_type=gt,
+        distance=dist,
+        activities_df=activities_df,
+        available_hours=available_hours,
+        available_day_indices=day_indices,
+        demand=demand_level,
+    )
+    target_weekly_tss = int(target_breakdown.get("final_target_weekly_tss") or 0)
 
     base_weekly = create_weekly_tss_plan(
         start_weekly_tss=start_weekly_tss_guess,
@@ -206,6 +280,9 @@ def build_plan(
             "session_templates": session_templates,
             "weekly_summary": weekly_summary,
             "constraint_summary": constraint_summary,
+            "demand_level": demand_level,
+            "demand_multiplier": float(target_breakdown["demand"]["multiplier"]),
+            "weekly_target_breakdown": target_breakdown,
             "planner_mix": mix_overrides,
             "planner_weights": None,
             "plan_revision": datetime.now().isoformat(),
@@ -234,14 +311,7 @@ def build_plan(
             "weeks_to_race": weeks_to_race,
         },
         "weekly_target": {
-            "target_weekly_tss": target_weekly_tss,
-            "range_min": t_min,
-            "range_max": t_max,
-            "history": {
-                "last_week": round(float(auto.get("last_week") or 0), 0),
-                "avg_4": round(float(auto.get("avg_4") or 0), 0),
-                "best_8": round(float(auto.get("best_8") or 0), 0),
-            },
+            **public_weekly_target_payload(target_breakdown),
         },
         "totals": {"peak_tss": peak_tss, "total_tss": total_tss},
         "weeks": weeks,
@@ -459,3 +529,49 @@ def apply_adjustment(
         "weeks": weeks_payload,
         "forecast": forecast,
     }
+
+
+def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
+    checkpoints = db.get_recent_planning_checkpoints(limit=max(1, min(int(limit or 10), 50)))
+    items: List[Dict[str, Any]] = []
+    for checkpoint in checkpoints:
+        summary = summarize_planning_checkpoint(checkpoint)
+        if not summary:
+            continue
+        provenance = summary.get("provenance") or {}
+        source = str(provenance.get("source") or "")
+        plan_adjustment_label = str(summary.get("plan_adjustment_label") or "Нет")
+        if source in {"execution_feedback", "execution_adjustment"}:
+            item_type = "reduce" if plan_adjustment_label != "Нет" else "regenerate"
+        elif source == "manual_edit":
+            item_type = "swap"
+        elif source == "initial_plan":
+            item_type = "regenerate"
+        else:
+            item_type = "regenerate"
+        outcome = plan_adjustment_label
+        transition = summary.get("execution_weekly_review") or {}
+        if isinstance(transition, dict) and transition.get("headline"):
+            outcome = f"{outcome} · {transition['headline']}" if outcome != "Нет" else str(transition["headline"])
+        if outcome == "Нет":
+            outcome = str(summary.get("headline") or provenance.get("detail") or "План сохранён")
+        items.append(
+            {
+                "checkpoint_id": summary.get("checkpoint_id"),
+                "date": str(checkpoint.get("created_at") or ""),
+                "date_label": summary.get("created_at_label") or "",
+                "type": item_type,
+                "type_label": {
+                    "reduce": "Снижение",
+                    "swap": "Замена",
+                    "regenerate": "Пересборка",
+                }.get(item_type, "Пересборка"),
+                "source": source,
+                "source_label": provenance.get("label") or "",
+                "outcome_note": outcome,
+                "title": summary.get("title") or "",
+                "total_tss": summary.get("total_tss"),
+                "peak_tss": summary.get("peak_tss"),
+            }
+        )
+    return {"has_history": bool(items), "items": items}
