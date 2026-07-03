@@ -107,3 +107,39 @@
 | 5 | Daily briefing с preview-approve | `ui/components/daily_briefing.py` + execution layer | UX-паритет с коммерческими rivalами |
 
 Все пять ложатся в существующую архитектуру (StateManager → services → models → ui/pages) и не требуют смены data source или добавления Intervals.icu зависимости.
+
+---
+
+## Дополнение: 2026-07-03 (changelog за 2026-06-20 → 2026-07-03)
+
+> ~70 дней changelog-записей IC вручную не перечитывались с прошлого анализа; ниже — что изменилось и как это соотносится с текущим приоритетом проекта (агентный контур Recovery Replan, issues A–F — см. память `project_agent_contour_recovery_replan`), а не повторный список фич.
+
+### Прямое совпадение с Recovery Replan (issues A–F)
+
+IC за эти две недели шипил ровно то, что мы сейчас проектируем:
+
+- **Readiness Score Breakdown** (3 июля) — «plain language explanations showing what factors influenced the daily readiness number» → наш **Issue F** (объяснение решения + decision_log).
+- **Recovery Time Scaling: adjusted based on actual session difficulty rather than session type alone** (3 июля) → наш **Issue D** (фальсифицируемый прогноз качества/нагрузки сессии, не категория по типу).
+- **Training Monotony Warning: respects deliberate training patterns like polarized plans or no rest days** (3 июля) → ровно принцип **«молчание — дефолт»** (salience-gate, **Issue C**) — подавление ложных тревог при осознанном паттерне.
+- **Weekly Plan Rebalancing: real-time adjustments** (2 июля) → наш **Issue E** (генератор вариантов поверх `planning_near_term`).
+- Серия «recovery data changes trigger mid-day adaptation» / «early rest proposal correction withdraws if recovery data changes» (11 июня) → валидирует калибровочную петлю через decision_log, а не оценку «была ли рекомендация оптимальной».
+
+**Вывод:** направление верное — IC независимо приходит к той же архитектуре (readiness fusion → salience-gate → explain → adapt) для того же типа пользователя. Не повод копировать, но сильный внешний сигнал, что мы решаем правильную проблему.
+
+### Параллель с нашими TSB-багами (#54, #61)
+
+За этот период у IC больше 15 changelog-записей класса «источник истины разошёлся между поверхностями»: *CTL Dashboard Sync*, *Recovery Ring Consistency*, *Live Calendar Reading*, *Plan Refresh Caching*, *Weekly Target Breakdown shows actual calculation basis*. Это структурная ловушка любого продукта с несколькими UI-поверхностями поверх одной аналитики.
+
+Мы наступили на тот же класс бага дважды подряд — #54 (TSB zones desync) и #61 (TSB window mismatch между `/summary` и `/widgets`). Прошлый анализ (2026-06-20) уже называл unified `signals_engine`/`assemble_signals()` архитектурным приоритетом №1, но тогда это была гипотеза по чужому changelog. Теперь это подтверждено собственным инцидентом — приоритет стоит поднять из P2 в ближайшую очередь, а не откладывать.
+
+### Новый сигнал: AI Assistant Integration (Max, Beta, 24 июня)
+
+«Connect Claude, ChatGPT, or Cursor to access training data and create workouts» — IC открывает MCP-подобный доступ к своим данным для внешних AI-агентов. Это не наш текущий приоритет (P0 — Recovery Replan), но стратегически заметно: у нас уже есть мультипровайдерный AI-слой (`models/ai_providers.py`); обратный путь — экспонировать *наши* данные наружу через MCP-сервер для Claude Desktop/Cursor — сейчас не рассматривался. Держать в уме как возможный дифференциатор после закрытия текущего клина.
+
+### Новый gap для Issue B (readiness fusion)
+
+**Illness Detection из дыхания/SpO₂/температуры кожи** (16 июня) и **Recovery Profile для всех типов сессий с первого дня** (16 июня) — проверено: `data/garmin_client.py` и `services/sync.py` сейчас respiration rate / SpO₂ / skin temperature не тянут вообще (grep не находит). Garmin Connect API их отдаёт. Потенциально дешёвое расширение входов `models/readiness.py` сверх уже запланированных sleep/HRV/RHR/training_status/TSB — не блокер для первого среза (B→C→min D→F), но кандидат для второй итерации Issue B.
+
+### Что подтвердилось без изменений
+
+Приоритеты из анализа 2026-06-20 (recovery curve, signals engine, power curve/eFTP, agent log, daily briefing) остаются актуальными. Низкоприоритетные пункты (clubs/leaderboards, menstrual cycle, Apple Health) — по-прежнему низкий приоритет; в новых записях больше их вариаций (Coach Mode, Club Event Editing), но это командные/социальные фичи не в духе нашего single-athlete продукта.
