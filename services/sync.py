@@ -449,6 +449,17 @@ def _sync_activities(database: Any, activities: list[dict[str, Any]]) -> SyncCou
     return database.sync_activities(resolved_activities)
 
 
+def _peak_body_battery(battery_values: list[Any]) -> float | None:
+    # bodyBatteryValuesArray is [timestamp_ms, value] pairs sorted ascending by
+    # time. The peak (usually hit soon after waking) approximates how
+    # recovered the day started. The *last* point is just whatever the
+    # battery read at sync time, so re-syncing the same date later in the
+    # day (once the full array is available) silently overwrites a fresh
+    # morning reading with a drained evening one -- that was the bug.
+    values = [point[1] for point in battery_values if point and point[1] is not None]
+    return max(values) if values else None
+
+
 def _collect_hrv_data(
     client: Any,
     date_list: list[datetime],
@@ -518,9 +529,7 @@ def _collect_hrv_data(
             if body_battery_data and isinstance(body_battery_data, list) and len(body_battery_data) > 0:
                 entry = body_battery_data[0]
                 if "bodyBatteryValuesArray" in entry and entry["bodyBatteryValuesArray"]:
-                    battery_values = entry["bodyBatteryValuesArray"]
-                    if battery_values:
-                        recovery_score = battery_values[-1][1]
+                    recovery_score = _peak_body_battery(entry["bodyBatteryValuesArray"])
 
             if rmssd_value is not None or stress_score is not None or recovery_score is not None:
                 hrv_data[date_str] = {

@@ -14,8 +14,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
 parts/
 sdist/
 var/
@@ -246,6 +244,7 @@ Desktop.ini
 # Chat history and temporary session files
 chats/
 *.json
+!web/.eslintrc.json
 
 # Temporary files and screenshots
 temp/

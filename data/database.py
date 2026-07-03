@@ -199,6 +199,11 @@ class Database:
         ''')
         
         # Таблица HRV данных
+        # recovery_score = пиковое значение Body Battery за день (см.
+        # services/sync.py:_peak_body_battery), а не снимок на момент синка.
+        # Строки, записанные до этого фикса, могут быть смесью утренних и
+        # вечерних снимков -- не считать их надёжным временным рядом задним
+        # числом без пересчёта из сырого bodyBatteryValuesArray.
         conn.execute('''
             CREATE TABLE IF NOT EXISTS hrv_data (
                 date DATE PRIMARY KEY,

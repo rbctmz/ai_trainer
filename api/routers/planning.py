@@ -24,6 +24,7 @@ class BuildRequest(BaseModel):
     event_date: str  # YYYY-MM-DD
     available_hours: float = 10.0
     available_days: Optional[List[str]] = None  # ["mon","tue",...]
+    demand: Optional[str] = None
     persist: bool = True
 
 
@@ -33,9 +34,49 @@ class AdjustRequest(BaseModel):
     persist: bool = True
 
 
+class DemandRequest(BaseModel):
+    level: str
+
+
+def _parse_available_days(value: Optional[str]) -> Optional[List[str]]:
+    if not value:
+        return None
+    days = [part.strip().lower() for part in value.split(",") if part.strip()]
+    return days or None
+
+
 @router.get("/status")
 def planning_status(db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.current_status(db)
+
+
+@router.get("/target-preview")
+def planning_target_preview(
+    goal_type: str = "triathlon",
+    distance: str = "olympic",
+    available_hours: float = 10.0,
+    available_days: Optional[str] = None,
+    demand: Optional[str] = None,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    return planning_service.target_preview(
+        db,
+        goal_type=goal_type,
+        distance=distance,
+        available_hours=available_hours,
+        available_days=_parse_available_days(available_days),
+        demand=demand,
+    )
+
+
+@router.get("/demand")
+def planning_get_demand(db: Database = Depends(get_database)) -> dict[str, Any]:
+    return planning_service.get_demand(db)
+
+
+@router.post("/demand")
+def planning_set_demand(req: DemandRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
+    return planning_service.set_demand(db, req.level)
 
 
 @router.post("/build")
@@ -48,6 +89,7 @@ def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> d
             event_date=req.event_date,
             available_hours=req.available_hours,
             available_days=req.available_days,
+            demand=req.demand,
             persist=req.persist,
         )
     except ValueError as exc:
@@ -116,3 +158,8 @@ def planning_adjust(req: AdjustRequest, db: Database = Depends(get_database)) ->
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/history")
+def planning_history(limit: int = 10, db: Database = Depends(get_database)) -> dict[str, Any]:
+    return planning_service.planning_history(db, limit=limit)

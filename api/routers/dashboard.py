@@ -279,13 +279,22 @@ def dashboard_widgets(
     state: StateManager = Depends(get_headless_state),
 ) -> Dict[str, Any]:
     """Secondary dashboard widgets: Training Score, Daily Outlook, Race Projection."""
+    # 90 days of history for _ctl_series (ramp rate needs to look back 28 days)
+    # and the weekly TSS lookup below. "Today's" ctl/tsb, however, must be
+    # computed from the SAME 30-day window as dashboard_summary() — CTL's
+    # 42-day decay constant makes the Banister model converge differently
+    # depending on how much history it's fed, so a wider window here would
+    # silently give this endpoint a different "today" than /api/dashboard/summary
+    # for the exact same underlying data (see issue #61).
     activities_df = db.get_activities(90)
+    activities_df_30 = db.get_activities(30)
     sleep_df = db.get_sleep_data(7)
     hrv_df = db.get_hrv_data(30)
 
     empty = activities_df is None or activities_df.empty
+    empty_30 = activities_df_30 is None or activities_df_30.empty
     current_status = _calculate_current_status(
-        activities_df if not empty else pd.DataFrame(), hrv_df, sleep_df
+        activities_df_30 if not empty_30 else pd.DataFrame(), hrv_df, sleep_df
     )
     latest_training_status = _get_latest_training_status(db)
     goal_plan = _get_dashboard_goal_plan(state)
