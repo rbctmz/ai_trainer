@@ -244,6 +244,7 @@ Desktop.ini
 # Chat history and temporary session files
 chats/
 *.json
+!web/.eslintrc.json
 
 # Temporary files and screenshots
 temp/
