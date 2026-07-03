@@ -20,7 +20,7 @@ description from one shared function, `models.banister.tsb_zone()`, so they can 
 longer silently disagree.
 
 You can see this working by running `python -m pytest tests/smoke -q` from the repo
-root (inside the `ai_trainer_env` virtualenv) and observing 315 tests pass, including
+root (inside the `ai_trainer_env` virtualenv) and observing 317 tests pass, including
 nine new test files that each pin a previously-independent site to the shared
 boundaries (`tests/smoke/test_banister_tsb_zone.py`,
 `tests/smoke/test_ai_data_context_tsb_zone.py`,
@@ -62,7 +62,13 @@ everywhere.
       (`create_banister_chart`, live; `create_modern_dashboard_chart`, dead code) to
       `tsb_zone()`. Commit `2d5fd2f`.
 - [x] (2026-07-02) Wrote this ExecPlan.
-- [ ] Final full validation pass and PR.
+- [x] (2026-07-02) Final full validation pass; opened PR #66 (closes #63).
+- [x] (2026-07-03) Addressed human review feedback on PR #66 (rbctmz): migrated the
+      two remaining `ui/pages/planning.py` 2-tone TSB stat-card sites the plan had
+      originally classified "leave alone," and added consumer-level contract test
+      coverage for `metrics.form`'s outward path. Commit `f677c8a`.
+
+Remaining: awaiting PR review/merge decision (not this plan's to make).
 
 ## Surprises & Discoveries
 
@@ -158,7 +164,8 @@ everywhere.
   `assess_start_load_state` and three sibling `current_tsb <= -15` guards,
   `models/planning_near_term.py`'s risk-scoring guards, `models/coach_decisions.py`'s
   `build_coach_decision`, `ui/pages/dashboard.py::_render_quick_actions`'s two blocks,
-  and `ui/pages/planning.py`'s narrower 2-way `>= -10` badge-color split.
+  and (initially — see the reversal recorded further down this Decision Log, dated
+  2026-07-03) `ui/pages/planning.py`'s narrower 2-way `>= -10` badge-color split.
   Rationale: four of these eight are pinned by their own dedicated smoke test to their
   own distinct boundaries (`test_coach_explainability.py`,
   `test_training_planner_adaptive.py`, `test_planning_near_term.py`, and originally
@@ -166,7 +173,9 @@ everywhere.
   evidence of intentional, separate semantics rather than accidental drift. The
   remaining four (state_label, the two quick-actions blocks, the planning.py 2-way
   split) are judgment calls without test pinning, flagged explicitly rather than
-  silently folded into the migration — none has been overridden as of this writing.
+  silently folded into the migration — none had been overridden as of this writing
+  (2026-07-02; the planning.py 2-way split was overridden the next day after human
+  review — see the dated entry below).
   Date/Author: 2026-07-02, Claude, informed by a design sub-pass.
 - Decision: for the three sites whose old code had 5 TSB buckets against the
   canonical table's 4 (`ai_data_context.py::_predict_form`,
@@ -210,6 +219,24 @@ everywhere.
   underlying bug as a separate follow-up task rather than fixing or silently working
   around it here.
   Date/Author: 2026-07-02, Claude.
+- Decision: reversed the earlier "leave alone" call on `ui/pages/planning.py`'s two
+  2-way `tsb_tone = "success" if tsb >= -10 else "warning"` badge-color sites
+  (`summary["progress"]["current_tsb"]` and `current_metrics["tsb"]`/`form_status`),
+  migrating both to `tsb_zone(tsb)["tone"]`.
+  Rationale: human review on PR #66 (rbctmz, 2026-07-03) pointed out that
+  `ModernUI.render_stat_card`'s underlying `_tone_color` helper already maps all four
+  canonical tones (`danger`/`warning`/`neutral`/`success`) to distinct CSS colors, so
+  the 2-way collapse was discarding visual distinction the UI already supported for no
+  reason — under the old logic, `"Высокая усталость"` (danger) could never render
+  differently from `"Накопленная усталость"` (warning), and `"Свежесть"` (success) was
+  indistinguishable from `"Стабильная нагрузка"` (neutral) on these two cards. This is
+  exactly the failure mode this plan exists to eliminate; the original "leave alone"
+  call was flagged explicitly as a judgment call for this reason, and the reviewer's
+  counter-argument was correct. Also added consumer-level contract test coverage for
+  `metrics.form`'s outward path (`tests/smoke/test_api_planning.py`), since review
+  noted the existing test only pinned the trivial neutral case and never exercised the
+  actual outward path the web Planning page reads from.
+  Date/Author: 2026-07-03, Claude, per PR #66 review from rbctmz.
 - Decision: left the two undocumented frontend TSB checks
   (`web/app/coach/page.tsx:394`, `web/components/dashboard/TodayCard.tsx:25`,
   both `today.tsb < -20`) unimplemented, flagged as a separate follow-up task.
@@ -228,6 +255,12 @@ number of new tests added per milestone, zero regressions at any step). The orig
 task's stated goal — get `models/ai_data_context.py` onto a canonical
 `models.banister.tsb_zone()` — is met, along with seven more sites the original task
 didn't know about because the canonical function didn't exist yet when it was written.
+A subsequent human review round on PR #66 (2026-07-03) found two more sites this plan
+had explicitly flagged as a judgment call but left alone; both were migrated in
+response (commit `f677c8a`), bringing the suite to 317 passed. That review round is the
+best evidence this plan's "flag judgment calls instead of silently deciding" approach
+worked as intended — a human caught exactly the kind of borderline case the plan
+anticipated it might get wrong, and the flag made that easy to find and fix.
 
 The biggest gap between the original ask and the actual work was scope: the task named
 8 sites and assumed a foundation that didn't exist; the real work was building that
@@ -288,10 +321,11 @@ virtualenv active:
     python -m pytest tests/smoke -q
 
 Run after every commit in this plan's sequence (`1fc9cd3`, `ff2be13`, `893d7cb`,
-`75a3710`, `fa0360a`, `5929437`, `2d5fd2f`, in that order — `git log --oneline
-7041a42..HEAD` reproduces this exact list against this plan's starting point). Each run
-showed only passing tests, no failures, no errors, with the pass count increasing by
-exactly the number of new tests that commit introduced.
+`75a3710`, `fa0360a`, `5929437`, `2d5fd2f`, then `bf6dd28` for this doc, then `f677c8a`
+for the 2026-07-03 review-fix round, in that order — `git log --oneline 7041a42..HEAD`
+reproduces this exact list against this plan's starting point). Each run showed only
+passing tests, no failures, no errors, with the pass count increasing by exactly the
+number of new tests that commit introduced.
 
 For the one milestone with a visual (not just textual) output —
 `utils/visualizations.py` — verification also included constructing the actual Plotly
@@ -303,7 +337,7 @@ now encode exactly what was inspected manually).
 ## Validation and Acceptance
 
 Run `source ai_trainer_env/bin/activate && python -m pytest tests/smoke -q` from the
-repository root. Expect `315 passed` with no failures or errors. If this instead shows
+repository root. Expect `317 passed` with no failures or errors. If this instead shows
 fewer passed tests or any failures, something in this plan's sequence did not apply
 cleanly — bisect with `git log --oneline 7041a42..HEAD` and re-run the suite after each
 commit individually to find where it diverges from the counts recorded in Concrete
@@ -337,14 +371,14 @@ single `git revert` of one commit cleanly removes both together.
 ## Artifacts and Notes
 
 Final smoke suite output (`python -m pytest tests/smoke -q`, run from repository root
-inside `ai_trainer_env`):
+inside `ai_trainer_env`, after the 2026-07-03 review-fix round):
 
     ........................................................................ [ 22%]
     ........................................................................ [ 45%]
     ........................................................................ [ 68%]
-    ........................................................................ [ 91%]
-    ...........................                                              [100%]
-    315 passed in 5.67s
+    ........................................................................ [ 90%]
+    .............................                                            [100%]
+    317 passed in 13.81s
 
 Manual verification transcript for the one visual migration site
 (`utils/visualizations.py::create_banister_chart`), confirming all four TSB-color
