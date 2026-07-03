@@ -1,18 +1,21 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import useSWR from "swr";
+import { useEffect, useMemo, useState } from "react";
+import useSWR, { useSWRConfig } from "swr";
 import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
 import {
   AdjustResult,
   BuiltPlan,
   ForecastPoint,
   Outcome,
+  PlanningDemand,
+  PlanningHistory,
   PlanExport,
   PlanningStatus,
   PlanWeek,
   ReconResponse,
   ReconRow,
+  TargetPreview,
 } from "@/lib/types";
 
 const GOAL_TYPES = [
@@ -69,6 +72,13 @@ const TAB_LABELS: Record<Tab, string> = {
   export: "Экспорт",
 };
 
+const DEFAULT_DEMAND_OPTIONS: PlanningDemand[] = [
+  { level: "easy", label: "Легко", multiplier: 0.9 },
+  { level: "moderate", label: "Умеренно", multiplier: 1.0 },
+  { level: "demanding", label: "Требовательно", multiplier: 1.1 },
+  { level: "aggressive", label: "Агрессивно", multiplier: 1.2 },
+];
+
 function defaultEventDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 56);
@@ -111,23 +121,45 @@ export default function PlanningPage() {
         ))}
       </div>
 
-      {tab === "build" ? <BuildMode /> : null}
+      {tab === "build" ? <BuildMode status={status} /> : null}
       {tab === "adjust" ? <AdjustMode hasPlan={status?.has_plan ?? false} /> : null}
       {tab === "export" ? <ExportMode /> : null}
+      <AdjustmentHistory />
     </main>
   );
 }
 
 /* ---------------- Build mode ---------------- */
-function BuildMode() {
+function BuildMode({ status }: { status?: PlanningStatus }) {
   const [goalType, setGoalType] = useState("triathlon");
   const [distance, setDistance] = useState("olympic");
   const [eventDate, setEventDate] = useState(defaultEventDate);
   const [hours, setHours] = useState(10);
   const [days, setDays] = useState<string[]>(DAYS.map((d) => d.value));
+  const [demand, setDemand] = useState("moderate");
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<BuiltPlan | null>(null);
+  const demandOptions = status?.demand_options?.length ? status.demand_options : DEFAULT_DEMAND_OPTIONS;
+
+  useEffect(() => {
+    if (status?.demand?.level) {
+      setDemand(status.demand.level);
+    }
+  }, [status?.demand?.level]);
+
+  const previewKey = useMemo(() => {
+    if (!days.length) return null;
+    const params = new URLSearchParams({
+      goal_type: goalType,
+      distance,
+      available_hours: String(hours),
+      available_days: days.join(","),
+      demand,
+    });
+    return `/api/planning/target-preview?${params.toString()}`;
+  }, [goalType, distance, hours, days, demand]);
+  const { data: preview } = useSWR<TargetPreview>(previewKey, fetcher);
 
   function onGoalChange(v: string) {
     setGoalType(v);
@@ -147,6 +179,7 @@ function BuildMode() {
           event_date: eventDate,
           available_hours: hours,
           available_days: days,
+          demand,
         }),
       );
     } catch (e) {
@@ -208,6 +241,29 @@ function BuildMode() {
           </Field>
         </div>
 
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1fr_1.4fr]">
+          <Field label="Режим нагрузки">
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4 lg:grid-cols-2">
+              {demandOptions.map((option) => (
+                <button
+                  key={option.level}
+                  type="button"
+                  onClick={() => setDemand(option.level)}
+                  className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition ${
+                    demand === option.level
+                      ? "border-accent bg-accent text-accent-foreground"
+                      : "border-surface-border text-ink-soft hover:bg-surface-muted"
+                  }`}
+                >
+                  <span className="block">{option.label}</span>
+                  <span className="text-[11px] opacity-70">×{option.multiplier.toFixed(2)}</span>
+                </button>
+              ))}
+            </div>
+          </Field>
+          <WeeklyTargetPreview preview={preview} />
+        </div>
+
         <button
           type="button"
           onClick={build}
@@ -226,12 +282,24 @@ function BuildMode() {
 
       {plan ? (
         <>
-          <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <section className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <Stat label="Недель до старта" value={`${plan.goal.weeks_to_race}`} />
             <Stat label="Цель/нед" value={`${plan.weekly_target.target_weekly_tss} TSS`} />
+            <Stat label="Режим" value={plan.weekly_target.demand?.label ?? "—"} />
             <Stat label="Пик" value={`${plan.totals.peak_tss} TSS`} />
             <Stat label="Всего" value={`${plan.totals.total_tss} TSS`} />
           </section>
+          {plan.weekly_target.breakdown ? (
+            <WeeklyTargetPreview
+              preview={{
+                goal: plan.goal,
+                weekly_target: plan.weekly_target,
+                breakdown: plan.weekly_target.breakdown,
+                demand: plan.weekly_target.demand ?? { level: demand, label: demand, multiplier: 1 },
+                options: demandOptions,
+              }}
+            />
+          ) : null}
           <ForecastSection forecast={plan.forecast} />
           <WeeksTable weeks={plan.weeks} />
         </>
@@ -240,8 +308,80 @@ function BuildMode() {
   );
 }
 
+function WeeklyTargetPreview({ preview }: { preview?: TargetPreview | null }) {
+  if (!preview) {
+    return (
+      <section className="rounded-card border border-surface-border bg-surface-muted/40 p-4">
+        <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+          Weekly Target
+        </div>
+        <div className="mt-3 h-16 animate-pulse rounded-lg bg-surface-muted" />
+      </section>
+    );
+  }
+
+  const target = preview.weekly_target;
+  const demand = target.demand ?? preview.demand;
+  return (
+    <section className="rounded-card border border-surface-border bg-surface-muted/40 p-4">
+      <div className="flex items-baseline justify-between gap-3">
+        <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+          Weekly Target
+        </div>
+        <div className="text-sm font-semibold text-ink">
+          {target.target_weekly_tss} TSS
+          <span className="ml-2 text-xs font-medium text-ink-soft">
+            {demand?.label} ×{Number(demand?.multiplier ?? 1).toFixed(2)}
+          </span>
+        </div>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {preview.breakdown.rows.map((row) => (
+          <div key={row.key} className="rounded-lg border border-surface-border bg-surface px-3 py-2">
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-xs text-ink-faint">{row.label}</span>
+              <span className="text-sm font-semibold tabular-nums text-ink">
+                {row.value} <span className="text-xs font-medium text-ink-soft">{row.unit}</span>
+              </span>
+            </div>
+            <div className="mt-1 text-[11px] leading-snug text-ink-soft">{row.detail}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function AdjustmentHistory() {
+  const { data } = useSWR<PlanningHistory>("/api/planning/history?limit=8", fetcher);
+  if (!data || !data.has_history) return null;
+
+  return (
+    <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+      <div className="mb-3 flex items-baseline justify-between">
+        <span className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+          Adjustment History
+        </span>
+        <span className="text-xs text-ink-soft">{data.items.length}</span>
+      </div>
+      <div className="divide-y divide-surface-border">
+        {data.items.map((item) => (
+          <div key={`${item.checkpoint_id}-${item.date}`} className="grid gap-2 py-2.5 sm:grid-cols-[110px_130px_1fr]">
+            <div className="text-xs tabular-nums text-ink-soft">
+              {item.date_label || item.date.slice(0, 10)}
+            </div>
+            <div className="text-xs font-medium text-ink">{item.type_label}</div>
+            <div className="text-sm text-ink-soft">{item.outcome_note}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 /* ---------------- Adjust mode ---------------- */
 function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
+  const { mutate: mutateGlobal } = useSWRConfig();
   const { data, mutate } = useSWR<ReconResponse>(
     hasPlan ? "/api/planning/reconciliation?weeks=1" : null,
     fetcher,
@@ -274,6 +414,7 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
       });
       setResult(r);
       mutate();
+      mutateGlobal("/api/planning/history?limit=8");
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Не удалось пересобрать план");
     } finally {

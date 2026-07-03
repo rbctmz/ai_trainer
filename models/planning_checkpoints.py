@@ -19,6 +19,7 @@ CHECKPOINT_SOURCE_LABELS = {
     "initial_plan": "Базовая версия",
     "manual_edit": "Ручная правка",
     "execution_feedback": "Execution replan",
+    "execution_adjustment": "Execution replan",
     "restore_version": "Восстановленная версия",
     "legacy_checkpoint": "Сохранённая версия",
 }
@@ -183,7 +184,7 @@ def summarize_checkpoint_provenance(checkpoint: Dict[str, Any] | None) -> Dict[s
         "detail": detail,
         "parent_checkpoint_id": parent_id,
         "restored_from_checkpoint_id": restored_from_id,
-        "is_execution_feedback": source == "execution_feedback",
+        "is_execution_feedback": source in {"execution_feedback", "execution_adjustment"},
     }
 
 
@@ -232,6 +233,9 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "session_templates": list(goal_plan.get("session_templates", []) or []),
         "weekly_summary": weekly_summary_rows,
         "constraint_summary": constraint_summary,
+        "demand_level": goal_plan.get("demand_level"),
+        "demand_multiplier": goal_plan.get("demand_multiplier"),
+        "weekly_target_breakdown": goal_plan.get("weekly_target_breakdown"),
         "plan_revision": goal_plan.get("plan_revision"),
         "near_term_edit_version": int(goal_plan.get("near_term_edit_version", 0) or 0),
         "near_term_edit_horizon_days": int(goal_plan.get("near_term_edit_horizon_days", 0) or 0),
@@ -466,7 +470,7 @@ def summarize_execution_feedback_transition(
         return None
 
     provenance = current.get("provenance") or {}
-    if provenance.get("source") not in {"execution_feedback", "legacy_checkpoint"}:
+    if provenance.get("source") not in {"execution_feedback", "execution_adjustment", "legacy_checkpoint"}:
         return None
 
     plan_adjustment_label = str(current.get("plan_adjustment_label") or "Нет")
