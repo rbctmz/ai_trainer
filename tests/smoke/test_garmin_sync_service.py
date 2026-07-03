@@ -41,7 +41,18 @@ class _StubGarminClient:
         return {"avgStressLevel": 21}
 
     def get_body_battery_data(self, _date):
-        return [{"bodyBatteryValuesArray": [[0, 76]]}]
+        # Mirrors a real reported sync: morning peak of 80, drained to 16
+        # by evening. A same-day resync must keep reporting the peak.
+        return [
+            {
+                "bodyBatteryValuesArray": [
+                    [1767250800000, 42],
+                    [1767261600000, 80],
+                    [1767296400000, 61],
+                    [1767322800000, 16],
+                ]
+            }
+        ]
 
     def get_sleep_data(self, _date):
         return {
@@ -174,6 +185,8 @@ def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.Monke
     assert state.database.activities[0]["source_tss"] == 47.4
     assert state.database.activities[0]["tss_method"] == "hr_tss_run"
     assert state.database.hrv
+    for entry in state.database.hrv.values():
+        assert entry["recovery_score"] == 80
     assert state.database.sleep
     assert state.database.health
     assert state.database.training_status is None
@@ -220,6 +233,36 @@ def test_sync_status_payload_marks_partial_when_warnings_exist():
     assert payload["title"] == "Синхронизация Garmin завершена частично"
     assert payload["activity_changes"] == 2
     assert payload["notices"][0].startswith("⚠️ Garmin sleep")
+
+
+def test_peak_body_battery_uses_the_days_peak_not_the_last_reading():
+    # Real incident: same date read as 80.0 the morning it happened, then
+    # 16.0 the next day once the full day's array was available.
+    battery_values = [
+        [1767250800000, 42],
+        [1767261600000, 80],
+        [1767296400000, 61],
+        [1767322800000, 16],
+    ]
+
+    assert sync_service._peak_body_battery(battery_values) == 80
+
+
+def test_peak_body_battery_handles_monotonic_increasing_day():
+    battery_values = [[0, 30], [1, 55], [2, 90]]
+
+    assert sync_service._peak_body_battery(battery_values) == 90
+
+
+def test_peak_body_battery_ignores_null_points():
+    battery_values = [[0, None], [1, 45], [2, None]]
+
+    assert sync_service._peak_body_battery(battery_values) == 45
+
+
+def test_peak_body_battery_empty_array_returns_none():
+    assert sync_service._peak_body_battery([]) is None
+    assert sync_service._peak_body_battery([[0, None]]) is None
 
 
 def test_sync_service_retries_transient_sleep_errors(monkeypatch: pytest.MonkeyPatch):
