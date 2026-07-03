@@ -533,7 +533,7 @@ def _render_planning_v2_active_plan(
     with progress_cols[1]:
         ModernUI.render_stat_card("ATL", summary["progress"]["current_atl"], "fatigue", "warning")
     with progress_cols[2]:
-        tsb_tone = "success" if float(summary["progress"]["current_tsb"]) >= -10 else "warning"
+        tsb_tone = tsb_zone(float(summary["progress"]["current_tsb"]))["tone"]
         ModernUI.render_stat_card("TSB", summary["progress"]["current_tsb"], "form", tsb_tone)
     with progress_cols[3]:
         ModernUI.render_stat_card("Пик", f"{summary['progress']['peak_tss']} TSS", "нагрузка", "success")
@@ -2067,7 +2067,7 @@ def render_planning_page(state: "StateManager") -> None:
         with col2:
             ModernUI.render_stat_card("ATL", current_metrics["atl"], "усталость", "warning")
         with col3:
-            tsb_tone = "success" if float(current_metrics["tsb"]) >= -10 else "warning"
+            tsb_tone = tsb_zone(float(current_metrics["tsb"]))["tone"]
             ModernUI.render_stat_card("TSB", current_metrics["tsb"], "форма", tsb_tone)
         with col4:
             ModernUI.render_stat_card("Состояние", form_status, "Banister", tsb_tone)
