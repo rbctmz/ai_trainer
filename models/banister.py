@@ -2,6 +2,42 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timedelta
 
+# Canonical TSB zones — the single source of truth for how a TSB value
+# (Training Stress Balance = CTL - ATL, i.e. how fresh or fatigued the
+# athlete is right now) is described to the user anywhere in the app.
+# Moved here from api/routers/dashboard.py (see git history: commit
+# 028ac6a / PR #59 / issue #54, then issue #63) so every layer — not just
+# the dashboard API — can share one definition instead of each inventing
+# its own boundaries. Mirrored by hand (Python has no build step that
+# shares code with the frontend) in web/components/ui/Tooltip.tsx's
+# TsbContent. Boundaries -20/-10/+10 match ui/pages/dashboard.py's
+# _build_dashboard_v2_summary state_label logic, which remains the
+# authoritative composite source these zones were copied from (it
+# combines TSB with readiness and is intentionally different — do not
+# change it to match this table).
+TSB_ZONES: list[tuple[float, str, str, str]] = [
+    # (upper bound exclusive, label, tone, daily-outlook clause)
+    (-20, "Высокая усталость", "danger", "высокая усталость — приоритет восстановлению"),
+    (-10, "Накопленная усталость", "warning", "накопленная усталость — контролируйте интенсивность"),
+    (10, "Стабильная нагрузка", "neutral", "стабильная нагрузка — придерживайтесь плана"),
+    (float("inf"), "Свежесть", "success", "хорошая свежесть — можно работать на качество"),
+]
+
+
+def tsb_zone(tsb: float) -> dict[str, str]:
+    """Classify a TSB value into the canonical 4-zone description.
+
+    Returns a dict with 'label' (Russian zone name), 'tone' (one of
+    'danger'/'warning'/'neutral'/'success', for UI color-coding), and
+    'clause' (a lowercase Russian clause meant to be embedded mid-sentence).
+    """
+    for upper, label, tone, clause in TSB_ZONES:
+        if tsb < upper:
+            return {"label": label, "tone": tone, "clause": clause}
+    last = TSB_ZONES[-1]
+    return {"label": last[1], "tone": last[2], "clause": last[3]}
+
+
 class BanisterModel:
     def __init__(self):
         # Параметры модели (стандартные значения)
@@ -107,15 +143,8 @@ class BanisterModel:
         current_atl = atl_values[-1] if atl_values else 0
         current_tsb = tsb_values[-1] if tsb_values else 0
         
-        # Интерпретация TSB
-        if current_tsb > 5:
-            form = "Отличная форма"
-        elif current_tsb > -10:
-            form = "Хорошая форма"
-        elif current_tsb > -30:
-            form = "Усталость"
-        else:
-            form = "Переутомление"
+        # Интерпретация TSB — canonical zone label (see TSB_ZONES above)
+        form = tsb_zone(current_tsb)["label"]
         
         return {
             'ctl': round(current_ctl, 1),
@@ -127,31 +156,32 @@ class BanisterModel:
         }
     
     def get_training_recommendation(self, current_metrics):
-        """Рекомендации по тренировкам на основе текущего TSB"""
+        """Рекомендации по тренировкам на основе текущего TSB (canonical TSB zone)"""
         tsb = current_metrics.get('tsb', 0)
-        
-        if tsb > 5:
+        zone_tone = tsb_zone(tsb)["tone"]
+
+        if zone_tone == "success":
             return {
                 'recommendation': "Время для интенсивных тренировок",
                 'intensity': "Высокая",
                 'description': "Вы в отличной форме! Можно проводить ключевые тренировки и соревнования.",
                 'suggested_tss': f"{int(current_metrics.get('ctl', 50) * 1.2)}-{int(current_metrics.get('ctl', 50) * 1.5)}"
             }
-        elif tsb > -10:
+        elif zone_tone == "neutral":
             return {
                 'recommendation': "Поддерживающие тренировки",
                 'intensity': "Умеренная",
                 'description': "Хорошая форма для регулярных тренировок средней интенсивности.",
                 'suggested_tss': f"{int(current_metrics.get('ctl', 50) * 0.8)}-{int(current_metrics.get('ctl', 50) * 1.1)}"
             }
-        elif tsb > -30:
+        elif zone_tone == "warning":
             return {
                 'recommendation': "Лёгкие тренировки и восстановление",
                 'intensity': "Низкая",
                 'description': "Накопилась усталость. Снизьте интенсивность и объём тренировок.",
                 'suggested_tss': f"{int(current_metrics.get('ctl', 50) * 0.5)}-{int(current_metrics.get('ctl', 50) * 0.7)}"
             }
-        else:
+        else:  # "danger"
             return {
                 'recommendation': "Полное восстановление",
                 'intensity': "Очень низкая/Отдых",

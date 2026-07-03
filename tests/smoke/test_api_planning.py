@@ -45,6 +45,59 @@ def test_status_shape(tmp_path):
     assert out["has_plan"] is False
 
 
+def _db_with_daily_tss(tmp_path, name: str, daily_tss_oldest_first: list[float]) -> Database:
+    # One row per day, oldest first, ending today -- current_status() reads
+    # db.get_activities(90), so every sequence here stays well under that.
+    db = Database(str(tmp_path / name))
+    base = datetime.now()
+    n = len(daily_tss_oldest_first)
+    rows = [
+        {
+            "activity_id": f"d{i}",
+            "date": (base - timedelta(days=n - 1 - i)).strftime("%Y-%m-%d"),
+            "sport": "cycling",
+            "duration_minutes": 60,
+            "distance_km": 25.0,
+            "tss": tss,
+        }
+        for i, tss in enumerate(daily_tss_oldest_first)
+    ]
+    db.save_activities(rows)
+    return db
+
+
+def test_status_form_matches_canonical_zone_through_consumer_path(tmp_path):
+    # issue #63 review: metrics['form'] is outward-facing (rendered as
+    # "Форма" in web/app/planning/page.tsx), so pin it through the actual
+    # consumer path (planning_status -> current_status ->
+    # BanisterModel.get_current_metrics), not just the internal zone table
+    # or BanisterModel in isolation (see tests/smoke/test_banister_tsb_zone.py
+    # for that unit-level coverage). Same seeded daily-TSS shapes as that
+    # file, confirmed there to land clearly in each of the four zones.
+    from api.routers.planning import planning_status
+    from models.banister import tsb_zone
+
+    danger_db = _db_with_daily_tss(tmp_path, "danger.db", [50.0] * 60 + [90.0] * 5)
+    danger = planning_status(db=danger_db)["metrics"]
+    assert tsb_zone(danger["tsb"])["tone"] == "danger"
+    assert danger["form"] == "Высокая усталость"
+
+    warning_db = _db_with_daily_tss(tmp_path, "warning.db", [50.0] * 60 + [65.0] * 5)
+    warning = planning_status(db=warning_db)["metrics"]
+    assert tsb_zone(warning["tsb"])["tone"] == "warning"
+    assert warning["form"] == "Накопленная усталость"
+
+    neutral_db = _db_with_daily_tss(tmp_path, "neutral.db", [50.0] * 60 + [20.0] * 4)
+    neutral = planning_status(db=neutral_db)["metrics"]
+    assert tsb_zone(neutral["tsb"])["tone"] == "neutral"
+    assert neutral["form"] == "Стабильная нагрузка"
+
+    success_db = _db_with_daily_tss(tmp_path, "success.db", [55.0] * 60 + [0.0] * 8)
+    success = planning_status(db=success_db)["metrics"]
+    assert tsb_zone(success["tsb"])["tone"] == "success"
+    assert success["form"] == "Свежесть"
+
+
 def test_build_plan_contract(tmp_path):
     from api.planning_service import build_plan
 

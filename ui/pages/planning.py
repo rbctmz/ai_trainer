@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Dict, List, Mapping
 import pandas as pd
 import streamlit as st
 
+from models.banister import tsb_zone
 from models.planning_near_term import (
     EDITABLE_NEAR_TERM_HORIZON_MAX,
     EDITABLE_NEAR_TERM_HORIZON_MIN,
@@ -39,6 +40,14 @@ PLANNING_WORKSPACE_MODES = (
     "Скорректировать выполнение",
     "Экспорт и детали",
 )
+# Near-duplicate of api/planning_service.py::_TSB_TONE_TO_FORECAST_MESSAGE
+# (same canonical tones, this page's own wording) -- see issue #63.
+_TSB_TONE_TO_FORECAST_MESSAGE = {
+    "success": "🟢 Отличный прогноз! Вы будете в пиковой форме.",
+    "neutral": "🟡 Хорошая нагрузка для поддержания формы.",
+    "warning": "🟠 Внимание: возможно накопление усталости.",
+    "danger": "🔴 Предупреждение: высокий риск переутомления!",
+}
 SPORT_LABELS_RU = {
     "run": "бег",
     "bike": "вело",
@@ -524,7 +533,7 @@ def _render_planning_v2_active_plan(
     with progress_cols[1]:
         ModernUI.render_stat_card("ATL", summary["progress"]["current_atl"], "fatigue", "warning")
     with progress_cols[2]:
-        tsb_tone = "success" if float(summary["progress"]["current_tsb"]) >= -10 else "warning"
+        tsb_tone = tsb_zone(float(summary["progress"]["current_tsb"]))["tone"]
         ModernUI.render_stat_card("TSB", summary["progress"]["current_tsb"], "form", tsb_tone)
     with progress_cols[3]:
         ModernUI.render_stat_card("Пик", f"{summary['progress']['peak_tss']} TSS", "нагрузка", "success")
@@ -2058,7 +2067,7 @@ def render_planning_page(state: "StateManager") -> None:
         with col2:
             ModernUI.render_stat_card("ATL", current_metrics["atl"], "усталость", "warning")
         with col3:
-            tsb_tone = "success" if float(current_metrics["tsb"]) >= -10 else "warning"
+            tsb_tone = tsb_zone(float(current_metrics["tsb"]))["tone"]
             ModernUI.render_stat_card("TSB", current_metrics["tsb"], "форма", tsb_tone)
         with col4:
             ModernUI.render_stat_card("Состояние", form_status, "Banister", tsb_tone)
@@ -2140,14 +2149,7 @@ def render_planning_page(state: "StateManager") -> None:
                     st.plotly_chart(fig_future, width="stretch")
 
                     final_tsb = future_tsb[-1]
-                    if final_tsb > 5:
-                        forecast_message = "🟢 Отличный прогноз! Вы будете в пиковой форме."
-                    elif final_tsb > -10:
-                        forecast_message = "🟡 Хорошая нагрузка для поддержания формы."
-                    elif final_tsb > -30:
-                        forecast_message = "🟠 Внимание: возможно накопление усталости."
-                    else:
-                        forecast_message = "🔴 Предупреждение: высокий риск переутомления!"
+                    forecast_message = _TSB_TONE_TO_FORECAST_MESSAGE[tsb_zone(final_tsb)["tone"]]
 
                     st.info(f"**Прогноз через {simulation_weeks} недель:** TSB = {final_tsb:.1f} - {forecast_message}")
     elif not has_goal_plan:

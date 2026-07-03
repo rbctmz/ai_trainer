@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Callable
 from api import planning_service
 from data.database import Database
-from models.banister import BanisterModel
+from models.banister import BanisterModel, tsb_zone
 from models.hrv_analyzer import HRVAnalyzer
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from utils.product_semantics import (
@@ -29,6 +29,18 @@ def _localized_sports_distribution(values) -> Dict[str, int]:
         label = sport_label(raw_sport)
         distribution[label] = distribution.get(label, 0) + int(count)
     return distribution
+
+
+# _interpret_tsb used its own 5-bucket TSB split (10/0/-15/-30) against the
+# canonical tsb_zone()'s 4 (-20/-10/+10). "хорошая форма" (the old
+# 0 < tsb <= 10 bucket) is retired here and folds into "поддержание".
+# Intentional consequence of unification (#63).
+_TSB_TONE_TO_INTERPRETATION = {
+    "success": "пиковая форма",
+    "neutral": "поддержание",
+    "warning": "накопление",
+    "danger": "перегрузка",
+}
 
 
 class AITools:
@@ -585,17 +597,8 @@ class AITools:
     # === ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ===
     
     def _interpret_tsb(self, tsb: float) -> str:
-        """Интерпретация TSB"""
-        if tsb > 10:
-            return "пиковая форма"
-        elif tsb > 0:
-            return "хорошая форма"
-        elif tsb > -15:
-            return "поддержание"
-        elif tsb > -30:
-            return "накопление"
-        else:
-            return "перегрузка"
+        """Интерпретация TSB (canonical TSB zone)"""
+        return _TSB_TONE_TO_INTERPRETATION[tsb_zone(tsb)["tone"]]
     
     def _interpret_atl(self, atl: float) -> str:
         """Интерпретация ATL (уровень усталости)"""

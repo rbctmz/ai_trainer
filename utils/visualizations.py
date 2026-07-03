@@ -3,6 +3,33 @@ import plotly.graph_objects as go
 import pandas as pd
 from plotly.subplots import make_subplots
 
+from models.banister import tsb_zone
+
+# Canonical-tone color palette shared by every TSB chart below (issue #63).
+# Resolves a pre-existing internal inconsistency too: create_modern_dashboard_chart's
+# old gauge had its "bar" 4-color scheme (success/amber/red/dark-red) disagree
+# with its own "steps" background bands (dark-red/amber/gray/success) for the
+# same TSB ranges -- both now derive from these same two dicts.
+_TSB_TONE_COLORS: dict[str, str] = {
+    "success": "#10B981",
+    "neutral": "#9CA3AF",
+    "warning": "#F59E0B",
+    "danger": "#DC2626",
+}
+_TSB_TONE_BG_COLORS: dict[str, str] = {
+    "success": "rgba(16, 185, 129, 0.15)",
+    "neutral": "rgba(156, 163, 175, 0.15)",
+    "warning": "rgba(245, 158, 11, 0.15)",
+    "danger": "rgba(220, 38, 38, 0.15)",
+}
+_TSB_TONE_EMOJI: dict[str, str] = {
+    "success": "🟢",
+    "neutral": "🟡",
+    "warning": "🟠",
+    "danger": "🔴",
+}
+
+
 class Visualizations:
     
     @staticmethod
@@ -46,10 +73,10 @@ class Visualizations:
             row=1, col=1
         )
         
-        # 2. Текущая форма TSB с цветовым кодированием
+        # 2. Текущая форма TSB с цветовым кодированием (canonical TSB zone)
         tsb = current_metrics.get('tsb', 0)
-        tsb_color = '#10B981' if tsb > 5 else '#F59E0B' if tsb > -10 else '#EF4444' if tsb > -30 else '#DC2626'
-        
+        tsb_color = _TSB_TONE_COLORS[tsb_zone(tsb)["tone"]]
+
         fig.add_trace(
             go.Indicator(
                 mode="gauge+number+delta",
@@ -59,10 +86,10 @@ class Visualizations:
                 gauge={'axis': {'range': [-50, 30]},
                        'bar': {'color': tsb_color},
                        'steps': [
-                           {'range': [-50, -30], 'color': 'rgba(220, 38, 38, 0.2)'},
-                           {'range': [-30, -10], 'color': 'rgba(245, 158, 11, 0.2)'},
-                           {'range': [-10, 5], 'color': 'rgba(156, 163, 175, 0.2)'},
-                           {'range': [5, 30], 'color': 'rgba(16, 185, 129, 0.2)'}
+                           {'range': [-50, -20], 'color': _TSB_TONE_BG_COLORS["danger"]},
+                           {'range': [-20, -10], 'color': _TSB_TONE_BG_COLORS["warning"]},
+                           {'range': [-10, 10], 'color': _TSB_TONE_BG_COLORS["neutral"]},
+                           {'range': [10, 30], 'color': _TSB_TONE_BG_COLORS["success"]}
                        ],
                        'threshold': {'line': {'color': "red", 'width': 4},
                                    'thickness': 0.75, 'value': 0}}
@@ -411,37 +438,28 @@ class Visualizations:
             row=1, col=1
         )
         
-        # TSB с динамической цветовой заливкой
-        tsb_colors = []
-        for i, tsb in enumerate(tsb_values):
-            if tsb > 5:
-                tsb_colors.append('rgba(16, 185, 129, 0.7)')  # Зеленый - отличная форма
-            elif tsb > -10:
-                tsb_colors.append('rgba(245, 158, 11, 0.7)')  # Желтый - хорошая форма  
-            elif tsb > -30:
-                tsb_colors.append('rgba(249, 115, 22, 0.7)')  # Оранжевый - усталость
-            else:
-                tsb_colors.append('rgba(239, 68, 68, 0.7)')  # Красный - переутомление
-        
+        # TSB с динамической цветовой заливкой (canonical TSB zone tones)
+        tsb_colors = [_TSB_TONE_COLORS[tsb_zone(tsb)["tone"]] for tsb in tsb_values]
+
         # Добавляем цветовые зоны TSB как фон
         fig.add_shape(
-            type="rect", x0=dates[0], x1=dates[-1], y0=5, y1=30,
-            fillcolor="rgba(16, 185, 129, 0.1)", line=dict(width=0),
+            type="rect", x0=dates[0], x1=dates[-1], y0=10, y1=30,
+            fillcolor=_TSB_TONE_BG_COLORS["success"], line=dict(width=0),
             row=2, col=1
         )
         fig.add_shape(
-            type="rect", x0=dates[0], x1=dates[-1], y0=-10, y1=5,
-            fillcolor="rgba(245, 158, 11, 0.1)", line=dict(width=0),
+            type="rect", x0=dates[0], x1=dates[-1], y0=-10, y1=10,
+            fillcolor=_TSB_TONE_BG_COLORS["neutral"], line=dict(width=0),
             row=2, col=1
         )
         fig.add_shape(
-            type="rect", x0=dates[0], x1=dates[-1], y0=-30, y1=-10,
-            fillcolor="rgba(249, 115, 22, 0.1)", line=dict(width=0),
+            type="rect", x0=dates[0], x1=dates[-1], y0=-20, y1=-10,
+            fillcolor=_TSB_TONE_BG_COLORS["warning"], line=dict(width=0),
             row=2, col=1
         )
         fig.add_shape(
-            type="rect", x0=dates[0], x1=dates[-1], y0=-50, y1=-30,
-            fillcolor="rgba(239, 68, 68, 0.1)", line=dict(width=0),
+            type="rect", x0=dates[0], x1=dates[-1], y0=-50, y1=-20,
+            fillcolor=_TSB_TONE_BG_COLORS["danger"], line=dict(width=0),
             row=2, col=1
         )
         
@@ -460,20 +478,22 @@ class Visualizations:
             row=2, col=1
         )
         
-        # Добавляем горизонтальные линии-ориентиры с аннотациями
+        # Добавляем горизонтальные линии-ориентиры с аннотациями (canonical
+        # TSB zone boundaries and labels -- each line marks the zone that
+        # begins above it)
         fig.add_hline(
-            y=5, line_dash="dot", line_color="#10B981", line_width=2,
-            annotation_text="🟢 Отличная форма", annotation_position="right",
+            y=10, line_dash="dot", line_color=_TSB_TONE_COLORS["success"], line_width=2,
+            annotation_text=f"{_TSB_TONE_EMOJI['success']} Свежесть", annotation_position="right",
             row=2, col=1
         )
         fig.add_hline(
-            y=-10, line_dash="dot", line_color="#F59E0B", line_width=2,
-            annotation_text="🟡 Усталость", annotation_position="right",
+            y=-10, line_dash="dot", line_color=_TSB_TONE_COLORS["neutral"], line_width=2,
+            annotation_text=f"{_TSB_TONE_EMOJI['neutral']} Стабильная нагрузка", annotation_position="right",
             row=2, col=1
         )
         fig.add_hline(
-            y=-30, line_dash="dot", line_color="#EF4444", line_width=2,
-            annotation_text="🔴 Переутомление", annotation_position="right",
+            y=-20, line_dash="dot", line_color=_TSB_TONE_COLORS["warning"], line_width=2,
+            annotation_text=f"{_TSB_TONE_EMOJI['warning']} Накопленная усталость", annotation_position="right",
             row=2, col=1
         )
         

@@ -9,7 +9,8 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
-from api.routers.dashboard import _generate_daily_outlook, _tsb_zone
+from api.routers.dashboard import _generate_daily_outlook
+from models.banister import tsb_zone as _tsb_zone
 from data.database import Database
 from models.training_planner import current_periodization_phase
 from state import StateManager
