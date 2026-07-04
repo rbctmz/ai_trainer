@@ -130,6 +130,41 @@ class Database:
         'monthly_load_anaerobic_target_min': 'REAL',
         'monthly_load_anaerobic_target_max': 'REAL'
     }
+
+    _DAILY_HEALTH_COLUMN_ORDER = [
+        'resting_hr',
+        'steps',
+        'floors_climbed',
+        'calories_active',
+        'calories_bmr',
+        'distance_meters',
+        'active_minutes',
+        'intensity_minutes',
+        'respiration_avg',
+        'respiration_min',
+        'respiration_max',
+        'spo2_avg',
+        'spo2_min',
+        'skin_temperature_avg',
+    ]
+
+    _DAILY_HEALTH_COLUMN_TYPES = {
+        'resting_hr': 'INTEGER',
+        'steps': 'INTEGER',
+        'floors_climbed': 'INTEGER',
+        'calories_active': 'INTEGER',
+        'calories_bmr': 'INTEGER',
+        'distance_meters': 'INTEGER',
+        'active_minutes': 'INTEGER',
+        'intensity_minutes': 'INTEGER',
+        'respiration_avg': 'REAL',
+        'respiration_min': 'REAL',
+        'respiration_max': 'REAL',
+        'spo2_avg': 'REAL',
+        'spo2_min': 'REAL',
+        'skin_temperature_avg': 'REAL',
+    }
+
     def __init__(self, db_path=None):
         self.db_path = db_path or Settings.DATABASE_PATH
         self.init_tables()
@@ -252,6 +287,12 @@ class Database:
                 distance_meters INTEGER,
                 active_minutes INTEGER,
                 intensity_minutes INTEGER,
+                respiration_avg REAL,
+                respiration_min REAL,
+                respiration_max REAL,
+                spo2_avg REAL,
+                spo2_min REAL,
+                skin_temperature_avg REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -336,6 +377,7 @@ class Database:
         ''')
         self._ensure_activity_columns(conn)
         self._repair_legacy_activity_tss(conn)
+        self._ensure_daily_health_columns(conn)
         self._ensure_training_status_columns(conn)
         conn.commit()
         conn.close()
@@ -423,6 +465,16 @@ class Database:
         for column, column_type in self._TRAINING_STATUS_COLUMN_TYPES.items():
             if column not in existing_columns:
                 cursor.execute(f'ALTER TABLE training_status ADD COLUMN {column} {column_type}')
+        conn.commit()
+
+    def _ensure_daily_health_columns(self, conn: sqlite3.Connection) -> None:
+        """Добавление недостающих колонок daily_health для новых Garmin wellness сигналов."""
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(daily_health)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        for column, column_type in self._DAILY_HEALTH_COLUMN_TYPES.items():
+            if column not in existing_columns:
+                cursor.execute(f'ALTER TABLE daily_health ADD COLUMN {column} {column_type}')
         conn.commit()
 
     def save_planning_checkpoint(self, checkpoint_data):
@@ -1280,6 +1332,10 @@ class Database:
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
+        columns = self._DAILY_HEALTH_COLUMN_ORDER
+        update_clause = ', '.join(f"{column}=?" for column in columns)
+        insert_columns = ['date'] + columns
+        insert_placeholders = ', '.join('?' for _ in insert_columns)
         
         # Получаем существующие даты
         cursor.execute('SELECT date FROM daily_health')
@@ -1293,42 +1349,19 @@ class Database:
             
             if clean_date in existing_dates:
                 # Обновляем существующую запись
-                cursor.execute('''
-                    UPDATE daily_health SET 
-                    resting_hr=?, steps=?, floors_climbed=?,
-                    calories_active=?, calories_bmr=?, distance_meters=?,
-                    active_minutes=?, intensity_minutes=?
-                    WHERE date=?
-                ''', (
-                    self.clean_value(data.get('resting_hr')),
-                    self.clean_value(data.get('steps')),
-                    self.clean_value(data.get('floors_climbed')),
-                    self.clean_value(data.get('calories_active')),
-                    self.clean_value(data.get('calories_bmr')),
-                    self.clean_value(data.get('distance_meters')),
-                    self.clean_value(data.get('active_minutes')),
-                    self.clean_value(data.get('intensity_minutes')),
-                    clean_date
-                ))
+                column_values = [self.clean_value(data.get(column)) for column in columns]
+                cursor.execute(
+                    f'UPDATE daily_health SET {update_clause} WHERE date=?',
+                    (*column_values, clean_date),
+                )
                 updated_count += 1
             else:
                 # Вставляем новую запись
-                cursor.execute('''
-                    INSERT INTO daily_health 
-                    (date, resting_hr, steps, floors_climbed, calories_active,
-                     calories_bmr, distance_meters, active_minutes, intensity_minutes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ''', (
-                    clean_date,
-                    self.clean_value(data.get('resting_hr')),
-                    self.clean_value(data.get('steps')),
-                    self.clean_value(data.get('floors_climbed')),
-                    self.clean_value(data.get('calories_active')),
-                    self.clean_value(data.get('calories_bmr')),
-                    self.clean_value(data.get('distance_meters')),
-                    self.clean_value(data.get('active_minutes')),
-                    self.clean_value(data.get('intensity_minutes'))
-                ))
+                column_values = [self.clean_value(data.get(column)) for column in columns]
+                cursor.execute(
+                    f"INSERT INTO daily_health ({', '.join(insert_columns)}) VALUES ({insert_placeholders})",
+                    [clean_date] + column_values,
+                )
                 existing_dates.add(clean_date)
                 new_count += 1
         

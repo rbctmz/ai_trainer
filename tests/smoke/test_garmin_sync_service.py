@@ -82,6 +82,21 @@ class _StubGarminClient:
     def get_resting_heart_rate(self, _date):
         return {"restingHeartRate": 48}
 
+    def get_respiration_data(self, _date):
+        return {
+            "dailyRespirationDTO": {
+                "avgWakingRespirationValue": 13.2,
+                "lowestRespirationValue": 9.1,
+                "highestRespirationValue": 17.8,
+            }
+        }
+
+    def get_spo2_data(self, _date):
+        return {"dailySpO2DTO": {"averageSpO2": 96.5, "lowestSpO2": 92.0}}
+
+    def get_skin_temperature_data(self, _date):
+        return {"dailySkinTemperatureDTO": {"avgSkinTempCelsius": 33.2}}
+
     def get_training_status(self):
         return None
 
@@ -189,6 +204,13 @@ def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.Monke
         assert entry["recovery_score"] == 80
     assert state.database.sleep
     assert state.database.health
+    for entry in state.database.health.values():
+        assert entry["respiration_avg"] == 13.2
+        assert entry["respiration_min"] == 9.1
+        assert entry["respiration_max"] == 17.8
+        assert entry["spo2_avg"] == 96.5
+        assert entry["spo2_min"] == 92.0
+        assert entry["skin_temperature_avg"] == 33.2
     assert state.database.training_status is None
     assert cache_cleared is True
 
