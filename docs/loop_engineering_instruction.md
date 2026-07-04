@@ -122,7 +122,8 @@ structured docs-only issue and PR whose branch name contains the issue number.
 After CI is green, the linked PR should receive `status: ready to merge`
 automatically. If the label is absent, inspect the `PR ready to merge` workflow
 run before merging; missing PR write permissions will show as a 403 while adding
-labels or comments.
+labels or comments. A successful smoke test shows a post-CI `workflow_run` and
+the label without using `workflow_dispatch` or manually editing labels.
 
 ### CI Failure Loop
 
