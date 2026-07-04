@@ -35,6 +35,7 @@ from models.planning_targets import (
     normalize_demand_level,
     public_weekly_target_payload,
 )
+from models.signals_engine import assemble_signals
 from models.tcx_activity_export import generate_tcx_activity
 from models.tcx_export import generate_tcx_workout
 from models.training_planner import (
@@ -118,17 +119,24 @@ def set_demand(db: Database, level: str) -> Dict[str, Any]:
     return get_demand(db)
 
 
-def _current_metrics(db: Database):
+def _metrics_from_signals(signals: dict[str, Any]) -> dict[str, Any]:
+    load = signals.get("load", {}) or {}
+    return {
+        "ctl": round(float(load.get("ctl") or 0.0), 1),
+        "atl": round(float(load.get("atl") or 0.0), 1),
+        "tsb": round(float(load.get("tsb") or 0.0), 1),
+        "form": load.get("form") or "Недостаточно данных",
+    }
+
+
+def _current_signals(db: Database) -> tuple[dict[str, Any], pd.DataFrame | None]:
     df = db.get_activities(90)
-    banister = BanisterModel()
-    if df is None or df.empty:
-        return {"ctl": 0.0, "atl": 0.0, "tsb": 0.0, "form": "Недостаточно данных"}, banister, df
-    tss_data, dates = [], []
-    for _, row in df.iterrows():
-        tss_val = row["tss"] if "tss" in row and pd.notna(row.get("tss")) else 0
-        tss_data.append(float(tss_val or 0))
-        dates.append(row["date"])
-    return banister.get_current_metrics(tss_data, dates), banister, df
+    return assemble_signals(activities_df=df), df
+
+
+def _current_metrics(db: Database):
+    signals, df = _current_signals(db)
+    return _metrics_from_signals(signals), BanisterModel(), df
 
 
 def _start_week(today: Optional[date] = None) -> date:
@@ -137,7 +145,8 @@ def _start_week(today: Optional[date] = None) -> date:
 
 
 def current_status(db: Database) -> Dict[str, Any]:
-    metrics, _banister, _df = _current_metrics(db)
+    signals, _df = _current_signals(db)
+    metrics = _metrics_from_signals(signals)
     checkpoint = summarize_planning_checkpoint(db.get_latest_planning_checkpoint())
     return {
         "metrics": {
@@ -146,6 +155,7 @@ def current_status(db: Database) -> Dict[str, Any]:
             "tsb": round(float(metrics.get("tsb") or 0.0), 1),
             "form": metrics.get("form", "Недостаточно данных"),
         },
+        "signals": signals,
         "has_plan": checkpoint is not None,
         "checkpoint": checkpoint,
         "demand": demand_profile(_persisted_demand_level(db)),

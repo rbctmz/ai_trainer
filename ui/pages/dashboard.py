@@ -20,6 +20,7 @@ from models.planning_checkpoints import (
     with_checkpoint_provenance,
 )
 from models.planning_execution import rebuild_goal_plan_with_adjustment
+from models.signals_engine import assemble_signals, current_status_from_signals
 from services import demo_mode as demo_mode_service
 from services.data_cache import load_activities, load_hrv, load_sleep
 from state import StateManager
@@ -54,8 +55,8 @@ def render_dashboard_page(
             "реальными тренировками и синхронизацией."
         )
 
-    current_status = _calculate_current_status()
     latest_training_status = _get_latest_training_status(database)
+    current_status = _calculate_current_status(training_status=latest_training_status)
 
     _render_dashboard_v2_shell(
         state,
@@ -185,7 +186,10 @@ def _build_dashboard_v2_summary(
     tsb_value = float(current_status.get("tsb") or 0.0)
     ctl_value = float(current_status.get("ctl") or 0.0)
     hrv_value = current_status.get("hrv") or latest_training_status.get("hrv")
-    if current_status.get("critical_status"):
+    if current_status.get("state_label") and current_status.get("tone"):
+        state_label = str(current_status["state_label"])
+        tone = str(current_status["tone"])
+    elif current_status.get("critical_status"):
         state_label = str(current_status["critical_status"])
         tone = "danger"
     elif readiness_number >= 75 and tsb_value > -10:
@@ -332,6 +336,7 @@ def _build_dashboard_v2_summary(
         "next_days": next_days,
         "plan": plan,
         "next_action": next_step,
+        "signals": current_status.get("signals"),
     }
 
 
@@ -507,6 +512,7 @@ def _calculate_current_status(
     activities_df: pd.DataFrame | None = None,
     hrv_df: pd.DataFrame | None = None,
     sleep_df: pd.DataFrame | None = None,
+    training_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     # Streamlit path leaves the arguments empty and uses the cached loaders.
     # Headless callers (e.g. the FastAPI layer) can pass dataframes directly
@@ -518,172 +524,13 @@ def _calculate_current_status(
     if sleep_df is None:
         sleep_df = load_sleep(7)
 
-    status: dict[str, Any] = {
-        "critical_status": None,
-        "critical_action": None,
-        "recommendations": [],
-        "tsb": 0,
-        "hrv": 0,
-        "readiness": 0,
-        "ctl": 0,
-        "trends": {},
-    }
-
-    if not activities_df.empty:
-        from models.banister import BanisterModel
-
-        banister = BanisterModel()
-        tss_data = []
-        dates = []
-
-        for _, row in activities_df.iterrows():
-            tss_val = row.get("tss")
-            if pd.isna(tss_val):
-                tss_val = 0
-            tss_data.append(float(tss_val or 0))
-            dates.append(row["date"])
-
-        current_metrics = banister.get_current_metrics(tss_data, dates)
-        status["tsb"] = current_metrics.get("tsb", 0)
-        status["ctl"] = current_metrics.get("ctl", 0)
-        status["atl"] = current_metrics.get("atl", 0)
-
-        if status["tsb"] < -30:
-            status["critical_status"] = "Критическое переутомление"
-            status["critical_action"] = "Полный отдых 2-3 дня без тренировок"
-            status["recommendations"].extend(
-                [
-                    {
-                        "title": "🚨 Немедленный отдых",
-                        "description": "TSB критически низкий (-30+). Организм в состоянии переутомления.",
-                        "priority": "high",
-                    },
-                    {
-                        "title": "😴 Качество сна",
-                        "description": "Увеличьте сон до 8-9 часов, соблюдайте режим.",
-                        "priority": "high",
-                    },
-                    {
-                        "title": "💧 Восстановление",
-                        "description": "Массаж, баня, легкие прогулки. Никаких интенсивных нагрузок.",
-                        "priority": "medium",
-                    },
-                ]
-            )
-        elif status["tsb"] < -20:
-            status["critical_status"] = "Сильная усталость"
-            status["critical_action"] = "Только легкие восстановительные тренировки в Зоне 1"
-            status["recommendations"].extend(
-                [
-                    {
-                        "title": "🔄 Активное восстановление",
-                        "description": "TSB -20 до -30. Только тренировки в аэробной зоне 1.",
-                        "priority": "high",
-                    },
-                    {
-                        "title": "🍎 Питание",
-                        "description": "Увеличьте потребление белка и углеводов для восстановления.",
-                        "priority": "medium",
-                    },
-                ]
-            )
-        elif status["tsb"] > 5:
-            status["recommendations"].extend(
-                [
-                    {
-                        "title": "🚀 Пиковая форма!",
-                        "description": "TSB выше +5. Отличное время для соревнований или тестов.",
-                        "priority": "low",
-                    },
-                    {
-                        "title": "🎯 Интенсивные тренировки",
-                        "description": "Можно проводить FTP-тесты, интервалы, темповые работы.",
-                        "priority": "low",
-                    },
-                ]
-            )
-        else:
-            status["recommendations"].append(
-                {
-                    "title": "💪 Стандартный режим",
-                    "description": "TSB в норме. Поддерживайте текущий объем тренировок.",
-                    "priority": "low",
-                }
-            )
-
-    if not hrv_df.empty:
-        latest_hrv = hrv_df.iloc[0]["rmssd"] if pd.notna(hrv_df.iloc[0]["rmssd"]) else 0
-        baseline_hrv = hrv_df["rmssd"].mean()
-        status["hrv"] = latest_hrv
-
-        try:
-            from models.hrv_analyzer import HRVAnalyzer
-
-            advanced_score, info = HRVAnalyzer.recovery_score_advanced(hrv_df)
-            if advanced_score is not None:
-                status["hrv_advanced"] = {"score": advanced_score, "info": info}
-        except Exception:
-            pass
-
-        if len(hrv_df) >= 3:
-            recent_trend = hrv_df.head(3)["rmssd"].ffill().pct_change().mean() * 100
-            status["trends"]["hrv"] = recent_trend
-
-        if latest_hrv < baseline_hrv * 0.8 and status["critical_status"] is None:
-            status["critical_status"] = "Низкий HRV - стресс или недовосстановление"
-            status["critical_action"] = "Проверьте качество сна и уровень стресса"
-            status["recommendations"].append(
-                {
-                    "title": "💓 Низкий HRV",
-                    "description": f"HRV ({latest_hrv:.1f}) ниже базового ({baseline_hrv:.1f}) на 20%+",
-                    "priority": "medium",
-                }
-            )
-
-        if latest_hrv < 30:
-            status["recommendations"].append(
-                {
-                    "title": "⚠️ HRV требует внимания",
-                    "description": "Низкая вариабельность сердечного ритма. Фокус на восстановлении.",
-                    "priority": "medium",
-                }
-            )
-        elif latest_hrv > 50:
-            status["recommendations"].append(
-                {
-                    "title": "✨ Отличный HRV",
-                    "description": "Высокая вариабельность - организм готов к нагрузкам.",
-                    "priority": "low",
-                }
-            )
-
-    if not sleep_df.empty or not hrv_df.empty:
-        try:
-            from data.data_processor_phase1 import Phase1DataProcessor
-
-            latest_sleep = {}
-            latest_hrv_entry = {}
-            if not sleep_df.empty:
-                latest_sleep = sleep_df.sort_values("date", ascending=False).iloc[0].to_dict()
-            if not hrv_df.empty:
-                latest_hrv_entry = hrv_df.sort_values("date", ascending=False).iloc[0].to_dict()
-
-            readiness_data = Phase1DataProcessor.calculate_comprehensive_readiness(
-                latest_sleep,
-                latest_hrv_entry,
-                {},
-                {},
-            )
-
-            if readiness_data and "readiness_score" in readiness_data:
-                status["readiness"] = readiness_data["readiness_score"]
-        except Exception:
-            if status["hrv"] > 40 and status["tsb"] > -10:
-                status["readiness"] = 80
-            elif status["hrv"] > 30 and status["tsb"] > -20:
-                status["readiness"] = 60
-            else:
-                status["readiness"] = 40
+    signals = assemble_signals(
+        activities_df=activities_df,
+        hrv_df=hrv_df,
+        sleep_df=sleep_df,
+        training_status=training_status,
+    )
+    status = current_status_from_signals(signals)
 
     logger.debug("Текущий статус: %s", status)
     return status
