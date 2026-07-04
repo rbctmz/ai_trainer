@@ -117,6 +117,12 @@ closed, or receives pending/failing checks, the workflow removes the label.
 This is a signal, not an auto-merge. The maintainer still makes the merge
 decision.
 
+To smoke-test this projection without touching product code, open a small
+structured docs-only issue and PR whose branch name contains the issue number.
+After CI is green, the linked PR should receive `status: ready to merge`
+automatically. If the label is absent, inspect the `PR ready to merge` workflow
+run before merging.
+
 ### CI Failure Loop
 
 Workflow: `.github/workflows/codex-ci-failure.yml`
