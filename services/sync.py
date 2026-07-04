@@ -412,6 +412,25 @@ def _call_client_method(
     return None, last_error
 
 
+def _call_optional_client_method(
+    client: Any,
+    method_name: str,
+    *args: Any,
+    warning_context: str,
+    max_attempts: int = 3,
+) -> tuple[Any, dict[str, Any] | None]:
+    method = getattr(client, method_name, None)
+    if not callable(method):
+        return None, None
+    return _call_client_method(
+        client,
+        method_name,
+        *args,
+        warning_context=warning_context,
+        max_attempts=max_attempts,
+    )
+
+
 def _append_warning(warnings: list[str], message: str) -> None:
     message = str(message or "").strip()
     if not message or message in warnings:
@@ -600,10 +619,43 @@ def _collect_phase1_daily_data(
             if resting_hr_error:
                 _append_warning(warnings, f"⚠️ Garmin resting HR {date_str}: {resting_hr_error.get('message')}")
 
-            if daily_summary or resting_hr:
+            respiration_data, respiration_error = _call_optional_client_method(
+                client,
+                "get_respiration_data",
+                date_value,
+                warning_context=f"respiration {date_str}",
+            )
+            if respiration_error:
+                _append_warning(warnings, f"⚠️ Garmin respiration {date_str}: {respiration_error.get('message')}")
+
+            spo2_data, spo2_error = _call_optional_client_method(
+                client,
+                "get_spo2_data",
+                date_value,
+                warning_context=f"SpO2 {date_str}",
+            )
+            if spo2_error:
+                _append_warning(warnings, f"⚠️ Garmin SpO2 {date_str}: {spo2_error.get('message')}")
+
+            skin_temperature_data, skin_temperature_error = _call_optional_client_method(
+                client,
+                "get_skin_temperature_data",
+                date_value,
+                warning_context=f"skin temperature {date_str}",
+            )
+            if skin_temperature_error:
+                _append_warning(
+                    warnings,
+                    f"⚠️ Garmin skin temperature {date_str}: {skin_temperature_error.get('message')}",
+                )
+
+            if any([daily_summary, resting_hr, respiration_data, spo2_data, skin_temperature_data]):
                 processed_health = Phase1DataProcessor.process_daily_health_data(
                     daily_summary,
                     resting_hr,
+                    respiration_data=respiration_data,
+                    spo2_data=spo2_data,
+                    skin_temperature_data=skin_temperature_data,
                 )
                 if processed_health:
                     daily_health_data[date_str] = processed_health

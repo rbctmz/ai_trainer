@@ -498,6 +498,66 @@ class GarminClient:
         except Exception as e:
             self._remember_error("daily_summary", f"Ошибка получения сводки за {date.strftime('%Y-%m-%d')}: {e}")
             return None
+
+    def get_respiration_data(self, date):
+        """Получение дневных данных дыхания, если Garmin/device их отдаёт."""
+        if not self.is_authenticated or not self.client:
+            return None
+        if not hasattr(self.client, "get_respiration_data"):
+            return None
+
+        date_str = date.strftime("%Y-%m-%d")
+        try:
+            respiration = self.client.get_respiration_data(date_str)
+            self._clear_last_error()
+            return respiration
+        except Exception as e:
+            self._remember_error("respiration", f"Ошибка получения respiration за {date_str}: {e}")
+            return None
+
+    def get_spo2_data(self, date):
+        """Получение дневных SpO2 данных, если Garmin/device их отдаёт."""
+        if not self.is_authenticated or not self.client:
+            return None
+        if not hasattr(self.client, "get_spo2_data"):
+            return None
+
+        date_str = date.strftime("%Y-%m-%d")
+        try:
+            spo2 = self.client.get_spo2_data(date_str)
+            self._clear_last_error()
+            return spo2
+        except Exception as e:
+            self._remember_error("spo2", f"Ошибка получения SpO2 за {date_str}: {e}")
+            return None
+
+    def get_skin_temperature_data(self, date):
+        """Future-compatible hook for skin/wrist temperature data.
+
+        The installed garminconnect/garth clients do not currently expose a
+        stable skin temperature method. If a future client adds one, this hook
+        starts collecting it without changing the sync orchestration.
+        """
+        if not self.is_authenticated or not self.client:
+            return None
+
+        for method_name in ("get_skin_temperature_data", "get_skin_temp_data", "get_wrist_temperature_data"):
+            method = getattr(self.client, method_name, None)
+            if not callable(method):
+                continue
+            date_str = date.strftime("%Y-%m-%d")
+            try:
+                skin_temperature = method(date_str)
+                self._clear_last_error()
+                return skin_temperature
+            except Exception as e:
+                self._remember_error(
+                    "skin_temperature",
+                    f"Ошибка получения skin temperature за {date_str}: {e}",
+                )
+                return None
+
+        return None
     
     def get_training_status(self):
         """Получение текущего статуса тренированности"""
@@ -662,7 +722,10 @@ class GarminClient:
             'sleep': None,
             'resting_hr': None,
             'daily_summary': None,
-            'steps': None
+            'steps': None,
+            'respiration': None,
+            'spo2': None,
+            'skin_temperature': None,
         }
         
         # Собираем все данные
@@ -683,6 +746,21 @@ class GarminClient:
             
         try:
             comprehensive_data['steps'] = self.get_daily_steps(date)
+        except Exception:
+            pass
+
+        try:
+            comprehensive_data['respiration'] = self.get_respiration_data(date)
+        except Exception:
+            pass
+
+        try:
+            comprehensive_data['spo2'] = self.get_spo2_data(date)
+        except Exception:
+            pass
+
+        try:
+            comprehensive_data['skin_temperature'] = self.get_skin_temperature_data(date)
         except Exception:
             pass
         

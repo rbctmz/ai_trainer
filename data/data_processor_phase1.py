@@ -176,9 +176,15 @@ class Phase1DataProcessor:
         return processed_data
 
     @staticmethod
-    def process_daily_health_data(health_raw_data, resting_hr_data=None):
+    def process_daily_health_data(
+        health_raw_data,
+        resting_hr_data=None,
+        respiration_data=None,
+        spo2_data=None,
+        skin_temperature_data=None,
+    ):
         """Обработка ежедневных показателей здоровья"""
-        if not health_raw_data and not resting_hr_data:
+        if not any([health_raw_data, resting_hr_data, respiration_data, spo2_data, skin_temperature_data]):
             return None
         
         processed_data = {}
@@ -202,12 +208,137 @@ class Phase1DataProcessor:
                 else:
                     # Если это просто значение
                     processed_data['resting_hr'] = resting_hr_data
+
+            respiration_avg = Phase1DataProcessor._extract_numeric_by_keys(
+                respiration_data,
+                (
+                    'avgWakingRespirationValue',
+                    'avgSleepRespirationValue',
+                    'averageRespirationValue',
+                    'averageRespiration',
+                    'avgRespiration',
+                    'avgRespirationRate',
+                    'respirationRate',
+                ),
+            )
+            respiration_min = Phase1DataProcessor._extract_numeric_by_keys(
+                respiration_data,
+                (
+                    'lowestRespirationValue',
+                    'minRespirationValue',
+                    'minimumRespirationValue',
+                    'minRespirationRate',
+                ),
+            )
+            respiration_max = Phase1DataProcessor._extract_numeric_by_keys(
+                respiration_data,
+                (
+                    'highestRespirationValue',
+                    'maxRespirationValue',
+                    'maximumRespirationValue',
+                    'maxRespirationRate',
+                ),
+            )
+            if respiration_avg is not None:
+                processed_data['respiration_avg'] = respiration_avg
+            if respiration_min is not None:
+                processed_data['respiration_min'] = respiration_min
+            if respiration_max is not None:
+                processed_data['respiration_max'] = respiration_max
+
+            spo2_avg = Phase1DataProcessor._extract_numeric_by_keys(
+                spo2_data,
+                (
+                    'averageSpO2',
+                    'avgSpO2',
+                    'avgSpo2',
+                    'averageSpo2',
+                    'overallAverageSpO2',
+                    'overallAverageSpo2',
+                ),
+            )
+            spo2_min = Phase1DataProcessor._extract_numeric_by_keys(
+                spo2_data,
+                (
+                    'lowestSpO2',
+                    'lowestSpo2',
+                    'minimumSpO2',
+                    'minimumSpo2',
+                    'minSpO2',
+                    'minSpo2',
+                ),
+            )
+            if spo2_avg is not None:
+                processed_data['spo2_avg'] = spo2_avg
+            if spo2_min is not None:
+                processed_data['spo2_min'] = spo2_min
+
+            skin_temperature_avg = Phase1DataProcessor._extract_numeric_by_keys(
+                skin_temperature_data,
+                (
+                    'avgSkinTempCelsius',
+                    'averageSkinTemperature',
+                    'averageSkinTempCelsius',
+                    'avgWristTemperature',
+                    'wristTemperature',
+                    'skinTemperature',
+                    'averageDeviationCelsius',
+                ),
+            )
+            if skin_temperature_avg is not None:
+                processed_data['skin_temperature_avg'] = skin_temperature_avg
             
         except Exception as e:
             print(f"Ошибка обработки показателей здоровья: {e}")
             return None
         
         return processed_data
+
+    @staticmethod
+    def _normalize_payload_key(key: Any) -> str:
+        return ''.join(ch for ch in str(key).lower() if ch.isalnum())
+
+    @staticmethod
+    def _payload_number(value: Any) -> Optional[float]:
+        if value is None:
+            return None
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, dict):
+            for nested_key in ('value', 'avg', 'average', 'mean'):
+                if nested_key in value:
+                    return Phase1DataProcessor._payload_number(value.get(nested_key))
+        return None
+
+    @staticmethod
+    def _extract_numeric_by_keys(payload: Any, keys: Tuple[str, ...]) -> Optional[float]:
+        """Find the first numeric Garmin metric matching any known key."""
+        if payload is None:
+            return None
+
+        wanted = {Phase1DataProcessor._normalize_payload_key(key) for key in keys}
+
+        def _walk(node: Any) -> Optional[float]:
+            if isinstance(node, dict):
+                for key, value in node.items():
+                    if Phase1DataProcessor._normalize_payload_key(key) in wanted:
+                        candidate = Phase1DataProcessor._payload_number(value)
+                        if candidate is not None:
+                            return candidate
+                for value in node.values():
+                    candidate = _walk(value)
+                    if candidate is not None:
+                        return candidate
+            elif isinstance(node, list):
+                for item in node:
+                    candidate = _walk(item)
+                    if candidate is not None:
+                        return candidate
+            return None
+
+        return _walk(payload)
 
     @staticmethod
     def _parse_local_timestamp(value):
