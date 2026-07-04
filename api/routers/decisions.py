@@ -25,6 +25,9 @@ def list_decisions(
     by_date: dict[str, list[dict[str, Any]]] = {}
     proposal_grouped: list[dict[str, Any]] = []
     proposals_by_date: dict[str, list[dict[str, Any]]] = {}
+    pending_proposal_grouped: list[dict[str, Any]] = []
+    pending_proposals_by_date: dict[str, list[dict[str, Any]]] = {}
+    pending_proposal_count = 0
 
     for row in rows:
         day = str(row.get("date") or "")[:10]
@@ -47,6 +50,14 @@ def list_decisions(
             proposals_by_date[day] = []
             proposal_grouped.append({"date": day, "proposals": proposals_by_date[day]})
         proposals_by_date[day].append(item)
+        if item.get("status") == "pending":
+            pending_proposal_count += 1
+            if day not in pending_proposals_by_date:
+                pending_proposals_by_date[day] = []
+                pending_proposal_grouped.append(
+                    {"date": day, "proposals": pending_proposals_by_date[day]}
+                )
+            pending_proposals_by_date[day].append(item)
 
     has_data = bool(grouped or proposal_grouped)
     latest_data_at = None
@@ -62,6 +73,8 @@ def list_decisions(
         "days": grouped,
         "proposal_count": len(proposal_rows),
         "proposal_days": proposal_grouped,
+        "pending_proposal_count": pending_proposal_count,
+        "pending_proposal_days": pending_proposal_grouped,
         "operational_state": build_operational_state(
             db,
             demo=demo,

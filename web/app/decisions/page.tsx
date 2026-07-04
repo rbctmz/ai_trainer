@@ -1,15 +1,28 @@
 "use client";
 
+import { useState } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import type { CoachDecisionsResponse, CoachProposal } from "@/lib/types";
 import { DecisionEntry } from "@/components/ui/DecisionEntry";
+import { ProposalCard } from "@/components/ui/ProposalCard";
 
 export default function DecisionsPage() {
-  const { data, error, isLoading } = useSWR<CoachDecisionsResponse>(
+  const { data, error, isLoading, mutate } = useSWR<CoachDecisionsResponse>(
     "/api/decisions?days=30",
     fetcher,
   );
+  const [notice, setNotice] = useState<string | null>(null);
+  const pendingProposalDays = data?.pending_proposal_days ?? [];
+  const historyProposalDays = (data?.proposal_days ?? [])
+    .map((day) => ({
+      ...day,
+      proposals: day.proposals.filter((proposal) => proposal.status !== "pending"),
+    }))
+    .filter((day) => day.proposals.length > 0);
+  const pendingProposalCount =
+    data?.pending_proposal_count ??
+    pendingProposalDays.reduce((total, day) => total + day.proposals.length, 0);
 
   return (
     <main className="space-y-5">
@@ -21,10 +34,60 @@ export default function DecisionsPage() {
           Не удалось загрузить решения. Запущен ли API на :8000?
         </div>
       ) : null}
+      {notice ? (
+        <div className="rounded-card border border-tone-success/30 bg-tone-success/10 p-4 text-sm text-tone-success">
+          {notice}
+        </div>
+      ) : null}
 
       {data?.has_data ? (
         <div className="space-y-4">
-          {(data.proposal_days ?? []).map((day) => (
+          {pendingProposalDays.length > 0 ? (
+            <section className="rounded-card border border-accent/30 bg-accent/10 p-4 shadow-card">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-sm font-semibold uppercase tracking-wide text-accent">
+                    Ожидают подтверждения
+                  </h2>
+                  <p className="mt-1 text-sm text-ink-soft">
+                    Эти изменения не попадут в план, пока ты явно не подтвердишь их.
+                  </p>
+                </div>
+                <span className="rounded-full bg-surface/80 px-2 py-1 text-xs font-medium text-ink-soft">
+                  {pendingProposalCount}
+                </span>
+              </div>
+              <div className="mt-4 space-y-4">
+                {pendingProposalDays.map((day) => (
+                  <div key={`pending-${day.date}`} className="space-y-3">
+                    <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+                      {day.date}
+                    </div>
+                    {day.proposals.map((proposal) => (
+                      <ProposalCard
+                        key={proposal.id}
+                        proposalId={proposal.id}
+                        action={proposal.action}
+                        status={proposal.status}
+                        params={proposal.params}
+                        preview={proposal.preview}
+                        onConfirmed={(message) => {
+                          setNotice(message);
+                          void mutate();
+                        }}
+                        onCancelled={(message) => {
+                          setNotice(message ?? "Отклонено: план не изменён.");
+                          void mutate();
+                        }}
+                      />
+                    ))}
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          {historyProposalDays.map((day) => (
             <section
               key={`proposals-${day.date}`}
               className="rounded-card border border-surface-border bg-surface p-4 shadow-card"
