@@ -47,8 +47,13 @@ def dashboard_summary(
     hrv_df = db.get_hrv_data(90)
     sleep_df = db.get_sleep_data(7)
 
-    current_status = _calculate_current_status(activities_df, hrv_df, sleep_df)
     latest_training_status = _get_latest_training_status(db)
+    current_status = _calculate_current_status(
+        activities_df,
+        hrv_df,
+        sleep_df,
+        training_status=latest_training_status,
+    )
     summary = _build_dashboard_v2_summary(
         state,
         current_status,
@@ -58,6 +63,7 @@ def dashboard_summary(
     return {
         "has_data": True,
         "summary": summary,
+        "signals": current_status.get("signals"),
         "operational_state": build_operational_state(
             db,
             demo=demo,
@@ -293,20 +299,19 @@ def dashboard_widgets(
 
     empty = activities_df is None or activities_df.empty
     empty_30 = activities_df_30 is None or activities_df_30.empty
-    current_status = _calculate_current_status(
-        activities_df_30 if not empty_30 else pd.DataFrame(), hrv_df, sleep_df
-    )
     latest_training_status = _get_latest_training_status(db)
+    current_status = _calculate_current_status(
+        activities_df_30 if not empty_30 else pd.DataFrame(),
+        hrv_df,
+        sleep_df,
+        training_status=latest_training_status,
+    )
     goal_plan = _get_dashboard_goal_plan(state)
 
     ctl = float(current_status.get("ctl") or 0)
     tsb = float(current_status.get("tsb") or 0)
     hrv = current_status.get("hrv") or latest_training_status.get("hrv")
-    readiness = float(
-        latest_training_status.get("training_readiness")
-        or current_status.get("readiness")
-        or 0
-    )
+    readiness = float(current_status.get("readiness") or 0)
 
     # Latest sleep
     sleep_hours: float | None = None
@@ -346,4 +351,5 @@ def dashboard_widgets(
         "race_projection": _calculate_race_projection(
             goal_plan, ctl, tsb, activities_df if not empty else None
         ),
+        "signals": current_status.get("signals"),
     }

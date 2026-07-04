@@ -10,9 +10,10 @@ from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional, Callable
 from api import planning_service
 from data.database import Database
-from models.banister import BanisterModel, tsb_zone
+from models.banister import tsb_zone
 from models.hrv_analyzer import HRVAnalyzer
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+from models.signals_engine import assemble_signals
 from utils.product_semantics import (
     format_date_label,
     normalize_training_status_key,
@@ -48,7 +49,6 @@ class AITools:
     
     def __init__(self, database: Database):
         self.db = database
-        self.banister = BanisterModel()
         self.hrv_analyzer = HRVAnalyzer()
         
         # Регистрируем доступные инструменты
@@ -231,26 +231,29 @@ class AITools:
         if df.empty:
             return {"message": "Нет данных для расчета метрик производительности"}
         
-        # Подготавливаем данные для модели Банистера
+        signals = assemble_signals(activities_df=df)
+        load = signals["load"]
         tss_data = []
-        dates = []
         
         for _, row in df.iterrows():
             tss_val = row.get("tss", 0)
             if pd.isna(tss_val):
                 tss_val = 0
             tss_data.append(float(tss_val))
-            dates.append(row["date"])
-        
-        metrics = self.banister.get_current_metrics(tss_data, dates)
+
+        ctl = float(load["ctl"])
+        atl = float(load["atl"])
+        tsb = float(load["tsb"])
         
         return {
-            "ctl": float(metrics["ctl"]),
-            "atl": float(metrics["atl"]),
-            "tsb": float(metrics["tsb"]),
-            "form_state": self._interpret_tsb(metrics["tsb"]),
+            "ctl": ctl,
+            "atl": atl,
+            "tsb": tsb,
+            "form_state": self._interpret_tsb(tsb),
             "fitness_trend": self._calculate_fitness_trend(tss_data),
-            "fatigue_level": self._interpret_atl(metrics["atl"])
+            "fatigue_level": self._interpret_atl(atl),
+            "signals": signals,
+            "signal_source": signals["source"],
         }
     
     def get_recent_activities(self, limit: int = 10) -> Dict[str, Any]:
