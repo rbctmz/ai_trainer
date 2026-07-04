@@ -105,6 +105,32 @@ CI runs the contributor-safe test contour. The Codex review workflow requests
 review on PRs. A PR is mergeable only after checks are green and the maintainer
 accepts the result.
 
+### Ready-To-Merge Projection
+
+Workflow: `.github/workflows/pr-ready-to-merge.yml`
+
+When a linked PR is open, not draft, mergeable with a clean merge state, and all
+current-head check runs are green, GitHub Actions adds `status: ready to merge`
+and posts a short readiness comment. If the PR becomes draft, dirty, unlinked,
+closed, or receives pending/failing checks, the workflow removes the label.
+
+This is a signal, not an auto-merge. The maintainer still makes the merge
+decision.
+
+### CI Failure Loop
+
+Workflow: `.github/workflows/codex-ci-failure.yml`
+
+When the `CI` workflow fails on an open PR, GitHub Actions posts one structured
+comment for that workflow run. The comment includes the workflow run URL, failed
+job names when GitHub exposes them, and an `@codex` ping when the PR is
+agent-owned. A PR is treated as agent-owned when its branch starts with
+`codex/` or one of its linked issues has `agent: codex`.
+
+This closes the "PR exists but CI is red" gap in the loop. The agent still needs
+to inspect the failure and push a fix; the workflow only turns the failure into
+an actionable prompt.
+
 ## Maker-Checker In This Repo
 
 Current maker-checker is practical, not theatrical:
@@ -127,6 +153,8 @@ An agent task is not complete until:
 - PR exists against `main`
 - PR body links the issue with `Closes #<issue>`
 - checks are green or blockers are explicit
+- `status: ready to merge` is present when the PR satisfies the readiness gate
+  (or the reason it is absent is understood)
 - merge decision is made by a human
 
 For local maintenance without an issue, the local equivalent is:

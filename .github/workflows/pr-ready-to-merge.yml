@@ -1,0 +1,258 @@
+name: PR ready to merge
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited, closed]
+  workflow_run:
+    workflows: ["CI", "Codex Review", "Link PR to issue", "Project roadmap sync"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: "Optional PR number. Leave empty to recompute all open PRs."
+        required: false
+
+permissions:
+  checks: read
+  contents: read
+  issues: write
+  pull-requests: read
+
+jobs:
+  ready-to-merge:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Project PR readiness into labels
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const READY_LABEL = 'status: ready to merge';
+            const READY_MARKER_PREFIX = '<!-- pr-ready-to-merge:';
+            const OK_CONCLUSIONS = new Set(['success', 'skipped', 'neutral']);
+            const IGNORED_CHECK_NAMES = new Set(['ready-to-merge']);
+
+            const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+            const issueNumbersFromPr = (pr) => {
+              const issueNums = new Set();
+              const body = pr.body || '';
+              const title = pr.title || '';
+              const branch = pr.head?.ref || '';
+              for (const match of body.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
+                issueNums.add(parseInt(match[1], 10));
+              }
+              for (const match of title.matchAll(/(?:^|\s)#(\d+)\b/g)) {
+                issueNums.add(parseInt(match[1], 10));
+              }
+              for (const match of branch.matchAll(/(?:^|[\/_-])issue[\/_-]?(\d+)(?:$|[\/_-])/gi)) {
+                issueNums.add(parseInt(match[1], 10));
+              }
+              return [...issueNums];
+            };
+
+            const ensureReadyLabel = async () => {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: READY_LABEL,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: READY_LABEL,
+                  color: '0E8A16',
+                  description: 'All checks green and PR is clean; human merge decision still required',
+                });
+              }
+            };
+
+            const currentLabels = async (prNumber) => {
+              const { data: issue } = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+              });
+              return new Set((issue.labels || []).map(label =>
+                typeof label === 'string' ? label : label.name
+              ));
+            };
+
+            const addReadyLabel = async (prNumber) => {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                labels: [READY_LABEL],
+              });
+            };
+
+            const removeReadyLabel = async (prNumber) => {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: prNumber,
+                  name: READY_LABEL,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            };
+
+            const getPrNumbers = async () => {
+              const nums = new Set();
+
+              if (context.eventName === 'pull_request') {
+                nums.add(context.payload.pull_request.number);
+              } else if (context.eventName === 'workflow_run') {
+                const run = context.payload.workflow_run;
+                for (const pr of run.pull_requests || []) {
+                  if (pr.number) nums.add(pr.number);
+                }
+                if (nums.size === 0 && run.head_branch) {
+                  const { data: prs } = await github.rest.pulls.list({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    state: 'open',
+                    head: `${context.repo.owner}:${run.head_branch}`,
+                    per_page: 20,
+                  });
+                  for (const pr of prs) nums.add(pr.number);
+                }
+              } else if (context.eventName === 'workflow_dispatch') {
+                const input = (context.payload.inputs?.pr || '').trim();
+                if (input) {
+                  nums.add(parseInt(input, 10));
+                } else {
+                  const prs = await github.paginate(github.rest.pulls.list, {
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    state: 'open',
+                    per_page: 100,
+                  });
+                  for (const pr of prs) nums.add(pr.number);
+                }
+              }
+
+              return [...nums].filter(Number.isFinite);
+            };
+
+            const getPr = async (prNumber) => {
+              let { data: pr } = await github.rest.pulls.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: prNumber,
+              });
+              if (pr.mergeable === null) {
+                await sleep(2000);
+                ({ data: pr } = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: prNumber,
+                }));
+              }
+              return pr;
+            };
+
+            const checkState = async (pr) => {
+              const { data } = await github.rest.checks.listForRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: pr.head.sha,
+                per_page: 100,
+              });
+              const relevant = (data.check_runs || []).filter(run =>
+                !IGNORED_CHECK_NAMES.has(run.name)
+              );
+
+              if (relevant.length === 0) {
+                return { ready: false, reason: 'no current-head check runs found' };
+              }
+
+              const pending = relevant.filter(run => run.status !== 'completed');
+              if (pending.length > 0) {
+                return {
+                  ready: false,
+                  reason: `pending checks: ${pending.map(run => run.name).join(', ')}`,
+                };
+              }
+
+              const failing = relevant.filter(run => !OK_CONCLUSIONS.has(run.conclusion || ''));
+              if (failing.length > 0) {
+                return {
+                  ready: false,
+                  reason: `non-green checks: ${failing.map(run => `${run.name}=${run.conclusion}`).join(', ')}`,
+                };
+              }
+
+              return { ready: true, reason: `${relevant.length} check runs green` };
+            };
+
+            const ensureReadyComment = async (pr, issueNums, checkReason) => {
+              const marker = `${READY_MARKER_PREFIX}${pr.head.sha} -->`;
+              const comments = await github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                per_page: 100,
+              });
+              if (comments.some(comment => (comment.body || '').includes(marker))) return;
+
+              const issueText = issueNums.map(num => `#${num}`).join(', ');
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: [
+                  marker,
+                  `**Ready to merge**`,
+                  ``,
+                  `This PR is linked to ${issueText}, all current-head checks are green, and GitHub reports merge state \`clean\`.`,
+                  ``,
+                  `Check summary: ${checkReason}.`,
+                  ``,
+                  `Human merge decision is still required.`,
+                ].join('\n'),
+              });
+            };
+
+            await ensureReadyLabel();
+            const prNumbers = await getPrNumbers();
+            core.info(`Evaluating PRs: ${prNumbers.join(', ') || '(none)'}`);
+
+            for (const prNumber of prNumbers) {
+              const pr = await getPr(prNumber);
+              const labels = await currentLabels(prNumber);
+              const hasReadyLabel = labels.has(READY_LABEL);
+
+              if (pr.state !== 'open') {
+                if (hasReadyLabel) await removeReadyLabel(prNumber);
+                core.info(`PR #${prNumber}: not open`);
+                continue;
+              }
+
+              const issueNums = issueNumbersFromPr(pr);
+              if (pr.draft || issueNums.length === 0 || pr.mergeable !== true || pr.mergeable_state !== 'clean') {
+                if (hasReadyLabel) await removeReadyLabel(prNumber);
+                core.info(
+                  `PR #${prNumber}: not ready ` +
+                  `(draft=${pr.draft}, issues=${issueNums.length}, mergeable=${pr.mergeable}, mergeable_state=${pr.mergeable_state})`
+                );
+                continue;
+              }
+
+              const checks = await checkState(pr);
+              if (!checks.ready) {
+                if (hasReadyLabel) await removeReadyLabel(prNumber);
+                core.info(`PR #${prNumber}: not ready (${checks.reason})`);
+                continue;
+              }
+
+              if (!hasReadyLabel) await addReadyLabel(prNumber);
+              await ensureReadyComment(pr, issueNums, checks.reason);
+              core.info(`PR #${prNumber}: ready to merge`);
+            }
