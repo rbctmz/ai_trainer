@@ -16,7 +16,7 @@ permissions:
   checks: read
   contents: read
   issues: write
-  pull-requests: read
+  pull-requests: write
 
 jobs:
   ready-to-merge:

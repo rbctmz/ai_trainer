@@ -121,7 +121,8 @@ To smoke-test this projection without touching product code, open a small
 structured docs-only issue and PR whose branch name contains the issue number.
 After CI is green, the linked PR should receive `status: ready to merge`
 automatically. If the label is absent, inspect the `PR ready to merge` workflow
-run before merging.
+run before merging; missing PR write permissions will show as a 403 while adding
+labels or comments.
 
 ### CI Failure Loop
 
