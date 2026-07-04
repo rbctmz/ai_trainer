@@ -205,6 +205,8 @@ export interface CoachDecisionsResponse {
   days: CoachDecisionDay[];
   proposal_count?: number;
   proposal_days?: CoachProposalDay[];
+  pending_proposal_count?: number;
+  pending_proposal_days?: CoachProposalDay[];
   operational_state?: Record<string, unknown>;
 }
 

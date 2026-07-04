@@ -125,7 +125,7 @@ def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path
 
     db = Database(str(tmp_path / "decision_proposals.db"))
     db.save_coach_decision("Monitor", "Недостаточно сильного сигнала.", date="2026-07-02T09:00:00")
-    proposal = db.save_coach_proposal(
+    pending = db.save_coach_proposal(
         action="build_plan",
         params={
             "goal_type": "Триатлон",
@@ -136,15 +136,28 @@ def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path
         preview={"total_weeks": 8},
         date="2026-07-02T09:01:00",
     )
+    approved = db.save_coach_proposal(
+        action="adjust_plan",
+        params={"rows": [], "weeks": 1},
+        preview={"adjustment_status": "preview"},
+        date="2026-07-02T09:02:00",
+    )
+    db.update_coach_proposal_status(approved["id"], "approved", result={"plan_id": "1"})
 
     payload = list_decisions(db=db)
 
     assert payload["count"] == 1
     assert len(payload["days"]) == 1
-    assert payload["proposal_count"] == 1
+    assert payload["proposal_count"] == 2
     assert payload["proposal_days"][0]["date"] == "2026-07-02"
-    assert payload["proposal_days"][0]["proposals"][0]["id"] == proposal["id"]
-    assert payload["proposal_days"][0]["proposals"][0]["status"] == "pending"
+    assert [item["id"] for item in payload["proposal_days"][0]["proposals"]] == [
+        approved["id"],
+        pending["id"],
+    ]
+    assert payload["pending_proposal_count"] == 1
+    assert payload["pending_proposal_days"][0]["date"] == "2026-07-02"
+    assert payload["pending_proposal_days"][0]["proposals"][0]["id"] == pending["id"]
+    assert payload["pending_proposal_days"][0]["proposals"][0]["status"] == "pending"
 
 
 def test_approve_build_plan_proposal_persists_checkpoint(tmp_path):
