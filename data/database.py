@@ -1333,7 +1333,6 @@ class Database:
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         columns = self._DAILY_HEALTH_COLUMN_ORDER
-        update_clause = ', '.join(f"{column}=?" for column in columns)
         insert_columns = ['date'] + columns
         insert_placeholders = ', '.join('?' for _ in insert_columns)
         
@@ -1348,8 +1347,13 @@ class Database:
             clean_date = self.clean_value(date_str)
             
             if clean_date in existing_dates:
-                # Обновляем существующую запись
-                column_values = [self.clean_value(data.get(column)) for column in columns]
+                # Обновляем только переданные поля: отсутствующий ключ означает
+                # «нет данных за этот проход» и не должен затирать сохранённое значение NULL-ом
+                present_columns = [column for column in columns if column in data]
+                if not present_columns:
+                    continue
+                update_clause = ', '.join(f"{column}=?" for column in present_columns)
+                column_values = [self.clean_value(data.get(column)) for column in present_columns]
                 cursor.execute(
                     f'UPDATE daily_health SET {update_clause} WHERE date=?',
                     (*column_values, clean_date),
