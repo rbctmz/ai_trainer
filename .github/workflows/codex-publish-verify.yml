@@ -56,7 +56,7 @@ jobs:
               const prTitle = pr.title || '';
               const branch = pr.head?.ref || '';
               const byBody = new RegExp(`(?:closes|fixes|resolves)\\s+#${targetIssue}\\b`, 'i').test(prBody);
-              const byTitle = new RegExp(`(?:^|\\s)#${targetIssue}\\b`, 'i').test(prTitle);
+              const byTitle = new RegExp(`(?:closes|fixes|resolves)\\s+#${targetIssue}\\b`, 'i').test(prTitle);
               const byBranch = new RegExp(`(?:^|[\\/_-])(?:issue[\\/_-]?)?${targetIssue}(?:$|[\\/_-])`, 'i').test(branch);
               return byBody || byTitle || byBranch;
             };

@@ -38,7 +38,7 @@ jobs:
               const title = pr.title || '';
               const ref = pr.head?.ref || '';
               const byBody = new RegExp(`(?:closes|fixes|resolves)\\s+#${issueNumber}\\b`, 'i').test(body);
-              const byTitle = new RegExp(`(?:^|\\s)#${issueNumber}\\b`, 'i').test(title);
+              const byTitle = new RegExp(`(?:closes|fixes|resolves)\\s+#${issueNumber}\\b`, 'i').test(title);
               const byBranch = new RegExp(`(?:^|[\\/_-])(?:issue[\\/_-]?)?${issueNumber}(?:$|[\\/_-])`, 'i').test(ref);
               return byBody || byTitle || byBranch;
             };
@@ -51,7 +51,7 @@ jobs:
               for (const match of body.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
                 issueNums.add(parseInt(match[1], 10));
               }
-              for (const match of title.matchAll(/(?:^|\s)#(\d+)\b/g)) {
+              for (const match of title.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
                 issueNums.add(parseInt(match[1], 10));
               }
               for (const match of branch.matchAll(/(?:^|[\/_-])issue[\/_-]?(\d+)(?:$|[\/_-])/gi)) {
