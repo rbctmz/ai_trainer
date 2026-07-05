@@ -7,13 +7,13 @@ import logging
 import time
 from typing import Any, Callable, Dict
 
-from config.settings import Settings
-from data.data_processor import ActivityProcessor
+from data.data_processor import ActivityProcessor, resolve_athlete_ftp_lthr
 from data.data_processor_phase1 import Phase1DataProcessor
 from services.data_cache import clear_data_caches
 from state import StateManager
 
 from . import garmin as garmin_service
+from . import intervals_icu as intervals_icu_service
 
 
 logger = logging.getLogger(__name__)
@@ -241,6 +241,15 @@ def sync_garmin_data(
     database = state.database
     window = resolve_sync_window(database, days)
     result = GarminSyncResult(mode=window.mode, days=window.days)
+
+    # Refresh the athlete's FTP/weight/LTHR from Intervals.icu (issue #102) before
+    # resolving any activity's TSS this run, so a freshly-synced FTP is used
+    # immediately rather than only on the *next* sync. A missing configuration
+    # or a failed request is folded into warnings, never raised: this is an
+    # optional signal the rest of the Garmin sync does not depend on.
+    profile_sync = intervals_icu_service.sync_athlete_profile(database)
+    if not profile_sync["synced"] and profile_sync["reason"] != "not_configured":
+        result.warnings.append(f"⚠️ Intervals.icu athlete profile: {profile_sync['reason']}")
 
     start_date, end_date, days = window.start_date, window.end_date, window.days
     date_list = _build_date_list(start_date, end_date)
@@ -519,14 +528,15 @@ def _sync_activities(database: Any, activities: list[dict[str, Any]]) -> SyncCou
     if df.empty:
         return _empty_activity_counts()
 
+    ftp, lthr = resolve_athlete_ftp_lthr(database)
     resolved_activities = []
     for _, row in df.iterrows():
         activity_dict = row.to_dict()
         activity_dict.update(
             ActivityProcessor.resolve_tss(
                 activity_dict,
-                ftp=Settings.USER_FTP,
-                lthr=Settings.USER_LTHR,
+                ftp=ftp,
+                lthr=lthr,
             )
         )
         resolved_activities.append(activity_dict)

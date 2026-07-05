@@ -2,7 +2,21 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 
+from config.settings import Settings
 from utils.product_semantics import normalize_sport_key
+
+
+def resolve_athlete_ftp_lthr(database):
+    """Return (ftp, lthr) to use for TSS math: the athlete's Intervals.icu-synced
+    profile when available, falling back to the static Settings.USER_FTP/USER_LTHR
+    for any field the synced profile does not have (or when nothing has been
+    synced yet)."""
+    profile = database.get_athlete_profile()
+    if not profile:
+        return Settings.USER_FTP, Settings.USER_LTHR
+    ftp = profile.get('ftp') or Settings.USER_FTP
+    lthr = profile.get('lthr') or Settings.USER_LTHR
+    return ftp, lthr
 
 class ActivityProcessor:
     _GARMIN_SOURCE_TSS_KEYS = (
@@ -179,6 +193,7 @@ class ActivityProcessor:
                     'max_hr': activity.get('maxHR') if activity.get('maxHR') else None,
                     'avg_power': ActivityProcessor._extract_first_numeric(activity, 'avgPower', 'averagePower'),
                     'max_power': activity.get('maxPower') if activity.get('maxPower') else None,
+                    'normalized_power': ActivityProcessor._extract_first_numeric(activity, 'normPower', 'normalizedPower'),
                     'elevation_gain': float(activity.get('elevationGain', 0)) if activity.get('elevationGain') else 0,
                     'calories': int(activity.get('calories', 0)) if activity.get('calories') else 0,
                     'training_effect': float(activity.get('aerobicTrainingEffect', 0)) if activity.get('aerobicTrainingEffect') else None,
@@ -226,20 +241,31 @@ class ActivityProcessor:
                 'source_tss': garmin_training_load,
                 'garmin_training_load': garmin_training_load,
                 'tss_method': 'no_duration',
+                'tss_ftp_used': None,
             }
 
         sport_key = normalize_sport_key(activity_data.get('sport'))
         avg_power = cls._safe_float(activity_data.get('avg_power'))
+        normalized_power = cls._safe_float(activity_data.get('normalized_power'))
         avg_hr = cls._safe_float(activity_data.get('avg_hr'))
 
         if sport_key == 'bike':
-            power_tss = cls._power_tss(duration_minutes, avg_power, ftp)
+            # Normalized power (NP) reflects variable-intensity efforts (surges,
+            # coasting) far better than a flat average; Garmin already computes
+            # and returns it as normPower in the same payload as avgPower, so we
+            # only fall back to avg_power when NP is unavailable.
+            power_tss = cls._power_tss(
+                duration_minutes,
+                normalized_power if normalized_power is not None else avg_power,
+                ftp,
+            )
             if power_tss is not None:
                 return {
                     'tss': power_tss,
                     'source_tss': garmin_training_load,
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'power_tss_bike',
+                    'tss_ftp_used': ftp,
                 }
             bike_zone_tss = cls._zone_weighted_tss(activity_data, cls._BIKE_HR_ZONE_TSS_WEIGHTS)
             if bike_zone_tss is not None:
@@ -248,6 +274,7 @@ class ActivityProcessor:
                     'source_tss': garmin_training_load,
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_zone_tss_bike',
+                    'tss_ftp_used': None,
                 }
             hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
             if hr_tss is not None:
@@ -256,6 +283,7 @@ class ActivityProcessor:
                     'source_tss': garmin_training_load,
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_tss_bike',
+                    'tss_ftp_used': None,
                 }
         elif sport_key == 'swim':
             swim_zone_tss = cls._zone_weighted_tss(activity_data, cls._SWIM_HR_ZONE_TSS_WEIGHTS)
@@ -265,6 +293,7 @@ class ActivityProcessor:
                     'source_tss': garmin_training_load,
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_zone_tss_swim',
+                    'tss_ftp_used': None,
                 }
             hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
             if hr_tss is not None:
@@ -273,6 +302,7 @@ class ActivityProcessor:
                     'source_tss': garmin_training_load,
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_tss_swim',
+                    'tss_ftp_used': None,
                 }
         elif sport_key == 'run':
             run_zone_tss = cls._zone_weighted_tss(activity_data, cls._RUN_HR_ZONE_TSS_WEIGHTS)
@@ -282,6 +312,7 @@ class ActivityProcessor:
                     'source_tss': garmin_training_load,
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_zone_tss_run',
+                    'tss_ftp_used': None,
                 }
             hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
             if hr_tss is not None:
@@ -290,6 +321,7 @@ class ActivityProcessor:
                     'source_tss': garmin_training_load,
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_tss_run',
+                    'tss_ftp_used': None,
                 }
 
         estimated_tss, method = cls._heuristic_tss(sport_key, duration_minutes)
@@ -298,6 +330,7 @@ class ActivityProcessor:
             'source_tss': garmin_training_load,
             'garmin_training_load': garmin_training_load,
             'tss_method': method,
+            'tss_ftp_used': None,
         }
 
     @classmethod
