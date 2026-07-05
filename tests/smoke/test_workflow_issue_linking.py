@@ -20,6 +20,12 @@ def test_workflow_files_are_available() -> None:
     assert list(WORKFLOW_DIR.glob("*.yml"))
 
 
+def test_pr_link_workflow_reruns_when_pr_branch_updates() -> None:
+    workflow = (WORKFLOW_DIR / "codex-pr-link.yml").read_text()
+
+    assert "types: [opened, edited, synchronize, closed]" in workflow
+
+
 def test_title_issue_links_require_explicit_keywords() -> None:
     offenders: list[str] = []
 

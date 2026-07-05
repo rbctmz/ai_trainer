@@ -2,7 +2,7 @@ name: Link PR to issue
 
 on:
   pull_request:
-    types: [opened, edited, closed]
+    types: [opened, edited, synchronize, closed]
 
 jobs:
   link:
