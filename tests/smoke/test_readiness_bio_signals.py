@@ -1,10 +1,13 @@
 """Smoke coverage for issue #75 Garmin bio-signal collection."""
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from data.data_processor_phase1 import Phase1DataProcessor
 from data.database import Database
+from data.garmin_client import GarminClient
 
 
 pytestmark = pytest.mark.smoke
@@ -121,3 +124,98 @@ def test_daily_health_bio_only_resync_preserves_legacy_fields(tmp_path) -> None:
     assert row["steps"] == 10000
     assert row["spo2_avg"] == pytest.approx(96.5)
     assert row["spo2_min"] == pytest.approx(92.0)
+
+
+def test_respiration_sentinel_values_are_rejected() -> None:
+    """Issue #89: Garmin отдаёт -1/-2 как 'нет данных', это не должно попадать в БД."""
+    payload = Phase1DataProcessor.process_daily_health_data(
+        None,
+        None,
+        respiration_data={
+            "dailyRespirationDTO": {
+                "avgWakingRespirationValue": -1,
+                "lowestRespirationValue": -1,
+                "highestRespirationValue": -1,
+            }
+        },
+    )
+
+    assert payload is not None
+    assert "respiration_avg" not in payload
+    assert "respiration_min" not in payload
+    assert "respiration_max" not in payload
+
+
+def test_spo2_sentinel_values_are_rejected() -> None:
+    payload = Phase1DataProcessor.process_daily_health_data(
+        None,
+        None,
+        spo2_data={"dailySpO2DTO": {"averageSpO2": -2, "lowestSpO2": -2}},
+    )
+
+    assert payload is not None
+    assert "spo2_avg" not in payload
+    assert "spo2_min" not in payload
+
+
+def test_extract_numeric_by_keys_respects_key_priority_over_payload_order() -> None:
+    """Issue #89: приоритетный ключ должен побеждать общий fallback независимо
+    от того, в каком порядке они встречаются в payload, и списки (временные
+    ряды) не должны участвовать в поиске дневного среднего."""
+    payload = {
+        "respirationValuesArray": [{"respirationRate": 27}],
+        "dailyRespirationDTO": {"avgWakingRespirationValue": 13.2},
+    }
+
+    result = Phase1DataProcessor._extract_numeric_by_keys(
+        payload,
+        (
+            "avgWakingRespirationValue",
+            "avgSleepRespirationValue",
+            "respirationRate",
+        ),
+        value_range=Phase1DataProcessor._RESPIRATION_VALUE_RANGE,
+    )
+
+    assert result == pytest.approx(13.2)
+
+
+def test_skin_temperature_ignores_baseline_deviation_key() -> None:
+    """Issue #89: averageDeviationCelsius (~±2°C) не должен попадать в
+    skin_temperature_avg наравне с абсолютной температурой (~33°C)."""
+    payload = Phase1DataProcessor.process_daily_health_data(
+        None,
+        None,
+        skin_temperature_data={"dailySkinTemperatureDTO": {"averageDeviationCelsius": -0.4}},
+    )
+
+    assert payload is not None
+    assert "skin_temperature_avg" not in payload
+
+
+def test_payload_number_falls_through_null_nested_key() -> None:
+    """Issue #89: если первый вложенный ключ ('value') резолвится в None,
+    нужно пробовать следующий ('avg'), а не сдаваться сразу."""
+    assert Phase1DataProcessor._payload_number({"value": None, "avg": 96.4}) == pytest.approx(96.4)
+    assert Phase1DataProcessor._payload_number("96.4") == pytest.approx(96.4)
+    assert Phase1DataProcessor._payload_number("96,4") == pytest.approx(96.4)
+
+
+def test_get_skin_temperature_data_tries_remaining_candidates_after_failure() -> None:
+    """Issue #89: если первый кандидат-метод падает, цикл должен пробовать
+    оставшиеся имена, а не сдаваться сразу."""
+
+    class _StubInnerClient:
+        def get_skin_temperature_data(self, _date):
+            raise RuntimeError("endpoint moved")
+
+        def get_wrist_temperature_data(self, _date):
+            return {"averageDeviationCelsius": -0.4}
+
+    client = GarminClient()
+    client.is_authenticated = True
+    client.client = _StubInnerClient()
+
+    result = client.get_skin_temperature_data(date(2026, 7, 5))
+
+    assert result == {"averageDeviationCelsius": -0.4}

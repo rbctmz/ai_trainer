@@ -220,6 +220,7 @@ class Phase1DataProcessor:
                     'avgRespirationRate',
                     'respirationRate',
                 ),
+                value_range=Phase1DataProcessor._RESPIRATION_VALUE_RANGE,
             )
             respiration_min = Phase1DataProcessor._extract_numeric_by_keys(
                 respiration_data,
@@ -229,6 +230,7 @@ class Phase1DataProcessor:
                     'minimumRespirationValue',
                     'minRespirationRate',
                 ),
+                value_range=Phase1DataProcessor._RESPIRATION_VALUE_RANGE,
             )
             respiration_max = Phase1DataProcessor._extract_numeric_by_keys(
                 respiration_data,
@@ -238,6 +240,7 @@ class Phase1DataProcessor:
                     'maximumRespirationValue',
                     'maxRespirationRate',
                 ),
+                value_range=Phase1DataProcessor._RESPIRATION_VALUE_RANGE,
             )
             if respiration_avg is not None:
                 processed_data['respiration_avg'] = respiration_avg
@@ -256,6 +259,7 @@ class Phase1DataProcessor:
                     'overallAverageSpO2',
                     'overallAverageSpo2',
                 ),
+                value_range=Phase1DataProcessor._SPO2_VALUE_RANGE,
             )
             spo2_min = Phase1DataProcessor._extract_numeric_by_keys(
                 spo2_data,
@@ -267,12 +271,16 @@ class Phase1DataProcessor:
                     'minSpO2',
                     'minSpo2',
                 ),
+                value_range=Phase1DataProcessor._SPO2_VALUE_RANGE,
             )
             if spo2_avg is not None:
                 processed_data['spo2_avg'] = spo2_avg
             if spo2_min is not None:
                 processed_data['spo2_min'] = spo2_min
 
+            # averageDeviationCelsius (отклонение от базовой линии, ±2°C) намеренно
+            # не входит в этот список: он несовместим по единицам с абсолютной
+            # температурой остальных ключей (~33°C) и хранится бы в той же колонке.
             skin_temperature_avg = Phase1DataProcessor._extract_numeric_by_keys(
                 skin_temperature_data,
                 (
@@ -282,7 +290,6 @@ class Phase1DataProcessor:
                     'avgWristTemperature',
                     'wristTemperature',
                     'skinTemperature',
-                    'averageDeviationCelsius',
                 ),
             )
             if skin_temperature_avg is not None:
@@ -293,6 +300,12 @@ class Phase1DataProcessor:
             return None
         
         return processed_data
+
+    # Правдоподобные диапазоны для observational-метрик Garmin: значения вне
+    # диапазона почти всегда сентинелы вида -1/-2 ("нет данных/часы сняты"),
+    # а не реальные измерения.
+    _RESPIRATION_VALUE_RANGE = (4.0, 40.0)
+    _SPO2_VALUE_RANGE = (70.0, 100.0)
 
     @staticmethod
     def _normalize_payload_key(key: Any) -> str:
@@ -306,39 +319,63 @@ class Phase1DataProcessor:
             return None
         if isinstance(value, (int, float)):
             return float(value)
+        if isinstance(value, str):
+            try:
+                return float(value.strip().replace(',', '.'))
+            except ValueError:
+                return None
         if isinstance(value, dict):
             for nested_key in ('value', 'avg', 'average', 'mean'):
                 if nested_key in value:
-                    return Phase1DataProcessor._payload_number(value.get(nested_key))
+                    candidate = Phase1DataProcessor._payload_number(value.get(nested_key))
+                    if candidate is not None:
+                        return candidate
         return None
 
     @staticmethod
-    def _extract_numeric_by_keys(payload: Any, keys: Tuple[str, ...]) -> Optional[float]:
-        """Find the first numeric Garmin metric matching any known key."""
+    def _find_numeric_by_key(node: Any, normalized_key: str) -> Optional[float]:
+        """Ищет единственное значение по нормализованному имени ключа, спускаясь
+        только во вложенные dict — списки почти всегда временные ряды, а не
+        суточные DTO, поэтому в них не заходим."""
+        if not isinstance(node, dict):
+            return None
+
+        for key, value in node.items():
+            if Phase1DataProcessor._normalize_payload_key(key) == normalized_key:
+                candidate = Phase1DataProcessor._payload_number(value)
+                if candidate is not None:
+                    return candidate
+        for value in node.values():
+            candidate = Phase1DataProcessor._find_numeric_by_key(value, normalized_key)
+            if candidate is not None:
+                return candidate
+        return None
+
+    @staticmethod
+    def _extract_numeric_by_keys(
+        payload: Any,
+        keys: Tuple[str, ...],
+        value_range: Optional[Tuple[float, float]] = None,
+    ) -> Optional[float]:
+        """Находит первый по приоритету известный числовой показатель Garmin.
+
+        Ключи проверяются в порядке `keys` (не в порядке обхода payload), чтобы
+        специфичный ключ всегда побеждал более общий фоллбэк вроде
+        'respirationRate', даже если тот встречается раньше в структуре ответа.
+        """
         if payload is None:
             return None
 
-        wanted = {Phase1DataProcessor._normalize_payload_key(key) for key in keys}
+        for key in keys:
+            normalized_key = Phase1DataProcessor._normalize_payload_key(key)
+            candidate = Phase1DataProcessor._find_numeric_by_key(payload, normalized_key)
+            if candidate is None:
+                continue
+            if value_range is not None and not (value_range[0] <= candidate <= value_range[1]):
+                continue
+            return candidate
 
-        def _walk(node: Any) -> Optional[float]:
-            if isinstance(node, dict):
-                for key, value in node.items():
-                    if Phase1DataProcessor._normalize_payload_key(key) in wanted:
-                        candidate = Phase1DataProcessor._payload_number(value)
-                        if candidate is not None:
-                            return candidate
-                for value in node.values():
-                    candidate = _walk(value)
-                    if candidate is not None:
-                        return candidate
-            elif isinstance(node, list):
-                for item in node:
-                    candidate = _walk(item)
-                    if candidate is not None:
-                        return candidate
-            return None
-
-        return _walk(payload)
+        return None
 
     @staticmethod
     def _parse_local_timestamp(value):
