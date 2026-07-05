@@ -12,7 +12,10 @@ from api import planning_service
 from data.database import Database
 from models.banister import tsb_zone
 from models.hrv_analyzer import HRVAnalyzer
-from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+from models.planning_checkpoints import (
+    NON_ACTIONABLE_PLAN_ADJUSTMENTS,
+    restore_goal_plan_from_checkpoint,
+)
 from models.signals_engine import assemble_signals
 from utils.product_semantics import (
     format_date_label,
@@ -42,6 +45,41 @@ _TSB_TONE_TO_INTERPRETATION = {
     "warning": "накопление",
     "danger": "перегрузка",
 }
+
+
+def _is_actionable_plan_adjustment(
+    adjustment: Dict[str, Any],
+    rows: List[Dict[str, Any]],
+) -> bool:
+    """Return whether an adjustment preview represents a real pending mutation."""
+    status = str(adjustment.get("status") or "").strip().lower()
+    label = str(adjustment.get("label") or "").strip()
+    missed_sessions = int(adjustment.get("missed_sessions") or 0)
+    try:
+        completion_share = float(adjustment.get("completion_share") or 0.0)
+    except (TypeError, ValueError):
+        completion_share = 0.0
+
+    changed_outcomes = {
+        "missed",
+        "skipped",
+        "reduced",
+        "unavailable",
+    }
+    has_changed_rows = any(
+        str(row.get("outcome") or "").strip().lower() in changed_outcomes
+        for row in rows
+    )
+
+    if status in {"skipped", "reduced", "unavailable"} or has_changed_rows:
+        return True
+
+    return not (
+        status in {"completed", "none", ""}
+        and missed_sessions == 0
+        and completion_share >= 0.99
+        and label in NON_ACTIONABLE_PLAN_ADJUSTMENTS
+    )
 
 
 class AITools:
@@ -777,22 +815,35 @@ class AITools:
 
         adjustment = preview.get("adjustment", {}) or {}
         totals = preview.get("totals", {}) or {}
+        preview_payload = {
+            "adjustment_status": adjustment.get("status"),
+            "adjustment_label": adjustment.get("label"),
+            "missed_sessions": adjustment.get("missed_sessions"),
+            "completion_share": adjustment.get("completion_share"),
+            "peak_tss": totals.get("peak_tss"),
+            "total_tss": totals.get("total_tss"),
+            "forecast_message": preview.get("forecast", {}).get("message"),
+        }
+        params_payload = {
+            "rows": rows,
+            "weeks": resolved_weeks,
+        }
+
+        if not _is_actionable_plan_adjustment(adjustment, rows):
+            return {
+                "is_proposal": False,
+                "action": "adjust_plan",
+                "status": "noop",
+                "message": "Корректировка не нужна: выбранное окно выполнено по плану.",
+                "params": {"weeks": resolved_weeks},
+                "preview": preview_payload,
+            }
+
         return {
             "is_proposal": True,
             "action": "adjust_plan",
-            "params": {
-                "rows": rows,
-                "weeks": resolved_weeks,
-            },
-            "preview": {
-                "adjustment_status": adjustment.get("status"),
-                "adjustment_label": adjustment.get("label"),
-                "missed_sessions": adjustment.get("missed_sessions"),
-                "completion_share": adjustment.get("completion_share"),
-                "peak_tss": totals.get("peak_tss"),
-                "total_tss": totals.get("total_tss"),
-                "forecast_message": preview.get("forecast", {}).get("message"),
-            },
+            "params": params_payload,
+            "preview": preview_payload,
         }
 
     def format_tool_descriptions_for_ai(self) -> str:
