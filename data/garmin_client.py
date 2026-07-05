@@ -555,7 +555,7 @@ class GarminClient:
                     "skin_temperature",
                     f"Ошибка получения skin temperature за {date_str}: {e}",
                 )
-                return None
+                continue
 
         return None
     
