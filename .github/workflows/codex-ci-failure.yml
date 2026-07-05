@@ -20,7 +20,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'cancelled', 'action_required']);
+            const FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'action_required']);
             const run = context.payload.workflow_run;
             if (!FAILURE_CONCLUSIONS.has(run.conclusion || '')) {
               core.info(`Workflow run conclusion is ${run.conclusion}; no CI failure comment needed.`);
