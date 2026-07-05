@@ -113,6 +113,13 @@ Common variables:
 
 Secrets belong only in `.env` or the local runtime environment, never in tracked files.
 
+`USER_FTP`/`USER_LTHR` are fallback defaults only. Every Garmin sync refreshes the
+athlete's real FTP/weight/LTHR from Intervals.icu (`services/intervals_icu.py::sync_athlete_profile`,
+stored in the `athlete_profile` table) when `INTERVALS_ICU_API_KEY` is configured;
+`data/data_processor.py::resolve_athlete_ftp_lthr` prefers that synced profile and
+only falls back to the static env values for a field the profile does not have, or
+when nothing has synced yet. See `docs/athlete_profile_sync_execplan.md`.
+
 ## Coding Notes
 
 - Prefer shared service/model logic over adding business rules to UI files.

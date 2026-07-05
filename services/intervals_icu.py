@@ -135,6 +135,9 @@ class IntervalsICUClient:
     def list_calendars(self) -> Any:
         return self._request_json("GET", f"/api/v1/athlete/{self.athlete_id}/calendars")
 
+    def get_athlete_profile(self) -> Any:
+        return self._request_json("GET", f"/api/v1/athlete/{self.athlete_id}")
+
     def test_connection(self) -> Dict[str, Any]:
         calendars = self.list_calendars()
         return {
@@ -248,3 +251,59 @@ def test_connection() -> Dict[str, Any]:
 
 def push_planned_events(event_payloads: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
     return get_client().create_events(event_payloads)
+
+
+def _cycling_sport_settings(raw: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Pick the cycling entry from sportSettings by capability, not by index —
+    Intervals.icu does not document index 0 as a stable "this is cycling" slot."""
+    for entry in raw.get("sportSettings") or []:
+        if isinstance(entry, dict) and entry.get("eFTPSupported"):
+            return entry
+    return {}
+
+
+def normalize_athlete_profile(raw: Mapping[str, Any]) -> Dict[str, Any]:
+    """Flatten an Intervals.icu athlete-profile response into the fields this
+    app's TSS math needs. Degrades every field to None instead of raising when
+    the response is missing, reshaped, or partially populated."""
+    if not isinstance(raw, dict):
+        return {"ftp": None, "weight_kg": None, "lthr": None}
+
+    cycling = _cycling_sport_settings(raw)
+
+    def _positive_number(value: Any) -> float | None:
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        return number if number > 0 else None
+
+    return {
+        "ftp": _positive_number(cycling.get("ftp")),
+        "weight_kg": _positive_number(raw.get("icu_weight")),
+        # Intervals.icu keeps a single lthr per athlete today (repeated across
+        # every sportSettings entry rather than varying per sport), so reading
+        # it from the cycling entry alongside ftp is equivalent to reading it
+        # from any other entry.
+        "lthr": _positive_number(cycling.get("lthr")),
+    }
+
+
+def sync_athlete_profile(database: Any) -> Dict[str, Any]:
+    """Fetch the athlete's current FTP/weight/LTHR from Intervals.icu and
+    persist it locally. Never raises: a missing configuration or a failed
+    request is reported back as {"synced": False, "reason": ...} so a caller
+    (e.g. the main Garmin sync flow) can fold it into its warnings instead of
+    aborting on an optional signal it does not depend on."""
+    client = get_client()
+    if not client.is_configured():
+        return {"synced": False, "reason": "not_configured", "profile": None}
+
+    try:
+        raw_profile = client.get_athlete_profile()
+    except IntervalsICUError as exc:
+        return {"synced": False, "reason": str(exc), "profile": None}
+
+    profile = normalize_athlete_profile(raw_profile)
+    database.save_athlete_profile({**profile, "source": "intervals_icu"})
+    return {"synced": True, "reason": None, "profile": profile}

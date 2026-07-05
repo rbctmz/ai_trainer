@@ -16,6 +16,7 @@ class Database:
         'max_hr',
         'avg_power',
         'max_power',
+        'normalized_power',
         'elevation_gain',
         'calories',
         'training_effect',
@@ -33,6 +34,7 @@ class Database:
         'hr_time_in_zone_5_seconds',
         'tss_method',
         'tss',
+        'tss_ftp_used',
     ]
 
     _ACTIVITY_COLUMN_TYPES = {
@@ -46,6 +48,7 @@ class Database:
         'max_hr': 'REAL',
         'avg_power': 'REAL',
         'max_power': 'REAL',
+        'normalized_power': 'REAL',
         'elevation_gain': 'REAL',
         'calories': 'INTEGER',
         'training_effect': 'REAL',
@@ -63,6 +66,7 @@ class Database:
         'hr_time_in_zone_5_seconds': 'REAL',
         'tss_method': 'TEXT',
         'tss': 'REAL',
+        'tss_ftp_used': 'REAL',
     }
 
     _TRAINING_STATUS_COLUMN_ORDER = [
@@ -195,6 +199,7 @@ class Database:
                 max_hr REAL,
                 avg_power REAL,
                 max_power REAL,
+                normalized_power REAL,
                 elevation_gain REAL,
                 calories INTEGER,
                 training_effect REAL,
@@ -212,6 +217,7 @@ class Database:
                 hr_time_in_zone_5_seconds REAL,
                 tss_method TEXT,
                 tss REAL,
+                tss_ftp_used REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -240,7 +246,21 @@ class Database:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
-        
+
+        # Athlete profile (FTP/вес/LTHR), синкается из intervals.icu вместо
+        # статичных env-переменных (issue #102). Append-only: каждый sync
+        # добавляет новую строку, get_athlete_profile() читает последнюю.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS athlete_profile (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                ftp REAL,
+                weight_kg REAL,
+                lthr REAL,
+                source TEXT,
+                synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
         # Таблица данных сна
         conn.execute('''
             CREATE TABLE IF NOT EXISTS sleep_data (
@@ -388,7 +408,7 @@ class Database:
 
     def _repair_legacy_activity_tss(self, conn: sqlite3.Connection) -> None:
         """Пересчитывает сохраненный activity TSS по текущим resolver-правилам."""
-        from data.data_processor import ActivityProcessor
+        from data.data_processor import ActivityProcessor, resolve_athlete_ftp_lthr
 
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -402,12 +422,14 @@ class Database:
         if not rows:
             return
 
+        ftp, lthr = resolve_athlete_ftp_lthr(self)
+
         for row in rows:
             activity = dict(row)
             resolved = ActivityProcessor.resolve_tss(
                 activity,
-                ftp=Settings.USER_FTP,
-                lthr=Settings.USER_LTHR,
+                ftp=ftp,
+                lthr=lthr,
             )
             needs_update = (
                 not self._numeric_equal(activity.get('tss'), resolved['tss'])
@@ -417,6 +439,7 @@ class Database:
                     activity.get('garmin_training_load'),
                     resolved['garmin_training_load'],
                 )
+                or not self._numeric_equal(activity.get('tss_ftp_used'), resolved['tss_ftp_used'])
             )
             if not needs_update:
                 continue
@@ -427,7 +450,8 @@ class Database:
                 SET tss = ?,
                     tss_method = ?,
                     source_tss = ?,
-                    garmin_training_load = ?
+                    garmin_training_load = ?,
+                    tss_ftp_used = ?
                 WHERE activity_id = ?
                 ''',
                 (
@@ -435,6 +459,7 @@ class Database:
                     self.clean_value(resolved['tss_method']),
                     self.clean_value(resolved['source_tss']),
                     self.clean_value(resolved['garmin_training_load']),
+                    self.clean_value(resolved['tss_ftp_used']),
                     self.clean_value(activity.get('activity_id')),
                 ),
             )
@@ -1176,6 +1201,48 @@ class Database:
         conn.execute('DELETE FROM user_settings WHERE key = ?', (key,))
         conn.commit()
         conn.close()
+
+    def save_athlete_profile(self, profile):
+        """Сохраняет новый снэпшот athlete profile (FTP/вес/LTHR)."""
+        conn = sqlite3.connect(self.db_path)
+        conn.execute(
+            '''
+            INSERT INTO athlete_profile (ftp, weight_kg, lthr, source)
+            VALUES (?, ?, ?, ?)
+            ''',
+            (
+                self.clean_value(profile.get('ftp')),
+                self.clean_value(profile.get('weight_kg')),
+                self.clean_value(profile.get('lthr')),
+                profile.get('source'),
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    def get_athlete_profile(self):
+        """Возвращает самый свежий снэпшот athlete profile, или None если ещё ничего не синкалось."""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT ftp, weight_kg, lthr, source, synced_at
+            FROM athlete_profile
+            ORDER BY synced_at DESC, id DESC
+            LIMIT 1
+            '''
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if row is None:
+            return None
+        return {
+            'ftp': row[0],
+            'weight_kg': row[1],
+            'lthr': row[2],
+            'source': row[3],
+            'synced_at': row[4],
+        }
 
     def get_database_stats(self):
         """Получение статистики по базе данных"""

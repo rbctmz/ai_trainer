@@ -4,10 +4,21 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from config.settings import Settings
 from services import sync as sync_service
 
 
 pytestmark = pytest.mark.smoke
+
+
+@pytest.fixture(autouse=True)
+def _no_live_intervals_icu(monkeypatch: pytest.MonkeyPatch) -> None:
+    """This file tests the Garmin sync pipeline in isolation. Without this,
+    sync_garmin_data's Intervals.icu athlete-profile step (issue #102) would
+    make a real network call whenever a developer's own .env happens to have
+    a real INTERVALS_ICU_API_KEY configured, breaking the contributor-safe
+    guarantee of this test suite."""
+    monkeypatch.setattr(Settings, "INTERVALS_ICU_API_KEY", None)
 
 
 class _StubGarminClient:
@@ -135,6 +146,12 @@ class _StubDatabase:
         self.training_status = training_status
         return {"new": len(training_status), "updated": 0}
 
+    def get_athlete_profile(self):
+        return None
+
+    def save_athlete_profile(self, profile):
+        pass
+
 
 class _StubState:
     def __init__(self) -> None:
@@ -213,6 +230,49 @@ def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.Monke
         assert entry["skin_temperature_avg"] == 33.2
     assert state.database.training_status is None
     assert cache_cleared is True
+
+
+def test_sync_garmin_data_calls_athlete_profile_sync_before_resolving_activity_tss(monkeypatch: pytest.MonkeyPatch):
+    """Issue #102: sync_garmin_data must refresh the Intervals.icu athlete
+    profile before it resolves any activity's TSS this run, so a freshly
+    synced FTP applies immediately rather than only on the next sync."""
+    state = _StubState()
+    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+
+    call_order: list[str] = []
+
+    def fake_sync_athlete_profile(database):
+        call_order.append("profile_sync")
+        return {"synced": True, "reason": None, "profile": {}}
+
+    original_sync_activities = sync_service._sync_activities
+
+    def wrapped_sync_activities(database, activities):
+        call_order.append("activities")
+        return original_sync_activities(database, activities)
+
+    monkeypatch.setattr(sync_service.intervals_icu_service, "sync_athlete_profile", fake_sync_athlete_profile)
+    monkeypatch.setattr(sync_service, "_sync_activities", wrapped_sync_activities)
+
+    sync_service.sync_garmin_data(state, days=1, on_progress=None)
+
+    assert call_order == ["profile_sync", "activities"]
+
+
+def test_sync_garmin_data_folds_athlete_profile_failure_into_warnings(monkeypatch: pytest.MonkeyPatch):
+    """A real Intervals.icu failure (not just "not configured") must show up
+    as a warning, not silently disappear or abort the Garmin sync."""
+    state = _StubState()
+    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    monkeypatch.setattr(
+        sync_service.intervals_icu_service,
+        "sync_athlete_profile",
+        lambda database: {"synced": False, "reason": "Не удалось подключиться к Intervals.icu: timeout", "profile": None},
+    )
+
+    result = sync_service.sync_garmin_data(state, days=1, on_progress=None)
+
+    assert any("Intervals.icu" in warning and "timeout" in warning for warning in result.warnings)
 
 
 def test_sync_status_payload_summarizes_fresh_training_data():

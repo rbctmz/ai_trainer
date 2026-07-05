@@ -5,6 +5,7 @@ import sqlite3
 
 import pytest
 
+from config.settings import Settings
 from data.database import Database
 from services.sync import _sync_activities
 
@@ -75,6 +76,150 @@ def test_running_fallback_does_not_use_bike_ftp_power(tmp_path):
     assert row["tss_method"] == "heuristic_duration_run"
     assert row["tss"] == 33.3
     assert row["tss"] < 60.0
+
+
+def test_bike_power_tss_uses_normalized_power_not_average(tmp_path, monkeypatch):
+    """Issue #101: a variable-intensity ride (surges + coasting) must be scored
+    from normalized power, not the flat average, or TSS is badly undercounted.
+
+    Fixture numbers are the real 2026-07-04 ride (activity_id=23477418874):
+    avgPower=111, normPower=135 (Garmin's own field, already present in the
+    same bulk-list payload we already parse for avgPower/maxPower). With the
+    still-current .env FTP=250 this ride was stored as tss=44.9 before this
+    fix (average power); the fix must move it to ~66, matching NP²/FTP² math.
+    """
+    monkeypatch.setattr(Settings, "USER_FTP", 250)
+    db = Database(str(tmp_path / "bike_np.db"))
+
+    result = _sync_activities(
+        db,
+        [
+            {
+                "activityId": "bike-np-1",
+                "startTimeLocal": _recent_iso(),
+                "activityType": {"typeKey": "cycling"},
+                "duration": 8414.07,
+                "movingDuration": 8205.007,
+                "distance": 47769.49,
+                "avgPower": 111.0,
+                "maxPower": 619.0,
+                "normPower": 134.6,
+            }
+        ],
+    )
+
+    assert result == {"new": 1, "updated": 0, "skipped": 0}
+
+    row = _activity_row(db, "bike-np-1")
+    assert row["normalized_power"] == pytest.approx(134.6)
+    assert row["tss_method"] == "power_tss_bike"
+    assert row["tss"] == pytest.approx(66.1)
+    assert row["tss"] > 44.9  # the pre-fix, avg-power-only value for this exact ride
+
+
+def test_bike_power_tss_falls_back_to_average_power_without_np(tmp_path, monkeypatch):
+    """When Garmin does not report normPower (e.g. no power meter, or an older
+    activity), the resolver must keep working from avg_power exactly as before."""
+    monkeypatch.setattr(Settings, "USER_FTP", 250)
+    db = Database(str(tmp_path / "bike_no_np.db"))
+
+    result = _sync_activities(
+        db,
+        [
+            {
+                "activityId": "bike-no-np-1",
+                "startTimeLocal": _recent_iso(),
+                "activityType": {"typeKey": "cycling"},
+                "duration": 8414.07,
+                "movingDuration": 8205.007,
+                "distance": 47769.49,
+                "avgPower": 111.0,
+                "maxPower": 619.0,
+            }
+        ],
+    )
+
+    assert result == {"new": 1, "updated": 0, "skipped": 0}
+
+    row = _activity_row(db, "bike-no-np-1")
+    assert row["normalized_power"] is None
+    assert row["tss_method"] == "power_tss_bike"
+    assert row["tss"] == pytest.approx(44.9)
+
+
+def test_bike_power_tss_uses_synced_ftp_over_stale_env_default(tmp_path, monkeypatch):
+    """Issues #101+#102 combined: the real 2026-07-04 ride that started this
+    whole investigation. With avgPower=111/normPower=134.6 and the stale
+    .env FTP=250 this activity was originally stored as tss=44.9. Once the
+    NP fix (#101) and a synced Intervals.icu FTP=159 (#102) are both in
+    effect, resolving the same ride should land close to IntervalCoach's
+    own reference value of 160 for this activity (verified independently:
+    NP recomputed from the ride's raw per-second power stream, and FTP=159
+    confirmed live from Intervals.icu's athlete profile API)."""
+    monkeypatch.setattr(Settings, "USER_FTP", 250)  # the stale value must NOT win once a profile is synced
+    db = Database(str(tmp_path / "bike_synced_ftp.db"))
+    db.save_athlete_profile({"ftp": 159.0, "weight_kg": 93.9, "lthr": 163.0, "source": "intervals_icu"})
+
+    result = _sync_activities(
+        db,
+        [
+            {
+                "activityId": "23477418874",
+                "startTimeLocal": _recent_iso(),
+                "activityType": {"typeKey": "cycling"},
+                "duration": 8414.07,
+                "movingDuration": 8205.007,
+                "distance": 47769.49,
+                "avgPower": 111.0,
+                "maxPower": 619.0,
+                "normPower": 134.6,
+            }
+        ],
+    )
+
+    assert result == {"new": 1, "updated": 0, "skipped": 0}
+
+    row = _activity_row(db, "23477418874")
+    assert row["tss_ftp_used"] == pytest.approx(159.0)
+    assert row["tss"] == pytest.approx(163.3, abs=0.5)
+    assert row["tss"] == pytest.approx(160, rel=0.05)  # within 5% of IntervalCoach's reference 160
+
+
+def test_repair_legacy_activity_tss_uses_synced_profile_on_next_database_open(tmp_path, monkeypatch):
+    """The retroactive-recompute path (_repair_legacy_activity_tss, which runs
+    on every Database() construction) must pick up a synced profile exactly
+    like a fresh sync does, not just trust the static .env default forever."""
+    monkeypatch.setattr(Settings, "USER_FTP", 250)
+    db_path = str(tmp_path / "bike_repair.db")
+
+    db = Database(db_path)
+    _sync_activities(
+        db,
+        [
+            {
+                "activityId": "bike-repair-1",
+                "startTimeLocal": _recent_iso(),
+                "activityType": {"typeKey": "cycling"},
+                "duration": 8414.07,
+                "movingDuration": 8205.007,
+                "distance": 47769.49,
+                "avgPower": 111.0,
+                "maxPower": 619.0,
+                "normPower": 134.6,
+            }
+        ],
+    )
+    stored_before = _activity_row(db, "bike-repair-1")
+    assert stored_before["tss_ftp_used"] == pytest.approx(250.0)
+
+    db.save_athlete_profile({"ftp": 159.0, "weight_kg": 93.9, "lthr": 163.0, "source": "intervals_icu"})
+
+    # Re-opening the database re-runs init_tables() -> _repair_legacy_activity_tss(),
+    # which must now recompute this row's tss against the freshly synced FTP.
+    reopened = Database(db_path)
+    stored_after = _activity_row(reopened, "bike-repair-1")
+    assert stored_after["tss_ftp_used"] == pytest.approx(159.0)
+    assert stored_after["tss"] == pytest.approx(163.3, abs=0.5)
 
 
 def test_swim_zone_summary_beats_raw_garmin_load(tmp_path):
