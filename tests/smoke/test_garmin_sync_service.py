@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -297,3 +297,46 @@ def test_sync_service_retries_transient_sleep_errors(monkeypatch: pytest.MonkeyP
     assert state.garmin_client.sleep_calls >= 2
     assert result.sleep_result["new"] >= 1
     assert not any("Garmin sleep" in warning for warning in result.warnings)
+
+
+class _RespirationNotFoundClient(_StubGarminClient):
+    """Issue #90: аккаунт/устройство без respiration отдаёт постоянную (не
+    transient) ошибку на каждый вызов."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.respiration_calls = 0
+
+    def get_respiration_data(self, _date):
+        self.respiration_calls += 1
+        self._last_error = {
+            "context": "respiration",
+            "message": "404 Client Error: Not Found for endpoint /wellness-service/wellness/dailyRespiration",
+        }
+        return None
+
+
+def test_collect_phase1_daily_data_stops_calling_unsupported_signal_after_first_failure() -> None:
+    """Issue #90: после первой не-transient ошибки сигнал не должен опрашиваться
+    повторно на каждую следующую дату прогона (устраняет retry-шторм)."""
+    client = _RespirationNotFoundClient()
+    dates = [datetime(2026, 7, 1) + timedelta(days=i) for i in range(5)]
+
+    _sleep_data, _health_data, warnings = sync_service._collect_phase1_daily_data(client, dates)
+
+    assert client.respiration_calls == 1
+    respiration_warnings = [w for w in warnings if "respiration" in w]
+    assert len(respiration_warnings) == 1
+    assert "5 дн." in respiration_warnings[0]
+
+
+def test_collect_phase1_daily_data_still_stores_other_signals_when_one_is_unsupported() -> None:
+    client = _RespirationNotFoundClient()
+    dates = [datetime(2026, 7, 1) + timedelta(days=i) for i in range(3)]
+
+    _sleep_data, health_data, _warnings = sync_service._collect_phase1_daily_data(client, dates)
+
+    assert len(health_data) == 3
+    for entry in health_data.values():
+        assert "respiration_avg" not in entry
+        assert entry["spo2_avg"] == pytest.approx(96.5)

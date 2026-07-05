@@ -131,23 +131,6 @@ class Database:
         'monthly_load_anaerobic_target_max': 'REAL'
     }
 
-    _DAILY_HEALTH_COLUMN_ORDER = [
-        'resting_hr',
-        'steps',
-        'floors_climbed',
-        'calories_active',
-        'calories_bmr',
-        'distance_meters',
-        'active_minutes',
-        'intensity_minutes',
-        'respiration_avg',
-        'respiration_min',
-        'respiration_max',
-        'spo2_avg',
-        'spo2_min',
-        'skin_temperature_avg',
-    ]
-
     _DAILY_HEALTH_COLUMN_TYPES = {
         'resting_hr': 'INTEGER',
         'steps': 'INTEGER',
@@ -1332,7 +1315,7 @@ class Database:
         
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
-        columns = self._DAILY_HEALTH_COLUMN_ORDER
+        columns = list(self._DAILY_HEALTH_COLUMN_TYPES)
         insert_columns = ['date'] + columns
         insert_placeholders = ', '.join('?' for _ in insert_columns)
         

@@ -431,6 +431,72 @@ def _call_optional_client_method(
     )
 
 
+_OPTIONAL_SIGNAL_LABELS: dict[str, str] = {
+    "respiration": "respiration",
+    "spo2": "SpO2",
+    "skin_temperature": "skin temperature",
+}
+
+
+@dataclass
+class _OptionalSignalTracker:
+    """Отслеживает опциональные wellness-сигналы (respiration/SpO2/skin-temp)
+    за один прогон sync, чтобы не ретраить и не варнить одну и ту же
+    неподдерживаемую метрику на каждую дату."""
+
+    unsupported: set[str] = field(default_factory=set)
+    missing_day_counts: dict[str, int] = field(default_factory=dict)
+    last_messages: dict[str, str] = field(default_factory=dict)
+
+    def record_skip(self, signal_key: str) -> None:
+        """Дата пропущена без сетевого вызова, т.к. сигнал уже помечен unsupported."""
+        self.missing_day_counts[signal_key] = self.missing_day_counts.get(signal_key, 0) + 1
+
+    def record_failure(self, signal_key: str, error: dict[str, Any] | None) -> None:
+        if not error:
+            return
+        self.missing_day_counts[signal_key] = self.missing_day_counts.get(signal_key, 0) + 1
+        message = error.get("message")
+        if message:
+            self.last_messages[signal_key] = message
+        # Не-transient ошибка означает, что сигнал недоступен для этого
+        # аккаунта/устройства, а не временный сбой сети — ретраить и дальше
+        # опрашивать его до конца прогона бессмысленно.
+        if not _should_retry_client_error(error):
+            self.unsupported.add(signal_key)
+
+    def summarize_warnings(self) -> list[str]:
+        summaries = []
+        for signal_key, count in self.missing_day_counts.items():
+            label = _OPTIONAL_SIGNAL_LABELS.get(signal_key, signal_key)
+            last_message = self.last_messages.get(signal_key)
+            suffix = f": {last_message}" if last_message else ""
+            summaries.append(f"⚠️ Garmin {label} недоступен за {count} дн.{suffix}")
+        return summaries
+
+
+def _fetch_optional_daily_signal(
+    client: Any,
+    method_name: str,
+    date_value: datetime,
+    *,
+    signal_key: str,
+    warning_context: str,
+    tracker: _OptionalSignalTracker,
+) -> Any:
+    if signal_key in tracker.unsupported:
+        tracker.record_skip(signal_key)
+        return None
+    data, error = _call_optional_client_method(
+        client,
+        method_name,
+        date_value,
+        warning_context=warning_context,
+    )
+    tracker.record_failure(signal_key, error)
+    return data
+
+
 def _append_warning(warnings: list[str], message: str) -> None:
     message = str(message or "").strip()
     if not message or message in warnings:
@@ -575,6 +641,7 @@ def _collect_phase1_daily_data(
     sleep_data: dict[str, dict[str, Any]] = {}
     daily_health_data: dict[str, dict[str, Any]] = {}
     warnings: list[str] = []
+    optional_signals = _OptionalSignalTracker()
 
     for date_value in dates_to_process:
         date_str = _db_date(date_value)
@@ -619,35 +686,30 @@ def _collect_phase1_daily_data(
             if resting_hr_error:
                 _append_warning(warnings, f"⚠️ Garmin resting HR {date_str}: {resting_hr_error.get('message')}")
 
-            respiration_data, respiration_error = _call_optional_client_method(
+            respiration_data = _fetch_optional_daily_signal(
                 client,
                 "get_respiration_data",
                 date_value,
+                signal_key="respiration",
                 warning_context=f"respiration {date_str}",
+                tracker=optional_signals,
             )
-            if respiration_error:
-                _append_warning(warnings, f"⚠️ Garmin respiration {date_str}: {respiration_error.get('message')}")
-
-            spo2_data, spo2_error = _call_optional_client_method(
+            spo2_data = _fetch_optional_daily_signal(
                 client,
                 "get_spo2_data",
                 date_value,
+                signal_key="spo2",
                 warning_context=f"SpO2 {date_str}",
+                tracker=optional_signals,
             )
-            if spo2_error:
-                _append_warning(warnings, f"⚠️ Garmin SpO2 {date_str}: {spo2_error.get('message')}")
-
-            skin_temperature_data, skin_temperature_error = _call_optional_client_method(
+            skin_temperature_data = _fetch_optional_daily_signal(
                 client,
                 "get_skin_temperature_data",
                 date_value,
+                signal_key="skin_temperature",
                 warning_context=f"skin temperature {date_str}",
+                tracker=optional_signals,
             )
-            if skin_temperature_error:
-                _append_warning(
-                    warnings,
-                    f"⚠️ Garmin skin temperature {date_str}: {skin_temperature_error.get('message')}",
-                )
 
             if any([daily_summary, resting_hr, respiration_data, spo2_data, skin_temperature_data]):
                 processed_health = Phase1DataProcessor.process_daily_health_data(
@@ -661,6 +723,8 @@ def _collect_phase1_daily_data(
                     daily_health_data[date_str] = processed_health
         except Exception as exc:
             _append_warning(warnings, f"⚠️ Обработка ежедневного здоровья {date_str}: {exc}")
+
+    _extend_warnings(warnings, optional_signals.summarize_warnings())
 
     return sleep_data, daily_health_data, warnings
 
