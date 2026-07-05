@@ -2,7 +2,7 @@ name: Link PR to issue
 
 on:
   pull_request:
-    types: [opened, closed]
+    types: [opened, edited, synchronize, closed]
 
 jobs:
   link:
@@ -27,7 +27,7 @@ jobs:
             for (const match of body.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
               issueNums.add(parseInt(match[1], 10));
             }
-            for (const match of title.matchAll(/(?:^|\s)#(\d+)\b/g)) {
+            for (const match of title.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
               issueNums.add(parseInt(match[1], 10));
             }
             for (const match of branch.matchAll(/(?:^|[\/_-])issue[\/_-]?(\d+)(?:$|[\/_-])/gi)) {

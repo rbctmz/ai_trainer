@@ -20,7 +20,7 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
-            const FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'cancelled', 'action_required']);
+            const FAILURE_CONCLUSIONS = new Set(['failure', 'timed_out', 'action_required']);
             const run = context.payload.workflow_run;
             if (!FAILURE_CONCLUSIONS.has(run.conclusion || '')) {
               core.info(`Workflow run conclusion is ${run.conclusion}; no CI failure comment needed.`);
@@ -37,7 +37,7 @@ jobs:
               for (const match of body.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
                 issueNums.add(parseInt(match[1], 10));
               }
-              for (const match of title.matchAll(/(?:^|\s)#(\d+)\b/g)) {
+              for (const match of title.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
                 issueNums.add(parseInt(match[1], 10));
               }
               for (const match of branch.matchAll(/(?:^|[\/_-])issue[\/_-]?(\d+)(?:$|[\/_-])/gi)) {

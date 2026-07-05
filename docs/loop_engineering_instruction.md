@@ -64,8 +64,9 @@ The generated prompt requires:
 
 Workflow: `.github/workflows/codex-pr-link.yml`
 
-When a PR opens, the workflow finds linked issues through PR body, PR title, or
-branch name and moves them to `status: in progress`.
+When a PR opens, the workflow finds linked issues through explicit
+`Closes/Fixes/Resolves #<issue>` references in PR body/title or through an
+issue marker in the branch name, then moves them to `status: in progress`.
 
 When a linked PR is merged, it closes the issue and removes agent/status labels.
 
@@ -129,11 +130,17 @@ the label without using `workflow_dispatch` or manually editing labels.
 
 Workflow: `.github/workflows/codex-ci-failure.yml`
 
-When the `CI` workflow fails on an open PR, GitHub Actions posts one structured
-comment for that workflow run. The comment includes the workflow run URL, failed
-job names when GitHub exposes them, and an `@codex` ping when the PR is
-agent-owned. A PR is treated as agent-owned when its branch starts with
-`codex/` or one of its linked issues has `agent: codex`.
+When the `CI` workflow concludes `failure`, `timed_out`, or `action_required` on
+an open PR, GitHub Actions posts one structured comment for that workflow run.
+The comment includes the workflow run URL, failed job names when GitHub exposes
+them, and an `@codex` ping when the PR is agent-owned. A PR is treated as
+agent-owned when its branch starts with `codex/` or one of its linked issues has
+`agent: codex`.
+
+A `cancelled` conclusion is intentionally ignored: cancelled runs are usually
+superseded by a newer push or stopped on purpose, not an actual test failure, so
+treating them as actionable would post a misleading "CI failure" comment and an
+unnecessary `@codex` ping.
 
 This closes the "PR exists but CI is red" gap in the loop. The agent still needs
 to inspect the failure and push a fix; the workflow only turns the failure into
