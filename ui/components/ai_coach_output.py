@@ -543,12 +543,34 @@ def format_tool_result(tool_name, data):
     elif tool_name == "propose_plan_adjustment":
         preview = data.get("preview", {}) if isinstance(data, dict) else {}
         params = data.get("params", {}) if isinstance(data, dict) else {}
+        is_noop = (
+            isinstance(data, dict)
+            and (data.get("status") == "noop" or data.get("is_proposal") is False)
+        )
         completion = preview.get("completion_share")
         completion_pct = (
             f"{round(float(completion or 0) * 100):.0f}%"
             if completion is not None
             else "н/д"
         )
+
+        if is_noop:
+            return f"""
+## ✅ Корректировка плана не нужна
+
+### 📋 Проверка выполнения:
+• Недель проверено: {params.get('weeks', 'н/д')}
+• Статус: {preview.get('adjustment_label') or preview.get('adjustment_status') or 'н/д'}
+• Пропущено сессий: {preview.get('missed_sessions', 'н/д')}
+• Выполнение: {completion_pct}
+
+### 📈 Текущий план:
+• Пик TSS/нед: {preview.get('peak_tss', 'н/д')}
+• Общий TSS: {preview.get('total_tss', 'н/д')}
+
+### ✅ Дальше:
+План можно оставить без изменений; подтверждение не требуется.
+"""
 
         return f"""
 ## 🔧 Предложение корректировки плана
