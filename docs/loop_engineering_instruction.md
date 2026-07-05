@@ -64,8 +64,9 @@ The generated prompt requires:
 
 Workflow: `.github/workflows/codex-pr-link.yml`
 
-When a PR opens, the workflow finds linked issues through PR body, PR title, or
-branch name and moves them to `status: in progress`.
+When a PR opens, the workflow finds linked issues through explicit
+`Closes/Fixes/Resolves #<issue>` references in PR body/title or through an
+issue marker in the branch name, then moves them to `status: in progress`.
 
 When a linked PR is merged, it closes the issue and removes agent/status labels.
 
