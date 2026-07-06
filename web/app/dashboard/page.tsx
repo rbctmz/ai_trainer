@@ -12,6 +12,7 @@ import { DailyOutlook } from "@/components/dashboard/DailyOutlook";
 import { TrainingScore } from "@/components/dashboard/TrainingScore";
 import { SleepWidget } from "@/components/dashboard/SleepWidget";
 import { RaceProjection } from "@/components/dashboard/RaceProjection";
+import { AthleteProfileCard } from "@/components/dashboard/AthleteProfileCard";
 
 export default function DashboardPage() {
   const { data, error, isLoading, mutate } = useSWR<DashboardResponse>(
@@ -64,7 +65,10 @@ export default function DashboardPage() {
                   <RaceProjection data={widgets.race_projection} />
                 )}
               </div>
-              <TrainingScore data={widgets.training_score} />
+              <div className="flex flex-col gap-4">
+                <TrainingScore data={widgets.training_score} />
+                <AthleteProfileCard />
+              </div>
             </div>
           )}
 

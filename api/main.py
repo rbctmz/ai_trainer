@@ -21,6 +21,7 @@ load_dotenv()
 
 from api.routers import (  # noqa: E402  (after env setup)
     activities,
+    athlete_profile,
     coach,
     dashboard,
     decisions,
@@ -57,6 +58,7 @@ app.include_router(coach.router)
 app.include_router(decisions.router)
 app.include_router(hrv.router)
 app.include_router(activities.router)
+app.include_router(athlete_profile.router)
 app.include_router(planning.router)
 app.include_router(sleep.router)
 app.include_router(system.router)
