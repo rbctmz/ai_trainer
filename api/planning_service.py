@@ -506,6 +506,12 @@ def apply_adjustment(
     if not goal_plan or not goal_plan.get("daily_plan"):
         raise ValueError("no active plan to adjust")
 
+    previous_weekly_tss_plan = list(goal_plan.get("weekly_tss_plan", []) or [])
+    previous_totals = {
+        "peak_tss": int(max(previous_weekly_tss_plan) if previous_weekly_tss_plan else 0),
+        "total_tss": int(sum(int(w or 0) for w in previous_weekly_tss_plan)),
+    }
+
     adjustment = build_execution_plan_adjustment(goal_plan, rows, weeks=weeks)
     new_goal_plan = with_checkpoint_provenance(
         rebuild_goal_plan_with_adjustment(goal_plan, adjustment),
@@ -537,6 +543,7 @@ def apply_adjustment(
             "peak_tss": int(max(weekly_tss_plan) if weekly_tss_plan else 0),
             "total_tss": int(sum(int(w or 0) for w in weekly_tss_plan)),
         },
+        "previous_totals": previous_totals,
         "weeks": weeks_payload,
         "forecast": forecast,
     }

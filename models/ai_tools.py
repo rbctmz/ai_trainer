@@ -815,6 +815,7 @@ class AITools:
 
         adjustment = preview.get("adjustment", {}) or {}
         totals = preview.get("totals", {}) or {}
+        previous_totals = preview.get("previous_totals", {}) or {}
         preview_payload = {
             "adjustment_status": adjustment.get("status"),
             "adjustment_label": adjustment.get("label"),
@@ -822,6 +823,8 @@ class AITools:
             "completion_share": adjustment.get("completion_share"),
             "peak_tss": totals.get("peak_tss"),
             "total_tss": totals.get("total_tss"),
+            "previous_peak_tss": previous_totals.get("peak_tss"),
+            "previous_total_tss": previous_totals.get("total_tss"),
             "forecast_message": preview.get("forecast", {}).get("message"),
         }
         params_payload = {

@@ -108,6 +108,70 @@ function adjustConfirmedMessage(result: AdjustResult): string {
   ].join(" ");
 }
 
+function StatTile({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-surface/70 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wide text-ink-soft">{label}</div>
+      <div className="mt-0.5 text-lg font-semibold text-ink">{value}</div>
+    </div>
+  );
+}
+
+function DeltaTile({
+  label,
+  previousValue,
+  nextValue,
+  unit,
+}: {
+  label: string;
+  previousValue: number | null;
+  nextValue: number;
+  unit: string;
+}) {
+  const hasPrevious = previousValue != null && Number.isFinite(previousValue);
+  const delta = hasPrevious ? Math.round(nextValue - (previousValue as number)) : null;
+  const deltaLabel =
+    delta == null ? null : delta === 0 ? "без изменений" : `${delta > 0 ? "+" : ""}${delta} ${unit}`;
+
+  return (
+    <div className="rounded-lg bg-surface/70 px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wide text-ink-soft">{label}</div>
+      <div className="mt-0.5 flex items-baseline gap-1.5">
+        {hasPrevious ? (
+          <>
+            <span className="text-sm text-ink-soft line-through decoration-ink-soft/40">
+              {Math.round(previousValue as number)}
+            </span>
+            <span className="text-ink-soft">→</span>
+          </>
+        ) : null}
+        <span className="text-lg font-semibold text-ink">
+          {Math.round(nextValue)} {unit}
+        </span>
+      </div>
+      {deltaLabel ? <div className="mt-0.5 text-xs text-ink-soft">{deltaLabel}</div> : null}
+    </div>
+  );
+}
+
+function CompletionBar({ share }: { share: number }) {
+  const percent = Math.max(0, Math.min(100, Math.round(share * 100)));
+  return (
+    <div>
+      <div className="flex items-center justify-between text-xs text-ink-soft">
+        <span>Выполнение окна</span>
+        <span className="font-medium text-ink">{percent}%</span>
+      </div>
+      <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-surface/70">
+        <div
+          className="h-full rounded-full bg-tone-neutral transition-all"
+          style={{ width: `${percent}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function ProposalCard({
   proposalId,
   action,
@@ -124,6 +188,10 @@ export function ProposalCard({
   const buildParams = action === "build_plan" ? buildPlanParams(params) : null;
   const adjustParams = action === "adjust_plan" ? adjustPlanParams(params) : null;
   const completionShare = asNumber(preview.completion_share, 0);
+  const previousPeakTss =
+    preview.previous_peak_tss != null ? asNumber(preview.previous_peak_tss) : null;
+  const previousTotalTss =
+    preview.previous_total_tss != null ? asNumber(preview.previous_total_tss) : null;
 
   async function handleConfirm() {
     setLoading(true);
@@ -184,9 +252,9 @@ export function ProposalCard({
         </span>
       </div>
 
-      <ul className="mt-3 space-y-1 text-sm text-ink">
-        {action === "build_plan" ? (
-          <>
+      {action === "build_plan" ? (
+        <>
+          <ul className="mt-3 space-y-1 text-sm text-ink-soft">
             <li>
               Цель: {asString(goal.goal_type || buildParams?.goal_type)} •{" "}
               {asString(goal.distance || buildParams?.distance)}
@@ -194,40 +262,69 @@ export function ProposalCard({
             <li>Старт: {asString(goal.event_date || buildParams?.event_date)}</li>
             <li>Часов в неделю: {buildParams?.available_hours ?? "—"}</li>
             <li>Доступные дни: {formatAvailableDays(buildParams?.available_days)}</li>
-            {preview.total_weeks != null ? <li>Недель: {asNumber(preview.total_weeks)}</li> : null}
+          </ul>
+
+          <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+            {preview.total_weeks != null ? (
+              <StatTile label="Недель" value={`${asNumber(preview.total_weeks)}`} />
+            ) : null}
             {preview.target_weekly_tss != null ? (
-              <li>Цель/нед: {asNumber(preview.target_weekly_tss)} TSS</li>
+              <StatTile label="Цель/нед" value={`${asNumber(preview.target_weekly_tss)} TSS`} />
             ) : null}
-            {preview.peak_tss != null ? <li>Пик: {asNumber(preview.peak_tss)} TSS</li> : null}
-            {preview.total_tss != null ? <li>Всего: {asNumber(preview.total_tss)} TSS</li> : null}
-            {preview.forecast_message ? (
-              <li className="pt-1 text-ink-soft">{asString(preview.forecast_message)}</li>
+            {preview.peak_tss != null ? (
+              <StatTile label="Пик" value={`${asNumber(preview.peak_tss)} TSS`} />
             ) : null}
-          </>
-        ) : (
-          <>
+            {preview.total_tss != null ? (
+              <StatTile label="Всего" value={`${asNumber(preview.total_tss)} TSS`} />
+            ) : null}
+          </div>
+
+          {preview.forecast_message ? (
+            <p className="mt-3 text-sm text-ink-soft">{asString(preview.forecast_message)}</p>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <ul className="mt-3 space-y-1 text-sm text-ink-soft">
             <li>Недель для пересборки: {adjustParams?.weeks ?? "—"}</li>
             {preview.adjustment_label || preview.adjustment_status ? (
-              <li>
-                Статус: {asString(preview.adjustment_label || preview.adjustment_status)}
-              </li>
+              <li>Статус: {asString(preview.adjustment_label || preview.adjustment_status)}</li>
             ) : null}
             {preview.missed_sessions != null ? (
               <li>Пропущено сессий: {asNumber(preview.missed_sessions)}</li>
             ) : null}
-            {preview.completion_share != null ? (
-              <li>Выполнение: {Math.round(completionShare * 100)}%</li>
+          </ul>
+
+          {preview.completion_share != null ? (
+            <div className="mt-3">
+              <CompletionBar share={completionShare} />
+            </div>
+          ) : null}
+
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {preview.peak_tss != null ? (
+              <DeltaTile
+                label="Пик"
+                previousValue={previousPeakTss}
+                nextValue={asNumber(preview.peak_tss)}
+                unit="TSS"
+              />
             ) : null}
-            {preview.peak_tss != null ? <li>Новый пик: {asNumber(preview.peak_tss)} TSS</li> : null}
             {preview.total_tss != null ? (
-              <li>Новый общий объём: {asNumber(preview.total_tss)} TSS</li>
+              <DeltaTile
+                label="Всего"
+                previousValue={previousTotalTss}
+                nextValue={asNumber(preview.total_tss)}
+                unit="TSS"
+              />
             ) : null}
-            {preview.forecast_message ? (
-              <li className="pt-1 text-ink-soft">{asString(preview.forecast_message)}</li>
-            ) : null}
-          </>
-        )}
-      </ul>
+          </div>
+
+          {preview.forecast_message ? (
+            <p className="mt-3 text-sm text-ink-soft">{asString(preview.forecast_message)}</p>
+          ) : null}
+        </>
+      )}
 
       {error ? (
         <div className="mt-3 rounded-lg border border-tone-danger/30 bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
