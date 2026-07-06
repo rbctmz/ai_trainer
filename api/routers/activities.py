@@ -20,6 +20,7 @@ _NUMERIC = (
     "tss",
     "garmin_training_load",
     "source_tss",
+    "tss_ftp_used",
     "avg_hr",
     "max_hr",
     "elevation_gain",

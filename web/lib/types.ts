@@ -105,6 +105,7 @@ export interface Activity {
   source_tss?: number | null;
   tss_method?: string | null;
   tss_source?: "power" | "heart_rate" | "heuristic" | "none" | "unknown";
+  tss_ftp_used?: number | null;
   avg_hr: number | null;
   max_hr: number | null;
   elevation_gain: number | null;
@@ -223,6 +224,20 @@ export interface SleepSummary {
   } | null;
   averages: { hours: number | null; score: number | null; window_days: number } | null;
   trend: { date: string; hours: number; score: number | null }[];
+}
+
+// --- Athlete profile ---
+export interface AthleteProfile {
+  ftp: number | null;
+  weight_kg: number | null;
+  lthr: number | null;
+  source: string | null;
+  synced_at: string | null;
+}
+
+export interface AthleteProfileResponse {
+  has_data: boolean;
+  profile: AthleteProfile | null;
 }
 
 // --- Sync ---

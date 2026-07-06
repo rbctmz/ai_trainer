@@ -2,7 +2,22 @@
 
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
-import { ActivitiesResponse } from "@/lib/types";
+import { Activity, ActivitiesResponse } from "@/lib/types";
+
+const TSS_SOURCE_LABELS: Record<string, string> = {
+  power: "по мощности",
+  heart_rate: "по пульсу",
+  heuristic: "оценочно",
+};
+
+function tssProvenanceLabel(activity: Activity): string | null {
+  const sourceLabel = activity.tss_source ? TSS_SOURCE_LABELS[activity.tss_source] : null;
+  if (!sourceLabel) return null;
+  if (activity.tss_source === "power" && activity.tss_ftp_used != null) {
+    return `${sourceLabel}, FTP ${Math.round(activity.tss_ftp_used)}`;
+  }
+  return sourceLabel;
+}
 
 export default function ActivitiesPage() {
   const { data, error, isLoading } = useSWR<ActivitiesResponse>(
@@ -57,6 +72,11 @@ export default function ActivitiesPage() {
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums font-medium text-ink">
                       {a.tss ?? "—"}
+                      {tssProvenanceLabel(a) ? (
+                        <div className="text-[11px] font-normal normal-case tabular-nums text-ink-faint">
+                          {tssProvenanceLabel(a)}
+                        </div>
+                      ) : null}
                     </td>
                   </tr>
                 ))}
