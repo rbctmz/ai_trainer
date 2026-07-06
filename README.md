@@ -76,6 +76,13 @@ USER_MAX_HR=185                        # Максимальный пульс (у
 - web UI: http://localhost:3000
 - FastAPI docs: http://localhost:8000/docs
 
+Если один из портов уже занят, скрипт остановится до запуска web stack и подскажет
+override. Например:
+
+```bash
+API_PORT=8010 WEB_PORT=3010 ./run_web.sh
+```
+
 Скрипт также автоматически устанавливает `requirements-web.txt` и `web`-зависимости, если они ещё не установлены.
 
 #### Legacy Streamlit fallback

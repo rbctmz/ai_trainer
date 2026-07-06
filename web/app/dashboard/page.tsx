@@ -42,7 +42,7 @@ export default function DashboardPage() {
 
       {error ? (
         <div className="rounded-card border border-tone-danger/30 bg-tone-danger/10 p-4 text-sm text-tone-danger">
-          Не удалось загрузить данные. Запущен ли API на :8000?
+          Не удалось загрузить данные. Проверьте, что ./run_web.sh запущен.
         </div>
       ) : null}
 

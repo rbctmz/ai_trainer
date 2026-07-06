@@ -31,7 +31,7 @@ export default function DecisionsPage() {
       {isLoading ? <div className="h-40 animate-pulse rounded-card bg-surface" /> : null}
       {error ? (
         <div className="rounded-card border border-tone-danger/30 bg-tone-danger/10 p-4 text-sm text-tone-danger">
-          Не удалось загрузить решения. Запущен ли API на :8000?
+          Не удалось загрузить решения. Проверьте, что ./run_web.sh запущен.
         </div>
       ) : null}
       {notice ? (

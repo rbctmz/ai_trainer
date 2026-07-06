@@ -16,6 +16,13 @@ This starts FastAPI on `:8000` and Next.js on `:3000`, and installs web deps on
 first run. Open http://localhost:3000 (redirects to `/dashboard`).
 API docs: http://localhost:8000/docs.
 
+If a port is already busy, the script exits before launching the stack and asks
+you to choose explicit ports:
+
+```bash
+API_PORT=8010 WEB_PORT=3010 ./run_web.sh
+```
+
 ## Run manually
 
 ```bash
