@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.banister import BanisterModel, tsb_zone
 from models.fit_export import build_steps_for_sport, generate_fit_csv
@@ -155,6 +156,7 @@ def current_status(db: Database) -> Dict[str, Any]:
             "tsb": round(float(metrics.get("tsb") or 0.0), 1),
             "form": metrics.get("form", "Недостаточно данных"),
         },
+        "readiness_snapshot": build_readiness_snapshot(db),
         "signals": signals,
         "has_plan": checkpoint is not None,
         "checkpoint": checkpoint,

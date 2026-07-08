@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends
 
 from api.deps import get_database, get_headless_state
 from api.operational_state import build_operational_state, latest_iso_from_frame
+from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.banister import tsb_zone
 from state import StateManager
@@ -41,6 +42,7 @@ def dashboard_summary(
         return {
             "has_data": False,
             "summary": None,
+            "readiness_snapshot": build_readiness_snapshot(db),
             "operational_state": build_operational_state(db, demo=demo, has_data=False),
         }
 
@@ -64,6 +66,7 @@ def dashboard_summary(
         "has_data": True,
         "summary": summary,
         "signals": current_status.get("signals"),
+        "readiness_snapshot": build_readiness_snapshot(db),
         "operational_state": build_operational_state(
             db,
             demo=demo,
