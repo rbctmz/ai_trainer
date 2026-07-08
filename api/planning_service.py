@@ -149,6 +149,13 @@ def current_status(db: Database) -> Dict[str, Any]:
     signals, _df = _current_signals(db)
     metrics = _metrics_from_signals(signals)
     checkpoint = summarize_planning_checkpoint(db.get_latest_planning_checkpoint())
+    today = datetime.now().date()
+    active_constraints = db.get_coach_constraints(
+        start_date=today.isoformat(),
+        end_date=(today + timedelta(days=30)).isoformat(),
+        active_only=True,
+        limit=100,
+    )
     return {
         "metrics": {
             "ctl": round(float(metrics.get("ctl") or 0.0), 1),
@@ -158,6 +165,8 @@ def current_status(db: Database) -> Dict[str, Any]:
         },
         "readiness_snapshot": build_readiness_snapshot(db),
         "signals": signals,
+        "active_constraint_count": len(active_constraints),
+        "active_constraints": active_constraints,
         "has_plan": checkpoint is not None,
         "checkpoint": checkpoint,
         "demand": demand_profile(_persisted_demand_level(db)),
