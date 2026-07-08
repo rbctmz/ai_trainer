@@ -318,6 +318,17 @@ export interface CoachConstraint {
   created_at?: string | null;
 }
 
+export interface ConstraintApplication {
+  applied_count: number;
+  protected_dates: string[];
+  constraints: Array<{
+    date: string;
+    constraint_id?: number | null;
+    kind?: CoachConstraintKind;
+    source?: string;
+  }>;
+}
+
 export interface PlanningStatus {
   metrics: { ctl: number; atl: number; tsb: number; form: string };
   readiness_snapshot?: ReadinessSnapshot;
@@ -400,6 +411,7 @@ export interface BuiltPlan {
     target_weekly_tss: number;
   } & PlanningWeeklyTarget;
   totals: { peak_tss: number; total_tss: number };
+  constraint_application?: ConstraintApplication;
   weeks: PlanWeek[];
   forecast: { points: ForecastPoint[]; final_tsb: number; message: string };
 }
@@ -489,6 +501,7 @@ export interface AdjustResult {
     completion_share: number;
   };
   totals: { peak_tss: number; total_tss: number };
+  constraint_application?: ConstraintApplication;
   weeks: PlanWeek[];
   forecast: { points: ForecastPoint[]; final_tsb: number; message: string };
 }
