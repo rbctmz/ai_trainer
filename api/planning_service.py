@@ -16,6 +16,7 @@ import pandas as pd
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.banister import BanisterModel, tsb_zone
+from models.coach_constraints import apply_constraints_to_goal_plan
 from models.fit_export import build_steps_for_sport, generate_fit_csv
 from models.planning_checkpoints import (
     build_planning_checkpoint,
@@ -143,6 +144,42 @@ def _current_metrics(db: Database):
 def _start_week(today: Optional[date] = None) -> date:
     today = today or datetime.now().date()
     return today - timedelta(days=today.weekday())  # Monday of current week
+
+
+def _goal_plan_date_bounds(goal_plan: Dict[str, Any]) -> tuple[str | None, str | None]:
+    dates: list[str] = []
+    for item in list(goal_plan.get("daily_plan") or []):
+        if not isinstance(item, (list, tuple)) or not item:
+            continue
+        value = item[0]
+        if hasattr(value, "date"):
+            dates.append(value.date().isoformat())
+        elif hasattr(value, "isoformat") and not isinstance(value, str):
+            dates.append(str(value.isoformat())[:10])
+        else:
+            text = str(value or "").strip()
+            if text:
+                dates.append(text[:10])
+    if not dates:
+        return None, None
+    return min(dates), max(dates)
+
+
+def _apply_active_coach_constraints(
+    db: Database,
+    goal_plan: Dict[str, Any],
+) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    start_date, end_date = _goal_plan_date_bounds(goal_plan)
+    if not start_date or not end_date:
+        return goal_plan, {"applied_count": 0, "protected_dates": [], "constraints": []}
+
+    constraints = db.get_coach_constraints(
+        start_date=start_date,
+        end_date=end_date,
+        active_only=True,
+        limit=500,
+    )
+    return apply_constraints_to_goal_plan(goal_plan, constraints)
 
 
 def current_status(db: Database) -> Dict[str, Any]:
@@ -288,40 +325,43 @@ def build_plan(
         daily_plan, weekly_summary, goal_type=gt, distance=dist
     )
 
-    goal_plan = with_checkpoint_provenance(
-        {
-            "goal_type": gt,
-            "distance": dist,
-            "weeks_to_race": weeks_to_race,
-            "start_week": start_week,
-            "weekly_tss_plan": weekly_tss_plan,
-            "base_weekly_tss_plan": base_weekly,
-            "phases": phases,
-            "daily_plan": daily_plan,
-            "session_templates": session_templates,
-            "weekly_summary": weekly_summary,
-            "constraint_summary": constraint_summary,
-            "demand_level": demand_level,
-            "demand_multiplier": float(target_breakdown["demand"]["multiplier"]),
-            "weekly_target_breakdown": target_breakdown,
-            "planner_mix": mix_overrides,
-            "planner_weights": None,
-            "plan_revision": datetime.now().isoformat(),
-            "near_term_edit_version": 0,
-            "near_term_edit_rollback_target_checkpoint_id": None,
-        },
-        source="initial_plan",
-    )
+    goal_plan = {
+        "goal_type": gt,
+        "distance": dist,
+        "weeks_to_race": weeks_to_race,
+        "start_week": start_week,
+        "weekly_tss_plan": weekly_tss_plan,
+        "base_weekly_tss_plan": base_weekly,
+        "phases": phases,
+        "daily_plan": daily_plan,
+        "session_templates": session_templates,
+        "weekly_summary": weekly_summary,
+        "constraint_summary": constraint_summary,
+        "demand_level": demand_level,
+        "demand_multiplier": float(target_breakdown["demand"]["multiplier"]),
+        "weekly_target_breakdown": target_breakdown,
+        "planner_mix": mix_overrides,
+        "planner_weights": None,
+        "plan_revision": datetime.now().isoformat(),
+        "near_term_edit_version": 0,
+        "near_term_edit_rollback_target_checkpoint_id": None,
+    }
+    goal_plan, constraint_application = _apply_active_coach_constraints(db, goal_plan)
+    goal_plan = with_checkpoint_provenance(goal_plan, source="initial_plan")
 
     plan_id: Optional[str] = None
     if persist:
         saved = db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
         plan_id = str((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or "")
 
-    forecast = _forecast(banister, metrics, daily_plan, start_week)
-    weeks = _weeks_payload(weekly_summary, phases)
-    total_tss = int(sum(int(w or 0) for w in weekly_tss_plan))
-    peak_tss = int(max(weekly_tss_plan) if weekly_tss_plan else 0)
+    forecast = _forecast(banister, metrics, goal_plan.get("daily_plan", []), start_week)
+    weeks = _weeks_payload(
+        list(goal_plan.get("weekly_summary", []) or []),
+        list(goal_plan.get("phases", []) or []),
+    )
+    adjusted_weekly_tss_plan = list(goal_plan.get("weekly_tss_plan", []) or [])
+    total_tss = int(sum(int(w or 0) for w in adjusted_weekly_tss_plan))
+    peak_tss = int(max(adjusted_weekly_tss_plan) if adjusted_weekly_tss_plan else 0)
 
     return {
         "plan_id": plan_id,
@@ -335,6 +375,7 @@ def build_plan(
             **public_weekly_target_payload(target_breakdown),
         },
         "totals": {"peak_tss": peak_tss, "total_tss": total_tss},
+        "constraint_application": constraint_application,
         "weeks": weeks,
         "forecast": forecast,
     }
@@ -524,10 +565,9 @@ def apply_adjustment(
     }
 
     adjustment = build_execution_plan_adjustment(goal_plan, rows, weeks=weeks)
-    new_goal_plan = with_checkpoint_provenance(
-        rebuild_goal_plan_with_adjustment(goal_plan, adjustment),
-        source="execution_adjustment",
-    )
+    rebuilt_goal_plan = rebuild_goal_plan_with_adjustment(goal_plan, adjustment)
+    rebuilt_goal_plan, constraint_application = _apply_active_coach_constraints(db, rebuilt_goal_plan)
+    new_goal_plan = with_checkpoint_provenance(rebuilt_goal_plan, source="execution_adjustment")
 
     plan_id: Optional[str] = None
     if persist:
@@ -555,6 +595,7 @@ def apply_adjustment(
             "total_tss": int(sum(int(w or 0) for w in weekly_tss_plan)),
         },
         "previous_totals": previous_totals,
+        "constraint_application": constraint_application,
         "weeks": weeks_payload,
         "forecast": forecast,
     }

@@ -76,6 +76,16 @@ def apply_constraints_to_goal_plan(
 
     updated["daily_plan"] = daily_plan
     updated["session_templates"] = session_templates
+    _refresh_weekly_totals(updated, applied)
+
+    constraint_summary = dict(updated.get("constraint_summary") or {})
+    constraint_summary["durable_constraints"] = {
+        "applied_count": len(applied),
+        "protected_dates": protected_dates,
+        "constraints": applied,
+    }
+    updated["constraint_summary"] = constraint_summary
+
     return updated, {
         "applied_count": len(applied),
         "protected_dates": protected_dates,
@@ -127,3 +137,68 @@ def _constraint_note(constraint: Mapping[str, Any]) -> str:
     }.get(str(constraint.get("kind") or ""), "Ограничение")
     note = str(constraint.get("note") or "").strip()
     return f"{kind_label}: {note}" if note else kind_label
+
+
+def _refresh_weekly_totals(goal_plan: dict[str, Any], applied: list[dict[str, Any]]) -> None:
+    if not applied:
+        return
+
+    daily_plan = list(goal_plan.get("daily_plan") or [])
+    if not daily_plan:
+        return
+
+    weekly_summary = [dict(row or {}) for row in list(goal_plan.get("weekly_summary") or [])]
+    week_count = max(len(weekly_summary), (len(daily_plan) + 6) // 7)
+    weekly_tss = [0.0 for _ in range(week_count)]
+    weekly_parts: list[dict[str, float]] = [dict() for _ in range(week_count)]
+
+    for index, item in enumerate(daily_plan):
+        if not isinstance(item, (list, tuple)) or len(item) < 3:
+            continue
+        week_index = index // 7
+        if week_index >= week_count:
+            continue
+        _dt, total, parts = item
+        weekly_tss[week_index] += _float(total)
+        if isinstance(parts, Mapping):
+            for key, value in parts.items():
+                part_key = str(key)
+                weekly_parts[week_index][part_key] = weekly_parts[week_index].get(part_key, 0.0) + _float(value)
+
+    goal_plan["weekly_tss_plan"] = [int(round(value)) for value in weekly_tss]
+
+    note = _constraint_application_note(applied)
+    for index, total in enumerate(weekly_tss):
+        if index >= len(weekly_summary):
+            weekly_summary.append({})
+        row = dict(weekly_summary[index] or {})
+        row["weekly_tss"] = int(round(total))
+        for sport, value in weekly_parts[index].items():
+            row[sport] = round(value, 1)
+        row["adjustment_note"] = _append_note(row.get("adjustment_note"), note)
+        weekly_summary[index] = row
+
+    goal_plan["weekly_summary"] = weekly_summary
+
+
+def _float(value: Any) -> float:
+    try:
+        return float(value or 0.0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _constraint_application_note(applied: list[dict[str, Any]]) -> str:
+    dates = [str(row.get("date") or "") for row in applied if row.get("date")]
+    if not dates:
+        return "durable constraints: protected days applied"
+    return f"durable constraints: protected {', '.join(dates)}"
+
+
+def _append_note(existing: Any, note: str) -> str:
+    text = str(existing or "").strip()
+    if not text or text == "—":
+        return note
+    if note in text:
+        return text
+    return f"{text}; {note}"

@@ -123,6 +123,45 @@ def test_build_plan_contract(tmp_path):
         assert {"date", "ctl", "atl", "tsb"} <= set(pt.keys())
 
 
+def test_build_plan_applies_active_coach_constraints(tmp_path):
+    from api import planning_service as ps
+
+    db = _seeded_db(tmp_path)
+    protected_date = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
+    db.save_coach_constraint(
+        date=protected_date,
+        kind="forced_rest",
+        source="coach",
+        note="Тестовый отдых",
+    )
+
+    event = (datetime.now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
+    result = ps.build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=event,
+        available_hours=12,
+        available_days=["mon", "tue", "wed", "thu", "sat", "sun"],
+        persist=True,
+    )
+
+    assert result["constraint_application"]["applied_count"] == 1
+    assert result["constraint_application"]["protected_dates"] == [protected_date]
+
+    active_plan = ps.get_active_plan(db)
+    assert active_plan
+    protected_index = next(
+        index
+        for index, item in enumerate(active_plan["daily_plan"])
+        if item[0].strftime("%Y-%m-%d") == protected_date
+    )
+    assert active_plan["daily_plan"][protected_index][1] == 0
+    assert active_plan["session_templates"][protected_index]["session_role"] == "off"
+    assert active_plan["session_templates"][protected_index]["protected_by_constraint"] is True
+    assert protected_date not in {day["date"] for day in ps.plan_days(active_plan)}
+
+
 def test_planning_export_and_adjust_routes_registered():
     importlib.import_module("api.main")
     import api.main as main
@@ -180,6 +219,50 @@ def test_export_and_adjust_active_plan(tmp_path):
     assert "status" in adjusted["adjustment"]
     assert len(adjusted["weeks"]) >= 1
     assert len(adjusted["forecast"]["points"]) >= 2
+
+
+def test_apply_adjustment_preserves_active_coach_constraints(tmp_path):
+    from api import planning_service as ps
+
+    db = _seeded_db(tmp_path)
+    event = (datetime.now() + timedelta(weeks=9)).strftime("%Y-%m-%d")
+    ps.build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=event,
+        available_hours=12,
+        available_days=["mon", "tue", "wed", "thu", "sat", "sun"],
+        persist=True,
+    )
+
+    initial_plan = ps.get_active_plan(db)
+    assert initial_plan
+    today = datetime.now().date()
+    protected_index = next(
+        index
+        for index, item in enumerate(initial_plan["daily_plan"])
+        if item[0].date() >= today and float(item[1] or 0) > 0
+    )
+    protected_date = initial_plan["daily_plan"][protected_index][0].strftime("%Y-%m-%d")
+    db.save_coach_constraint(
+        date=protected_date,
+        kind="sick",
+        source="user",
+        note="Болею",
+    )
+
+    rec = ps.reconciliation(db, weeks=1)
+    adjusted = ps.apply_adjustment(db, rows=rec["rows"], weeks=1, persist=True)
+
+    assert adjusted["constraint_application"]["applied_count"] == 1
+    assert adjusted["constraint_application"]["protected_dates"] == [protected_date]
+
+    active_plan = ps.get_active_plan(db)
+    assert active_plan
+    assert active_plan["daily_plan"][protected_index][1] == 0
+    assert active_plan["session_templates"][protected_index]["session_role"] == "off"
+    assert active_plan["session_templates"][protected_index]["constraint"]["kind"] == "sick"
 
 
 def test_build_run_goal_maps_distance(tmp_path):
