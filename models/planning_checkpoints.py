@@ -20,6 +20,7 @@ CHECKPOINT_SOURCE_LABELS = {
     "manual_edit": "Ручная правка",
     "execution_feedback": "Execution replan",
     "execution_adjustment": "Execution replan",
+    "coach_constraint": "Ограничение Коуча",
     "restore_version": "Восстановленная версия",
     "legacy_checkpoint": "Сохранённая версия",
 }
@@ -175,6 +176,8 @@ def summarize_checkpoint_provenance(checkpoint: Dict[str, Any] | None) -> Dict[s
         )
     elif source == "initial_plan":
         detail = "Новый расчёт плана"
+    elif source == "coach_constraint":
+        detail = "Применено durable-ограничение из Коуча"
     else:
         detail = "Checkpoint без явной provenance-метки"
 
