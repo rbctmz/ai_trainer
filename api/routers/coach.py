@@ -12,6 +12,7 @@ from pydantic import BaseModel
 from api.coach_service import resolve_provider, stream_tokens, supports_streaming
 from api.deps import get_database
 from api.operational_state import build_operational_state, latest_iso_from_database
+from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.ai_coach_runtime import (
     apply_response_contract_to_final_response,
@@ -72,6 +73,7 @@ def coach_chat(
     goal_plan = get_active_plan(db)
     latest_data_at = latest_iso_from_database(db)
     has_data = latest_data_at is not None
+    readiness_snapshot = build_readiness_snapshot(db)
 
     def stream() -> Iterator[str]:
         message_id = str(uuid.uuid4())[:8]
@@ -79,6 +81,7 @@ def coach_chat(
             {
                 "type": "meta",
                 "chat_id": chat_id,
+                "readiness_snapshot": readiness_snapshot,
                 "operational_state": build_operational_state(
                     db,
                     demo=demo,
@@ -174,6 +177,7 @@ def coach_chat(
                 {
                     "type": "error",
                     "message": error_message,
+                    "readiness_snapshot": readiness_snapshot,
                     "operational_state": build_operational_state(
                         db,
                         demo=demo,

@@ -3,6 +3,28 @@
 
 export type Tone = "danger" | "warning" | "success" | "neutral";
 
+export type ReadinessSnapshotStatus = "unknown" | "low" | "limited" | "ready" | "strong" | "stale";
+
+export interface ReadinessSnapshotFactor {
+  key: string;
+  label: string;
+  score: number | null;
+  raw_value: number | null;
+  source: string;
+}
+
+export interface ReadinessSnapshot {
+  score: number | null;
+  status: ReadinessSnapshotStatus | string;
+  computed_at: string | null;
+  is_provisional: boolean;
+  source_completeness: number;
+  factors: ReadinessSnapshotFactor[];
+  missing_inputs: string[];
+  stale: boolean;
+  reason: string;
+}
+
 export interface TodayState {
   date: string;
   state_label: string;
@@ -69,6 +91,7 @@ export interface DashboardSummary {
 export interface DashboardResponse {
   has_data: boolean;
   summary: DashboardSummary | null;
+  readiness_snapshot?: ReadinessSnapshot;
 }
 
 // --- HRV ---
@@ -152,12 +175,12 @@ export interface CoachProposalEvent {
 // Event protocol (after the agentic finalize refactor): meta → tool_call(s) →
 // streamed token(s) of the final synthesized answer → done. No `replace`.
 export type CoachEvent =
-  | { type: "meta"; chat_id: string }
+  | { type: "meta"; chat_id: string; readiness_snapshot?: ReadinessSnapshot }
   | { type: "tool_call"; name: string; tool_name?: string; status: string }
   | CoachProposalEvent
   | { type: "token"; content: string }
   | { type: "done"; message_id: string; chat_id: string }
-  | { type: "error"; message: string };
+  | { type: "error"; message: string; readiness_snapshot?: ReadinessSnapshot };
 
 // --- Decisions ---
 export type CoachDecisionType = "Push" | "Moderate" | "Recovery" | "Monitor";
@@ -275,6 +298,7 @@ export interface SyncJobResponse {
 // --- Planning ---
 export interface PlanningStatus {
   metrics: { ctl: number; atl: number; tsb: number; form: string };
+  readiness_snapshot?: ReadinessSnapshot;
   has_plan: boolean;
   checkpoint: Record<string, unknown> | null;
   demand?: PlanningDemand;
