@@ -38,6 +38,16 @@ class DemandRequest(BaseModel):
     level: str
 
 
+class ConstraintRequest(BaseModel):
+    date: str
+    kind: str
+    source: str = "coach"
+    note: Optional[str] = None
+    plan_id: Optional[str] = None
+    session_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
 def _parse_available_days(value: Optional[str]) -> Optional[List[str]]:
     if not value:
         return None
@@ -48,6 +58,44 @@ def _parse_available_days(value: Optional[str]) -> Optional[List[str]]:
 @router.get("/status")
 def planning_status(db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.current_status(db)
+
+
+@router.get("/constraints")
+def list_constraints(days: int = 30, db: Database = Depends(get_database)) -> dict[str, Any]:
+    from datetime import datetime, timedelta
+
+    today = datetime.now().date()
+    rows = db.get_coach_constraints(
+        start_date=today.isoformat(),
+        end_date=(today + timedelta(days=max(1, int(days or 1)))).isoformat(),
+        active_only=True,
+        limit=200,
+    )
+    return {"count": len(rows), "constraints": rows}
+
+
+@router.post("/constraints")
+def create_constraint(req: ConstraintRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
+    try:
+        return db.save_coach_constraint(
+            date=req.date,
+            kind=req.kind,
+            source=req.source,
+            note=req.note,
+            plan_id=req.plan_id,
+            session_id=req.session_id,
+            metadata=req.metadata or {},
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.delete("/constraints/{constraint_id}")
+def deactivate_constraint(constraint_id: int, db: Database = Depends(get_database)) -> dict[str, Any]:
+    row = db.deactivate_coach_constraint(constraint_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="constraint not found")
+    return row
 
 
 @router.get("/target-preview")

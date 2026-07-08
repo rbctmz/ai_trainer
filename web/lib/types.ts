@@ -296,9 +296,33 @@ export interface SyncJobResponse {
 }
 
 // --- Planning ---
+export type CoachConstraintKind =
+  | "sick"
+  | "unavailable"
+  | "forced_rest"
+  | "manual_delete"
+  | "disabled_plan_day"
+  | string;
+
+export interface CoachConstraint {
+  id: number;
+  date: string;
+  kind: CoachConstraintKind;
+  status: "active" | "inactive" | string;
+  source: string;
+  note?: string | null;
+  plan_id?: string | null;
+  session_id?: string | null;
+  metadata: Record<string, unknown>;
+  resolved_at?: string | null;
+  created_at?: string | null;
+}
+
 export interface PlanningStatus {
   metrics: { ctl: number; atl: number; tsb: number; form: string };
   readiness_snapshot?: ReadinessSnapshot;
+  active_constraint_count?: number;
+  active_constraints?: CoachConstraint[];
   has_plan: boolean;
   checkpoint: Record<string, unknown> | null;
   demand?: PlanningDemand;

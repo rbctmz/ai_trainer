@@ -378,6 +378,22 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS coach_constraints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                status TEXT NOT NULL,
+                source TEXT NOT NULL,
+                note TEXT,
+                plan_id TEXT,
+                session_id TEXT,
+                metadata_json TEXT,
+                resolved_at TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         self._ensure_activity_columns(conn)
         self._repair_legacy_activity_tss(conn)
         self._ensure_daily_health_columns(conn)
@@ -869,6 +885,182 @@ class Database:
             'resolved_at': row[10],
             'created_at': row[11],
         }
+
+    def save_coach_constraint(
+        self,
+        date,
+        kind,
+        source="coach",
+        note=None,
+        plan_id=None,
+        session_id=None,
+        metadata=None,
+    ):
+        """Сохраняет durable-ограничение, которое должен учитывать replan."""
+        allowed_kinds = {
+            "sick",
+            "unavailable",
+            "forced_rest",
+            "manual_delete",
+            "disabled_plan_day",
+        }
+        kind = str(kind or "").strip()
+        if kind not in allowed_kinds:
+            raise ValueError(f"kind must be one of {sorted(allowed_kinds)}")
+
+        source = str(source or "coach").strip()
+        if not source:
+            source = "coach"
+
+        date_value = str(date or "").strip()[:10]
+        if not date_value:
+            raise ValueError("date must be non-empty")
+
+        if metadata is None:
+            metadata = {}
+        if not isinstance(metadata, dict):
+            raise ValueError("metadata must be a dict")
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            INSERT INTO coach_constraints
+                (date, kind, status, source, note, plan_id, session_id, metadata_json)
+            VALUES (?, ?, 'active', ?, ?, ?, ?, ?)
+            ''',
+            (
+                self.clean_value(date_value),
+                self.clean_value(kind),
+                self.clean_value(source),
+                self.clean_value(note),
+                self.clean_value(plan_id),
+                self.clean_value(session_id),
+                json.dumps(metadata, ensure_ascii=False, default=str),
+            ),
+        )
+        constraint_id = cursor.lastrowid
+        cursor.execute(
+            '''
+            SELECT id, date, kind, status, source, note, plan_id, session_id,
+                   metadata_json, resolved_at, created_at
+            FROM coach_constraints
+            WHERE id = ?
+            ''',
+            (constraint_id,),
+        )
+        row = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        return self._deserialize_coach_constraint_row(row)
+
+    def get_coach_constraint(self, constraint_id):
+        """Возвращает одно durable-ограничение по id или None."""
+        if constraint_id is None:
+            return None
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT id, date, kind, status, source, note, plan_id, session_id,
+                   metadata_json, resolved_at, created_at
+            FROM coach_constraints
+            WHERE id = ?
+            LIMIT 1
+            ''',
+            (int(constraint_id),),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return self._deserialize_coach_constraint_row(row)
+
+    def get_coach_constraints(
+        self,
+        start_date=None,
+        end_date=None,
+        active_only=True,
+        limit=100,
+    ):
+        """Возвращает durable-ограничения за окно дат, новые первыми внутри даты."""
+        clauses = []
+        params = []
+        if start_date:
+            clauses.append("date >= ?")
+            params.append(str(start_date)[:10])
+        if end_date:
+            clauses.append("date <= ?")
+            params.append(str(end_date)[:10])
+        if active_only:
+            clauses.append("status = 'active'")
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            f'''
+            SELECT id, date, kind, status, source, note, plan_id, session_id,
+                   metadata_json, resolved_at, created_at
+            FROM coach_constraints
+            {where}
+            ORDER BY date ASC, id ASC
+            LIMIT ?
+            ''',
+            (*params, max(1, int(limit or 1))),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [self._deserialize_coach_constraint_row(row) for row in rows]
+
+    def deactivate_coach_constraint(self, constraint_id):
+        """Деактивирует constraint, сохраняя строку как audit trail."""
+        resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE coach_constraints
+            SET status = 'inactive', resolved_at = ?
+            WHERE id = ?
+            ''',
+            (self.clean_value(resolved_at), int(constraint_id)),
+        )
+        cursor.execute(
+            '''
+            SELECT id, date, kind, status, source, note, plan_id, session_id,
+                   metadata_json, resolved_at, created_at
+            FROM coach_constraints
+            WHERE id = ?
+            ''',
+            (int(constraint_id),),
+        )
+        row = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        return self._deserialize_coach_constraint_row(row)
+
+    def _deserialize_coach_constraint_row(self, row):
+        if not row:
+            return None
+        metadata = {}
+        if row[8]:
+            try:
+                parsed = json.loads(row[8])
+                metadata = parsed if isinstance(parsed, dict) else {}
+            except (TypeError, json.JSONDecodeError):
+                metadata = {}
+        return {
+            'id': row[0],
+            'date': row[1],
+            'kind': row[2],
+            'status': row[3],
+            'source': row[4],
+            'note': row[5],
+            'plan_id': row[6],
+            'session_id': row[7],
+            'metadata': metadata,
+            'resolved_at': row[9],
+            'created_at': row[10],
+        }
     
     def get_activities(self, days=30):
         """Получение активностей из БД"""
@@ -1164,6 +1356,11 @@ class Database:
             cursor.execute('DELETE FROM coach_proposals')
         except sqlite3.OperationalError:
             pass
+
+        try:
+            cursor.execute('DELETE FROM coach_constraints')
+        except sqlite3.OperationalError:
+            pass
         
         conn.commit()
         conn.close()
@@ -1289,6 +1486,12 @@ class Database:
             coach_proposals_count = cursor.fetchone()[0]
         except sqlite3.OperationalError:
             coach_proposals_count = 0
+
+        try:
+            cursor.execute('SELECT COUNT(*) FROM coach_constraints')
+            coach_constraints_count = cursor.fetchone()[0]
+        except sqlite3.OperationalError:
+            coach_constraints_count = 0
         
         conn.close()
         
@@ -1300,7 +1503,8 @@ class Database:
             'daily_health': health_count,
             'training_status': training_count,
             'coach_decisions': coach_decisions_count,
-            'coach_proposals': coach_proposals_count
+            'coach_proposals': coach_proposals_count,
+            'coach_constraints': coach_constraints_count
         }
     
     # =================== НОВЫЕ МЕТОДЫ СИНХРОНИЗАЦИИ ФАЗА 1 ===================
