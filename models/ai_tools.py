@@ -14,8 +14,11 @@ from models.banister import tsb_zone
 from models.hrv_analyzer import HRVAnalyzer
 from models.planning_checkpoints import (
     NON_ACTIONABLE_PLAN_ADJUSTMENTS,
+    build_planning_checkpoint,
     restore_goal_plan_from_checkpoint,
+    with_checkpoint_provenance,
 )
+from models.coach_constraints import apply_constraints_to_goal_plan
 from models.signals_engine import assemble_signals
 from utils.product_semantics import (
     format_date_label,
@@ -114,6 +117,7 @@ class AITools:
             "get_upcoming_workouts": self.get_upcoming_workouts,
             "propose_plan_build": self.propose_plan_build,
             "propose_plan_adjustment": self.propose_plan_adjustment,
+            "create_plan_constraint": self.create_plan_constraint,
         }
     
     def get_available_tools(self) -> Dict[str, str]:
@@ -148,6 +152,14 @@ class AITools:
             "propose_plan_adjustment": (
                 "Предложить корректировку активного плана по факту выполнения недели. "
                 "Параметры: weeks (целое, по умолчанию 1)."
+            ),
+            "create_plan_constraint": (
+                "Сохранить durable-ограничение на дату и сразу применить его к активному плану, "
+                "если он есть. Используй только при явной фразе пользователя вроде 'я болею завтра', "
+                "'не могу тренироваться 2026-07-10', 'удали тренировку в этот день'. "
+                "Параметры: date (YYYY-MM-DD/today/tomorrow/сегодня/завтра), "
+                "kind (sick/unavailable/forced_rest/manual_delete/disabled_plan_day или русские синонимы), "
+                "note (необязательно)."
             ),
         }
     
@@ -849,6 +861,57 @@ class AITools:
             "preview": preview_payload,
         }
 
+    def create_plan_constraint(
+        self,
+        date: str = "",
+        kind: str = "unavailable",
+        note: str = "",
+    ) -> Dict[str, Any]:
+        """Persist an explicit user/coach day constraint and apply it to the active plan."""
+        try:
+            resolved_date = _normalize_constraint_date(date)
+            resolved_kind = _normalize_constraint_kind(kind)
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+
+        try:
+            constraint = self.db.save_coach_constraint(
+                date=resolved_date,
+                kind=resolved_kind,
+                source="coach",
+                note=str(note or "").strip() or None,
+                metadata={"created_by_tool": "create_plan_constraint"},
+            )
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+
+        checkpoint = self.db.get_latest_planning_checkpoint()
+        goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
+        application = {"applied_count": 0, "protected_dates": [], "constraints": []}
+        saved_checkpoint_id = None
+
+        if goal_plan and goal_plan.get("daily_plan"):
+            updated_plan, application = apply_constraints_to_goal_plan(goal_plan, [constraint])
+            if int(application.get("applied_count") or 0) > 0:
+                updated_plan["plan_revision"] = datetime.now().isoformat()
+                updated_plan = with_checkpoint_provenance(
+                    updated_plan,
+                    source="coach_constraint",
+                    parent_checkpoint_id=(checkpoint or {}).get("id"),
+                )
+                saved = self.db.save_planning_checkpoint(build_planning_checkpoint(updated_plan))
+                saved_checkpoint_id = (saved or {}).get("id") or (saved or {}).get("checkpoint_id")
+
+        return {
+            "action": "create_plan_constraint",
+            "constraint": constraint,
+            "active_plan_present": bool(goal_plan and goal_plan.get("daily_plan")),
+            "active_plan_updated": int(application.get("applied_count") or 0) > 0,
+            "saved_checkpoint_id": saved_checkpoint_id,
+            "constraint_application": application,
+            "message": _constraint_tool_message(constraint, application),
+        }
+
     def format_tool_descriptions_for_ai(self) -> str:
         """Форматирует описания инструментов для AI"""
         tools_desc = "ДОСТУПНЫЕ ИНСТРУМЕНТЫ:\n\n"
@@ -874,11 +937,12 @@ class AITools:
 - [TOOL: get_upcoming_workouts, days=7] - тренировки на ближайшие 7 дней из плана
 - [TOOL: propose_plan_build, goal_type=Триатлон, distance=Half, event_date=2026-10-01, available_hours=10] - предложить новый план
 - [TOOL: propose_plan_adjustment, weeks=1] - предложить корректировку активного плана
+- [TOOL: create_plan_constraint, date=tomorrow, kind=sick, note=Температура] - отметить день как защищённый и убрать нагрузку из активного плана
 
 ВАЖНО: Используй инструменты для получения точных, актуальных данных вместо общих предположений.
 """
         return tools_desc
-    
+
     def get_activities_by_date_range(self, start_date: str, end_date: str) -> Dict[str, Any]:
         """Получить активности за конкретный диапазон дат"""
         try:
@@ -1397,3 +1461,78 @@ class AITools:
             return {
                 "error": f"Ошибка анализа паттернов сна: {str(e)}"
             }
+
+
+_CONSTRAINT_KIND_ALIASES = {
+    "sick": "sick",
+    "ill": "sick",
+    "illness": "sick",
+    "болею": "sick",
+    "болезнь": "sick",
+    "заболел": "sick",
+    "заболела": "sick",
+    "unavailable": "unavailable",
+    "busy": "unavailable",
+    "travel": "unavailable",
+    "trip": "unavailable",
+    "не могу": "unavailable",
+    "недоступен": "unavailable",
+    "недоступна": "unavailable",
+    "перелет": "unavailable",
+    "перелёт": "unavailable",
+    "командировка": "unavailable",
+    "forced_rest": "forced_rest",
+    "rest": "forced_rest",
+    "recovery": "forced_rest",
+    "отдых": "forced_rest",
+    "восстановление": "forced_rest",
+    "manual_delete": "manual_delete",
+    "delete": "manual_delete",
+    "remove": "manual_delete",
+    "удали": "manual_delete",
+    "убери": "manual_delete",
+    "удалить": "manual_delete",
+    "disabled_plan_day": "disabled_plan_day",
+    "disable": "disabled_plan_day",
+    "off": "disabled_plan_day",
+    "отключить": "disabled_plan_day",
+}
+
+
+def _normalize_constraint_kind(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    if not text:
+        raise ValueError("kind is required")
+    normalized = _CONSTRAINT_KIND_ALIASES.get(text)
+    if normalized:
+        return normalized
+    allowed = sorted(set(_CONSTRAINT_KIND_ALIASES.values()))
+    raise ValueError(
+        f"Unsupported constraint kind '{value}'. Allowed kinds: {', '.join(allowed)}"
+    )
+
+
+def _normalize_constraint_date(value: Any) -> str:
+    text = str(value or "").strip().lower()
+    today = datetime.now().date()
+    if text in {"today", "сегодня"}:
+        return today.isoformat()
+    if text in {"tomorrow", "завтра"}:
+        return (today + timedelta(days=1)).isoformat()
+    if not text:
+        raise ValueError("date is required")
+    try:
+        return datetime.strptime(text[:10], "%Y-%m-%d").date().isoformat()
+    except ValueError as exc:
+        raise ValueError("date must be YYYY-MM-DD, today/tomorrow, сегодня/завтра") from exc
+
+
+def _constraint_tool_message(
+    constraint: Dict[str, Any],
+    application: Dict[str, Any],
+) -> str:
+    date_text = constraint.get("date")
+    kind = constraint.get("kind")
+    if int(application.get("applied_count") or 0) > 0:
+        return f"Ограничение {kind} на {date_text} сохранено и применено к активному плану."
+    return f"Ограничение {kind} на {date_text} сохранено; активный план не изменён."

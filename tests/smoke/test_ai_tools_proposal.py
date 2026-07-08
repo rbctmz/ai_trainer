@@ -52,8 +52,10 @@ def test_proposal_tools_registered(tmp_path) -> None:
 
     assert "propose_plan_build" in available
     assert "propose_plan_adjustment" in available
+    assert "create_plan_constraint" in available
     assert "propose_plan_build" in tools.tools
     assert "propose_plan_adjustment" in tools.tools
+    assert "create_plan_constraint" in tools.tools
 
 
 def test_propose_plan_build_missing_event_date(tmp_path) -> None:
@@ -175,8 +177,77 @@ def test_noop_plan_adjustment_formatter_does_not_request_confirmation() -> None:
     assert "Подтверди карточку" not in text
 
 
+def test_create_plan_constraint_without_active_plan_persists_ledger_row(tmp_path) -> None:
+    db = Database(str(tmp_path / "constraint_tool_empty.db"))
+    tools = AITools(db)
+
+    result = tools.execute_tool(
+        "create_plan_constraint",
+        date="tomorrow",
+        kind="sick",
+        note="Температура, без тренировок",
+    )
+
+    assert result["success"] is True, result.get("error")
+    payload = result["result"]
+    constraint = payload["constraint"]
+    expected_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+
+    assert payload["action"] == "create_plan_constraint"
+    assert payload["active_plan_updated"] is False
+    assert constraint["date"] == expected_date
+    assert constraint["kind"] == "sick"
+    assert constraint["status"] == "active"
+    assert db.get_coach_constraints(start_date=expected_date, end_date=expected_date)[0]["id"] == constraint["id"]
+
+
+def test_create_plan_constraint_applies_to_active_plan_checkpoint(tmp_path) -> None:
+    db = _seeded_db(tmp_path)
+    _build_active_triathlon_plan(db)
+    active_plan = planning_service.get_active_plan(db)
+    assert active_plan
+
+    protected_index = next(
+        index
+        for index, item in enumerate(active_plan["daily_plan"])
+        if item[0].date() >= datetime.now().date() and float(item[1] or 0) > 0
+    )
+    protected_date = active_plan["daily_plan"][protected_index][0].strftime("%Y-%m-%d")
+
+    result = AITools(db).execute_tool(
+        "create_plan_constraint",
+        date=protected_date,
+        kind="болею",
+        note="Болею, нужен отдых",
+    )
+
+    assert result["success"] is True, result.get("error")
+    payload = result["result"]
+    assert payload["active_plan_updated"] is True
+    assert payload["constraint_application"]["applied_count"] == 1
+    assert payload["constraint_application"]["protected_dates"] == [protected_date]
+
+    updated_plan = planning_service.get_active_plan(db)
+    assert updated_plan
+    assert updated_plan["daily_plan"][protected_index][1] == 0
+    assert updated_plan["session_templates"][protected_index]["session_role"] == "off"
+    assert updated_plan["session_templates"][protected_index]["constraint"]["kind"] == "sick"
+
+
+def test_create_plan_constraint_rejects_unknown_kind(tmp_path) -> None:
+    result = AITools(Database(str(tmp_path / "bad_constraint.db"))).execute_tool(
+        "create_plan_constraint",
+        date="tomorrow",
+        kind="party",
+    )
+
+    assert result["success"] is False
+    assert "kind" in result.get("error", "").lower()
+
+
 def test_system_prompt_contains_proposal_tools() -> None:
     prompt = create_chat_system_prompt_with_tools(None)
 
     assert "propose_plan_build" in prompt
     assert "propose_plan_adjustment" in prompt
+    assert "create_plan_constraint" in prompt

@@ -589,6 +589,25 @@ def format_tool_result(tool_name, data):
 Подтверди карточку ниже, если хочешь применить именно эту корректировку.
 """
 
+    elif tool_name == "create_plan_constraint":
+        constraint = data.get("constraint", {}) if isinstance(data, dict) else {}
+        application = data.get("constraint_application", {}) if isinstance(data, dict) else {}
+        applied_count = int(application.get("applied_count") or 0)
+        status = (
+            "сохранено и применено к активному плану"
+            if applied_count > 0
+            else "сохранено; активный план не изменён"
+        )
+
+        return f"""
+## 🧩 Ограничение плана
+
+• Дата: {constraint.get('date', 'н/д')}
+• Тип: {constraint.get('kind', 'н/д')}
+• Заметка: {constraint.get('note') or '—'}
+• Статус: {status}
+"""
+
     elif tool_name == "get_activities_by_date_range":
         if data["count"] == 0:
             return f"📭 **Нет тренировок в период {data['period']}**"
