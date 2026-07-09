@@ -127,7 +127,7 @@ def compute_readiness_today(
     if garmin_factor:
         factors.append(garmin_factor)
 
-    tsb_payload = _tsb_metrics(activities_df)
+    tsb_payload = _tsb_metrics(activities_df, anchor)
     if tsb_payload is not None:
         factors.append(_tsb_factor(tsb_payload))
 
@@ -341,7 +341,7 @@ def _garmin_factor(
     }
 
 
-def _tsb_metrics(activities_df: pd.DataFrame | None) -> dict[str, Any] | None:
+def _tsb_metrics(activities_df: pd.DataFrame | None, anchor: date) -> dict[str, Any] | None:
     if activities_df is None or not isinstance(activities_df, pd.DataFrame) or activities_df.empty:
         return None
     if "tss" not in activities_df.columns or "date" not in activities_df.columns:
@@ -351,15 +351,25 @@ def _tsb_metrics(activities_df: pd.DataFrame | None) -> dict[str, Any] | None:
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df["tss"] = pd.to_numeric(df["tss"], errors="coerce").fillna(0.0)
     df = df.dropna(subset=["date"]).sort_values("date")
+    anchor_ts = pd.Timestamp(anchor)
+    df = df[df["date"] <= anchor_ts]
     if df.empty:
         return None
 
-    metrics = BanisterModel().get_current_metrics(df["tss"].tolist(), df["date"].tolist())
+    # BanisterModel fills gaps only through the last supplied activity date.
+    # Readiness is a "today" signal, so rest days after the last workout must
+    # decay ATL/TSB as zero-TSS days through the anchor date.
+    daily_tss = df.groupby(df["date"].dt.normalize())["tss"].sum().sort_index()
+    date_range = pd.date_range(start=daily_tss.index.min(), end=anchor_ts, freq="D")
+    daily_tss = daily_tss.reindex(date_range, fill_value=0.0)
+
+    metrics = BanisterModel().get_current_metrics(daily_tss.tolist(), daily_tss.index.tolist())
     return {
         "ctl": round(float(metrics.get("ctl") or 0.0), 1),
         "atl": round(float(metrics.get("atl") or 0.0), 1),
         "tsb": round(float(metrics.get("tsb") or 0.0), 1),
         "window_days": LOAD_METRICS_WINDOW_DAYS,
+        "as_of": anchor.isoformat(),
     }
 
 
@@ -384,5 +394,5 @@ def _tsb_factor(tsb_payload: dict[str, Any]) -> dict[str, Any]:
         "evidence": f"TSB {tsb:+.1f} ({note})",
         "source": "activities.tss → Banister",
         "stale_input": False,
-        "as_of": None,
+        "as_of": tsb_payload.get("as_of"),
     }

@@ -131,6 +131,23 @@ def test_heavy_recent_load_pushes_tsb_factor_down():
     assert "TSB" in tsb["evidence"]
 
 
+def test_tsb_decays_through_rest_days_until_today():
+    inputs = _full_inputs()
+    inputs["activities_df"] = pd.DataFrame(
+        [{"date": pd.Timestamp(TODAY - timedelta(days=5)), "tss": 180.0}]
+    )
+
+    result = compute_readiness_today(**inputs, today=TODAY)
+
+    tsb = next(f for f in result["factors"] if f["key"] == "tsb")
+    assert tsb["as_of"] == TODAY.isoformat()
+    assert result["tsb"]["as_of"] == TODAY.isoformat()
+    # Без нулевых дней отдыха Banister остаётся на дате тренировки:
+    # TSB около -19.7. Через 5 дней отдыха он должен заметно восстановиться.
+    assert tsb["raw_value"] > -10
+    assert tsb["score"] >= 70
+
+
 def test_missing_garmin_readiness_renormalizes_weights():
     inputs = _full_inputs()
     inputs["training_df"] = None
