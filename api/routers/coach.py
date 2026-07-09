@@ -70,6 +70,7 @@ def coach_chat(
     chat_manager.add_message(chat_id, "user", message)
     history = chat_manager.get_chat_messages(chat_id)[:-1]
     ai_tools = AITools(db)
+    load_metrics_context = _load_metrics_context(ai_tools)
     goal_plan = get_active_plan(db)
     latest_data_at = latest_iso_from_database(db)
     has_data = latest_data_at is not None
@@ -81,6 +82,9 @@ def coach_chat(
             {
                 "type": "meta",
                 "chat_id": chat_id,
+                "metrics_window_days": load_metrics_context.get("metrics_window_days"),
+                "as_of_date": load_metrics_context.get("as_of_date"),
+                "load_metrics": load_metrics_context,
                 "readiness_snapshot": readiness_snapshot,
                 "operational_state": build_operational_state(
                     db,
@@ -167,7 +171,13 @@ def coach_chat(
                 for chunk in _chunk(final):
                     yield _sse({"type": "token", "content": chunk})
 
-            _save_decision(db, final, chat_id=chat_id, message_id=message_id)
+            _save_decision(
+                db,
+                final,
+                chat_id=chat_id,
+                message_id=message_id,
+                load_metrics_context=load_metrics_context,
+            )
             chat_manager.add_message(chat_id, "assistant", final)
 
             yield _sse({"type": "done", "message_id": message_id, "chat_id": chat_id})
@@ -256,15 +266,41 @@ def _chunk(text: str) -> Iterator[str]:
         yield piece if i + group >= len(words) else piece + " "
 
 
-def _save_decision(db: Database, final: str, *, chat_id: str, message_id: str) -> None:
+def _load_metrics_context(ai_tools: AITools) -> dict[str, Any]:
+    try:
+        metrics = ai_tools.get_performance_metrics()
+    except Exception:
+        return {}
+    if not isinstance(metrics, dict):
+        return {}
+    return {
+        "ctl": metrics.get("ctl"),
+        "atl": metrics.get("atl"),
+        "tsb": metrics.get("tsb"),
+        "metrics_window_days": metrics.get("metrics_window_days"),
+        "as_of_date": metrics.get("as_of_date"),
+    }
+
+
+def _save_decision(
+    db: Database,
+    final: str,
+    *,
+    chat_id: str,
+    message_id: str,
+    load_metrics_context: dict[str, Any] | None = None,
+) -> None:
     try:
         decision = build_coach_decision(final, db=db)
+        load_metrics_context = load_metrics_context or {}
         db.save_coach_decision(
             decision_type=decision.decision_type,
             reason=decision.reason,
             workout_id=decision.workout_id,
             chat_id=chat_id,
             message_id=message_id,
+            metrics_window_days=load_metrics_context.get("metrics_window_days"),
+            as_of_date=load_metrics_context.get("as_of_date"),
         )
     except Exception:
         # Decision logging must not block the coach answer delivery.
