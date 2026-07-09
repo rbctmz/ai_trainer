@@ -527,6 +527,70 @@ def format_tool_result(tool_name, data):
 {chr(10).join(recent_lines) if recent_lines else "• Нет свежих записей"}
 """
 
+    elif tool_name == "get_active_plan":
+        if not isinstance(data, dict):
+            return f"ℹ️ **{data}**"
+        if not data.get("has_plan"):
+            return f"ℹ️ **{data.get('message', 'Активный план не найден')}**"
+
+        goal = data.get("goal", {}) or {}
+        timeline = data.get("timeline", {}) or {}
+        current = data.get("current_week")
+        totals = data.get("totals", {}) or {}
+        weeks = data.get("weeks_preview", []) or []
+
+        goal_line = " ".join(part for part in [goal.get("goal_type"), goal.get("distance")] if part) or "н/д"
+        race_date = goal.get("event_date") or timeline.get("plan_end")
+        race_label = format_date_label(race_date, "weekday_short") if race_date else "н/д"
+        weeks_remaining = timeline.get("weeks_remaining", goal.get("weeks_to_race", "н/д"))
+
+        if current:
+            current_block = (
+                f"### 📍 Текущая неделя: {current.get('index', 'н/д')} из {totals.get('total_weeks', 'н/д')}\n"
+                f"• Даты: {format_date_label(current.get('week_start'), 'weekday_short')} — "
+                f"{format_date_label(current.get('week_end'), 'weekday_short')}\n"
+                f"• Фаза: {current.get('phase') or 'н/д'}\n"
+                f"• Плановый TSS: **{current.get('weekly_tss', 'н/д')}**"
+            )
+        elif timeline.get("status") == "not_started":
+            start_label = format_date_label(timeline.get("plan_start"), "weekday_short")
+            current_block = f"### 📍 План ещё не начался (старт {start_label})"
+        elif timeline.get("status") == "completed":
+            current_block = "### 📍 План завершён"
+        else:
+            current_block = "### 📍 Текущая неделя не определена"
+
+        if weeks:
+            table_rows = ["| Неделя | Старт недели | Фаза | TSS |", "| --- | --- | --- | --- |"]
+            for week in weeks:
+                marker = " ← текущая" if week.get("is_current") else ""
+                table_rows.append(
+                    f"| {week.get('week', '—')}{marker} | {format_date_label(week.get('week_start'), 'weekday_short')} | "
+                    f"{week.get('phase') or '—'} | {week.get('weekly_tss', 0)} |"
+                )
+            weeks_section = "\n".join(table_rows)
+        else:
+            weeks_section = "Нет разбивки по неделям."
+
+        return f"""
+## 🗓️ Активный план
+
+### 🎯 Цель:
+• {goal_line}
+• Старт: {race_label}
+• До старта: **{weeks_remaining} нед.**
+
+{current_block}
+
+### 📅 Недели плана:
+{weeks_section}
+
+### 📊 Итого:
+• Недель в плане: {totals.get('total_weeks', 'н/д')}
+• Общий TSS: {totals.get('total_tss', 'н/д')}
+• Пик TSS/нед: {totals.get('peak_tss', 'н/д')}
+"""
+
     elif tool_name == "propose_plan_build":
         preview = data.get("preview", {}) if isinstance(data, dict) else {}
         params = data.get("params", {}) if isinstance(data, dict) else {}
