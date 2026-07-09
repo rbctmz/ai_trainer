@@ -21,7 +21,9 @@ from models.planning_checkpoints import (
 from models.coach_constraints import apply_constraints_to_goal_plan
 from models.signals_engine import assemble_signals
 from utils.product_semantics import (
+    TODAY_PARTIAL_NOTE_RU,
     format_date_label,
+    is_today,
     normalize_training_status_key,
     normalize_sport_key,
     sport_label,
@@ -319,9 +321,14 @@ class AITools:
         for _, row in recent.iterrows():
             raw_sport = row.get("sport", "unknown")
             localized_sport = sport_label(raw_sport)
+            date_label = format_date_label(row.get("date"), "weekday_short")
+            today_partial = is_today(row.get("date"))
+            if today_partial:
+                date_label = f"{date_label} {TODAY_PARTIAL_NOTE_RU}"
             activity = {
                 "date": row["date"].strftime("%Y-%m-%d"),
-                "date_label": format_date_label(row.get("date"), "weekday_short"),
+                "date_label": date_label,
+                "is_today_partial": today_partial,
                 "sport": normalize_sport_key(raw_sport),
                 "sport_label": localized_sport,
                 "duration_minutes": float(row.get("duration_minutes", 0)),
@@ -1256,17 +1263,24 @@ class AITools:
             }
         
         df["date"] = pd.to_datetime(df["date"])
+
+        # Сегодняшняя строка — незавершённый день: шаги/минуты ещё копятся,
+        # поэтому агрегаты и тренд считаем только по завершённым дням (#126).
+        today = pd.Timestamp(datetime.now().date())
+        completed = df[df["date"] < today]
+        has_today_partial = bool((df["date"] >= today).any())
+
         stats = {
-            "avg_steps": df["steps"].mean() if "steps" in df.columns else None,
-            "avg_resting_hr": df["resting_hr"].mean() if "resting_hr" in df.columns else None,
-            "avg_active_minutes": df["active_minutes"].mean() if "active_minutes" in df.columns else None,
-            "avg_calories_active": df["calories_active"].mean() if "calories_active" in df.columns else None,
-            "total_steps": df["steps"].sum() if "steps" in df.columns else None
+            "avg_steps": completed["steps"].mean() if "steps" in completed.columns else None,
+            "avg_resting_hr": completed["resting_hr"].mean() if "resting_hr" in completed.columns else None,
+            "avg_active_minutes": completed["active_minutes"].mean() if "active_minutes" in completed.columns else None,
+            "avg_calories_active": completed["calories_active"].mean() if "calories_active" in completed.columns else None,
+            "total_steps": completed["steps"].sum() if "steps" in completed.columns else None
         }
-        
+
         trend = None
-        if "steps" in df.columns:
-            steps_series = df.sort_values("date")["steps"].dropna()
+        if "steps" in completed.columns:
+            steps_series = completed.sort_values("date")["steps"].dropna()
             if len(steps_series) >= 2:
                 slope = np.polyfit(range(len(steps_series)), steps_series, 1)[0]
                 if slope > 0:
@@ -1275,7 +1289,7 @@ class AITools:
                     trend = "decreasing"
                 else:
                     trend = "stable"
-        
+
         recent_entries = []
         for _, row in df.sort_values("date", ascending=False).head(5).iterrows():
             record = row.to_dict()
@@ -1283,11 +1297,15 @@ class AITools:
             if isinstance(record_date, pd.Timestamp):
                 record["date"] = record_date.strftime("%Y-%m-%d")
             record["date_label"] = format_date_label(record.get("date"), "weekday_short")
+            record["is_today_partial"] = is_today(record.get("date"))
+            if record["is_today_partial"]:
+                record["date_label"] = f"{record['date_label']} {TODAY_PARTIAL_NOTE_RU}"
             recent_entries.append(record)
-        
+
         return {
             "period_days": days,
             "stats": stats,
+            "aggregates_exclude_today": has_today_partial,
             "trend_steps": trend or "unknown",
             "trend_steps_label": trend_label(trend or "unknown"),
             "recent_entries": recent_entries

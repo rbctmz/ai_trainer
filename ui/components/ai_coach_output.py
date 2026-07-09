@@ -9,6 +9,7 @@ from typing import Any, Dict, Optional
 import pandas as pd
 import streamlit as st
 from utils.product_semantics import (
+    TODAY_PARTIAL_NOTE_RU,
     format_date_label,
     sport_emoji,
     sport_label,
@@ -134,6 +135,8 @@ def format_tool_result(tool_name, data):
             sport = activity.get("sport_label") or sport_label(activity.get("sport"))
             emoji = sport_emoji(activity.get("sport"))
             date_text = activity.get("date_label") or format_date_label(activity.get("date"), "weekday_short")
+            if activity.get("is_today_partial") and TODAY_PARTIAL_NOTE_RU not in date_text:
+                date_text = f"{date_text} {TODAY_PARTIAL_NOTE_RU}"
             description = activity.get("description") or f"{sport} — {activity.get('duration_minutes', 0):.0f} мин"
             activities_text += f"{i}. **{date_text}** {emoji} {description}\n"
 
@@ -496,15 +499,23 @@ def format_tool_result(tool_name, data):
         recent_lines = []
         for entry in recent[:5]:
             date = entry.get("date_label") or format_date_label(entry.get("date"), "weekday_short")
+            if entry.get("is_today_partial") and TODAY_PARTIAL_NOTE_RU not in date:
+                date = f"{date} {TODAY_PARTIAL_NOTE_RU}"
             steps = fmt_number(entry.get("steps"), ".0f")
             resting_hr = fmt_number(entry.get("resting_hr"), ".0f")
             active_minutes = fmt_number(entry.get("active_minutes"), ".0f")
             recent_lines.append(f"• {date}: шаги {steps}, ЧСС покоя {resting_hr}, активность {active_minutes} мин")
 
+        averages_note = (
+            " — без сегодняшнего неполного дня"
+            if data.get("aggregates_exclude_today")
+            else ""
+        )
+
         return f"""
 ## 🏥 Ежедневные показатели здоровья ({data.get('period_days', 30)} дней)
 
-### 📊 Средние значения:
+### 📊 Средние значения{averages_note}:
 • Шаги: {fmt_number(stats.get('avg_steps'), '.0f')} в день
 • ЧСС покоя: {fmt_number(stats.get('avg_resting_hr'), '.1f')} уд/мин
 • Активные минуты: {fmt_number(stats.get('avg_active_minutes'), '.1f')} мин/день
