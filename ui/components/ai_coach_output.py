@@ -538,11 +538,22 @@ def format_tool_result(tool_name, data):
         current = data.get("current_week")
         totals = data.get("totals", {}) or {}
         weeks = data.get("weeks_preview", []) or []
+        events = [event for event in data.get("events", []) or [] if isinstance(event, dict)]
 
         goal_line = " ".join(part for part in [goal.get("goal_type"), goal.get("distance")] if part) or "н/д"
         race_date = goal.get("event_date") or timeline.get("plan_end")
         race_label = format_date_label(race_date, "weekday_short") if race_date else "н/д"
         weeks_remaining = timeline.get("weeks_remaining", goal.get("weeks_to_race", "н/д"))
+        if events:
+            event_lines = [
+                f"• {str(event.get('priority') or '—').upper()} · "
+                f"{event.get('label') or 'Старт'} — "
+                f"{format_date_label(event.get('date'), 'weekday_short')}"
+                for event in events
+            ]
+            events_block = "\n".join(event_lines)
+        else:
+            events_block = "• Нет сохранённых стартов"
 
         if current:
             current_block = (
@@ -579,6 +590,9 @@ def format_tool_result(tool_name, data):
 • {goal_line}
 • Старт: {race_label}
 • До старта: **{weeks_remaining} нед.**
+
+### 🏁 Старты:
+{events_block}
 
 {current_block}
 

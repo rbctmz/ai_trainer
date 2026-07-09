@@ -18,6 +18,7 @@ from data.database import Database
 from models.banister import BanisterModel, tsb_zone
 from models.coach_constraints import apply_constraints_to_goal_plan
 from models.fit_export import build_steps_for_sport, generate_fit_csv
+from models.plan_events import build_primary_event, synchronize_goal_plan_events
 from models.planning_checkpoints import (
     build_planning_checkpoint,
     restore_goal_plan_from_checkpoint,
@@ -325,10 +326,12 @@ def build_plan(
         daily_plan, weekly_summary, goal_type=gt, distance=dist
     )
 
-    goal_plan = {
+    initial_event = build_primary_event(goal_dt, f"{gt} {dist}")
+    goal_plan = synchronize_goal_plan_events({
         "goal_type": gt,
         "distance": dist,
         "event_date": goal_dt.isoformat(),
+        "events": [initial_event] if initial_event is not None else [],
         "weeks_to_race": weeks_to_race,
         "start_week": start_week,
         "weekly_tss_plan": weekly_tss_plan,
@@ -346,8 +349,9 @@ def build_plan(
         "plan_revision": datetime.now().isoformat(),
         "near_term_edit_version": 0,
         "near_term_edit_rollback_target_checkpoint_id": None,
-    }
+    })
     goal_plan, constraint_application = _apply_active_coach_constraints(db, goal_plan)
+    goal_plan = synchronize_goal_plan_events(goal_plan)
     goal_plan = with_checkpoint_provenance(goal_plan, source="initial_plan")
 
     plan_id: Optional[str] = None
@@ -369,7 +373,8 @@ def build_plan(
         "goal": {
             "goal_type": gt,
             "distance": dist,
-            "event_date": goal_dt.isoformat(),
+            "event_date": goal_plan["event_date"],
+            "events": goal_plan["events"],
             "weeks_to_race": weeks_to_race,
         },
         "weekly_target": {

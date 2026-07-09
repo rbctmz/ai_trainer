@@ -8,6 +8,7 @@ from models.planning_summary import (
     EXECUTION_ADAPTATION_FOLLOW_UP_MODE_LABELS_RU,
     summarize_execution_adaptation_pressure,
 )
+from models.plan_events import synchronize_goal_plan_events
 from models.training_planner import (
     SESSION_ROLE_LABELS_RU,
     SPORT_LABELS_RU,
@@ -1227,12 +1228,10 @@ def rebuild_goal_plan_with_adjustment(
             )
             rebuilt_constraint_summary["notes"] = notes
 
-    return {
+    return synchronize_goal_plan_events({
         "goal_type": goal_type,
         "distance": distance,
-        # Execution feedback rebuilds the plan structure, but must retain the
-        # race date chosen when the original plan was created. Without this,
-        # the next persisted checkpoint loses the authoritative event date.
+        "events": goal_plan.get("events", []),
         "event_date": goal_plan.get("event_date"),
         "weeks_to_race": int(goal_plan.get("weeks_to_race", len(weekly_tss_plan)) or len(weekly_tss_plan)),
         "start_week": start_week,
@@ -1245,7 +1244,7 @@ def rebuild_goal_plan_with_adjustment(
         "constraint_summary": rebuilt_constraint_summary,
         "planner_mix": planner_mix,
         "planner_weights": planner_weights,
-    }
+    })
 
 
 __all__ = [

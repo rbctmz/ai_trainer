@@ -9,6 +9,7 @@ import pandas as pd
 import streamlit as st
 
 from models.banister import tsb_zone
+from models.plan_events import build_primary_event, synchronize_goal_plan_events
 from models.planning_near_term import (
     EDITABLE_NEAR_TERM_HORIZON_MAX,
     EDITABLE_NEAR_TERM_HORIZON_MIN,
@@ -229,11 +230,18 @@ def _build_initial_goal_plan_payload(
     event_date: date,
     **plan_fields: Any,
 ) -> Dict[str, Any]:
-    """Attach the selected race date to a newly built legacy plan payload."""
-    return {
+    """Attach the selected A event to a newly built legacy plan payload."""
+    label = " ".join(
+        str(plan_fields.get(key) or "").strip()
+        for key in ("goal_type", "distance")
+        if str(plan_fields.get(key) or "").strip()
+    )
+    initial_event = build_primary_event(event_date, label)
+    return synchronize_goal_plan_events({
         **plan_fields,
         "event_date": event_date.isoformat(),
-    }
+        "events": [initial_event] if initial_event is not None else [],
+    })
 
 
 def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:

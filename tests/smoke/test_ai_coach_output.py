@@ -58,6 +58,10 @@ def test_format_get_active_plan_shows_current_week_and_weeks_table():
                 "event_date": "2026-08-31",
                 "weeks_to_race": 7,
             },
+            "events": [
+                {"date": "2026-08-31", "priority": "A", "label": "Главный старт"},
+                {"date": "2026-07-26", "priority": "B", "label": "Контрольный старт"},
+            ],
             "timeline": {
                 "today": "2026-07-09",
                 "plan_start": "2026-06-29",
@@ -90,6 +94,8 @@ def test_format_get_active_plan_shows_current_week_and_weeks_table():
     assert "До старта: **7 нед.**" in formatted
     assert "Текущая неделя: 2 из 4" in formatted
     assert "Плановый TSS: **110**" in formatted
+    assert "A · Главный старт" in formatted
+    assert "B · Контрольный старт" in formatted
     assert "2 ← текущая" in formatted
     # weeks table is rendered explicitly, not collapsed by the default formatter
     assert "[данные доступны]" not in formatted

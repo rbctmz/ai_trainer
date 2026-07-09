@@ -64,6 +64,13 @@ def _make_goal_plan(weeks_ago: int = 0) -> dict:
         "goal_type": "Триатлон",
         "distance": "Олимпийка",
         "event_date": event_date.isoformat(),
+        "events": [
+            {
+                "date": event_date.isoformat(),
+                "priority": "A",
+                "label": "Триатлон Олимпийка",
+            }
+        ],
         "weeks_to_race": len(weekly_tss_plan),
         "start_week": start_week,
         "weekly_tss_plan": weekly_tss_plan,
@@ -114,6 +121,13 @@ def test_get_active_plan_returns_plan(tools_with_plan: AITools) -> None:
     assert goal["goal_type"] == "Триатлон"
     assert goal["distance"] == "Олимпийка"
     assert goal["weeks_to_race"] == 8
+    assert result["events"] == [
+        {
+            "date": goal["event_date"],
+            "priority": "A",
+            "label": "Триатлон Олимпийка",
+        }
+    ]
     assert result["totals"]["total_weeks"] == 8
     assert result["totals"]["peak_tss"] == 380
     assert result["totals"]["total_tss"] == sum([300, 320, 350, 280, 360, 380, 300, 200])
@@ -174,6 +188,7 @@ def test_get_active_plan_legacy_checkpoint_without_event_date_uses_end_fallback(
     db = Database(str(tmp_path / "plan_legacy_no_event_date.db"))
     goal_plan = _make_goal_plan()
     goal_plan.pop("event_date", None)
+    goal_plan.pop("events", None)
     db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
 
     result = AITools(db).get_active_plan()

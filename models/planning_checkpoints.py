@@ -9,6 +9,7 @@ from models.planning_execution import (
     summarize_execution_reconciliation,
     summarize_execution_weekly_review,
 )
+from models.plan_events import synchronize_goal_plan_events
 from models.planning_summary import (
     summarize_execution_adaptation_pressure,
     summarize_near_term_edit,
@@ -193,6 +194,7 @@ def summarize_checkpoint_provenance(checkpoint: Dict[str, Any] | None) -> Dict[s
 
 def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     """Build a compact persisted snapshot from the current goal plan."""
+    goal_plan = synchronize_goal_plan_events(goal_plan)
     weekly_summary_rows: List[Dict[str, Any]] = []
     for row in goal_plan.get("weekly_summary", []) or []:
         weekly_summary_rows.append(
@@ -226,6 +228,7 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "goal_type": goal_plan.get("goal_type"),
         "distance": goal_plan.get("distance"),
         "event_date": _isoformat_date(goal_plan.get("event_date")),
+        "events": [dict(event) for event in goal_plan.get("events", []) or []],
         "weeks_to_race": goal_plan.get("weeks_to_race"),
         "start_week": _isoformat_date(goal_plan.get("start_week")),
         "weekly_tss_plan": list(goal_plan.get("weekly_tss_plan", []) or []),
@@ -260,6 +263,7 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "goal_type": goal_plan.get("goal_type"),
         "distance": goal_plan.get("distance"),
         "event_date": _isoformat_date(goal_plan.get("event_date")),
+        "events": [dict(event) for event in goal_plan.get("events", []) or []],
         "weeks_to_race": goal_plan.get("weeks_to_race"),
         "headline": constraint_summary.get("notes", [""])[0] if constraint_summary.get("notes") else "",
         "peak_tss": max(adjusted) if adjusted else 0,
@@ -301,7 +305,7 @@ def checkpoint_to_goal_plan_context(checkpoint: Dict[str, Any] | None) -> Dict[s
     if not isinstance(snapshot, dict):
         return None
 
-    goal_plan_snapshot = dict(snapshot)
+    goal_plan_snapshot = synchronize_goal_plan_events(dict(snapshot))
     goal_plan_snapshot["start_week"] = _parse_date(goal_plan_snapshot.get("start_week"))
     goal_plan_snapshot["daily_plan"] = _restore_daily_plan(goal_plan_snapshot.get("daily_plan"))
     goal_plan_snapshot["session_templates"] = list(goal_plan_snapshot.get("session_templates", []) or [])
@@ -398,7 +402,7 @@ def resolve_goal_plan_context(
 ) -> Dict[str, Any] | None:
     """Prefer the current full plan; otherwise fall back to the last persisted snapshot."""
     if isinstance(current_goal_plan, dict) and current_goal_plan:
-        return current_goal_plan
+        return synchronize_goal_plan_events(current_goal_plan)
     return checkpoint_to_goal_plan_context(latest_checkpoint)
 
 

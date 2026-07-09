@@ -46,6 +46,9 @@ def test_initial_goal_plan_payload_persists_selected_event_date():
     )
 
     assert payload["event_date"] == "2026-08-10"
+    assert payload["events"] == [
+        {"date": "2026-08-10", "priority": "A", "label": "Триатлон Олимпийка"}
+    ]
     assert payload["goal_type"] == "Триатлон"
 
 

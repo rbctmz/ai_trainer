@@ -399,12 +399,19 @@ export interface ForecastPoint {
   tsb: number;
 }
 
+export interface RaceEvent {
+  date: string;
+  priority: "A" | "B" | "C";
+  label: string;
+}
+
 export interface BuiltPlan {
   plan_id: string | null;
   goal: {
     goal_type: string;
     distance: string;
     event_date: string;
+    events: RaceEvent[];
     weeks_to_race: number;
   };
   weekly_target: {
