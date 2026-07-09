@@ -152,6 +152,11 @@ class Database:
         'skin_temperature_avg': 'REAL',
     }
 
+    _COACH_DECISION_COLUMN_TYPES = {
+        'metrics_window_days': 'INTEGER',
+        'as_of_date': 'TEXT',
+    }
+
     def __init__(self, db_path=None):
         self.db_path = db_path or Settings.DATABASE_PATH
         self.init_tables()
@@ -358,6 +363,8 @@ class Database:
                 workout_id TEXT,
                 chat_id TEXT,
                 message_id TEXT,
+                metrics_window_days INTEGER,
+                as_of_date TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -398,6 +405,7 @@ class Database:
         self._repair_legacy_activity_tss(conn)
         self._ensure_daily_health_columns(conn)
         self._ensure_training_status_columns(conn)
+        self._ensure_coach_decision_columns(conn)
         conn.commit()
         conn.close()
 
@@ -499,6 +507,16 @@ class Database:
         for column, column_type in self._DAILY_HEALTH_COLUMN_TYPES.items():
             if column not in existing_columns:
                 cursor.execute(f'ALTER TABLE daily_health ADD COLUMN {column} {column_type}')
+        conn.commit()
+
+    def _ensure_coach_decision_columns(self, conn: sqlite3.Connection) -> None:
+        """Добавление недостающих колонок coach_decisions для audit metadata."""
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(coach_decisions)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        for column, column_type in self._COACH_DECISION_COLUMN_TYPES.items():
+            if column not in existing_columns:
+                cursor.execute(f'ALTER TABLE coach_decisions ADD COLUMN {column} {column_type}')
         conn.commit()
 
     def save_planning_checkpoint(self, checkpoint_data):
@@ -619,6 +637,8 @@ class Database:
         workout_id=None,
         chat_id=None,
         message_id=None,
+        metrics_window_days=None,
+        as_of_date=None,
         date=None,
     ):
         """Сохраняет решение коуча для audit trail."""
@@ -643,8 +663,8 @@ class Database:
         cursor.execute(
             '''
             INSERT INTO coach_decisions
-                (date, decision_type, reason, workout_id, chat_id, message_id)
-            VALUES (?, ?, ?, ?, ?, ?)
+                (date, decision_type, reason, workout_id, chat_id, message_id, metrics_window_days, as_of_date)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 self.clean_value(date),
@@ -653,12 +673,15 @@ class Database:
                 self.clean_value(workout_id),
                 self.clean_value(chat_id),
                 self.clean_value(message_id),
+                self.clean_value(metrics_window_days),
+                self.clean_value(as_of_date),
             ),
         )
         decision_id = cursor.lastrowid
         cursor.execute(
             '''
-            SELECT id, date, decision_type, reason, workout_id, chat_id, message_id, created_at
+            SELECT id, date, decision_type, reason, workout_id, chat_id, message_id,
+                   metrics_window_days, as_of_date, created_at
             FROM coach_decisions
             WHERE id = ?
             ''',
@@ -676,7 +699,8 @@ class Database:
         cursor = conn.cursor()
         cursor.execute(
             '''
-            SELECT id, date, decision_type, reason, workout_id, chat_id, message_id, created_at
+            SELECT id, date, decision_type, reason, workout_id, chat_id, message_id,
+                   metrics_window_days, as_of_date, created_at
             FROM coach_decisions
             WHERE substr(date, 1, 10) >= ?
             ORDER BY date DESC, id DESC
@@ -699,7 +723,9 @@ class Database:
             'workout_id': row[4],
             'chat_id': row[5],
             'message_id': row[6],
-            'created_at': row[7],
+            'metrics_window_days': row[7] if len(row) > 8 else None,
+            'as_of_date': row[8] if len(row) > 8 else None,
+            'created_at': row[9] if len(row) > 9 else row[7],
         }
 
     def save_coach_proposal(

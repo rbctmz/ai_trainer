@@ -51,6 +51,20 @@ _TSB_TONE_TO_INTERPRETATION = {
     "danger": "перегрузка",
 }
 
+COACH_LOAD_METRICS_WINDOW_DAYS = 90
+
+
+def _latest_date_iso(df: pd.DataFrame) -> str | None:
+    if df.empty or "date" not in df.columns:
+        return None
+    try:
+        latest = pd.to_datetime(df["date"]).max()
+    except Exception:
+        return None
+    if pd.isna(latest):
+        return None
+    return latest.strftime("%Y-%m-%d")
+
 
 def _is_actionable_plan_adjustment(
     adjustment: Dict[str, Any],
@@ -128,7 +142,10 @@ class AITools:
             "get_activities": "Получить список активностей за период (days=30)",
             "get_hrv_data": "Получить HRV данные за период (days=30)",
             "get_activity_stats": "Получить статистику по активностям (days=30)",
-            "get_performance_metrics": "Получить метрики производительности (CTL/ATL/TSB) (days=90)",
+            "get_performance_metrics": (
+                "Получить метрики производительности (CTL/ATL/TSB). "
+                "days задаёт период отчёта/тренда; CTL/ATL/TSB всегда считаются на стабильном окне"
+            ),
             "get_recent_activities": "Получить последние N активностей (limit=10)",
             "analyze_training_load": "Анализ тренировочной нагрузки за период (days=30)",
             "analyze_hrv_trends": "Анализ трендов HRV (days=30)",
@@ -276,18 +293,27 @@ class AITools:
             "avg_heart_rate": float(df["avg_hr"].mean()) if "avg_hr" in df.columns and not df["avg_hr"].isna().all() else 0
         }
     
-    def get_performance_metrics(self, days: int = 90) -> Dict[str, Any]:
-        """Получить метрики производительности (CTL/ATL/TSB)"""
-        df = self.db.get_activities(days)
-        
-        if df.empty:
+    def get_performance_metrics(self, days: int = 30) -> Dict[str, Any]:
+        """Получить метрики производительности (CTL/ATL/TSB).
+
+        `days` влияет только на отчётный/трендовый контекст. CTL/ATL/TSB
+        считаются на стабильном окне, чтобы LLM не меняла EWMA-метрики
+        произвольными параметрами tool call.
+        """
+        report_days = max(1, int(days or 30))
+        metrics_window_days = COACH_LOAD_METRICS_WINDOW_DAYS
+        report_df = self.db.get_activities(report_days)
+        metrics_df = self.db.get_activities(metrics_window_days)
+
+        if metrics_df.empty:
             return {"message": "Нет данных для расчета метрик производительности"}
         
-        signals = assemble_signals(activities_df=df)
+        signals = assemble_signals(activities_df=metrics_df)
         load = signals["load"]
         tss_data = []
         
-        for _, row in df.iterrows():
+        trend_df = report_df if not report_df.empty else metrics_df
+        for _, row in trend_df.iterrows():
             tss_val = row.get("tss", 0)
             if pd.isna(tss_val):
                 tss_val = 0
@@ -296,11 +322,15 @@ class AITools:
         ctl = float(load["ctl"])
         atl = float(load["atl"])
         tsb = float(load["tsb"])
+        as_of_date = _latest_date_iso(metrics_df)
         
         return {
             "ctl": ctl,
             "atl": atl,
             "tsb": tsb,
+            "report_period_days": report_days,
+            "metrics_window_days": metrics_window_days,
+            "as_of_date": as_of_date,
             "form_state": self._interpret_tsb(tsb),
             "fitness_trend": self._calculate_fitness_trend(tss_data),
             "fatigue_level": self._interpret_atl(atl),
@@ -933,7 +963,7 @@ class AITools:
 
 Примеры:
 - [TOOL: get_recent_activities, limit=5] - последние 5 тренировок
-- [TOOL: get_performance_metrics, days=60] - метрики за 60 дней  
+- [TOOL: get_performance_metrics, days=30] - CTL/ATL/TSB на стабильном окне + тренд за 30 дней
 - [TOOL: analyze_hrv_trends, days=14] - анализ HRV за 2 недели
 - [TOOL: get_activity_by_sport, sport=cycling, days=30] - велотренировки
 - [TOOL: get_training_status, days=30] - статус тренированности и readiness
