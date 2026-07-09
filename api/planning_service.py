@@ -328,6 +328,7 @@ def build_plan(
     goal_plan = {
         "goal_type": gt,
         "distance": dist,
+        "event_date": goal_dt.isoformat(),
         "weeks_to_race": weeks_to_race,
         "start_week": start_week,
         "weekly_tss_plan": weekly_tss_plan,

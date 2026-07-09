@@ -125,6 +125,7 @@ def test_build_plan_contract(tmp_path):
 
 def test_build_plan_applies_active_coach_constraints(tmp_path):
     from api import planning_service as ps
+    from models.ai_coach_runtime import create_chat_synthesis_system_prompt
 
     db = _seeded_db(tmp_path)
     protected_date = (datetime.now() + timedelta(days=2)).strftime("%Y-%m-%d")
@@ -151,6 +152,14 @@ def test_build_plan_applies_active_coach_constraints(tmp_path):
 
     active_plan = ps.get_active_plan(db)
     assert active_plan
+    assert active_plan["event_date"] == event
+    latest = db.get_latest_planning_checkpoint()
+    assert latest is not None
+    assert latest["event_date"] == event
+    assert latest["goal_plan_snapshot"]["event_date"] == event
+    prompt = create_chat_synthesis_system_prompt(goal_plan=active_plan)
+    assert "ПЛАН И ФАЗА" in prompt
+    assert "Текущая фаза" in prompt
     protected_index = next(
         index
         for index, item in enumerate(active_plan["daily_plan"])
