@@ -56,6 +56,28 @@ def test_system_prompt_mandates_hrv_tool_for_recovery_questions():
     assert "Утверждать" in prompt and "HRV нет" in prompt
 
 
+def test_prompts_anchor_today_as_single_date_source():
+    from datetime import date
+    today_iso = date.today().isoformat()
+    for prompt in (
+        ai_coach_runtime.create_chat_system_prompt_with_tools(None),
+        ai_coach_runtime.create_chat_synthesis_system_prompt(),
+    ):
+        assert f"Сегодня: {today_iso}" in prompt
+        assert "ЕДИНСТВЕННЫЙ источник текущей даты" in prompt
+        # История разговора с другой «сегодняшней» датой не должна побеждать якорь.
+        assert "ошибочна" in prompt
+
+
+def test_prompts_warn_that_todays_data_row_may_be_partial():
+    with_tools = ai_coach_runtime.create_chat_system_prompt_with_tools(None)
+    synthesis = ai_coach_runtime.create_chat_synthesis_system_prompt()
+    assert "день ещё не закончился" in with_tools
+    assert "НЕ вычисляй сегодняшнюю дату из данных" in with_tools
+    assert "день не закончился" in synthesis
+    assert "НЕ считай спадом активности" in synthesis
+
+
 def test_synthesis_prompt_forbids_hrv_absent_without_tool():
     system_prompt = ai_coach_runtime.create_chat_synthesis_system_prompt()
     assert "НЕЛЬЗЯ" in system_prompt
