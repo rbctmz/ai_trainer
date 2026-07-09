@@ -56,6 +56,15 @@ def test_system_prompt_mandates_hrv_tool_for_recovery_questions():
     assert "Утверждать" in prompt and "HRV нет" in prompt
 
 
+def test_system_prompt_mandates_activity_tool_for_completed_workout_mentions():
+    prompt = ai_coach_runtime.create_chat_system_prompt_with_tools(None)
+    assert "get_recent_activities" in prompt
+    assert "выполненную" in prompt and "только что сделанную тренировку" in prompt
+    # Факты вместо оценок «на глаз», честное «ещё не синхронизировалась» при отсутствии данных.
+    assert "фактические длительность/дистанцию/TSS" in prompt
+    assert "не синхронизировалась с Garmin" in prompt
+
+
 def test_prompts_anchor_today_as_single_date_source():
     from datetime import date
     today_iso = date.today().isoformat()
