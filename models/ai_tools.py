@@ -19,6 +19,7 @@ from models.planning_checkpoints import (
     with_checkpoint_provenance,
 )
 from models.coach_constraints import apply_constraints_to_goal_plan
+from models.readiness import LOAD_METRICS_WINDOW_DAYS as COACH_LOAD_METRICS_WINDOW_DAYS
 from models.signals_engine import assemble_signals
 from utils.product_semantics import (
     TODAY_PARTIAL_NOTE_RU,
@@ -50,8 +51,6 @@ _TSB_TONE_TO_INTERPRETATION = {
     "warning": "накопление",
     "danger": "перегрузка",
 }
-
-COACH_LOAD_METRICS_WINDOW_DAYS = 90
 
 
 def _latest_date_iso(df: pd.DataFrame) -> str | None:
