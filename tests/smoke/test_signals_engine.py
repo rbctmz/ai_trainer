@@ -37,14 +37,18 @@ def _seed_daily_tss(db: Database, daily_tss_oldest_first: list[float]) -> None:
     db.save_activities(rows)
 
 
-def test_assemble_signals_prefers_training_status_readiness() -> None:
+def test_assemble_signals_fuses_readiness_instead_of_garmin_override() -> None:
+    """Garmin readiness — фактор fusion, а не override (issue #139):
+    подавленный HRV снижает итог даже при высоком training_readiness."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     activities = pd.DataFrame(
-        [{"date": "2026-07-01", "tss": 50.0}, {"date": "2026-07-02", "tss": 20.0}]
+        [{"date": yesterday, "tss": 50.0}, {"date": today, "tss": 20.0}]
     )
     hrv = pd.DataFrame(
         [
-            {"date": "2026-07-01", "rmssd": 24.0},
-            {"date": "2026-07-02", "rmssd": 26.0},
+            {"date": yesterday, "rmssd": 24.0},
+            {"date": today, "rmssd": 26.0},
         ]
     )
 
@@ -55,8 +59,12 @@ def test_assemble_signals_prefers_training_status_readiness() -> None:
     )
 
     assert signals["source"] == SIGNALS_SOURCE
-    assert signals["readiness"]["value"] == 82
-    assert signals["readiness"]["source"] == "training_status"
+    readiness = signals["readiness"]
+    assert readiness["source"] == "fusion"
+    # rmssd 26 (низкий абсолютный уровень) тянет итог заметно ниже Garmin 82
+    assert readiness["value"] is not None and readiness["value"] < 82
+    assert readiness["drivers"], "fusion должен объяснять себя драйверами"
+    assert all("evidence" in d for d in readiness["drivers"])
     assert signals["load"]["label"] == signals["load"]["form"]
 
 

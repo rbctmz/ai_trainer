@@ -70,65 +70,44 @@ def training_load_metrics(activities_df: pd.DataFrame | None) -> dict[str, Any]:
     return BanisterModel().get_current_metrics(tss_data, dates)
 
 
-def _readiness_from_recovery_frames(
-    sleep_df: pd.DataFrame | None,
-    hrv_df: pd.DataFrame | None,
-) -> tuple[float | None, str]:
-    if _frame_or_empty(sleep_df).empty and _frame_or_empty(hrv_df).empty:
-        return None, "none"
-
-    try:
-        from data.data_processor_phase1 import Phase1DataProcessor
-
-        readiness_data = Phase1DataProcessor.calculate_comprehensive_readiness(
-            _latest_row(sleep_df),
-            _latest_row(hrv_df),
-            {},
-            {},
-        )
-        if readiness_data and "readiness_score" in readiness_data:
-            return _safe_float(readiness_data["readiness_score"]), "computed"
-    except Exception:
-        pass
-
-    latest_hrv = _safe_float(_latest_row(hrv_df).get("rmssd"), 0.0)
-    if latest_hrv > 40:
-        return 80.0, "fallback"
-    if latest_hrv > 30:
-        return 60.0, "fallback"
-    return 40.0, "fallback"
-
-
-def _training_status_readiness(training_status: Any) -> float | None:
+def _training_status_frame(training_status: Any) -> pd.DataFrame | None:
+    """Normalize training_status (DataFrame или dict) для fusion-модели."""
     if isinstance(training_status, pd.DataFrame):
-        row = _latest_row(training_status)
-    elif isinstance(training_status, dict):
-        row = training_status
-    else:
-        row = {}
-    value = row.get("training_readiness")
-    if value is None:
-        value = row.get("readiness")
-    try:
-        if value is None or pd.isna(value):
+        return training_status
+    if isinstance(training_status, dict) and training_status:
+        value = training_status.get("training_readiness")
+        if value is None:
+            value = training_status.get("readiness")
+        if value is None:
             return None
-        return max(0.0, min(100.0, float(value)))
-    except (TypeError, ValueError):
-        return None
+        row = {"training_readiness": value}
+        row["date"] = training_status.get("date") or pd.Timestamp.now().normalize()
+        return pd.DataFrame([row])
+    return None
 
 
 def _readiness_signal(
     sleep_df: pd.DataFrame | None,
     hrv_df: pd.DataFrame | None,
     training_status: Any = None,
+    activities_df: pd.DataFrame | None = None,
+    health_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
-    training_value = _training_status_readiness(training_status)
-    if training_value is not None:
-        value = training_value
-        source = "training_status"
-    else:
-        computed, source = _readiness_from_recovery_frames(sleep_df, hrv_df)
-        value = computed
+    # Единая точка расчёта готовности (issue #139): Garmin readiness — один из
+    # факторов fusion, а не override; личные базлайны и TSB внутри модели.
+    from models.readiness import compute_readiness_today
+
+    fused = compute_readiness_today(
+        sleep_df,
+        hrv_df,
+        health_df,
+        _training_status_frame(training_status),
+        activities_df,
+        max_value_age_days=None,
+    )
+    value = fused["score"]
+    source = "fusion" if value is not None else "none"
+    drivers = fused["drivers"]
 
     if value is None:
         tone = "neutral"
@@ -152,6 +131,7 @@ def _readiness_signal(
         "tone": tone,
         "severity": tone_severity(tone),
         "source": source,
+        "drivers": drivers,
     }
 
 
@@ -382,13 +362,14 @@ def assemble_signals(
     hrv_df: pd.DataFrame | None = None,
     sleep_df: pd.DataFrame | None = None,
     training_status: Any = None,
+    health_df: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Assemble normalized load/recovery/readiness signals."""
     metrics = training_load_metrics(activities_df)
     load = _load_signal(metrics)
     hrv = _hrv_signal(hrv_df)
     sleep = _sleep_signal(sleep_df)
-    readiness = _readiness_signal(sleep_df, hrv_df, training_status)
+    readiness = _readiness_signal(sleep_df, hrv_df, training_status, activities_df, health_df)
     critical_status, critical_action, recommendations = _recommendations_for_signals(load, hrv)
     state = _state_signal(load, readiness, critical_status)
 
