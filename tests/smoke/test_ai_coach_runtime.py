@@ -65,6 +65,21 @@ def test_system_prompt_mandates_activity_tool_for_completed_workout_mentions():
     assert "не синхронизировалась с Garmin" in prompt
 
 
+def test_system_prompt_mandates_plan_tool_for_specific_day_recommendations():
+    prompt = ai_coach_runtime.create_chat_system_prompt_with_tools(None)
+    assert "get_upcoming_workouts" in prompt
+    # Коуч сам называет тренировку на конкретный день — обязан свериться с планом,
+    # а не гадать «вероятно, бег или вело».
+    assert "называешь или рекомендуешь тренировку на конкретный день" in prompt
+    assert "цитируй фактическую сессию из плана" in prompt
+    assert "«вероятно», «скорее всего»" in prompt and "недопустимы" in prompt
+    # План на ближайшие дни входит в минимальный набор общего анализа/брифинга.
+    assert (
+        "**get_performance_metrics**, **analyze_hrv_trends**, "
+        "**analyze_training_status** и **get_upcoming_workouts**"
+    ) in prompt
+
+
 def test_prompts_anchor_today_as_single_date_source():
     from datetime import date
     today_iso = date.today().isoformat()

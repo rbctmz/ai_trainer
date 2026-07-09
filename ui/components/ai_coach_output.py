@@ -591,6 +591,31 @@ def format_tool_result(tool_name, data):
 • Пик TSS/нед: {totals.get('peak_tss', 'н/д')}
 """
 
+    elif tool_name == "get_upcoming_workouts":
+        if not isinstance(data, dict):
+            return f"ℹ️ **{data}**"
+        if not data.get("has_plan"):
+            return f"ℹ️ **{data.get('message', 'Активный план не найден')}**"
+
+        sessions = data.get("sessions", []) or []
+        if not sessions:
+            return f"ℹ️ **{data.get('message', 'Нет плановых тренировок в ближайшие дни')}**"
+
+        session_lines = []
+        for session in sessions:
+            date = session.get("date_label") or format_date_label(session.get("date"), "weekday_short")
+            sport = session.get("sport_label") or sport_label(session.get("sport"))
+            phase = f", фаза: {session['phase']}" if session.get("phase") else ""
+            session_lines.append(
+                f"• {date}: **{session.get('name', 'Сессия')}** — {sport}, TSS {session.get('tss', 'н/д')}{phase}"
+            )
+
+        return f"""
+## 📅 Ближайшие плановые тренировки ({data.get('days', 7)} дней)
+
+{chr(10).join(session_lines)}
+"""
+
     elif tool_name == "propose_plan_build":
         preview = data.get("preview", {}) if isinstance(data, dict) else {}
         params = data.get("params", {}) if isinstance(data, dict) else {}
