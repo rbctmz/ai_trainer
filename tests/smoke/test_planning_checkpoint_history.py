@@ -45,6 +45,7 @@ def _sample_goal_plan() -> dict[str, object]:
     return {
         "goal_type": "Триатлон",
         "distance": "Олимпийка",
+        "event_date": "2026-08-10",
         "weeks_to_race": 8,
         "start_week": date(2026, 6, 15),
         "weekly_tss_plan": [180, 220, 240],
@@ -215,13 +216,18 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     resolved = resolve_goal_plan_context(None, checkpoint)
     summary = summarize_planning_checkpoint(checkpoint)
 
+    assert checkpoint["event_date"] == "2026-08-10"
+    assert checkpoint["goal_plan_snapshot"]["event_date"] == "2026-08-10"
+    assert restored["event_date"] == "2026-08-10"
     assert restored["constraint_summary"]["available_day_labels"] == ["Вт", "Чт", "Сб"]
     assert restored["start_week"] == date(2026, 6, 15)
     assert restored["weekly_summary"][0]["week_start"] == date(2026, 6, 15)
     assert len(restored["daily_plan"]) == len(_sample_goal_plan()["daily_plan"])
     assert restored_full is not None
+    assert restored_full["event_date"] == "2026-08-10"
     assert len(restored_full["session_templates"]) == len(_sample_goal_plan()["session_templates"])
     assert get_near_term_edit_rollback_target_checkpoint_id(checkpoint) == 41
+    assert resolved["event_date"] == "2026-08-10"
     assert resolved["constraint_summary"]["plan_adjustment"]["label"] == "Пропущены сессии"
     assert summary["plan_adjustment_label"] == "Пропущены сессии"
     assert summary["checkpoint_id"] is None

@@ -162,14 +162,16 @@ def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path
 
 def test_approve_build_plan_proposal_persists_checkpoint(tmp_path):
     from api.routers.decisions import approve_proposal
+    from api.planning_service import get_active_plan
 
     db = _seeded_db(tmp_path, "approve_build.db")
+    event_date = _future_event_date()
     proposal = db.save_coach_proposal(
         action="build_plan",
         params={
             "goal_type": "Триатлон",
             "distance": "Olympic",
-            "event_date": _future_event_date(),
+            "event_date": event_date,
             "available_hours": 10,
             "available_days": ["mon", "wed", "sat", "sun"],
         },
@@ -184,6 +186,11 @@ def test_approve_build_plan_proposal_persists_checkpoint(tmp_path):
     latest = db.get_latest_planning_checkpoint()
     assert latest is not None
     assert str(latest["id"]) == str(payload["result"]["plan_id"])
+    assert latest["event_date"] == event_date
+    assert latest["goal_plan_snapshot"]["event_date"] == event_date
+    active_plan = get_active_plan(db)
+    assert active_plan is not None
+    assert active_plan["event_date"] == event_date
 
 
 def test_reject_plan_proposal_does_not_mutate_active_plan(tmp_path):

@@ -225,6 +225,7 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     goal_plan_snapshot = {
         "goal_type": goal_plan.get("goal_type"),
         "distance": goal_plan.get("distance"),
+        "event_date": _isoformat_date(goal_plan.get("event_date")),
         "weeks_to_race": goal_plan.get("weeks_to_race"),
         "start_week": _isoformat_date(goal_plan.get("start_week")),
         "weekly_tss_plan": list(goal_plan.get("weekly_tss_plan", []) or []),
@@ -258,6 +259,7 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     return {
         "goal_type": goal_plan.get("goal_type"),
         "distance": goal_plan.get("distance"),
+        "event_date": _isoformat_date(goal_plan.get("event_date")),
         "weeks_to_race": goal_plan.get("weeks_to_race"),
         "headline": constraint_summary.get("notes", [""])[0] if constraint_summary.get("notes") else "",
         "peak_tss": max(adjusted) if adjusted else 0,

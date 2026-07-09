@@ -169,6 +169,21 @@ def test_get_active_plan_recomputes_week_after_start(tmp_path) -> None:
     assert result["weeks_preview"][1]["is_current"] is True
 
 
+def test_get_active_plan_legacy_checkpoint_without_event_date_uses_end_fallback(tmp_path) -> None:
+    """Old checkpoints had no real race date: keep weeks math, but do not invent goal.event_date."""
+    db = Database(str(tmp_path / "plan_legacy_no_event_date.db"))
+    goal_plan = _make_goal_plan()
+    goal_plan.pop("event_date", None)
+    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+
+    result = AITools(db).get_active_plan()
+
+    assert result["has_plan"] is True
+    assert result["goal"]["event_date"] == ""
+    assert result["goal"]["weeks_to_race"] == 8
+    assert result["timeline"]["weeks_remaining"] == 8
+
+
 def test_get_active_plan_not_started(tmp_path) -> None:
     """Plan starting next week: no current week, status not_started."""
     db = Database(str(tmp_path / "plan_future.db"))
