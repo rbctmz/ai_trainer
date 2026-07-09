@@ -114,6 +114,11 @@ TOOL_LABELS_RU = {
     "propose_plan_adjustment": "Предложение корректировки",
 }
 
+# Метка для строки за текущую дату в результатах инструментов коуча:
+# день ещё идёт, поэтому шаги/активные минуты за сегодня нельзя сравнивать
+# с завершёнными днями (см. issue #126, ранее #124).
+TODAY_PARTIAL_NOTE_RU = "(сегодня, день не закончился — данные неполные)"
+
 TREND_LABELS_RU = {
     "increasing": "рост",
     "decreasing": "снижение",
@@ -150,6 +155,11 @@ def coerce_date(value: Any) -> date | None:
         return datetime.strptime(text[:10], "%Y-%m-%d").date()
     except ValueError:
         return None
+
+
+def is_today(value: Any) -> bool:
+    resolved = coerce_date(value)
+    return resolved is not None and resolved == date.today()
 
 
 def format_date_label(value: Any, style: str = "full") -> str:
