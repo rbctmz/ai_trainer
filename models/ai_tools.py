@@ -6,7 +6,7 @@
 import json
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Dict, Any, List, Optional, Callable
 from api import planning_service
 from data.database import Database
@@ -142,7 +142,7 @@ class AITools:
             "get_training_status": "Получить историю статуса тренированности и readiness (days=30)",
             "analyze_training_status": "Глубокий анализ статуса тренированности и нагрузки (days=30)",
             "get_daily_health_stats": "Получить ежедневные показатели здоровья (шаги, ЧСС, калории) за период (days=30)",
-            "get_active_plan": "Получить активный тренировочный план: цель, дистанцию, дату старта, фазы, недельные TSS-таргеты, итоговый TSS и пик",
+            "get_active_plan": "Получить активный тренировочный план: цель, дистанцию, дату старта, фазы, недельные TSS-таргеты, итоговый TSS и пик, а также текущую неделю (current_week) и оставшиеся недели до старта, пересчитанные от сегодняшней даты",
             "get_upcoming_workouts": "Получить ближайшие плановые тренировки из активного плана (days=7)",
             "propose_plan_build": (
                 "Предложить собрать новый план подготовки. Параметры: goal_type (Триатлон/Бег/Вело/Плавание), "
@@ -933,7 +933,7 @@ class AITools:
 - [TOOL: analyze_training_status, days=21] - выводы по readiness и нагрузке
 - [TOOL: get_daily_health_stats, days=14] - показатели шагов и ЧСС покоя
 - [TOOL: get_activities_by_date_range, start_date=2025-05-01, end_date=2025-05-31] - активности за май 2025
-- [TOOL: get_active_plan] - активный тренировочный план (цель, фазы, TSS-таргеты)
+- [TOOL: get_active_plan] - активный тренировочный план (цель, фазы, TSS-таргеты, текущая неделя current_week, недель до старта от сегодня)
 - [TOOL: get_upcoming_workouts, days=7] - тренировки на ближайшие 7 дней из плана
 - [TOOL: propose_plan_build, goal_type=Триатлон, distance=Half, event_date=2026-10-01, available_hours=10] - предложить новый план
 - [TOOL: propose_plan_adjustment, weeks=1] - предложить корректировку активного плана
@@ -1304,30 +1304,109 @@ class AITools:
         peak_tss = int(max(weekly_tss_plan)) if weekly_tss_plan else 0
 
         phases_raw = list(goal_plan.get("phases") or [])
-        # Build compact phase summary: phase_name → [week indices]
-        phase_weeks: Dict[str, List[int]] = {}
-        for i, phase in enumerate(phases_raw):
-            phase_weeks.setdefault(str(phase), []).append(i + 1)
-
         weekly_summary_raw = list(goal_plan.get("weekly_summary") or [])
-        weeks_compact = []
-        for i, w in enumerate(weekly_summary_raw[:8]):  # first 8 weeks max for readability
-            ws = w.get("week_start")
-            weeks_compact.append({
+
+        def _as_date(value: Any) -> Optional[date]:
+            if isinstance(value, datetime):
+                return value.date()
+            if isinstance(value, date):
+                return value
+            try:
+                return date.fromisoformat(str(value)[:10])
+            except (TypeError, ValueError):
+                return None
+
+        today = datetime.now().date()
+        total_weeks = max(len(weekly_tss_plan), len(weekly_summary_raw))
+
+        start_week = _as_date(goal_plan.get("start_week"))
+        week_starts: List[Optional[date]] = []
+        for i in range(total_weeks):
+            ws = _as_date(weekly_summary_raw[i].get("week_start")) if i < len(weekly_summary_raw) else None
+            if ws is None and start_week is not None:
+                ws = start_week + timedelta(weeks=i)
+            week_starts.append(ws)
+
+        known_starts = [ws for ws in week_starts if ws is not None]
+        plan_start = min(known_starts) if known_starts else None
+        # Last planned day: end of the final plan week, or the last daily_plan session.
+        plan_end: Optional[date] = max(known_starts) + timedelta(days=6) if known_starts else None
+        if plan_end is None:
+            daily_dates = [
+                _as_date(item[0])
+                for item in (goal_plan.get("daily_plan") or [])
+                if isinstance(item, (list, tuple)) and item
+            ]
+            daily_dates = [d for d in daily_dates if d is not None]
+            plan_end = max(daily_dates) if daily_dates else None
+
+        # weeks_to_race is recomputed from today on every call: the checkpoint
+        # stores the value from plan-build time, which goes stale immediately.
+        event_date = _as_date(goal_plan.get("event_date"))
+        race_or_end = event_date or (plan_end + timedelta(days=1) if plan_end else None)
+        weeks_remaining = 0
+        if race_or_end is not None and race_or_end > today:
+            weeks_remaining = -((today - race_or_end).days // 7)  # ceil of days/7
+        weeks_elapsed = max(0, (today - plan_start).days // 7) if plan_start else 0
+
+        current_index: Optional[int] = None
+        for i, ws in enumerate(week_starts):
+            if ws is not None and ws <= today <= ws + timedelta(days=6):
+                current_index = i
+                break
+
+        def _week_payload(i: int) -> Dict[str, Any]:
+            row = weekly_summary_raw[i] if i < len(weekly_summary_raw) else {}
+            ws = week_starts[i]
+            tss = row.get("weekly_tss") if row else None
+            if tss is None and i < len(weekly_tss_plan):
+                tss = weekly_tss_plan[i]
+            return {
                 "week": i + 1,
-                "week_start": ws.isoformat() if hasattr(ws, "isoformat") else str(ws),
-                "phase": str(w.get("phase") or (phases_raw[i] if i < len(phases_raw) else "")),
-                "weekly_tss": int(float(w.get("weekly_tss") or 0)),
-            })
+                "week_start": ws.isoformat() if ws else "",
+                "week_end": (ws + timedelta(days=6)).isoformat() if ws else "",
+                "phase": str(row.get("phase") or (phases_raw[i] if i < len(phases_raw) else "")),
+                "weekly_tss": int(float(tss or 0)),
+                "is_current": i == current_index,
+            }
+
+        current_week = None
+        if current_index is not None:
+            current_week = {**_week_payload(current_index), "index": current_index + 1}
+            current_week.pop("week", None)
+            current_week.pop("is_current", None)
+
+        if plan_start is not None and today < plan_start:
+            plan_status = "not_started"
+        elif plan_end is not None and today > plan_end:
+            plan_status = "completed"
+        else:
+            plan_status = "active"
+
+        # Compact preview (8 weeks max for readability), windowed so the
+        # current week is always visible even in long plans.
+        preview_start = 0
+        if current_index is not None and current_index >= 8:
+            preview_start = min(current_index - 3, max(0, total_weeks - 8))
+        weeks_compact = [_week_payload(i) for i in range(preview_start, min(preview_start + 8, total_weeks))]
 
         return {
             "has_plan": True,
             "goal": {
                 "goal_type": str(goal_plan.get("goal_type") or ""),
                 "distance": str(goal_plan.get("distance") or ""),
-                "event_date": str(goal_plan.get("event_date") or ""),
-                "weeks_to_race": int(goal_plan.get("weeks_to_race") or 0),
+                "event_date": event_date.isoformat() if event_date else "",
+                "weeks_to_race": weeks_remaining,
             },
+            "timeline": {
+                "today": today.isoformat(),
+                "plan_start": plan_start.isoformat() if plan_start else "",
+                "plan_end": plan_end.isoformat() if plan_end else "",
+                "weeks_elapsed": weeks_elapsed,
+                "weeks_remaining": weeks_remaining,
+                "status": plan_status,
+            },
+            "current_week": current_week,
             "phases": list(dict.fromkeys(phases_raw)),
             "totals": {"total_tss": total_tss, "peak_tss": peak_tss, "total_weeks": len(weekly_tss_plan)},
             "weekly_tss_plan": [int(v or 0) for v in weekly_tss_plan],

@@ -47,6 +47,88 @@ def test_page_wrapper_preserves_tool_formatting_contract():
     assert "- TSS: +40 ↑" in formatted
 
 
+def test_format_get_active_plan_shows_current_week_and_weeks_table():
+    formatted = ai_coach_output.format_tool_result(
+        "get_active_plan",
+        {
+            "has_plan": True,
+            "goal": {
+                "goal_type": "Триатлон",
+                "distance": "Олимпийка",
+                "event_date": "2026-08-31",
+                "weeks_to_race": 7,
+            },
+            "timeline": {
+                "today": "2026-07-09",
+                "plan_start": "2026-06-29",
+                "plan_end": "2026-08-30",
+                "weeks_elapsed": 1,
+                "weeks_remaining": 7,
+                "status": "active",
+            },
+            "current_week": {
+                "index": 2,
+                "week_start": "2026-07-06",
+                "week_end": "2026-07-12",
+                "phase": "base",
+                "weekly_tss": 110,
+            },
+            "phases": ["base", "build"],
+            "totals": {"total_tss": 745, "peak_tss": 400, "total_weeks": 4},
+            "weekly_tss_plan": [85, 110, 150, 400],
+            "weeks_preview": [
+                {"week": 1, "week_start": "2026-06-29", "week_end": "2026-07-05", "phase": "base", "weekly_tss": 85, "is_current": False},
+                {"week": 2, "week_start": "2026-07-06", "week_end": "2026-07-12", "phase": "base", "weekly_tss": 110, "is_current": True},
+                {"week": 3, "week_start": "2026-07-13", "week_end": "2026-07-19", "phase": "build", "weekly_tss": 150, "is_current": False},
+                {"week": 4, "week_start": "2026-07-20", "week_end": "2026-07-26", "phase": "build", "weekly_tss": 400, "is_current": False},
+            ],
+        },
+    )
+
+    assert "## 🗓️ Активный план" in formatted
+    assert "Триатлон Олимпийка" in formatted
+    assert "До старта: **7 нед.**" in formatted
+    assert "Текущая неделя: 2 из 4" in formatted
+    assert "Плановый TSS: **110**" in formatted
+    assert "2 ← текущая" in formatted
+    # weeks table is rendered explicitly, not collapsed by the default formatter
+    assert "[данные доступны]" not in formatted
+    assert "| Неделя | Старт недели | Фаза | TSS |" in formatted
+
+
+def test_format_get_active_plan_no_plan_message():
+    formatted = ai_coach_output.format_tool_result(
+        "get_active_plan",
+        {"has_plan": False, "message": "Активный план не найден. Пользователь ещё не построил план."},
+    )
+    assert "Активный план не найден" in formatted
+
+
+def test_format_get_active_plan_not_started():
+    formatted = ai_coach_output.format_tool_result(
+        "get_active_plan",
+        {
+            "has_plan": True,
+            "goal": {"goal_type": "Бег", "distance": "Марафон", "event_date": "", "weeks_to_race": 9},
+            "timeline": {
+                "today": "2026-07-09",
+                "plan_start": "2026-07-13",
+                "plan_end": "2026-09-06",
+                "weeks_elapsed": 0,
+                "weeks_remaining": 9,
+                "status": "not_started",
+            },
+            "current_week": None,
+            "phases": ["base"],
+            "totals": {"total_tss": 800, "peak_tss": 120, "total_weeks": 8},
+            "weekly_tss_plan": [100] * 8,
+            "weeks_preview": [],
+        },
+    )
+    assert "План ещё не начался" in formatted
+    assert "← текущая" not in formatted
+
+
 def test_streaming_response_keeps_cursor_during_long_output(monkeypatch: pytest.MonkeyPatch):
     placeholder = _DummyPlaceholder()
     monkeypatch.setattr(ai_coach_output.time, "sleep", lambda _seconds: None)
