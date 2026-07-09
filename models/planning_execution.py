@@ -1230,6 +1230,10 @@ def rebuild_goal_plan_with_adjustment(
     return {
         "goal_type": goal_type,
         "distance": distance,
+        # Execution feedback rebuilds the plan structure, but must retain the
+        # race date chosen when the original plan was created. Without this,
+        # the next persisted checkpoint loses the authoritative event date.
+        "event_date": goal_plan.get("event_date"),
         "weeks_to_race": int(goal_plan.get("weeks_to_race", len(weekly_tss_plan)) or len(weekly_tss_plan)),
         "start_week": start_week,
         "weekly_tss_plan": weekly_tss_plan,

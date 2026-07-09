@@ -269,9 +269,13 @@ def test_apply_adjustment_preserves_active_coach_constraints(tmp_path):
 
     active_plan = ps.get_active_plan(db)
     assert active_plan
+    assert active_plan["event_date"] == event
     assert active_plan["daily_plan"][protected_index][1] == 0
     assert active_plan["session_templates"][protected_index]["session_role"] == "off"
     assert active_plan["session_templates"][protected_index]["constraint"]["kind"] == "sick"
+    latest = db.get_latest_planning_checkpoint()
+    assert latest is not None
+    assert latest["event_date"] == event
 
 
 def test_build_run_goal_maps_distance(tmp_path):
