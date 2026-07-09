@@ -2,9 +2,22 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any, Callable, Dict, Iterable, Optional
 
 from models.ai_data_context import AIDataContext
+from utils.product_semantics import format_date_label
+
+
+def _today_context_line() -> str:
+    """Explicit 'today' anchor for prompts.
+
+    Tool results only ever carry historical per-day dates (and the freshest
+    row can lag behind the real day if Garmin sync hasn't caught up), so
+    without this the model has to guess "today" from data rows and drifts.
+    """
+    today = datetime.now().date()
+    return f"Сегодня: {today.isoformat()} ({format_date_label(today, 'weekday_short')})"
 
 
 def _build_phase_context(goal_plan: Optional[Dict]) -> str:
@@ -33,8 +46,10 @@ _TOOL_PATTERN = re.compile(r"\[TOOL:\s*([^,\]]+)(?:,\s*([^\]]*))?\]")
 
 def create_chat_system_prompt_with_tools(ai_tools: Any, data_context: Any = None) -> str:
     """Создает системный промпт с инструментами для доступа к данным."""
-    base_prompt = """
+    base_prompt = f"""
 Ты — персональный AI тренер по выносливости с глубокими знаниями спортивной науки.
+
+{_today_context_line()}. Даты из инструментов — это исторические записи, а не сегодняшний день; не путай последнюю дату в данных с сегодняшней.
 
 У тебя есть доступ к мощным инструментам для анализа данных пользователя. Используй их для получения точной, актуальной информации.
 
@@ -89,6 +104,8 @@ def create_chat_synthesis_system_prompt(goal_plan: Optional[Dict] = None) -> str
     return f"""
 Ты — персональный AI тренер по выносливости.{phase_ctx}
 
+{_today_context_line()}. Если называешь дату в ответе (например, в заголовке брифинга) — используй эту дату, а не последнюю дату из результатов инструментов.
+
 Ты уже получил результаты нужных инструментов и теперь должен дать
 ЗАВЕРШЁННЫЙ финальный ответ пользователю.
 
@@ -112,8 +129,10 @@ def create_chat_synthesis_system_prompt(goal_plan: Optional[Dict] = None) -> str
 
 def create_chat_system_prompt(data_context: Any) -> str:
     """Создает системный промпт с полным контекстом данных пользователя."""
-    base_prompt = """
+    base_prompt = f"""
 Ты — персональный AI тренер по выносливости с глубокими знаниями спортивной науки.
+
+{_today_context_line()}. Данные пользователя — это исторические записи, а не сегодняшний день; не путай последнюю дату в данных с сегодняшней.
 
 У тебя есть полный доступ к данным пользователя и ты должен давать персонализированные, научно обоснованные советы.
 
