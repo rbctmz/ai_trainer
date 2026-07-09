@@ -300,6 +300,7 @@ def test_rebuild_goal_plan_with_adjustment_from_checkpoint_context():
     )
 
     assert rebuilt["start_week"] == date(2026, 6, 15)
+    assert rebuilt["event_date"] == "2026-08-10"
     assert rebuilt["constraint_summary"]["plan_adjustment"]["label"] == "Нагрузка урезана"
     assert rebuilt["constraint_summary"]["plan_adjustment"]["weeks"] == 1
     assert rebuilt["weekly_tss_plan"][0] < rebuilt["base_weekly_tss_plan"][0]

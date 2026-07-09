@@ -24,6 +24,7 @@ from ui.pages.planning import (
     _build_planning_v2_summary,
     _build_goal_plan_transition_preview,
     _build_near_term_draft_preview,
+    _build_initial_goal_plan_payload,
     _build_plan_explainability,
     _normalize_planning_workspace_mode,
     _resolve_plan_fact_calendar_default_week,
@@ -35,6 +36,17 @@ from ui.pages.planning import (
 
 
 pytestmark = pytest.mark.smoke
+
+
+def test_initial_goal_plan_payload_persists_selected_event_date():
+    payload = _build_initial_goal_plan_payload(
+        event_date=date(2026, 8, 10),
+        goal_type="Триатлон",
+        distance="Олимпийка",
+    )
+
+    assert payload["event_date"] == "2026-08-10"
+    assert payload["goal_type"] == "Триатлон"
 
 
 def test_build_plan_explainability_summarizes_adaptive_changes():

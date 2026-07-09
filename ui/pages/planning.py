@@ -224,6 +224,18 @@ def _resolve_planning_start_week(base_date: date | None = None) -> date:
     return current_week_start
 
 
+def _build_initial_goal_plan_payload(
+    *,
+    event_date: date,
+    **plan_fields: Any,
+) -> Dict[str, Any]:
+    """Attach the selected race date to a newly built legacy plan payload."""
+    return {
+        **plan_fields,
+        "event_date": event_date.isoformat(),
+    }
+
+
 def _build_plan_explainability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     """Build a concise, UI-friendly explanation for the generated plan."""
     adjusted = [int(round(value)) for value in goal_plan.get("weekly_tss_plan", [])]
@@ -2589,24 +2601,25 @@ def render_planning_page(state: "StateManager") -> None:
             )
 
             goal_plan_payload = with_checkpoint_provenance(
-                {
-                "goal_type": goal_type,
-                "distance": distance,
-                "weeks_to_race": weeks_to_race,
-                "start_week": start_week,
-                "weekly_tss_plan": weekly_tss_plan,
-                "base_weekly_tss_plan": base_weekly_tss_plan,
-                "phases": phases,
-                "daily_plan": daily_plan,
-                "session_templates": session_templates,
-                "weekly_summary": weekly_summary,
-                "constraint_summary": constraint_summary,
-                "planner_mix": mix_overrides,
-                "planner_weights": weights_overrides,
-                "plan_revision": datetime.now().isoformat(),
-                "near_term_edit_version": 0,
-                "near_term_edit_rollback_target_checkpoint_id": None,
-                },
+                _build_initial_goal_plan_payload(
+                    event_date=goal_date,
+                    goal_type=goal_type,
+                    distance=distance,
+                    weeks_to_race=weeks_to_race,
+                    start_week=start_week,
+                    weekly_tss_plan=weekly_tss_plan,
+                    base_weekly_tss_plan=base_weekly_tss_plan,
+                    phases=phases,
+                    daily_plan=daily_plan,
+                    session_templates=session_templates,
+                    weekly_summary=weekly_summary,
+                    constraint_summary=constraint_summary,
+                    planner_mix=mix_overrides,
+                    planner_weights=weights_overrides,
+                    plan_revision=datetime.now().isoformat(),
+                    near_term_edit_version=0,
+                    near_term_edit_rollback_target_checkpoint_id=None,
+                ),
                 source="initial_plan",
             )
             state.goal_plan = goal_plan_payload
