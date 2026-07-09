@@ -60,6 +60,9 @@ AI Trainer — тренировочный кокпит на данных Garmin 
 - Decision: тест `test_assemble_signals_prefers_training_status_readiness` переписан в `test_assemble_signals_fuses_readiness_instead_of_garmin_override`.
   Rationale: тест фиксировал ровно ту семантику (Garmin как override), которую issue #139 убирает по дизайну; новый тест фиксирует fusion-инвариант и наличие drivers.
   Date/Author: 2026-07-09 / Claude.
+- Decision (follow-up `2a61748`, до merge #140): дневной TSS реиндексируется нулями до anchor-даты перед Banister; активности позже anchor отфильтровываются; фактор tsb получил `as_of`.
+  Rationale: первая версия передавала Banister только даты активностей, и после дней отдыха ATL/TSB «замерзали» на последней тренировке. TSB — сигнал «на сегодня»: дни отдыха обязаны декеить нагрузку. Покрыто `test_tsb_decays_through_rest_days_until_today`.
+  Date/Author: 2026-07-09 / Codex (запись добавлена Claude при работе над issue #141).
 
 ## Outcomes & Retrospective
 
