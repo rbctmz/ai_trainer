@@ -12,6 +12,7 @@ from api import planning_service
 from data.database import Database
 from models.banister import tsb_zone
 from models.hrv_analyzer import HRVAnalyzer
+from models.plan_events import normalized_events
 from models.planning_checkpoints import (
     NON_ACTIONABLE_PLAN_ADJUSTMENTS,
     build_planning_checkpoint,
@@ -160,7 +161,7 @@ class AITools:
             "get_training_status": "Получить историю статуса тренированности и readiness (days=30)",
             "analyze_training_status": "Глубокий анализ статуса тренированности и нагрузки (days=30)",
             "get_daily_health_stats": "Получить ежедневные показатели здоровья (шаги, ЧСС, калории) за период (days=30)",
-            "get_active_plan": "Получить активный тренировочный план: цель, дистанцию, дату старта, фазы, недельные TSS-таргеты, итоговый TSS и пик, а также текущую неделю (current_week) и оставшиеся недели до старта, пересчитанные от сегодняшней даты",
+            "get_active_plan": "Получить активный тренировочный план: цель, старты с приоритетами, дату главного старта, фазы, недельные TSS-таргеты, итоговый TSS и пик, а также текущую неделю (current_week) и оставшиеся недели до старта, пересчитанные от сегодняшней даты",
             "get_upcoming_workouts": "Получить ближайшие плановые тренировки из активного плана (days=7)",
             "propose_plan_build": (
                 "Предложить собрать новый план подготовки. Параметры: goal_type (Триатлон/Бег/Вело/Плавание), "
@@ -969,7 +970,7 @@ class AITools:
 - [TOOL: analyze_training_status, days=21] - выводы по readiness и нагрузке
 - [TOOL: get_daily_health_stats, days=14] - показатели шагов и ЧСС покоя
 - [TOOL: get_activities_by_date_range, start_date=2025-05-01, end_date=2025-05-31] - активности за май 2025
-- [TOOL: get_active_plan] - активный тренировочный план (цель, фазы, TSS-таргеты, текущая неделя current_week, недель до старта от сегодня)
+- [TOOL: get_active_plan] - активный тренировочный план (цель, старты с приоритетами, фазы, TSS-таргеты, текущая неделя current_week, недель до старта от сегодня)
 - [TOOL: get_upcoming_workouts, days=7] - тренировки на ближайшие 7 дней из плана
 - [TOOL: propose_plan_build, goal_type=Триатлон, distance=Half, event_date=2026-10-01, available_hours=10] - предложить новый план
 - [TOOL: propose_plan_adjustment, weeks=1] - предложить корректировку активного плана
@@ -1347,6 +1348,7 @@ class AITools:
             return {"has_plan": False, "message": "Активный план не найден. Пользователь ещё не построил план."}
 
         weekly_tss_plan = list(goal_plan.get("weekly_tss_plan") or [])
+        events = normalized_events(goal_plan.get("events"))
         total_tss = int(sum(int(w or 0) for w in weekly_tss_plan))
         peak_tss = int(max(weekly_tss_plan)) if weekly_tss_plan else 0
 
@@ -1445,6 +1447,7 @@ class AITools:
                 "event_date": event_date.isoformat() if event_date else "",
                 "weeks_to_race": weeks_remaining,
             },
+            "events": events,
             "timeline": {
                 "today": today.isoformat(),
                 "plan_start": plan_start.isoformat() if plan_start else "",

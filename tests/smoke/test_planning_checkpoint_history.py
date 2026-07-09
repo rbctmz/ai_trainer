@@ -46,6 +46,10 @@ def _sample_goal_plan() -> dict[str, object]:
         "goal_type": "Триатлон",
         "distance": "Олимпийка",
         "event_date": "2026-08-10",
+        "events": [
+            {"date": "2026-08-10", "priority": "A", "label": "Триатлон Олимпийка"},
+            {"date": "2026-07-20", "priority": "B", "label": "Контрольный старт"},
+        ],
         "weeks_to_race": 8,
         "start_week": date(2026, 6, 15),
         "weekly_tss_plan": [180, 220, 240],
@@ -217,8 +221,11 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     summary = summarize_planning_checkpoint(checkpoint)
 
     assert checkpoint["event_date"] == "2026-08-10"
+    assert checkpoint["events"] == _sample_goal_plan()["events"]
     assert checkpoint["goal_plan_snapshot"]["event_date"] == "2026-08-10"
+    assert checkpoint["goal_plan_snapshot"]["events"] == _sample_goal_plan()["events"]
     assert restored["event_date"] == "2026-08-10"
+    assert restored["events"] == _sample_goal_plan()["events"]
     assert restored["constraint_summary"]["available_day_labels"] == ["Вт", "Чт", "Сб"]
     assert restored["start_week"] == date(2026, 6, 15)
     assert restored["weekly_summary"][0]["week_start"] == date(2026, 6, 15)
@@ -252,6 +259,33 @@ def test_checkpoint_helpers_restore_goal_plan_context():
     assert summary["execution_adaptation_pressure"]["follow_up_label"] == "Удержать текущий потолок"
     assert checkpoint["near_term_edit_risk_level"] == "low"
     assert checkpoint["execution_adaptation_pressure_level"] == "medium"
+
+
+def test_restore_legacy_event_date_synthesizes_primary_a_event():
+    checkpoint = build_planning_checkpoint(_sample_goal_plan())
+    checkpoint["events"] = []
+    checkpoint["goal_plan_snapshot"].pop("events", None)
+
+    restored = restore_goal_plan_from_checkpoint(checkpoint)
+
+    assert restored is not None
+    assert restored["event_date"] == "2026-08-10"
+    assert restored["events"] == [
+        {"date": "2026-08-10", "priority": "A", "label": "Триатлон Олимпийка"}
+    ]
+
+
+def test_resolve_current_goal_plan_derives_alias_from_events():
+    resolved = resolve_goal_plan_context(
+        {
+            "event_date": "2026-09-01",
+            "events": [{"date": "2026-08-10", "priority": "B", "label": "Подводящий старт"}],
+        },
+        None,
+    )
+
+    assert resolved is not None
+    assert resolved["event_date"] == "2026-08-10"
 
 
 def test_restore_goal_plan_from_legacy_checkpoint_rebuilds_daily_details():
@@ -301,6 +335,7 @@ def test_rebuild_goal_plan_with_adjustment_from_checkpoint_context():
 
     assert rebuilt["start_week"] == date(2026, 6, 15)
     assert rebuilt["event_date"] == "2026-08-10"
+    assert rebuilt["events"] == _sample_goal_plan()["events"]
     assert rebuilt["constraint_summary"]["plan_adjustment"]["label"] == "Нагрузка урезана"
     assert rebuilt["constraint_summary"]["plan_adjustment"]["weeks"] == 1
     assert rebuilt["weekly_tss_plan"][0] < rebuilt["base_weekly_tss_plan"][0]

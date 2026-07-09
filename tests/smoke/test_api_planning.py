@@ -115,6 +115,10 @@ def test_build_plan_contract(tmp_path):
 
     assert plan["goal"]["goal_type"] == "Триатлон"
     assert plan["goal"]["distance"] == "Олимпийка"
+    assert plan["goal"]["events"] == [
+        {"date": event, "priority": "A", "label": "Триатлон Олимпийка"}
+    ]
+    assert plan["goal"]["event_date"] == event
     assert plan["goal"]["weeks_to_race"] >= 1
     assert len(plan["weeks"]) == plan["goal"]["weeks_to_race"]
     assert plan["totals"]["total_tss"] > 0
@@ -153,9 +157,13 @@ def test_build_plan_applies_active_coach_constraints(tmp_path):
     active_plan = ps.get_active_plan(db)
     assert active_plan
     assert active_plan["event_date"] == event
+    assert active_plan["events"] == [
+        {"date": event, "priority": "A", "label": "Триатлон Олимпийка"}
+    ]
     latest = db.get_latest_planning_checkpoint()
     assert latest is not None
     assert latest["event_date"] == event
+    assert latest["events"] == active_plan["events"]
     assert latest["goal_plan_snapshot"]["event_date"] == event
     prompt = create_chat_synthesis_system_prompt(goal_plan=active_plan)
     assert "ПЛАН И ФАЗА" in prompt
