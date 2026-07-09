@@ -129,6 +129,66 @@ def test_format_get_active_plan_not_started():
     assert "← текущая" not in formatted
 
 
+def test_format_get_upcoming_workouts_lists_sessions():
+    formatted = ai_coach_output.format_tool_result(
+        "get_upcoming_workouts",
+        {
+            "has_plan": True,
+            "days": 7,
+            "sessions": [
+                {
+                    "date": "2026-07-10",
+                    "sport": "bike",
+                    "sport_label": "вело",
+                    "tss": 20,
+                    "name": "Триатлон Олимпийка — Восстановление",
+                    "phase": "recovery",
+                },
+                {
+                    "date": "2026-07-12",
+                    "sport": "run",
+                    "sport_label": "бег",
+                    "tss": 55,
+                    "name": "Триатлон Олимпийка — Темповый бег",
+                    "phase": "build",
+                },
+            ],
+        },
+    )
+
+    assert "## 📅 Ближайшие плановые тренировки (7 дней)" in formatted
+    assert "Пт 10.07" in formatted
+    assert "**Триатлон Олимпийка — Восстановление**" in formatted
+    assert "вело" in formatted
+    assert "TSS 20" in formatted
+    assert "фаза: recovery" in formatted
+    assert "**Триатлон Олимпийка — Темповый бег**" in formatted
+    # sessions are rendered explicitly, not collapsed by the default formatter
+    assert "[данные доступны]" not in formatted
+
+
+def test_format_get_upcoming_workouts_no_plan_message():
+    formatted = ai_coach_output.format_tool_result(
+        "get_upcoming_workouts",
+        {"has_plan": False, "message": "Активный план не найден."},
+    )
+    assert "Активный план не найден" in formatted
+
+
+def test_format_get_upcoming_workouts_empty_sessions():
+    formatted = ai_coach_output.format_tool_result(
+        "get_upcoming_workouts",
+        {
+            "has_plan": True,
+            "days": 7,
+            "sessions": [],
+            "message": "Нет плановых тренировок в ближайшие 7 дней (возможно, уже выполнены или до них ещё далеко).",
+        },
+    )
+    assert "Нет плановых тренировок" in formatted
+    assert "[данные доступны]" not in formatted
+
+
 def test_streaming_response_keeps_cursor_during_long_output(monkeypatch: pytest.MonkeyPatch):
     placeholder = _DummyPlaceholder()
     monkeypatch.setattr(ai_coach_output.time, "sleep", lambda _seconds: None)
