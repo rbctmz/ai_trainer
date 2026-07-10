@@ -13,7 +13,7 @@ The behavior is visible on the web-first product surface. Running the loop durin
 - [x] (2026-07-10 13:16Z) Created structured GitHub issue #154 from a clean `main` at `f9a329b`.
 - [x] (2026-07-10 13:17Z) Recorded the contributor-safe baseline: `452 passed, 1 skipped`.
 - [x] (2026-07-10 13:18Z) Created branch `codex/issue-154-recovery-replan-loop` and audited the gate, decision/proposal tables, planning service, near-term editor, checkpoint provenance, rollback behavior, API, and web Decisions page.
-- [ ] Add failing behavior tests for logging, idempotency, proposal generation, approval safety, rejection, and rollback.
+- [x] (2026-07-10 13:27Z) Added behavior tests for logging, idempotency, proposal generation, approval safety, rejection, rollback, and Decisions API compatibility. The required red run stopped during collection with `ModuleNotFoundError: No module named 'api.recovery_replan_loop'` before production implementation existed.
 - [ ] Implement the recovery decision persistence contract and deterministic domain variant builder.
 - [ ] Implement the headless RecoveryReplanLoop and connect it to Coach meta.
 - [ ] Extend the existing proposal lifecycle and planning service for recovery apply/rollback.
@@ -170,6 +170,12 @@ Existing reusable contracts:
     models.planning_near_term.apply_near_term_day_edits(...) -> updated goal plan
     models.planning_checkpoints.with_checkpoint_provenance(...) -> version lineage
 
+TDD red evidence:
+
+    ai_trainer_env/bin/python -m pytest tests/smoke/test_recovery_replan_loop.py tests/smoke/test_coach_decisions.py -q
+    ERROR collecting tests/smoke/test_recovery_replan_loop.py
+    ModuleNotFoundError: No module named 'api.recovery_replan_loop'
+
 ## Interfaces and Dependencies
 
 `models/recovery_replan.py` will expose a pure function equivalent to:
@@ -194,3 +200,5 @@ The returned contract contains `outcome`, `decision`, `proposal`, and the origin
 `POST /api/decisions/proposals/{proposal_id}/rollback` is valid only for an approved `recovery_replan` proposal. The existing approve and reject endpoints retain their paths.
 
 Revision note (2026-07-10 / Codex): initial self-contained plan created after repository architecture review and before behavior tests or implementation.
+
+Revision note (2026-07-10 / Codex): recorded the contract-first BDD/TDD suite and its pre-implementation collection failure.
