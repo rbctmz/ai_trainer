@@ -1,5 +1,5 @@
 // Mirrors the JSON shape returned by GET /api/dashboard/summary.
-// Source of truth: ui/pages/dashboard.py::_build_dashboard_v2_summary.
+// Source of truth: models/dashboard_summary.py through the FastAPI contract.
 
 export type Tone = "danger" | "warning" | "success" | "neutral";
 
@@ -473,6 +473,7 @@ export interface RaceProjectionData {
 
 export interface DashboardWidgets {
   has_data: boolean;
+  readiness_snapshot?: ReadinessSnapshot;
   training_score: TrainingScoreData;
   daily_outlook: DailyOutlookData;
   race_projection: RaceProjectionData | null;

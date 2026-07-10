@@ -1,12 +1,14 @@
 """Headless builders shared by the Dashboard API and Streamlit fallback."""
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 import logging
 from typing import Any
 
 import pandas as pd
 
+from models.banister import tsb_zone
 from models.coach_explainability import build_coach_explainability_summary
 from models.planning_checkpoints import summarize_planning_checkpoint
 from models.signals_engine import assemble_signals, current_status_from_signals
@@ -18,6 +20,100 @@ from utils.product_semantics import (
 
 
 logger = logging.getLogger(__name__)
+
+_TONE_SEVERITY = {"success": 0, "neutral": 1, "warning": 2, "danger": 3}
+
+
+def _readiness_presentation(status: str) -> tuple[str, str]:
+    return {
+        "low": ("Низкая готовность", "danger"),
+        "limited": ("Ограниченная готовность", "warning"),
+        "ready": ("Контролируемая готовность", "neutral"),
+        "strong": ("Готов к работе", "success"),
+        "stale": ("Данные требуют обновления", "warning"),
+    }.get(status, ("Недостаточно данных", "neutral"))
+
+
+def project_readiness_snapshot(
+    current_status: dict[str, Any],
+    readiness_snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return status with canonical readiness/load values, without mutation."""
+    projected = deepcopy(current_status)
+    if not isinstance(readiness_snapshot, dict):
+        return projected
+
+    score = readiness_snapshot.get("score")
+    if score is None:
+        return projected
+
+    status = str(readiness_snapshot.get("status") or "unknown")
+    state_label, tone = _readiness_presentation(status)
+    projected.update(
+        {
+            "readiness": float(score),
+            "readiness_source": "canonical_snapshot",
+            "state_label": state_label,
+            "tone": tone,
+        }
+    )
+
+    load = readiness_snapshot.get("tsb") or {}
+    for key in ("ctl", "atl", "tsb"):
+        value = load.get(key)
+        if value is not None:
+            projected[key] = float(value)
+
+    hrv_factor = next(
+        (
+            factor
+            for factor in (readiness_snapshot.get("factors") or [])
+            if factor.get("key") == "hrv" and factor.get("raw_value") is not None
+        ),
+        None,
+    )
+    if hrv_factor is not None:
+        projected["hrv"] = float(hrv_factor["raw_value"])
+
+    signals = projected.get("signals")
+    if isinstance(signals, dict):
+        readiness_signal = dict(signals.get("readiness") or {})
+        readiness_signal.update(
+            {
+                "value": float(score),
+                "label": state_label,
+                "tone": tone,
+                "severity": _TONE_SEVERITY[tone],
+                "source": "canonical_snapshot",
+                "drivers": list(readiness_snapshot.get("drivers") or []),
+            }
+        )
+        signals["readiness"] = readiness_signal
+
+        if projected.get("tsb") is not None:
+            zone = tsb_zone(float(projected["tsb"]))
+            load_signal = dict(signals.get("load") or {})
+            load_signal.update(
+                {
+                    "ctl": projected.get("ctl"),
+                    "atl": projected.get("atl"),
+                    "tsb": projected.get("tsb"),
+                    "label": zone["label"],
+                    "tone": zone["tone"],
+                    "clause": zone["clause"],
+                    "severity": _TONE_SEVERITY[zone["tone"]],
+                }
+            )
+            signals["load"] = load_signal
+
+        state_signal = dict(signals.get("state") or {})
+        state_signal.update(
+            {"label": state_label, "tone": tone, "severity": _TONE_SEVERITY[tone]}
+        )
+        signals["state"] = state_signal
+        projected["signals"] = signals
+
+    return projected
 
 
 def _coerce_dashboard_date(value: Any) -> date | None:
@@ -142,9 +238,9 @@ def build_dashboard_summary(
         getattr(state, "latest_planning_checkpoint", None)
     )
 
-    readiness_value = latest_training_status.get("training_readiness")
+    readiness_value = current_status.get("readiness")
     if readiness_value is None or pd.isna(readiness_value):
-        readiness_value = current_status.get("readiness", 0)
+        readiness_value = latest_training_status.get("training_readiness", 0)
     try:
         readiness_number = max(0.0, min(100.0, float(readiness_value or 0.0)))
     except (TypeError, ValueError):

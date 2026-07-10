@@ -158,6 +158,69 @@ def test_dashboard_summary_exposes_readiness_snapshot(tmp_path):
     assert snapshot["source_completeness"] == 1.0
 
 
+def test_dashboard_summary_today_uses_canonical_readiness_snapshot(tmp_path):
+    from api.deps import make_headless_state
+    from api.routers.dashboard import dashboard_summary
+
+    db = Database(str(tmp_path / "dashboard-aligned.db"))
+    today = datetime.now()
+    activities = []
+    for offset in (0, 35, 45, 55, 65, 75):
+        day = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
+        activities.append(
+            {
+                "activity_id": f"load-{offset}",
+                "date": day,
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 25.0,
+                "tss": 80.0,
+            }
+        )
+    db.save_activities(activities)
+    _seed_full_readiness(db)
+
+    payload = dashboard_summary(db=db, state=make_headless_state(database=db))
+    snapshot = payload["readiness_snapshot"]
+    today_payload = payload["summary"]["today"]
+
+    assert today_payload["readiness"] == round(snapshot["score"])
+    assert today_payload["ctl"] == round(snapshot["tsb"]["ctl"], 1)
+    assert today_payload["tsb"] == round(snapshot["tsb"]["tsb"], 1)
+
+
+def test_dashboard_widgets_use_canonical_readiness_load(tmp_path):
+    from api.deps import make_headless_state
+    from api.routers.dashboard import dashboard_widgets
+
+    db = Database(str(tmp_path / "widgets-aligned.db"))
+    today = datetime.now()
+    activities = []
+    for offset in (0, 35, 45, 55, 65, 75):
+        day = (today - timedelta(days=offset)).strftime("%Y-%m-%d")
+        activities.append(
+            {
+                "activity_id": f"widget-load-{offset}",
+                "date": day,
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 25.0,
+                "tss": 80.0,
+            }
+        )
+    db.save_activities(activities)
+    _seed_full_readiness(db)
+
+    payload = dashboard_widgets(db=db, state=make_headless_state(database=db))
+    snapshot = payload["readiness_snapshot"]
+    ctl = float(snapshot["tsb"]["ctl"])
+    tsb = float(snapshot["tsb"]["tsb"])
+
+    assert payload["training_score"]["fitness"]["detail"] == f"CTL {int(ctl)}"
+    assert payload["training_score"]["load_mgmt"]["detail"] == f"TSB {tsb:+.1f}"
+    assert f"TSB {tsb:+.1f}" in payload["daily_outlook"]["text"]
+
+
 def test_planning_status_exposes_readiness_snapshot(tmp_path):
     from api.routers.planning import planning_status
 
