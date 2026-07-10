@@ -46,12 +46,33 @@ def test_get_first_available_uses_quiet_google_probe(monkeypatch: pytest.MonkeyP
 
     monkeypatch.setattr(ai_providers, "OpenAIProvider", lambda *args, **kwargs: _UnavailableProvider())
     monkeypatch.setattr(ai_providers, "AnthropicProvider", lambda *args, **kwargs: _UnavailableProvider())
+    monkeypatch.setattr(ai_providers, "DeepSeekProvider", lambda *args, **kwargs: _UnavailableProvider())
     monkeypatch.setattr(ai_providers, "GoogleGeminiProvider", _FakeGoogleProvider)
     monkeypatch.setattr(ai_providers, "OllamaProvider", lambda *args, **kwargs: _UnavailableProvider())
 
     ai_providers.AIProviderFactory.get_first_available()
 
     assert calls == [False]
+
+
+def test_get_first_available_does_not_initialize_lower_priority_providers(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    class _AvailableProvider:
+        def is_available(self) -> bool:
+            return True
+
+    def unexpected_provider(*args, **kwargs):
+        pytest.fail("lower-priority provider was initialized")
+
+    expected = _AvailableProvider()
+    monkeypatch.setattr(ai_providers, "OpenAIProvider", lambda: expected)
+    monkeypatch.setattr(ai_providers, "AnthropicProvider", unexpected_provider)
+    monkeypatch.setattr(ai_providers, "DeepSeekProvider", unexpected_provider)
+    monkeypatch.setattr(ai_providers, "GoogleGeminiProvider", unexpected_provider)
+    monkeypatch.setattr(ai_providers, "OllamaProvider", unexpected_provider)
+
+    assert ai_providers.AIProviderFactory.get_first_available() is expected
 
 
 def test_google_provider_uses_google_genai_client(monkeypatch: pytest.MonkeyPatch):
