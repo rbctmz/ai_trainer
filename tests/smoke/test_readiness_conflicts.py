@@ -9,8 +9,11 @@ from datetime import date, datetime, timedelta
 import pytest
 
 from models.readiness_conflicts import (
+    DEFAULT_HORIZON_DAYS,
+    MAX_QUALITY_LOOKAHEAD_DAYS,
     MIN_CONFIDENCE,
     detect_readiness_conflicts,
+    resolve_effective_horizon,
     upcoming_plan_sessions,
 )
 
@@ -209,6 +212,67 @@ def test_upcoming_plan_sessions_unknown_role_falls_back_to_easy() -> None:
     assert sessions[0]["role"] == "easy"
 
 
+def _goal_plan_with_key_session(
+    days_until: int,
+    role: str = "quality",
+    *,
+    today: date = TODAY,
+) -> dict:
+    session_date = today + timedelta(days=days_until)
+    return {
+        "daily_plan": [
+            (
+                datetime.combine(session_date, datetime.min.time()),
+                41.0,
+                {"bike": 41.0},
+            )
+        ],
+        "session_templates": [
+            {
+                "date": session_date.isoformat(),
+                "session_role": role,
+                "session_focus": "Качество • вело" if role == "quality" else "Длительная • вело",
+                "sport_label": "вело",
+                "phase": "Build",
+            }
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("days_until", "expected_horizon"),
+    [(4, 5), (6, MAX_QUALITY_LOOKAHEAD_DAYS)],
+)
+def test_effective_horizon_extends_through_nearest_quality_session(
+    days_until: int,
+    expected_horizon: int,
+) -> None:
+    policy = resolve_effective_horizon(
+        _goal_plan_with_key_session(days_until),
+        today=TODAY,
+    )
+
+    assert policy["effective_horizon_days"] == expected_horizon
+    assert policy["extended_for_quality"] is True
+    assert policy["quality_session"]["days_until"] == days_until
+
+
+def test_effective_horizon_does_not_extend_beyond_cap_or_for_long_session() -> None:
+    beyond_cap = resolve_effective_horizon(
+        _goal_plan_with_key_session(MAX_QUALITY_LOOKAHEAD_DAYS),
+        today=TODAY,
+    )
+    long_only = resolve_effective_horizon(
+        _goal_plan_with_key_session(4, role="long"),
+        today=TODAY,
+    )
+
+    assert beyond_cap["effective_horizon_days"] == DEFAULT_HORIZON_DAYS
+    assert beyond_cap["extended_for_quality"] is False
+    assert long_only["effective_horizon_days"] == DEFAULT_HORIZON_DAYS
+    assert long_only["extended_for_quality"] is False
+
+
 # ---------------------------------------------------------------------------
 # Сборка из БД и SSE meta коуча
 # ---------------------------------------------------------------------------
@@ -280,6 +344,33 @@ def test_build_report_from_db_detects_quality_conflict(tmp_path) -> None:
     assert report["silence"] is False
     kinds = {c["kind"] for c in report["conflicts"]}
     assert any("quality_session" in kind for kind in kinds)
+
+
+def test_build_report_extends_to_quality_session_on_day_four(tmp_path, monkeypatch) -> None:
+    from api import readiness_conflicts as api_conflicts
+    from data.database import Database
+
+    monkeypatch.setattr(
+        api_conflicts,
+        "get_active_plan",
+        lambda _db: _goal_plan_with_key_session(4, today=datetime.now().date()),
+    )
+    monkeypatch.setattr(
+        api_conflicts,
+        "compute_readiness_today",
+        lambda *args, **kwargs: _readiness(35.0, "low"),
+    )
+
+    report = api_conflicts.build_readiness_conflict_report(
+        Database(str(tmp_path / "quality-lookahead.db"))
+    )
+
+    assert report["horizon_days"] == 5
+    assert report["base_horizon_days"] == DEFAULT_HORIZON_DAYS
+    assert report["lookahead_policy"] == "base_plus_nearest_quality"
+    assert report["horizon_extended_for_quality"] is True
+    assert report["sessions_evaluated"][0]["name"] == "Качество • вело"
+    assert report["conflicts"][0]["severity"] == "high"
 
 
 def test_build_report_without_plan_is_silent(tmp_path) -> None:

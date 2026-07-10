@@ -8,7 +8,7 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 
@@ -17,6 +17,9 @@ from typing import Any
 MIN_CONFIDENCE = 0.5
 
 DEFAULT_HORIZON_DAYS = 3
+# Policy from issue #152: always inspect the base horizon, then extend through
+# the nearest quality session only when it is still inside this bounded window.
+MAX_QUALITY_LOOKAHEAD_DAYS = 7
 
 KNOWN_ROLES = ("recovery", "easy", "long", "quality")
 
@@ -93,6 +96,47 @@ def upcoming_plan_sessions(
 
     sessions.sort(key=lambda s: s["days_until"])
     return sessions
+
+
+def resolve_effective_horizon(
+    goal_plan: dict[str, Any] | None,
+    *,
+    today: date,
+    base_horizon_days: int = DEFAULT_HORIZON_DAYS,
+    max_horizon_days: int = MAX_QUALITY_LOOKAHEAD_DAYS,
+) -> dict[str, Any]:
+    """Extend the base horizon through the nearest bounded quality session."""
+    base = max(1, int(base_horizon_days))
+    cap = max(base, int(max_horizon_days))
+    candidates = upcoming_plan_sessions(
+        goal_plan,
+        today=today,
+        horizon_days=cap,
+    )
+    quality_session = next(
+        (
+            session
+            for session in candidates
+            if session["role"] == "quality" and session["days_until"] >= base
+        ),
+        None,
+    )
+    if quality_session is None:
+        return {
+            "base_horizon_days": base,
+            "effective_horizon_days": base,
+            "extended_for_quality": False,
+            "quality_session": None,
+            "lookahead_policy": "base_plus_nearest_quality",
+        }
+
+    return {
+        "base_horizon_days": base,
+        "effective_horizon_days": min(cap, int(quality_session["days_until"]) + 1),
+        "extended_for_quality": True,
+        "quality_session": dict(quality_session),
+        "lookahead_policy": "base_plus_nearest_quality",
+    }
 
 
 def detect_readiness_conflicts(

@@ -3,7 +3,8 @@
 Обвязка над чистой логикой models/readiness_conflicts.py (issue #141):
 готовность — models/readiness.py с дефолтной свежестью (значения старше
 2 дней выпадают: детектор, тревожащий на несвежих данных, ложно-положителен),
-план — активный planning checkpoint. Отчёт едет в SSE meta коуча.
+план — активный planning checkpoint. Базовый горизонт 3 дня расширяется до
+ближайшей quality-сессии в пределах 7 дней (issue #152). Отчёт едет в SSE meta коуча.
 """
 from __future__ import annotations
 
@@ -15,7 +16,9 @@ from data.database import Database
 from models.readiness import LOAD_METRICS_WINDOW_DAYS, compute_readiness_today
 from models.readiness_conflicts import (
     DEFAULT_HORIZON_DAYS,
+    MAX_QUALITY_LOOKAHEAD_DAYS,
     detect_readiness_conflicts,
+    resolve_effective_horizon,
     upcoming_plan_sessions,
 )
 
@@ -24,6 +27,7 @@ def build_readiness_conflict_report(
     db: Database,
     *,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
+    max_quality_lookahead_days: int = MAX_QUALITY_LOOKAHEAD_DAYS,
 ) -> dict[str, Any]:
     today = datetime.now().date()
 
@@ -51,9 +55,31 @@ def build_readiness_conflict_report(
     except Exception:
         goal_plan = None
 
-    sessions = upcoming_plan_sessions(goal_plan, today=today, horizon_days=horizon_days)
+    horizon_policy = resolve_effective_horizon(
+        goal_plan,
+        today=today,
+        base_horizon_days=horizon_days,
+        max_horizon_days=max_quality_lookahead_days,
+    )
+    effective_horizon_days = horizon_policy["effective_horizon_days"]
+    sessions = upcoming_plan_sessions(
+        goal_plan,
+        today=today,
+        horizon_days=effective_horizon_days,
+    )
     report = detect_readiness_conflicts(
-        readiness, sessions, today=today, horizon_days=horizon_days
+        readiness,
+        sessions,
+        today=today,
+        horizon_days=effective_horizon_days,
+    )
+    report.update(
+        {
+            "base_horizon_days": horizon_policy["base_horizon_days"],
+            "lookahead_policy": horizon_policy["lookahead_policy"],
+            "horizon_extended_for_quality": horizon_policy["extended_for_quality"],
+            "quality_lookahead_session": horizon_policy["quality_session"],
+        }
     )
 
     if goal_plan is None and not report["data_gap"]:

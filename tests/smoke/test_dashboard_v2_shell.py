@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
-from models.dashboard_summary import build_dashboard_summary
+from models.dashboard_summary import build_dashboard_summary, project_readiness_snapshot
 from ui.pages.dashboard import _build_dashboard_v2_summary
 
 
@@ -15,6 +15,41 @@ pytestmark = pytest.mark.smoke
 
 def test_legacy_dashboard_summary_import_delegates_to_headless_builder() -> None:
     assert _build_dashboard_v2_summary is build_dashboard_summary
+
+
+def test_readiness_snapshot_projection_overrides_conflicting_dashboard_metrics() -> None:
+    current_status = {
+        "readiness": 54.0,
+        "ctl": 14.8,
+        "atl": 37.4,
+        "tsb": -22.6,
+        "hrv": 32.0,
+        "state_label": "Сильная усталость",
+        "tone": "danger",
+        "signals": {"source": "test"},
+    }
+    snapshot = {
+        "score": 61.1,
+        "status": "ready",
+        "stale": False,
+        "tsb": {"ctl": 18.4, "atl": 37.7, "tsb": -19.2},
+        "factors": [{"key": "hrv", "raw_value": 32.0}],
+    }
+
+    projected = project_readiness_snapshot(current_status, snapshot)
+
+    assert projected["readiness"] == 61.1
+    assert projected["ctl"] == 18.4
+    assert projected["atl"] == 37.7
+    assert projected["tsb"] == -19.2
+    assert projected["hrv"] == 32.0
+    assert projected["state_label"] == "Контролируемая готовность"
+    assert projected["tone"] == "neutral"
+    assert projected["signals"]["source"] == "test"
+    assert projected["signals"]["readiness"]["source"] == "canonical_snapshot"
+    assert projected["signals"]["load"]["tsb"] == -19.2
+    assert current_status["readiness"] == 54.0
+    assert current_status["signals"] == {"source": "test"}
 
 
 def _fake_state(goal_plan: dict | None = None) -> SimpleNamespace:
@@ -57,8 +92,8 @@ def test_dashboard_v2_summary_prioritizes_today_and_week_plan() -> None:
         reference_date=reference_date,
     )
 
-    assert summary["today"]["state_label"] == "Готов к работе"
-    assert summary["today"]["readiness"] == 82
+    assert summary["today"]["state_label"] == "Контролируемая нагрузка"
+    assert summary["today"]["readiness"] == 70
     assert summary["workout"]["title"] == "Run session 1"
     assert summary["workout"]["tss"] == 35
     assert summary["week"]["planned_tss"] == 205

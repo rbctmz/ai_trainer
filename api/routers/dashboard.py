@@ -24,6 +24,7 @@ from models.dashboard_summary import (
     calculate_current_status,
     get_dashboard_goal_plan,
     get_latest_training_status,
+    project_readiness_snapshot,
 )
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -36,12 +37,13 @@ def dashboard_summary(
     state: StateManager = Depends(get_headless_state),
 ) -> Dict[str, Any]:
     """Command-center summary: today's state, workout, week load, next action."""
+    readiness_snapshot = build_readiness_snapshot(db)
     activities_df = db.get_activities(30)
     if activities_df is None or activities_df.empty:
         return {
             "has_data": False,
             "summary": None,
-            "readiness_snapshot": build_readiness_snapshot(db),
+            "readiness_snapshot": readiness_snapshot,
             "operational_state": build_operational_state(db, demo=demo, has_data=False),
         }
 
@@ -55,6 +57,7 @@ def dashboard_summary(
         sleep_df,
         training_status=latest_training_status,
     )
+    current_status = project_readiness_snapshot(current_status, readiness_snapshot)
     summary = build_dashboard_summary(
         state,
         current_status,
@@ -65,7 +68,7 @@ def dashboard_summary(
         "has_data": True,
         "summary": summary,
         "signals": current_status.get("signals"),
-        "readiness_snapshot": build_readiness_snapshot(db),
+        "readiness_snapshot": readiness_snapshot,
         "operational_state": build_operational_state(
             db,
             demo=demo,
@@ -287,13 +290,11 @@ def dashboard_widgets(
     state: StateManager = Depends(get_headless_state),
 ) -> Dict[str, Any]:
     """Secondary dashboard widgets: Training Score, Daily Outlook, Race Projection."""
-    # 90 days of history for _ctl_series (ramp rate needs to look back 28 days)
-    # and the weekly TSS lookup below. "Today's" ctl/tsb, however, must be
-    # computed from the SAME 30-day window as dashboard_summary() — CTL's
-    # 42-day decay constant makes the Banister model converge differently
-    # depending on how much history it's fed, so a wider window here would
-    # silently give this endpoint a different "today" than /api/dashboard/summary
-    # for the exact same underlying data (see issue #61).
+    readiness_snapshot = build_readiness_snapshot(db)
+    # Keep 90 days for ramp-rate history and weekly lookup. The initial signal
+    # assembly remains backward-compatible, then project_readiness_snapshot()
+    # replaces today's readiness/CTL/ATL/TSB with the canonical 90-day fusion
+    # used by Dashboard summary, Planning, and Coach (issue #152).
     activities_df = db.get_activities(90)
     activities_df_30 = db.get_activities(30)
     sleep_df = db.get_sleep_data(7)
@@ -308,6 +309,7 @@ def dashboard_widgets(
         sleep_df,
         training_status=latest_training_status,
     )
+    current_status = project_readiness_snapshot(current_status, readiness_snapshot)
     goal_plan = get_dashboard_goal_plan(state)
 
     ctl = float(current_status.get("ctl") or 0)
@@ -344,6 +346,7 @@ def dashboard_widgets(
 
     return {
         "has_data": not empty,
+        "readiness_snapshot": readiness_snapshot,
         "training_score": _calculate_training_score(
             ctl, tsb, actual_week_tss, planned_week_tss, ramp_rate
         ),
