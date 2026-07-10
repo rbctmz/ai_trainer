@@ -6,10 +6,15 @@ from types import SimpleNamespace
 import pandas as pd
 import pytest
 
+from models.dashboard_summary import build_dashboard_summary
 from ui.pages.dashboard import _build_dashboard_v2_summary
 
 
 pytestmark = pytest.mark.smoke
+
+
+def test_legacy_dashboard_summary_import_delegates_to_headless_builder() -> None:
+    assert _build_dashboard_v2_summary is build_dashboard_summary
 
 
 def _fake_state(goal_plan: dict | None = None) -> SimpleNamespace:

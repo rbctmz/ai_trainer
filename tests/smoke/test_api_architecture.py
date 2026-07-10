@@ -26,3 +26,19 @@ def test_coach_api_does_not_depend_on_legacy_ui() -> None:
     imports = _import_roots(REPO_ROOT / "api" / "routers" / "coach.py")
 
     assert "ui" not in imports
+
+
+def test_api_modules_do_not_depend_on_legacy_ui() -> None:
+    offenders = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "api").rglob("*.py"))
+        if "ui" in _import_roots(path)
+    ]
+
+    assert offenders == []
+
+
+def test_dashboard_summary_module_is_headless() -> None:
+    imports = _import_roots(REPO_ROOT / "models" / "dashboard_summary.py")
+
+    assert imports.isdisjoint({"api", "streamlit", "ui"})
