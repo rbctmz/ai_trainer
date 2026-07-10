@@ -13,6 +13,7 @@ The FastAPI backend currently imports formatting and dashboard helpers from the 
 - [x] (2026-07-10 00:00Z) Added the coach architecture contract and observed the expected pre-implementation failure: `assert "ui" not in imports`.
 - [x] (2026-07-10 00:00Z) Moved coach tool-result formatting to `models/coach_tool_presenter.py`; FastAPI imports it directly and the Streamlit component re-exports it.
 - [x] (2026-07-10 00:00Z) Completed self-review and validation on the isolated #147 branch: 43 targeted tests and 441 smoke tests pass, one socket-dependent test is skipped, Python compilation is clean, and Next.js lint/build are green.
+- [x] (2026-07-10 00:00Z) Published commit `d08464c` on `codex/issue-147-api-ui-boundary` and opened draft PR #149 closing issue #147.
 - [ ] Analyze the dashboard helper dependency graph and repeat the extraction as a separately verifiable milestone.
 
 ## Surprises & Discoveries
@@ -106,3 +107,5 @@ Revision note (2026-07-10 / Codex): initial plan created after repository-wide a
 Revision note (2026-07-10 / Codex): updated after the red TDD run and coach formatter extraction to record compatibility behavior and targeted test evidence.
 
 Revision note (2026-07-10 / Codex): updated after self-review and complete validation to close the coach milestone and leave dashboard extraction as the next independently testable milestone.
+
+Revision note (2026-07-10 / Codex): recorded issue #147, published commit `d08464c`, and draft PR #149 so the living plan matches GitHub state.
