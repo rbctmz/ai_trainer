@@ -1,8 +1,7 @@
 """Dashboard endpoints.
 
-Reuses the existing, tested command-center builder
-``ui.pages.dashboard._build_dashboard_v2_summary`` so the web dashboard shows
-exactly the same numbers as the Streamlit one. No metrics are recomputed here.
+Uses headless dashboard builders shared with the Streamlit fallback so both
+surfaces show the same numbers without coupling FastAPI to legacy UI modules.
 """
 from __future__ import annotations
 
@@ -18,13 +17,13 @@ from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.banister import tsb_zone
 from state import StateManager
-from ui.pages.dashboard import (
-    _build_activity_day_tss,
-    _build_dashboard_v2_summary,
-    _build_plan_day_lookup,
-    _calculate_current_status,
-    _get_dashboard_goal_plan,
-    _get_latest_training_status,
+from models.dashboard_summary import (
+    build_activity_day_tss,
+    build_dashboard_summary,
+    build_plan_day_lookup,
+    calculate_current_status,
+    get_dashboard_goal_plan,
+    get_latest_training_status,
 )
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
@@ -49,14 +48,14 @@ def dashboard_summary(
     hrv_df = db.get_hrv_data(90)
     sleep_df = db.get_sleep_data(7)
 
-    latest_training_status = _get_latest_training_status(db)
-    current_status = _calculate_current_status(
+    latest_training_status = get_latest_training_status(db)
+    current_status = calculate_current_status(
         activities_df,
         hrv_df,
         sleep_df,
         training_status=latest_training_status,
     )
-    summary = _build_dashboard_v2_summary(
+    summary = build_dashboard_summary(
         state,
         current_status,
         latest_training_status,
@@ -239,7 +238,7 @@ def _calculate_race_projection(
         if days_to_race < 0 or days_to_race > 400:
             return None
 
-        plan_lookup = _build_plan_day_lookup(goal_plan)
+        plan_lookup = build_plan_day_lookup(goal_plan)
         ctl = current_ctl
         atl = max(0.0, current_ctl - current_tsb)
 
@@ -302,14 +301,14 @@ def dashboard_widgets(
 
     empty = activities_df is None or activities_df.empty
     empty_30 = activities_df_30 is None or activities_df_30.empty
-    latest_training_status = _get_latest_training_status(db)
-    current_status = _calculate_current_status(
+    latest_training_status = get_latest_training_status(db)
+    current_status = calculate_current_status(
         activities_df_30 if not empty_30 else pd.DataFrame(),
         hrv_df,
         sleep_df,
         training_status=latest_training_status,
     )
-    goal_plan = _get_dashboard_goal_plan(state)
+    goal_plan = get_dashboard_goal_plan(state)
 
     ctl = float(current_status.get("ctl") or 0)
     tsb = float(current_status.get("tsb") or 0)
@@ -336,8 +335,8 @@ def dashboard_widgets(
     # Weekly consistency
     week_start = today - timedelta(days=today.weekday())
     week_days = [week_start + timedelta(days=i) for i in range(7)]
-    plan_lookup = _build_plan_day_lookup(goal_plan)
-    activity_tss_by_day = _build_activity_day_tss(
+    plan_lookup = build_plan_day_lookup(goal_plan)
+    activity_tss_by_day = build_activity_day_tss(
         activities_df if not empty else pd.DataFrame()
     )
     planned_week_tss = sum(float(plan_lookup.get(d, {}).get("total_tss") or 0) for d in week_days)

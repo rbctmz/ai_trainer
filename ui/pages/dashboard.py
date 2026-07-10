@@ -9,9 +9,16 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from models.coach_explainability import (
-    build_coach_explainability_summary,
-    build_operational_response_contract,
+from models.coach_explainability import build_operational_response_contract
+from models.dashboard_summary import (
+    build_activity_day_tss as _build_activity_day_tss,
+    build_dashboard_explainability_summary as _build_dashboard_explainability_summary,
+    build_dashboard_summary as _build_dashboard_v2_summary,
+    build_plan_day_lookup as _build_plan_day_lookup,
+    calculate_current_status as _calculate_current_status_headless,
+    choose_primary_next_step as _choose_primary_next_step,
+    get_dashboard_goal_plan as _get_dashboard_goal_plan,
+    get_latest_training_status as _get_latest_training_status,
 )
 from models.planning_checkpoints import (
     build_planning_checkpoint,
@@ -20,16 +27,35 @@ from models.planning_checkpoints import (
     with_checkpoint_provenance,
 )
 from models.planning_execution import rebuild_goal_plan_with_adjustment
-from models.signals_engine import assemble_signals, current_status_from_signals
 from services import demo_mode as demo_mode_service
 from services.data_cache import load_activities, load_hrv, load_sleep
 from state import StateManager
 from ui.components.execution_feedback import render_execution_feedback_editor
 from ui.plotly_theme import get_plotly_theme
-from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
 
 
 logger = logging.getLogger(__name__)
+
+
+def _calculate_current_status(
+    activities_df: pd.DataFrame | None = None,
+    hrv_df: pd.DataFrame | None = None,
+    sleep_df: pd.DataFrame | None = None,
+    training_status: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Load Streamlit caches when needed, then delegate to the headless builder."""
+    if activities_df is None:
+        activities_df = load_activities(30)
+    if hrv_df is None:
+        hrv_df = load_hrv(90)
+    if sleep_df is None:
+        sleep_df = load_sleep(7)
+    return _calculate_current_status_headless(
+        activities_df,
+        hrv_df,
+        sleep_df,
+        training_status=training_status,
+    )
 
 
 def render_dashboard_page(
@@ -67,277 +93,18 @@ def render_dashboard_page(
     )
 
 
-def _coerce_dashboard_date(value: Any) -> date | None:
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if hasattr(value, "to_pydatetime"):
-        try:
-            return value.to_pydatetime().date()
-        except Exception:
-            return None
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        return datetime.fromisoformat(text.replace("Z", "+00:00")).date()
-    except ValueError:
-        pass
-    try:
-        return datetime.strptime(text[:10], "%Y-%m-%d").date()
-    except ValueError:
-        return None
 
 
-def _format_tss_value(value: Any) -> str:
-    try:
-        return f"{float(value or 0):.0f}"
-    except (TypeError, ValueError):
-        return "0"
 
 
-def _get_dashboard_goal_plan(state: StateManager) -> dict[str, Any]:
-    goal_plan = getattr(state, "resolved_goal_plan_context", None)
-    if not isinstance(goal_plan, dict) or not goal_plan:
-        goal_plan = getattr(state, "goal_plan", None)
-    if not isinstance(goal_plan, dict) or not goal_plan:
-        # Headless API mode: state.goal_plan is never set; fall back to DB checkpoint.
-        # latest_planning_checkpoint has lazy-loading via refresh_planning_checkpoint_cache().
-        checkpoint = getattr(state, "latest_planning_checkpoint", None)
-        if isinstance(checkpoint, dict):
-            from models.planning_checkpoints import restore_goal_plan_from_checkpoint
-            goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
-    return goal_plan if isinstance(goal_plan, dict) else {}
 
 
-def _build_plan_day_lookup(goal_plan: dict[str, Any]) -> dict[date, dict[str, Any]]:
-    daily_plan = list(goal_plan.get("daily_plan", []) or [])
-    session_templates = list(goal_plan.get("session_templates", []) or [])
-    lookup: dict[date, dict[str, Any]] = {}
-    for idx, entry in enumerate(daily_plan):
-        try:
-            planned_dt, total_tss, parts = entry
-        except (TypeError, ValueError):
-            continue
-        planned_date = _coerce_dashboard_date(planned_dt)
-        if planned_date is None:
-            continue
-        template = session_templates[idx] if idx < len(session_templates) and isinstance(session_templates[idx], dict) else {}
-        sport = str(template.get("sport") or "").strip()
-        if not sport and isinstance(parts, dict):
-            sport = max(parts, key=lambda key: float(parts.get(key) or 0.0), default="")
-        lookup[planned_date] = {
-            "date": planned_date,
-            "index": idx,
-            "total_tss": float(total_tss or 0.0),
-            "parts": parts if isinstance(parts, dict) else {},
-            "sport": sport or "—",
-            "name": str(template.get("export_name") or template.get("name") or "Плановая тренировка"),
-            "duration_minutes": int(template.get("duration_minutes") or 0),
-            "session_role": str(template.get("session_role_label") or template.get("session_role") or ""),
-        }
-    return lookup
 
 
-def _build_activity_day_tss(activities_df: pd.DataFrame) -> dict[date, float]:
-    if activities_df.empty or "date" not in activities_df.columns:
-        return {}
-    activity_days: dict[date, float] = {}
-    for _, row in activities_df.iterrows():
-        activity_date = _coerce_dashboard_date(row.get("date"))
-        if activity_date is None:
-            continue
-        try:
-            tss_value = float(row.get("tss") or 0.0)
-        except (TypeError, ValueError):
-            tss_value = 0.0
-        activity_days[activity_date] = activity_days.get(activity_date, 0.0) + tss_value
-    return activity_days
 
 
-def _format_dashboard_sport_label(sport: Any) -> str:
-    """Return a compact reader-facing sport label for Dashboard cards."""
-    return sport_label(sport)
 
 
-def _build_dashboard_v2_summary(
-    state: StateManager,
-    current_status: dict[str, Any],
-    latest_training_status: dict[str, Any],
-    activities_df: pd.DataFrame,
-    *,
-    reference_date: date | None = None,
-) -> dict[str, Any]:
-    """Build a testable command-center summary for Dashboard V2."""
-    today = reference_date or datetime.now().date()
-    goal_plan = _get_dashboard_goal_plan(state)
-    plan_lookup = _build_plan_day_lookup(goal_plan)
-    activity_tss_by_day = _build_activity_day_tss(activities_df)
-    checkpoint_summary = summarize_planning_checkpoint(getattr(state, "latest_planning_checkpoint", None))
-
-    readiness_value = latest_training_status.get("training_readiness")
-    if readiness_value is None or pd.isna(readiness_value):
-        readiness_value = current_status.get("readiness", 0)
-    try:
-        readiness_number = max(0.0, min(100.0, float(readiness_value or 0.0)))
-    except (TypeError, ValueError):
-        readiness_number = 0.0
-    tsb_value = float(current_status.get("tsb") or 0.0)
-    ctl_value = float(current_status.get("ctl") or 0.0)
-    hrv_value = current_status.get("hrv") or latest_training_status.get("hrv")
-    if current_status.get("state_label") and current_status.get("tone"):
-        state_label = str(current_status["state_label"])
-        tone = str(current_status["tone"])
-    elif current_status.get("critical_status"):
-        state_label = str(current_status["critical_status"])
-        tone = "danger"
-    elif readiness_number >= 75 and tsb_value > -10:
-        state_label = "Готов к работе"
-        tone = "success"
-    elif tsb_value < -20:
-        state_label = "Нужна разгрузка"
-        tone = "warning"
-    else:
-        state_label = "Контролируемая нагрузка"
-        tone = "neutral"
-
-    today_plan = plan_lookup.get(today)
-    if today_plan is None:
-        workout = {
-            "title": "План на сегодня не найден",
-            "subtitle": "Откройте Planning, если нужно уточнить ближайшие тренировки.",
-            "tss": 0,
-            "sport": "—",
-            "sport_key": "other",
-            "sport_label": "—",
-            "action": "planning",
-            "button": "Открыть Planning",
-        }
-    elif today_plan["total_tss"] <= 0:
-        workout = {
-            "title": "Сегодня восстановление",
-            "subtitle": "План не ставит тренировочную нагрузку на сегодня.",
-            "tss": 0,
-            "sport": "отдых",
-            "sport_key": "off",
-            "sport_label": "отдых",
-            "action": "planning",
-            "button": "Посмотреть неделю",
-        }
-    else:
-        duration = today_plan["duration_minutes"]
-        duration_label = f"{duration} мин · " if duration > 0 else ""
-        today_sport_label = _format_dashboard_sport_label(today_plan["sport"])
-        workout = {
-            "title": today_plan["name"],
-            "subtitle": (
-                f"{duration_label}{today_sport_label} · "
-                f"{_format_tss_value(today_plan['total_tss'])} TSS"
-            ),
-            "tss": int(round(today_plan["total_tss"])),
-            "sport": today_sport_label,
-            "sport_key": normalize_sport_key(today_plan["sport"]),
-            "sport_label": today_sport_label,
-            "action": "planning",
-            "button": "Открыть план",
-        }
-
-    week_start = today - timedelta(days=today.weekday())
-    week_days = [week_start + timedelta(days=offset) for offset in range(7)]
-    planned_week_tss = sum(float(plan_lookup.get(day, {}).get("total_tss") or 0.0) for day in week_days)
-    actual_week_tss = sum(float(activity_tss_by_day.get(day, 0.0)) for day in week_days)
-    remaining_tss = max(0.0, planned_week_tss - actual_week_tss)
-    forecast_tss = actual_week_tss + sum(
-        float(plan_lookup.get(day, {}).get("total_tss") or 0.0)
-        for day in week_days
-        if day >= today
-    )
-    week_status = "по плану"
-    if planned_week_tss > 0 and actual_week_tss < planned_week_tss * 0.55 and today.weekday() >= 4:
-        week_status = "риск отставания"
-    elif planned_week_tss > 0 and actual_week_tss >= planned_week_tss:
-        week_status = "цель недели закрыта"
-
-    next_days = []
-    for offset in range(7):
-        day = today + timedelta(days=offset)
-        planned = plan_lookup.get(day)
-        actual_tss = activity_tss_by_day.get(day, 0.0)
-        if planned is None:
-            label = "нет плана"
-            tss = 0
-            sport = "—"
-            sport_key = "other"
-            status = "empty"
-        else:
-            tss = int(round(float(planned.get("total_tss") or 0.0)))
-            sport_key = normalize_sport_key(planned.get("sport") or "—")
-            sport = _format_dashboard_sport_label(planned.get("sport") or "—")
-            if tss <= 0:
-                label = "отдых"
-                status = "rest"
-            elif actual_tss > 0:
-                label = "есть факт"
-                status = "done"
-            else:
-                label = "запланировано"
-                status = "planned"
-        next_days.append(
-            {
-                "date": day.isoformat(),
-                "label": format_date_label(day, "weekday_short"),
-                "status": status,
-                "status_label": label,
-                "sport": sport,
-                "sport_key": sport_key,
-                "sport_label": sport,
-                "tss": tss,
-            }
-        )
-
-    if checkpoint_summary is None:
-        plan = {
-            "title": "Активный план не найден",
-            "subtitle": "Соберите план, чтобы Dashboard показывал прогресс к цели.",
-            "status": "no_plan",
-            "button": "Собрать план",
-        }
-    else:
-        plan = {
-            "title": checkpoint_summary["title"],
-            "subtitle": f"{checkpoint_summary['plan_adjustment_label']} · пик {checkpoint_summary['peak_tss']} TSS",
-            "status": "active",
-            "button": "Открыть Planning",
-        }
-        if checkpoint_summary.get("execution_weekly_review"):
-            plan["subtitle"] = str(checkpoint_summary["execution_weekly_review"]["headline"])
-
-    next_step = _choose_primary_next_step(state, current_status)
-    return {
-        "today": {
-            "date": today.isoformat(),
-            "date_label": format_date_label(today, "weekday_short"),
-            "state_label": state_label,
-            "tone": tone,
-            "readiness": int(round(readiness_number)),
-            "tsb": round(tsb_value, 1),
-            "ctl": round(ctl_value, 1),
-            "hrv": hrv_value,
-        },
-        "workout": workout,
-        "week": {
-            "planned_tss": int(round(planned_week_tss)),
-            "actual_tss": int(round(actual_week_tss)),
-            "remaining_tss": int(round(remaining_tss)),
-            "forecast_tss": int(round(forecast_tss)),
-            "status": week_status,
-        },
-        "next_days": next_days,
-        "plan": plan,
-        "next_action": next_step,
-        "signals": current_status.get("signals"),
-    }
 
 
 def _render_dashboard_v2_shell(
@@ -508,39 +275,8 @@ def _render_empty_dashboard_state(state: StateManager, on_sync: Callable[[int], 
     st.caption("💡 **Совет:** Синхронизируйте последние 30 дней тренировок или временно откройте продукт на sample dataset.")
 
 
-def _calculate_current_status(
-    activities_df: pd.DataFrame | None = None,
-    hrv_df: pd.DataFrame | None = None,
-    sleep_df: pd.DataFrame | None = None,
-    training_status: dict[str, Any] | None = None,
-) -> dict[str, Any]:
-    # Streamlit path leaves the arguments empty and uses the cached loaders.
-    # Headless callers (e.g. the FastAPI layer) can pass dataframes directly
-    # so this function never touches Streamlit session state.
-    if activities_df is None:
-        activities_df = load_activities(30)
-    if hrv_df is None:
-        hrv_df = load_hrv(90)
-    if sleep_df is None:
-        sleep_df = load_sleep(7)
-
-    signals = assemble_signals(
-        activities_df=activities_df,
-        hrv_df=hrv_df,
-        sleep_df=sleep_df,
-        training_status=training_status,
-    )
-    status = current_status_from_signals(signals)
-
-    logger.debug("Текущий статус: %s", status)
-    return status
 
 
-def _get_latest_training_status(database: Any) -> dict[str, Any]:
-    training_status_df = database.get_training_status_history(days=30)
-    if isinstance(training_status_df, pd.DataFrame) and not training_status_df.empty:
-        return training_status_df.sort_values("date", ascending=False).iloc[0].to_dict()
-    return {}
 
 
 def _render_quick_actions(
@@ -916,64 +652,8 @@ def _build_sync_handoff_copy(
     }
 
 
-def _choose_primary_next_step(
-    state: StateManager,
-    current_status: dict[str, Any],
-) -> dict[str, str]:
-    summary = _build_dashboard_explainability_summary(state, current_status)
-    ai_ready = getattr(state, "ai_coach", None) is not None
-
-    if summary["focus"] == "recovery":
-        return {
-            "icon": summary["icon"],
-            "title": summary["title"],
-            "button": summary["dashboard_button"],
-            "desc": summary["description"],
-            "reason": summary["reason"],
-            "action": "recovery_plan",
-        }
-
-    if not ai_ready:
-        return {
-            "icon": "🤖",
-            "title": "Подготовьте AI коуча",
-            "button": "Открыть AI коучинг",
-            "desc": "Данные уже на месте. Следующий полезный шаг — открыть AI coaching и получить персональную интерпретацию текущего состояния.",
-            "reason": "Если провайдер уже настроен, коуч подключится автоматически. Иначе вы сразу попадёте в нужное место для настройки.",
-            "action": "ai_chat",
-        }
-
-    return {
-        "icon": summary["icon"],
-        "title": "Получите персональную рекомендацию" if summary["focus"] == "form_today" else summary["title"],
-        "button": summary["dashboard_button"],
-        "desc": summary["description"],
-        "reason": summary["reason"],
-        "action": "ai_chat",
-    }
 
 
-def _build_dashboard_explainability_summary(
-    state: StateManager,
-    current_status: dict[str, Any],
-) -> dict[str, Any]:
-    hrv_val = current_status.get("hrv")
-    recovery_state = None
-    try:
-        if hrv_val and float(hrv_val) < 30:
-            recovery_state = "poor"
-    except (TypeError, ValueError):
-        recovery_state = None
-
-    return build_coach_explainability_summary(
-        tsb=current_status.get("tsb"),
-        ctl=current_status.get("ctl"),
-        atl=current_status.get("atl"),
-        readiness=current_status.get("readiness"),
-        recovery_state=recovery_state,
-        goal_plan=getattr(state, "resolved_goal_plan_context", None),
-        execution_feedback=getattr(state, "latest_execution_feedback", None),
-    )
 
 
 def _build_dashboard_ai_handoff(
