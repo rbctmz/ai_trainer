@@ -4,7 +4,7 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import Optional, Dict, List, Type
+from typing import Any, Optional, Dict, List, Type
 import os
 from config.settings import Settings
 
@@ -30,7 +30,7 @@ class AIProvider(ABC):
         """Получить название используемой модели"""
         pass
     
-    def test_connection(self) -> Dict[str, any]:
+    def test_connection(self) -> Dict[str, Any]:
         """
         Тестирование подключения к провайдеру
         Возвращает словарь с результатами теста
@@ -99,7 +99,7 @@ class OpenAIProvider(AIProvider):
     def get_model_name(self) -> str:
         return f"OpenAI {self.model}"
     
-    def test_connection(self) -> Dict[str, any]:
+    def test_connection(self) -> Dict[str, Any]:
         """Тестирование подключения к OpenAI"""
         if not self.client:
             return {
@@ -194,7 +194,7 @@ class AnthropicProvider(AIProvider):
     def get_model_name(self) -> str:
         return f"Anthropic {self.model}"
     
-    def test_connection(self) -> Dict[str, any]:
+    def test_connection(self) -> Dict[str, Any]:
         """Тестирование подключения к Anthropic"""
         if not self.client:
             return {
@@ -286,7 +286,7 @@ class DeepSeekProvider(AIProvider):
     def get_model_name(self) -> str:
         return f"DeepSeek {self.model}"
 
-    def test_connection(self) -> Dict[str, any]:
+    def test_connection(self) -> Dict[str, Any]:
         if not self.client:
             return {
                 'success': False,
@@ -396,7 +396,7 @@ class GoogleGeminiProvider(AIProvider):
     def get_model_name(self) -> str:
         return f"Google {self.model_name}"
     
-    def test_connection(self) -> Dict[str, any]:
+    def test_connection(self) -> Dict[str, Any]:
         """Тестирование подключения к Google Gemini"""
         if not self.client:
             return {
@@ -503,7 +503,7 @@ class OllamaProvider(AIProvider):
     def get_model_name(self) -> str:
         return f"Ollama {self.model}"
     
-    def test_connection(self) -> Dict[str, any]:
+    def test_connection(self) -> Dict[str, Any]:
         """Тестирование подключения к Ollama"""
         if not self.client:
             return {
@@ -623,28 +623,33 @@ class AIProviderFactory:
     @staticmethod
     def get_first_available() -> Optional[AIProvider]:
         """Получить первый доступный провайдер"""
-        # Динамический импорт Mock провайдера
-        try:
-            from models.mock_ai_provider import MockAIProvider
-            mock_available = True
-        except ImportError:
-            mock_available = False
-        
         # Приоритет: OpenAI -> Anthropic -> DeepSeek -> Google -> Ollama -> Mock
-        providers = [
-            OpenAIProvider(),
-            AnthropicProvider(),
-            DeepSeekProvider(),
-            AIProviderFactory._google_probe_provider(),
-            OllamaProvider(host=Settings.OLLAMA_HOST, model=Settings.OLLAMA_MODEL)
+        # Создаём провайдеры лениво: конструкторы могут загружать тяжёлые SDK или
+        # проверять локальные сервисы, поэтому после первого успеха остальные не
+        # должны иметь побочных эффектов.
+        provider_factories = [
+            OpenAIProvider,
+            AnthropicProvider,
+            DeepSeekProvider,
+            AIProviderFactory._google_probe_provider,
+            lambda: OllamaProvider(
+                host=Settings.OLLAMA_HOST,
+                model=Settings.OLLAMA_MODEL,
+            ),
         ]
-        
-        # Добавляем Mock как fallback
-        if mock_available:
-            providers.append(MockAIProvider())
-        
-        for provider in providers:
+
+        for create_provider in provider_factories:
+            provider = create_provider()
             if provider.is_available():
                 return provider
+
+        try:
+            from models.mock_ai_provider import MockAIProvider
+        except ImportError:
+            return None
+
+        mock_provider = MockAIProvider()
+        if mock_provider.is_available():
+            return mock_provider
         
         return None
