@@ -19,7 +19,7 @@ After this change, Dashboard summary and widgets project their readiness/load va
 - [x] (2026-07-10 11:55Z) Passed targeted and adjacent-contour validation: `38 passed`, then `60 passed`; Ruff also exposed and led to removal of one unused import.
 - [x] (2026-07-10 12:00Z) Re-ran the real local-data report: Dashboard, widgets, and snapshot now agree at readiness 61.1, TSB -19.2, CTL 18.4; the gate uses horizon five and correctly remains silent for readiness `ready`.
 - [x] (2026-07-10 12:12Z) Completed full validation and self-review: `452 passed, 1 skipped`, Python compile, Ruff, diff-check, web lint, and production build all passed.
-- [ ] Publish the reviewed change and open a draft PR closing #152.
+- [x] (2026-07-10 12:18Z) Published commit `faf4007` to `codex/issue-152-readiness-trust-alignment` and opened draft PR #153 with `Closes #152`.
 
 ## Surprises & Discoveries
 
@@ -51,7 +51,7 @@ After this change, Dashboard summary and widgets project their readiness/load va
 
 ## Outcomes & Retrospective
 
-Implementation and local validation are complete. The same canonical score and load metrics are now observable in Dashboard summary, Dashboard widgets, Coach meta, and the gate. On the real local dataset they agree at readiness 61.1, TSB -19.2, CTL 18.4, and HRV 32. The gate reports base horizon three, effective horizon five, and the quality session that caused extension. It remains silent because readiness is `ready`, confirming that visibility changed without broadening the intervention matrix. The full contributor-safe contour passed with `452 passed, 1 skipped`; Python compilation, Ruff, diff-check, web lint, and the Next.js production build also passed. Only Git publication remains.
+The work is complete and published in draft PR #153. The same canonical score and load metrics are now observable in Dashboard summary, Dashboard widgets, Coach meta, and the gate. On the real local dataset they agree at readiness 61.1, TSB -19.2, CTL 18.4, and HRV 32. The gate reports base horizon three, effective horizon five, and the quality session that caused extension. It remains silent because readiness is `ready`, confirming that visibility changed without broadening the intervention matrix. The full contributor-safe contour passed with `452 passed, 1 skipped`; Python compilation, Ruff, diff-check, web lint, and the Next.js production build also passed. No implementation gaps remain in issue #152; merge review and CI are the only remaining repository workflow steps.
 
 ## Context and Orientation
 
@@ -132,6 +132,8 @@ TDD and live evidence after implementation:
     Python compile, Ruff, git diff --check: passed
     Web lint: no warnings or errors
     Web production build: compiled and generated 11 static pages
+    Implementation commit: faf4007
+    Draft PR: https://github.com/rbctmz/ai_trainer/pull/153 (Closes #152)
 
 ## Interfaces and Dependencies
 
@@ -154,3 +156,5 @@ Revision note (2026-07-10 / Codex): initial plan created from the live web/Coach
 Revision note (2026-07-10 / Codex): updated after the red/green TDD cycle, adjacent-contour tests, and the post-implementation real-data verification.
 
 Revision note (2026-07-10 / Codex): updated after full validation and self-review; added explicit milestones required by `.agent/PLANS.md` and normalized the public policy name to the implemented `base_plus_nearest_quality` value.
+
+Revision note (2026-07-10 / Codex): finalized after publishing implementation commit `faf4007` and opening draft PR #153, which closes issue #152 when merged.
