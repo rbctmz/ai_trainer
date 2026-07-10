@@ -20,7 +20,7 @@ The FastAPI backend currently imports formatting and dashboard helpers from the 
 - [x] (2026-07-10 11:01Z) Added the repository-wide API architecture contract and observed the expected failure with `api/routers/dashboard.py` as the only offender.
 - [x] (2026-07-10 11:06Z) Extracted the dashboard helper closure into `models/dashboard_summary.py`, switched FastAPI to public headless functions, and retained Streamlit aliases plus its cached-data wrapper.
 - [x] (2026-07-10 11:12Z) Completed validation and self-review: 28 expanded dashboard tests passed, full smoke passed with `445 passed, 1 skipped`, Python compilation and Ruff were clean, and Next.js lint/build succeeded.
-- [ ] Commit, push, and open a draft PR closing #150.
+- [x] (2026-07-10 11:05Z) Published commit `20cb3f9` on `codex/issue-150-dashboard-api-boundary` and opened draft PR #151 closing issue #150.
 
 ## Surprises & Discoveries
 
@@ -172,3 +172,5 @@ Revision note (2026-07-10 / Codex): recorded issue #147, published commit `d0846
 Revision note (2026-07-10 / Codex): opened Milestone 2 as issue #150, recorded the eleven-function dashboard dependency closure, isolated baseline, BDD scenarios, and the public headless interface before tests or implementation.
 
 Revision note (2026-07-10 / Codex): updated after implementation and self-review with red/green test evidence, the full-source reconstruction discovery, AST preservation proof, and final validation results.
+
+Revision note (2026-07-10 / Codex): recorded published commit `20cb3f9` and draft PR #151 so the living plan matches GitHub state.
