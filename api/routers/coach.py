@@ -27,7 +27,7 @@ from models.coach_decisions import build_coach_decision
 from models.ai_tools import AITools
 from models.chat_manager import ChatManager
 from api.planning_service import get_active_plan
-from ui.components.ai_coach_output import format_tool_result
+from models.coach_tool_presenter import format_tool_result
 from utils.product_semantics import tool_label
 
 router = APIRouter(prefix="/api/coach", tags=["coach"])
