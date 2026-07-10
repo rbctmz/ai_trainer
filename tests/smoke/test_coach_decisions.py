@@ -329,3 +329,4 @@ def test_routes_register_decisions_endpoint():
     assert "/api/decisions" in paths
     assert "/api/decisions/proposals/{proposal_id}/approve" in paths
     assert "/api/decisions/proposals/{proposal_id}/reject" in paths
+    assert "/api/decisions/proposals/{proposal_id}/rollback" in paths

@@ -21,6 +21,7 @@ def list_decisions(
 ) -> dict[str, Any]:
     rows = [row for row in db.get_coach_decisions(days=days) if row]
     proposal_rows = [row for row in db.get_coach_proposals(days=days) if row]
+    recovery_rows = [row for row in db.get_recovery_decisions(days=days) if row]
     grouped: list[dict[str, Any]] = []
     by_date: dict[str, list[dict[str, Any]]] = {}
     proposal_grouped: list[dict[str, Any]] = []
@@ -28,6 +29,8 @@ def list_decisions(
     pending_proposal_grouped: list[dict[str, Any]] = []
     pending_proposals_by_date: dict[str, list[dict[str, Any]]] = {}
     pending_proposal_count = 0
+    recovery_grouped: list[dict[str, Any]] = []
+    recovery_by_date: dict[str, list[dict[str, Any]]] = {}
 
     for row in rows:
         day = str(row.get("date") or "")[:10]
@@ -59,14 +62,26 @@ def list_decisions(
                 )
             pending_proposals_by_date[day].append(item)
 
-    has_data = bool(grouped or proposal_grouped)
-    latest_data_at = None
-    if grouped and proposal_grouped:
-        latest_data_at = max(grouped[0]["date"], proposal_grouped[0]["date"])
-    elif grouped:
-        latest_data_at = grouped[0]["date"]
-    elif proposal_grouped:
-        latest_data_at = proposal_grouped[0]["date"]
+    for row in recovery_rows:
+        day = str(row.get("date") or "")[:10]
+        if not day:
+            continue
+        item = dict(row)
+        item["time"] = _format_time(item.get("date"))
+        if day not in recovery_by_date:
+            recovery_by_date[day] = []
+            recovery_grouped.append(
+                {"date": day, "recovery_decisions": recovery_by_date[day]}
+            )
+        recovery_by_date[day].append(item)
+
+    has_data = bool(grouped or proposal_grouped or recovery_grouped)
+    latest_dates = [
+        group[0]["date"]
+        for group in (grouped, proposal_grouped, recovery_grouped)
+        if group
+    ]
+    latest_data_at = max(latest_dates) if latest_dates else None
     return {
         "has_data": has_data,
         "count": len(rows),
@@ -75,6 +90,8 @@ def list_decisions(
         "proposal_days": proposal_grouped,
         "pending_proposal_count": pending_proposal_count,
         "pending_proposal_days": pending_proposal_grouped,
+        "recovery_count": len(recovery_rows),
+        "recovery_days": recovery_grouped,
         "operational_state": build_operational_state(
             db,
             demo=demo,
@@ -100,8 +117,19 @@ def approve_proposal(
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
     proposal = _pending_proposal_or_error(db, proposal_id)
+    if proposal.get("action") == "recovery_replan":
+        proposal = db.transition_coach_proposal_status(
+            proposal_id,
+            "pending",
+            "applying",
+        )
+        if proposal is None:
+            raise HTTPException(status_code=409, detail="proposal is already being applied")
     try:
         result = _apply_proposal(db, proposal)
+    except planning_service.StalePlanningCheckpointError as exc:
+        db.update_coach_proposal_status(proposal_id, "failed", error=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
         db.update_coach_proposal_status(proposal_id, "failed", error=str(exc))
         raise HTTPException(status_code=422, detail=str(exc))
@@ -127,12 +155,64 @@ def reject_proposal(
     return {"proposal": updated}
 
 
+@router.post("/proposals/{proposal_id}/rollback")
+def rollback_proposal(
+    proposal_id: int,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    proposal = _approved_recovery_proposal_or_error(db, proposal_id)
+    proposal = db.transition_coach_proposal_status(
+        proposal_id,
+        "approved",
+        "rolling_back",
+    )
+    if proposal is None:
+        raise HTTPException(status_code=409, detail="proposal is already being rolled back")
+    try:
+        rollback = planning_service.rollback_recovery_replan(
+            db,
+            proposal.get("result") or {},
+            persist=True,
+        )
+    except planning_service.StalePlanningCheckpointError as exc:
+        db.transition_coach_proposal_status(proposal_id, "rolling_back", "approved")
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        db.transition_coach_proposal_status(proposal_id, "rolling_back", "approved")
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    result = {**(proposal.get("result") or {}), "rollback": rollback}
+    updated = db.update_coach_proposal_status(
+        proposal_id,
+        "rolled_back",
+        result=result,
+    )
+    return {"proposal": updated, "result": rollback}
+
+
 def _pending_proposal_or_error(db: Database, proposal_id: int) -> dict[str, Any]:
     proposal = db.get_coach_proposal(proposal_id)
     if not proposal:
         raise HTTPException(status_code=404, detail="proposal not found")
     if proposal.get("status") != "pending":
         raise HTTPException(status_code=409, detail=f"proposal is already {proposal.get('status')}")
+    return proposal
+
+
+def _approved_recovery_proposal_or_error(
+    db: Database,
+    proposal_id: int,
+) -> dict[str, Any]:
+    proposal = db.get_coach_proposal(proposal_id)
+    if not proposal:
+        raise HTTPException(status_code=404, detail="proposal not found")
+    if proposal.get("action") != "recovery_replan":
+        raise HTTPException(status_code=422, detail="proposal does not support rollback")
+    if proposal.get("status") != "approved":
+        raise HTTPException(
+            status_code=409,
+            detail=f"proposal is already {proposal.get('status')}",
+        )
     return proposal
 
 
@@ -163,6 +243,13 @@ def _apply_proposal(db: Database, proposal: dict[str, Any]) -> dict[str, Any]:
             db,
             rows=rows,
             weeks=int(params.get("weeks") or 1),
+            persist=True,
+        )
+
+    if action == "recovery_replan":
+        return planning_service.apply_recovery_replan(
+            db,
+            params,
             persist=True,
         )
 

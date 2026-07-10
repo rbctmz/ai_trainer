@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import useSWR from "swr";
-import { fetcher } from "@/lib/api";
-import type { CoachDecisionsResponse, CoachProposal } from "@/lib/types";
+import { ApiError, fetcher, postJSON } from "@/lib/api";
+import type { CoachDecisionsResponse, CoachProposal, RecoveryDecision } from "@/lib/types";
 import { DecisionEntry } from "@/components/ui/DecisionEntry";
 import { ProposalCard } from "@/components/ui/ProposalCard";
 
@@ -14,6 +14,7 @@ export default function DecisionsPage() {
   );
   const [notice, setNotice] = useState<string | null>(null);
   const pendingProposalDays = data?.pending_proposal_days ?? [];
+  const recoveryDays = data?.recovery_days ?? [];
   const historyProposalDays = (data?.proposal_days ?? [])
     .map((day) => ({
       ...day,
@@ -87,6 +88,22 @@ export default function DecisionsPage() {
             </section>
           ) : null}
 
+          {recoveryDays.map((day) => (
+            <section
+              key={`recovery-${day.date}`}
+              className="rounded-card border border-surface-border bg-surface p-4 shadow-card"
+            >
+              <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-faint">
+                {day.date} · Recovery loop
+              </h2>
+              <div className="mt-2 divide-y divide-surface-border">
+                {day.recovery_decisions.map((decision) => (
+                  <RecoveryDecisionEntry key={decision.id} decision={decision} />
+                ))}
+              </div>
+            </section>
+          ))}
+
           {historyProposalDays.map((day) => (
             <section
               key={`proposals-${day.date}`}
@@ -97,7 +114,14 @@ export default function DecisionsPage() {
               </h2>
               <div className="mt-2 divide-y divide-surface-border">
                 {day.proposals.map((proposal) => (
-                  <ProposalEntry key={proposal.id} proposal={proposal} />
+                  <ProposalEntry
+                    key={proposal.id}
+                    proposal={proposal}
+                    onChanged={(message) => {
+                      setNotice(message);
+                      void mutate();
+                    }}
+                  />
                 ))}
               </div>
             </section>
@@ -130,10 +154,25 @@ export default function DecisionsPage() {
   );
 }
 
-function ProposalEntry({ proposal }: { proposal: CoachProposal }) {
+function ProposalEntry({
+  proposal,
+  onChanged,
+}: {
+  proposal: CoachProposal;
+  onChanged: (message: string) => void;
+}) {
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const label =
-    proposal.action === "build_plan" ? "Новый план" : "Корректировка плана";
+    proposal.action === "build_plan"
+      ? "Новый план"
+      : proposal.action === "recovery_replan"
+        ? "Recovery Replan"
+        : "Корректировка плана";
   const goal = proposal.preview?.goal as Record<string, unknown> | undefined;
+  const recommended = proposal.preview?.recommended_session as
+    | Record<string, unknown>
+    | undefined;
   const summary =
     proposal.action === "build_plan"
       ? [
@@ -142,7 +181,22 @@ function ProposalEntry({ proposal }: { proposal: CoachProposal }) {
         ]
           .filter(Boolean)
           .join(" • ")
-      : String(proposal.preview.adjustment_label ?? proposal.preview.adjustment_status ?? "");
+      : proposal.action === "recovery_replan"
+        ? `${String(recommended?.name ?? "Снижение нагрузки")} · ${String(recommended?.tss ?? "—")} TSS`
+        : String(proposal.preview.adjustment_label ?? proposal.preview.adjustment_status ?? "");
+
+  async function handleRollback() {
+    setLoading(true);
+    setError(null);
+    try {
+      await postJSON(`/api/decisions/proposals/${proposal.id}/rollback`, {});
+      onChanged("Recovery Replan откатан: предыдущая версия плана снова активна.");
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Не удалось откатить Recovery Replan");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   return (
     <div className="py-3 text-sm">
@@ -156,6 +210,61 @@ function ProposalEntry({ proposal }: { proposal: CoachProposal }) {
       <div className="mt-1 text-xs text-ink-faint">
         {proposal.time || proposal.date}
       </div>
+      {proposal.action === "recovery_replan" && proposal.status === "approved" ? (
+        <button
+          type="button"
+          onClick={handleRollback}
+          disabled={loading}
+          className="mt-2 rounded-lg border border-surface-border px-3 py-1.5 text-xs font-medium text-ink-soft hover:bg-surface-muted disabled:opacity-40"
+        >
+          {loading ? "Откатываю…" : "Откатить Recovery Replan"}
+        </button>
+      ) : null}
+      {error ? <div className="mt-2 text-xs text-tone-danger">{error}</div> : null}
+    </div>
+  );
+}
+
+function RecoveryDecisionEntry({ decision }: { decision: RecoveryDecision }) {
+  const report = decision.report ?? {};
+  const readiness = (report.readiness as Record<string, unknown> | undefined) ?? {};
+  const conflicts = Array.isArray(report.conflicts)
+    ? report.conflicts.filter(
+        (item): item is Record<string, unknown> => !!item && typeof item === "object",
+      )
+    : [];
+  const outcomeLabel =
+    decision.outcome === "conflict"
+      ? "Конфликт"
+      : decision.outcome === "data_gap"
+        ? "Недостаточно данных"
+        : "Без вмешательства";
+  const toneClass =
+    decision.outcome === "conflict"
+      ? "text-tone-warning"
+      : decision.outcome === "data_gap"
+        ? "text-ink-soft"
+        : "text-tone-success";
+
+  return (
+    <div className="py-3 text-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className={`font-medium ${toneClass}`}>{outcomeLabel}</div>
+        <div className="text-xs text-ink-faint">{decision.time || decision.date}</div>
+      </div>
+      <p className="mt-1 text-ink-soft">{decision.reason}</p>
+      <div className="mt-1 text-xs text-ink-faint">
+        Readiness {String(readiness.score ?? "—")} · {String(readiness.status ?? "unknown")} · confidence {String(readiness.confidence ?? "—")}
+      </div>
+      {conflicts.length > 0 ? (
+        <div className="mt-2 text-xs text-ink-soft">
+          {conflicts.map((conflict, index) => (
+            <div key={`${decision.id}-${index}`}>
+              {String(conflict.severity ?? "")} · {String(conflict.kind ?? "readiness conflict")}
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -14,6 +14,7 @@ from api.deps import get_database
 from api.operational_state import build_operational_state, latest_iso_from_database
 from api.readiness_conflicts import build_readiness_conflict_report
 from api.readiness_snapshot import build_readiness_snapshot
+from api.recovery_replan_loop import run_recovery_replan_loop
 from data.database import Database
 from models.ai_coach_runtime import (
     apply_response_contract_to_final_response,
@@ -76,7 +77,19 @@ def coach_chat(
     latest_data_at = latest_iso_from_database(db)
     has_data = latest_data_at is not None
     readiness_snapshot = build_readiness_snapshot(db)
-    readiness_conflicts = build_readiness_conflict_report(db)
+    try:
+        recovery_replan = run_recovery_replan_loop(db)
+        readiness_conflicts = recovery_replan["readiness_conflicts"]
+    except Exception as exc:
+        # Audit persistence must never block a coach answer.
+        readiness_conflicts = build_readiness_conflict_report(db)
+        recovery_replan = {
+            "outcome": "error",
+            "decision": None,
+            "proposal": None,
+            "proposal_gap": str(exc),
+            "readiness_conflicts": readiness_conflicts,
+        }
 
     def stream() -> Iterator[str]:
         message_id = str(uuid.uuid4())[:8]
@@ -89,6 +102,7 @@ def coach_chat(
                 "load_metrics": load_metrics_context,
                 "readiness_snapshot": readiness_snapshot,
                 "readiness_conflicts": readiness_conflicts,
+                "recovery_replan": recovery_replan,
                 "operational_state": build_operational_state(
                     db,
                     demo=demo,
@@ -97,6 +111,18 @@ def coach_chat(
                 ),
             }
         )
+        recovery_proposal = recovery_replan.get("proposal")
+        if isinstance(recovery_proposal, dict) and recovery_proposal.get("status") == "pending":
+            yield _sse(
+                {
+                    "type": "proposal",
+                    "proposal_id": recovery_proposal.get("id"),
+                    "action": recovery_proposal.get("action"),
+                    "status": recovery_proposal.get("status"),
+                    "params": recovery_proposal.get("params") or {},
+                    "preview": recovery_proposal.get("preview") or {},
+                }
+            )
         try:
             # First pass: hidden planning/tool-selection step.
             raw = generate_ai_chat_response(

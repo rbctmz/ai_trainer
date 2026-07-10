@@ -237,6 +237,16 @@ def test_database_recovery_decision_and_proposal_source_are_idempotent(tmp_path)
     assert proposal_2["id"] == proposal_1["id"]
     assert proposal_2["preview"]["reason"] == "conflict"
 
+    claimed = db.transition_coach_proposal_status(proposal_1["id"], "pending", "applying")
+    duplicate_claim = db.transition_coach_proposal_status(
+        proposal_1["id"], "pending", "applying"
+    )
+    assert claimed["status"] == "applying"
+    assert duplicate_claim is None
+    assert db.transition_coach_proposal_status(
+        proposal_1["id"], "applying", "pending"
+    )["status"] == "pending"
+
 
 @pytest.mark.parametrize(
     ("data_gap", "expected_outcome"),

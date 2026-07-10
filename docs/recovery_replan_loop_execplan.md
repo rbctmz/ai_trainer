@@ -14,11 +14,14 @@ The behavior is visible on the web-first product surface. Running the loop durin
 - [x] (2026-07-10 13:17Z) Recorded the contributor-safe baseline: `452 passed, 1 skipped`.
 - [x] (2026-07-10 13:18Z) Created branch `codex/issue-154-recovery-replan-loop` and audited the gate, decision/proposal tables, planning service, near-term editor, checkpoint provenance, rollback behavior, API, and web Decisions page.
 - [x] (2026-07-10 13:27Z) Added behavior tests for logging, idempotency, proposal generation, approval safety, rejection, rollback, and Decisions API compatibility. The required red run stopped during collection with `ModuleNotFoundError: No module named 'api.recovery_replan_loop'` before production implementation existed.
-- [ ] Implement the recovery decision persistence contract and deterministic domain variant builder.
-- [ ] Implement the headless RecoveryReplanLoop and connect it to Coach meta.
-- [ ] Extend the existing proposal lifecycle and planning service for recovery apply/rollback.
-- [ ] Expose recovery history through the additive Decisions API/web contract.
-- [ ] Complete validation, self-review, publication, and draft PR closing #154.
+- [x] (2026-07-10 13:28Z) Implemented additive recovery decision persistence, source-keyed idempotent proposals, and the deterministic two-option recovery variant builder.
+- [x] (2026-07-10 13:29Z) Implemented the headless RecoveryReplanLoop and connected its report, decision, and pending proposal to Coach SSE meta/events.
+- [x] (2026-07-10 13:30Z) Extended the existing proposal lifecycle and shared planning service with stale-checkpoint guarded recovery apply and append-only rollback.
+- [x] (2026-07-10 13:31Z) Added recovery history, recovery proposal presentation, and rollback controls to the additive Decisions API/web contract.
+- [x] (2026-07-10 13:32Z) Passed focused/adjacent coverage (`18 passed`, then `74 passed`), Ruff, Python compilation, web lint/build, and the first full smoke run (`460 passed, 1 skipped`).
+- [x] (2026-07-10 13:34Z) Browser-verified `/decisions` on an isolated SQLite database: pending evidence/variant UI rendered, reject returned “план не изменён”, pending disappeared, and rejected history remained.
+- [x] (2026-07-10 13:36Z) Re-ran the final contour after concurrency fixes: `460 passed, 1 skipped`, compile, Ruff, diff-check, web lint, and production build all passed.
+- [ ] Publish the reviewed commits and open a draft PR closing #154.
 
 ## Surprises & Discoveries
 
@@ -33,6 +36,15 @@ The behavior is visible on the web-first product surface. Running the loop durin
 
 - Observation: the Wizard-of-Oz protocol names a transfer option, but moving a key session requires a quality forecast and calendar trade-off that this issue does not yet have.
   Evidence: `docs/woz_recovery_replan_protocol.md` lists keep, downgrade, and transfer variants. Issue D is explicitly out of scope, so v1 will expose `keep` and one deterministic recovery downgrade instead of pretending it can choose a safe transfer date.
+
+- Observation: globally raising the manual near-term editor cap from ten to fourteen rows broke an established smoke contract.
+  Evidence: the first adjacent run failed `test_build_near_term_edit_rows_limits_horizon_and_preserves_defaults` with `12 != 10`. The correction keeps the public/manual default cap at ten and passes an explicit fourteen-row backing cap only from Recovery Replan, whose seven-day-from-today window can start late in a Monday-anchored plan.
+
+- Observation: stale-checkpoint validation alone did not fully close concurrent double-confirm risk.
+  Evidence: two requests could both read `pending` before either saved a child checkpoint. Recovery actions now atomically claim `pending → applying` and `approved → rolling_back`; duplicate claims fail before planning mutation, and a failed rollback returns to `approved` because the plan stayed unchanged.
+
+- Observation: visual acceptance proved that pending-first ordering remains important after adding recovery history.
+  Evidence: the first UI draft rendered recovery history above the action card. Self-review moved pending proposals back to the top, preserving issue #78's action-first contract; the isolated browser snapshot then showed `Ожидают подтверждения` before `Recovery loop`.
 
 ## Decision Log
 
@@ -64,9 +76,21 @@ The behavior is visible on the web-first product surface. Running the loop durin
   Rationale: restoring the previous checkpoint as a new `restore_version` preserves the complete audit trail. Rollback is allowed only while the recovery-applied checkpoint remains active, so it cannot erase a newer unrelated edit.
   Date/Author: 2026-07-10 / Codex.
 
+- Decision: recovery apply and rollback must claim their lifecycle transition atomically before touching Planning.
+  Rationale: unique fingerprints prevent duplicate proposal creation, but mutation safety also needs one winner when the same button is submitted concurrently. Transient `applying` and `rolling_back` states remain internal/additive and preserve the existing public terminal statuses.
+  Date/Author: 2026-07-10 / Codex.
+
 ## Outcomes & Retrospective
 
-Work is in progress. Success means a user can inspect why the gate stayed silent or intervened, and every plan mutation remains explicit, reversible, and tied to the exact readiness evidence and plan version that produced it.
+Implementation, self-review, and local acceptance are complete. A user can inspect why the gate stayed silent, lacked data, or intervened; a conflict creates one evidence-backed pending proposal; and every plan mutation is explicit, tied to an exact base checkpoint, concurrency-claimed, and append-only reversible. The deterministic v1 deliberately does not predict session quality or choose a transfer date. The final contributor-safe contour is green at `460 passed, 1 skipped`; publication remains before the issue is ready for review.
+
+## Self-Review
+
+What can break: the variant builder depends on the active checkpoint retaining aligned `daily_plan` and `session_templates` dates. Legacy or malformed checkpoints may not expose the conflict date. In that case the loop still logs `conflict` and returns `proposal_gap`; it does not guess an index or mutate Planning. Existing proposal/build/adjust actions remain backward compatible because all new fields and actions are additive.
+
+The weakest product point is intentional: v1 offers `keep` and one recovery downgrade, not a calendar transfer. Moving the key stimulus requires Issue D's quality forecast and a real alternative-date trade-off. The loop also runs when Coach is invoked; scheduler and push delivery remain out of scope, so this is agentic decision plumbing rather than a background notification system.
+
+The local SQLite design scales safely for the current single-athlete product: decision fingerprints and proposal source keys deduplicate repeated/concurrent evaluation, and atomic lifecycle claims prevent double mutation. A future multi-user service must add athlete/account scope to both unique keys and database queries, plus a transactional database suitable for multiple API workers. The current schema must not be deployed as a shared unscoped ledger.
 
 ## Context and Orientation
 
@@ -176,6 +200,19 @@ TDD red evidence:
     ERROR collecting tests/smoke/test_recovery_replan_loop.py
     ModuleNotFoundError: No module named 'api.recovery_replan_loop'
 
+Green and acceptance evidence:
+
+    Focused first green: 18 passed
+    Adjacent recovery/readiness/planning contour: 74 passed
+    Atomic lifecycle regression contour: 44 passed
+    Final full smoke after concurrency fixes: 460 passed, 1 skipped in 11.85s
+    Ruff: passed
+    Python compileall: passed
+    Web lint: no warnings or errors
+    Web production build: compiled successfully; 11 static pages
+    Visual acceptance: /tmp/ai_trainer_issue154_decisions.png
+    Reject interaction: POST /api/decisions/proposals/1/reject -> 200; pending removed; rejected history retained
+
 ## Interfaces and Dependencies
 
 `models/recovery_replan.py` will expose a pure function equivalent to:
@@ -202,3 +239,7 @@ The returned contract contains `outcome`, `decision`, `proposal`, and the origin
 Revision note (2026-07-10 / Codex): initial self-contained plan created after repository architecture review and before behavior tests or implementation.
 
 Revision note (2026-07-10 / Codex): recorded the contract-first BDD/TDD suite and its pre-implementation collection failure.
+
+Revision note (2026-07-10 / Codex): updated after backend/web implementation, adjacent/full validation, concurrency self-review, and isolated browser acceptance of the pending/reject flow.
+
+Revision note (2026-07-10 / Codex): recorded the final post-review validation contour; only Git publication remains.
