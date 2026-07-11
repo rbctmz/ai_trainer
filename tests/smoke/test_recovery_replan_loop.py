@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
+import sqlite3
 from threading import Barrier
 
 import pytest
@@ -306,6 +307,50 @@ def test_database_serializes_concurrent_active_proposal_creation(tmp_path) -> No
 
     assert proposals[0]["id"] == proposals[1]["id"]
     assert len(db.get_coach_proposals(days=36500, status="pending")) == 1
+
+
+def test_database_migrates_legacy_proposals_with_nullable_active_key(tmp_path) -> None:
+    db_path = tmp_path / "legacy-proposals.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE coach_proposals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                params_json TEXT NOT NULL,
+                preview_json TEXT NOT NULL,
+                result_json TEXT,
+                error TEXT,
+                chat_id TEXT,
+                message_id TEXT,
+                resolved_at TEXT,
+                source TEXT,
+                source_key TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO coach_proposals
+                (date, action, status, params_json, preview_json)
+            VALUES ('2026-07-10', 'build_plan', 'pending', '{}', '{}')
+            """
+        )
+
+    db = Database(str(db_path))
+
+    legacy = db.get_coach_proposals(days=36500)
+    assert legacy[0]["active_key"] is None
+    with sqlite3.connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(coach_proposals)")}
+        index_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'idx_coach_proposals_active_key'"
+        ).fetchone()[0]
+    assert "active_key" in columns
+    assert "status IN ('pending', 'applying')" in index_sql
 
 
 @pytest.mark.parametrize(
