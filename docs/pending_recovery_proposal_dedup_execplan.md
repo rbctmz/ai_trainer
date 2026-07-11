@@ -13,8 +13,9 @@ Recovery Replan evaluates readiness whenever Coach is invoked. A second health s
 - [x] (2026-07-11 12:14Z) Created isolated worktree `/tmp/ai_trainer_issue156_pending_dedup` on `codex/issue-156-pending-dedup` from `origin/main` at `0154f6c`.
 - [x] (2026-07-11 12:18Z) Added contract-first persistence and loop tests; red run produced `2 failed, 8 passed` before production changes.
 - [x] (2026-07-11 12:24Z) Added nullable `active_key`, active-state partial uniqueness, atomic reuse lookup, stable loop keying, and a two-connection race test; focused result is `11 passed`.
-- [ ] Run focused, adjacent, and contributor-safe validation; complete self-review.
-- [ ] Finalize this living document, commit in process order, push, and open a draft PR linked with `Closes #156`.
+- [x] (2026-07-11 12:25Z) Completed focused, adjacent, contributor-safe, compilation, Ruff, diff, migration, and concurrency validation plus full self-review.
+- [x] (2026-07-11 12:25Z) Published four process-ordered commits and opened mergeable draft PR #157 with `Closes #156`; GitHub CI and issue-link automation passed on implementation head `8a74206`.
+- [x] (2026-07-11 12:26Z) Finalized this living document with implementation, validation, publication, and residual-risk evidence.
 
 ## Surprises & Discoveries
 
@@ -53,7 +54,21 @@ Recovery Replan evaluates readiness whenever Coach is invoked. A second health s
 
 ## Outcomes & Retrospective
 
-Implementation has not started. The intended outcome is one active user decision without sacrificing the complete gate evidence history.
+Issue #156 is implemented and published in mergeable draft PR #157. Two intraday gate snapshots now produce two immutable `recovery_decisions` rows linked to one active `coach_proposals` row. Persistence reuses the proposal in both `pending` and `applying`, releases the key after a terminal status, survives a real two-connection race, and migrates an older database additively. Existing exact fingerprint idempotency and approve/reject/rollback behavior remain green.
+
+The change deliberately keeps the first pending proposal immutable rather than rewriting evidence in place. The latest readiness snapshot remains visible in its own recovery decision row, while the actionable mutation stays tied to the same base checkpoint and target plan row. A later plan checkpoint creates a different active key so a stale card cannot suppress a valid proposal for the new plan version.
+
+The local contributor-safe contour finished at `464 passed, 1 skipped`, adding four behavior tests to the `460 passed, 1 skipped` baseline. The skip remains the environment-specific local-listening-socket restriction. GitHub CI passed on the published implementation head. Human review and the explicit maintainer merge decision remain outside this plan's implementation scope.
+
+## Self-Review
+
+Correctness: readiness values, severity, and evidence are absent from `active_key`, so the exact intraday drift that motivated the issue deduplicates. The as-of day, checkpoint, target date, and target row index prevent unrelated days or plan versions from colliding. Every new decision still calls `save_recovery_decision` and is linked to the reused proposal.
+
+Race safety: SQLite enforces active uniqueness rather than relying on a read-before-write check. `INSERT OR IGNORE` and lookup happen on one connection; an independent two-thread test proves that concurrent writers return one row. `applying` remains inside the partial index, closing the confirmation-window race.
+
+Migration and compatibility: old rows receive null `active_key`; null values do not collide. Existing callers omit the optional argument and retain source-key behavior. Proposal dictionaries gain one additive field. No API route, frontend contract, gate threshold, or plan mutation logic changed.
+
+Weakest point: athlete scope is implicit because the current SQLite database is single-athlete. A future shared database must add an explicit athlete/account id to the active key and queries. Also, this change does not supersede stale pending proposals after a plan edit; instead the checkpoint component permits a new valid proposal and existing stale-checkpoint guards still prevent unsafe application. Automated stale-card cleanup is a separate lifecycle concern, not part of intraday readiness deduplication.
 
 ## Context and Orientation
 
@@ -122,6 +137,12 @@ Schema migration is additive: initialization may run repeatedly, existing rows r
 
 Issue: `https://github.com/rbctmz/ai_trainer/issues/156`.
 
+Draft PR: `https://github.com/rbctmz/ai_trainer/pull/157`.
+
+Published implementation head: `8a7420622c1bf731fda8be7dbc784313646e8fa9`.
+
+GitHub CI: `https://github.com/rbctmz/ai_trainer/actions/runs/29152526120` — success.
+
 Baseline:
 
     main 0154f6c
@@ -132,6 +153,13 @@ TDD red phase:
     2 failed, 8 passed
     TypeError: Database.save_coach_proposal() got an unexpected keyword argument 'active_key'
     assert second["decision"]["proposal_id"] == first["proposal"]["id"]
+
+Final local evidence:
+
+    focused: 12 passed
+    adjacent: 45 passed
+    contributor-safe: 464 passed, 1 skipped
+    compileall, Ruff, git diff --check: pass
 
 ## Interfaces and Dependencies
 
@@ -155,3 +183,5 @@ In `api/recovery_replan_loop.py`, add a private helper equivalent to:
 It must be deterministic and must not contain readiness evidence. Public API shapes remain additive and backward compatible.
 
 Revision note (2026-07-11): Initial ExecPlan created after inspecting Issue F persistence and lifecycle. It separates immutable evaluation identity from active user-decision identity so deduplication does not erase audit evidence.
+
+Revision note (2026-07-11): Finalized after TDD implementation, two-connection race validation, legacy-schema migration coverage, full local smoke, draft PR publication, and green GitHub CI. The retrospective records the deliberate checkpoint scoping and future multi-athlete boundary.
