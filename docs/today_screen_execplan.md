@@ -118,12 +118,15 @@ Demo-режим наследуется бесплатно: `api/deps.py::get_dat
 ## Прогресс
 
 - [x] ExecPlan написан
-- [ ] Milestone 1: tests/smoke/test_api_today.py красный → зелёный
-- [ ] Milestone 2: api/routers/today.py + регистрация, смоук зелёный
-- [ ] Milestone 3: web /today + nav + redirect, lint/build зелёные, ручная проверка
-- [ ] Milestone 4: полный смоук + ruff, ExecPlan финализирован, draft PR открыт
+- [x] Milestone 1: tests/smoke/test_api_today.py красный (7 failed) → зелёный
+- [x] Milestone 2: api/routers/today.py + регистрация; смоук 472 passed, ruff чистый
+- [x] Milestone 3: web /today + nav «Сегодня» + redirect /; next lint/build зелёные; живая проверка на копии реальной БД (uvicorn :8001 + next :3001): silence-состояние с readiness 74.7, сессией дня «Длительная • вело» (бейдж «ключевая»), evidence-раскрытием (HRV/RHR/TSB с базлайнами, confidence) и строкой «Вчера: 2 активности · 67 мин · 62 TSS»; console без ошибок
+- [x] Milestone 4: полный смоук + ruff, ExecPlan финализирован, draft PR открыт
 
 ## Журнал решений
+
+- 2026-07-11 (реализация): проверка «маршрут заведён в app» написана через `app.url_path_for("today_view")` — FastAPI этой версии включает роутеры лениво (`_IncludedRouter` в `app.routes` без атрибута `.path`), перебор путей не работает.
+- 2026-07-11 (реализация): в evidence-раскрытии строка TSB из snapshot.tsb рендерится только если TSB уже не пришёл driver'ом — иначе дублировалась (замечено на живой проверке).
 
 - 2026-07-11: GET с write-on-read (вызов run_recovery_replan_loop) принят осознанно — идемпотентность гарантирована #154/#156, самодостаточность утреннего экрана важнее REST-пуризма; прецедент — тот же вызов на каждом сообщении коуча.
 - 2026-07-11: конфликт с уже закрытым сегодня предложением показывается как silence с reason из журнала — решение пользователя принято, возвращать его в тревожное состояние нельзя.
