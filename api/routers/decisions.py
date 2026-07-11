@@ -38,10 +38,25 @@ def list_decisions(
             continue
         item = dict(row)
         item["time"] = _format_time(item.get("date"))
+        item["count"] = 1
+        item["first_time"] = item["time"]
         if day not in by_date:
             by_date[day] = []
             grouped.append({"date": day, "decisions": by_date[day]})
-        by_date[day].append(item)
+        day_items = by_date[day]
+        previous = day_items[-1] if day_items else None
+        # Rows arrive newest-first, so a repeated recommendation extends the
+        # previous group backwards in time: keep the newest row as the face of
+        # the group and push first_time to the earliest occurrence.
+        if (
+            previous is not None
+            and previous.get("decision_type") == item.get("decision_type")
+            and previous.get("reason") == item.get("reason")
+        ):
+            previous["count"] += 1
+            previous["first_time"] = item["time"]
+        else:
+            day_items.append(item)
 
     for row in proposal_rows:
         day = str(row.get("date") or "")[:10]
