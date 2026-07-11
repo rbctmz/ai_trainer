@@ -160,6 +160,7 @@ class Database:
     _COACH_PROPOSAL_COLUMN_TYPES = {
         'source': 'TEXT',
         'source_key': 'TEXT',
+        'active_key': 'TEXT',
     }
 
     def __init__(self, db_path=None):
@@ -389,6 +390,7 @@ class Database:
                 resolved_at TEXT,
                 source TEXT,
                 source_key TEXT,
+                active_key TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -432,6 +434,11 @@ class Database:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_proposals_source_key
             ON coach_proposals(source_key)
             WHERE source_key IS NOT NULL
+        ''')
+        conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_proposals_active_key
+            ON coach_proposals(active_key)
+            WHERE active_key IS NOT NULL AND status IN ('pending', 'applying')
         ''')
         conn.commit()
         conn.close()
@@ -904,6 +911,7 @@ class Database:
         date=None,
         source=None,
         source_key=None,
+        active_key=None,
     ):
         """Сохраняет pending-предложение коуча, требующее approve/reject."""
         allowed_actions = {"build_plan", "adjust_plan", "recovery_replan"}
@@ -933,34 +941,52 @@ class Database:
             self.clean_value(message_id),
             self.clean_value(source),
             self.clean_value(source_key),
+            self.clean_value(active_key),
         )
-        if source_key:
+        if source_key or active_key:
             cursor.execute(
                 '''
                 INSERT OR IGNORE INTO coach_proposals
                     (date, action, status, params_json, preview_json, chat_id, message_id,
-                     source, source_key)
-                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+                     source, source_key, active_key)
+                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 values,
             )
-            cursor.execute(
-                '''
-                SELECT id
-                FROM coach_proposals
-                WHERE source_key = ?
-                LIMIT 1
-                ''',
-                (self.clean_value(source_key),),
-            )
-            proposal_id = cursor.fetchone()[0]
+            row = None
+            if source_key:
+                cursor.execute(
+                    '''
+                    SELECT id
+                    FROM coach_proposals
+                    WHERE source_key = ?
+                    LIMIT 1
+                    ''',
+                    (self.clean_value(source_key),),
+                )
+                row = cursor.fetchone()
+            if row is None and active_key:
+                cursor.execute(
+                    '''
+                    SELECT id
+                    FROM coach_proposals
+                    WHERE active_key = ? AND status IN ('pending', 'applying')
+                    LIMIT 1
+                    ''',
+                    (self.clean_value(active_key),),
+                )
+                row = cursor.fetchone()
+            if row is None:
+                conn.close()
+                raise RuntimeError("proposal insert was ignored without an idempotency match")
+            proposal_id = row[0]
         else:
             cursor.execute(
                 '''
                 INSERT INTO coach_proposals
                     (date, action, status, params_json, preview_json, chat_id, message_id,
-                     source, source_key)
-                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?)
+                     source, source_key, active_key)
+                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 values,
             )
@@ -968,7 +994,8 @@ class Database:
         cursor.execute(
             '''
             SELECT id, date, action, status, params_json, preview_json, result_json,
-                   error, chat_id, message_id, resolved_at, created_at, source, source_key
+                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                   active_key
             FROM coach_proposals
             WHERE id = ?
             ''',
@@ -988,7 +1015,8 @@ class Database:
         cursor.execute(
             '''
             SELECT id, date, action, status, params_json, preview_json, result_json,
-                   error, chat_id, message_id, resolved_at, created_at, source, source_key
+                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                   active_key
             FROM coach_proposals
             WHERE id = ?
             LIMIT 1
@@ -1008,7 +1036,8 @@ class Database:
             cursor.execute(
                 '''
                 SELECT id, date, action, status, params_json, preview_json, result_json,
-                       error, chat_id, message_id, resolved_at, created_at, source, source_key
+                       error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                       active_key
                 FROM coach_proposals
                 WHERE substr(date, 1, 10) >= ? AND status = ?
                 ORDER BY date DESC, id DESC
@@ -1020,7 +1049,8 @@ class Database:
             cursor.execute(
                 '''
                 SELECT id, date, action, status, params_json, preview_json, result_json,
-                       error, chat_id, message_id, resolved_at, created_at, source, source_key
+                       error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                       active_key
                 FROM coach_proposals
                 WHERE substr(date, 1, 10) >= ?
                 ORDER BY date DESC, id DESC
@@ -1066,7 +1096,8 @@ class Database:
         cursor.execute(
             '''
             SELECT id, date, action, status, params_json, preview_json, result_json,
-                   error, chat_id, message_id, resolved_at, created_at, source, source_key
+                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                   active_key
             FROM coach_proposals
             WHERE id = ?
             ''',
@@ -1103,7 +1134,8 @@ class Database:
         cursor.execute(
             '''
             SELECT id, date, action, status, params_json, preview_json, result_json,
-                   error, chat_id, message_id, resolved_at, created_at, source, source_key
+                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                   active_key
             FROM coach_proposals
             WHERE id = ?
             ''',
@@ -1142,6 +1174,7 @@ class Database:
             'created_at': row[11],
             'source': row[12] if len(row) > 12 else None,
             'source_key': row[13] if len(row) > 13 else None,
+            'active_key': row[14] if len(row) > 14 else None,
         }
 
     def save_coach_constraint(

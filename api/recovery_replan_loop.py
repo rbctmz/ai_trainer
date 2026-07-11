@@ -34,6 +34,33 @@ def _fingerprint(report: dict[str, Any], checkpoint_id: Any) -> str:
     return sha256(canonical.encode("utf-8")).hexdigest()
 
 
+def _active_proposal_key(
+    report: dict[str, Any],
+    variant: dict[str, Any],
+    checkpoint_id: int,
+) -> str:
+    conflict = dict(variant.get("selected_conflict") or {})
+    target_date = str(conflict.get("date") or "")[:10]
+    target_row = next(
+        (
+            row
+            for row in (variant.get("draft_rows") or [])
+            if str(row.get("date") or "")[:10] == target_date
+        ),
+        None,
+    )
+    if target_row is None:
+        raise ValueError("recovery proposal target row is missing")
+    payload = {
+        "as_of": str(report.get("as_of") or "")[:10],
+        "checkpoint_id": int(checkpoint_id),
+        "target_date": target_date,
+        "target_index": int(target_row.get("index", -1)),
+    }
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+    return f"recovery_replan:{sha256(canonical.encode('utf-8')).hexdigest()}"
+
+
 def _proposal_payload(
     variant: dict[str, Any],
     *,
@@ -111,6 +138,7 @@ def run_recovery_replan_loop(
                 preview=preview,
                 source="recovery_replan",
                 source_key=fingerprint,
+                active_key=_active_proposal_key(report, variant, int(checkpoint_id)),
                 date=f"{str(report.get('as_of') or today.isoformat())[:10]}T00:00:00",
             )
             decision = db.link_recovery_decision_proposal(decision["id"], proposal["id"])

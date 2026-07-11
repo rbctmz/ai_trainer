@@ -1,7 +1,10 @@
 """Behavior contract for Issue F: auditable RecoveryReplanLoop."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
+import sqlite3
+from threading import Barrier
 
 import pytest
 from fastapi import HTTPException
@@ -248,6 +251,108 @@ def test_database_recovery_decision_and_proposal_source_are_idempotent(tmp_path)
     )["status"] == "pending"
 
 
+def test_database_reuses_active_proposal_key_until_terminal_status(tmp_path) -> None:
+    db = Database(str(tmp_path / "active-proposal-key.db"))
+    shared = {
+        "action": "recovery_replan",
+        "params": {"base_checkpoint_id": 41, "draft_rows": []},
+        "preview": {"reason": "first snapshot"},
+        "source": "recovery_replan",
+        "active_key": "athlete-day:checkpoint:target-session",
+    }
+
+    pending = db.save_coach_proposal(source_key="fingerprint-1", **shared)
+    reused_pending = db.save_coach_proposal(
+        source_key="fingerprint-2",
+        **{**shared, "preview": {"reason": "second snapshot"}},
+    )
+
+    assert reused_pending["id"] == pending["id"]
+    assert reused_pending["source_key"] == "fingerprint-1"
+    assert reused_pending["active_key"] == shared["active_key"]
+    assert reused_pending["preview"]["reason"] == "first snapshot"
+
+    applying = db.transition_coach_proposal_status(pending["id"], "pending", "applying")
+    reused_applying = db.save_coach_proposal(source_key="fingerprint-3", **shared)
+
+    assert applying["status"] == "applying"
+    assert reused_applying["id"] == pending["id"]
+    assert reused_applying["status"] == "applying"
+
+    db.update_coach_proposal_status(pending["id"], "approved")
+    replacement = db.save_coach_proposal(source_key="fingerprint-4", **shared)
+
+    assert replacement["id"] != pending["id"]
+    assert replacement["status"] == "pending"
+    assert len(db.get_coach_proposals(days=36500)) == 2
+
+
+def test_database_serializes_concurrent_active_proposal_creation(tmp_path) -> None:
+    db = Database(str(tmp_path / "concurrent-active-key.db"))
+    barrier = Barrier(2)
+
+    def save_proposal(sequence: int) -> dict:
+        barrier.wait()
+        return db.save_coach_proposal(
+            action="recovery_replan",
+            params={"base_checkpoint_id": 41, "draft_rows": []},
+            preview={"sequence": sequence},
+            source="recovery_replan",
+            source_key=f"concurrent-fingerprint-{sequence}",
+            active_key="concurrent-athlete-day:checkpoint:target-session",
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        proposals = list(executor.map(save_proposal, (1, 2)))
+
+    assert proposals[0]["id"] == proposals[1]["id"]
+    assert len(db.get_coach_proposals(days=36500, status="pending")) == 1
+
+
+def test_database_migrates_legacy_proposals_with_nullable_active_key(tmp_path) -> None:
+    db_path = tmp_path / "legacy-proposals.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE coach_proposals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                date TEXT NOT NULL,
+                action TEXT NOT NULL,
+                status TEXT NOT NULL,
+                params_json TEXT NOT NULL,
+                preview_json TEXT NOT NULL,
+                result_json TEXT,
+                error TEXT,
+                chat_id TEXT,
+                message_id TEXT,
+                resolved_at TEXT,
+                source TEXT,
+                source_key TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO coach_proposals
+                (date, action, status, params_json, preview_json)
+            VALUES ('2026-07-10', 'build_plan', 'pending', '{}', '{}')
+            """
+        )
+
+    db = Database(str(db_path))
+
+    legacy = db.get_coach_proposals(days=36500)
+    assert legacy[0]["active_key"] is None
+    with sqlite3.connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(coach_proposals)")}
+        index_sql = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE name = 'idx_coach_proposals_active_key'"
+        ).fetchone()[0]
+    assert "active_key" in columns
+    assert "status IN ('pending', 'applying')" in index_sql
+
+
 @pytest.mark.parametrize(
     ("data_gap", "expected_outcome"),
     [(False, "silence"), (True, "data_gap")],
@@ -305,6 +410,42 @@ def test_loop_creates_one_recovery_proposal_and_exposes_it_in_decisions_api(
     assert recovery["outcome"] == "conflict"
     assert recovery["proposal_id"] == first["proposal"]["id"]
     assert recovery["report"]["conflicts"][0]["severity"] == "high"
+
+
+def test_loop_keeps_intraday_decisions_but_reuses_target_session_proposal(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 10)
+    first_report = _conflict_report(today, days_until=4)
+    second_report = _conflict_report(today, days_until=4)
+    second_report["readiness"] = {
+        **second_report["readiness"],
+        "score": 36.0,
+    }
+    second_report["conflicts"][0]["evidence"][0] = (
+        "Готовность 36/100 (low): HRV -17% к базе"
+    )
+    reports = iter((first_report, second_report))
+    monkeypatch.setattr(
+        loop_module,
+        "build_readiness_conflict_report",
+        lambda _db: next(reports),
+    )
+    db = Database(str(tmp_path / "intraday-dedup.db"))
+    _save_plan(db, _goal_plan(today, conflict_days_until=4))
+
+    first = run_recovery_replan_loop(db, today=today)
+    second = run_recovery_replan_loop(db, today=today)
+
+    assert second["decision"]["id"] != first["decision"]["id"]
+    assert second["decision"]["proposal_id"] == first["proposal"]["id"]
+    assert second["proposal"]["id"] == first["proposal"]["id"]
+    assert second["proposal"]["active_key"] == first["proposal"]["active_key"]
+    assert len(db.get_recovery_decisions(days=36500)) == 2
+    assert len(db.get_coach_proposals(days=36500)) == 1
 
 
 def test_recovery_proposal_reject_approve_and_append_only_rollback(
