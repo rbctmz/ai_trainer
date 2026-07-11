@@ -425,3 +425,5 @@ def test_coach_stream_meta_exposes_readiness_conflicts(tmp_path, monkeypatch) ->
     assert events[0]["type"] == "meta"
     report = events[0]["readiness_conflicts"]
     assert "silence" in report and "conflicts" in report and "reason" in report
+    assert events[0]["recovery_replan"]["outcome"] in {"silence", "data_gap", "conflict"}
+    assert events[0]["recovery_replan"]["decision"]["id"]

@@ -22,6 +22,7 @@ CHECKPOINT_SOURCE_LABELS = {
     "execution_feedback": "Execution replan",
     "execution_adjustment": "Execution replan",
     "coach_constraint": "Ограничение Коуча",
+    "recovery_replan": "Recovery Replan",
     "restore_version": "Восстановленная версия",
     "legacy_checkpoint": "Сохранённая версия",
 }
@@ -179,6 +180,12 @@ def summarize_checkpoint_provenance(checkpoint: Dict[str, Any] | None) -> Dict[s
         detail = "Новый расчёт плана"
     elif source == "coach_constraint":
         detail = "Применено durable-ограничение из Коуча"
+    elif source == "recovery_replan":
+        detail = (
+            near_term_edit.get("compact_label")
+            if isinstance(near_term_edit, dict)
+            else "Ключевая сессия снижена по readiness-конфликту"
+        )
     else:
         detail = "Checkpoint без явной provenance-метки"
 

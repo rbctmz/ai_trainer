@@ -25,6 +25,8 @@ from models.planning_checkpoints import (
     summarize_planning_checkpoint,
     with_checkpoint_provenance,
 )
+from models.planning_near_term import apply_near_term_day_edits
+from models.planning_summary import summarize_near_term_edit
 from models.planning_execution import (
     build_execution_plan_adjustment,
     build_execution_reconciliation_rows,
@@ -53,6 +55,10 @@ from models.training_planner import (
 )
 
 PLANNING_DEMAND_SETTING_KEY = "planning_demand_level"
+
+
+class StalePlanningCheckpointError(ValueError):
+    """A stored preview no longer matches the active planning checkpoint."""
 
 # English (API) → internal Russian labels used by the planner.
 GOAL_TYPE_MAP = {
@@ -604,6 +610,132 @@ def apply_adjustment(
         "constraint_application": constraint_application,
         "weeks": weeks_payload,
         "forecast": forecast,
+    }
+
+
+def apply_recovery_replan(
+    db: Database,
+    proposal_params: Dict[str, Any],
+    *,
+    persist: bool = True,
+) -> Dict[str, Any]:
+    """Apply one confirmed recovery draft against its exact base checkpoint."""
+    if not isinstance(proposal_params, dict):
+        raise ValueError("recovery proposal params are invalid")
+    try:
+        base_checkpoint_id = int(proposal_params.get("base_checkpoint_id"))
+    except (TypeError, ValueError):
+        raise ValueError("recovery proposal base checkpoint is invalid")
+
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") else None
+    if latest_id != base_checkpoint_id:
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id} no longer matches proposal base #{base_checkpoint_id}"
+        )
+
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    if not goal_plan or not goal_plan.get("daily_plan"):
+        raise ValueError("active plan cannot be restored")
+    draft_rows = proposal_params.get("draft_rows") or []
+    if not isinstance(draft_rows, list) or not draft_rows:
+        raise ValueError("recovery proposal draft rows are invalid")
+
+    horizon_days = int(proposal_params.get("horizon_days") or 7)
+    strategy = str(proposal_params.get("post_edit_strategy") or "protect_recovery")
+    updated = apply_near_term_day_edits(
+        goal_plan,
+        draft_rows,
+        horizon_days=horizon_days,
+        post_edit_strategy=strategy,
+        max_horizon_days=14,
+    )
+    constraint_summary = dict(updated.get("constraint_summary") or {})
+    near_term_edit = dict(constraint_summary.get("near_term_edit") or {})
+    selected_conflict = dict(proposal_params.get("selected_conflict") or {})
+    near_term_edit.update(
+        {
+            "origin_kind": "recovery_replan",
+            "origin_checkpoint_id": base_checkpoint_id,
+            "origin_label": "Recovery Replan по salience-gate",
+            "origin_description": str(selected_conflict.get("kind") or "readiness conflict"),
+        }
+    )
+    constraint_summary["near_term_edit"] = near_term_edit
+    updated["constraint_summary"] = constraint_summary
+    updated["near_term_edit_rollback_target_checkpoint_id"] = base_checkpoint_id
+    updated = with_checkpoint_provenance(
+        updated,
+        source="recovery_replan",
+        parent_checkpoint_id=base_checkpoint_id,
+    )
+
+    saved = None
+    plan_id = None
+    if persist:
+        saved = db.save_planning_checkpoint(build_planning_checkpoint(updated))
+        plan_id = str((saved or {}).get("id") or "")
+
+    weekly_tss_plan = list(updated.get("weekly_tss_plan") or [])
+    summary = summarize_near_term_edit(updated.get("constraint_summary") or {}) or {}
+    return {
+        "plan_id": plan_id,
+        "applied_checkpoint_id": int(plan_id) if plan_id else None,
+        "rollback_checkpoint_id": base_checkpoint_id,
+        "checkpoint_source": "recovery_replan",
+        "near_term_edit": summary,
+        "totals": {
+            "peak_tss": int(max(weekly_tss_plan) if weekly_tss_plan else 0),
+            "total_tss": int(sum(int(value or 0) for value in weekly_tss_plan)),
+        },
+    }
+
+
+def rollback_recovery_replan(
+    db: Database,
+    proposal_result: Dict[str, Any],
+    *,
+    persist: bool = True,
+) -> Dict[str, Any]:
+    """Restore a recovery proposal's base as a new append-only checkpoint."""
+    if not isinstance(proposal_result, dict):
+        raise ValueError("recovery proposal result is invalid")
+    try:
+        applied_checkpoint_id = int(
+            proposal_result.get("applied_checkpoint_id") or proposal_result.get("plan_id")
+        )
+        rollback_checkpoint_id = int(proposal_result.get("rollback_checkpoint_id"))
+    except (TypeError, ValueError):
+        raise ValueError("recovery rollback checkpoint ids are invalid")
+
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") else None
+    if latest_id != applied_checkpoint_id:
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id} no longer matches recovery checkpoint #{applied_checkpoint_id}"
+        )
+
+    rollback_checkpoint = db.get_planning_checkpoint(rollback_checkpoint_id)
+    restored = restore_goal_plan_from_checkpoint(rollback_checkpoint)
+    if not restored or not restored.get("daily_plan"):
+        raise ValueError("recovery rollback checkpoint cannot be restored")
+    restored = with_checkpoint_provenance(
+        restored,
+        source="restore_version",
+        parent_checkpoint_id=applied_checkpoint_id,
+        restored_from_checkpoint_id=rollback_checkpoint_id,
+    )
+
+    saved = None
+    plan_id = None
+    if persist:
+        saved = db.save_planning_checkpoint(build_planning_checkpoint(restored))
+        plan_id = str((saved or {}).get("id") or "")
+    return {
+        "plan_id": plan_id,
+        "checkpoint_source": "restore_version",
+        "replaced_checkpoint_id": applied_checkpoint_id,
+        "restored_from_checkpoint_id": rollback_checkpoint_id,
     }
 
 

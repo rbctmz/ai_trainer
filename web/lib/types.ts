@@ -161,13 +161,13 @@ export interface ChatMessage {
   timestamp?: string | null;
 }
 
-export type CoachProposalAction = "build_plan" | "adjust_plan";
+export type CoachProposalAction = "build_plan" | "adjust_plan" | "recovery_replan";
 
 export interface CoachProposalEvent {
   type: "proposal";
   proposal_id: number;
   action: CoachProposalAction;
-  status: "pending" | "approved" | "rejected" | "failed" | string;
+  status: "pending" | "approved" | "rejected" | "failed" | "rolled_back" | string;
   params: Record<string, unknown>;
   preview: Record<string, unknown>;
 }
@@ -175,7 +175,13 @@ export interface CoachProposalEvent {
 // Event protocol (after the agentic finalize refactor): meta → tool_call(s) →
 // streamed token(s) of the final synthesized answer → done. No `replace`.
 export type CoachEvent =
-  | { type: "meta"; chat_id: string; readiness_snapshot?: ReadinessSnapshot }
+  | {
+      type: "meta";
+      chat_id: string;
+      readiness_snapshot?: ReadinessSnapshot;
+      readiness_conflicts?: Record<string, unknown>;
+      recovery_replan?: Record<string, unknown>;
+    }
   | { type: "tool_call"; name: string; tool_name?: string; status: string }
   | CoachProposalEvent
   | { type: "token"; content: string }
@@ -202,7 +208,7 @@ export interface CoachProposal {
   date: string;
   time?: string;
   action: CoachProposalAction;
-  status: "pending" | "approved" | "rejected" | "failed" | string;
+  status: "pending" | "approved" | "rejected" | "failed" | "rolled_back" | string;
   params: Record<string, unknown>;
   preview: Record<string, unknown>;
   result?: Record<string, unknown>;
@@ -211,6 +217,26 @@ export interface CoachProposal {
   message_id?: string | null;
   resolved_at?: string | null;
   created_at?: string | null;
+  source?: string | null;
+  source_key?: string | null;
+}
+
+export interface RecoveryDecision {
+  id: number;
+  fingerprint: string;
+  date: string;
+  time?: string;
+  outcome: "silence" | "data_gap" | "conflict" | string;
+  reason: string;
+  report: Record<string, unknown>;
+  plan_checkpoint_id?: number | null;
+  proposal_id?: number | null;
+  created_at?: string | null;
+}
+
+export interface RecoveryDecisionDay {
+  date: string;
+  recovery_decisions: RecoveryDecision[];
 }
 
 export interface CoachDecisionDay {
@@ -231,6 +257,8 @@ export interface CoachDecisionsResponse {
   proposal_days?: CoachProposalDay[];
   pending_proposal_count?: number;
   pending_proposal_days?: CoachProposalDay[];
+  recovery_count?: number;
+  recovery_days?: RecoveryDecisionDay[];
   operational_state?: Record<string, unknown>;
 }
 

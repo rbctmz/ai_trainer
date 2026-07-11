@@ -39,7 +39,14 @@ interface ProposalCardProps {
 
 interface ProposalApprovalResponse {
   proposal: { id: number; status: string };
-  result: BuiltPlan | AdjustResult;
+  result: BuiltPlan | AdjustResult | RecoveryReplanResult;
+}
+
+interface RecoveryReplanResult {
+  plan_id: string;
+  rollback_checkpoint_id: number;
+  near_term_edit?: { compact_label?: string };
+  totals: { peak_tss: number; total_tss: number };
 }
 
 interface ProposalRejectResponse {
@@ -105,6 +112,14 @@ function adjustConfirmedMessage(result: AdjustResult): string {
     "✅ Корректировка плана применена.",
     result.adjustment.label,
     `пик ${result.totals.peak_tss} TSS`,
+  ].join(" ");
+}
+
+function recoveryConfirmedMessage(result: RecoveryReplanResult): string {
+  return [
+    "✅ Recovery Replan применён.",
+    result.near_term_edit?.compact_label ?? "Ближняя нагрузка снижена.",
+    `Откат к checkpoint #${result.rollback_checkpoint_id} доступен в истории решений.`,
   ].join(" ");
 }
 
@@ -192,6 +207,11 @@ export function ProposalCard({
     preview.previous_peak_tss != null ? asNumber(preview.previous_peak_tss) : null;
   const previousTotalTss =
     preview.previous_total_tss != null ? asNumber(preview.previous_total_tss) : null;
+  const currentSession =
+    (preview.current_session as Record<string, unknown> | undefined) ?? {};
+  const recommendedSession =
+    (preview.recommended_session as Record<string, unknown> | undefined) ?? {};
+  const recoveryEvidence = asStringArray(preview.evidence) ?? [];
 
   async function handleConfirm() {
     setLoading(true);
@@ -204,6 +224,15 @@ export function ProposalCard({
           {},
         );
         onConfirmed(buildConfirmedMessage(response.result as BuiltPlan));
+        return;
+      }
+
+      if (action === "recovery_replan") {
+        const response = await postJSON<ProposalApprovalResponse>(
+          `/api/decisions/proposals/${proposalId}/approve`,
+          {},
+        );
+        onConfirmed(recoveryConfirmedMessage(response.result as RecoveryReplanResult));
         return;
       }
 
@@ -241,7 +270,11 @@ export function ProposalCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-ink">
-            {action === "build_plan" ? "Предложение нового плана" : "Предложение корректировки"}
+            {action === "build_plan"
+              ? "Предложение нового плана"
+              : action === "recovery_replan"
+                ? "Recovery Replan"
+                : "Предложение корректировки"}
           </div>
           <p className="mt-1 text-xs text-ink-soft">
             Изменение попадёт в активный план только после подтверждения.
@@ -282,6 +315,42 @@ export function ProposalCard({
           {preview.forecast_message ? (
             <p className="mt-3 text-sm text-ink-soft">{asString(preview.forecast_message)}</p>
           ) : null}
+        </>
+      ) : action === "recovery_replan" ? (
+        <>
+          <p className="mt-3 text-sm text-ink-soft">{asString(preview.reason)}</p>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div className="rounded-lg bg-surface/70 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-ink-soft">Как есть</div>
+              <div className="mt-1 text-sm font-medium text-ink">
+                {asString(currentSession.name)} · {asNumber(currentSession.tss)} TSS
+              </div>
+              <div className="mt-0.5 text-xs text-ink-soft">
+                роль {asString(currentSession.role)} · риск {asString(preview.severity)}
+              </div>
+            </div>
+            <div className="rounded-lg border border-tone-success/30 bg-tone-success/10 px-3 py-2">
+              <div className="text-[11px] uppercase tracking-wide text-tone-success">
+                Рекомендация
+              </div>
+              <div className="mt-1 text-sm font-medium text-ink">
+                {asString(recommendedSession.name)} · {asNumber(recommendedSession.tss)} TSS
+              </div>
+              <div className="mt-0.5 text-xs text-ink-soft">
+                роль {asString(recommendedSession.role)} · Δ {asNumber(recommendedSession.delta_tss)} TSS
+              </div>
+            </div>
+          </div>
+          {recoveryEvidence.length > 0 ? (
+            <ul className="mt-3 space-y-1 text-xs text-ink-soft">
+              {recoveryEvidence.map((item) => (
+                <li key={item}>• {item}</li>
+              ))}
+            </ul>
+          ) : null}
+          <p className="mt-3 text-xs text-ink-faint">
+            Снятый объём не догоняется автоматически. Исходный checkpoint сохраняется для отката.
+          </p>
         </>
       ) : (
         <>

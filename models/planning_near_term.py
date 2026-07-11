@@ -59,11 +59,16 @@ def _normalize_metric_or_none(value: Any) -> float | None:
         return None
 
 
-def _normalize_horizon_days(horizon_days: int | None, daily_count: int) -> int:
+def _normalize_horizon_days(
+    horizon_days: int | None,
+    daily_count: int,
+    max_horizon_days: int = EDITABLE_NEAR_TERM_HORIZON_MAX,
+) -> int:
     if daily_count <= 0:
         return 0
     raw = int(horizon_days or EDITABLE_NEAR_TERM_HORIZON_MIN)
-    raw = max(EDITABLE_NEAR_TERM_HORIZON_MIN, min(EDITABLE_NEAR_TERM_HORIZON_MAX, raw))
+    resolved_max = max(EDITABLE_NEAR_TERM_HORIZON_MIN, int(max_horizon_days))
+    raw = max(EDITABLE_NEAR_TERM_HORIZON_MIN, min(resolved_max, raw))
     return min(raw, daily_count)
 
 
@@ -425,11 +430,16 @@ def _apply_week_total_delta(
 def build_near_term_edit_rows(
     goal_plan: Mapping[str, Any],
     horizon_days: int = EDITABLE_NEAR_TERM_HORIZON_MIN,
+    max_horizon_days: int = EDITABLE_NEAR_TERM_HORIZON_MAX,
 ) -> List[Dict[str, Any]]:
     """Build UI-friendly rows for editing the next 7-10 days."""
     daily_plan = _clone_daily_plan(goal_plan)
     session_templates = _clone_session_templates(goal_plan, daily_plan)
-    resolved_horizon = _normalize_horizon_days(horizon_days, len(daily_plan))
+    resolved_horizon = _normalize_horizon_days(
+        horizon_days,
+        len(daily_plan),
+        max_horizon_days=max_horizon_days,
+    )
     rows: List[Dict[str, Any]] = []
 
     for idx in range(resolved_horizon):
@@ -915,6 +925,7 @@ def apply_near_term_day_edits(
     edited_rows: Sequence[Mapping[str, Any]],
     horizon_days: int = EDITABLE_NEAR_TERM_HORIZON_MIN,
     post_edit_strategy: str = "keep",
+    max_horizon_days: int = EDITABLE_NEAR_TERM_HORIZON_MAX,
 ) -> Dict[str, Any]:
     """Apply in-place daily edits to the next 7-10 days of an existing goal plan."""
     updated_goal_plan = dict(goal_plan)
@@ -922,7 +933,11 @@ def apply_near_term_day_edits(
     original_daily_plan = _clone_daily_plan(goal_plan)
     session_templates = _clone_session_templates(goal_plan, daily_plan)
     weekly_summary = [dict(row or {}) for row in list(goal_plan.get("weekly_summary", []) or [])]
-    resolved_horizon = _normalize_horizon_days(horizon_days, len(daily_plan))
+    resolved_horizon = _normalize_horizon_days(
+        horizon_days,
+        len(daily_plan),
+        max_horizon_days=max_horizon_days,
+    )
     goal_type = str(goal_plan.get("goal_type") or "")
     distance = str(goal_plan.get("distance") or "")
     normalized_post_edit_strategy = _normalize_post_edit_strategy(post_edit_strategy)
