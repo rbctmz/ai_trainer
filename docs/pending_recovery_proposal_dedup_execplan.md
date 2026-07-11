@@ -11,7 +11,7 @@ Recovery Replan evaluates readiness whenever Coach is invoked. A second health s
 - [x] (2026-07-11 12:14Z) Inspected Recovery Replan orchestration, SQLite proposal lifecycle, existing idempotency tests, and project workflow.
 - [x] (2026-07-11 12:14Z) Created structured GitHub Issue #156 with Spec/BDD, acceptance criteria, baseline, and scope boundaries.
 - [x] (2026-07-11 12:14Z) Created isolated worktree `/tmp/ai_trainer_issue156_pending_dedup` on `codex/issue-156-pending-dedup` from `origin/main` at `0154f6c`.
-- [ ] Add contract-first tests and record their failure before implementation.
+- [x] (2026-07-11 12:18Z) Added contract-first persistence and loop tests; red run produced `2 failed, 8 passed` before production changes.
 - [ ] Implement additive persistence and loop identity changes.
 - [ ] Run focused, adjacent, and contributor-safe validation; complete self-review.
 - [ ] Finalize this living document, commit in process order, push, and open a draft PR linked with `Closes #156`.
@@ -26,6 +26,9 @@ Recovery Replan evaluates readiness whenever Coach is invoked. A second health s
 
 - Observation: the current SQLite database is single-athlete storage.
   Evidence: neither `recovery_decisions` nor `coach_proposals` has an athlete/account column. This change can encode the local athlete scope implicitly, but a future shared multi-user database must add explicit athlete scope before reusing the uniqueness contract.
+
+- Observation: the intended failures isolate both missing layers of the contract.
+  Evidence: the red focused run failed because `save_coach_proposal` rejected `active_key`, while the loop test stored two decision rows correctly but linked them to proposal ids 1 and 2. The pre-change transcript was `2 failed, 8 passed`.
 
 ## Decision Log
 
@@ -120,6 +123,12 @@ Baseline:
 
     main 0154f6c
     460 passed, 1 skipped
+
+TDD red phase:
+
+    2 failed, 8 passed
+    TypeError: Database.save_coach_proposal() got an unexpected keyword argument 'active_key'
+    assert second["decision"]["proposal_id"] == first["proposal"]["id"]
 
 ## Interfaces and Dependencies
 
