@@ -1,7 +1,9 @@
 """Behavior contract for Issue F: auditable RecoveryReplanLoop."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
+from threading import Barrier
 
 import pytest
 from fastapi import HTTPException
@@ -282,6 +284,28 @@ def test_database_reuses_active_proposal_key_until_terminal_status(tmp_path) -> 
     assert replacement["id"] != pending["id"]
     assert replacement["status"] == "pending"
     assert len(db.get_coach_proposals(days=36500)) == 2
+
+
+def test_database_serializes_concurrent_active_proposal_creation(tmp_path) -> None:
+    db = Database(str(tmp_path / "concurrent-active-key.db"))
+    barrier = Barrier(2)
+
+    def save_proposal(sequence: int) -> dict:
+        barrier.wait()
+        return db.save_coach_proposal(
+            action="recovery_replan",
+            params={"base_checkpoint_id": 41, "draft_rows": []},
+            preview={"sequence": sequence},
+            source="recovery_replan",
+            source_key=f"concurrent-fingerprint-{sequence}",
+            active_key="concurrent-athlete-day:checkpoint:target-session",
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        proposals = list(executor.map(save_proposal, (1, 2)))
+
+    assert proposals[0]["id"] == proposals[1]["id"]
+    assert len(db.get_coach_proposals(days=36500, status="pending")) == 1
 
 
 @pytest.mark.parametrize(

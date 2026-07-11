@@ -12,7 +12,7 @@ Recovery Replan evaluates readiness whenever Coach is invoked. A second health s
 - [x] (2026-07-11 12:14Z) Created structured GitHub Issue #156 with Spec/BDD, acceptance criteria, baseline, and scope boundaries.
 - [x] (2026-07-11 12:14Z) Created isolated worktree `/tmp/ai_trainer_issue156_pending_dedup` on `codex/issue-156-pending-dedup` from `origin/main` at `0154f6c`.
 - [x] (2026-07-11 12:18Z) Added contract-first persistence and loop tests; red run produced `2 failed, 8 passed` before production changes.
-- [ ] Implement additive persistence and loop identity changes.
+- [x] (2026-07-11 12:24Z) Added nullable `active_key`, active-state partial uniqueness, atomic reuse lookup, stable loop keying, and a two-connection race test; focused result is `11 passed`.
 - [ ] Run focused, adjacent, and contributor-safe validation; complete self-review.
 - [ ] Finalize this living document, commit in process order, push, and open a draft PR linked with `Closes #156`.
 
@@ -29,6 +29,9 @@ Recovery Replan evaluates readiness whenever Coach is invoked. A second health s
 
 - Observation: the intended failures isolate both missing layers of the contract.
   Evidence: the red focused run failed because `save_coach_proposal` rejected `active_key`, while the loop test stored two decision rows correctly but linked them to proposal ids 1 and 2. The pre-change transcript was `2 failed, 8 passed`.
+
+- Observation: SQLite's partial unique index is sufficient for the real two-writer race in this local architecture.
+  Evidence: two threads opened independent connections with different decision fingerprints and the same active key; both returned the same proposal id and the database contained one pending row. The focused contour passed as `11 passed`.
 
 ## Decision Log
 
