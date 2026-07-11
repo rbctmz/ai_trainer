@@ -21,7 +21,9 @@ The behavior is visible on the web-first product surface. Running the loop durin
 - [x] (2026-07-10 13:32Z) Passed focused/adjacent coverage (`18 passed`, then `74 passed`), Ruff, Python compilation, web lint/build, and the first full smoke run (`460 passed, 1 skipped`).
 - [x] (2026-07-10 13:34Z) Browser-verified `/decisions` on an isolated SQLite database: pending evidence/variant UI rendered, reject returned “план не изменён”, pending disappeared, and rejected history remained.
 - [x] (2026-07-10 13:36Z) Re-ran the final contour after concurrency fixes: `460 passed, 1 skipped`, compile, Ruff, diff-check, web lint, and production build all passed.
-- [ ] Publish the reviewed commits and open a draft PR closing #154.
+- [x] (2026-07-11 10:40Z) Published the reviewed docs → tests → implementation history and opened mergeable draft PR #155 with `Closes #154`.
+- [x] (2026-07-11 10:42Z) GitHub CI, issue linkage, roadmap sync, and ready-to-merge projection workflows passed; Codex Review correctly skipped while the PR remained draft.
+- [x] (2026-07-11 10:45Z) Independent Claude Code review accepted Issue F and reproduced the contributor-safe contour as `461 passed` in an environment where the socket preflight was not skipped.
 
 ## Surprises & Discoveries
 
@@ -45,6 +47,12 @@ The behavior is visible on the web-first product surface. Running the loop durin
 
 - Observation: visual acceptance proved that pending-first ordering remains important after adding recovery history.
   Evidence: the first UI draft rendered recovery history above the action card. Self-review moved pending proposals back to the top, preserving issue #78's action-first contract; the isolated browser snapshot then showed `Ожидают подтверждения` before `Recovery loop`.
+
+- Observation: the recovery journal intentionally has no `plan_adherence` field yet.
+  Evidence: the 2026-07-04 Wizard-of-Oz session executed a materially different workout from the planned session, so a future quality prediction must be marked unscored rather than judged as a hit or miss. Issue D must define `plan_adherence` as `exact`, `substituted`, or `major_deviation` before adding forecast scoring; append-only recovery snapshots let that contract be added without rewriting Issue F history.
+
+- Observation: readiness changes within one day can produce a second pending proposal for the same planned session.
+  Evidence: the fingerprint deliberately includes the complete readiness/conflict snapshot. A midday sync that moves readiness from 35 to 36 creates a new fingerprint and `source_key`, even if the conflict date/session is unchanged. This preserves immutable evidence but means a follow-up should deduplicate active pending proposals by athlete-day and target session while retaining both decision-log rows.
 
 ## Decision Log
 
@@ -80,15 +88,23 @@ The behavior is visible on the web-first product surface. Running the loop durin
   Rationale: unique fingerprints prevent duplicate proposal creation, but mutation safety also needs one winner when the same button is submitted concurrently. Transient `applying` and `rolling_back` states remain internal/additive and preserve the existing public terminal statuses.
   Date/Author: 2026-07-10 / Codex.
 
+- Decision: defer `plan_adherence` and quality scoring to the contract-first start of Issue D.
+  Rationale: Issue F records immutable gate inputs and proposal lifecycle but does not make or score a session-quality prediction. Adding adherence here would create a field with no owning scorer; Issue D must introduce it together with explicit unscored semantics for `major_deviation`.
+  Date/Author: 2026-07-11 / Codex + Claude Code review.
+
+- Decision: treat same-session pending-proposal deduplication as non-blocking follow-up hardening.
+  Rationale: current fingerprint/source-key behavior correctly preserves distinct intraday evidence and prevents exact duplicates. The remaining UX risk is two active cards for one target session, not unsafe mutation: checkpoint guards and atomic claims still protect apply/rollback. A later change should supersede or reuse active pending proposals by date/session without collapsing decision-log evidence.
+  Date/Author: 2026-07-11 / Codex + Claude Code review.
+
 ## Outcomes & Retrospective
 
-Implementation, self-review, and local acceptance are complete. A user can inspect why the gate stayed silent, lacked data, or intervened; a conflict creates one evidence-backed pending proposal; and every plan mutation is explicit, tied to an exact base checkpoint, concurrency-claimed, and append-only reversible. The deterministic v1 deliberately does not predict session quality or choose a transfer date. The final contributor-safe contour is green at `460 passed, 1 skipped`; publication remains before the issue is ready for review.
+Issue F is implemented, independently reviewed, and published in mergeable draft PR #155. A user can inspect why the gate stayed silent, lacked data, or intervened; a conflict creates one evidence-backed pending proposal; and every plan mutation is explicit, tied to an exact base checkpoint, concurrency-claimed, and append-only reversible. The deterministic v1 deliberately does not predict session quality or choose a transfer date. Codex completed the full contour at `460 passed, 1 skipped`; independent Claude Code review reproduced the same environment-dependent contour as `461 passed`. GitHub CI is green. Remaining work is the human review/ready transition and merge decision; the `plan_adherence` contract belongs to Issue D, while intraday same-session pending dedup is a non-blocking hardening follow-up.
 
 ## Self-Review
 
 What can break: the variant builder depends on the active checkpoint retaining aligned `daily_plan` and `session_templates` dates. Legacy or malformed checkpoints may not expose the conflict date. In that case the loop still logs `conflict` and returns `proposal_gap`; it does not guess an index or mutate Planning. Existing proposal/build/adjust actions remain backward compatible because all new fields and actions are additive.
 
-The weakest product point is intentional: v1 offers `keep` and one recovery downgrade, not a calendar transfer. Moving the key stimulus requires Issue D's quality forecast and a real alternative-date trade-off. The loop also runs when Coach is invoked; scheduler and push delivery remain out of scope, so this is agentic decision plumbing rather than a background notification system.
+The weakest product point is intentional: v1 offers `keep` and one recovery downgrade, not a calendar transfer. Moving the key stimulus requires Issue D's quality forecast and a real alternative-date trade-off. Issue D must also introduce `plan_adherence` before scoring predictions so substituted or materially different workouts are not mislabeled. The loop runs when Coach is invoked; scheduler and push delivery remain out of scope, so this is agentic decision plumbing rather than a background notification system. A readiness change within the day may currently create another pending card for the same session; the immutable journal remains correct, but active-card deduplication is follow-up UX hardening.
 
 The local SQLite design scales safely for the current single-athlete product: decision fingerprints and proposal source keys deduplicate repeated/concurrent evaluation, and atomic lifecycle claims prevent double mutation. A future multi-user service must add athlete/account scope to both unique keys and database queries, plus a transactional database suitable for multiple API workers. The current schema must not be deployed as a shared unscoped ledger.
 
@@ -212,6 +228,10 @@ Green and acceptance evidence:
     Web production build: compiled successfully; 11 static pages
     Visual acceptance: /tmp/ai_trainer_issue154_decisions.png
     Reject interaction: POST /api/decisions/proposals/1/reject -> 200; pending removed; rejected history retained
+    Draft PR: https://github.com/rbctmz/ai_trainer/pull/155 (Closes #154)
+    Implementation head before final ExecPlan commit: d1a78f3
+    GitHub CI: success
+    Independent review: accepted; 461 passed
 
 ## Interfaces and Dependencies
 
@@ -243,3 +263,5 @@ Revision note (2026-07-10 / Codex): recorded the contract-first BDD/TDD suite an
 Revision note (2026-07-10 / Codex): updated after backend/web implementation, adjacent/full validation, concurrency self-review, and isolated browser acceptance of the pending/reject flow.
 
 Revision note (2026-07-10 / Codex): recorded the final post-review validation contour; only Git publication remains.
+
+Revision note (2026-07-11 / Codex): finalized after draft PR #155 publication, green GitHub CI, and independent Claude Code review; recorded `plan_adherence` as an Issue D contract requirement and intraday same-session pending deduplication as non-blocking follow-up hardening.
