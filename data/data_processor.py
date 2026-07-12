@@ -1,6 +1,5 @@
 import pandas as pd
-import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 
 from config.settings import Settings
 from utils.product_semantics import normalize_sport_key
@@ -63,6 +62,22 @@ class ActivityProcessor:
             if value is not None:
                 return value
         return None
+
+    @staticmethod
+    def _started_at_utc(activity):
+        """Preserve Garmin's source GMT instant; never guess from local time."""
+        raw = str(activity.get('startTimeGMT') or '').strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        else:
+            parsed = parsed.astimezone(timezone.utc)
+        return parsed.replace(microsecond=0).isoformat().replace('+00:00', 'Z')
 
     @classmethod
     def _duration_minutes(cls, seconds_value):
@@ -169,7 +184,7 @@ class ActivityProcessor:
                             date = datetime.fromisoformat(start_time.replace('Z', '+00:00')).date()
                         else:
                             date = datetime.strptime(start_time[:10], '%Y-%m-%d').date()
-                    except:
+                    except (TypeError, ValueError):
                         date = datetime.now().date()
                 else:
                     date = datetime.now().date()
@@ -185,6 +200,7 @@ class ActivityProcessor:
                 processed.append({
                     'activity_id': activity_id,
                     'date': date,
+                    'started_at_utc': ActivityProcessor._started_at_utc(activity),
                     'sport': sport,
                     'duration_minutes': ActivityProcessor._duration_minutes(activity.get('duration')),
                     'moving_duration_minutes': ActivityProcessor._duration_minutes(activity.get('movingDuration')),

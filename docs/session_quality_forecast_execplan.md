@@ -14,9 +14,9 @@ The feature is deliberately shadow-only. It must not affect the readiness score,
 - [x] (2026-07-12 09:22Z) Verified publish path and created isolated worktree `/tmp/ai_trainer_issue161_session_quality` on `codex/issue-161-session-quality-shadow` from current `origin/main` at `c824bd2`.
 - [x] (2026-07-12 09:22Z) Pre-registered the exact `session_quality_v1` formula, timing rule, adherence boundaries, rating mapping, and calibration metrics in this plan before production data can be written.
 - [x] (2026-07-12 09:34Z) Added BDD/TDD contracts for formula, adherence, timing, revisions, scoring, immutable facts, shadow isolation, API, and sync fail-open; red run stopped at the expected missing domain module.
-- [ ] Implement source-backed activity start timestamps and additive forecast persistence.
-- [ ] Implement the pure predictor, shadow orchestration, resolution, API, and post-sync integration.
-- [ ] Update the WoZ schema without rewriting historical rows.
+- [x] (2026-07-12 09:48Z) Implemented source-backed `started_at_utc`, legacy migration, transactional immutable revisions, indexes, and frozen resolution persistence.
+- [x] (2026-07-12 09:48Z) Implemented the pure v1 predictor, target selection, resolution/scoring, calibration summary, headless API, post-sync hook, and fail-open Recovery Replan linkage.
+- [x] (2026-07-12 09:48Z) Added committed WoZ schema/migration utility and atomically migrated the ignored local CSV to 17 aligned fields; backup is `/tmp/woz_tracking_before_issue161.csv`.
 - [ ] Complete focused, adjacent, full, lint, compile, migration, concurrency, and self-review validation.
 - [ ] Publish a draft PR with `Closes #161`, verify current-head CI, and finalize this plan.
 
@@ -39,6 +39,12 @@ The feature is deliberately shadow-only. It must not affect the readiness score,
 
 - Observation: the red phase fails at the intended first missing boundary before any production code exists.
   Evidence: focused pytest reports `ModuleNotFoundError: No module named 'models.session_quality_forecast'` during collection. This proves tests depend on the new contract rather than accidentally exercising an existing helper.
+
+- Observation: legacy WoZ rows were not uniformly padded to the old header width.
+  Evidence: the local file had 16 header fields but historical rows contained either 15 or 16. The migration treats a 15-field row as an omitted empty reaction field, inserts it before the note, then inserts the new quality column. Post-migration every row has 17 fields and existing note/reaction values are preserved.
+
+- Observation: focused and adjacent contours became green without changing decision behavior.
+  Evidence: Issue D focused tests pass `21 passed`; focused plus Garmin sync passes `34 passed`; Recovery Replan, Today, sync-job, and Garmin adjacent tests pass `33 passed`.
 
 ## Decision Log
 
@@ -70,11 +76,15 @@ The feature is deliberately shadow-only. It must not affect the readiness score,
   Rationale: force-adding personal CSV rows risks publishing sensitive metrics and contradicts the repository's data-security rule. The implementation will add a small safe migration utility or documented command and apply it only to the local ignored file.
   Date/Author: 2026-07-12 / Codex.
 
+- Decision: stale canonical readiness produces no forecast even when its historical confidence is high.
+  Rationale: confidence measures factor availability, not freshness. Forecasting a future key session from stale recovery values would create false pre-registration evidence.
+  Date/Author: 2026-07-12 / Codex.
+
 ## Pre-registered `session_quality_v1` formula
 
 The predictor accepts only a canonical readiness snapshot and an immutable planned-session snapshot. It must not read `activities`, prediction outcomes, `recovery_decisions` outcomes, or `docs/woz_tracking.csv`.
 
-Required readiness inputs are `score` and `confidence`. If `score` is missing or confidence is below `0.60`, the predictor returns a data gap and no forecast row. Confidence is clamped to `[0, 1]`. The confidence-adjusted base probability shrinks uncertain readiness toward a coin flip:
+Required readiness inputs are `score` and `confidence`. If `score` is missing, confidence is below `0.60`, or the canonical snapshot is marked `stale`, the predictor returns a data gap and no forecast row. Confidence is clamped to `[0, 1]`. The confidence-adjusted base probability shrinks uncertain readiness toward a coin flip:
 
     base = 50 + (readiness_score - 50) * confidence
 

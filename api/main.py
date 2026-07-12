@@ -27,6 +27,7 @@ from api.routers import (  # noqa: E402  (after env setup)
     decisions,
     hrv,
     planning,
+    session_quality,
     sleep,
     system,
     today,
@@ -61,6 +62,7 @@ app.include_router(hrv.router)
 app.include_router(activities.router)
 app.include_router(athlete_profile.router)
 app.include_router(planning.router)
+app.include_router(session_quality.router)
 app.include_router(sleep.router)
 app.include_router(system.router)
 app.include_router(today.router)

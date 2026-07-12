@@ -8,6 +8,7 @@ class Database:
     _ACTIVITY_COLUMN_ORDER = [
         'activity_id',
         'date',
+        'started_at_utc',
         'sport',
         'duration_minutes',
         'moving_duration_minutes',
@@ -40,6 +41,7 @@ class Database:
     _ACTIVITY_COLUMN_TYPES = {
         'activity_id': 'TEXT PRIMARY KEY',
         'date': 'DATE',
+        'started_at_utc': 'TEXT',
         'sport': 'TEXT',
         'duration_minutes': 'REAL',
         'moving_duration_minutes': 'REAL',
@@ -202,6 +204,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS activities (
                 activity_id TEXT PRIMARY KEY,
                 date DATE,
+                started_at_utc TEXT,
                 sport TEXT,
                 duration_minutes REAL,
                 moving_duration_minutes REAL,
@@ -410,6 +413,39 @@ class Database:
         ''')
 
         conn.execute('''
+            CREATE TABLE IF NOT EXISTS session_quality_predictions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerprint TEXT NOT NULL UNIQUE,
+                target_key TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                rule_version TEXT NOT NULL,
+                target_date TEXT NOT NULL,
+                plan_checkpoint_id INTEGER NOT NULL,
+                plan_session_index INTEGER NOT NULL,
+                planned_role TEXT NOT NULL,
+                planned_sport TEXT NOT NULL,
+                planned_tss REAL NOT NULL,
+                planned_duration_minutes INTEGER,
+                prediction_pct INTEGER NOT NULL,
+                prediction_band TEXT NOT NULL,
+                input_json TEXT NOT NULL,
+                evidence_json TEXT NOT NULL,
+                recovery_decision_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'pending',
+                plan_adherence TEXT,
+                quality_rating_1_5 INTEGER,
+                quality_outcome TEXT,
+                actual_activity_ids_json TEXT,
+                actual_snapshot_json TEXT,
+                unscored_reason TEXT,
+                brier_score REAL,
+                resolved_at TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(target_key, revision)
+            )
+        ''')
+
+        conn.execute('''
             CREATE TABLE IF NOT EXISTS coach_constraints (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT NOT NULL,
@@ -439,6 +475,14 @@ class Database:
             CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_proposals_active_key
             ON coach_proposals(active_key)
             WHERE active_key IS NOT NULL AND status IN ('pending', 'applying')
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_session_quality_target
+            ON session_quality_predictions(target_key, revision)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_session_quality_status
+            ON session_quality_predictions(status, target_date)
         ''')
         conn.commit()
         conn.close()
@@ -900,6 +944,280 @@ class Database:
             'proposal_id': row[7],
             'created_at': row[8],
         }
+
+    def save_session_quality_prediction(
+        self,
+        *,
+        fingerprint,
+        target_key,
+        rule_version,
+        target_date,
+        plan_checkpoint_id,
+        plan_session_index,
+        planned_session,
+        forecast,
+        inputs,
+        evidence,
+        recovery_decision_id=None,
+        created_at=None,
+    ):
+        """Append one immutable forecast revision, idempotent by fingerprint."""
+        if not isinstance(planned_session, dict) or not isinstance(forecast, dict):
+            raise ValueError("planned_session and forecast must be dicts")
+        if not isinstance(inputs, dict) or not isinstance(evidence, list):
+            raise ValueError("inputs must be a dict and evidence must be a list")
+        fingerprint = str(fingerprint or "").strip()
+        target_key = str(target_key or "").strip()
+        rule_version = str(rule_version or "").strip()
+        if not fingerprint or not target_key or not rule_version:
+            raise ValueError("forecast identity must be non-empty")
+
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            "SELECT id FROM session_quality_predictions WHERE fingerprint = ? LIMIT 1",
+            (fingerprint,),
+        )
+        existing = cursor.fetchone()
+        created = existing is None
+        if existing is None:
+            cursor.execute(
+                "SELECT COALESCE(MAX(revision), 0) + 1 FROM session_quality_predictions WHERE target_key = ?",
+                (target_key,),
+            )
+            revision = int(cursor.fetchone()[0])
+            values = (
+                fingerprint,
+                target_key,
+                revision,
+                rule_version,
+                str(target_date)[:10],
+                int(plan_checkpoint_id),
+                int(plan_session_index),
+                str(planned_session.get("role") or ""),
+                str(planned_session.get("sport") or ""),
+                float(planned_session.get("tss") or 0.0),
+                planned_session.get("duration_minutes"),
+                int(forecast["prediction_pct"]),
+                str(forecast["prediction_band"]),
+                json.dumps(inputs, ensure_ascii=False, default=str),
+                json.dumps(evidence, ensure_ascii=False, default=str),
+                self.clean_value(recovery_decision_id),
+            )
+            if created_at is None:
+                cursor.execute(
+                    '''
+                    INSERT INTO session_quality_predictions
+                        (fingerprint, target_key, revision, rule_version, target_date,
+                         plan_checkpoint_id, plan_session_index, planned_role, planned_sport,
+                         planned_tss, planned_duration_minutes, prediction_pct, prediction_band,
+                         input_json, evidence_json, recovery_decision_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    values,
+                )
+            else:
+                cursor.execute(
+                    '''
+                    INSERT INTO session_quality_predictions
+                        (fingerprint, target_key, revision, rule_version, target_date,
+                         plan_checkpoint_id, plan_session_index, planned_role, planned_sport,
+                         planned_tss, planned_duration_minutes, prediction_pct, prediction_band,
+                         input_json, evidence_json, recovery_decision_id, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (*values, str(created_at)),
+                )
+            prediction_id = int(cursor.lastrowid)
+        else:
+            prediction_id = int(existing[0])
+            if recovery_decision_id is not None:
+                cursor.execute(
+                    '''
+                    UPDATE session_quality_predictions
+                    SET recovery_decision_id = COALESCE(recovery_decision_id, ?)
+                    WHERE id = ?
+                    ''',
+                    (int(recovery_decision_id), prediction_id),
+                )
+        row = self._select_session_quality_prediction(cursor, prediction_id)
+        conn.commit()
+        conn.close()
+        return {"prediction": self._deserialize_session_quality_prediction_row(row), "created": created}
+
+    @staticmethod
+    def _select_session_quality_prediction(cursor, prediction_id):
+        cursor.execute(
+            '''
+            SELECT id, fingerprint, target_key, revision, rule_version, target_date,
+                   plan_checkpoint_id, plan_session_index, planned_role, planned_sport,
+                   planned_tss, planned_duration_minutes, prediction_pct, prediction_band,
+                   input_json, evidence_json, recovery_decision_id, status, plan_adherence,
+                   quality_rating_1_5, quality_outcome, actual_activity_ids_json,
+                   actual_snapshot_json, unscored_reason, brier_score, resolved_at, created_at
+            FROM session_quality_predictions
+            WHERE id = ?
+            LIMIT 1
+            ''',
+            (int(prediction_id),),
+        )
+        return cursor.fetchone()
+
+    def get_session_quality_prediction(self, prediction_id):
+        conn = sqlite3.connect(self.db_path)
+        row = self._select_session_quality_prediction(conn.cursor(), prediction_id)
+        conn.close()
+        return self._deserialize_session_quality_prediction_row(row)
+
+    def get_session_quality_predictions(self, days=30, limit=200, target_key=None):
+        cutoff_date = self._cutoff_date(days)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        params = [cutoff_date]
+        target_clause = ""
+        if target_key:
+            target_clause = "AND target_key = ?"
+            params.append(str(target_key))
+        params.append(max(1, int(limit or 1)))
+        cursor.execute(
+            f'''
+            SELECT id, fingerprint, target_key, revision, rule_version, target_date,
+                   plan_checkpoint_id, plan_session_index, planned_role, planned_sport,
+                   planned_tss, planned_duration_minutes, prediction_pct, prediction_band,
+                   input_json, evidence_json, recovery_decision_id, status, plan_adherence,
+                   quality_rating_1_5, quality_outcome, actual_activity_ids_json,
+                   actual_snapshot_json, unscored_reason, brier_score, resolved_at, created_at
+            FROM session_quality_predictions
+            WHERE substr(target_date, 1, 10) >= ? {target_clause}
+            ORDER BY target_date DESC, target_key ASC, revision ASC
+            LIMIT ?
+            ''',
+            tuple(params),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [self._deserialize_session_quality_prediction_row(row) for row in rows]
+
+    def link_session_quality_prediction_decision(self, prediction_id, decision_id):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE session_quality_predictions
+            SET recovery_decision_id = COALESCE(recovery_decision_id, ?)
+            WHERE id = ?
+            ''',
+            (int(decision_id), int(prediction_id)),
+        )
+        row = self._select_session_quality_prediction(cursor, prediction_id)
+        conn.commit()
+        conn.close()
+        return self._deserialize_session_quality_prediction_row(row)
+
+    def resolve_session_quality_prediction_group(self, target_key, resolutions):
+        """Atomically resolve pending revisions for one target without rewriting facts."""
+        if not isinstance(resolutions, list) or not resolutions:
+            raise ValueError("resolutions must be a non-empty list")
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        for resolution in resolutions:
+            status = str(resolution.get("status") or "")
+            if status not in {"scored", "unscored"}:
+                conn.rollback()
+                conn.close()
+                raise ValueError("resolution status must be scored or unscored")
+            cursor.execute(
+                '''
+                UPDATE session_quality_predictions
+                SET status = ?, plan_adherence = ?, quality_rating_1_5 = ?,
+                    quality_outcome = ?, actual_activity_ids_json = ?,
+                    actual_snapshot_json = ?, unscored_reason = ?, brier_score = ?,
+                    resolved_at = ?
+                WHERE id = ? AND target_key = ? AND status = 'pending'
+                ''',
+                (
+                    status,
+                    resolution.get("plan_adherence"),
+                    resolution.get("quality_rating_1_5"),
+                    resolution.get("quality_outcome"),
+                    json.dumps(resolution.get("actual_activity_ids") or [], ensure_ascii=False),
+                    json.dumps(resolution.get("actual_snapshot") or {}, ensure_ascii=False, default=str),
+                    resolution.get("unscored_reason"),
+                    resolution.get("brier_score"),
+                    resolved_at,
+                    int(resolution["id"]),
+                    str(target_key),
+                ),
+            )
+        conn.commit()
+        conn.close()
+        return self.get_session_quality_predictions(days=36500, target_key=target_key)
+
+    @staticmethod
+    def _deserialize_session_quality_prediction_row(row):
+        if not row:
+            return None
+
+        def _json(raw, fallback):
+            if not raw:
+                return fallback
+            try:
+                return json.loads(raw)
+            except (TypeError, json.JSONDecodeError):
+                return fallback
+
+        return {
+            'id': row[0],
+            'fingerprint': row[1],
+            'target_key': row[2],
+            'revision': row[3],
+            'rule_version': row[4],
+            'target_date': row[5],
+            'plan_checkpoint_id': row[6],
+            'plan_session_index': row[7],
+            'planned_session': {
+                'date': row[5],
+                'index': row[7],
+                'role': row[8],
+                'sport': row[9],
+                'tss': row[10],
+                'duration_minutes': row[11],
+            },
+            'prediction_pct': row[12],
+            'prediction_band': row[13],
+            'inputs': _json(row[14], {}),
+            'evidence': _json(row[15], []),
+            'recovery_decision_id': row[16],
+            'status': row[17],
+            'plan_adherence': row[18],
+            'quality_rating_1_5': row[19],
+            'quality_outcome': row[20],
+            'actual_activity_ids': _json(row[21], []),
+            'actual_snapshot': _json(row[22], {}),
+            'unscored_reason': row[23],
+            'brier_score': row[24],
+            'resolved_at': row[25],
+            'created_at': row[26],
+        }
+
+    def get_activities_by_ids(self, activity_ids):
+        ids = [str(value) for value in (activity_ids or []) if str(value or "").strip()]
+        if not ids:
+            return []
+        columns = list(self._ACTIVITY_COLUMN_ORDER)
+        placeholders = ", ".join("?" for _ in ids)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT {', '.join(columns)} FROM activities WHERE activity_id IN ({placeholders})",
+            tuple(ids),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(zip(columns, row)) for row in rows]
 
     def save_coach_proposal(
         self,

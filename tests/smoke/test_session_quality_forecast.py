@@ -1,9 +1,14 @@
 """Behavior contract for Issue D: pre-registered session-quality shadow forecasts."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+import csv
 from datetime import date, datetime, timedelta
+import sqlite3
+from threading import Barrier
 
 import pytest
+import pandas as pd
 
 from data.data_processor import ActivityProcessor
 from data.database import Database
@@ -140,6 +145,7 @@ def test_v1_formula_matches_pre_registered_examples_and_rejects_low_confidence()
     assert long["prediction_pct"] == 83
     assert long["prediction_band"] == "high"
     assert build_session_quality_forecast(_readiness(75.0, 0.59), _planned()) is None
+    assert build_session_quality_forecast({**_readiness(), "stale": True}, _planned()) is None
 
 
 @pytest.mark.parametrize(
@@ -185,7 +191,7 @@ def test_activity_processor_preserves_only_source_backed_gmt_start() -> None:
     ).set_index("activity_id")
 
     assert rows.loc["with-gmt", "started_at_utc"] == "2026-07-14T08:00:00Z"
-    assert rows.loc["local-only", "started_at_utc"] is None
+    assert pd.isna(rows.loc["local-only", "started_at_utc"])
     assert rows.loc["local-only", "date"].date().isoformat() == "2026-07-14"
 
 
@@ -217,6 +223,54 @@ def test_database_forecast_fingerprint_is_idempotent_and_snapshots_are_immutable
     assert duplicate["prediction"]["prediction_pct"] == 40
     assert second["prediction"]["revision"] == 2
     assert len(db.get_session_quality_predictions(days=36500)) == 2
+
+
+def test_database_serializes_concurrent_revisions(tmp_path) -> None:
+    db = Database(str(tmp_path / "concurrent-revisions.db"))
+    barrier = Barrier(2)
+
+    def save(sequence: int) -> dict:
+        barrier.wait()
+        return _save_prediction(
+            db,
+            fingerprint=f"concurrent-{sequence}",
+            created_at=f"2026-07-14T0{sequence + 5}:00:00Z",
+            prediction_pct=40 + sequence,
+        )["prediction"]
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        rows = list(executor.map(save, (1, 2)))
+
+    assert {row["revision"] for row in rows} == {1, 2}
+    assert len(db.get_session_quality_predictions(days=36500)) == 2
+
+
+def test_database_migrates_legacy_activity_schema_with_null_start(tmp_path) -> None:
+    db_path = tmp_path / "legacy-activities.db"
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE activities (
+                activity_id TEXT PRIMARY KEY,
+                date DATE,
+                sport TEXT,
+                duration_minutes REAL,
+                tss REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            "INSERT INTO activities (activity_id, date, sport, duration_minutes, tss) VALUES ('old', '2026-07-01', 'bike', 30, 20)"
+        )
+
+    db = Database(str(db_path))
+    old = db.get_activities_by_ids(["old"])[0]
+
+    assert old["started_at_utc"] is None
+    with sqlite3.connect(db_path) as conn:
+        columns = {row[1] for row in conn.execute("PRAGMA table_info(activities)")}
+    assert "started_at_utc" in columns
 
 
 def test_resolution_scores_latest_prestart_revision_and_freezes_actual_snapshot(tmp_path) -> None:
@@ -327,6 +381,54 @@ def test_major_deviation_is_unscored_even_with_clear_rating(tmp_path) -> None:
     assert resolved["brier_score"] is None
 
 
+@pytest.mark.parametrize(
+    ("started_at_utc", "rating", "expected_reason"),
+    [
+        (None, 5, "missing_session_start"),
+        ("2026-07-14T08:00:00Z", 3, "ambiguous_quality"),
+    ],
+)
+def test_missing_start_or_ambiguous_rating_is_explicitly_unscored(
+    tmp_path,
+    started_at_utc: str | None,
+    rating: int,
+    expected_reason: str,
+) -> None:
+    from api.session_quality_forecast import resolve_session_quality_prediction
+
+    db = Database(str(tmp_path / f"{expected_reason}.db"))
+    prediction = _save_prediction(
+        db,
+        fingerprint=f"forecast-{expected_reason}",
+        created_at="2026-07-14T06:00:00Z",
+        prediction_pct=50,
+    )["prediction"]
+    db.save_activities(
+        [
+            {
+                "activity_id": "activity-1",
+                "date": "2026-07-14",
+                "started_at_utc": started_at_utc,
+                "sport": "bike",
+                "duration_minutes": 60,
+                "tss": 60,
+            }
+        ]
+    )
+
+    resolved = resolve_session_quality_prediction(
+        db,
+        prediction["id"],
+        activity_ids=["activity-1"],
+        actual_role="quality",
+        quality_rating_1_5=rating,
+    )["predictions"][0]
+
+    assert resolved["status"] == "unscored"
+    assert resolved["unscored_reason"] == expected_reason
+    assert resolved["brier_score"] is None
+
+
 def test_shadow_recording_appends_changed_readiness_without_product_mutation(
     tmp_path,
 ) -> None:
@@ -410,3 +512,32 @@ def test_post_sync_shadow_failure_is_non_fatal(tmp_path, monkeypatch) -> None:
     assert payload["sync_state"] == "succeeded"
     assert payload["session_quality_forecast"] is None
     assert payload["session_quality_forecast_error"] == "shadow unavailable"
+
+
+def test_woz_schema_migration_preserves_reaction_and_note(tmp_path) -> None:
+    from scripts.migrate_woz_tracking_quality import migrate
+
+    path = tmp_path / "woz.csv"
+    rows = [
+        ["дата", "прогноз_попал", "реакция_1_5", "заметка"],
+        ["2026-07-10", "да", "4", "reaction present"],
+        ["2026-07-11", "unscored", "reaction omitted"],
+    ]
+    with path.open("w", encoding="utf-8", newline="") as target:
+        csv.writer(target).writerows(rows)
+
+    assert migrate(path) is True
+    assert migrate(path) is False
+    with path.open("r", encoding="utf-8", newline="") as source:
+        migrated = list(csv.reader(source))
+
+    assert migrated[0] == [
+        "дата",
+        "прогноз_попал",
+        "качество_сессии_1_5",
+        "реакция_1_5",
+        "заметка",
+    ]
+    assert migrated[1][-2:] == ["4", "reaction present"]
+    assert migrated[2][-2:] == ["", "reaction omitted"]
+    assert {len(row) for row in migrated} == {5}
