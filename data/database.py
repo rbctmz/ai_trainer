@@ -1972,6 +1972,11 @@ class Database:
             pass
 
         try:
+            cursor.execute('DELETE FROM session_quality_predictions')
+        except sqlite3.OperationalError:
+            pass
+
+        try:
             cursor.execute('DELETE FROM coach_constraints')
         except sqlite3.OperationalError:
             pass
@@ -2112,6 +2117,12 @@ class Database:
             recovery_decisions_count = cursor.fetchone()[0]
         except sqlite3.OperationalError:
             recovery_decisions_count = 0
+
+        try:
+            cursor.execute('SELECT COUNT(*) FROM session_quality_predictions')
+            session_quality_predictions_count = cursor.fetchone()[0]
+        except sqlite3.OperationalError:
+            session_quality_predictions_count = 0
         
         conn.close()
         
@@ -2126,6 +2137,7 @@ class Database:
             'coach_proposals': coach_proposals_count,
             'coach_constraints': coach_constraints_count,
             'recovery_decisions': recovery_decisions_count,
+            'session_quality_predictions': session_quality_predictions_count,
         }
     
     # =================== НОВЫЕ МЕТОДЫ СИНХРОНИЗАЦИИ ФАЗА 1 ===================

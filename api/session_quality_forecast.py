@@ -20,6 +20,7 @@ from utils.product_semantics import normalize_sport_key
 
 
 TARGET_ROLES = {"quality", "long"}
+ACTUAL_ROLES = {"off", "recovery", "easy", "quality", "long"}
 FORECAST_HORIZON_DAYS = 7
 
 
@@ -205,6 +206,9 @@ def resolve_session_quality_prediction(
         raise LookupError(f"prediction {prediction_id} not found")
     if quality_rating_1_5 is not None and quality_rating_1_5 not in {1, 2, 3, 4, 5}:
         raise ValueError("quality_rating_1_5 must be between 1 and 5")
+    normalized_role = str(actual_role or "").strip().lower()
+    if normalized_role and normalized_role not in ACTUAL_ROLES:
+        raise ValueError(f"actual_role must be one of {sorted(ACTUAL_ROLES)}")
     target_key = prediction["target_key"]
     group = db.get_session_quality_predictions(days=36500, target_key=target_key)
     if not any(row["status"] == "pending" for row in group):
@@ -222,7 +226,7 @@ def resolve_session_quality_prediction(
 
     actual = _actual_snapshot(
         activities,
-        actual_role=actual_role,
+        actual_role=normalized_role or None,
         quality_rating_1_5=quality_rating_1_5,
         note=note,
     )

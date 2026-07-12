@@ -273,6 +273,20 @@ def test_database_migrates_legacy_activity_schema_with_null_start(tmp_path) -> N
     assert "started_at_utc" in columns
 
 
+def test_prediction_journal_participates_in_database_stats_and_clear(tmp_path) -> None:
+    db = Database(str(tmp_path / "stats-clear.db"))
+    _save_prediction(
+        db,
+        fingerprint="stats-forecast",
+        created_at="2026-07-14T06:00:00Z",
+        prediction_pct=50,
+    )
+
+    assert db.get_database_stats()["session_quality_predictions"] == 1
+    db.clear_all_data()
+    assert db.get_database_stats()["session_quality_predictions"] == 0
+
+
 def test_resolution_scores_latest_prestart_revision_and_freezes_actual_snapshot(tmp_path) -> None:
     from api.session_quality_forecast import resolve_session_quality_prediction
 
