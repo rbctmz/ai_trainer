@@ -1,0 +1,412 @@
+"""Behavior contract for Issue D: pre-registered session-quality shadow forecasts."""
+from __future__ import annotations
+
+from datetime import date, datetime, timedelta
+
+import pytest
+
+from data.data_processor import ActivityProcessor
+from data.database import Database
+from models.planning_checkpoints import build_planning_checkpoint
+from models.session_quality_forecast import (
+    RULE_VERSION,
+    brier_score,
+    build_session_quality_forecast,
+    classify_plan_adherence,
+)
+
+
+pytestmark = pytest.mark.smoke
+
+
+def _readiness(score: float = 75.0, confidence: float = 0.8) -> dict:
+    return {
+        "score": score,
+        "status": "ready" if score >= 60 else "low",
+        "confidence": confidence,
+        "drivers": [{"key": "hrv", "evidence": "HRV -8% к базе"}],
+        "source": "canonical_snapshot",
+    }
+
+
+def _planned(
+    *,
+    role: str = "quality",
+    sport: str = "bike",
+    tss: float = 60.0,
+    duration: int = 60,
+    target_date: str = "2026-07-14",
+    index: int = 8,
+) -> dict:
+    return {
+        "date": target_date,
+        "index": index,
+        "role": role,
+        "sport": sport,
+        "tss": tss,
+        "duration_minutes": duration,
+        "name": "Качество • вело" if role == "quality" else "Длительная • вело",
+    }
+
+
+def _goal_plan(today: date, *, days_until: int = 2, role: str = "quality") -> dict:
+    monday = today - timedelta(days=today.weekday())
+    target_date = today + timedelta(days=days_until)
+    daily_plan = []
+    templates = []
+    for index in range(14):
+        session_date = monday + timedelta(days=index)
+        is_target = session_date == target_date
+        session_role = role if is_target else ("off" if index % 7 == 0 else "easy")
+        sport = "bike" if is_target else ("off" if session_role == "off" else "run")
+        tss = 60.0 if is_target else (0.0 if session_role == "off" else 20.0)
+        daily_plan.append(
+            (
+                datetime.combine(session_date, datetime.min.time()),
+                tss,
+                {} if sport == "off" else {sport: tss},
+            )
+        )
+        templates.append(
+            {
+                "date": session_date.isoformat(),
+                "session_role": session_role,
+                "session_focus": "Качество • вело" if is_target else "Лёгкая • бег",
+                "sport": sport,
+                "sport_label": "вело" if is_target else "бег",
+                "duration_minutes": 60 if is_target else 30,
+                "phase": "Build",
+            }
+        )
+    return {
+        "goal_type": "Триатлон",
+        "distance": "Олимпийка",
+        "event_date": (today + timedelta(days=60)).isoformat(),
+        "weeks_to_race": 8,
+        "start_week": monday,
+        "weekly_tss_plan": [100, 100],
+        "base_weekly_tss_plan": [100, 100],
+        "phases": ["Build", "Build"],
+        "daily_plan": daily_plan,
+        "session_templates": templates,
+        "weekly_summary": [],
+        "constraint_summary": {},
+        "near_term_edit_version": 0,
+    }
+
+
+def _save_prediction(
+    db: Database,
+    *,
+    fingerprint: str,
+    created_at: str,
+    prediction_pct: int,
+    target_key: str = "checkpoint-63:2026-07-14:8",
+) -> dict:
+    return db.save_session_quality_prediction(
+        fingerprint=fingerprint,
+        target_key=target_key,
+        rule_version=RULE_VERSION,
+        target_date="2026-07-14",
+        plan_checkpoint_id=63,
+        plan_session_index=8,
+        planned_session=_planned(),
+        forecast={
+            "prediction_pct": prediction_pct,
+            "prediction_band": (
+                "low" if prediction_pct < 60 else "uncertain" if prediction_pct < 75 else "high"
+            ),
+        },
+        inputs={"readiness": _readiness()},
+        evidence=["pre-registered evidence"],
+        created_at=created_at,
+    )
+
+
+def test_v1_formula_matches_pre_registered_examples_and_rejects_low_confidence() -> None:
+    quality = build_session_quality_forecast(_readiness(), _planned())
+    low = build_session_quality_forecast(_readiness(35.0), _planned())
+    long = build_session_quality_forecast(
+        _readiness(80.0, 1.0),
+        _planned(role="long", tss=20.0, duration=50),
+    )
+
+    assert quality["rule_version"] == "session_quality_v1"
+    assert quality["prediction_pct"] == 68
+    assert quality["prediction_band"] == "uncertain"
+    assert quality["demand"]["density_tss_per_hour"] == 60.0
+    assert low["prediction_pct"] == 36
+    assert low["prediction_band"] == "low"
+    assert long["prediction_pct"] == 83
+    assert long["prediction_band"] == "high"
+    assert build_session_quality_forecast(_readiness(75.0, 0.59), _planned()) is None
+
+
+@pytest.mark.parametrize(
+    ("actual", "expected"),
+    [
+        ({"role": "quality", "sport": "bike", "tss": 48}, "exact"),
+        ({"role": "quality", "sport": "bike", "tss": 72}, "exact"),
+        ({"role": "quality", "sport": "run", "tss": 36}, "substituted"),
+        ({"role": "quality", "sport": "bike", "tss": 84}, "substituted"),
+        ({"role": "easy", "sport": "bike", "tss": 60}, "major_deviation"),
+        ({"role": "quality", "sport": "bike", "tss": 35}, "major_deviation"),
+        ({"role": None, "sport": "bike", "tss": 60}, None),
+    ],
+)
+def test_adherence_boundaries_are_operational(actual: dict, expected: str | None) -> None:
+    assert classify_plan_adherence(_planned(), actual) == expected
+
+
+def test_brier_uses_only_unambiguous_quality_ratings() -> None:
+    assert brier_score(70, 5) == 0.09
+    assert brier_score(30, 1) == 0.09
+    assert brier_score(70, 3) is None
+    assert brier_score(70, None) is None
+
+
+def test_activity_processor_preserves_only_source_backed_gmt_start() -> None:
+    rows = ActivityProcessor.process_activities(
+        [
+            {
+                "activityId": "with-gmt",
+                "startTimeLocal": "2026-07-14T11:00:00",
+                "startTimeGMT": "2026-07-14T08:00:00",
+                "activityType": {"typeKey": "cycling"},
+                "duration": 3600,
+            },
+            {
+                "activityId": "local-only",
+                "startTimeLocal": "2026-07-14T12:00:00",
+                "activityType": {"typeKey": "running"},
+                "duration": 1800,
+            },
+        ]
+    ).set_index("activity_id")
+
+    assert rows.loc["with-gmt", "started_at_utc"] == "2026-07-14T08:00:00Z"
+    assert rows.loc["local-only", "started_at_utc"] is None
+    assert rows.loc["local-only", "date"].date().isoformat() == "2026-07-14"
+
+
+def test_database_forecast_fingerprint_is_idempotent_and_snapshots_are_immutable(tmp_path) -> None:
+    db = Database(str(tmp_path / "prediction-log.db"))
+
+    first = _save_prediction(
+        db,
+        fingerprint="forecast-1",
+        created_at="2026-07-14T06:00:00Z",
+        prediction_pct=40,
+    )
+    duplicate = _save_prediction(
+        db,
+        fingerprint="forecast-1",
+        created_at="2026-07-14T06:01:00Z",
+        prediction_pct=90,
+    )
+    second = _save_prediction(
+        db,
+        fingerprint="forecast-2",
+        created_at="2026-07-14T07:00:00Z",
+        prediction_pct=70,
+    )
+
+    assert first["created"] is True
+    assert duplicate["created"] is False
+    assert duplicate["prediction"]["id"] == first["prediction"]["id"]
+    assert duplicate["prediction"]["prediction_pct"] == 40
+    assert second["prediction"]["revision"] == 2
+    assert len(db.get_session_quality_predictions(days=36500)) == 2
+
+
+def test_resolution_scores_latest_prestart_revision_and_freezes_actual_snapshot(tmp_path) -> None:
+    from api.session_quality_forecast import resolve_session_quality_prediction
+
+    db = Database(str(tmp_path / "resolve.db"))
+    first = _save_prediction(
+        db,
+        fingerprint="forecast-1",
+        created_at="2026-07-14T06:00:00Z",
+        prediction_pct=40,
+    )["prediction"]
+    _save_prediction(
+        db,
+        fingerprint="forecast-2",
+        created_at="2026-07-14T07:00:00Z",
+        prediction_pct=70,
+    )
+    _save_prediction(
+        db,
+        fingerprint="forecast-3",
+        created_at="2026-07-14T09:00:00Z",
+        prediction_pct=90,
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "activity-1",
+                "date": "2026-07-14",
+                "started_at_utc": "2026-07-14T08:00:00Z",
+                "sport": "bike",
+                "duration_minutes": 60,
+                "tss": 60,
+            }
+        ]
+    )
+
+    resolved = resolve_session_quality_prediction(
+        db,
+        first["id"],
+        activity_ids=["activity-1"],
+        actual_role="quality",
+        quality_rating_1_5=4,
+        note="Контролируемо выполнил интервалы",
+    )
+    by_revision = {row["revision"]: row for row in resolved["predictions"]}
+
+    assert by_revision[1]["status"] == "unscored"
+    assert by_revision[1]["unscored_reason"] == "superseded"
+    assert by_revision[2]["status"] == "scored"
+    assert by_revision[2]["plan_adherence"] == "exact"
+    assert by_revision[2]["quality_outcome"] == "success"
+    assert by_revision[2]["brier_score"] == 0.09
+    assert by_revision[2]["actual_snapshot"]["actual_total_tss"] == 60.0
+    assert by_revision[3]["unscored_reason"] == "post_start_prediction"
+
+    db.sync_activities(
+        [
+            {
+                "activity_id": "activity-1",
+                "date": "2026-07-14",
+                "started_at_utc": "2026-07-14T08:00:00Z",
+                "sport": "bike",
+                "duration_minutes": 60,
+                "tss": 10,
+            }
+        ]
+    )
+    frozen = db.get_session_quality_prediction(by_revision[2]["id"])
+    assert frozen["actual_snapshot"]["actual_total_tss"] == 60.0
+    assert frozen["brier_score"] == 0.09
+
+
+def test_major_deviation_is_unscored_even_with_clear_rating(tmp_path) -> None:
+    from api.session_quality_forecast import resolve_session_quality_prediction
+
+    db = Database(str(tmp_path / "major-deviation.db"))
+    prediction = _save_prediction(
+        db,
+        fingerprint="forecast-major",
+        created_at="2026-07-14T06:00:00Z",
+        prediction_pct=30,
+    )["prediction"]
+    db.save_activities(
+        [
+            {
+                "activity_id": "walk-1",
+                "date": "2026-07-14",
+                "started_at_utc": "2026-07-14T08:00:00Z",
+                "sport": "walk",
+                "duration_minutes": 30,
+                "tss": 5,
+            }
+        ]
+    )
+
+    resolved = resolve_session_quality_prediction(
+        db,
+        prediction["id"],
+        activity_ids=["walk-1"],
+        actual_role="recovery",
+        quality_rating_1_5=5,
+    )["predictions"][0]
+
+    assert resolved["status"] == "unscored"
+    assert resolved["plan_adherence"] == "major_deviation"
+    assert resolved["unscored_reason"] == "major_deviation"
+    assert resolved["brier_score"] is None
+
+
+def test_shadow_recording_appends_changed_readiness_without_product_mutation(
+    tmp_path,
+) -> None:
+    from api.session_quality_forecast import record_shadow_session_quality_forecast
+
+    today = date(2026, 7, 12)
+    db = Database(str(tmp_path / "shadow.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    before_checkpoint = db.get_latest_planning_checkpoint()["id"]
+
+    first = record_shadow_session_quality_forecast(
+        db,
+        checkpoint=checkpoint,
+        readiness_snapshot=_readiness(75.0),
+        today=today,
+    )
+    repeat = record_shadow_session_quality_forecast(
+        db,
+        checkpoint=checkpoint,
+        readiness_snapshot=_readiness(75.0),
+        today=today,
+    )
+    second = record_shadow_session_quality_forecast(
+        db,
+        checkpoint=checkpoint,
+        readiness_snapshot=_readiness(35.0),
+        today=today,
+    )
+
+    assert first["prediction"]["id"] == repeat["prediction"]["id"]
+    assert second["prediction"]["revision"] == 2
+    assert len(db.get_session_quality_predictions(days=36500)) == 2
+    assert db.get_latest_planning_checkpoint()["id"] == before_checkpoint
+    assert db.get_recovery_decisions(days=36500) == []
+    assert db.get_coach_proposals(days=36500) == []
+
+
+def test_summary_counts_only_scored_low_forecast_failures(tmp_path) -> None:
+    from api.session_quality_forecast import summarize_session_quality_predictions
+
+    rows = [
+        {"status": "scored", "prediction_pct": 40, "quality_outcome": "failure", "brier_score": 0.16},
+        {"status": "scored", "prediction_pct": 50, "quality_outcome": "success", "brier_score": 0.25},
+        {"status": "unscored", "prediction_pct": 30, "quality_outcome": None, "unscored_reason": "major_deviation"},
+    ]
+
+    summary = summarize_session_quality_predictions(rows)
+
+    assert summary["total"] == 3
+    assert summary["scored"] == 2
+    assert summary["unscored"] == 1
+    assert summary["mean_brier_score"] == 0.205
+    assert summary["low_forecast_count"] == 2
+    assert summary["low_forecast_hit_rate"] == 0.5
+    assert summary["unscored_reasons"] == {"major_deviation": 1}
+
+
+def test_openapi_exposes_headless_prediction_list_and_resolve() -> None:
+    from api.main import app
+
+    paths = app.openapi()["paths"]
+    assert "/api/session-quality-predictions" in paths
+    assert "/api/session-quality-predictions/{prediction_id}/resolve" in paths
+
+
+def test_post_sync_shadow_failure_is_non_fatal(tmp_path, monkeypatch) -> None:
+    from api.routers import system as system_router
+
+    db = Database(str(tmp_path / "sync-shadow.db"))
+    monkeypatch.setattr(
+        system_router,
+        "record_shadow_session_quality_forecast",
+        lambda _db: (_ for _ in ()).throw(RuntimeError("shadow unavailable")),
+    )
+
+    payload = system_router._attach_shadow_forecast(
+        {"sync_state": "succeeded"},
+        db,
+    )
+
+    assert payload["sync_state"] == "succeeded"
+    assert payload["session_quality_forecast"] is None
+    assert payload["session_quality_forecast_error"] == "shadow unavailable"

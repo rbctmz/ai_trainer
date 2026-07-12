@@ -13,7 +13,7 @@ The feature is deliberately shadow-only. It must not affect the readiness score,
 - [x] (2026-07-12 09:22Z) Read Issue #161, `.agent/PLANS.md`, the canonical readiness/gate adapters, Recovery Replan, Today composition, Garmin activity ingestion, sync orchestration, and SQLite persistence.
 - [x] (2026-07-12 09:22Z) Verified publish path and created isolated worktree `/tmp/ai_trainer_issue161_session_quality` on `codex/issue-161-session-quality-shadow` from current `origin/main` at `c824bd2`.
 - [x] (2026-07-12 09:22Z) Pre-registered the exact `session_quality_v1` formula, timing rule, adherence boundaries, rating mapping, and calibration metrics in this plan before production data can be written.
-- [ ] Add BDD/TDD contracts and record the pre-implementation failures.
+- [x] (2026-07-12 09:34Z) Added BDD/TDD contracts for formula, adherence, timing, revisions, scoring, immutable facts, shadow isolation, API, and sync fail-open; red run stopped at the expected missing domain module.
 - [ ] Implement source-backed activity start timestamps and additive forecast persistence.
 - [ ] Implement the pure predictor, shadow orchestration, resolution, API, and post-sync integration.
 - [ ] Update the WoZ schema without rewriting historical rows.
@@ -33,6 +33,12 @@ The feature is deliberately shadow-only. It must not affect the readiness score,
 
 - Observation: `/api/today` intentionally writes Recovery Replan state on read, while Issue D needs forecasts even when Coach/Today is not opened.
   Evidence: `api/routers/today.py` calls `run_recovery_replan_loop`, but the daily data-producing action is Garmin sync. The shadow recorder therefore belongs after successful sync, with an additional idempotent link when Recovery Replan later has a decision id.
+
+- Observation: `docs/woz_tracking.csv` is intentionally local-only and absent from clean worktrees.
+  Evidence: `.gitignore` ignores `*.csv`; `git ls-files docs/woz_tracking.csv` is empty. The PR must document the schema and provide a safe migration helper or instruction, while the user's local file is migrated separately without pretending it is a committed artifact.
+
+- Observation: the red phase fails at the intended first missing boundary before any production code exists.
+  Evidence: focused pytest reports `ModuleNotFoundError: No module named 'models.session_quality_forecast'` during collection. This proves tests depend on the new contract rather than accidentally exercising an existing helper.
 
 ## Decision Log
 
@@ -58,6 +64,10 @@ The feature is deliberately shadow-only. It must not affect the readiness score,
 
 - Decision: freeze the actual activity snapshot at resolution.
   Rationale: this repository can recalculate activity TSS after FTP/LTHR changes. A scored historical row must not change retroactively.
+  Date/Author: 2026-07-12 / Codex.
+
+- Decision: keep the ignored WoZ data local and commit only a canonical schema/migration contract.
+  Rationale: force-adding personal CSV rows risks publishing sensitive metrics and contradicts the repository's data-security rule. The implementation will add a small safe migration utility or documented command and apply it only to the local ignored file.
   Date/Author: 2026-07-12 / Codex.
 
 ## Pre-registered `session_quality_v1` formula
@@ -153,7 +163,7 @@ Add `api/routers/session_quality.py` with `GET /api/session-quality-predictions`
 
 Update `api/routers/system.py` so successful real sync calls the recorder in a try/except and adds a small shadow result/error field to the sync payload. Update Recovery Replan in a fail-open block only to idempotently link an existing/equivalent revision to its decision id. Never feed the result back into gate or proposal logic.
 
-Finally add `качество_сессии_1_5` to the local WoZ CSV header. Append an empty field to existing rows mechanically so column alignment remains valid; do not reinterpret `реакция_1_5`.
+Finally add a committed canonical WoZ schema/migration note and migrate the user's ignored local CSV separately by adding `качество_сессии_1_5`. Append an empty field to existing rows mechanically so column alignment remains valid; do not reinterpret `реакция_1_5` and do not force-add personal CSV data.
 
 ## Concrete Steps
 
@@ -185,6 +195,11 @@ Issue: `https://github.com/rbctmz/ai_trainer/issues/161`.
 Starting base:
 
     c824bd2 Merge pull request #162
+
+TDD red evidence:
+
+    1 error during collection
+    ModuleNotFoundError: No module named 'models.session_quality_forecast'
 
 ## Interfaces and Dependencies
 
