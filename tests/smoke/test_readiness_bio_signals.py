@@ -12,6 +12,10 @@ from data.garmin_client import GarminClient
 
 pytestmark = pytest.mark.smoke
 
+# Дата наблюдения обязана попадать в окно get_daily_health(days=7) в день прогона —
+# захардкоженная дата ломает тесты, как только окно уезжает (issue #163).
+RECENT_DAY = date.today().isoformat()
+
 
 def test_phase1_daily_health_extracts_observational_bio_signals() -> None:
     payload = Phase1DataProcessor.process_daily_health_data(
@@ -50,7 +54,7 @@ def test_daily_health_persists_bio_signal_columns(tmp_path) -> None:
 
     result = database.sync_daily_health(
         {
-            "2026-07-04": {
+            RECENT_DAY: {
                 "resting_hr": 48,
                 "steps": 10000,
                 "respiration_avg": 12.8,
@@ -82,7 +86,7 @@ def test_daily_health_resync_preserves_bio_signals_when_endpoints_fail(tmp_path)
 
     database.sync_daily_health(
         {
-            "2026-07-04": {
+            RECENT_DAY: {
                 "resting_hr": 48,
                 "steps": 10000,
                 "respiration_avg": 12.8,
@@ -95,7 +99,7 @@ def test_daily_health_resync_preserves_bio_signals_when_endpoints_fail(tmp_path)
 
     # Повторный sync того же дня: respiration/SpO2/skin-temp эндпоинты не вернули данных
     result = database.sync_daily_health(
-        {"2026-07-04": {"resting_hr": 50, "steps": 11000}}
+        {RECENT_DAY: {"resting_hr": 50, "steps": 11000}}
     )
 
     assert result == {"new": 0, "updated": 1}
@@ -112,10 +116,10 @@ def test_daily_health_bio_only_resync_preserves_legacy_fields(tmp_path) -> None:
     """Issue #88: день, где сработал только SpO2, не должен обнулять resting_hr/steps."""
     database = Database(str(tmp_path / "bio_signals.db"))
 
-    database.sync_daily_health({"2026-07-04": {"resting_hr": 48, "steps": 10000}})
+    database.sync_daily_health({RECENT_DAY: {"resting_hr": 48, "steps": 10000}})
 
     result = database.sync_daily_health(
-        {"2026-07-04": {"spo2_avg": 96.5, "spo2_min": 92.0}}
+        {RECENT_DAY: {"spo2_avg": 96.5, "spo2_min": 92.0}}
     )
 
     assert result == {"new": 0, "updated": 1}
