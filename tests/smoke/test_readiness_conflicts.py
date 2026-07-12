@@ -296,7 +296,9 @@ def _seed_plan_with_quality_tomorrow(db) -> None:
     today = datetime.now().date()
     start_week = today - timedelta(days=today.weekday())
     days, templates = [], []
-    for offset in range(0, 7):
+    # 8 дней (Пн–следующий Пн): в воскресенье «завтра» — уже следующая неделя,
+    # и quality-сессия обязана попасть в засеянный план (issue #163).
+    for offset in range(0, 8):
         d = start_week + timedelta(days=offset)
         is_quality = d == today + timedelta(days=1)
         tss = 45.0 if is_quality else 10.0
