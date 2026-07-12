@@ -1,0 +1,7 @@
+{$DOMAIN::8080} {
+    basic_auth {
+        {$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+    }
+    reverse_proxy web:3000
+}
+

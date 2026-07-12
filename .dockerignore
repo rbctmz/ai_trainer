@@ -1,0 +1,17 @@
+.git
+.env
+*.db
+ai_trainer_env/
+web/node_modules/
+web/.next/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+archived/
+chats/
+logs/
+debug/
+docs/
+tests/
+
