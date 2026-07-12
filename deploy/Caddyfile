@@ -1,6 +1,11 @@
-{$DOMAIN::8080} {
-    basic_auth {
-        {$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
-    }
-    reverse_proxy web:3000
+{$SITE_ADDRESS} {
+	basic_auth {
+		{$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
+	}
+	handle /api/* {
+		reverse_proxy api:8000
+	}
+	handle {
+		reverse_proxy web:3000
+	}
 }

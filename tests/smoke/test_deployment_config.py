@@ -64,15 +64,22 @@ def test_compose_keeps_application_ports_private_and_database_persistent() -> No
     )
 
 
-def test_web_proxy_target_is_runtime_configured_inside_compose_network() -> None:
+def test_edge_routes_api_directly_inside_compose_network() -> None:
     compose = _read("docker-compose.yml")
+    caddyfile = _read("deploy/Caddyfile")
     dockerfile = _read("web/Dockerfile")
 
-    assert "API_BASE_URL: http://api:8000" in compose, (
-        "Next.js must proxy API calls to the private Compose service"
+    assert "API_BASE_URL:" not in compose, (
+        "Compose must not advertise a runtime Next rewrite that Next.js bakes at build time"
+    )
+    assert "handle /api/*" in caddyfile, (
+        "the authenticated edge must route same-origin API calls separately"
+    )
+    assert "reverse_proxy api:8000" in caddyfile, (
+        "API traffic must reach the private FastAPI service over Compose DNS"
     )
     assert "next.config.mjs" in dockerfile, (
-        "the runtime image must retain Next config so API_BASE_URL is resolved at startup"
+        "the runtime image must retain the repository's production Next configuration"
     )
     assert "standalone" not in dockerfile, (
         "standalone output would freeze the API proxy target at image build time"
@@ -80,8 +87,15 @@ def test_web_proxy_target_is_runtime_configured_inside_compose_network() -> None
 
 
 def test_caddy_authenticates_every_request_without_short_upstream_timeout() -> None:
+    compose = _read("docker-compose.yml")
     caddyfile = _read("deploy/Caddyfile")
 
+    assert "SITE_ADDRESS: ${DOMAIN:-:8080}" in compose, (
+        "an empty DOMAIN must resolve to the explicit local HTTP listener :8080"
+    )
+    assert "{$SITE_ADDRESS}" in caddyfile, (
+        "Caddy must consume the already-resolved site address from Compose"
+    )
     assert "basic_auth" in caddyfile, (
         "the only host-facing service must reject unauthenticated requests"
     )

@@ -15,11 +15,11 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 - [x] (2026-07-12 12:05Z) Researched the current runtime: `api/main.py` (CORS, `/api/health`), `api/deps.py` (database resolution), `api/sync_jobs.py` (process-local jobs), `web/next.config.mjs` (rewrites, proxy timeout), `run_web.sh` (health polling), `.gitignore` (secrets/db exclusions). Findings recorded below.
 - [x] (2026-07-12 12:10Z) Authored this plan; created Issue #166 and branch `claude/issue-166-self-hosted-deploy`.
 - [x] (2026-07-12 13:05Z) Added the deployment behavior/security contract as smoke tests before implementation. On a checkout without `docker-compose.yml` the module intentionally skips; once Milestone 1 introduces Compose, the incomplete topology must fail until Milestones 2–3 are present.
-- [ ] Milestone 1: backend image (`Dockerfile.api`), `.dockerignore`, Compose skeleton, compiler fallback, and data volume created. Pip successfully built `spectrum` and installed the complete dependency graph; final image export and runtime health acceptance are blocked by the host disk having only 560 MB free.
+- [x] (2026-07-12 20:56Z) Milestone 1: backend image (`Dockerfile.api`), `.dockerignore`, Compose skeleton, compiler fallback, and named data volume implemented. The arm64 image exported successfully and `docker compose ps` reports the API healthy.
 - [x] (2026-07-12 13:55Z) Milestone 2: web image (`web/Dockerfile`, `web/.dockerignore`) and Compose `web` service implemented. The container production build completed, including Next compilation, lint, TypeScript checks, and all 12 static routes.
-- [ ] Milestone 3: Caddy edge (`deploy/Caddyfile`), basic auth + HTTPS, and private API/web ports implemented; 401/200 runtime acceptance pending the API image build.
+- [x] (2026-07-12 20:59Z) Milestone 3: Caddy edge implemented and corrected from live acceptance findings. Local mode serves on `:8080`; unauthenticated API access returns 401, authenticated health returns 200, and Caddy routes `/api/*` directly to private FastAPI while pages/assets go to web.
 - [x] (2026-07-12 14:00Z) Milestone 4: deployment smoke test, `.env.example` additions, and README self-hosting/migration guide implemented.
-- [ ] Validation: Compose config, deployment guardrails, smoke suite, and Next production image build are green. Full container runtime acceptance remains blocked until host disk space is recovered without deleting Docker volumes.
+- [x] (2026-07-12 21:03Z) Validation complete: clean full build/start, Compose config, Caddy validation, auth 401/200, demo seed and canonical demo reads, named-volume restart persistence, private API/web port bindings, Next production build, and contributor-safe smoke suite are green. Real-domain certificate issuance remains intentionally deferred to the first VPS deployment.
 
 ## Surprises & Discoveries
 
@@ -29,8 +29,8 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 - Observation: background Garmin sync is process-local, which constrains how uvicorn may run.
   Evidence: `api/sync_jobs.py` documents that `SyncJobManager` "intentionally avoids external queues because the current product runs as a local single-user FastAPI process" and coordinates a `threading.Thread` behind a `Lock`. Additionally `api/deps.py` caches `Database` handles in an `lru_cache`. Running uvicorn with `--workers N>1` would give each worker its own job manager and cache, so sync status queries could hit a worker that knows nothing about a running job. The backend container therefore MUST run a single uvicorn process.
 
-- Observation: `API_BASE_URL` is read at Next.js **server start**, not only at build time.
-  Evidence: `web/next.config.mjs` computes `API_BASE` from `process.env.API_BASE_URL` at module evaluation, and `next start` re-evaluates `next.config.mjs` when the production server boots. This only holds if the runtime image ships `next.config.mjs` and does NOT use Next's `standalone` output mode (which inlines the config at build). The web Dockerfile below keeps the non-standalone layout on purpose so one built image works with any backend URL.
+- Observation: Next.js 14 bakes rewrites into the production build; shipping `next.config.mjs` does not make `API_BASE_URL` a runtime target.
+  Evidence: the first running web container logged attempts to proxy `/api/*` to the build-time default `http://127.0.0.1:8000` even though Compose injected `API_BASE_URL=http://api:8000` at runtime. The production edge therefore routes `/api/*` directly to `api:8000`; the existing Next rewrite remains useful only for the local `run_web.sh` development topology.
 
 - Observation: a full Garmin sync can take minutes, so no proxy layer may impose a short upstream timeout.
   Evidence: `web/next.config.mjs` sets `experimental.proxyTimeout: 300_000` with a comment referencing issue #45 (default ~30 s dev proxy killed `POST /api/sync` with ECONNRESET under Garmin's 429 rate limiting). Caddy's `reverse_proxy` has no default upstream read timeout, so the edge adds no new limit; do not "harden" Caddy with a `response_header_timeout` shorter than ~5 minutes.
@@ -39,7 +39,7 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
   Evidence: `data/garmin_client.py` authenticates through `garminconnect` with `GARMIN_EMAIL`/`GARMIN_PASSWORD` from the environment on each login call; fresh `garth` login is intentionally disabled. So the only state that must live in a volume is the SQLite files.
 
 - Observation: CORS becomes irrelevant in this topology, no code change needed.
-  Evidence: the browser only ever talks to the Caddy origin; Next.js proxies `/api/*` server-side to `http://api:8000` (same-origin from the browser's point of view). The existing `WEB_ORIGINS` default in `api/main.py` stays untouched.
+  Evidence: the browser only ever talks to the Caddy origin; Caddy routes `/api/*` to the private FastAPI service and all other requests to Next.js. The existing `WEB_ORIGINS` default in `api/main.py` stays untouched.
 
 - Observation: the original Dockerfile example and the planned guardrail disagreed about the literal `--workers` text.
   Evidence: the example comment said "Do not add --workers", while `test_deployment_config.py` is required to reject any Dockerfile containing that token. The implementation keeps the strict test and phrases the comment as "do not add multiple workers" so comments cannot mask an accidental flag.
@@ -55,6 +55,12 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 
 - Observation: the acceptance host ran out of physical disk space and Docker's content store became unreadable.
   Evidence: after `spectrum` built successfully and every Python package installed, BuildKit failed while committing `metadata_v2.db` with `input/output error`. Host `df` showed only 560 MB free on `/System/Volumes/Data`; Docker occupied 54 GB and reported about 33 GB of unused images. `docker system prune -af` (without volumes) could not complete because the already-starved content store returned the same blob I/O errors. Resetting Docker data would destroy unrelated volumes and was not attempted.
+
+- Observation: passing `DOMAIN` as an explicitly empty container environment variable prevents Caddy's placeholder default from applying.
+  Evidence: the first successful runtime start put Caddy into a restart loop with `unrecognized global option: basic_auth`. Compose had expanded `DOMAIN: ${DOMAIN:-}` to an empty but present variable, so `{$DOMAIN::8080}` became an empty site label and Caddy parsed the following block as global options. Compose now resolves the complete `SITE_ADDRESS` itself (`${DOMAIN:-:8080}`), and Caddy consumes `{$SITE_ADDRESS}` without a second layer of default semantics.
+
+- Observation: routing production API traffic through the baked Next rewrite caused authenticated `/api/*` requests to return HTTP 500.
+  Evidence: Caddy authentication and the static dashboard worked (401 unauthenticated, 200 authenticated), but the web log showed `ECONNREFUSED 127.0.0.1:8000`. Direct Caddy `handle /api/*` routing to the private Compose service `api:8000` restores same-origin API access without exposing the backend port or adding a proxy timeout.
 
 ## Decision Log
 
@@ -74,9 +80,9 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
   Rationale: match the runtimes the repository is developed and CI-tested against (local Python 3.10.11, Node 20, `web/package.json` targets Next 14). No gratuitous version jumps inside a packaging-only change.
   Date/Author: 2026-07-12 / Claude.
 
-- Decision: keep the existing Next.js rewrite proxy; defer an API bearer token.
-  Rationale: Next rewrites cannot attach an `Authorization` header, so an app-level API token would force replacing the rewrite with a catch-all route-handler proxy — a behavioral change to the request path (timeouts, streaming) far beyond packaging. Since the API has no published port, the token adds little in this topology. Milestone 4 of the service roadmap (multi-tenant auth) will revisit this properly.
-  Date/Author: 2026-07-12 / Claude.
+- Decision: route production `/api/*` directly in Caddy and retain the Next rewrite only for local development.
+  Rationale: Next 14 freezes rewrites during `next build`, so a runtime-only Compose environment value is ineffective. Caddy already owns the authenticated same-origin edge and can route API requests to `api:8000` without publishing the port. Its reverse proxy has no short response timeout, preserving long Garmin sync and SSE behavior. An app-level bearer token remains deferred because the API is reachable only inside the Compose network and through authenticated Caddy.
+  Date/Author: 2026-07-12 / Codex.
 
 - Decision: do not trim `requirements.txt` for the image (Streamlit and friends get installed even though the container only runs FastAPI).
   Rationale: splitting requirements is a repo-wide refactor with its own risks; image size is not a goal of this step. Recorded as possible follow-up.
@@ -100,19 +106,19 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 
 ## Outcomes & Retrospective
 
-The configuration, security guardrails, operator documentation, and production web image are implemented. The exercise found and fixed two real clean-build issues before publication: slow PyPI links now have explicit retry/timeout policy, and arm64 builds install the compiler required by `spectrum`. Compose validation and the contributor-safe smoke suite are green.
+The complete self-hosted stack now builds and runs locally. Caddy is the only published application edge, rejects unauthenticated requests, serves the Next dashboard, and routes same-origin API traffic to FastAPI. The API is healthy, demo seeding and canonical dashboard/today reads work, and a marker written to the demo SQLite database survived a full `docker compose down` / `up` cycle before being removed.
 
-The only incomplete outcome is the end-to-end container runtime transcript. The local host exhausted its physical disk while BuildKit committed the API dependency layer, so the API image could not be exported even though dependency installation itself completed. Runtime checks (Caddy 401/200, demo seed, volume persistence, unpublished 8000/3000) must be resumed after the operator frees several gigabytes or moves Docker's disk image. Docker volumes were deliberately preserved.
+Live acceptance found and fixed four issues that static planning alone missed: slow PyPI downloads needed retries/timeouts; arm64 `spectrum` needed a compiler; an explicitly empty `DOMAIN` disabled Caddy's local default; and Next 14 production rewrites were build-time rather than runtime configuration. The final topology is simpler and more truthful: local development keeps the Next rewrite, while self-hosted production routes API traffic at the authenticated Caddy edge. The only deferred check is automatic certificate issuance against a real DNS name on the first VPS deployment.
 
 ## Context and Orientation
 
 The repository contains one product with two UI surfaces and one shared Python core:
 
 - `api/main.py` is the FastAPI entry point. All routes live under `/api/*` (routers in `api/routers/`). `GET /api/health` returns `{"status": "ok"}`. There is **no authentication anywhere** in this layer. On import it calls `load_dotenv()`, so a `.env` file in the working directory supplies secrets (`GARMIN_EMAIL`, AI provider keys, etc.).
-- `web/` is a Next.js 14 app. The browser calls `/api/*` on the web origin; `web/next.config.mjs` rewrites those to `${API_BASE_URL}/api/*` server-side (default `http://127.0.0.1:8000`). Production mode is `npm run build` then `npm run start` (port 3000).
+- `web/` is a Next.js 14 app. In local development the browser calls `/api/*` and `web/next.config.mjs` rewrites those to the backend selected by `run_web.sh`. In the self-hosted production topology Caddy routes same-origin `/api/*` directly to FastAPI because production Next rewrites are build-time artifacts. Production UI mode remains `npm run build` then `npm run start` (port 3000).
 - Persistence is SQLite. `config/settings.py` reads `DATABASE_PATH` (default `ai_trainer.db` in the working directory). `api/deps.py` derives an isolated demo database path from it (`ai_trainer_demo.db`) unless `DEMO_DATABASE_PATH` overrides it. Both files must live on a persistent volume in Docker.
 - `app.py` is the legacy Streamlit surface. It is NOT part of this deployment; `./run.sh` remains the local fallback.
-- "Edge proxy" here means one Caddy container that is the only thing listening on host ports. Caddy checks a username/password (HTTP Basic Auth, bcrypt hash) and forwards everything to the Next.js container, which in turn proxies `/api/*` to FastAPI. Caddy obtains and renews TLS certificates automatically when given a real domain name.
+- "Edge proxy" here means one Caddy container that is the only application component listening on host ports. Caddy checks a username/password (HTTP Basic Auth), routes `/api/*` to FastAPI and everything else to Next.js, and obtains/renews TLS certificates automatically when given a real domain name.
 
 New files created by this plan (all repository-relative):
 
@@ -186,7 +192,7 @@ Acceptance: from the repo root, `docker compose up -d --build api`, then within 
 
 Create `web/.dockerignore` containing `node_modules`, `.next`, `.env.local`.
 
-Create `web/Dockerfile` (multi-stage; the final stage keeps `next.config.mjs` so `API_BASE_URL` stays a **runtime** setting — see Surprises):
+Create `web/Dockerfile` (multi-stage; the final stage keeps the repository's production `next.config.mjs`, while Caddy owns production API routing — see Surprises):
 
     FROM node:20-alpine AS deps
     WORKDIR /app
@@ -218,8 +224,6 @@ Add the `web` service to `docker-compose.yml`:
       web:
         build:
           context: web
-        environment:
-          API_BASE_URL: http://api:8000
         depends_on:
           api:
             condition: service_healthy
@@ -228,22 +232,27 @@ Add the `web` service to `docker-compose.yml`:
           - "127.0.0.1:3000:3000"
         restart: unless-stopped
 
-`http://api:8000` resolves via Compose's internal DNS; the browser never sees this address because the Next server proxies `/api/*` itself.
+The browser never sees an internal service address. In the final topology Caddy serves the same origin, routing `/api/*` to `api:8000` and page/assets traffic to the web container.
 
-Acceptance: `docker compose up -d --build`, open `http://127.0.0.1:3000` — the dashboard page renders; `http://127.0.0.1:3000/api/health` returns `{"status":"ok"}` through the Next rewrite, proving web→api connectivity inside the Compose network.
+Acceptance: after the final Caddy milestone, the authenticated dashboard renders and `http://127.0.0.1:8080/api/health` returns `{"status":"ok"}` through the edge's direct API route.
 
 ### Milestone 3 — Caddy edge: basic auth and HTTPS
 
 Create `deploy/Caddyfile`:
 
-    {$DOMAIN::8080} {
+    {$SITE_ADDRESS} {
         basic_auth {
             {$BASIC_AUTH_USER} {$BASIC_AUTH_HASH}
         }
-        reverse_proxy web:3000
+        handle /api/* {
+            reverse_proxy api:8000
+        }
+        handle {
+            reverse_proxy web:3000
+        }
     }
 
-How this reads: `{$DOMAIN::8080}` is a Caddy environment placeholder with a default — if `DOMAIN` is set (e.g. `trainer.example.com`), Caddy serves that site with automatic HTTPS (Let's Encrypt, ports 80+443); if `DOMAIN` is empty, Caddy serves plain HTTP on `:8080`, which is the local/LAN test mode. `basic_auth` rejects every request without the correct username/password with HTTP 401 before anything reaches the app. Do not add upstream timeouts to `reverse_proxy` (long Garmin syncs, see Surprises).
+How this reads: Compose resolves `SITE_ADDRESS` from `DOMAIN`: a configured domain (e.g. `trainer.example.com`) is passed through for automatic HTTPS, while an empty domain becomes `:8080` for local/LAN HTTP. Caddy reads that already-complete address through `{$SITE_ADDRESS}`. `basic_auth` rejects every request without the correct username/password with HTTP 401 before anything reaches the app. Do not add upstream timeouts to `reverse_proxy` (long Garmin syncs, see Surprises).
 
 Add the `caddy` service to `docker-compose.yml`, and **delete the two temporary `ports:` blocks** from `api` and `web`:
 
@@ -254,7 +263,7 @@ Add the `caddy` service to `docker-compose.yml`, and **delete the two temporary 
           - "443:443"
           - "8080:8080"
         environment:
-          DOMAIN: ${DOMAIN:-}
+          SITE_ADDRESS: ${DOMAIN:-:8080}
           BASIC_AUTH_USER: ${BASIC_AUTH_USER:?set BASIC_AUTH_USER in .env}
           BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?set BASIC_AUTH_HASH in .env}
         volumes:
@@ -323,7 +332,7 @@ The change is accepted when, on a clean checkout with Docker installed and a fil
 3. `curl -s -u trainer:chosen-password http://127.0.0.1:8080/api/health` → `{"status":"ok"}`.
 4. In a browser at `http://127.0.0.1:8080` (after the auth prompt): the dashboard renders; `POST /api/demo/seed` via the demo controls (or `curl -su trainer:pass -X POST http://127.0.0.1:8080/api/demo/seed`) populates demo data and pages render with `?demo=1`.
 5. `docker compose down` followed by `docker compose up -d` preserves all data (named volume), demonstrated by re-opening a page that shows previously synced or seeded data.
-6. `curl http://127.0.0.1:8000/api/health` and `curl http://127.0.0.1:3000` both fail to connect from the host.
+6. Docker reports empty host port bindings for the API and web containers. On a host where unrelated developer services already use `8000`/`3000`, verify this with `docker inspect` rather than ambiguous host curl results.
 7. `python -m pytest tests/smoke -q` passes, including the new `test_deployment_config.py`.
 
 ## Idempotence and Recovery
@@ -338,7 +347,7 @@ Captured locally on 2026-07-12:
     # exit 0; services: api, web, caddy
 
     python -m pytest tests/smoke -q
-    501 passed, 1 skipped in 11.26s
+    502 passed in 10.58s
 
     docker compose build web
     Compiled successfully
@@ -349,9 +358,28 @@ Captured locally on 2026-07-12:
     docker compose build api
     Successfully built spectrum
     Successfully installed ... streamlit-1.59.1 ... uvicorn-0.51.0 ...
-    error committing ... metadata_v2.db: input/output error
+    image ai_trainer_issue166_selfhosted-api exported
+    api Up (healthy)
 
-Pending after host disk recovery: `docker compose ps`, the Caddy 401/200 curl transcript, demo seed, named-volume restart persistence, and proof that host ports 8000/3000 are closed.
+    unauth_health=401
+    auth_health_status=200
+    demo_seed=200
+    demo_summary=200
+    demo_widgets=200
+    today_demo=200
+    dashboard_page=200
+
+    docker compose down && docker compose up -d
+    persisted_marker= issue166-persistence
+    unauth_after_restart=401
+    auth_after_restart=200
+
+    api_bindings={}
+    web_bindings={}
+    caddy_bindings={"443/tcp":[...],"80/tcp":[...],"8080/tcp":[...]}
+    Valid configuration
+
+The acceptance marker was removed from the isolated demo database after the persistence check. The local test credential and `.env` remain git-ignored. Automatic HTTPS is deferred because this workstation has no real `DOMAIN`/DNS record pointing to it.
 
 ## Interfaces and Dependencies
 
@@ -367,4 +395,4 @@ No Python or TypeScript source files change. The deliverable is configuration on
 
 External images: `python:3.10-slim`, `node:20-alpine`, `caddy:2` — all official library images. No new Python/npm dependencies.
 
-Follow-ups explicitly out of scope (candidates for the next service-readiness ExecPlans): account-based authentication and multi-tenant schema (Postgres, `user_id`), official Garmin OAuth instead of `garminconnect` credentials, an app-level API token (requires replacing the Next rewrite proxy with a route handler that can attach headers), request rate limiting, structured production logging, and trimming `requirements.txt` into runtime vs. legacy-Streamlit sets to shrink the backend image.
+Follow-ups explicitly out of scope (candidates for the next service-readiness ExecPlans): account-based authentication and multi-tenant schema (Postgres, `user_id`), official Garmin OAuth instead of `garminconnect` credentials, an app-level API token, request rate limiting, structured production logging, and trimming `requirements.txt` into runtime vs. legacy-Streamlit sets to shrink the backend image.

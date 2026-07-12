@@ -19,8 +19,6 @@ services:
   web:
     build:
       context: web
-    environment:
-      API_BASE_URL: http://api:8000
     depends_on:
       api:
         condition: service_healthy
@@ -33,7 +31,7 @@ services:
       - "443:443"
       - "8080:8080"
     environment:
-      DOMAIN: ${DOMAIN:-}
+      SITE_ADDRESS: ${DOMAIN:-:8080}
       BASIC_AUTH_USER: ${BASIC_AUTH_USER:?set BASIC_AUTH_USER in .env}
       BASIC_AUTH_HASH: ${BASIC_AUTH_HASH:?set BASIC_AUTH_HASH in .env}
     volumes:
@@ -41,7 +39,10 @@ services:
       - caddy_data:/data
       - caddy_config:/config
     depends_on:
-      - web
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
     restart: unless-stopped
 
 volumes:
