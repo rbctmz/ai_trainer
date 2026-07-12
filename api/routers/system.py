@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from api.deps import demo_database, make_headless_state, real_database
 from api.deps import get_database
 from api.operational_state import build_operational_state, latest_iso_from_database
+from api.session_quality_forecast import record_shadow_session_quality_forecast
 from api.sync_jobs import sync_job_manager
 from config.settings import Settings
 from services import demo_mode as demo_service
@@ -74,10 +75,11 @@ def sync(payload: SyncRequest | None = None, days: int | None = None) -> Dict[st
         except Exception as exc:
             raise RuntimeError(f"Sync failed: {exc}") from exc
 
-        return _sync_payload_with_operational_state(
+        response = _sync_payload_with_operational_state(
             sync_service.build_sync_status_payload(result),
             db=state.database,
         )
+        return _attach_shadow_forecast(response, state.database)
 
     return sync_job_manager.start_or_get(
         days=requested_days,
@@ -95,6 +97,19 @@ def _sync_payload_with_operational_state(payload: Dict[str, Any], db, demo: bool
         latest_data_at=latest_data_at,
         sync_state=str(payload.get("sync_state") or "succeeded"),
     )
+    return payload
+
+
+def _attach_shadow_forecast(payload: Dict[str, Any], db) -> Dict[str, Any]:
+    """Record Issue D output without ever failing the primary sync."""
+    try:
+        result = record_shadow_session_quality_forecast(db)
+    except Exception as exc:
+        payload["session_quality_forecast"] = None
+        payload["session_quality_forecast_error"] = str(exc)
+        return payload
+    payload["session_quality_forecast"] = result
+    payload["session_quality_forecast_error"] = None
     return payload
 
 

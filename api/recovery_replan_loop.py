@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from api.readiness_conflicts import build_readiness_conflict_report
+from api.session_quality_forecast import record_shadow_session_quality_forecast
 from data.database import Database
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.recovery_replan import build_recovery_replan_variant
@@ -143,12 +144,27 @@ def run_recovery_replan_loop(
             )
             decision = db.link_recovery_decision_proposal(decision["id"], proposal["id"])
 
+    shadow_forecast = None
+    shadow_forecast_error = None
+    try:
+        shadow_forecast = record_shadow_session_quality_forecast(
+            db,
+            report=report,
+            checkpoint=checkpoint,
+            recovery_decision_id=decision["id"],
+            today=today,
+        )
+    except Exception as exc:  # shadow output must never alter the decision loop
+        shadow_forecast_error = str(exc)
+
     return {
         "outcome": outcome,
         "decision": decision,
         "proposal": proposal,
         "proposal_gap": proposal_gap,
         "readiness_conflicts": report,
+        "session_quality_forecast": shadow_forecast,
+        "session_quality_forecast_error": shadow_forecast_error,
     }
 
 
