@@ -15,10 +15,10 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 - [x] (2026-07-12 12:05Z) Researched the current runtime: `api/main.py` (CORS, `/api/health`), `api/deps.py` (database resolution), `api/sync_jobs.py` (process-local jobs), `web/next.config.mjs` (rewrites, proxy timeout), `run_web.sh` (health polling), `.gitignore` (secrets/db exclusions). Findings recorded below.
 - [x] (2026-07-12 12:10Z) Authored this plan; created Issue #166 and branch `claude/issue-166-self-hosted-deploy`.
 - [x] (2026-07-12 13:05Z) Added the deployment behavior/security contract as smoke tests before implementation. On a checkout without `docker-compose.yml` the module intentionally skips; once Milestone 1 introduces Compose, the incomplete topology must fail until Milestones 2–3 are present.
-- [ ] Milestone 1: backend image (`Dockerfile.api`), `.dockerignore`, Compose skeleton with data volume; health check green via `curl http://127.0.0.1:8000/api/health`.
-- [ ] Milestone 2: web image (`web/Dockerfile`, `web/.dockerignore`), Compose `web` service; dashboard renders through `http://127.0.0.1:3000`.
-- [ ] Milestone 3: Caddy edge (`deploy/Caddyfile`), basic auth + HTTPS; remove public API/web port bindings; 401 without credentials, 200 with.
-- [ ] Milestone 4: deployment smoke test (`tests/smoke/test_deployment_config.py`), `.env.example` additions, README "Self-hosted deployment" section.
+- [ ] Milestone 1: backend image (`Dockerfile.api`), `.dockerignore`, Compose skeleton with data volume created; runtime health acceptance pending because Docker Desktop returned an external package-download I/O error.
+- [x] (2026-07-12 13:55Z) Milestone 2: web image (`web/Dockerfile`, `web/.dockerignore`) and Compose `web` service implemented. The container production build completed, including Next compilation, lint, TypeScript checks, and all 12 static routes.
+- [ ] Milestone 3: Caddy edge (`deploy/Caddyfile`), basic auth + HTTPS, and private API/web ports implemented; 401/200 runtime acceptance pending the API image build.
+- [x] (2026-07-12 14:00Z) Milestone 4: deployment smoke test, `.env.example` additions, and README self-hosting/migration guide implemented.
 - [ ] Validation: full acceptance transcript captured in `Artifacts and Notes`; smoke suite green; PR ready for review.
 
 ## Surprises & Discoveries
@@ -43,6 +43,12 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 
 - Observation: the original Dockerfile example and the planned guardrail disagreed about the literal `--workers` text.
   Evidence: the example comment said "Do not add --workers", while `test_deployment_config.py` is required to reject any Dockerfile containing that token. The implementation keeps the strict test and phrases the comment as "do not add multiple workers" so comments cannot mask an accidental flag.
+
+- Observation: the first full image build reached PyPI but a slow download exhausted pip's default read timeout.
+  Evidence: the build downloaded the 10.3 MB Streamlit wheel, then failed partway through the 12.1 MB pandas wheel with `ReadTimeoutError` from `files.pythonhosted.org`; no compiler or package-resolution error occurred. The API image now sets `PIP_DEFAULT_TIMEOUT=300` and `PIP_RETRIES=10`, making clean VPS builds tolerant of slow package mirrors while preserving the same dependency set.
+
+- Observation: a second build proved the full Next.js image but Docker Desktop then returned an I/O error while pip was downloading an OpenCV wheel.
+  Evidence: `npm ci` completed, `next build` compiled and type-checked all 12 routes, and the web image was exported. The API build progressed through the full dependency graph before `OSError: [Errno 5] Input/output error`; immediately afterwards `docker info` returned `EOF`, identifying the local Docker VM rather than the Dockerfile as the failed component.
 
 ## Decision Log
 
@@ -72,6 +78,14 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 
 - Decision: write the final-topology guardrails before the packaging files, even though the milestone list introduces the services incrementally.
   Rationale: this preserves the repository's TDD discipline. The test module remains bisect-safe by skipping when Compose is absent, then becomes red as soon as the first incomplete Compose skeleton exists and turns green only when the protected final topology is complete.
+  Date/Author: 2026-07-12 / Codex.
+
+- Decision: configure pip retries and a five-minute network timeout in the image build.
+  Rationale: container builds are deployment infrastructure and must tolerate a slow but progressing package download. This changes only download recovery; dependency versions and the resulting runtime stay unchanged.
+  Date/Author: 2026-07-12 / Codex.
+
+- Decision: document database migration through a created-but-stopped API container rather than copying over a running SQLite process.
+  Rationale: `docker compose create api` mounts the named volume without opening the database. Copying into that stopped container avoids replacing a file while SQLite connections may be live; a backup remains mandatory because a repeated copy intentionally overwrites the volume copy.
   Date/Author: 2026-07-12 / Codex.
 
 ## Outcomes & Retrospective
@@ -264,11 +278,12 @@ Add a "Self-hosted deployment (Docker)" section to `README.md`: prerequisites (D
 
 Existing-data migration (documented in README, not automated): a user who already has a local `ai_trainer.db` copies it into the volume once, before first start:
 
-    docker compose up -d api
+    cp ai_trainer.db ai_trainer.db.backup
+    docker compose create api
     docker compose cp ai_trainer.db api:/data/ai_trainer.db
-    docker compose restart api
+    docker compose up -d
 
-`docker compose cp` is idempotent (it overwrites the target file); warn the user it replaces whatever the volume already holds.
+Creating rather than starting the API ensures no SQLite process has the destination file open during the copy. `docker compose cp` is idempotent (it overwrites the target file); warn the user it replaces whatever the volume already holds and require the backup shown above.
 
 ## Concrete Steps
 
