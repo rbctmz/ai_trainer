@@ -120,6 +120,45 @@ def test_decisions_api_groups_by_day_and_exposes_empty_state(tmp_path):
     assert payload["operational_state"]["status"] == "ready"
 
 
+def test_decisions_api_collapses_consecutive_identical_decisions(tmp_path):
+    from api.routers.decisions import list_decisions
+
+    db = Database(str(tmp_path / "decision_dedup.db"))
+    repeated_reason = "TSB -18.1: держите нагрузку контролируемой."
+    for hour in range(9, 12):
+        db.save_coach_decision(
+            "Moderate", repeated_reason, date=f"2026-07-09T{hour:02d}:00:00"
+        )
+    db.save_coach_decision(
+        "Push", "TSB +5.0: можно качественную работу.", date="2026-07-09T13:00:00"
+    )
+    db.save_coach_decision(
+        "Moderate", repeated_reason, date="2026-07-09T14:00:00"
+    )
+    db.save_coach_decision(
+        "Moderate", repeated_reason, date="2026-07-08T10:00:00"
+    )
+
+    payload = list_decisions(db=db)
+
+    assert payload["count"] == 6
+    assert [day["date"] for day in payload["days"]] == ["2026-07-09", "2026-07-08"]
+
+    day_items = payload["days"][0]["decisions"]
+    assert [(item["decision_type"], item["count"]) for item in day_items] == [
+        ("Moderate", 1),
+        ("Push", 1),
+        ("Moderate", 3),
+    ]
+    collapsed = day_items[2]
+    assert collapsed["reason"] == repeated_reason
+    assert collapsed["time"] == "11:00"
+    assert collapsed["first_time"] == "09:00"
+
+    other_day = payload["days"][1]["decisions"]
+    assert [(item["count"], item["time"]) for item in other_day] == [(1, "10:00")]
+
+
 def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path):
     from api.routers.decisions import list_decisions
 
