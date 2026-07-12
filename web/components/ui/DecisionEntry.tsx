@@ -10,6 +10,8 @@ const badgeClass: Record<CoachDecisionType, string> = {
 };
 
 export function DecisionEntry({ decision }: { decision: CoachDecision }) {
+  const count = decision.count ?? 1;
+  const isRepeated = count > 1 && decision.first_time && decision.first_time !== decision.time;
   return (
     <div className="flex gap-3 border-b border-surface-border py-3 last:border-0">
       <div className="w-12 shrink-0 pt-0.5 text-sm tabular-nums text-ink-faint">
@@ -21,7 +23,17 @@ export function DecisionEntry({ decision }: { decision: CoachDecision }) {
         >
           {decision.decision_type}
         </span>
+        {count > 1 ? (
+          <span className="ml-2 inline-flex rounded-full border border-surface-border bg-surface-muted px-2 py-0.5 text-xs text-ink-soft">
+            ×{count}
+          </span>
+        ) : null}
         <p className="text-sm leading-6 text-ink">{decision.reason}</p>
+        {isRepeated ? (
+          <p className="text-xs text-ink-faint">
+            Повторялось с {decision.first_time} по {decision.time}
+          </p>
+        ) : null}
       </div>
     </div>
   );

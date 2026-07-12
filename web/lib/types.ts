@@ -197,6 +197,8 @@ export interface CoachDecision {
   time: string;
   decision_type: CoachDecisionType;
   reason: string;
+  count?: number;
+  first_time?: string;
   workout_id?: string | null;
   chat_id?: string | null;
   message_id?: string | null;
