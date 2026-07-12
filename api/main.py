@@ -29,6 +29,7 @@ from api.routers import (  # noqa: E402  (after env setup)
     planning,
     sleep,
     system,
+    today,
 )
 
 app = FastAPI(
@@ -62,6 +63,7 @@ app.include_router(athlete_profile.router)
 app.include_router(planning.router)
 app.include_router(sleep.router)
 app.include_router(system.router)
+app.include_router(today.router)
 
 
 @app.get("/api/health", tags=["meta"])

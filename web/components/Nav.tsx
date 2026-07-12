@@ -7,6 +7,7 @@ import { isDemo, setDemo } from "@/lib/api";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
 const links = [
+  { href: "/today", label: "Сегодня" },
   { href: "/dashboard", label: "Дашборд" },
   { href: "/coach", label: "Коуч" },
   { href: "/decisions", label: "Решения" },

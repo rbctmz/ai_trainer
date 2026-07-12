@@ -562,3 +562,48 @@ export interface PlanningHistory {
   has_history: boolean;
   items: PlanningHistoryItem[];
 }
+
+// --- Экран «Сегодня» (issue #158) -----------------------------------------
+
+export type TodayScreenState = "silence" | "conflict" | "data_gap" | "no_plan";
+
+export interface TodayReadiness {
+  score: number;
+  status: string;
+  confidence: number | null;
+  drivers: Array<Record<string, unknown>>;
+  factors: Array<Record<string, unknown>>;
+  tsb: { ctl: number | null; atl: number | null; tsb: number | null; window_days: number } | null;
+  stale: boolean;
+  reason: string | null;
+}
+
+export interface TodaySession {
+  date: string;
+  name: string;
+  role: string;
+  role_label: string;
+  tss: number;
+  sport_label: string;
+  is_key: boolean;
+}
+
+export interface TodayYesterday {
+  activities: number;
+  minutes: number;
+  tss: number;
+  sports: string[];
+}
+
+export interface TodayResponse {
+  date: string;
+  state: TodayScreenState | string;
+  reason: string;
+  readiness: TodayReadiness | null;
+  readiness_source: string;
+  session: TodaySession | null;
+  pending_proposal: CoachProposal | null;
+  yesterday: TodayYesterday | null;
+  loop_outcome: string | null;
+  operational_state?: Record<string, unknown>;
+}
