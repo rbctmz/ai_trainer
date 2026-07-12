@@ -85,6 +85,61 @@ API_PORT=8010 WEB_PORT=3010 ./run_web.sh
 
 Скрипт также автоматически устанавливает `requirements-web.txt` и `web`-зависимости, если они ещё не установлены.
 
+#### Self-hosted deployment (Docker)
+
+Для однопользовательского запуска на домашнем сервере или VPS нужны Docker и
+Compose plugin (`docker compose version`). В этой схеме наружу доступен только
+Caddy: он запрашивает логин и пароль, проксирует web/API по внутренней Docker-сети
+и автоматически включает HTTPS, если задан домен. SQLite хранится в named volume
+и переживает пересборки контейнеров.
+
+1. Сгенерируйте bcrypt-хэш пароля (сам пароль в `.env` не хранится):
+
+```bash
+docker run --rm caddy:2 caddy hash-password --plaintext 'chosen-password'
+```
+
+2. Скопируйте `.env.example` в `.env`, заполните нужные ключи и параметры:
+
+```dotenv
+# Пустое значение включает локальный HTTP на http://localhost:8080.
+# Для VPS укажите DNS-имя, например trainer.example.com.
+DOMAIN=
+BASIC_AUTH_USER=trainer
+# Одинарные кавычки обязательны: bcrypt-хэш содержит символы `$`.
+BASIC_AUTH_HASH='$2a$14$replace_with_generated_hash'
+```
+
+3. Соберите и запустите сервисы:
+
+```bash
+docker compose up -d --build
+docker compose ps
+```
+
+4. Откройте `http://localhost:8080` в локальном режиме или
+`https://<DOMAIN>` на сервере и введите созданные credentials. FastAPI и Next.js
+на портах `8000`/`3000` напрямую не публикуются.
+
+Чтобы перенести существующую локальную `ai_trainer.db`, сначала остановите
+локально запущенный AI Trainer и сделайте резервную копию. Команды ниже создают
+контейнер без запуска API, копируют базу в named volume и затем запускают стек:
+
+```bash
+cp ai_trainer.db ai_trainer.db.backup
+docker compose create api
+docker compose cp ai_trainer.db api:/data/ai_trainer.db
+docker compose up -d
+```
+
+Повторный `docker compose cp` перезапишет базу в volume, поэтому не выполняйте
+миграцию поверх уже накопленных контейнером данных без свежей резервной копии.
+Обычный `docker compose down` сохраняет данные; опция `-v` удаляет volume вместе
+с тренировочной историей и должна использоваться только намеренно.
+
+Полный контракт, HTTPS-режим и сценарии приёмки описаны в
+[`docs/self_hosted_deployment_execplan.md`](docs/self_hosted_deployment_execplan.md).
+
 #### Legacy Streamlit fallback
 ```bash
 ./run.sh
