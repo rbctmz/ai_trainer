@@ -443,6 +443,39 @@ def test_missing_start_or_ambiguous_rating_is_explicitly_unscored(
     assert resolved["brier_score"] is None
 
 
+def test_invalid_resolution_evidence_does_not_partially_update(tmp_path) -> None:
+    from api.session_quality_forecast import resolve_session_quality_prediction
+
+    db = Database(str(tmp_path / "invalid-resolution.db"))
+    prediction = _save_prediction(
+        db,
+        fingerprint="forecast-invalid",
+        created_at="2026-07-14T06:00:00Z",
+        prediction_pct=50,
+    )["prediction"]
+
+    with pytest.raises(LookupError, match="activities not found"):
+        resolve_session_quality_prediction(
+            db,
+            prediction["id"],
+            activity_ids=["unknown"],
+            actual_role="quality",
+            quality_rating_1_5=4,
+        )
+    with pytest.raises(ValueError, match="between 1 and 5"):
+        resolve_session_quality_prediction(
+            db,
+            prediction["id"],
+            activity_ids=[],
+            actual_role="quality",
+            quality_rating_1_5=6,
+        )
+
+    unchanged = db.get_session_quality_prediction(prediction["id"])
+    assert unchanged["status"] == "pending"
+    assert unchanged["actual_snapshot"] == {}
+
+
 def test_shadow_recording_appends_changed_readiness_without_product_mutation(
     tmp_path,
 ) -> None:
