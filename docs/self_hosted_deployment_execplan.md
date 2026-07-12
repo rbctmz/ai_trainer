@@ -14,6 +14,7 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 
 - [x] (2026-07-12 12:05Z) Researched the current runtime: `api/main.py` (CORS, `/api/health`), `api/deps.py` (database resolution), `api/sync_jobs.py` (process-local jobs), `web/next.config.mjs` (rewrites, proxy timeout), `run_web.sh` (health polling), `.gitignore` (secrets/db exclusions). Findings recorded below.
 - [x] (2026-07-12 12:10Z) Authored this plan; created Issue #166 and branch `claude/issue-166-self-hosted-deploy`.
+- [x] (2026-07-12 13:05Z) Added the deployment behavior/security contract as smoke tests before implementation. On a checkout without `docker-compose.yml` the module intentionally skips; once Milestone 1 introduces Compose, the incomplete topology must fail until Milestones 2–3 are present.
 - [ ] Milestone 1: backend image (`Dockerfile.api`), `.dockerignore`, Compose skeleton with data volume; health check green via `curl http://127.0.0.1:8000/api/health`.
 - [ ] Milestone 2: web image (`web/Dockerfile`, `web/.dockerignore`), Compose `web` service; dashboard renders through `http://127.0.0.1:3000`.
 - [ ] Milestone 3: Caddy edge (`deploy/Caddyfile`), basic auth + HTTPS; remove public API/web port bindings; 401 without credentials, 200 with.
@@ -40,6 +41,9 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 - Observation: CORS becomes irrelevant in this topology, no code change needed.
   Evidence: the browser only ever talks to the Caddy origin; Next.js proxies `/api/*` server-side to `http://api:8000` (same-origin from the browser's point of view). The existing `WEB_ORIGINS` default in `api/main.py` stays untouched.
 
+- Observation: the original Dockerfile example and the planned guardrail disagreed about the literal `--workers` text.
+  Evidence: the example comment said "Do not add --workers", while `test_deployment_config.py` is required to reject any Dockerfile containing that token. The implementation keeps the strict test and phrases the comment as "do not add multiple workers" so comments cannot mask an accidental flag.
+
 ## Decision Log
 
 - Decision: authenticate at the edge with Caddy `basic_auth`, not inside the application.
@@ -65,6 +69,10 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 - Decision: do not trim `requirements.txt` for the image (Streamlit and friends get installed even though the container only runs FastAPI).
   Rationale: splitting requirements is a repo-wide refactor with its own risks; image size is not a goal of this step. Recorded as possible follow-up.
   Date/Author: 2026-07-12 / Claude.
+
+- Decision: write the final-topology guardrails before the packaging files, even though the milestone list introduces the services incrementally.
+  Rationale: this preserves the repository's TDD discipline. The test module remains bisect-safe by skipping when Compose is absent, then becomes red as soon as the first incomplete Compose skeleton exists and turns green only when the protected final topology is complete.
+  Date/Author: 2026-07-12 / Codex.
 
 ## Outcomes & Retrospective
 
