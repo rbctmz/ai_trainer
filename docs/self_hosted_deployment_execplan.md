@@ -15,11 +15,11 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 - [x] (2026-07-12 12:05Z) Researched the current runtime: `api/main.py` (CORS, `/api/health`), `api/deps.py` (database resolution), `api/sync_jobs.py` (process-local jobs), `web/next.config.mjs` (rewrites, proxy timeout), `run_web.sh` (health polling), `.gitignore` (secrets/db exclusions). Findings recorded below.
 - [x] (2026-07-12 12:10Z) Authored this plan; created Issue #166 and branch `claude/issue-166-self-hosted-deploy`.
 - [x] (2026-07-12 13:05Z) Added the deployment behavior/security contract as smoke tests before implementation. On a checkout without `docker-compose.yml` the module intentionally skips; once Milestone 1 introduces Compose, the incomplete topology must fail until Milestones 2–3 are present.
-- [ ] Milestone 1: backend image (`Dockerfile.api`), `.dockerignore`, Compose skeleton with data volume created; runtime health acceptance pending because Docker Desktop returned an external package-download I/O error.
+- [ ] Milestone 1: backend image (`Dockerfile.api`), `.dockerignore`, Compose skeleton, compiler fallback, and data volume created. Pip successfully built `spectrum` and installed the complete dependency graph; final image export and runtime health acceptance are blocked by the host disk having only 560 MB free.
 - [x] (2026-07-12 13:55Z) Milestone 2: web image (`web/Dockerfile`, `web/.dockerignore`) and Compose `web` service implemented. The container production build completed, including Next compilation, lint, TypeScript checks, and all 12 static routes.
 - [ ] Milestone 3: Caddy edge (`deploy/Caddyfile`), basic auth + HTTPS, and private API/web ports implemented; 401/200 runtime acceptance pending the API image build.
 - [x] (2026-07-12 14:00Z) Milestone 4: deployment smoke test, `.env.example` additions, and README self-hosting/migration guide implemented.
-- [ ] Validation: full acceptance transcript captured in `Artifacts and Notes`; smoke suite green; PR ready for review.
+- [ ] Validation: Compose config, deployment guardrails, smoke suite, and Next production image build are green. Full container runtime acceptance remains blocked until host disk space is recovered without deleting Docker volumes.
 
 ## Surprises & Discoveries
 
@@ -49,6 +49,12 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
 
 - Observation: a second build proved the full Next.js image but Docker Desktop then returned an I/O error while pip was downloading an OpenCV wheel.
   Evidence: `npm ci` completed, `next build` compiled and type-checked all 12 routes, and the web image was exported. The API build progressed through the full dependency graph before `OSError: [Errno 5] Input/output error`; immediately afterwards `docker info` returned `EOF`, identifying the local Docker VM rather than the Dockerfile as the failed component.
+
+- Observation: the clean arm64 API build needs a compiler for one transitive legacy analytics package.
+  Evidence: after Docker recovery, pip resolved and downloaded the dependency graph successfully, then `spectrum` (pulled by `pyhrv`) failed while building `spectrum.mydpss` because `gcc` was absent. The documented Milestone 1 fallback was applied: install `build-essential` before pip and remove the apt package-list cache afterwards.
+
+- Observation: the acceptance host ran out of physical disk space and Docker's content store became unreadable.
+  Evidence: after `spectrum` built successfully and every Python package installed, BuildKit failed while committing `metadata_v2.db` with `input/output error`. Host `df` showed only 560 MB free on `/System/Volumes/Data`; Docker occupied 54 GB and reported about 33 GB of unused images. `docker system prune -af` (without volumes) could not complete because the already-starved content store returned the same blob I/O errors. Resetting Docker data would destroy unrelated volumes and was not attempted.
 
 ## Decision Log
 
@@ -88,9 +94,15 @@ This is deliberately a **single-user** deployment. Multi-tenancy (per-user rows 
   Rationale: `docker compose create api` mounts the named volume without opening the database. Copying into that stopped container avoids replacing a file while SQLite connections may be live; a backup remains mandatory because a repeated copy intentionally overwrites the volume copy.
   Date/Author: 2026-07-12 / Codex.
 
+- Decision: install `build-essential` in the API image.
+  Rationale: `spectrum` has no usable prebuilt arm64 wheel in the resolved dependency set and compiles a small C extension. Keeping the existing requirements is an explicit scope constraint; splitting builder/runtime stages or trimming legacy analytics dependencies belongs to the recorded image-size follow-up.
+  Date/Author: 2026-07-12 / Codex.
+
 ## Outcomes & Retrospective
 
-To be filled as milestones complete.
+The configuration, security guardrails, operator documentation, and production web image are implemented. The exercise found and fixed two real clean-build issues before publication: slow PyPI links now have explicit retry/timeout policy, and arm64 builds install the compiler required by `spectrum`. Compose validation and the contributor-safe smoke suite are green.
+
+The only incomplete outcome is the end-to-end container runtime transcript. The local host exhausted its physical disk while BuildKit committed the API dependency layer, so the API image could not be exported even though dependency installation itself completed. Runtime checks (Caddy 401/200, demo seed, volume persistence, unpublished 8000/3000) must be resumed after the operator frees several gigabytes or moves Docker's disk image. Docker volumes were deliberately preserved.
 
 ## Context and Orientation
 
@@ -320,7 +332,26 @@ Every step is re-runnable: `docker compose up -d --build` converges to the decla
 
 ## Artifacts and Notes
 
-To be captured during implementation: `docker compose ps` output, the 401/200 curl transcript, and the smoke-suite tail. Keep them short and focused on proving the acceptance criteria.
+Captured locally on 2026-07-12:
+
+    docker compose config --quiet
+    # exit 0; services: api, web, caddy
+
+    python -m pytest tests/smoke -q
+    501 passed, 1 skipped in 11.26s
+
+    docker compose build web
+    Compiled successfully
+    Linting and checking validity of types ...
+    Generating static pages (12/12)
+    image ai_trainer_issue166_selfhosted-web exported
+
+    docker compose build api
+    Successfully built spectrum
+    Successfully installed ... streamlit-1.59.1 ... uvicorn-0.51.0 ...
+    error committing ... metadata_v2.db: input/output error
+
+Pending after host disk recovery: `docker compose ps`, the Caddy 401/200 curl transcript, demo seed, named-volume restart persistence, and proof that host ports 8000/3000 are closed.
 
 ## Interfaces and Dependencies
 

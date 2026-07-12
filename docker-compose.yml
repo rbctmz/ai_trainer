@@ -48,4 +48,3 @@ volumes:
   ai_trainer_data:
   caddy_data:
   caddy_config:
-

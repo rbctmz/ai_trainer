@@ -20,4 +20,3 @@ COPY --from=build /app/package.json ./package.json
 COPY --from=build /app/next.config.mjs ./next.config.mjs
 EXPOSE 3000
 CMD ["npm", "run", "start"]
-
