@@ -17,8 +17,9 @@ The feature is deliberately shadow-only. It must not affect the readiness score,
 - [x] (2026-07-12 09:48Z) Implemented source-backed `started_at_utc`, legacy migration, transactional immutable revisions, indexes, and frozen resolution persistence.
 - [x] (2026-07-12 09:48Z) Implemented the pure v1 predictor, target selection, resolution/scoring, calibration summary, headless API, post-sync hook, and fail-open Recovery Replan linkage.
 - [x] (2026-07-12 09:48Z) Added committed WoZ schema/migration utility and atomically migrated the ignored local CSV to 17 aligned fields; backup is `/tmp/woz_tracking_before_issue161.csv`.
-- [ ] Complete focused, adjacent, full, lint, compile, migration, concurrency, and self-review validation.
-- [ ] Publish a draft PR with `Closes #161`, verify current-head CI, and finalize this plan.
+- [x] (2026-07-12 09:44Z) Completed focused, adjacent, contributor-safe, broad non-live, compile, Ruff, migration, concurrency, live-copy acceptance, and self-review validation.
+- [x] (2026-07-12 09:44Z) Published implementation head `01cecdf` in mergeable draft PR #165 with `Closes #161`; issue automation moved #161 from blocked to in progress and GitHub CI passed.
+- [x] (2026-07-12 09:44Z) Finalized this living plan with outcomes, validation evidence, residual risks, and publication artifacts.
 
 ## Surprises & Discoveries
 
@@ -125,7 +126,25 @@ Calibration summaries count only `status = scored`. They report total/scored/uns
 
 ## Outcomes & Retrospective
 
-Implementation has not started. Success means the project can accumulate honest forecasts immediately while being explicit about non-attempts, substitutions, ambiguous ratings, and post-start leakage.
+Issue D is implemented in shadow mode and published in mergeable draft PR #165. The project now records a deterministic probability for the nearest quality/long session, preserves changed readiness as immutable revisions, and resolves exactly one latest pre-start revision only when the plan/fact comparison and athlete quality rating are eligible. Every excluded forecast has an explicit reason; actual facts are frozen before later TSS recalculation can change them.
+
+The implementation remains outside the decision path. Focused tests prove that recording changes neither planning checkpoints nor recovery decisions/proposals. Sync and Recovery Replan invoke the recorder fail-open and never read its result as an input. The headless journal/API is ready for WoZ data collection; `/today` and web remain unchanged.
+
+Local acceptance against a copy of the real 2026-07-12 database created one forecast for the next long session on 2026-07-18: `40%`, band `low`, revision 1. Repeating the same call returned `created: false`, the same row id/revision, and a total prediction-row count of one. The real database was not modified.
+
+The ignored local WoZ file was migrated atomically from mixed 15/16-field historical rows to a uniform 17-field schema. A backup remains at `/tmp/woz_tracking_before_issue161.csv`. No personal CSV content is committed.
+
+## Self-Review
+
+Correctness: the implemented constants and examples match the pre-registered formula. Stale or low-confidence readiness produces no forecast. Target selection is deterministic and restricted to the nearest quality/long row within seven days. Forecast identity excludes outcomes and includes rule, canonical readiness, checkpoint, and planned session.
+
+Scientific safety: source GMT is required for pre-start eligibility; local timestamps are never guessed as UTC. Only the latest strictly pre-start revision can score. Adherence and athlete quality are independent. Major deviation, post-start creation, missing start/evidence, rating 3, and superseded revisions never receive Brier scores. Invalid ratings/activity ids fail before persistence updates.
+
+Persistence and races: forecast insertion uses `BEGIN IMMEDIATE`, a unique fingerprint, and unique target revision. The two-connection test proves distinct concurrent snapshots receive revisions 1 and 2. Resolution updates only pending resolution fields; forecast inputs/evidence stay immutable. Database clear/stats and legacy activity migration include the new data.
+
+Compatibility and isolation: existing activity rows migrate with null start UTC. Existing API shapes gain only additive shadow fields after sync/Recovery Replan. The recorder is guarded by try/except and cannot fail primary workflows. No dependency, web, Streamlit, severity, planning, or proposal mutation rule changed.
+
+Residual risks: actual role and quality rating are manual WoZ observations, so operator discipline remains part of data quality. The current SQLite database is single-athlete; a future shared service must scope target keys and API queries by athlete/account. Forecasts tied to a plan checkpoint that is later replaced remain pending until explicitly resolved/unscored; automatic `plan_changed` retirement is a later lifecycle improvement, not a scoring shortcut.
 
 ## Context and Orientation
 
@@ -211,6 +230,21 @@ TDD red evidence:
     1 error during collection
     ModuleNotFoundError: No module named 'models.session_quality_forecast'
 
+Final local evidence:
+
+    focused Issue D: 24 passed
+    focused + Garmin: 34 passed
+    Issue D + Recovery Replan + Today: 54 passed
+    contributor-safe: 496 passed, 1 skipped
+    broad not-live/not-debug: 539 passed, 6 skipped, 24 deselected
+    compileall, Ruff, git diff --check: pass
+
+Publication:
+
+    PR: https://github.com/rbctmz/ai_trainer/pull/165
+    implementation head: 01cecdfaa8ab3abcb6552743baf42db6cedf35c1
+    CI: https://github.com/rbctmz/ai_trainer/actions/runs/29187941148 — success
+
 ## Interfaces and Dependencies
 
 No third-party dependency is added.
@@ -230,3 +264,5 @@ No third-party dependency is added.
 `Database` must provide additive create/get/list/link/resolve operations for prediction rows and an activity-id lookup that returns `started_at_utc`.
 
 Revision note (2026-07-12): Initial plan created and formula pre-registered before tests or production implementation. It separates readiness probability, planned demand, adherence eligibility, and observed quality so the shadow track record remains falsifiable.
+
+Revision note (2026-07-12): Finalized after implementation, race/migration validation, full local contours, real-data-copy acceptance, draft PR publication, and green GitHub CI. The final review documents manual-ground-truth and future multi-athlete boundaries without weakening shadow-mode isolation.
