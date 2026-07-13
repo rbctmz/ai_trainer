@@ -376,6 +376,32 @@ def test_rebuild_goal_plan_with_adjustment_from_checkpoint_context():
     assert len(rebuilt["session_templates"]) == len(rebuilt["daily_plan"])
 
 
+def test_execution_rebuild_reapplies_race_protection_and_mode_metadata():
+    plan = _sample_goal_plan()
+    event_date = "2026-06-20"
+    plan.update(
+        {
+            "planning_mode": "training_goal",
+            "planning_intent": "develop",
+            "events": [{"date": event_date, "priority": "B", "label": "B race", "confirmed": True}],
+            "event_date": "",
+            "macrocycle_event_date": "",
+        }
+    )
+
+    rebuilt = rebuild_goal_plan_with_adjustment(
+        plan,
+        {"status": "as_planned", "weeks": 0},
+    )
+    by_date = {row[0].date().isoformat(): row for row in rebuilt["daily_plan"]}
+
+    assert rebuilt["planning_mode"] == "training_goal"
+    assert rebuilt["event_date"] == ""
+    assert rebuilt["overlay_rule_version"] == "race-overlay-v1"
+    assert by_date[event_date][1] == 0
+    assert event_date in rebuilt["protected_dates"]
+
+
 def test_execution_feedback_summary_ignores_manual_edit_checkpoint_versions():
     checkpoint = build_planning_checkpoint(_sample_goal_plan())
 

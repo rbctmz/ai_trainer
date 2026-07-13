@@ -7,6 +7,7 @@ import pytest
 from models.training_planner import (
     apply_race_event_overlays,
     compute_event_aware_phase_schedule,
+    current_periodization_phase,
 )
 
 
@@ -73,6 +74,20 @@ def test_manual_phases_are_not_replaced() -> None:
         manual_phases=["Base", "Recovery", "Build"],
     )
     assert phases == ["Base", "Recovery", "Build"]
+
+
+def test_current_phase_reads_persisted_rolling_plan_without_race_date() -> None:
+    monday = date.today() - timedelta(days=date.today().weekday())
+    current = current_periodization_phase(
+        {
+            "planning_mode": "training_goal",
+            "start_week": monday,
+            "phases": ["Maintenance", "Maintenance", "Maintenance", "Recovery"],
+            "event_date": "",
+        }
+    )
+
+    assert current == {"phase": "Maintenance", "days_to_race": None, "total_weeks": 4}
 
 
 def test_b_overlay_caps_load_protects_race_and_resumes() -> None:

@@ -16,11 +16,14 @@ The live-shaped regression is a B Olympic triathlon on 2026-07-26 followed by an
 - [x] (2026-07-13 09:26Z) Completed publish preflight, created `codex/issue-169-race-priority-periodization` in `/private/tmp/ai_trainer_issue169`, and recorded the wider product sequence in roadmap issue #170.
 - [x] (2026-07-13 09:26Z) Pre-registered the event/provenance contract, three planning modes, overlay precedence and bounded A/B/C rules in this ExecPlan.
 - [x] (2026-07-13 09:32Z) Added contract-first smoke tests for event normalization, Intervals.icu discovery, planning modes and A/B/C overlays. The pre-implementation run failed during collection on the intentionally absent `macrocycle_event` and `apply_race_event_overlays` interfaces.
-- [ ] Add API/checkpoint preview-confirm tests after the pure domain contract is green.
+- [x] (2026-07-13 09:58Z) Added API/checkpoint preview-confirm tests, including zero-write previews and a stale-checkpoint 409 guard.
 - [x] (2026-07-13 09:44Z) Implemented provenance-aware event normalization, confirmed-A macrocycle selection, bounded Intervals.icu GET discovery, three phase modes, `race-overlay-v1`, checkpoint metadata, API preview/confirm enforcement, and the protected-date RecoveryReplan guard.
 - [x] (2026-07-13 09:44Z) Focused domain/API/checkpoint/recovery contour passes: 74 tests in 1.48s.
-- [ ] Wire the Planning web preview/confirmation flow and event discovery UI.
-- [ ] Run focused tests, full smoke, web build and a synthetic acceptance probe; self-review the diff and finalize this document.
+- [x] (2026-07-13 09:45Z) Wired the web Planning mode selector, read-only Intervals event choices, rolling/manual controls, preview diff, cancel and explicit confirmation. Next.js production build passes.
+- [x] (2026-07-13 09:58Z) Final full smoke passes with 522 passed and one environment socket skip; the production Next.js build passes with type checking.
+- [x] (2026-07-13 09:59Z) Broader contributor-safe contour passes with 565 passed, 6 environment/data-dependent skips and 24 deselected live/debug tests.
+- [x] (2026-07-13 09:45Z) Synthetic live-shaped acceptance proves preview leaves SQLite untouched, 04.10 anchors the plan, final phases are Taper/Race Week, 26–28.07 are zero/protected, and load resumes 29.07.
+- [x] (2026-07-13 09:58Z) Completed self-review: persisted phases now drive current-phase consumers, execution feedback reapplies event overlays, previews do not alter demand settings, and confirmation rejects a stale base checkpoint.
 - [ ] Commit in process order, push the branch, open a draft PR with `Closes #169`, and leave merge to the human gate.
 
 ## Surprises & Discoveries
@@ -42,6 +45,15 @@ The live-shaped regression is a B Olympic triathlon on 2026-07-26 followed by an
 
 - Observation: the contract-first run is red for the intended missing public interfaces, not for fixture or environment failures.
   Evidence: pytest collection reports `cannot import name 'macrocycle_event'` and `cannot import name 'apply_race_event_overlays'`.
+
+- Observation: the real Intervals.icu event endpoint and query contract work, but both current races are now explicitly B, including 2026-10-04 whose description still says “А-гонка”.
+  Evidence: the read-only acceptance returned `RACE_B` for IDs 102286932 and 104750840; normalization correctly trusts category for priority and text only for triathlon discipline.
+
+- Observation: execution-feedback replanning rebuilt daily sessions from weekly totals and would have discarded event caps if only checkpoint serialization were changed.
+  Evidence: `models/planning_execution.py::rebuild_goal_plan_with_adjustment` called `expand_weekly_to_daily_triathlon` and rebuilt templates without event overlays. Self-review added overlay reapplication and a regression test.
+
+- Observation: the original preview path wrote the selected demand level even with `persist=false`, and confirmation did not prove that the viewed checkpoint was still current.
+  Evidence: self-review traced `build_plan` through `db.set_user_setting` and the web confirm request. The API now treats preview as fully read-only, returns `base_checkpoint_id`, and responds with 409 if another checkpoint appeared before confirmation.
 
 ## Decision Log
 
@@ -73,9 +85,13 @@ The live-shaped regression is a B Olympic triathlon on 2026-07-26 followed by an
   Rationale: this is the smallest contract-first preview flow compatible with the existing append-only checkpoint mechanism. No server-side mutable draft store is necessary for v1.
   Date/Author: 2026-07-13 / Codex.
 
+- Decision: Bind every confirmation to the active checkpoint ID returned with its preview, using zero for an empty history. Reject a mismatch with HTTP 409 and require a fresh preview.
+  Rationale: a coach, recovery proposal, or second browser can append a checkpoint while the preview is open; persisting an obsolete comparison would silently overwrite the user's mental model even though checkpoint history remains append-only.
+  Date/Author: 2026-07-13 / Codex.
+
 ## Outcomes & Retrospective
 
-The shared domain and additive API contract are implemented and green on the focused contour. Macrocycle intent, event overlays and daily readiness are now three ordered layers rather than competing phase sources. Remaining work is the web preview/confirm surface, full regression/build verification, synthetic acceptance evidence and publication.
+The shared domain, additive API and web preview/confirm flow are implemented. Macrocycle intent, event overlays and daily readiness are ordered layers rather than competing phase sources. Event protection survives execution-feedback replans, current phase consumers use persisted phases, and preview/confirm is both zero-write and concurrency-safe. Final smoke is 522 passed plus one environment-dependent skip, and the Next.js production build succeeds. Remaining work is publication and the human review/merge gate.
 
 ## Context and Orientation
 
@@ -173,3 +189,5 @@ Roadmap issue #170 contains the later sequence: plan/fact reconciliation, struct
 `POST /api/planning/build` gains additive fields `planning_mode`, `intent`, `focus`, `horizon_weeks`, `manual_phases`, `events`, and `confirm`. Its response gains `preview`, `confirmation_required`, `planning_mode`, `macrocycle_event_date`, and event-overlay metadata. Existing clients that send only the old fields continue to build the same confirmed A-event plan.
 
 Plan revision note: 2026-07-13, initial self-contained design written after source audit; exact overlay caps, precedence, provenance and preview semantics were resolved before tests or implementation.
+
+Plan revision note: 2026-07-13, implementation update after TDD and self-review; added real endpoint evidence, persisted-phase consumption and event-overlay reapplication during execution feedback.

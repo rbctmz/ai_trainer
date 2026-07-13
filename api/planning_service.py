@@ -275,6 +275,7 @@ def build_plan(
     horizon_weeks: int = 8,
     manual_phases: Optional[List[str]] = None,
     events: Optional[List[Dict[str, Any]]] = None,
+    expected_base_checkpoint_id: int | None = None,
 ) -> Dict[str, Any]:
     metrics, banister, activities_df = _current_metrics(db)
     gt = _internal_goal_type(goal_type)
@@ -288,6 +289,18 @@ def build_plan(
         raise ValueError("planning_mode must be event_goal, training_goal, or manual")
     if normalized_intent not in {"maintain", "develop"}:
         raise ValueError("intent must be maintain or develop")
+
+    latest_checkpoint = db.get_latest_planning_checkpoint()
+    latest_checkpoint_id = (
+        int(latest_checkpoint.get("id"))
+        if isinstance(latest_checkpoint, dict) and latest_checkpoint.get("id") is not None
+        else 0
+    )
+    if expected_base_checkpoint_id is not None and latest_checkpoint_id != int(expected_base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_checkpoint_id or 'none'} no longer matches preview base "
+            f"#{int(expected_base_checkpoint_id) or 'none'}"
+        )
 
     plan_events = normalized_events(events)
     if not plan_events and event_date:
@@ -312,7 +325,7 @@ def build_plan(
 
     start_weekly_tss_guess = int(float(metrics.get("ctl", 50) or 50) * 7)
     demand_level = normalize_demand_level(demand or _persisted_demand_level(db))
-    if demand is not None:
+    if demand is not None and persist:
         db.set_user_setting(PLANNING_DEMAND_SETTING_KEY, demand_level)
     target_breakdown = build_weekly_target_breakdown(
         goal_type=gt,
@@ -437,8 +450,9 @@ def build_plan(
     goal_plan = synchronize_goal_plan_events(goal_plan)
     goal_plan = with_checkpoint_provenance(goal_plan, source="initial_plan")
 
-    existing_plan = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    existing_plan = restore_goal_plan_from_checkpoint(latest_checkpoint)
     preview = _build_plan_preview(existing_plan, goal_plan)
+    preview["base_checkpoint_id"] = latest_checkpoint_id
 
     plan_id: Optional[str] = None
     if persist:

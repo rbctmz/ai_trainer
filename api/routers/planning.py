@@ -33,6 +33,7 @@ class BuildRequest(BaseModel):
     demand: Optional[str] = None
     persist: bool = False
     confirm: bool = False
+    base_checkpoint_id: Optional[int] = None
 
 
 class AdjustRequest(BaseModel):
@@ -154,7 +155,10 @@ def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> d
             horizon_weeks=req.horizon_weeks,
             manual_phases=req.manual_phases,
             events=req.events,
+            expected_base_checkpoint_id=req.base_checkpoint_id,
         )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

@@ -1051,7 +1051,32 @@ def current_periodization_phase(goal_plan: Optional[Dict[str, Any]]) -> Optional
     """
     if not goal_plan:
         return None
-    event_date_str = goal_plan.get('event_date')
+    persisted_phases = [str(value) for value in (goal_plan.get("phases") or []) if str(value)]
+    start_value = goal_plan.get("start_week")
+    try:
+        if isinstance(start_value, datetime):
+            start_date = start_value.date()
+        elif isinstance(start_value, date):
+            start_date = start_value
+        else:
+            start_date = date.fromisoformat(str(start_value)[:10])
+    except (TypeError, ValueError):
+        start_date = None
+
+    event_date_str = goal_plan.get("macrocycle_event_date") or goal_plan.get("event_date")
+    event_dt = None
+    if event_date_str:
+        try:
+            event_dt = date.fromisoformat(str(event_date_str)[:10])
+        except (TypeError, ValueError):
+            event_dt = None
+    if persisted_phases and start_date is not None:
+        current_idx = max(0, min(len(persisted_phases) - 1, (date.today() - start_date).days // 7))
+        return {
+            "phase": persisted_phases[current_idx],
+            "days_to_race": (event_dt - date.today()).days if event_dt is not None else None,
+            "total_weeks": len(persisted_phases),
+        }
     if not event_date_str:
         return None
     try:

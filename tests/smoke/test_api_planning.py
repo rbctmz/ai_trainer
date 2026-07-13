@@ -133,12 +133,67 @@ def test_api_build_requires_preview_before_confirm(tmp_path):
     preview = planning_build(request, db=db)
     assert preview["plan_id"] is None
     assert preview["confirmation_required"] is True
+    assert preview["preview"]["base_checkpoint_id"] == 0
     assert db.get_latest_planning_checkpoint() is None
 
-    confirmed_request = request.model_copy(update={"persist": True, "confirm": True})
+    confirmed_request = request.model_copy(
+        update={
+            "persist": True,
+            "confirm": True,
+            "base_checkpoint_id": preview["preview"]["base_checkpoint_id"],
+        }
+    )
     confirmed = planning_build(confirmed_request, db=db)
     assert confirmed["plan_id"]
     assert db.get_latest_planning_checkpoint() is not None
+
+
+def test_preview_is_read_only_and_stale_confirmation_is_rejected(tmp_path):
+    from fastapi import HTTPException
+
+    from api.planning_service import PLANNING_DEMAND_SETTING_KEY, build_plan
+    from api.routers.planning import BuildRequest, planning_build
+
+    db = _seeded_db(tmp_path)
+    request = BuildRequest(
+        goal_type="triathlon",
+        distance="olympic",
+        planning_mode="training_goal",
+        intent="develop",
+        horizon_weeks=4,
+        available_hours=10,
+        demand="aggressive",
+        persist=False,
+    )
+
+    preview = planning_build(request, db=db)
+    assert preview["preview"]["base_checkpoint_id"] == 0
+    assert db.get_user_setting(PLANNING_DEMAND_SETTING_KEY, None) is None
+    assert db.get_latest_planning_checkpoint() is None
+
+    # Another actor appends a checkpoint after the preview was shown.
+    build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=None,
+        planning_mode="training_goal",
+        intent="maintain",
+        horizon_weeks=4,
+        available_hours=8,
+        persist=True,
+    )
+
+    stale_confirmation = request.model_copy(
+        update={
+            "persist": True,
+            "confirm": True,
+            "base_checkpoint_id": preview["preview"]["base_checkpoint_id"],
+        }
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        planning_build(stale_confirmation, db=db)
+    assert exc_info.value.status_code == 409
 
 
 def test_status_shape(tmp_path):
