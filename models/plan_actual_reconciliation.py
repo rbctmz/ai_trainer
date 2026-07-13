@@ -184,7 +184,7 @@ def build_reconciliation(
     reserved_user_activity_ids = {
         str(activity_id)
         for row in latest_ledger.values()
-        if str(row.get("match_method") or "") == "user_confirmed"
+        if str(row.get("match_method") or "") in {"user_confirmed", "admin_resolve"}
         for activity_id in row.get("actual_activity_ids", []) or []
     }
     assigned_ids: set[str] = set()
@@ -233,14 +233,18 @@ def build_reconciliation(
         confidence = 0.0
         actual_role: str | None = None
 
-        if ledger and str(ledger.get("match_method")) in {"user_confirmed", "user_rejected"}:
+        if ledger and str(ledger.get("match_method")) in {
+            "user_confirmed",
+            "user_rejected",
+            "admin_resolve",
+        }:
             match_method = str(ledger.get("match_method"))
             match_status = str(ledger.get("match_status") or "unmatched")
             matched = [item for item in day_activities if item["activity_id"] in ledger_selected_ids]
             confidence = float(ledger.get("confidence") or (1.0 if match_method == "user_confirmed" else 0.0))
             actual_role = str((ledger.get("actual_snapshot") or {}).get("role") or "").strip().lower() or None
             evidence.extend(str(value) for value in ledger.get("evidence", []) if value)
-            if match_method == "user_confirmed" and len(matched) != len(ledger_selected_ids):
+            if match_method in {"user_confirmed", "admin_resolve"} and len(matched) != len(ledger_selected_ids):
                 match_status = "ambiguous"
                 confidence = 0.0
                 evidence.append("Stored user match references activity evidence that is no longer uniquely available")

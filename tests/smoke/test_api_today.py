@@ -648,6 +648,103 @@ def test_today_survives_reconciliation_failure(tmp_path, monkeypatch) -> None:
     assert "matcher offline" in payload["yesterday"]["reason"]
 
 
+def test_today_composes_feedback_from_existing_yesterday_without_second_reconciliation(
+    tmp_path, monkeypatch
+) -> None:
+    from api import today_snapshot as snapshot_module
+    from api.routers.today import today_view
+
+    today = date(2026, 7, 13)
+    yesterday = today - timedelta(days=1)
+    db = Database(str(tmp_path / "today-feedback.db"))
+    checkpoint = db.save_planning_checkpoint(
+        build_planning_checkpoint(_goal_plan(yesterday, target_role="quality"))
+    )
+    plan = checkpoint["goal_plan_snapshot"]
+    template = next(
+        item for item in plan["session_templates"] if item["date"] == yesterday.isoformat()
+    )
+    calls: list[dict] = []
+
+    def fake_reconciliation(_db, **kwargs):
+        calls.append(kwargs)
+        return {
+            "has_plan": True,
+            "rule_version": "plan_actual_match_v1",
+            "base_checkpoint_id": checkpoint["id"],
+            "rows": [
+                {
+                    "session_id": template["session_id"],
+                    "target_key": f"session:{template['session_id']}",
+                    "date": yesterday.isoformat(),
+                    "name": "Quality bike",
+                    "role": "quality",
+                    "sport": "bike",
+                    "tss": 60.0,
+                    "duration_minutes": 60,
+                    "match_status": "matched",
+                    "match_method": "date_sport_heuristic",
+                    "confidence": 0.75,
+                    "adherence": "exact",
+                    "actual_activity_ids": ["ride-yesterday"],
+                    "actual_activities": [
+                        {
+                            "activity_id": "ride-yesterday",
+                            "date": yesterday.isoformat(),
+                            "started_at_utc": f"{yesterday.isoformat()}T08:00:00Z",
+                            "duration_minutes": 60,
+                            "sport": "bike",
+                            "tss": 60.0,
+                        }
+                    ],
+                    "actual_total_tss": 60.0,
+                    "actual_duration_minutes": 60.0,
+                    "actual_sport": "bike",
+                    "actual_role": "quality",
+                    "evidence": ["stable local match"],
+                }
+            ],
+            "unplanned_activities": [],
+            "data_quality": {},
+        }
+
+    monkeypatch.setattr(snapshot_module, "reconciliation_at", fake_reconciliation)
+    _patch_report(monkeypatch, _report(today))
+    _patch_snapshot(monkeypatch, _snapshot())
+
+    payload = today_view(db=db)
+
+    assert len(calls) == 1
+    assert calls[0]["include_provider"] is False
+    assert payload["feedback"]["status"] == "available"
+    assert payload["feedback"]["primary"]["session_id"] == template["session_id"]
+    assert payload["feedback"]["primary"]["state"] == "ready"
+    assert db.get_database_stats()["session_feedback"] == 0
+
+
+def test_today_feedback_failure_is_fail_open(tmp_path, monkeypatch) -> None:
+    from api import today_snapshot as snapshot_module
+    from api.routers.today import today_view
+
+    today = date(2026, 7, 13)
+    db = Database(str(tmp_path / "feedback-fail-open.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today, target_role="easy")))
+    _patch_report(monkeypatch, _report(today))
+    _patch_snapshot(monkeypatch, _snapshot())
+    monkeypatch.setattr(
+        snapshot_module,
+        "feedback_from_today_evidence",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("feedback offline")),
+    )
+
+    payload = today_view(db=db)
+
+    assert payload["state"] == "silence"
+    assert payload["primary_action"]["kind"] == "follow_plan"
+    assert payload["feedback"]["status"] == "unavailable"
+    assert "feedback offline" in payload["feedback"]["reason"]
+
+
 def test_today_route_is_wired_into_app() -> None:
     """FastAPI этой версии включает роутеры лениво (_IncludedRouter без .path),
     поэтому проверяем резолвинг по имени эндпоинта."""

@@ -7,8 +7,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from api.deps import get_database
+from api.session_feedback import (
+    project_predictions_with_evaluations,
+    resolve_prediction_via_feedback,
+)
 from api.session_quality_forecast import (
-    resolve_session_quality_prediction,
     summarize_session_quality_predictions,
 )
 from data.database import Database
@@ -29,7 +32,10 @@ def list_session_quality_predictions(
     days: int = 30,
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
-    rows = db.get_session_quality_predictions(days=days)
+    rows = project_predictions_with_evaluations(
+        db,
+        db.get_session_quality_predictions(days=days),
+    )
     return {
         "predictions": rows,
         "summary": summarize_session_quality_predictions(rows),
@@ -44,7 +50,7 @@ def resolve_session_quality(
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
     try:
-        return resolve_session_quality_prediction(
+        return resolve_prediction_via_feedback(
             db,
             prediction_id,
             activity_ids=payload.activity_ids,

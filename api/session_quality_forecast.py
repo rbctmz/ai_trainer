@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from hashlib import sha256
 import json
 from typing import Any, Mapping
@@ -12,9 +12,7 @@ from data.database import Database
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.session_quality_forecast import (
     RULE_VERSION,
-    brier_score,
     build_session_quality_forecast,
-    classify_plan_adherence,
 )
 from utils.product_semantics import normalize_sport_key
 
@@ -30,19 +28,6 @@ def _iso_day(value: Any) -> str:
     if isinstance(value, date):
         return value.isoformat()
     return str(value or "")[:10]
-
-
-def _utc(value: Any) -> datetime | None:
-    text = str(value or "").strip()
-    if not text:
-        return None
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(timezone.utc)
 
 
 def _target_session(goal_plan: Mapping[str, Any], today: date) -> dict[str, Any] | None:
@@ -152,45 +137,6 @@ def record_shadow_session_quality_forecast(
     }
 
 
-def _actual_snapshot(
-    activities: list[Mapping[str, Any]],
-    *,
-    actual_role: str | None,
-    quality_rating_1_5: int | None,
-    note: str | None,
-) -> dict[str, Any]:
-    tss_values = [float(item["tss"]) for item in activities if item.get("tss") is not None]
-    duration_values = [
-        float(item["duration_minutes"])
-        for item in activities
-        if item.get("duration_minutes") is not None
-    ]
-    sports = [normalize_sport_key(item.get("sport")) for item in activities]
-    normalized_sports = sorted({sport for sport in sports if sport})
-    actual_sport = normalized_sports[0] if len(normalized_sports) == 1 else "mixed" if normalized_sports else ""
-    return {
-        "actual_role": str(actual_role or "").strip().lower() or None,
-        "actual_sport": actual_sport or None,
-        "actual_total_tss": round(sum(tss_values), 1) if tss_values else None,
-        "actual_duration_minutes": round(sum(duration_values), 1) if duration_values else None,
-        "quality_rating_1_5": quality_rating_1_5,
-        "note": str(note or "").strip() or None,
-        "activities": [
-            {
-                "activity_id": item.get("activity_id"),
-                "date": _iso_day(item.get("date")),
-                "started_at_utc": item.get("started_at_utc"),
-                "sport": normalize_sport_key(item.get("sport")),
-                "duration_minutes": item.get("duration_minutes"),
-                "tss": item.get("tss"),
-                "training_effect": item.get("training_effect"),
-                "anaerobic_effect": item.get("anaerobic_effect"),
-            }
-            for item in activities
-        ],
-    }
-
-
 def resolve_session_quality_prediction(
     db: Database,
     prediction_id: int,
@@ -200,98 +146,20 @@ def resolve_session_quality_prediction(
     quality_rating_1_5: int | None,
     note: str | None = None,
 ) -> dict[str, Any]:
-    """Resolve one target group while preserving every immutable revision."""
-    prediction = db.get_session_quality_prediction(prediction_id)
-    if prediction is None:
-        raise LookupError(f"prediction {prediction_id} not found")
-    if quality_rating_1_5 is not None and quality_rating_1_5 not in {1, 2, 3, 4, 5}:
-        raise ValueError("quality_rating_1_5 must be between 1 and 5")
+    """Compatibility facade; feedback is the only source of new resolution facts."""
     normalized_role = str(actual_role or "").strip().lower()
     if normalized_role and normalized_role not in ACTUAL_ROLES:
         raise ValueError(f"actual_role must be one of {sorted(ACTUAL_ROLES)}")
-    target_key = prediction["target_key"]
-    group = db.get_session_quality_predictions(days=36500, target_key=target_key)
-    if not any(row["status"] == "pending" for row in group):
-        return {"predictions": group, "summary": summarize_session_quality_predictions(group)}
+    from api.session_feedback import resolve_prediction_via_feedback
 
-    requested_ids = [str(value) for value in activity_ids or []]
-    activities = db.get_activities_by_ids(requested_ids)
-    found_ids = {str(item.get("activity_id")) for item in activities}
-    missing_ids = [value for value in requested_ids if value not in found_ids]
-    if missing_ids:
-        raise LookupError(f"activities not found: {', '.join(missing_ids)}")
-    target_date = str(prediction["target_date"])
-    if any(_iso_day(item.get("date")) != target_date for item in activities):
-        raise ValueError("all activities must belong to the prediction target date")
-
-    actual = _actual_snapshot(
-        activities,
+    return resolve_prediction_via_feedback(
+        db,
+        prediction_id,
+        activity_ids=activity_ids,
         actual_role=normalized_role or None,
         quality_rating_1_5=quality_rating_1_5,
         note=note,
     )
-    started_values = [_utc(item.get("started_at_utc")) for item in activities]
-    started_values = [value for value in started_values if value is not None]
-    session_start = min(started_values) if started_values else None
-    planned = prediction["planned_session"]
-    adherence = classify_plan_adherence(
-        planned,
-        {
-            "role": actual.get("actual_role"),
-            "sport": actual.get("actual_sport"),
-            "tss": actual.get("actual_total_tss"),
-        },
-    )
-
-    pending = [row for row in group if row["status"] == "pending"]
-    eligible = [
-        row
-        for row in pending
-        if session_start is not None and (_utc(row["created_at"]) or session_start) < session_start
-    ]
-    latest_eligible_id = max(
-        eligible,
-        key=lambda row: (_utc(row["created_at"]) or datetime.min.replace(tzinfo=timezone.utc), row["id"]),
-    )["id"] if eligible else None
-
-    resolutions = []
-    for row in pending:
-        reason = None
-        status = "unscored"
-        outcome = None
-        score = None
-        created = _utc(row["created_at"])
-        if session_start is None:
-            reason = "missing_session_start"
-        elif created is None or created >= session_start:
-            reason = "post_start_prediction"
-        elif row["id"] != latest_eligible_id:
-            reason = "superseded"
-        elif adherence is None:
-            reason = "missing_adherence_evidence"
-        elif adherence == "major_deviation":
-            reason = "major_deviation"
-        elif quality_rating_1_5 is None or quality_rating_1_5 == 3:
-            reason = "ambiguous_quality"
-        else:
-            status = "scored"
-            outcome = "success" if quality_rating_1_5 >= 4 else "failure"
-            score = brier_score(row["prediction_pct"], quality_rating_1_5)
-        resolutions.append(
-            {
-                "id": row["id"],
-                "status": status,
-                "plan_adherence": adherence,
-                "quality_rating_1_5": quality_rating_1_5,
-                "quality_outcome": outcome,
-                "actual_activity_ids": requested_ids,
-                "actual_snapshot": actual,
-                "unscored_reason": reason,
-                "brier_score": score,
-            }
-        )
-    rows = db.resolve_session_quality_prediction_group(target_key, resolutions)
-    return {"predictions": rows, "summary": summarize_session_quality_predictions(rows)}
 
 
 def summarize_session_quality_predictions(rows: list[Mapping[str, Any]]) -> dict[str, Any]:
