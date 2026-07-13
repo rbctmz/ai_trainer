@@ -14,13 +14,14 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
 - [x] (2026-07-13 10:27Z) Audited the active checkpoint, legacy execution matcher, Issue D adherence rules, Intervals client, SQLite patterns and web Adjust surface.
 - [x] (2026-07-13 10:27Z) Pre-registered stable identity, evidence coverage and load-response formulas in this plan before tests or implementation.
 - [x] (2026-07-13 10:35Z) Added failing BDD/contract tests for session identity, matching, ledger revisions, provider evidence and future-only preview; red evidence is `ModuleNotFoundError: models.plan_actual_reconciliation`.
-- [ ] Implement stable session identity and persist it through checkpoints/API exports (completed: pure deterministic identity and replacement lineage; remaining: generation/checkpoint/API integration).
-- [ ] Implement bounded Intervals GET adapters and the append-only match ledger (completed: SQLite ledger with idempotent append-only revisions; remaining: provider adapters and API correction path).
-- [ ] Replace legacy reconciliation with evidence rows relative to explicit `as_of` (completed: pure matcher, load/accounting and data-quality contract; remaining: planning-service integration).
-- [ ] Implement deterministic future-only rebalance preview and stale-safe confirm (completed: pure bounded preview/apply; remaining: protected-date collection, checkpoint stale guard and API persistence).
-- [ ] Replace the web optimistic outcome selector with evidence and preview/confirm UI.
-- [ ] Run focused, smoke, broader non-live and Next.js build checks; perform synthetic 07–12 July acceptance.
-- [ ] Self-review the full diff, finalize this living plan, push the branch and open a draft PR with `Closes #172`.
+- [x] (2026-07-13 10:39Z) Integrated stable identity into generation, checkpoints, restore, lineage, API plan rows, manual edits and weekly-rebalance checkpoints.
+- [x] (2026-07-13 10:41Z) Added bounded read-only Intervals activity/WORKOUT adapters, local date-bounded activity reads and the append-only user correction path.
+- [x] (2026-07-13 10:43Z) Replaced Planning reconciliation with explicit-as-of evidence rows, full load accounting, ambiguity, provider provenance and data-quality gates.
+- [x] (2026-07-13 10:44Z) Added deterministic future-only rebalance preview/confirm with safety caps, protected dates, fingerprint and checkpoint stale guard.
+- [x] (2026-07-13 10:46Z) Replaced the web optimistic outcome selector with evidence, unplanned load, ambiguity resolution and explicit preview/confirm UI; updated Coach proposal rendering.
+- [x] (2026-07-13 10:48Z) Passed synthetic 07–12 July acceptance and the production Next.js build.
+- [x] (2026-07-13 10:51Z) Completed self-review and final validation: focused `56 passed`; smoke `536 passed, 1 skipped`; broader non-live `579 passed, 6 skipped, 24 deselected`; `git diff --check` clean.
+- [ ] Push the branch and open a draft PR with `Closes #172`.
 
 ## Surprises & Discoveries
 
@@ -39,6 +40,15 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
 - Observation: local data on 2026-07-13 already proves that full actual load matters: multiple activities may share a sport and additional same-day sports must remain visible.
   Evidence: issue #172 records 08.07 as two rides totaling 64.2 TSS against 21.5 planned and 12.07 as a ride plus three swims.
 
+- Observation: a user-confirmed activity must be reserved before automatic matching is evaluated, otherwise an earlier plan row can consume it and make the explicit correction appear empty.
+  Evidence: the self-review scenario with two same-date sessions now proves the explicit ledger row wins and the activity appears exactly once.
+
+- Observation: changing TSS in a legacy one-line workout description can leave a contradictory old inline number even when canonical multiline fields are absent.
+  Evidence: the first post-integration focused run failed on `Session 9 · 22.0 TSS`; the updater now replaces inline TSS and appends all canonical numeric fields.
+
+- Observation: a configured but temporarily unavailable provider removes stable-pair evidence and must not silently degrade into a mutation based only on weaker heuristics.
+  Evidence: provider-unavailable acceptance preserves all local rows but forces `data_quality.status=data_gap` and a no-change preview.
+
 ## Decision Log
 
 - Decision: use a deterministic opaque `ats_<hash>` session ID derived from a versioned material session signature, while explicitly preserving the prior ID when the material signature is unchanged.
@@ -53,8 +63,8 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
   Rationale: `session_id` is nullable for unplanned activity groups, while `target_key` supports both `session:<id>` and `unplanned:<date>:<activity fingerprint>`. This follows the existing prediction/decision journal patterns without overwriting corrections.
   Date/Author: 2026-07-13 / Codex.
 
-- Decision: automatic matching precedence is AI Trainer external ID, then user-confirmed ledger evidence, then a unique date-and-sport heuristic. A provider pair to an event without `ai_trainer:<session_id>` is supporting evidence only.
-  Rationale: Intervals-created or manual events are not AI Trainer identity. The matcher must not silently claim that another product's workout fulfilled this plan.
+- Decision: matching precedence is explicit user-confirmed or user-rejected ledger evidence, then AI Trainer external ID, then a unique date-and-sport heuristic. User-confirmed activity IDs are reserved globally before automatic matching. A provider pair to an event without `ai_trainer:<session_id>` is supporting evidence only.
+  Rationale: an explicit correction must be able to override automation. Intervals-created or manual events are not AI Trainer identity, and the matcher must not silently claim that another product's workout fulfilled this plan.
   Date/Author: 2026-07-13 / Codex.
 
 - Decision: heuristic matching may attach all same-date, same-sport activities to the single eligible planned session; other same-day activities remain unplanned. If more than one planned session or conflicting candidate can claim an activity, the result is ambiguous.
@@ -74,7 +84,7 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
   Date/Author: 2026-07-13 / Codex.
 
 - Decision: for over-completion, the maximum reduction budget is `round_to_5(min(0.50 * overage_tss, 0.15 * next_7_day_future_tss, 40))`. The system reduces only future `easy` sessions inside the next seven days, proportionally, by at most 25 percent per session and never below 5 TSS. It does not alter quality, long, recovery or off sessions.
-  Rationale: the formula responds to real excess without overcorrecting, preserves the key structure of the microcycle, and has explicit global and per-session ceilings. If eligible easy sessions cannot absorb the budget, the unused remainder is reported rather than moved elsewhere.
+  Rationale: the formula responds to real excess without overcorrecting, preserves the key structure of the microcycle, and has explicit global and per-session ceilings. `round_to_5` floors to the lower multiple of five so rounding cannot exceed a safety cap. If eligible easy sessions cannot absorb the budget, the unused remainder is reported rather than moved elsewhere.
   Date/Author: 2026-07-13 / Codex.
 
 - Decision: all dates `<= as_of`, event `protected_dates`, active coach-constraint dates, explicit `near_term_edit.edited_dates`, and the entire active legacy manual-edit horizon when exact dates are unavailable are byte-equivalent between base and preview.
@@ -91,7 +101,11 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
 
 ## Outcomes & Retrospective
 
-Implementation is in progress. The first domain milestone is green: eight new contract scenarios plus the existing SessionQualityForecast suite pass (`32 passed`). The matcher preserves the full 144.7 TSS synthetic window, including the ambiguous cross-sport activity and unplanned swims. API/web and provider integration remain.
+Implementation is complete and ready for draft review. Planning now shows evidence instead of preselected outcomes, preserves all 144.7 TSS in the synthetic July window, lets the athlete resolve ambiguity through an immutable ledger, and proposes only bounded reductions to future easy sessions. Confirmation writes one append-only `weekly_rebalance` checkpoint; a changed plan, changed evidence, provider failure or unresolved ambiguity produces no mutation.
+
+Stable session identity survives checkpoint round-trips and unchanged rebuilds. Materially changed sessions get a new ID plus immediate replacement lineage, and lineage remains visible on subsequent unchanged rebuilds. Provider calls are bounded GETs only; no Intervals write path was added.
+
+Final evidence: focused `56 passed`; contributor-safe smoke `536 passed, 1 skipped`; broader non-live `579 passed, 6 skipped, 24 deselected`; production Next.js build passed; `git diff --check` passed. The socket, local-data and optional-Garth skips are environment-dependent and pre-existing, not regressions. The remaining publication step is push plus draft PR; human review and merge remain the project gate.
 
 ## Context and Orientation
 
