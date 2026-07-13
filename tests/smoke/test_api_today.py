@@ -205,6 +205,8 @@ def test_today_data_gap_names_reason_without_proposal(tmp_path, monkeypatch) -> 
     assert "Недостаточно" in payload["reason"]
     assert payload["pending_proposal"] is None
     assert payload["readiness"] is None
+    assert payload["session"]["date"] == today.isoformat()
+    assert payload["session"]["role"] == "quality"
 
 
 def test_today_silence_projects_day_session_and_canonical_readiness(
@@ -226,6 +228,62 @@ def test_today_silence_projects_day_session_and_canonical_readiness(
     assert payload["session"]["role"] == "easy"
     assert payload["session"]["role_label"] == "лёгкая"
     assert payload["session"]["is_key"] is False
+
+
+def test_today_projects_persisted_catalog_prescription(tmp_path, monkeypatch) -> None:
+    from api.routers.today import today_view
+
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "catalog-today.db"))
+    goal_plan = _goal_plan(today, target_role="quality")
+    target_index = next(
+        index
+        for index, template in enumerate(goal_plan["session_templates"])
+        if template["date"] == today.isoformat()
+    )
+    goal_plan["session_templates"][target_index].update(
+        {
+            "kind": "single",
+            "catalog_version": "workout_catalog_v1",
+            "template_key": "bike_threshold_intervals",
+            "template_version": 1,
+            "template_name": "Threshold Intervals",
+            "stimulus": "lactate-threshold development",
+            "fatigue_cost": [3, 1, 1],
+            "expected_recovery_hours": 36,
+            "materialization_status": "materialized",
+            "target_provenance": {
+                "kind": "ftp",
+                "source": "athlete_profile.ftp",
+                "value": 200.0,
+                "fallback": False,
+            },
+            "materialized_steps": [
+                {
+                    "name": "Threshold intervals",
+                    "intensity": "work",
+                    "duration_seconds": 1620,
+                    "target": {"type": "power", "unit": "watts", "low": 194, "high": 206},
+                }
+            ],
+        }
+    )
+    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    session = _session(today, days_until=0, role="quality", tss=60.0)
+    _patch_report(monkeypatch, _report(today, sessions=[session]))
+    _patch_snapshot(monkeypatch, _snapshot(score=72.0))
+
+    payload = today_view(db=db)
+    projected = payload["session"]
+
+    assert projected["template_key"] == "bike_threshold_intervals"
+    assert projected["template_name"] == "Threshold Intervals"
+    assert projected["stimulus"] == "lactate-threshold development"
+    assert projected["fatigue_cost"] == [3, 1, 1]
+    assert projected["expected_recovery_hours"] == 36
+    assert projected["target_provenance"]["kind"] == "ftp"
+    assert projected["steps"][0]["duration_seconds"] == 1620
+    assert projected["legs"] == []
     assert payload["readiness"]["score"] == 72.0
     assert payload["readiness"]["drivers"], "evidence-раскрытие требует drivers"
     assert payload["readiness_source"] == "canonical_snapshot"

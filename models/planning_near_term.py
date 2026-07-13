@@ -10,6 +10,8 @@ from models.planning_summary import (
     normalize_near_term_edit_post_strategy,
     summarize_near_term_edit,
 )
+from models.session_identity import ensure_session_identities
+from models.workout_catalog import rescale_materialized_session
 from models.training_planner import (
     SESSION_ROLE_LABELS_RU,
     SPORT_LABELS_RU,
@@ -26,7 +28,7 @@ from models.training_planner import (
 EDITABLE_NEAR_TERM_HORIZON_MIN = 7
 EDITABLE_NEAR_TERM_HORIZON_MAX = 10
 EDITABLE_SESSION_ROLES = ["off", "recovery", "easy", "quality", "long"]
-EDITABLE_SPORTS = ["run", "bike", "swim", "off"]
+EDITABLE_SPORTS = ["run", "bike", "swim", "brick", "off"]
 RISK_LEVEL_RANK = {"low": 0, "medium": 1, "high": 2}
 
 
@@ -410,7 +412,7 @@ def _apply_week_total_delta(
             duration_minutes=duration_minutes,
         )
         daily_plan[day_index] = (dt, day_total, new_parts)
-        session_templates[day_index] = {
+        next_template = {
             **current_template,
             "date": dt.strftime("%Y-%m-%d"),
             "week_index": day_index // 7,
@@ -422,6 +424,32 @@ def _apply_week_total_delta(
             "duration_minutes": duration_minutes,
             "description": description,
         }
+        if (
+            str(current_template.get("kind") or "") == "composite"
+            and target_sport == "brick"
+            and target_total_tss > 0
+        ):
+            rescaled = rescale_materialized_session(
+                current_template,
+                target_tss=target_total_tss,
+                parts=new_parts,
+            )
+            next_template.update(rescaled)
+            next_template.update(
+                {
+                    "date": dt.strftime("%Y-%m-%d"),
+                    "week_index": day_index // 7,
+                    "day_index": day_index % 7,
+                    "phase": phase,
+                    "session_role": target_role,
+                    "session_focus": focus,
+                    "sport": "brick",
+                    "sport_label": SPORT_LABELS_RU["brick"],
+                    "export_name": export_name,
+                    "description": description,
+                }
+            )
+        session_templates[day_index] = next_template
         actual_week_total += day_total
 
     return round(actual_week_total - current_week_total, 1)
@@ -456,6 +484,7 @@ def build_near_term_edit_rows(
                 "phase": str(template.get("phase", "Base") or "Base"),
                 "current_total_tss": round(float(total or 0.0), 1),
                 "current_sport": sport,
+                "current_kind": str(template.get("kind") or "single"),
                 "current_role": role,
                 "current_focus": focus,
                 "current_duration_minutes": int(template.get("duration_minutes", 0) or 0),
@@ -487,6 +516,11 @@ def build_near_term_edit_draft_rows(
 
         target_role = _normalize_session_role(override.get("session_role", current_role))
         target_sport = _normalize_sport(override.get("sport", current_sport))
+        if (
+            target_sport == "brick"
+            and str(row.get("current_kind") or "single") != "composite"
+        ):
+            target_sport = current_sport
         target_total_tss = _normalize_total_tss(override.get("total_tss", current_total_tss))
 
         if target_role == "off" or target_sport == "off":
@@ -964,6 +998,11 @@ def apply_near_term_day_edits(
 
         target_role = _normalize_session_role(raw_row.get("session_role"))
         target_sport = _normalize_sport(raw_row.get("sport"))
+        if (
+            target_sport == "brick"
+            and str(current_template.get("kind") or "single") != "composite"
+        ):
+            target_sport = current_sport
         target_total_tss = _normalize_total_tss(raw_row.get("total_tss"))
         if target_role == "off" or target_sport == "off":
             target_role = "off"
@@ -975,13 +1014,20 @@ def apply_near_term_day_edits(
             or current_role != target_role
             or current_sport != target_sport
         )
-        if changed:
-            changed_day_count += 1
-            edited_dates.append(dt.strftime("%Y-%m-%d"))
-            week_index = day_index // 7
-            week_stat = touched_week_stats.setdefault(week_index, {"delta_tss": 0.0, "edited_days": 0.0})
-            week_stat["delta_tss"] += round(target_total_tss - float(current_total or 0.0), 1)
-            week_stat["edited_days"] += 1.0
+        if not changed:
+            continue
+        changed_day_count += 1
+        edited_dates.append(dt.strftime("%Y-%m-%d"))
+        week_index = day_index // 7
+        week_stat = touched_week_stats.setdefault(
+            week_index,
+            {"delta_tss": 0.0, "edited_days": 0.0},
+        )
+        week_stat["delta_tss"] += round(
+            target_total_tss - float(current_total or 0.0),
+            1,
+        )
+        week_stat["edited_days"] += 1.0
 
         if target_sport == current_sport and target_total_tss > 0 and current_sport != "off":
             new_parts = _scale_parts_to_total(current_parts, target_total_tss, current_sport)
@@ -1005,7 +1051,7 @@ def apply_near_term_day_edits(
             parts=new_parts,
             duration_minutes=duration_minutes,
         )
-        session_templates[day_index] = {
+        next_template = {
             **current_template,
             "date": dt.strftime("%Y-%m-%d"),
             "week_index": day_index // 7,
@@ -1020,6 +1066,43 @@ def apply_near_term_day_edits(
             "export_name": export_name,
             "description": description,
         }
+        if (
+            str(current_template.get("kind") or "") == "composite"
+            and target_sport == "brick"
+            and target_total_tss > 0
+        ):
+            rescaled = rescale_materialized_session(
+                current_template,
+                target_tss=target_total_tss,
+                parts=new_parts,
+            )
+            next_template.update(rescaled)
+            resolved_duration = int(rescaled.get("duration_minutes") or duration_minutes)
+            next_template.update(
+                {
+                    "date": dt.strftime("%Y-%m-%d"),
+                    "week_index": day_index // 7,
+                    "day_index": day_index % 7,
+                    "phase": phase,
+                    "session_role": target_role,
+                    "session_focus": focus,
+                    "sport": "brick",
+                    "sport_label": SPORT_LABELS_RU["brick"],
+                    "export_name": export_name,
+                    "description": _build_session_description(
+                        goal_type=goal_type,
+                        distance=distance,
+                        phase=phase,
+                        session_role=target_role,
+                        session_focus=focus,
+                        sport="brick",
+                        total_tss=target_total_tss,
+                        parts=new_parts,
+                        duration_minutes=resolved_duration,
+                    ),
+                }
+            )
+        session_templates[day_index] = next_template
 
     refreshed_weekly_summary: List[Dict[str, Any]] = []
     for week_index, week_row in enumerate(weekly_summary):
@@ -1254,7 +1337,7 @@ def apply_near_term_day_edits(
     if "plan_revision" not in updated_goal_plan:
         updated_goal_plan["plan_revision"] = datetime.now().isoformat()
 
-    return updated_goal_plan
+    return ensure_session_identities(updated_goal_plan, previous_goal_plan=goal_plan)
 
 
 __all__ = [

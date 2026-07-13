@@ -16,6 +16,7 @@ from models.planning_execution import (
 )
 from models.planning_near_term import build_near_term_edit_seed_from_goal_plans
 from models.training_planner import build_daily_session_templates, expand_weekly_to_daily_triathlon
+from models.workout_catalog import CATALOG_VERSION
 from ui.components.execution_feedback import (
     _build_follow_up_preview_rows,
     _resolve_execution_primary_action,
@@ -114,6 +115,16 @@ def test_day_level_execution_rows_can_build_reduced_local_replan_payload():
     assert payload["completion_share"] < 1.0
     assert payload["execution_adaptation_pressure"]["follow_up_mode"] in {"hold", "protect_recovery", "catch_up"}
     assert "checkpoint: факт" in rebuilt["weekly_summary"][0]["adjustment_note"]
+    assert rebuilt["catalog_version"] == CATALOG_VERSION
+    assert any(
+        template.get("materialization_status") == "materialized"
+        for template in rebuilt["session_templates"]
+    )
+    assert all(
+        template.get("definition_snapshot")
+        for template in rebuilt["session_templates"]
+        if template.get("materialization_status") == "materialized"
+    )
     corrective_microcycle = summarize_execution_corrective_microcycle(
         rebuilt["constraint_summary"]["plan_adjustment"].get("execution_corrective_microcycle")
     )

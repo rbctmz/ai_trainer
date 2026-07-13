@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
 import {
@@ -844,20 +844,72 @@ function ExportMode() {
           </thead>
           <tbody>
             {data.days.map((d) => (
-              <tr key={d.index} className="border-b border-surface-border last:border-0">
-                <td className="px-3 py-2.5 text-ink-soft">{d.date.slice(5)}</td>
-                <td className="px-3 py-2.5 text-ink">
-                  <span className="font-medium">{d.sport_label}</span>{" "}
-                  <span className="text-ink-faint">· {d.name}</span>
-                </td>
-                <td className="px-3 py-2.5 text-right tabular-nums text-ink">{d.tss}</td>
-                <td className="px-3 py-2.5 text-right">
-                  <span className="inline-flex gap-2">
-                    <DownloadLink index={d.index} fmt="tcx" label="TCX" />
-                    <DownloadLink index={d.index} fmt="fit_csv" label="FIT-CSV" />
-                  </span>
-                </td>
-              </tr>
+              <Fragment key={d.index}>
+                <tr className="border-b border-surface-border/70">
+                  <td className="px-3 py-2.5 text-ink-soft">{d.date.slice(5)}</td>
+                  <td className="px-3 py-2.5 text-ink">
+                    <div className="font-medium">
+                      {d.template_name || d.sport_label}
+                      {d.kind === "composite" ? " · вело → бег" : ""}
+                    </div>
+                    <div className="text-xs text-ink-faint">
+                      {[d.stimulus, d.phase].filter(Boolean).join(" · ") || d.name}
+                    </div>
+                    {d.fatigue_cost.length ? (
+                      <div className="mt-1 text-[11px] text-ink-faint">
+                        fatigue {d.fatigue_cost.join("/")}
+                        {d.expected_recovery_hours
+                          ? ` · восстановление ~${d.expected_recovery_hours} ч`
+                          : ""}
+                      </div>
+                    ) : null}
+                  </td>
+                  <td className="px-3 py-2.5 text-right tabular-nums text-ink">{d.tss}</td>
+                  <td className="px-3 py-2.5 text-right">
+                    {d.kind === "composite" && d.legs.length ? (
+                      <span className="inline-flex flex-col gap-1">
+                        {d.legs.map((leg) => (
+                          <span key={leg.leg_index} className="inline-flex justify-end gap-1">
+                            <span className="mr-1 text-[11px] text-ink-faint">
+                              {leg.sport}
+                            </span>
+                            <DownloadLink index={d.index} leg={leg.leg_index ?? undefined} fmt="tcx" label="TCX" />
+                            <DownloadLink index={d.index} leg={leg.leg_index ?? undefined} fmt="fit_csv" label="FIT" />
+                          </span>
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="inline-flex gap-2">
+                        <DownloadLink index={d.index} fmt="tcx" label="TCX" />
+                        <DownloadLink index={d.index} fmt="fit_csv" label="FIT-CSV" />
+                      </span>
+                    )}
+                  </td>
+                </tr>
+                {d.steps.length || d.legs.length ? (
+                  <tr className="border-b border-surface-border last:border-0">
+                    <td colSpan={4} className="px-3 pb-3 pt-0">
+                      {d.kind === "composite" ? (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {d.legs.map((leg) => (
+                            <div key={leg.leg_index} className="rounded-lg bg-surface-muted p-2.5">
+                              <div className="text-xs font-medium text-ink">
+                                {leg.leg_index}. {leg.template_name || leg.sport}
+                                <span className="ml-1 font-normal text-ink-faint">
+                                  {leg.duration_minutes} мин · {leg.target_tss} TSS
+                                </span>
+                              </div>
+                              <StepPreview steps={leg.steps} />
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <StepPreview steps={d.steps} />
+                      )}
+                    </td>
+                  </tr>
+                ) : null}
+              </Fragment>
             ))}
           </tbody>
         </table>
@@ -870,19 +922,54 @@ function DownloadLink({
   index,
   fmt,
   label,
+  leg,
 }: {
   index: number;
   fmt: string;
   label: string;
+  leg?: number;
 }) {
+  const legQuery = leg ? `&leg=${leg}` : "";
   return (
     <a
-      href={withDemo(`/api/planning/export/workout/${index}?fmt=${fmt}`)}
+      href={withDemo(`/api/planning/export/workout/${index}?fmt=${fmt}${legQuery}`)}
       className="rounded-md border border-surface-border px-2 py-1 text-xs text-tone-neutral transition hover:bg-surface-muted"
     >
       {label}
     </a>
   );
+}
+
+function StepPreview({ steps }: { steps: Array<{ name: string | null; duration_seconds: number | null; target: Record<string, unknown> | null }> }) {
+  if (!steps.length) return null;
+  return (
+    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-ink-faint">
+      {steps.map((step, index) => (
+        <span key={`${step.name}-${index}`}>
+          {step.name || `Шаг ${index + 1}`} · {formatStepDuration(step.duration_seconds)}
+          {formatTarget(step.target) ? ` · ${formatTarget(step.target)}` : ""}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function formatStepDuration(seconds: number | null): string {
+  if (!seconds) return "—";
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes}:${String(rest).padStart(2, "0")}` : `${minutes} мин`;
+}
+
+function formatTarget(target: Record<string, unknown> | null): string {
+  if (!target) return "";
+  const type = String(target.type || "");
+  const low = target.low;
+  const high = target.high;
+  if (type === "power" && low != null && high != null) return `${low}–${high} Вт`;
+  if (type === "heart_rate" && low != null && high != null) return `${low}–${high} уд/мин`;
+  if (type === "relative_rpe" && low != null && high != null) return `RPE ${low}–${high}`;
+  return type;
 }
 
 /* ---------------- Shared ---------------- */

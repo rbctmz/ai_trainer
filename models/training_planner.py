@@ -19,6 +19,7 @@ SPORT_LABELS_RU = {
     "run": "бег",
     "bike": "вело",
     "swim": "плавание",
+    "brick": "вело → бег",
     "off": "отдых",
 }
 
@@ -1590,9 +1591,21 @@ def build_daily_session_templates(
     weekly_summary: Sequence[Mapping[str, object]],
     goal_type: str,
     distance: str,
+    *,
+    load_state: str = "balanced",
+    zone_snapshot: Mapping[str, Any] | None = None,
+    brick_day_indices: set[int] | Sequence[int] = (),
 ) -> List[Dict[str, Any]]:
     """Строит метаданные сессий, выровненные с daily plan без смены его контракта."""
+    from models.workout_catalog import (
+        materialize_brick_session,
+        materialize_session_template,
+    )
+
     templates: List[Dict[str, Any]] = []
+    brick_indices = {int(value) for value in brick_day_indices}
+    resolved_zones = dict(zone_snapshot or {})
+    recent_template_keys: List[str] = []
 
     for idx, (dt, total, parts) in enumerate(daily):
         week_idx = idx // 7
@@ -1605,6 +1618,38 @@ def build_daily_session_templates(
         sport = _dominant_sport(parts)
         phase = str(week_meta.get("phase", "Base") or "Base")
         duration_minutes = _estimate_session_duration_minutes(total, sport, session_role)
+        catalog_template: Dict[str, Any] = {}
+        if float(total or 0.0) > 0 and sport != "off" and session_role != "off":
+            if idx in brick_indices:
+                catalog_template = materialize_brick_session(
+                    phase=phase,
+                    target_tss=float(total or 0.0),
+                    parts=parts,
+                    estimated_duration_minutes=duration_minutes,
+                    goal_type=goal_type,
+                    zone_snapshot=resolved_zones,
+                    load_state=load_state,
+                )
+            else:
+                catalog_template = materialize_session_template(
+                    phase=phase,
+                    session_role=session_role,
+                    sport=sport,
+                    target_tss=float(total or 0.0),
+                    estimated_duration_minutes=duration_minutes,
+                    goal_type=goal_type,
+                    zone_snapshot=resolved_zones,
+                    load_state=load_state,
+                    recent_template_keys=recent_template_keys,
+                )
+            if catalog_template.get("materialization_status") == "materialized":
+                duration_minutes = int(catalog_template.get("duration_minutes") or duration_minutes)
+                template_name = str(catalog_template.get("template_name") or "").strip()
+                if template_name:
+                    session_focus = template_name
+                if catalog_template.get("kind") == "composite":
+                    sport = "brick"
+                recent_template_keys.append(str(catalog_template.get("template_key") or ""))
         export_name = _build_session_export_name(goal_type, distance, session_focus)
         description = _build_session_description(
             goal_type=goal_type,
@@ -1632,6 +1677,7 @@ def build_daily_session_templates(
                 "template_key": f"{phase.lower()}:{session_role}:{sport}",
                 "export_name": export_name,
                 "description": description,
+                **catalog_template,
             }
         )
 

@@ -23,6 +23,9 @@ def _default_speed_m_s(sport: str) -> float:
 
 
 def _estimate_step_seconds(step: Dict) -> int:
+    explicit = step.get('duration_seconds')
+    if explicit is not None:
+        return max(1, int(explicit))
     tss = float(step.get('tss', 0) or 0)
     return int(max(300, round(tss * 60)))
 
@@ -94,4 +97,3 @@ def generate_tcx_activity(workout_name: str, sport: str, steps: List[Dict], star
     a('  </Activities>')
     a('</TrainingCenterDatabase>')
     return "\n".join(lines) + "\n"
-

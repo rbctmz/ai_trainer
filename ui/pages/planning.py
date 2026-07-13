@@ -1714,9 +1714,14 @@ def _render_near_term_editor(
                         key=role_key,
                     )
                 with col2:
+                    editable_sports = (
+                        EDITABLE_SPORTS
+                        if row.get("current_kind") == "composite"
+                        else [sport for sport in EDITABLE_SPORTS if sport != "brick"]
+                    )
                     st.selectbox(
                         "Основной спорт",
-                        options=[sport_labels[sport] for sport in EDITABLE_SPORTS],
+                        options=[sport_labels[sport] for sport in editable_sports],
                         key=sport_key,
                     )
                 with col3:

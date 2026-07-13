@@ -110,8 +110,8 @@ def generate_fit_csv(workout_name: str, sport: str, steps: List[Dict], created: 
 
     Примечания:
       - Используем числовые enum для sport, intensity и duration_type.
-      - duration задаём в секундах (грубая оценка из tss: max(300, tss*60)).
-      - target_type фиксим на 1 (heart_rate) с целевыми зонами 2/3.
+      - materialized prescription задаёт точные секунды; старые роли используют TSS fallback.
+      - target_type следует сохранённому target (power/heart-rate/speed/open).
     """
     created = created or datetime.utcnow()
     # Карта вида спорта в численный enum FIT (sport): 0=generic, 1=running, 2=cycling, 5=swimming
@@ -167,22 +167,46 @@ def generate_fit_csv(workout_name: str, sport: str, steps: List[Dict], created: 
             return 1
         return 0  # active
 
+    def step_seconds(step: Dict) -> int:
+        explicit = step.get('duration_seconds')
+        if explicit is not None:
+            return max(1, int(explicit))
+        tss = float(step.get('tss', 0) or 0)
+        return int(max(300, round(tss * 60)))
+
+    def target_fields(step: Dict) -> tuple[int, float, str]:
+        target = step.get('target')
+        if isinstance(target, dict):
+            target_type = str(target.get('type') or 'open')
+            if target_type == 'power':
+                midpoint = (float(target.get('low') or 0) + float(target.get('high') or 0)) / 2.0
+                return 4, round(midpoint, 1), 'watts'
+            if target_type == 'heart_rate':
+                midpoint = (float(target.get('low') or 0) + float(target.get('high') or 0)) / 2.0
+                return 1, round(midpoint, 1), 'bpm'
+            if target_type == 'pace':
+                seconds = float(target.get('fast') or target.get('slow') or 0)
+                unit = str(target.get('unit') or '')
+                distance = 100.0 if unit == 'seconds_per_100m' else 1000.0
+                return 0, round(distance / seconds, 3) if seconds > 0 else 0.0, 'm/s'
+            return 2, 0.0, 'open'
+        # Legacy role adapter retains its previous HR-zone semantics.
+        return 1, 2.0, 'zone'
+
     # Заполняем шаги
     for i, st in enumerate(steps):
         name = st.get('name', f'Step {i+1}')
         intensity_code = map_intensity(st.get('intensity'), name)
-        tss = float(st.get('tss', 0) or 0)
-        seconds = int(max(300, round(tss * 60)))
-        # target_type: 1 = heart_rate, целевая зона HR: 2 (умолч.)
-        target_zone = 2 if intensity_code in (2, 3) else 3
+        seconds = step_seconds(st)
+        target_type, target_value, target_unit = target_fields(st)
         append(
             'Data,2,workout_step,'
             f'message_index,{i},,'
             f'wkt_step_name,{name},,'
             f'duration_type,0,,'  # 0 = time
             f'duration_time,{seconds},s,'
-            f'target_type,1,,'     # 1 = heart_rate
-            f'target_hr_zone,{target_zone},,'
+            f'target_type,{target_type},,'
+            f'target_value,{target_value},{target_unit},'
             f'intensity,{intensity_code},,'
         )
 

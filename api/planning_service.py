@@ -68,6 +68,12 @@ from models.training_planner import (
     flatten_daily_total,
     weeks_until,
 )
+from models.workout_catalog import (
+    CATALOG_VERSION,
+    MATERIALIZER_RULE_VERSION,
+    SELECTOR_RULE_VERSION,
+    prepare_weekly_brick_allocations,
+)
 
 PLANNING_DEMAND_SETTING_KEY = "planning_demand_level"
 
@@ -399,17 +405,47 @@ def build_plan(
     )
     weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
 
+    protected_dates = set(event_overlay.get("protected_dates") or [])
+    brick_allocation = prepare_weekly_brick_allocations(
+        daily_plan,
+        weekly_summary,
+        goal_type=gt,
+        protected_dates=protected_dates,
+        load_state=str(constraint_summary.get("load_state", "balanced")),
+    )
+    daily_plan = list(brick_allocation.get("daily_plan") or daily_plan)
+    athlete_profile = db.get_athlete_profile() or {}
+
     session_templates = build_daily_session_templates(
-        daily_plan, weekly_summary, goal_type=gt, distance=dist
+        daily_plan,
+        weekly_summary,
+        goal_type=gt,
+        distance=dist,
+        load_state=str(constraint_summary.get("load_state", "balanced")),
+        zone_snapshot={
+            "ftp": athlete_profile.get("ftp"),
+            "lthr": athlete_profile.get("lthr"),
+        },
+        brick_day_indices=set(brick_allocation.get("brick_day_indices") or []),
     )
     event_by_date = {str(event.get("date")): event for event in plan_events}
-    protected_dates = set(event_overlay.get("protected_dates") or [])
     for template in session_templates:
         template_date = str(template.get("date") or "")
         if template_date in protected_dates:
             template["protected_by_event"] = True
         if template_date in event_by_date:
             event = event_by_date[template_date]
+            for key in (
+                "definition_snapshot",
+                "parameter_snapshot",
+                "materialized_steps",
+                "target_provenance",
+                "selection_evidence",
+                "prescription_fingerprint",
+                "legs",
+                "transition_minutes",
+            ):
+                template.pop(key, None)
             template.update(
                 {
                     "session_role": "race",
@@ -421,6 +457,9 @@ def build_plan(
                     "is_race_event": True,
                     "race_event": dict(event),
                     "protected_by_event": True,
+                    "kind": "event",
+                    "template_key": f"race_event:{event['priority']}",
+                    "materialization_status": "race_event",
                 }
             )
 
@@ -441,6 +480,15 @@ def build_plan(
         "phases": phases,
         "daily_plan": daily_plan,
         "session_templates": session_templates,
+        "catalog_version": CATALOG_VERSION,
+        "selector_rule_version": SELECTOR_RULE_VERSION,
+        "materializer_rule_version": MATERIALIZER_RULE_VERSION,
+        "brick_allocation": {
+            "status": brick_allocation.get("status"),
+            "brick_day_indices": list(brick_allocation.get("brick_day_indices") or []),
+            "reason": brick_allocation.get("reason"),
+            "evidence": dict(brick_allocation.get("evidence") or {}),
+        },
         "weekly_summary": weekly_summary,
         "overlay_rule_version": event_overlay["rule_version"],
         "event_overlays": event_overlay["overlays"],
@@ -634,6 +682,47 @@ def plan_days(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "tss": total_tss,
                 "name": str((tpl or {}).get("export_name") or (tpl or {}).get("session_focus") or "Сессия"),
                 "phase": str((tpl or {}).get("phase") or ""),
+                "kind": str((tpl or {}).get("kind") or "single"),
+                "catalog_version": (tpl or {}).get("catalog_version"),
+                "template_key": (tpl or {}).get("template_key"),
+                "template_version": (tpl or {}).get("template_version"),
+                "template_name": (tpl or {}).get("template_name"),
+                "stimulus": (tpl or {}).get("stimulus"),
+                "fatigue_cost": list((tpl or {}).get("fatigue_cost") or []),
+                "expected_recovery_hours": (tpl or {}).get("expected_recovery_hours"),
+                "materialization_status": (tpl or {}).get("materialization_status"),
+                "target_provenance": (tpl or {}).get("target_provenance"),
+                "selection_evidence": (tpl or {}).get("selection_evidence"),
+                "steps": [
+                    {
+                        "name": step.get("name"),
+                        "intensity": step.get("intensity"),
+                        "duration_seconds": step.get("duration_seconds"),
+                        "target": step.get("target"),
+                    }
+                    for step in list((tpl or {}).get("materialized_steps") or [])
+                ],
+                "legs": [
+                    {
+                        "leg_index": leg.get("leg_index"),
+                        "leg_id": leg.get("leg_id"),
+                        "sport": leg.get("sport"),
+                        "template_name": leg.get("template_name"),
+                        "duration_minutes": leg.get("duration_minutes"),
+                        "target_tss": leg.get("target_tss"),
+                        "target_provenance": leg.get("target_provenance"),
+                        "steps": [
+                            {
+                                "name": step.get("name"),
+                                "intensity": step.get("intensity"),
+                                "duration_seconds": step.get("duration_seconds"),
+                                "target": step.get("target"),
+                            }
+                            for step in list(leg.get("materialized_steps") or [])
+                        ],
+                    }
+                    for leg in list((tpl or {}).get("legs") or [])
+                ],
             }
         )
     return out
@@ -650,7 +739,12 @@ def export_ics(goal_plan: Dict[str, Any]) -> str:
     )
 
 
-def export_workout(goal_plan: Dict[str, Any], index: int, fmt: str) -> Dict[str, str]:
+def export_workout(
+    goal_plan: Dict[str, Any],
+    index: int,
+    fmt: str,
+    leg: int | None = None,
+) -> Dict[str, str]:
     """Return {filename, mimetype, content} for a single planned session."""
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
     templates = list(goal_plan.get("session_templates", []) or [])
@@ -659,13 +753,36 @@ def export_workout(goal_plan: Dict[str, Any], index: int, fmt: str) -> Dict[str,
 
     dt, total, parts = daily_plan[index]
     tpl = templates[index] if index < len(templates) else {}
-    sport = _infer_sport(parts, tpl)
-    steps = build_steps_for_sport(
-        float(total or 0),
-        sport,
-        session_role=str((tpl or {}).get("session_role", "easy")),
-        phase=(tpl or {}).get("phase"),
-    )
+    kind = str((tpl or {}).get("kind") or "single")
+    suffix = ""
+    if kind == "composite":
+        if leg not in {1, 2}:
+            raise ValueError("composite session requires leg=1 or leg=2")
+        resolved_leg = next(
+            (
+                item
+                for item in list((tpl or {}).get("legs") or [])
+                if int(item.get("leg_index") or 0) == leg
+            ),
+            None,
+        )
+        if not resolved_leg:
+            raise ValueError(f"composite session has no leg={leg}")
+        sport = str(resolved_leg.get("sport") or "")
+        steps = list(resolved_leg.get("materialized_steps") or [])
+        suffix = f"_leg{leg}_{sport}"
+    else:
+        if leg is not None:
+            raise ValueError("leg is only valid for composite sessions")
+        sport = _infer_sport(parts, tpl)
+        steps = list((tpl or {}).get("materialized_steps") or [])
+        if not steps:
+            steps = build_steps_for_sport(
+                float(total or 0),
+                sport,
+                session_role=str((tpl or {}).get("session_role", "easy")),
+                phase=(tpl or {}).get("phase"),
+            )
     name = str(
         (tpl or {}).get("export_name")
         or f"{goal_plan.get('goal_type','')} — {dt.strftime('%Y-%m-%d')}"
@@ -674,7 +791,7 @@ def export_workout(goal_plan: Dict[str, Any], index: int, fmt: str) -> Dict[str,
 
     if fmt == "fit_csv":
         return {
-            "filename": f"workout_{stamp}.csv",
+            "filename": f"workout_{stamp}{suffix}.csv",
             "mimetype": "text/csv",
             "content": generate_fit_csv(name, sport, steps, created=dt),
         }
@@ -683,13 +800,13 @@ def export_workout(goal_plan: Dict[str, Any], index: int, fmt: str) -> Dict[str,
             name, sport, steps, start_time=datetime.combine(dt.date(), datetime.min.time())
         )
         return {
-            "filename": f"activity_{stamp}.tcx",
+            "filename": f"activity_{stamp}{suffix}.tcx",
             "mimetype": "application/vnd.garmin.tcx+xml",
             "content": content,
         }
     # default: structured TCX workout
     return {
-        "filename": f"workout_{stamp}.tcx",
+        "filename": f"workout_{stamp}{suffix}.tcx",
         "mimetype": "application/vnd.garmin.tcx+xml",
         "content": generate_tcx_workout(name, sport, steps, created=dt),
     }

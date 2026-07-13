@@ -26,6 +26,27 @@ def _number(value: Any) -> float:
         return 0.0
 
 
+def _prescription_payload(template: Mapping[str, Any]) -> dict[str, Any] | None:
+    if not template.get("definition_snapshot") and not template.get("materialized_steps") and not template.get("legs"):
+        return None
+    legs = []
+    for raw_leg in list(template.get("legs") or []):
+        leg = dict(raw_leg or {})
+        leg.pop("leg_id", None)
+        legs.append(leg)
+    return {
+        "catalog_version": template.get("catalog_version"),
+        "selector_rule_version": template.get("selector_rule_version"),
+        "materializer_rule_version": template.get("materializer_rule_version"),
+        "kind": template.get("kind"),
+        "definition_snapshot": template.get("definition_snapshot"),
+        "parameter_snapshot": template.get("parameter_snapshot"),
+        "materialized_steps": template.get("materialized_steps"),
+        "transition_minutes": template.get("transition_minutes"),
+        "legs": legs,
+    }
+
+
 def _material_payload(daily_item: Any, template: Mapping[str, Any]) -> dict[str, Any]:
     dt, total, parts = daily_item
     normalized_parts = {
@@ -44,6 +65,7 @@ def _material_payload(daily_item: Any, template: Mapping[str, Any]) -> dict[str,
         "sport": str(template.get("sport") or "").strip().lower(),
         "duration_minutes": int(round(_number(template.get("duration_minutes")))),
         "template_key": str(template.get("template_key") or "").strip(),
+        "prescription": _prescription_payload(template),
     }
 
 
@@ -119,6 +141,16 @@ def ensure_session_identities(
                 template["replaces_session_id"] = inherited_replacement
         elif template.get("replaces_session_id") == session_id:
             template.pop("replaces_session_id", None)
+
+        if str(template.get("kind") or "") == "composite":
+            legs = []
+            for leg_index, raw_leg in enumerate(list(template.get("legs") or []), start=1):
+                leg = dict(raw_leg or {})
+                resolved_index = int(leg.get("leg_index") or leg_index)
+                leg["leg_index"] = resolved_index
+                leg["leg_id"] = f"{session_id}:{resolved_index}"
+                legs.append(leg)
+            template["legs"] = legs
 
     result["session_templates"] = templates
     result["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
