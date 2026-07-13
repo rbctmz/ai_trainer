@@ -19,7 +19,8 @@ The user-visible proof is a compact post-session card under the existing “Yest
 - [x] (2026-07-13 19:56Z) Added FastAPI lifecycle contracts and fail-open Today composition; a focused test proves one provider-disabled reconciliation call and no journal writes on repeated reads.
 - [x] (2026-07-13 19:56Z) Added the web feedback card with anchored completion/RPE/quality controls, evidence summary, athlete-entered provenance, retry-safe submit, explicit correction/history, dismiss, and ambiguous-match guidance.
 - [x] (2026-07-13 21:04Z) Completed focused, smoke, broad, Python/web lint, production-build, migration/concurrency, and copy-of-real-database browser acceptance; self-review removed the legacy scoring path and hardened revision/dismissal migration behavior.
-- [ ] Push the branch and open a draft PR with `Closes #175`; leave merge to the human gate.
+- [x] (2026-07-13 22:50Z) Addressed the pre-merge retry review: the web retains one fingerprint until success, the service returns an existing identical request before reconciliation, rejects a second active submit, and SQLite atomically enforces the expected latest revision.
+- [x] (2026-07-13 22:36Z) Pushed `codex/issue-175-post-workout-feedback` and opened draft PR #184 with `Closes #175`; merge remains at the human gate.
 
 ## Surprises & Discoveries
 
@@ -64,6 +65,9 @@ The user-visible proof is a compact post-session card under the existing “Yest
 
 - Observation: live product data contains a safe eligible prompt and exercises the correction path without fixture invention.
   Evidence: a temporary copy of `ai_trainer.db` produced one ready matched cycling prompt. The browser saved athlete-entered RPE 8 and quality 4 as revision 1, corrected quality to 3 as revision 2, and displayed both immutable history rows. The real database was never opened for writes.
+
+- Observation: a client-generated idempotency key is ineffective when regenerated on every click, and a service-only latest check still leaves a two-writer race.
+  Evidence: the pre-merge review reproduced revision 2 with no `supersedes_feedback_id` after a simulated lost response. The final contract keeps a `useRef` fingerprint through failures, returns the identical request before revalidation, maps a distinct second submit to 409, and checks `expected_latest_feedback_id` inside the same `BEGIN IMMEDIATE` transaction that allocates the revision. Regression coverage includes two different fingerprints racing across separate SQLite connections.
 
 ## Decision Log
 
@@ -119,13 +123,17 @@ The user-visible proof is a compact post-session card under the existing “Yest
   Rationale: unlike IntervalCoach’s automatic N/10 activity score, this product treats quality as an explicit athlete observation. The provenance is part of the evidence, not internal metadata.
   Date/Author: 2026-07-13 / Codex.
 
+- Decision: retain the client submission fingerprint across failed retries and clear it only after a successful response; atomically require the latest feedback ID expected by each append.
+  Rationale: stable client identity handles a lost response, while the SQLite optimistic check prevents two distinct first-submit requests from creating unlinked revisions. A deliberate later change must use the correction endpoint and name its superseded revision.
+  Date/Author: 2026-07-13 / Codex.
+
 ## Outcomes & Retrospective
 
 The implementation and local acceptance milestones are complete. The project now has separate append-only observation, prompt-event, and evaluation journals; pure prompt/time/quality semantics; and one compatibility path that turns the old admin resolve request into an explicit match plus feedback plus evaluation. Raw forecast rows are not changed by new resolutions, while API projections preserve familiar status fields. Today embeds one provider-free prompt block and the web exposes athlete-entered submit/correct/history UX.
 
-Final validation is green: focused contract coverage reports `70 passed`, contributor-safe smoke reports `585 passed, 1 skipped`, the broader non-live suite reports `628 passed, 6 skipped, 24 deselected`, Ruff and `compileall` pass, Next lint has no warnings, and the production build includes `/today`. Browser acceptance on a temporary copy of the real database demonstrated revision 1, correction revision 2, and both rows in append-only history with visible athlete-entered provenance. No provider write, historical WoZ import, plan mutation, Streamlit feature, or write to the real database was introduced.
+Final validation is green after the pre-merge retry fix: focused contract coverage reports `72 passed`, contributor-safe smoke reports `587 passed, 1 skipped`, the broader non-live suite reports `630 passed, 6 skipped, 24 deselected`, Ruff and `compileall` pass, Next lint has no warnings, and the production build includes `/today`. Browser acceptance on a temporary copy of the real database demonstrated revision 1, correction revision 2, and both rows in append-only history with visible athlete-entered provenance. No provider write, historical WoZ import, plan mutation, Streamlit feature, or write to the real database was introduced.
 
-Self-review caught and closed four boundary risks before publication: the old mutable resolver implementation was removed instead of merely bypassed; tombstones append an unscored evaluation so an old score cannot remain current; repeated admin corrections create proper feedback/evaluation lineage; and material prompt fingerprints make dismissals expire only when evidence changes. The only remaining operational follow-up is longitudinal product observation: #176 can consume these athlete-entered samples once enough revisions accumulate.
+Self-review and pre-merge review caught and closed five boundary risks before merge: the old mutable resolver implementation was removed instead of merely bypassed; tombstones append an unscored evaluation so an old score cannot remain current; repeated admin corrections create proper feedback/evaluation lineage; material prompt fingerprints make dismissals expire only when evidence changes; and lost-response retries can no longer create an unlinked duplicate revision. The only remaining operational follow-up is longitudinal product observation: #176 can consume these athlete-entered samples once enough revisions accumulate.
 
 ## Context and Orientation
 
@@ -269,4 +277,4 @@ In `api/session_feedback.py`, provide orchestration resembling:
 
 Request/response schemas live in `api/routers/session_feedback.py`. TypeScript interfaces mirror the API; frontend code contains presentation and request state only, never matching, prompt eligibility, or scoring rules.
 
-Revision note (2026-07-13 / Codex): created the initial self-contained ExecPlan after the issue/reviewer/source audit and pre-registered all data, timing, provenance, compatibility, and composition decisions before tests or product implementation. Updated after the red BDD/TDD run, the green headless milestone, the Today/web milestone, self-review hardening, full validation, and browser acceptance on a copied real database to preserve evidence and actual progress.
+Revision note (2026-07-13 / Codex): created the initial self-contained ExecPlan after the issue/reviewer/source audit and pre-registered all data, timing, provenance, compatibility, and composition decisions before tests or product implementation. Updated after the red BDD/TDD run, the green headless milestone, the Today/web milestone, self-review hardening, full validation, browser acceptance on a copied real database, and the pre-merge retry fix to preserve evidence and actual progress.

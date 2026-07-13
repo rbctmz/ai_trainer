@@ -367,6 +367,35 @@ def test_feedback_fingerprint_serializes_two_sqlite_connections(tmp_path) -> Non
     assert len(first_db.get_session_feedback_history("ats_quality")) == 1
 
 
+def test_feedback_first_submit_is_atomically_single_writer(tmp_path) -> None:
+    path = str(tmp_path / "feedback-first-submit-race.db")
+    first_db = Database(path)
+    second_db = Database(path)
+    barrier = Barrier(2)
+
+    def save(item: tuple[Database, str]) -> dict:
+        db, fingerprint = item
+        barrier.wait()
+        return db.save_session_feedback(
+            {
+                **_feedback_payload(fingerprint),
+                "expected_latest_feedback_id": None,
+            }
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(
+            executor.map(
+                save,
+                ((first_db, "first-submit-a"), (second_db, "first-submit-b")),
+            )
+        )
+
+    assert sorted(result["created"] for result in results) == [False, True]
+    assert sorted(result["conflict"] for result in results) == [False, True]
+    assert len(first_db.get_session_feedback_history("ats_quality")) == 1
+
+
 @pytest.mark.parametrize(
     ("quality", "expected_status", "expected_outcome", "expected_reason"),
     [
@@ -701,6 +730,65 @@ def test_feedback_correction_appends_new_evaluation_and_preserves_history(
     assert corrected["feedback"]["revision"] == 2
     assert corrected["feedback"]["supersedes_feedback_id"] == first["id"]
     assert len(db.get_session_feedback_history("ats_quality")) == 2
+
+
+def test_submit_retry_reuses_fingerprint_and_new_submit_requires_correction(
+    tmp_path, monkeypatch
+) -> None:
+    from api import session_feedback as service
+
+    db = Database(str(tmp_path / "submit-retry.db"))
+    evidence_calls = 0
+
+    def evidence(*_args, **_kwargs):
+        nonlocal evidence_calls
+        evidence_calls += 1
+        return {
+            "row": _row(),
+            "template": _template(),
+            "match_revision_id": None,
+        }
+
+    monkeypatch.setattr(service, "_feedback_evidence_for_session", evidence)
+    payload = {
+        "session_id": "ats_quality",
+        "client_submission_fingerprint": "stable-web-submit",
+        "completion_status": "completed",
+        "completion_pct": 100,
+        "session_rpe_1_10": 8,
+        "quality_rating_1_5": 4,
+    }
+
+    first = service.submit_session_feedback(
+        db,
+        payload,
+        now_utc=datetime(2026, 7, 13, 9, 0, tzinfo=timezone.utc),
+    )
+    retry = service.submit_session_feedback(
+        db,
+        payload,
+        now_utc=datetime(2026, 7, 13, 9, 1, tzinfo=timezone.utc),
+    )
+
+    assert first["created"] is True
+    assert retry["created"] is False
+    assert retry["feedback"]["id"] == first["feedback"]["id"]
+    assert evidence_calls == 1
+    with pytest.raises(service.StaleFeedbackError, match="another session"):
+        service.submit_session_feedback(
+            db,
+            {**payload, "session_id": "different-session"},
+            now_utc=datetime(2026, 7, 13, 9, 2, tzinfo=timezone.utc),
+        )
+    with pytest.raises(service.StaleFeedbackError, match="correction endpoint"):
+        service.submit_session_feedback(
+            db,
+            {**payload, "client_submission_fingerprint": "accidental-second-submit"},
+            now_utc=datetime(2026, 7, 13, 9, 3, tzinfo=timezone.utc),
+        )
+    history = db.get_session_feedback_history("ats_quality")
+    assert [row["revision"] for row in history] == [1]
+    assert history[0]["supersedes_feedback_id"] is None
 
 
 def test_stale_feedback_correction_is_rejected(tmp_path, monkeypatch) -> None:

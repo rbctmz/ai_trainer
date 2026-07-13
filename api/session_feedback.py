@@ -232,6 +232,7 @@ def _append_feedback(
             "fingerprint": client_fingerprint,
             "target_key": f"session:{session_id}",
             "supersedes_feedback_id": supersedes_feedback_id,
+            "expected_latest_feedback_id": supersedes_feedback_id,
             "session_id": session_id,
             "parent_session_id": session_id if template.get("kind") == "composite" else None,
             "match_revision_id": evidence.get("match_revision_id"),
@@ -252,6 +253,8 @@ def _append_feedback(
             "submitted_at": _iso(now_utc),
         }
     )
+    if saved.get("conflict"):
+        raise StaleFeedbackError("feedback revision is no longer current")
     feedback = saved["feedback"]
     evaluations = _evaluate_feedback_predictions(db, feedback)
     return {"feedback": feedback, "created": saved["created"], "evaluations": evaluations}
@@ -268,6 +271,27 @@ def submit_session_feedback(
     session_id = str(payload.get("session_id") or "").strip()
     if not session_id:
         raise ValueError("session_id must be non-empty")
+    client_fingerprint = str(payload.get("client_submission_fingerprint") or "").strip()
+    if not client_fingerprint:
+        raise ValueError("client_submission_fingerprint must be non-empty")
+    existing = db.get_session_feedback_by_fingerprint(client_fingerprint)
+    if existing is not None:
+        if str(existing.get("session_id") or "") != session_id:
+            raise StaleFeedbackError(
+                "client_submission_fingerprint is already used for another session"
+            )
+        return {
+            "feedback": existing,
+            "created": False,
+            "evaluations": db.get_session_quality_evaluations(
+                feedback_ids=[existing["id"]]
+            ),
+        }
+    latest = db.get_latest_session_feedback(session_id)
+    if latest is not None and latest.get("status") == "active":
+        raise StaleFeedbackError(
+            "feedback already exists for this session; use the correction endpoint"
+        )
     evidence = _feedback_evidence_for_session(db, session_id, as_of=now.date())
     _ensure_submission_due(evidence, now_utc=now)
     return _append_feedback(db, payload, evidence=evidence, now_utc=now, source=source)

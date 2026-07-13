@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import useSWR from "swr";
 import { fetcher, postJSON } from "@/lib/api";
@@ -17,7 +17,7 @@ const COMPLETION_LABELS: Record<string, string> = {
   unknown: "Не уверен",
 };
 
-function submissionFingerprint(): string {
+function createSubmissionFingerprint(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
   }
@@ -47,6 +47,7 @@ export function PostWorkoutFeedbackCard({
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [showHistory, setShowHistory] = useState(false);
+  const submissionFingerprintRef = useRef<string | null>(null);
   const { data: history } = useSWR<SessionFeedbackHistoryResponse>(
     showHistory ? `/api/session-feedback/${prompt.session_id}/history` : null,
     fetcher,
@@ -69,8 +70,9 @@ export function PostWorkoutFeedbackCard({
     if (!canSubmit) return;
     setSubmitting(true);
     setFormError(null);
+    submissionFingerprintRef.current ??= createSubmissionFingerprint();
     const body = {
-      client_submission_fingerprint: submissionFingerprint(),
+      client_submission_fingerprint: submissionFingerprintRef.current,
       completion_status: completionStatus,
       completion_pct: completionPct,
       session_rpe_1_10: needsRatings ? rpe : null,
@@ -88,6 +90,7 @@ export function PostWorkoutFeedbackCard({
             ...body,
           });
       setEditing(false);
+      submissionFingerprintRef.current = null;
       onSaved(`Фидбек сохранён · ревизия ${result.feedback.revision}`);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Не удалось сохранить фидбек");
@@ -99,12 +102,14 @@ export function PostWorkoutFeedbackCard({
   async function dismiss() {
     setSubmitting(true);
     setFormError(null);
+    submissionFingerprintRef.current ??= createSubmissionFingerprint();
     try {
       await postJSON(`/api/session-feedback/prompts/${prompt.session_id}/dismiss`, {
-        client_submission_fingerprint: submissionFingerprint(),
+        client_submission_fingerprint: submissionFingerprintRef.current,
         prompt_fingerprint: prompt.prompt_fingerprint,
         reason: "not_now",
       });
+      submissionFingerprintRef.current = null;
       onSaved("Напоминание скрыто. Факт тренировки не изменён.");
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Не удалось скрыть напоминание");

@@ -1518,7 +1518,31 @@ class Database:
             existing = cursor.fetchone()
             if existing:
                 conn.commit()
-                return {"feedback": self._deserialize_session_feedback(existing), "created": False}
+                return {
+                    "feedback": self._deserialize_session_feedback(existing),
+                    "created": False,
+                    "conflict": False,
+                }
+            cursor.execute(
+                '''
+                SELECT * FROM session_feedback
+                WHERE target_key = ?
+                ORDER BY revision DESC, id DESC
+                LIMIT 1
+                ''',
+                (target_key,),
+            )
+            latest = cursor.fetchone()
+            if "expected_latest_feedback_id" in payload:
+                expected_latest_id = payload.get("expected_latest_feedback_id")
+                actual_latest_id = latest[0] if latest else None
+                if actual_latest_id != expected_latest_id:
+                    conn.commit()
+                    return {
+                        "feedback": self._deserialize_session_feedback(latest),
+                        "created": False,
+                        "conflict": True,
+                    }
             cursor.execute(
                 "SELECT COALESCE(MAX(revision), 0) + 1 FROM session_feedback WHERE target_key = ?",
                 (target_key,),
@@ -1563,7 +1587,11 @@ class Database:
             cursor.execute("SELECT * FROM session_feedback WHERE id = ?", (row_id,))
             row = cursor.fetchone()
             conn.commit()
-            return {"feedback": self._deserialize_session_feedback(row), "created": True}
+            return {
+                "feedback": self._deserialize_session_feedback(row),
+                "created": True,
+                "conflict": False,
+            }
         except Exception:
             conn.rollback()
             raise
@@ -1575,6 +1603,15 @@ class Database:
         row = conn.execute(
             "SELECT * FROM session_feedback WHERE id = ? LIMIT 1",
             (int(feedback_id),),
+        ).fetchone()
+        conn.close()
+        return self._deserialize_session_feedback(row)
+
+    def get_session_feedback_by_fingerprint(self, fingerprint):
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute(
+            "SELECT * FROM session_feedback WHERE fingerprint = ? LIMIT 1",
+            (str(fingerprint),),
         ).fetchone()
         conn.close()
         return self._deserialize_session_feedback(row)
