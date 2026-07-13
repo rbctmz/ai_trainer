@@ -14,14 +14,15 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 - [x] (2026-07-13 11:16Z) Created isolated branch `codex/issue-173-structured-catalog` in `/private/tmp/ai_trainer_issue173` from the merged `main`.
 - [x] (2026-07-13 11:21Z) Audited the role-only template builder, FIT/TCX exporters, checkpoint serializer, session identity, manual/recovery edits, readiness gate, Today API and Planning web surface.
 - [x] (2026-07-13 11:21Z) Pre-registered the catalog bounds, phase matrix, selector precedence, target fallback rules, brick allocation and exporter contract in this plan before tests or implementation.
-- [ ] Add failing BDD/contract tests for the catalog, selector, materializer, checkpoint history, brick, recovery atomics, exporters and public API.
+- [x] (2026-07-13 14:58Z) Added red-first BDD/contract coverage for the catalog, selector, materializer, SQLite checkpoint history, brick/recovery atomics, exporters, Planning API and Today projection.
 - [x] (2026-07-13 11:41Z) Implemented the immutable 19-definition catalog, deterministic selector/materializer and conservative weekly brick allocator as a headless Python domain; 8 new BDD tests and 10 existing planner tests pass.
 - [x] (2026-07-13 12:03Z) Integrated catalog snapshots, prescription-aware identity, athlete FTP/LTHR provenance and one conservative brick per eligible balanced triathlon week into initial plan generation and checkpoint persistence.
 - [x] (2026-07-13 12:34Z) Refresh/rescale immutable prescriptions through manual/recovery edits and weekly rebalances, including exact composite-leg scaling, replacement identity and execution-plan rebuilds.
 - [x] (2026-07-13 12:17Z) Migrated FIT-CSV, workout TCX and activity TCX to persisted seconds and honest targets; composite export requires an explicit leg and never reconstructs parent steps.
 - [x] (2026-07-13 15:12Z) Exposed compact prescriptions in Planning and Today, including stimulus/fatigue/step evidence, one composite card and separate leg exports; Next.js production build passes.
-- [ ] Run focused, smoke, broader non-live and Next.js production checks; execute synthetic bike-to-run brick acceptance.
-- [ ] Self-review, finalize this living plan, publish a PR with `Closes #173`, and leave merge to the human gate.
+- [x] (2026-07-13 15:23Z) Completed focused and synthetic UI acceptance, `555 passed, 1 skipped` smoke, `598 passed, 6 skipped, 24 deselected` broader non-live, and a clean 12-route Next.js production build.
+- [x] (2026-07-13 15:23Z) Self-reviewed the complete diff, closed the Taper-long and Today-data-gap edges found in acceptance, and finalized this living plan.
+- [ ] Publish a draft PR with `Closes #173` and leave merge to the human gate.
 
 ## Surprises & Discoveries
 
@@ -57,6 +58,12 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 
 - Observation: a durable coach constraint can turn a materialized brick into a rest day after catalog generation.
   Evidence: the constraint layer runs after initial templates; it now removes definition/steps/legs/fingerprint and marks `constraint_off`, so a hidden prescription cannot survive behind zero TSS.
+
+- Observation: the legacy phase scheduler can retain the role `long` in Taper, leaving no eligible short catalog candidate even though the phase contract requires sharpening.
+  Evidence: adversarial acceptance with a 120-minute Taper bike request initially returned infeasible. The selector now records `role_override=long_to_sharpening`, admits only eligible quality/easy definitions, and caps the materialized duration at 60 minutes.
+
+- Observation: the readiness gate deliberately evaluates no sessions when recovery confidence is below threshold, so Today cannot rely on `sessions_evaluated` as its only plan projection.
+  Evidence: synthetic browser acceptance showed `state=data_gap` and “Плановой сессии нет” despite an active checkpoint session on 2026-07-13. Today now falls back to the immutable checkpoint template for the same `as_of` date while retaining the data-gap verdict and no proposal.
 
 ## Decision Log
 
@@ -144,9 +151,17 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
   Rationale: RecoveryReplan, manual edits and weekly rebalance already share headless plan mutation paths. Central refresh avoids stale steps and meets atomic brick behavior without UI-specific logic.
   Date/Author: 2026-07-13 / Codex.
 
+- Decision: when the recovery report contains no evaluated sessions, Today projects the session dated `as_of` from the restored active checkpoint; an `off` template still projects as rest. Gate state, readiness confidence and proposal behavior remain unchanged.
+  Rationale: data availability governs whether the agent may intervene, not whether the user may see an already persisted plan. This keeps one immutable prescription visible without manufacturing a gate evaluation.
+  Date/Author: 2026-07-13 / Codex.
+
 ## Outcomes & Retrospective
 
-Implementation has not started. The specification audit exposed a deeper compatibility constraint than the issue text alone: legacy daily sport parts are three-sport load buckets on nearly every day, so a truthful brick needs a conservation step rather than a simple “two non-zero sports” test. The plan now pre-registers that conservation rule, target fallbacks and exporter limitations before BDD/TDD.
+Issue #173 is implemented end to end. The bounded catalog contains exactly 19 immutable definitions, produces deterministic phase-aware prescriptions, persists complete snapshots, conserves composite brick load, survives every supported replan path, and serializes persisted seconds and honest targets through FIT/TCX. Planning and Today consume the same compact API truth; React performs no selection or zone math.
+
+Synthetic acceptance built a balanced eight-week Olympic-triathlon plan with two Build bricks. Planning displayed each as one `Endurance Brick · вело → бег` parent with bike then run legs and distinct `leg=1` / `leg=2` TCX/FIT links. Today displayed `Aerobic Endurance Ride`, its stimulus, fatigue/recovery evidence and Warm-up/Aerobic/Cool-down steps even under `data_gap`. Browser console errors were empty. Sanitized captures are stored outside the repository at `/private/tmp/ai_trainer_issue173_planning_catalog.png` and `/private/tmp/ai_trainer_issue173_today_catalog.png`.
+
+Final validation: 25 focused catalog/Today tests passed; contributor-safe smoke produced `555 passed, 1 skipped`; broader non-live produced `598 passed, 6 skipped, 24 deselected`; Next.js 14.2.35 compiled, type-checked and generated all 12 routes. The sole smoke skip is the environment-dependent local listening-socket preflight. No real athlete database, provider mutation or new third-party dependency entered the branch.
 
 ## Context and Orientation
 
@@ -286,4 +301,4 @@ The serialized single-session template must contain `kind=single` and `materiali
 
 No new third-party dependency is required. Use standard-library dataclasses, hashing, JSON and existing SQLite/checkpoint, FastAPI, pytest and React/TypeScript infrastructure.
 
-Revision note (2026-07-13 / Codex): created the initial self-contained ExecPlan after source audit and pre-registered catalog bounds, phase rules, target fallbacks, brick conservation and exporter behavior before writing tests.
+Revision note (2026-07-13 / Codex): finalized after implementation and synthetic browser acceptance; recorded the Taper-long sharpening override, Today checkpoint fallback under `data_gap`, exact validation counts and observable product evidence.
