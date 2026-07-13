@@ -34,7 +34,166 @@ def _seeded_db(tmp_path) -> Database:
 def test_planning_routes_registered():
     main = importlib.import_module("api.main")
     paths = set(main.app.openapi()["paths"].keys())
-    assert {"/api/planning/status", "/api/planning/build"} <= paths
+    assert {"/api/planning/status", "/api/planning/build", "/api/planning/events"} <= paths
+
+
+def test_training_goal_builds_rolling_horizon_without_race(tmp_path):
+    from api.planning_service import build_plan
+
+    plan = build_plan(
+        _seeded_db(tmp_path),
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=None,
+        planning_mode="training_goal",
+        intent="maintain",
+        horizon_weeks=8,
+        events=[],
+        available_hours=10,
+        persist=False,
+    )
+
+    assert plan["planning_mode"] == "training_goal"
+    assert plan["goal"]["event_date"] == ""
+    assert plan["goal"]["macrocycle_event_date"] == ""
+    assert plan["goal"]["weeks_to_race"] is None
+    assert len(plan["weeks"]) == 8
+    assert {week["phase"] for week in plan["weeks"]} <= {"Maintenance", "Recovery"}
+
+
+def test_later_a_anchors_plan_while_earlier_b_is_local_overlay(tmp_path):
+    from api import planning_service as ps
+
+    today = datetime.now().date()
+    b_date = today + timedelta(days=13)
+    a_date = today + timedelta(weeks=12)
+    result = ps.build_plan(
+        _seeded_db(tmp_path),
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=None,
+        events=[
+            {"date": b_date.isoformat(), "priority": "B", "label": "Minsk", "confirmed": True},
+            {"date": a_date.isoformat(), "priority": "A", "label": "Sirius", "confirmed": True},
+        ],
+        planning_mode="event_goal",
+        available_hours=12,
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        persist=True,
+    )
+
+    assert result["goal"]["macrocycle_event_date"] == a_date.isoformat()
+    assert [week["phase"] for week in result["weeks"]][-2:] == ["Taper", "Race Week"]
+
+
+def test_b_overlay_persists_protected_days_and_resumes(tmp_path):
+    from api import planning_service as ps
+
+    db = _seeded_db(tmp_path)
+    today = datetime.now().date()
+    b_date = today + timedelta(days=13)
+    ps.build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=None,
+        events=[{"date": b_date.isoformat(), "priority": "B", "label": "Minsk", "confirmed": True}],
+        planning_mode="training_goal",
+        intent="develop",
+        horizon_weeks=8,
+        available_hours=12,
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        persist=True,
+    )
+    active = ps.get_active_plan(db)
+    assert active is not None
+    by_date = {row[0].date().isoformat(): row for row in active["daily_plan"]}
+    assert by_date[b_date.isoformat()][1] == 0
+    assert by_date[(b_date + timedelta(days=1)).isoformat()][1] == 0
+    assert by_date[(b_date + timedelta(days=2)).isoformat()][1] == 0
+    assert by_date[(b_date + timedelta(days=3)).isoformat()][1] > 0
+    assert active["overlay_rule_version"] == "race-overlay-v1"
+    assert b_date.isoformat() in active["protected_dates"]
+
+
+def test_api_build_requires_preview_before_confirm(tmp_path):
+    from api.routers.planning import BuildRequest, planning_build
+
+    db = _seeded_db(tmp_path)
+    request = BuildRequest(
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=None,
+        planning_mode="training_goal",
+        intent="develop",
+        horizon_weeks=4,
+        available_hours=10,
+        persist=False,
+    )
+    preview = planning_build(request, db=db)
+    assert preview["plan_id"] is None
+    assert preview["confirmation_required"] is True
+    assert preview["preview"]["base_checkpoint_id"] == 0
+    assert db.get_latest_planning_checkpoint() is None
+
+    confirmed_request = request.model_copy(
+        update={
+            "persist": True,
+            "confirm": True,
+            "base_checkpoint_id": preview["preview"]["base_checkpoint_id"],
+        }
+    )
+    confirmed = planning_build(confirmed_request, db=db)
+    assert confirmed["plan_id"]
+    assert db.get_latest_planning_checkpoint() is not None
+
+
+def test_preview_is_read_only_and_stale_confirmation_is_rejected(tmp_path):
+    from fastapi import HTTPException
+
+    from api.planning_service import PLANNING_DEMAND_SETTING_KEY, build_plan
+    from api.routers.planning import BuildRequest, planning_build
+
+    db = _seeded_db(tmp_path)
+    request = BuildRequest(
+        goal_type="triathlon",
+        distance="olympic",
+        planning_mode="training_goal",
+        intent="develop",
+        horizon_weeks=4,
+        available_hours=10,
+        demand="aggressive",
+        persist=False,
+    )
+
+    preview = planning_build(request, db=db)
+    assert preview["preview"]["base_checkpoint_id"] == 0
+    assert db.get_user_setting(PLANNING_DEMAND_SETTING_KEY, None) is None
+    assert db.get_latest_planning_checkpoint() is None
+
+    # Another actor appends a checkpoint after the preview was shown.
+    build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=None,
+        planning_mode="training_goal",
+        intent="maintain",
+        horizon_weeks=4,
+        available_hours=8,
+        persist=True,
+    )
+
+    stale_confirmation = request.model_copy(
+        update={
+            "persist": True,
+            "confirm": True,
+            "base_checkpoint_id": preview["preview"]["base_checkpoint_id"],
+        }
+    )
+    with pytest.raises(HTTPException) as exc_info:
+        planning_build(stale_confirmation, db=db)
+    assert exc_info.value.status_code == 409
 
 
 def test_status_shape(tmp_path):
@@ -116,7 +275,15 @@ def test_build_plan_contract(tmp_path):
     assert plan["goal"]["goal_type"] == "Триатлон"
     assert plan["goal"]["distance"] == "Олимпийка"
     assert plan["goal"]["events"] == [
-        {"date": event, "priority": "A", "label": "Триатлон Олимпийка"}
+        {
+            "date": event,
+            "priority": "A",
+            "label": "Триатлон Олимпийка",
+            "source": "user",
+            "priority_provenance": "explicit_user",
+            "confirmed": True,
+            "requires_confirmation": False,
+        }
     ]
     assert plan["goal"]["event_date"] == event
     assert plan["goal"]["weeks_to_race"] >= 1
@@ -158,7 +325,15 @@ def test_build_plan_applies_active_coach_constraints(tmp_path):
     assert active_plan
     assert active_plan["event_date"] == event
     assert active_plan["events"] == [
-        {"date": event, "priority": "A", "label": "Триатлон Олимпийка"}
+        {
+            "date": event,
+            "priority": "A",
+            "label": "Триатлон Олимпийка",
+            "source": "user",
+            "priority_provenance": "explicit_user",
+            "confirmed": True,
+            "requires_confirmation": False,
+        }
     ]
     latest = db.get_latest_planning_checkpoint()
     assert latest is not None

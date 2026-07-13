@@ -91,7 +91,15 @@ def test_propose_plan_build_returns_proposal(tmp_path) -> None:
     assert proposal["params"]["event_date"] == event_date
     assert proposal["params"]["available_days"] == ["mon", "tue", "thu", "sat", "sun"]
     assert proposal["preview"]["goal"]["events"] == [
-        {"date": event_date, "priority": "A", "label": "Триатлон Half (70.3)"}
+        {
+            "date": event_date,
+            "priority": "A",
+            "label": "Триатлон Half (70.3)",
+            "source": "user",
+            "priority_provenance": "explicit_user",
+            "confirmed": True,
+            "requires_confirmation": False,
+        }
     ]
     assert proposal["preview"].get("total_weeks", 0) > 0
     assert proposal["preview"].get("peak_tss", 0) > 0

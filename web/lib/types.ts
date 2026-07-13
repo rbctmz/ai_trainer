@@ -433,16 +433,51 @@ export interface RaceEvent {
   date: string;
   priority: "A" | "B" | "C";
   label: string;
+  source?: "user" | "intervals_icu" | "legacy_checkpoint" | string;
+  source_id?: string;
+  category?: string;
+  discipline?: "triathlon" | "bike" | "run" | "swim" | null;
+  discipline_provenance?: string;
+  discipline_confidence?: number;
+  priority_provenance?: string;
+  confirmed?: boolean;
+  requires_confirmation?: boolean;
+}
+
+export interface PlanningEventsResponse {
+  oldest: string;
+  newest: string;
+  count: number;
+  events: RaceEvent[];
+  read_only: true;
 }
 
 export interface BuiltPlan {
   plan_id: string | null;
+  planning_mode: "event_goal" | "training_goal" | "manual";
+  confirmation_required: boolean;
+  preview: {
+    base_checkpoint_id: number;
+    events_before: RaceEvent[];
+    events_after: RaceEvent[];
+    phases_before: string[];
+    phases_after: string[];
+    weekly_tss_before: number[];
+    weekly_tss_after: number[];
+    weekly_tss_delta: number;
+  };
   goal: {
     goal_type: string;
     distance: string;
     event_date: string;
     events: RaceEvent[];
-    weeks_to_race: number;
+    weeks_to_race: number | null;
+    macrocycle_event_date: string;
+  };
+  event_overlay: {
+    rule_version: string;
+    protected_dates: string[];
+    overlays: Array<{ date: string; priority: "A" | "B" | "C"; label: string; affected_dates: string[] }>;
   };
   weekly_target: {
     target_weekly_tss: number;

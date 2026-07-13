@@ -65,6 +65,8 @@ def build_recovery_replan_variant(
         return None
 
     conflict_date = str(conflict.get("date") or "")[:10]
+    if conflict_date in {str(value)[:10] for value in (goal_plan.get("protected_dates") or [])}:
+        return None
     daily_plan = list(goal_plan.get("daily_plan") or [])
     target_index = next(
         (
@@ -75,6 +77,9 @@ def build_recovery_replan_variant(
         None,
     )
     if target_index is None:
+        return None
+    templates = list(goal_plan.get("session_templates") or [])
+    if target_index < len(templates) and bool((templates[target_index] or {}).get("protected_by_event")):
         return None
 
     horizon_days = target_index + 1

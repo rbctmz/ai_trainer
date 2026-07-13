@@ -18,7 +18,12 @@ from data.database import Database
 from models.banister import BanisterModel, tsb_zone
 from models.coach_constraints import apply_constraints_to_goal_plan
 from models.fit_export import build_steps_for_sport, generate_fit_csv
-from models.plan_events import build_primary_event, synchronize_goal_plan_events
+from models.plan_events import (
+    build_primary_event,
+    macrocycle_event,
+    normalized_events,
+    synchronize_goal_plan_events,
+)
 from models.planning_checkpoints import (
     build_planning_checkpoint,
     restore_goal_plan_from_checkpoint,
@@ -44,9 +49,10 @@ from models.signals_engine import assemble_signals
 from models.tcx_activity_export import generate_tcx_activity
 from models.tcx_export import generate_tcx_workout
 from models.training_planner import (
+    apply_race_event_overlays,
     apply_planning_constraints,
     build_daily_session_templates,
-    compute_phase_schedule,
+    compute_event_aware_phase_schedule,
     create_ics_from_daily,
     create_weekly_tss_plan,
     expand_weekly_to_daily_triathlon,
@@ -258,11 +264,18 @@ def build_plan(
     *,
     goal_type: str,
     distance: str,
-    event_date: str,
+    event_date: str | None,
     available_hours: float,
     available_days: Optional[List[str]] = None,
     demand: Optional[str] = None,
     persist: bool = True,
+    planning_mode: str = "event_goal",
+    intent: str = "develop",
+    focus: str = "balanced_triathlon",
+    horizon_weeks: int = 8,
+    manual_phases: Optional[List[str]] = None,
+    events: Optional[List[Dict[str, Any]]] = None,
+    expected_base_checkpoint_id: int | None = None,
 ) -> Dict[str, Any]:
     metrics, banister, activities_df = _current_metrics(db)
     gt = _internal_goal_type(goal_type)
@@ -270,12 +283,49 @@ def build_plan(
     day_indices = _day_indices(available_days)
 
     start_week = _start_week()
-    goal_dt = datetime.strptime(event_date[:10], "%Y-%m-%d").date()
-    weeks_to_race = max(1, weeks_until(goal_dt, from_date=start_week))
+    mode = str(planning_mode or "event_goal").strip().lower()
+    normalized_intent = str(intent or "develop").strip().lower()
+    if mode not in {"event_goal", "training_goal", "manual"}:
+        raise ValueError("planning_mode must be event_goal, training_goal, or manual")
+    if normalized_intent not in {"maintain", "develop"}:
+        raise ValueError("intent must be maintain or develop")
+
+    latest_checkpoint = db.get_latest_planning_checkpoint()
+    latest_checkpoint_id = (
+        int(latest_checkpoint.get("id"))
+        if isinstance(latest_checkpoint, dict) and latest_checkpoint.get("id") is not None
+        else 0
+    )
+    if expected_base_checkpoint_id is not None and latest_checkpoint_id != int(expected_base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_checkpoint_id or 'none'} no longer matches preview base "
+            f"#{int(expected_base_checkpoint_id) or 'none'}"
+        )
+
+    plan_events = normalized_events(events)
+    if not plan_events and event_date:
+        legacy_explicit = build_primary_event(event_date, f"{gt} {dist}")
+        if legacy_explicit is not None:
+            plan_events = [
+                {
+                    **legacy_explicit,
+                    "source": "user",
+                    "priority_provenance": "explicit_user",
+                    "confirmed": True,
+                    "requires_confirmation": False,
+                }
+            ]
+
+    anchor = macrocycle_event(plan_events) if mode == "event_goal" else None
+    if mode == "event_goal" and anchor is None:
+        raise ValueError("event_goal requires a confirmed A event")
+    goal_dt = date.fromisoformat(anchor["date"]) if anchor is not None else None
+    weeks_to_race = max(1, weeks_until(goal_dt, from_date=start_week)) if goal_dt else None
+    weeks_total = int(weeks_to_race or max(4, min(8, int(horizon_weeks or 8))))
 
     start_weekly_tss_guess = int(float(metrics.get("ctl", 50) or 50) * 7)
     demand_level = normalize_demand_level(demand or _persisted_demand_level(db))
-    if demand is not None:
+    if demand is not None and persist:
         db.set_user_setting(PLANNING_DEMAND_SETTING_KEY, demand_level)
     target_breakdown = build_weekly_target_breakdown(
         goal_type=gt,
@@ -289,13 +339,18 @@ def build_plan(
 
     base_weekly = create_weekly_tss_plan(
         start_weekly_tss=start_weekly_tss_guess,
-        weeks_total=weeks_to_race,
+        weeks_total=weeks_total,
         target_weekly_tss=target_weekly_tss,
         deload_every=4,
-        taper_weeks=2,
+        taper_weeks=2 if mode == "event_goal" else 0,
         max_ramp=0.10,
     )
-    phases = compute_phase_schedule(weeks_to_race)
+    phases = compute_event_aware_phase_schedule(
+        weeks_total,
+        planning_mode=mode,
+        intent=normalized_intent,
+        manual_phases=manual_phases,
+    )
 
     mix_overrides: Optional[Dict[str, Dict[str, float]]] = None
     if gt == "Бег":
@@ -328,17 +383,49 @@ def build_plan(
         week_row["capacity_tss"] = detail.get("capacity_tss")
         week_row["adjustment_note"] = detail.get("adjustment_note", "—")
 
+    daily_plan, weekly_summary, event_overlay = apply_race_event_overlays(
+        daily_plan,
+        weekly_summary,
+        plan_events,
+    )
+    weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
+
     session_templates = build_daily_session_templates(
         daily_plan, weekly_summary, goal_type=gt, distance=dist
     )
+    event_by_date = {str(event.get("date")): event for event in plan_events}
+    protected_dates = set(event_overlay.get("protected_dates") or [])
+    for template in session_templates:
+        template_date = str(template.get("date") or "")
+        if template_date in protected_dates:
+            template["protected_by_event"] = True
+        if template_date in event_by_date:
+            event = event_by_date[template_date]
+            template.update(
+                {
+                    "session_role": "race",
+                    "session_focus": f"Старт {event['priority']} · {event.get('label') or ''}".rstrip(" ·"),
+                    "sport": "off",
+                    "sport_label": "старт",
+                    "duration_minutes": 0,
+                    "export_name": str(event.get("label") or f"Старт {event['priority']}"),
+                    "is_race_event": True,
+                    "race_event": dict(event),
+                    "protected_by_event": True,
+                }
+            )
 
-    initial_event = build_primary_event(goal_dt, f"{gt} {dist}")
     goal_plan = synchronize_goal_plan_events({
         "goal_type": gt,
         "distance": dist,
-        "event_date": goal_dt.isoformat(),
-        "events": [initial_event] if initial_event is not None else [],
+        "planning_mode": mode,
+        "planning_intent": normalized_intent,
+        "planning_focus": str(focus or "balanced_triathlon"),
+        "event_date": goal_dt.isoformat() if goal_dt else "",
+        "macrocycle_event_date": goal_dt.isoformat() if goal_dt else "",
+        "events": plan_events,
         "weeks_to_race": weeks_to_race,
+        "horizon_weeks": weeks_total,
         "start_week": start_week,
         "weekly_tss_plan": weekly_tss_plan,
         "base_weekly_tss_plan": base_weekly,
@@ -346,6 +433,9 @@ def build_plan(
         "daily_plan": daily_plan,
         "session_templates": session_templates,
         "weekly_summary": weekly_summary,
+        "overlay_rule_version": event_overlay["rule_version"],
+        "event_overlays": event_overlay["overlays"],
+        "protected_dates": event_overlay["protected_dates"],
         "constraint_summary": constraint_summary,
         "demand_level": demand_level,
         "demand_multiplier": float(target_breakdown["demand"]["multiplier"]),
@@ -359,6 +449,10 @@ def build_plan(
     goal_plan, constraint_application = _apply_active_coach_constraints(db, goal_plan)
     goal_plan = synchronize_goal_plan_events(goal_plan)
     goal_plan = with_checkpoint_provenance(goal_plan, source="initial_plan")
+
+    existing_plan = restore_goal_plan_from_checkpoint(latest_checkpoint)
+    preview = _build_plan_preview(existing_plan, goal_plan)
+    preview["base_checkpoint_id"] = latest_checkpoint_id
 
     plan_id: Optional[str] = None
     if persist:
@@ -376,13 +470,18 @@ def build_plan(
 
     return {
         "plan_id": plan_id,
+        "planning_mode": mode,
+        "confirmation_required": not persist,
+        "preview": preview,
         "goal": {
             "goal_type": gt,
             "distance": dist,
             "event_date": goal_plan["event_date"],
             "events": goal_plan["events"],
             "weeks_to_race": weeks_to_race,
+            "macrocycle_event_date": goal_plan.get("macrocycle_event_date", ""),
         },
+        "event_overlay": event_overlay,
         "weekly_target": {
             **public_weekly_target_payload(target_breakdown),
         },
@@ -390,6 +489,43 @@ def build_plan(
         "constraint_application": constraint_application,
         "weeks": weeks,
         "forecast": forecast,
+    }
+
+
+def _build_plan_preview(
+    before: Dict[str, Any] | None,
+    after: Dict[str, Any],
+) -> Dict[str, Any]:
+    """Return a compact deterministic diff for explicit confirmation."""
+    before_phases = list((before or {}).get("phases") or [])
+    after_phases = list(after.get("phases") or [])
+    before_weekly = [int(value or 0) for value in ((before or {}).get("weekly_tss_plan") or [])]
+    after_weekly = [int(value or 0) for value in (after.get("weekly_tss_plan") or [])]
+    return {
+        "events_before": [dict(event) for event in ((before or {}).get("events") or [])],
+        "events_after": [dict(event) for event in (after.get("events") or [])],
+        "phases_before": before_phases,
+        "phases_after": after_phases,
+        "weekly_tss_before": before_weekly,
+        "weekly_tss_after": after_weekly,
+        "weekly_tss_delta": sum(after_weekly) - sum(before_weekly),
+    }
+
+
+def discover_intervals_events(*, days: int = 180, today: date | None = None) -> Dict[str, Any]:
+    """Read a bounded event preview without persisting or writing externally."""
+    from services.intervals_icu import list_race_events
+
+    resolved_days = max(1, min(365, int(days or 180)))
+    start = today or datetime.now().date()
+    end = start + timedelta(days=resolved_days)
+    events = list_race_events(start, end)
+    return {
+        "oldest": start.isoformat(),
+        "newest": end.isoformat(),
+        "count": len(events),
+        "events": events,
+        "read_only": True,
     }
 
 

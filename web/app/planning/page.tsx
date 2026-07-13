@@ -8,6 +8,7 @@ import {
   BuiltPlan,
   ForecastPoint,
   Outcome,
+  PlanningEventsResponse,
   PlanningDemand,
   PlanningHistory,
   PlanExport,
@@ -15,6 +16,7 @@ import {
   PlanWeek,
   ReconResponse,
   ReconRow,
+  RaceEvent,
   TargetPreview,
 } from "@/lib/types";
 
@@ -79,6 +81,14 @@ const DEFAULT_DEMAND_OPTIONS: PlanningDemand[] = [
   { level: "aggressive", label: "Агрессивно", multiplier: 1.2 },
 ];
 
+type PlanningMode = "event_goal" | "training_goal" | "manual";
+
+const PLANNING_MODES: Array<{ value: PlanningMode; label: string; detail: string }> = [
+  { value: "event_goal", label: "К старту", detail: "A-цель с B/C-оверлеями" },
+  { value: "training_goal", label: "Развивать форму", detail: "Без выдуманной даты гонки" },
+  { value: "manual", label: "Ручные фазы", detail: "Фазы задаёте вы" },
+];
+
 function defaultEventDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 56);
@@ -131,6 +141,13 @@ export default function PlanningPage() {
 
 /* ---------------- Build mode ---------------- */
 function BuildMode({ status }: { status?: PlanningStatus }) {
+  const { mutate } = useSWRConfig();
+  const [planningMode, setPlanningMode] = useState<PlanningMode>("event_goal");
+  const [intent, setIntent] = useState<"maintain" | "develop">("develop");
+  const [horizonWeeks, setHorizonWeeks] = useState(8);
+  const [manualPhases, setManualPhases] = useState(
+    "Base, Base, Build, Recovery, Base, Build, Build, Recovery",
+  );
   const [goalType, setGoalType] = useState("triathlon");
   const [distance, setDistance] = useState("olympic");
   const [eventDate, setEventDate] = useState(defaultEventDate);
@@ -140,6 +157,8 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [plan, setPlan] = useState<BuiltPlan | null>(null);
+  const [selectedEvents, setSelectedEvents] = useState<RaceEvent[]>([]);
+  const [lastRequest, setLastRequest] = useState<Record<string, unknown> | null>(null);
   const demandOptions = status?.demand_options?.length ? status.demand_options : DEFAULT_DEMAND_OPTIONS;
 
   useEffect(() => {
@@ -160,6 +179,11 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
     return `/api/planning/target-preview?${params.toString()}`;
   }, [goalType, distance, hours, days, demand]);
   const { data: preview } = useSWR<TargetPreview>(previewKey, fetcher);
+  const { data: discovered, error: eventDiscoveryError } = useSWR<PlanningEventsResponse>(
+    "/api/planning/events?days=365",
+    fetcher,
+    { shouldRetryOnError: false },
+  );
 
   function onGoalChange(v: string) {
     setGoalType(v);
@@ -168,22 +192,67 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
   function toggleDay(v: string) {
     setDays((d) => (d.includes(v) ? d.filter((x) => x !== v) : [...d, v]));
   }
+  function toggleEvent(event: RaceEvent) {
+    const key = `${event.source ?? "event"}:${event.source_id ?? event.date}:${event.priority}`;
+    const isAlreadySelected = selectedEvents.some(
+      (item) => `${item.source ?? "event"}:${item.source_id ?? item.date}:${item.priority}` === key,
+    );
+    if (!isAlreadySelected && event.priority === "A" && event.confirmed !== false) {
+      setPlanningMode("event_goal");
+    }
+    setPlan(null);
+    setLastRequest(null);
+    setSelectedEvents((current) =>
+      current.some((item) => `${item.source ?? "event"}:${item.source_id ?? item.date}:${item.priority}` === key)
+        ? current.filter((item) => `${item.source ?? "event"}:${item.source_id ?? item.date}:${item.priority}` !== key)
+        : [...current, event],
+    );
+  }
+  function requestPayload(): Record<string, unknown> {
+    const parsedManual = manualPhases.split(",").map((value) => value.trim()).filter(Boolean);
+    return {
+      goal_type: goalType,
+      distance,
+      event_date: planningMode === "event_goal" && selectedEvents.length === 0 ? eventDate : null,
+      events: selectedEvents,
+      planning_mode: planningMode,
+      intent,
+      focus: "balanced_triathlon",
+      horizon_weeks: planningMode === "event_goal" ? 8 : horizonWeeks,
+      manual_phases: planningMode === "manual" ? parsedManual : null,
+      available_hours: hours,
+      available_days: days,
+      demand,
+    };
+  }
   async function build() {
     setBuilding(true);
     setError(null);
     try {
-      setPlan(
-        await postJSON<BuiltPlan>("/api/planning/build", {
-          goal_type: goalType,
-          distance,
-          event_date: eventDate,
-          available_hours: hours,
-          available_days: days,
-          demand,
-        }),
-      );
+      const request = requestPayload();
+      setLastRequest(request);
+      setPlan(await postJSON<BuiltPlan>("/api/planning/build", { ...request, persist: false, confirm: false }));
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Не удалось собрать план");
+    } finally {
+      setBuilding(false);
+    }
+  }
+  async function confirmPlan() {
+    if (!lastRequest) return;
+    setBuilding(true);
+    setError(null);
+    try {
+      const confirmed = await postJSON<BuiltPlan>("/api/planning/build", {
+        ...lastRequest,
+        persist: true,
+        confirm: true,
+        base_checkpoint_id: plan?.preview.base_checkpoint_id ?? 0,
+      });
+      setPlan(confirmed);
+      await Promise.all([mutate("/api/planning/status"), mutate("/api/planning/history?limit=8")]);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Не удалось подтвердить план");
     } finally {
       setBuilding(false);
     }
@@ -192,6 +261,30 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
   return (
     <>
       <section className="rounded-card border border-surface-border bg-surface p-5 shadow-card">
+        <Field label="Подход к планированию">
+          <div className="mb-4 grid gap-2 sm:grid-cols-3">
+            {PLANNING_MODES.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => {
+                  setPlanningMode(option.value);
+                  setPlan(null);
+                  setLastRequest(null);
+                }}
+                className={`rounded-lg border px-3 py-3 text-left transition ${
+                  planningMode === option.value
+                    ? "border-accent bg-accent/10 text-ink"
+                    : "border-surface-border text-ink-soft hover:bg-surface-muted"
+                }`}
+              >
+                <span className="block text-sm font-semibold">{option.label}</span>
+                <span className="mt-1 block text-xs">{option.detail}</span>
+              </button>
+            ))}
+          </div>
+        </Field>
+
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Тип цели">
             <Select value={goalType} onChange={onGoalChange} options={GOAL_TYPES} />
@@ -199,15 +292,80 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
           <Field label="Дистанция">
             <Select value={distance} onChange={setDistance} options={DISTANCES[goalType]} />
           </Field>
-          <Field label="Дата старта">
-            <input
-              type="date"
-              value={eventDate}
-              onChange={(e) => setEventDate(e.target.value)}
-              className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm"
-            />
-          </Field>
+          {planningMode === "event_goal" ? (
+            <Field label="Дата A-старта">
+              <input
+                type="date"
+                value={eventDate}
+                onChange={(e) => setEventDate(e.target.value)}
+                className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm"
+              />
+            </Field>
+          ) : (
+            <Field label="Горизонт">
+              <Select
+                value={String(horizonWeeks)}
+                onChange={(value) => setHorizonWeeks(Number(value))}
+                options={[4, 6, 8].map((value) => ({ value: String(value), label: `${value} недель` }))}
+              />
+            </Field>
+          )}
         </div>
+
+        {planningMode !== "event_goal" ? (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <Field label="Намерение">
+              <Select
+                value={intent}
+                onChange={(value) => setIntent(value as "maintain" | "develop")}
+                options={[
+                  { value: "develop", label: "Развивать форму" },
+                  { value: "maintain", label: "Поддерживать форму" },
+                ]}
+              />
+            </Field>
+            {planningMode === "manual" ? (
+              <Field label={`Фазы через запятую — ровно ${horizonWeeks}`}>
+                <input
+                  value={manualPhases}
+                  onChange={(event) => setManualPhases(event.target.value)}
+                  className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm"
+                />
+              </Field>
+            ) : null}
+          </div>
+        ) : null}
+
+        {discovered?.events.length ? (
+          <Field label="События из Intervals.icu · только чтение">
+            <div className="mt-4 grid gap-2 sm:grid-cols-2">
+              {discovered.events.map((event) => {
+                const selected = selectedEvents.some(
+                  (item) => (item.source_id || item.date) === (event.source_id || event.date) && item.priority === event.priority,
+                );
+                return (
+                  <button
+                    key={`${event.source_id || event.date}-${event.priority}`}
+                    type="button"
+                    onClick={() => toggleEvent(event)}
+                    className={`rounded-lg border px-3 py-2 text-left text-xs transition ${
+                      selected ? "border-accent bg-accent/10" : "border-surface-border hover:bg-surface-muted"
+                    }`}
+                  >
+                    <span className="font-semibold text-ink">{event.priority} · {event.label || "Без названия"}</span>
+                    <span className="mt-1 block text-ink-soft">
+                      {event.date} · {event.discipline || "спорт нужно подтвердить"}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
+        ) : eventDiscoveryError ? (
+          <div className="mt-4 text-xs text-ink-faint">
+            События Intervals.icu сейчас недоступны — можно продолжить с ручными параметрами.
+          </div>
+        ) : null}
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <Field label={`Часов в неделю: ${hours}`}>
@@ -270,7 +428,7 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
           disabled={building || days.length === 0}
           className="mt-5 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40 sm:w-auto sm:px-8"
         >
-          {building ? "Собираю план…" : "🧭 Собрать план"}
+          {building ? "Собираю план…" : "🧭 Предпросмотр плана"}
         </button>
 
         {error ? (
@@ -282,8 +440,39 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
 
       {plan ? (
         <>
+          <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+                  {plan.plan_id ? "План сохранён" : "Предпросмотр · SQLite не изменён"}
+                </div>
+                <div className="mt-1 text-sm text-ink-soft">
+                  Изменение нагрузки: {plan.preview.weekly_tss_delta >= 0 ? "+" : ""}{plan.preview.weekly_tss_delta} TSS · {plan.event_overlay.rule_version}
+                </div>
+              </div>
+              {!plan.plan_id ? (
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => { setPlan(null); setLastRequest(null); }}
+                    className="rounded-lg border border-surface-border px-3 py-2 text-sm text-ink-soft"
+                  >
+                    Отменить
+                  </button>
+                  <button
+                    type="button"
+                    onClick={confirmPlan}
+                    disabled={building}
+                    className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground disabled:opacity-40"
+                  >
+                    Подтвердить и сохранить
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          </section>
           <section className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <Stat label="Недель до старта" value={`${plan.goal.weeks_to_race}`} />
+            <Stat label="Горизонт" value={plan.goal.weeks_to_race ? `${plan.goal.weeks_to_race} нед. до старта` : `${plan.weeks.length} нед. rolling`} />
             <Stat label="Цель/нед" value={`${plan.weekly_target.target_weekly_tss} TSS`} />
             <Stat label="Режим" value={plan.weekly_target.demand?.label ?? "—"} />
             <Stat label="Пик" value={`${plan.totals.peak_tss} TSS`} />

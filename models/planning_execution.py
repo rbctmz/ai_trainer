@@ -13,6 +13,7 @@ from models.training_planner import (
     SESSION_ROLE_LABELS_RU,
     SPORT_LABELS_RU,
     WEEKDAY_LABELS_RU,
+    apply_race_event_overlays,
     apply_planning_constraints,
     build_daily_session_templates,
     expand_weekly_to_daily_triathlon,
@@ -1196,6 +1197,13 @@ def rebuild_goal_plan_with_adjustment(
         week_row["capacity_tss"] = detail.get("capacity_tss")
         week_row["adjustment_note"] = detail.get("adjustment_note", "—")
 
+    daily_plan, weekly_summary, event_overlay = apply_race_event_overlays(
+        daily_plan,
+        weekly_summary,
+        goal_plan.get("events", []),
+    )
+    weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
+
     session_templates = build_daily_session_templates(
         daily_plan,
         weekly_summary,
@@ -1229,6 +1237,7 @@ def rebuild_goal_plan_with_adjustment(
             rebuilt_constraint_summary["notes"] = notes
 
     return synchronize_goal_plan_events({
+        **goal_plan,
         "goal_type": goal_type,
         "distance": distance,
         "events": goal_plan.get("events", []),
@@ -1241,6 +1250,9 @@ def rebuild_goal_plan_with_adjustment(
         "daily_plan": daily_plan,
         "session_templates": session_templates,
         "weekly_summary": weekly_summary,
+        "overlay_rule_version": event_overlay["rule_version"],
+        "event_overlays": event_overlay["overlays"],
+        "protected_dates": event_overlay["protected_dates"],
         "constraint_summary": rebuilt_constraint_summary,
         "planner_mix": planner_mix,
         "planner_weights": planner_weights,

@@ -271,8 +271,41 @@ def test_restore_legacy_event_date_synthesizes_primary_a_event():
     assert restored is not None
     assert restored["event_date"] == "2026-08-10"
     assert restored["events"] == [
-        {"date": "2026-08-10", "priority": "A", "label": "Триатлон Олимпийка"}
+        {
+            "date": "2026-08-10",
+            "priority": "A",
+            "label": "Триатлон Олимпийка",
+            "source": "legacy_checkpoint",
+            "priority_provenance": "legacy_assumed",
+            "confirmed": False,
+            "requires_confirmation": True,
+        }
     ]
+
+
+def test_checkpoint_round_trip_preserves_planning_mode_and_overlay_provenance():
+    plan = _sample_goal_plan()
+    plan.update(
+        {
+            "planning_mode": "event_goal",
+            "planning_intent": "develop",
+            "planning_focus": "balanced_triathlon",
+            "macrocycle_event_date": "2026-08-10",
+            "overlay_rule_version": "race-overlay-v1",
+            "event_overlays": [
+                {"date": "2026-07-12", "priority": "B", "affected_dates": ["2026-07-12"]}
+            ],
+            "protected_dates": ["2026-07-12", "2026-07-13"],
+        }
+    )
+
+    restored = restore_goal_plan_from_checkpoint(build_planning_checkpoint(plan))
+
+    assert restored is not None
+    assert restored["planning_mode"] == "event_goal"
+    assert restored["macrocycle_event_date"] == "2026-08-10"
+    assert restored["overlay_rule_version"] == "race-overlay-v1"
+    assert restored["protected_dates"] == ["2026-07-12", "2026-07-13"]
 
 
 def test_resolve_current_goal_plan_derives_alias_from_events():
@@ -341,6 +374,32 @@ def test_rebuild_goal_plan_with_adjustment_from_checkpoint_context():
     assert rebuilt["weekly_tss_plan"][0] < rebuilt["base_weekly_tss_plan"][0]
     assert "checkpoint:" in rebuilt["weekly_summary"][0]["adjustment_note"]
     assert len(rebuilt["session_templates"]) == len(rebuilt["daily_plan"])
+
+
+def test_execution_rebuild_reapplies_race_protection_and_mode_metadata():
+    plan = _sample_goal_plan()
+    event_date = "2026-06-20"
+    plan.update(
+        {
+            "planning_mode": "training_goal",
+            "planning_intent": "develop",
+            "events": [{"date": event_date, "priority": "B", "label": "B race", "confirmed": True}],
+            "event_date": "",
+            "macrocycle_event_date": "",
+        }
+    )
+
+    rebuilt = rebuild_goal_plan_with_adjustment(
+        plan,
+        {"status": "as_planned", "weeks": 0},
+    )
+    by_date = {row[0].date().isoformat(): row for row in rebuilt["daily_plan"]}
+
+    assert rebuilt["planning_mode"] == "training_goal"
+    assert rebuilt["event_date"] == ""
+    assert rebuilt["overlay_rule_version"] == "race-overlay-v1"
+    assert by_date[event_date][1] == 0
+    assert event_date in rebuilt["protected_dates"]
 
 
 def test_execution_feedback_summary_ignores_manual_edit_checkpoint_versions():
