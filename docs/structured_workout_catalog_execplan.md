@@ -19,7 +19,7 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 - [x] (2026-07-13 12:03Z) Integrated catalog snapshots, prescription-aware identity, athlete FTP/LTHR provenance and one conservative brick per eligible balanced triathlon week into initial plan generation and checkpoint persistence.
 - [x] (2026-07-13 12:34Z) Refresh/rescale immutable prescriptions through manual/recovery edits and weekly rebalances, including exact composite-leg scaling, replacement identity and execution-plan rebuilds.
 - [x] (2026-07-13 12:17Z) Migrated FIT-CSV, workout TCX and activity TCX to persisted seconds and honest targets; composite export requires an explicit leg and never reconstructs parent steps.
-- [ ] Expose compact prescriptions in Planning and Today, including one composite card with separate leg exports.
+- [x] (2026-07-13 15:12Z) Exposed compact prescriptions in Planning and Today, including stimulus/fatigue/step evidence, one composite card and separate leg exports; Next.js production build passes.
 - [ ] Run focused, smoke, broader non-live and Next.js production checks; execute synthetic bike-to-run brick acceptance.
 - [ ] Self-review, finalize this living plan, publish a PR with `Closes #173`, and leave merge to the human gate.
 

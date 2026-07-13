@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
-import type { TodayResponse } from "@/lib/types";
+import type { TodayResponse, WorkoutStep } from "@/lib/types";
 import { ProposalCard } from "@/components/ui/ProposalCard";
 
 const STATE_META: Record<
@@ -124,6 +124,34 @@ export default function TodayPage() {
                       .filter(Boolean)
                       .join(" · ")}
                   </p>
+                  {session.stimulus ? (
+                    <p className="mt-2 text-sm text-ink-soft">{session.stimulus}</p>
+                  ) : null}
+                  {session.fatigue_cost?.length ? (
+                    <p className="mt-1 text-xs text-ink-faint">
+                      Fatigue {session.fatigue_cost.join("/")}
+                      {session.expected_recovery_hours
+                        ? ` · восстановление ~${session.expected_recovery_hours} ч`
+                        : ""}
+                    </p>
+                  ) : null}
+                  {session.kind === "composite" && session.legs?.length ? (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                      {session.legs.map((leg) => (
+                        <div key={leg.leg_index} className="rounded-lg bg-surface-muted p-2.5">
+                          <div className="text-xs font-medium text-ink">
+                            {leg.leg_index}. {leg.template_name || leg.sport}
+                            <span className="ml-1 font-normal text-ink-faint">
+                              {leg.duration_minutes} мин · {leg.target_tss} TSS
+                            </span>
+                          </div>
+                          <TodaySteps steps={leg.steps} />
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <TodaySteps steps={session.steps || []} />
+                  )}
                 </div>
               ) : (
                 <p className="mt-1 text-sm text-ink-soft">
@@ -182,4 +210,39 @@ export default function TodayPage() {
       ) : null}
     </main>
   );
+}
+
+function TodaySteps({ steps }: { steps: WorkoutStep[] }) {
+  if (!steps.length) return null;
+  return (
+    <div className="mt-2 space-y-1 text-xs text-ink-faint">
+      {steps.map((step, index) => (
+        <div key={`${step.name}-${index}`} className="flex items-center justify-between gap-3">
+          <span>{step.name || `Шаг ${index + 1}`}</span>
+          <span className="shrink-0 tabular-nums">
+            {formatSeconds(step.duration_seconds)}
+            {formatTarget(step.target) ? ` · ${formatTarget(step.target)}` : ""}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function formatSeconds(seconds: number | null): string {
+  if (!seconds) return "—";
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest ? `${minutes}:${String(rest).padStart(2, "0")}` : `${minutes} мин`;
+}
+
+function formatTarget(target: Record<string, unknown> | null): string {
+  if (!target) return "";
+  const type = String(target.type || "");
+  const low = target.low;
+  const high = target.high;
+  if (type === "power" && low != null && high != null) return `${low}–${high} Вт`;
+  if (type === "heart_rate" && low != null && high != null) return `${low}–${high} уд/мин`;
+  if (type === "relative_rpe" && low != null && high != null) return `RPE ${low}–${high}`;
+  return type;
 }

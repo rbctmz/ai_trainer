@@ -23,6 +23,7 @@ from api.operational_state import build_operational_state
 from api.readiness_snapshot import build_readiness_snapshot
 from api.recovery_replan_loop import run_recovery_replan_loop
 from data.database import Database
+from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.readiness_conflicts import ROLE_LABELS_RU
 
 router = APIRouter(prefix="/api/today", tags=["today"])
@@ -42,13 +43,14 @@ def today_view(
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
     checkpoint = _latest_checkpoint(db)
+    goal_plan = restore_goal_plan_from_checkpoint(checkpoint) if checkpoint else None
     loop_result = _run_loop(db)
     report = loop_result.get("readiness_conflicts") or {}
     snapshot = build_readiness_snapshot(db)
 
     as_of = str(report.get("as_of") or datetime.now().date().isoformat())[:10]
     readiness = _project_readiness(snapshot)
-    session = _day_session(report)
+    session = _day_session(report, goal_plan)
     proposal = _active_proposal(loop_result)
     outcome = loop_result.get("outcome")
 
@@ -124,7 +126,10 @@ def _project_readiness(snapshot: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def _day_session(report: dict[str, Any]) -> dict[str, Any] | None:
+def _day_session(
+    report: dict[str, Any],
+    goal_plan: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
     for session in report.get("sessions_evaluated") or []:
         if not isinstance(session, dict):
             continue
@@ -134,16 +139,73 @@ def _day_session(report: dict[str, Any]) -> dict[str, Any] | None:
         except (TypeError, ValueError):
             continue
         role = str(session.get("role") or "")
+        session_date = str(session.get("date") or "")[:10]
+        template = _template_for_date(goal_plan, session_date)
         return {
-            "date": str(session.get("date") or "")[:10],
-            "name": str(session.get("name") or "Сессия"),
+            "date": session_date,
+            "name": str(
+                template.get("template_name")
+                or template.get("export_name")
+                or session.get("name")
+                or "Сессия"
+            ),
             "role": role,
             "role_label": ROLE_LABELS_RU.get(role, role),
             "tss": int(round(float(session.get("tss") or 0.0))),
             "sport_label": str(session.get("sport_label") or ""),
             "is_key": role in _KEY_ROLES,
+            "kind": str(template.get("kind") or "single"),
+            "catalog_version": template.get("catalog_version"),
+            "template_key": template.get("template_key"),
+            "template_version": template.get("template_version"),
+            "template_name": template.get("template_name"),
+            "stimulus": template.get("stimulus"),
+            "fatigue_cost": list(template.get("fatigue_cost") or []),
+            "expected_recovery_hours": template.get("expected_recovery_hours"),
+            "materialization_status": template.get("materialization_status"),
+            "target_provenance": template.get("target_provenance"),
+            "steps": _compact_steps(template.get("materialized_steps")),
+            "legs": [
+                {
+                    "leg_index": leg.get("leg_index"),
+                    "leg_id": leg.get("leg_id"),
+                    "sport": leg.get("sport"),
+                    "template_name": leg.get("template_name"),
+                    "duration_minutes": leg.get("duration_minutes"),
+                    "target_tss": leg.get("target_tss"),
+                    "target_provenance": leg.get("target_provenance"),
+                    "steps": _compact_steps(leg.get("materialized_steps")),
+                }
+                for leg in list(template.get("legs") or [])
+                if isinstance(leg, dict)
+            ],
         }
     return None
+
+
+def _template_for_date(
+    goal_plan: dict[str, Any] | None,
+    session_date: str,
+) -> dict[str, Any]:
+    for template in list((goal_plan or {}).get("session_templates") or []):
+        if not isinstance(template, dict):
+            continue
+        if str(template.get("date") or "")[:10] == session_date:
+            return template
+    return {}
+
+
+def _compact_steps(value: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            "name": step.get("name"),
+            "intensity": step.get("intensity"),
+            "duration_seconds": step.get("duration_seconds"),
+            "target": step.get("target"),
+        }
+        for step in list(value or [])
+        if isinstance(step, dict)
+    ]
 
 
 def _active_proposal(loop_result: dict[str, Any]) -> dict[str, Any] | None:

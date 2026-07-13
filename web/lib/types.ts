@@ -489,6 +489,34 @@ export interface BuiltPlan {
 }
 
 // --- Planning: export ---
+export interface WorkoutTarget {
+  type?: string;
+  unit?: string;
+  low?: number;
+  high?: number;
+  fast?: number;
+  slow?: number;
+  [key: string]: unknown;
+}
+
+export interface WorkoutStep {
+  name: string | null;
+  intensity: string | null;
+  duration_seconds: number | null;
+  target: WorkoutTarget | null;
+}
+
+export interface WorkoutLeg {
+  leg_index: number | null;
+  leg_id: string | null;
+  sport: string | null;
+  template_name: string | null;
+  duration_minutes: number | null;
+  target_tss: number | null;
+  target_provenance: Record<string, unknown> | null;
+  steps: WorkoutStep[];
+}
+
 export interface PlanDay {
   index: number;
   date: string;
@@ -497,6 +525,19 @@ export interface PlanDay {
   tss: number;
   name: string;
   phase: string;
+  kind: string;
+  catalog_version: string | null;
+  template_key: string | null;
+  template_version: number | null;
+  template_name: string | null;
+  stimulus: string | null;
+  fatigue_cost: number[];
+  expected_recovery_hours: number | null;
+  materialization_status: string | null;
+  target_provenance: Record<string, unknown> | null;
+  selection_evidence: Record<string, unknown> | null;
+  steps: WorkoutStep[];
+  legs: WorkoutLeg[];
 }
 
 export interface PlanExport {
@@ -704,6 +745,18 @@ export interface TodaySession {
   tss: number;
   sport_label: string;
   is_key: boolean;
+  kind?: string;
+  catalog_version?: string | null;
+  template_key?: string | null;
+  template_version?: number | null;
+  template_name?: string | null;
+  stimulus?: string | null;
+  fatigue_cost?: number[];
+  expected_recovery_hours?: number | null;
+  materialization_status?: string | null;
+  target_provenance?: Record<string, unknown> | null;
+  steps?: WorkoutStep[];
+  legs?: WorkoutLeg[];
 }
 
 export interface TodayYesterday {
