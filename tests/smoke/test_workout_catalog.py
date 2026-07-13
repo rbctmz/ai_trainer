@@ -17,6 +17,7 @@ from models.workout_catalog import (
 )
 from models.session_identity import ensure_session_identities
 from models.planning_near_term import apply_near_term_day_edits
+from models.plan_actual_reconciliation import apply_weekly_rebalance_preview
 from models.training_planner import build_daily_session_templates
 
 
@@ -497,3 +498,61 @@ def test_recovery_replan_rescales_brick_legs_atomically():
         for leg in after["legs"]
     )
     assert after["prescription_fingerprint"] != before["prescription_fingerprint"]
+
+
+def test_weekly_rebalance_refreshes_persisted_prescription_and_identity():
+    start = datetime(2026, 7, 13)
+    daily = [
+        (
+            start + timedelta(days=index),
+            80.0 if index == 0 else 0.0,
+            {"run": 0.0, "bike": 80.0 if index == 0 else 0.0, "swim": 0.0},
+        )
+        for index in range(7)
+    ]
+    summary = [
+        {
+            "phase": "Build",
+            "weekly_tss": 80,
+            "day_roles": ["quality"] + ["off"] * 6,
+            "day_focuses": ["Качество"] + ["Отдых"] * 6,
+        }
+    ]
+    templates = build_daily_session_templates(
+        daily,
+        summary,
+        "Триатлон",
+        "Олимпийка",
+        zone_snapshot={"ftp": 200},
+    )
+    original = ensure_session_identities(
+        {
+            "goal_type": "Триатлон",
+            "distance": "Олимпийка",
+            "daily_plan": daily,
+            "session_templates": templates,
+            "weekly_summary": summary,
+            "weekly_tss_plan": [80],
+            "constraint_summary": {},
+        }
+    )
+    before = original["session_templates"][0]
+    preview = {
+        "status": "proposal",
+        "rule_version": "weekly_rebalance_v1",
+        "as_of": "2026-07-13",
+        "base_checkpoint_id": 1,
+        "preview_fingerprint": "test-preview",
+        "future_tss_delta": -20,
+        "changes": [{"index": 0, "before_tss": 80.0, "after_tss": 60.0}],
+        "reconciliation_snapshot": {},
+    }
+
+    updated = apply_weekly_rebalance_preview(original, preview)
+    after = updated["session_templates"][0]
+
+    assert after["parameter_snapshot"]["target_tss"] == 60.0
+    assert sum(step["tss"] for step in after["materialized_steps"]) == pytest.approx(60.0)
+    assert after["prescription_fingerprint"] != before["prescription_fingerprint"]
+    assert after["session_id"] != before["session_id"]
+    assert after["replaces_session_id"] == before["session_id"]
