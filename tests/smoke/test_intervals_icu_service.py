@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import date, datetime
 
 import pytest
 
@@ -121,3 +121,41 @@ def test_push_planned_events_uses_basic_auth_and_events_endpoint(monkeypatch):
     assert captured["headers"]["User-agent"].startswith("AI-Trainer/")
     assert captured["body"]["icu_training_load"] == 60
     assert captured["timeout"] == 15
+
+
+def test_list_race_events_is_bounded_read_only_and_normalized(monkeypatch):
+    client = intervals_icu.IntervalsICUClient(api_key="secret", athlete_id="0")
+    captured = {}
+
+    def fake_request(method, path, payload=None, params=None):
+        captured.update(method=method, path=path, payload=payload, params=params)
+        return [
+            {
+                "id": 99,
+                "category": "RACE_B",
+                "start_date_local": "2026-07-26T09:00:00",
+                "name": "Минский Триатлон - ОЛИМПИК 56,5",
+                "type": "Other",
+                "description": "Triathlon: swim bike run",
+            },
+            {"id": 100, "category": "WORKOUT", "start_date_local": "2026-07-27T07:00:00"},
+        ]
+
+    monkeypatch.setattr(client, "_request_json", fake_request)
+    events = client.list_race_events(date(2026, 7, 1), date(2026, 12, 31))
+
+    assert captured == {
+        "method": "GET",
+        "path": "/api/v1/athlete/0/events",
+        "payload": None,
+        "params": {"oldest": "2026-07-01", "newest": "2026-12-31"},
+    }
+    assert len(events) == 1
+    assert events[0]["priority"] == "B"
+    assert events[0]["discipline"] == "triathlon"
+
+
+def test_list_race_events_rejects_more_than_one_year() -> None:
+    client = intervals_icu.IntervalsICUClient(api_key="secret")
+    with pytest.raises(ValueError, match="365"):
+        client.list_race_events(date(2026, 1, 1), date(2027, 1, 2))

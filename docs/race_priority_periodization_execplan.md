@@ -15,7 +15,8 @@ The live-shaped regression is a B Olympic triathlon on 2026-07-26 followed by an
 - [x] (2026-07-13 09:26Z) Read issue #169, its two owner clarifications, repository workflow, `.agent/PLANS.md`, and the existing event/planning/checkpoint/export paths.
 - [x] (2026-07-13 09:26Z) Completed publish preflight, created `codex/issue-169-race-priority-periodization` in `/private/tmp/ai_trainer_issue169`, and recorded the wider product sequence in roadmap issue #170.
 - [x] (2026-07-13 09:26Z) Pre-registered the event/provenance contract, three planning modes, overlay precedence and bounded A/B/C rules in this ExecPlan.
-- [ ] Add contract-first smoke tests for event normalization, Intervals.icu discovery, planning modes, overlays, checkpoint round trips and preview/confirm behavior; record the expected failures.
+- [x] (2026-07-13 09:32Z) Added contract-first smoke tests for event normalization, Intervals.icu discovery, planning modes and A/B/C overlays. The pre-implementation run failed during collection on the intentionally absent `macrocycle_event` and `apply_race_event_overlays` interfaces.
+- [ ] Add API/checkpoint preview-confirm tests after the pure domain contract is green.
 - [ ] Implement shared event and periodization domain logic, then make the focused tests pass.
 - [ ] Wire the additive API contracts and Planning web preview/confirmation flow.
 - [ ] Run focused tests, full smoke, web build and a synthetic acceptance probe; self-review the diff and finalize this document.
@@ -34,6 +35,12 @@ The live-shaped regression is a B Olympic triathlon on 2026-07-26 followed by an
 
 - Observation: the Intervals.icu client already owns authenticated request construction and event writes, but has no bounded event-listing method.
   Evidence: `services/intervals_icu.py::IntervalsICUClient` exposes calendars/profile/create-event only.
+
+- Observation: the isolated worktree does not contain the ignored virtualenv directory.
+  Evidence: `./ai_trainer_env/bin/python` returned “no such file or directory”; tests use `/Users/gregkisel/Developer/ai_trainer/ai_trainer_env/bin/python` while keeping the worktree as cwd.
+
+- Observation: the contract-first run is red for the intended missing public interfaces, not for fixture or environment failures.
+  Evidence: pytest collection reports `cannot import name 'macrocycle_event'` and `cannot import name 'apply_race_event_overlays'`.
 
 ## Decision Log
 
