@@ -1,6 +1,10 @@
 # 🏃‍♂️ AI Trainer - Персональный тренер на базе ИИ
 
-Интеллектуальный анализатор тренировочных данных с интеграцией Garmin Connect для персонализированного планирования тренировок.
+Персональный evidence-first AI-тренер: синхронизирует данные Garmin, объединяет
+нагрузку и восстановление, строит планы для бега, велоспорта и триатлона и
+предлагает объяснимые изменения с подтверждением и откатом. Приложение можно
+запускать локально или self-hosted; Intervals.icu подключается как опциональный
+источник профиля/событий, plan-fact evidence и канал экспорта тренировок.
 
 Репозиторий находится в активной миграции со Streamlit на web-стек FastAPI + Next.js. Новые продуктовые сценарии идут через `api/` + `web/`, при этом Streamlit остаётся рабочим fallback-контуром до полной parity.
 
@@ -11,6 +15,8 @@
 - Node.js и `npm` для web-интерфейса
 - Учётная запись Garmin Connect (нужна для реальной синхронизации данных; демо-режим работает без неё)
 - API-ключ хотя бы одного AI‑провайдера из списка ниже (для реального AI; демо-режим использует Mock AI)
+- Персональный API-ключ Intervals.icu — опционально, для синхронизации профиля,
+  чтения гонок/plan-fact evidence и отправки плановых тренировок
 
 ## 🚀 Быстрый старт
 
@@ -57,7 +63,12 @@ DEFAULT_AI_PROVIDER=deepseek           # openai/anthropic/deepseek/google/ollama
 GARMIN_EMAIL=your_email@example.com
 GARMIN_PASSWORD=your_password
 
-# Настройки пользователя
+# Intervals.icu (опционально)
+INTERVALS_ICU_API_KEY=your_intervals_icu_api_key
+INTERVALS_ICU_ATHLETE_ID=0
+INTERVALS_ICU_BASE_URL=https://intervals.icu
+
+# Настройки пользователя и fallback-пороги
 USER_FTP=250                           # Функциональная мощность (Вт)
 USER_LTHR=170                          # Лактатный порог (уд/мин)
 USER_MAX_HR=185                        # Максимальный пульс (уд/мин)
@@ -197,25 +208,57 @@ python scripts/doctor_env.py check --workspace
 
 ## 📊 Возможности
 
-### Основной функционал
-- **🔗 Интеграция с Garmin Connect** - Автоматическая синхронизация активностей и HRV данных
-- **🎮 Демо-режим** - Изолированный локальный набор данных и Mock AI для безопасного знакомства без Garmin/API
-- **📈 Дашборд тренировок** - Интерактивная визуализация прогресса и метрик
-- **💓 Анализ HRV** - Мониторинг восстановления через RMSSD и DFA α1
-- **📋 Анализ TSS** - Расчёт тренировочного стресса и баланса CTL/ATL/TSB
-- **🛌 Анализ сна** - Карточки регулярности режима с рекомендациями и профилем по дням недели
-- **⚙️ Модель Банистера** - Прогнозирование fitness/fatigue баланса
+### Данные, нагрузка и восстановление
+
+- **Garmin Connect** — инкрементальная синхронизация активностей, сна, HRV,
+  пульса покоя, training readiness/status, Body Battery и доступных
+  recovery bio-signals.
+- **Intervals.icu** — опциональная синхронизация FTP/веса/LTHR, чтение гонок
+  A/B/C, provider evidence для plan-fact и экспорт плановых событий.
+- **Единый readiness fusion** — личные 28-дневные базлайны HRV/RHR, сон,
+  Garmin readiness и TSB с confidence, evidence и явными data gaps.
+- **Нагрузка и форма** — TSS/NP, CTL/ATL/TSB, канонические зоны TSB и модель
+  Банистера; bike TSS учитывает normalized power и актуальный профиль атлета.
+- **Web-поверхности** — «Сегодня», дашборд, HRV, сон и журнал активностей.
+- **Демо-режим** — изолированная БД и Mock AI без Garmin/API-ключей.
+
+### Планирование и агентный контур
+
+- Планы для бега, велоспорта и триатлона по цели, дистанции, доступным
+  дням/часам, текущей нагрузке и выбранной требовательности.
+- Режимы `event_goal`, rolling `training_goal` и ручные фазы; приоритеты гонок
+  A/B/C, taper/Race Week, локальные race overlays и защищённые даты.
+- Preview/confirm перед сохранением, append-only версии плана и защита от
+  подтверждения устаревшего preview.
+- Plan-fact reconciliation с устойчивыми session identities, явным исправлением
+  спорных совпадений и evidence-first недельной перебалансировкой только будущих
+  сессий.
+- Версионированный каталог из 19 тренировочных стимулов материализует точные
+  шаги и честные FTP/LTHR/relative targets; триатлонные Build/Peak-недели
+  поддерживают единый bike-to-run brick с раздельным экспортом обеих ног.
+- Readiness conflict gate: корректное «молчание», data gap или предложение
+  ослабить конфликтующую ключевую сессию.
+- Предложения можно подтвердить или отклонить; применённый recovery replan
+  журналируется и откатывается новой версией плана.
+- Долговременные ограничения коуча (`sick`, `unavailable`, `forced_rest` и др.)
+  защищают даты от повторного появления тренировки при replanning.
+- Экспорт календаря и тренировок в ICS/TCX/FIT-compatible CSV; legacy Planning
+  также умеет отправлять события в Intervals.icu.
 
 ### 🤖 Универсальная система AI коучинга
-- **Мультипровайдерная архитектура** - Поддержка OpenAI, Anthropic Claude, DeepSeek, Google Gemini, Ollama и Mock AI
-- **Интерактивный выбор моделей** - Динамические dropdown-списки с автообнаружением
-- **Тестирование подключения** - Валидация API ключей перед использованием
-- **Персонализированные рекомендации**:
-  - 📊 Анализ текущего состояния
-  - 📅 Недельное планирование тренировок
-  - 🏃 Анализ выполненных тренировок
-  - ❓ Ответы на вопросы о тренировках
-  - 📚 Объяснение метрик простым языком
+
+- **Мультипровайдерность** — OpenAI, Anthropic Claude, DeepSeek, Google Gemini,
+  локальный Ollama и Mock AI; выбор моделей и проверка подключения.
+- **Tool-using coach** — анализирует фактические активности, нагрузку,
+  восстановление, сон и активный план, а затем синтезирует ответ с опорой на
+  полученные данные.
+- **Управляемые действия** — коуч создаёт сохраняемые предложения построения или
+  изменения плана; мутация выполняется только после явного подтверждения.
+- **Журнал решений** — история ответов, recovery-решений, предложений и их
+  lifecycle вместо непрозрачных фоновых изменений.
+- **Shadow quality forecast** — детерминированный прогноз ближайшей ключевой
+  сессии сохраняется для последующей калибровки, но не влияет на решение или
+  план автоматически.
 
 ## 🏗️ Архитектура проекта
 
@@ -230,7 +273,7 @@ ai_trainer/
 │   ├── garmin_client.py       # API клиент Garmin Connect
 │   ├── data_processor.py      # Обработка данных активностей
 │   └── database.py            # SQLite для локального кеширования
-├── services/                  # Garmin/sync/demo/acceptance orchestration
+├── services/                  # Garmin/Intervals.icu sync, demo и orchestration
 ├── state/                     # Streamlit-oriented state helpers
 ├── ui/
 │   ├── pages/                 # Legacy Streamlit pages
@@ -240,6 +283,11 @@ ai_trainer/
 │   ├── ai_coach_universal.py  # Универсальная система коучинга
 │   ├── banister.py            # Модель Банистера (fitness/fatigue)
 │   ├── hrv_analyzer.py        # Анализ HRV (RMSSD, DFA α1)
+│   ├── readiness.py           # Канонический readiness fusion
+│   ├── signals_engine.py      # Общие сигналы для API/web/legacy
+│   ├── training_planner.py    # Периодизация и дневной план
+│   ├── workout_catalog.py     # Версионированные стимулы, шаги и brick-сессии
+│   ├── plan_actual_reconciliation.py # Evidence-first plan/fact
 │   └── mock_ai_provider.py    # Mock провайдер для тестирования
 ├── utils/
 │   ├── modern_ui.py           # Streamlit UI helpers and shared CSS
@@ -266,9 +314,11 @@ ai_trainer/
 - **SQLAlchemy** - ORM для работы с базой данных
 
 ### Интеграции
-- **garminconnect** - API клиент Garmin Connect
-- **python-fitparse** - Парсинг FIT файлов
-- **pyhrv** - Анализ вариабельности сердечного ритма
+- **Garmin Connect** — основной источник активностей, здоровья и recovery-данных
+- **Intervals.icu API** — профиль атлета, A/B/C события, plan-fact evidence и
+  плановые workout events; интеграция опциональна и работает по персональному ключу
+- **python-fitparse** — парсинг FIT-файлов
+- **pyhrv** — анализ вариабельности сердечного ритма
 
 ### AI провайдеры
 - **openai** - OpenAI GPT модели
@@ -280,20 +330,33 @@ ai_trainer/
 ## 📝 Статус разработки
 
 ### ✅ Завершённые функции
-- Полная интеграция с Garmin Connect
-- Web migration MVP: FastAPI + Next.js dashboard/coach/hrv/activities/planning
+- Инкрементальная интеграция с Garmin Connect, включая recovery bio-signals
+- Web-контур FastAPI + Next.js: Today, Dashboard, Coach, Decisions, Planning,
+  HRV, Sleep и Activities
 - Интерактивный дашборд тренировок
 - Расчёт всех ключевых метрик (TSS, NP, CTL, ATL, TSB)
+- Единый signals/readiness engine с личными базлайнами, evidence и confidence
 - Универсальная система AI провайдеров
 - Динамический выбор AI моделей с автообнаружением
 - Demo/acceptance режимы с изолированной БД и Mock AI
-- Planning V2: версии планов, execution feedback, Garmin plan/fact review
-- Intervals.icu экспорт запланированных тренировок (при наличии API key)
+- Planning V2: preview/confirm, append-only версии, execution feedback и
+  долговременные ограничения
+- Race-aware периодизация: event/training/manual режимы, гонки A/B/C и
+  защищённые race/recovery даты
+- Evidence-first plan-fact reconciliation, ручное исправление совпадений и
+  безопасная недельная перебалансировка будущего плана
+- Каталог из 19 структурированных стимулов, точные prescription snapshots и
+  атомарные bike-to-run brick-сессии с отдельным экспортом ног
+- Recovery Replan: readiness gate, журналируемые предложения,
+  approve/reject и rollback
+- Shadow-прогноз качества ближайшей ключевой сессии для калибровки
+- Intervals.icu: профиль атлета, чтение гонок и plan-fact evidence, экспорт
+  запланированных тренировок при наличии API key
 - Тестирование подключения к провайдерам
 - Анализ HRV (RMSSD, DFA α1)
 - Регулярность режима сна с рекомендациями
 - Модель Банистера для fitness/fatigue
-- Полнофункциональный AI коучинг:
+- AI-коучинг:
   - Анализ текущего состояния
   - Недельное планирование
   - Анализ тренировок
@@ -303,7 +366,10 @@ ai_trainer/
 ### 🔄 В разработке / ближайший долг
 - Доведение parity между web и legacy Streamlit поверхностями
 - Декомпозиция крупных модулей Planning/Dashboard
-- Единый signals engine для dashboard/planning/AI
+- Last-mile доставка тренировок и статус синхронизации в основном web-контуре
+- Proactive morning/push/messaging канал поверх готового readiness/replan backend
+- Калибровка session-quality forecast и персональных recovery-кривых по мере
+  накопления достаточного числа наблюдений
 - Уточнение и очистка старых диагностических тестов
 
 ## 🛠️ Команды разработки
