@@ -143,6 +143,49 @@ def test_build_near_term_edit_draft_rows_exposes_preview_ready_changes():
     assert draft_rows[1]["delta_tss"] > 0
 
 
+def test_single_session_cannot_be_converted_to_brick():
+    goal_plan = _sample_goal_plan()
+    edit_rows = build_near_term_edit_rows(goal_plan, horizon_days=7)
+    row = next(item for item in edit_rows if item["current_sport"] != "off")
+    index = int(row["index"])
+    original_day = goal_plan["daily_plan"][index]
+    original_template = goal_plan["session_templates"][index]
+
+    draft_rows = build_near_term_edit_draft_rows(
+        [row],
+        goal_type=goal_plan["goal_type"],
+        distance=goal_plan["distance"],
+        overrides_by_index={index: {"sport": "brick"}},
+    )
+
+    assert row["current_kind"] == "single"
+    assert draft_rows[0]["sport"] == row["current_sport"]
+    assert draft_rows[0]["changed"] is False
+
+    updated = apply_near_term_day_edits(
+        goal_plan,
+        [
+            {
+                **row,
+                "session_role": row["current_role"],
+                "sport": "brick",
+                "total_tss": row["current_total_tss"],
+            }
+        ],
+        horizon_days=7,
+    )
+
+    assert updated["daily_plan"][index] == original_day
+    updated_template = updated["session_templates"][index]
+    assert updated_template["kind"] == "single"
+    assert updated_template["sport"] == original_template["sport"]
+    assert updated_template["materialized_steps"] == original_template["materialized_steps"]
+    assert (
+        updated_template["prescription_fingerprint"]
+        == original_template["prescription_fingerprint"]
+    )
+
+
 def test_summarize_near_term_draft_rows_returns_compact_diff_summary():
     goal_plan = _sample_goal_plan()
     edit_rows = build_near_term_edit_rows(goal_plan, horizon_days=7)

@@ -23,6 +23,7 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 - [x] (2026-07-13 15:23Z) Completed focused and synthetic UI acceptance, `555 passed, 1 skipped` smoke, `598 passed, 6 skipped, 24 deselected` broader non-live, and a clean 12-route Next.js production build.
 - [x] (2026-07-13 15:23Z) Self-reviewed the complete diff, closed the Taper-long and Today-data-gap edges found in acceptance, and finalized this living plan.
 - [x] (2026-07-13 15:27Z) Published draft PR #180 with `Closes #173`; merge remains at the human gate.
+- [x] (2026-07-13 18:54Z) Addressed independent review feedback: single sessions can no longer be converted to `brick` through UI, preview or direct apply; 60 focused tests and `556 passed, 1 skipped` smoke are green.
 
 ## Surprises & Discoveries
 
@@ -64,6 +65,9 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 
 - Observation: the readiness gate deliberately evaluates no sessions when recovery confidence is below threshold, so Today cannot rely on `sessions_evaluated` as its only plan projection.
   Evidence: synthetic browser acceptance showed `state=data_gap` and “Плановой сессии нет” despite an active checkpoint session on 2026-07-13. Today now falls back to the immutable checkpoint template for the same `as_of` date while retaining the data-gap verdict and no proposal.
+
+- Observation: adding `brick` to the legacy editor's global sport vocabulary made it selectable for a single session, where `_single_sport_parts` cannot represent the composite and returned zero sport buckets.
+  Evidence: the review regression test reproduced a single-day edit that retained day TSS but removed it from bike/run/swim allocation and left old bike steps under `sport=brick`. The editor now offers `brick` only for an existing composite, while preview and apply enforce the same invariant independently.
 
 ## Decision Log
 
@@ -161,7 +165,7 @@ Issue #173 is implemented end to end. The bounded catalog contains exactly 19 im
 
 Synthetic acceptance built a balanced eight-week Olympic-triathlon plan with two Build bricks. Planning displayed each as one `Endurance Brick · вело → бег` parent with bike then run legs and distinct `leg=1` / `leg=2` TCX/FIT links. Today displayed `Aerobic Endurance Ride`, its stimulus, fatigue/recovery evidence and Warm-up/Aerobic/Cool-down steps even under `data_gap`. Browser console errors were empty. Sanitized captures are stored outside the repository at `/private/tmp/ai_trainer_issue173_planning_catalog.png` and `/private/tmp/ai_trainer_issue173_today_catalog.png`.
 
-Final validation: 25 focused catalog/Today tests passed; contributor-safe smoke produced `555 passed, 1 skipped`; broader non-live produced `598 passed, 6 skipped, 24 deselected`; Next.js 14.2.35 compiled, type-checked and generated all 12 routes. The sole smoke skip is the environment-dependent local listening-socket preflight. No real athlete database, provider mutation or new third-party dependency entered the branch.
+Final validation before review: 25 focused catalog/Today tests passed; contributor-safe smoke produced `555 passed, 1 skipped`; broader non-live produced `598 passed, 6 skipped, 24 deselected`; Next.js 14.2.35 compiled, type-checked and generated all 12 routes. After the review guard, 60 focused near-term/catalog/UI tests passed and full smoke produced `556 passed, 1 skipped`. The sole smoke skip is the environment-dependent local listening-socket preflight. No real athlete database, provider mutation or new third-party dependency entered the branch.
 
 ## Context and Orientation
 

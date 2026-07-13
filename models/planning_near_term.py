@@ -484,6 +484,7 @@ def build_near_term_edit_rows(
                 "phase": str(template.get("phase", "Base") or "Base"),
                 "current_total_tss": round(float(total or 0.0), 1),
                 "current_sport": sport,
+                "current_kind": str(template.get("kind") or "single"),
                 "current_role": role,
                 "current_focus": focus,
                 "current_duration_minutes": int(template.get("duration_minutes", 0) or 0),
@@ -515,6 +516,11 @@ def build_near_term_edit_draft_rows(
 
         target_role = _normalize_session_role(override.get("session_role", current_role))
         target_sport = _normalize_sport(override.get("sport", current_sport))
+        if (
+            target_sport == "brick"
+            and str(row.get("current_kind") or "single") != "composite"
+        ):
+            target_sport = current_sport
         target_total_tss = _normalize_total_tss(override.get("total_tss", current_total_tss))
 
         if target_role == "off" or target_sport == "off":
@@ -992,6 +998,11 @@ def apply_near_term_day_edits(
 
         target_role = _normalize_session_role(raw_row.get("session_role"))
         target_sport = _normalize_sport(raw_row.get("sport"))
+        if (
+            target_sport == "brick"
+            and str(current_template.get("kind") or "single") != "composite"
+        ):
+            target_sport = current_sport
         target_total_tss = _normalize_total_tss(raw_row.get("total_tss"))
         if target_role == "off" or target_sport == "off":
             target_role = "off"
@@ -1003,13 +1014,20 @@ def apply_near_term_day_edits(
             or current_role != target_role
             or current_sport != target_sport
         )
-        if changed:
-            changed_day_count += 1
-            edited_dates.append(dt.strftime("%Y-%m-%d"))
-            week_index = day_index // 7
-            week_stat = touched_week_stats.setdefault(week_index, {"delta_tss": 0.0, "edited_days": 0.0})
-            week_stat["delta_tss"] += round(target_total_tss - float(current_total or 0.0), 1)
-            week_stat["edited_days"] += 1.0
+        if not changed:
+            continue
+        changed_day_count += 1
+        edited_dates.append(dt.strftime("%Y-%m-%d"))
+        week_index = day_index // 7
+        week_stat = touched_week_stats.setdefault(
+            week_index,
+            {"delta_tss": 0.0, "edited_days": 0.0},
+        )
+        week_stat["delta_tss"] += round(
+            target_total_tss - float(current_total or 0.0),
+            1,
+        )
+        week_stat["edited_days"] += 1.0
 
         if target_sport == current_sport and target_total_tss > 0 and current_sport != "off":
             new_parts = _scale_parts_to_total(current_parts, target_total_tss, current_sport)
