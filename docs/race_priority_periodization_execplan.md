@@ -24,7 +24,7 @@ The live-shaped regression is a B Olympic triathlon on 2026-07-26 followed by an
 - [x] (2026-07-13 09:59Z) Broader contributor-safe contour passes with 565 passed, 6 environment/data-dependent skips and 24 deselected live/debug tests.
 - [x] (2026-07-13 09:45Z) Synthetic live-shaped acceptance proves preview leaves SQLite untouched, 04.10 anchors the plan, final phases are Taper/Race Week, 26–28.07 are zero/protected, and load resumes 29.07.
 - [x] (2026-07-13 09:58Z) Completed self-review: persisted phases now drive current-phase consumers, execution feedback reapplies event overlays, previews do not alter demand settings, and confirmation rejects a stale base checkpoint.
-- [ ] Commit in process order, push the branch, open a draft PR with `Closes #169`, and leave merge to the human gate.
+- [x] (2026-07-13 10:03Z) Committed in docs/test/feat/workflow order, pushed the isolated branch, and opened draft PR #171 with `Closes #169`; merge remains at the human gate.
 
 ## Surprises & Discoveries
 
@@ -91,7 +91,7 @@ The live-shaped regression is a B Olympic triathlon on 2026-07-26 followed by an
 
 ## Outcomes & Retrospective
 
-The shared domain, additive API and web preview/confirm flow are implemented. Macrocycle intent, event overlays and daily readiness are ordered layers rather than competing phase sources. Event protection survives execution-feedback replans, current phase consumers use persisted phases, and preview/confirm is both zero-write and concurrency-safe. Final smoke is 522 passed plus one environment-dependent skip, and the Next.js production build succeeds. Remaining work is publication and the human review/merge gate.
+The shared domain, additive API and web preview/confirm flow are implemented in draft PR #171. Macrocycle intent, event overlays and daily readiness are ordered layers rather than competing phase sources. Event protection survives execution-feedback replans, current phase consumers use persisted phases, and preview/confirm is both zero-write and concurrency-safe. Final smoke is 522 passed plus one environment-dependent skip, the broader contour is 565 passed with expected skips, and the Next.js production build succeeds. The implementation is published; only review and the human merge gate remain.
 
 ## Context and Orientation
 
