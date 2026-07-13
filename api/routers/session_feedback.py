@@ -43,6 +43,7 @@ class TombstoneRequest(BaseModel):
 
 class DismissPromptRequest(BaseModel):
     client_submission_fingerprint: str = Field(min_length=1, max_length=128)
+    prompt_fingerprint: str | None = Field(default=None, max_length=128)
     reason: str | None = Field(default=None, max_length=500)
 
 
@@ -116,6 +117,7 @@ def dismiss_prompt(
         db,
         session_id,
         client_submission_fingerprint=payload.client_submission_fingerprint,
+        prompt_fingerprint=payload.prompt_fingerprint,
         reason=payload.reason,
     )
 

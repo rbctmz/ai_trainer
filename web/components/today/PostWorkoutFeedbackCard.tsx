@@ -102,6 +102,7 @@ export function PostWorkoutFeedbackCard({
     try {
       await postJSON(`/api/session-feedback/prompts/${prompt.session_id}/dismiss`, {
         client_submission_fingerprint: submissionFingerprint(),
+        prompt_fingerprint: prompt.prompt_fingerprint,
         reason: "not_now",
       });
       onSaved("Напоминание скрыто. Факт тренировки не изменён.");
@@ -189,8 +190,7 @@ export function PostWorkoutFeedbackCard({
                   active={completionStatus === status}
                   onClick={() => {
                     setCompletionStatus(status);
-                    if (status === "completed") setCompletionPct(100);
-                    if (["did_not_start", "unknown"].includes(status)) setCompletionPct(null);
+                    setCompletionPct(status === "completed" ? 100 : null);
                   }}
                 >
                   {COMPLETION_LABELS[status] ?? status}

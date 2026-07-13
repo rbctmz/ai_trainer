@@ -85,6 +85,7 @@ def validate_feedback_values(
     completion_pct: int | float | None,
     session_rpe_1_10: int | None,
     quality_rating_1_5: int | None,
+    require_started_ratings: bool = True,
 ) -> dict[str, Any]:
     """Validate independent athlete-entered observations without inference."""
     status = str(completion_status or "").strip()
@@ -102,6 +103,11 @@ def validate_feedback_values(
         raise ValueError("session_rpe_1_10 must be between 1 and 10")
     if quality_rating_1_5 is not None and quality_rating_1_5 not in range(1, 6):
         raise ValueError("quality_rating_1_5 must be between 1 and 5")
+    if require_started_ratings and status in {"completed", "partial", "stopped_early"}:
+        if session_rpe_1_10 is None:
+            raise ValueError("session_rpe_1_10 is required for a started session")
+        if quality_rating_1_5 is None:
+            raise ValueError("quality_rating_1_5 is required for a started session")
     return {
         "completion_status": status,
         "completion_pct": pct,
@@ -174,18 +180,6 @@ def build_feedback_prompts(
             else:
                 state, reason = "ready", "matched_session_complete"
 
-        latest = latest_feedback_by_session.get(session_id)
-        event = prompt_events_by_session.get(session_id)
-        if latest:
-            if latest.get("status") == "tombstone":
-                state, reason = "superseded", "latest_feedback_tombstoned"
-            else:
-                state, reason = "submitted", "feedback_saved"
-        elif event and event.get("event") == "dismissed":
-            state, reason = "dismissed", str(event.get("reason") or "dismissed")
-
-        role = str(row.get("role") or template.get("session_role") or "")
-        is_primary = role in {"quality", "long"} or str(row.get("date") or "")[:10] in forecast_dates
         prompt_identity = {
             "rule_version": FEEDBACK_RULE_VERSION,
             "session_id": session_id,
@@ -193,12 +187,31 @@ def build_feedback_prompts(
             "match_method": match_method,
             "confidence": confidence,
             "actual_activity_ids": list(row.get("actual_activity_ids") or []),
-            "state": state,
-            "as_of": str(as_of)[:10],
+            "session_end_at_utc": ended_at,
         }
+        prompt_fingerprint = canonical_fingerprint(prompt_identity)
+        latest = latest_feedback_by_session.get(session_id)
+        event = prompt_events_by_session.get(session_id)
+        if latest:
+            if latest.get("status") == "tombstone":
+                state, reason = "superseded", "latest_feedback_tombstoned"
+            else:
+                state, reason = "submitted", "feedback_saved"
+        elif (
+            event
+            and event.get("event") == "dismissed"
+            and (
+                not event.get("prompt_fingerprint")
+                or event.get("prompt_fingerprint") == prompt_fingerprint
+            )
+        ):
+            state, reason = "dismissed", str(event.get("reason") or "dismissed")
+
+        role = str(row.get("role") or template.get("session_role") or "")
+        is_primary = role in {"quality", "long"} or str(row.get("date") or "")[:10] in forecast_dates
         prompts.append(
             {
-                "prompt_fingerprint": canonical_fingerprint(prompt_identity),
+                "prompt_fingerprint": prompt_fingerprint,
                 "session_id": session_id,
                 "parent_session_id": session_id if template.get("kind") == "composite" else None,
                 "date": str(row.get("date") or "")[:10],
@@ -273,7 +286,9 @@ def evaluate_prediction(
     reason: str | None = None
     outcome: str | None = None
     score: float | None = None
-    if session_start is None:
+    if feedback.get("status") == "tombstone":
+        reason = "feedback_tombstoned"
+    elif session_start is None:
         reason = "missing_session_start"
     elif created is None or created >= session_start:
         reason = "post_start_prediction"

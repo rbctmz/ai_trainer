@@ -503,6 +503,7 @@ class Database:
                 fingerprint TEXT NOT NULL UNIQUE,
                 target_key TEXT NOT NULL,
                 session_id TEXT NOT NULL,
+                prompt_fingerprint TEXT,
                 event TEXT NOT NULL,
                 reason TEXT,
                 source TEXT NOT NULL,
@@ -556,6 +557,7 @@ class Database:
         self._ensure_training_status_columns(conn)
         self._ensure_coach_decision_columns(conn)
         self._ensure_coach_proposal_columns(conn)
+        self._ensure_session_feedback_prompt_columns(conn)
         conn.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_proposals_source_key
             ON coach_proposals(source_key)
@@ -609,6 +611,26 @@ class Database:
         for column, column_type in self._ACTIVITY_COLUMN_TYPES.items():
             if column not in existing_columns:
                 cursor.execute(f'ALTER TABLE activities ADD COLUMN {column} {column_type}')
+        conn.commit()
+
+    @staticmethod
+    def _ensure_session_feedback_prompt_columns(conn: sqlite3.Connection) -> None:
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(session_feedback_prompt_events)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        if "prompt_fingerprint" not in existing_columns:
+            try:
+                cursor.execute(
+                    "ALTER TABLE session_feedback_prompt_events "
+                    "ADD COLUMN prompt_fingerprint TEXT"
+                )
+            except sqlite3.OperationalError as exc:
+                # Two API/test processes can initialize the same SQLite file at
+                # once. If the other process won the migration race, the schema
+                # is already in the desired state and initialization remains
+                # idempotent. Do not swallow unrelated migration failures.
+                if "duplicate column name" not in str(exc).lower():
+                    raise
         conn.commit()
 
     @staticmethod
@@ -1657,19 +1679,26 @@ class Database:
             cursor.execute(
                 '''
                 INSERT OR IGNORE INTO session_feedback_prompt_events
-                    (fingerprint, target_key, session_id, event, reason, source, rule_version)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                    (fingerprint, target_key, session_id, prompt_fingerprint,
+                     event, reason, source, rule_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 (
                     str(payload["fingerprint"]), str(payload["target_key"]),
-                    str(payload["session_id"]), str(payload["event"]),
+                    str(payload["session_id"]), payload.get("prompt_fingerprint"),
+                    str(payload["event"]),
                     self.clean_value(payload.get("reason")), str(payload["source"]),
                     str(payload["rule_version"]),
                 ),
             )
             created = cursor.rowcount == 1
             row = cursor.execute(
-                "SELECT * FROM session_feedback_prompt_events WHERE fingerprint = ?",
+                '''
+                SELECT id, fingerprint, target_key, session_id, prompt_fingerprint,
+                       event, reason, source, rule_version, created_at
+                FROM session_feedback_prompt_events
+                WHERE fingerprint = ?
+                ''',
                 (str(payload["fingerprint"]),),
             ).fetchone()
             conn.commit()
@@ -1684,7 +1713,9 @@ class Database:
         conn = sqlite3.connect(self.db_path)
         rows = conn.execute(
             '''
-            SELECT event.*
+            SELECT event.id, event.fingerprint, event.target_key, event.session_id,
+                   event.prompt_fingerprint, event.event, event.reason, event.source,
+                   event.rule_version, event.created_at
             FROM session_feedback_prompt_events event
             JOIN (
                 SELECT session_id, MAX(id) AS id
@@ -1703,8 +1734,9 @@ class Database:
             return None
         return {
             "id": row[0], "fingerprint": row[1], "target_key": row[2],
-            "session_id": row[3], "event": row[4], "reason": row[5],
-            "source": row[6], "rule_version": row[7], "created_at": row[8],
+            "session_id": row[3], "prompt_fingerprint": row[4],
+            "event": row[5], "reason": row[6],
+            "source": row[7], "rule_version": row[8], "created_at": row[9],
         }
 
     def save_session_quality_evaluation(self, payload):
@@ -1788,6 +1820,31 @@ class Database:
               ON latest.target_key = evaluation.target_key
              AND latest.revision = evaluation.revision
             ORDER BY evaluation.prediction_id, evaluation.revision
+            ''',
+            tuple(params),
+        ).fetchall()
+        conn.close()
+        return [self._deserialize_session_quality_evaluation(row) for row in rows]
+
+    def get_session_quality_evaluations(self, *, prediction_ids=None, feedback_ids=None):
+        clauses = []
+        params = []
+        for column, values in (
+            ("prediction_id", prediction_ids or []),
+            ("feedback_id", feedback_ids or []),
+        ):
+            normalized = [int(value) for value in values]
+            if normalized:
+                placeholders = ", ".join("?" for _ in normalized)
+                clauses.append(f"{column} IN ({placeholders})")
+                params.extend(normalized)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        conn = sqlite3.connect(self.db_path)
+        rows = conn.execute(
+            f'''
+            SELECT * FROM session_quality_evaluations
+            {where}
+            ORDER BY prediction_id, revision, id
             ''',
             tuple(params),
         ).fetchall()

@@ -106,15 +106,29 @@ def _save_prediction(
     fingerprint: str,
     created_at: str,
     prediction_pct: int,
-    target_key: str = "checkpoint-63:2026-07-14:8",
+    target_key: str | None = None,
 ) -> dict:
+    checkpoint = db.get_latest_planning_checkpoint()
+    if checkpoint is None:
+        checkpoint = db.save_planning_checkpoint(
+            build_planning_checkpoint(_goal_plan(date(2026, 7, 12)))
+        )
+    plan = checkpoint["goal_plan_snapshot"]
+    plan_session_index = next(
+        index
+        for index, template in enumerate(plan["session_templates"])
+        if template["date"] == "2026-07-14"
+    )
+    resolved_target_key = target_key or (
+        f"{checkpoint['id']}:2026-07-14:{plan_session_index}:{RULE_VERSION}"
+    )
     return db.save_session_quality_prediction(
         fingerprint=fingerprint,
-        target_key=target_key,
+        target_key=resolved_target_key,
         rule_version=RULE_VERSION,
         target_date="2026-07-14",
-        plan_checkpoint_id=63,
-        plan_session_index=8,
+        plan_checkpoint_id=checkpoint["id"],
+        plan_session_index=plan_session_index,
         planned_session=_planned(),
         forecast={
             "prediction_pct": prediction_pct,
@@ -227,6 +241,7 @@ def test_database_forecast_fingerprint_is_idempotent_and_snapshots_are_immutable
 
 def test_database_serializes_concurrent_revisions(tmp_path) -> None:
     db = Database(str(tmp_path / "concurrent-revisions.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(date(2026, 7, 12))))
     barrier = Barrier(2)
 
     def save(sequence: int) -> dict:
@@ -353,9 +368,21 @@ def test_resolution_scores_latest_prestart_revision_and_freezes_actual_snapshot(
             }
         ]
     )
-    frozen = db.get_session_quality_prediction(by_revision[2]["id"])
+    from api.session_feedback import project_predictions_with_evaluations
+
+    frozen = next(
+        row
+        for row in project_predictions_with_evaluations(
+            db,
+            db.get_session_quality_predictions(days=36500),
+        )
+        if row["id"] == by_revision[2]["id"]
+    )
     assert frozen["actual_snapshot"]["actual_total_tss"] == 60.0
     assert frozen["brier_score"] == 0.09
+    raw = db.get_session_quality_prediction(by_revision[2]["id"])
+    assert raw["status"] == "pending"
+    assert raw["actual_snapshot"] == {}
 
 
 def test_major_deviation_is_unscored_even_with_clear_rating(tmp_path) -> None:

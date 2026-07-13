@@ -416,6 +416,15 @@ def test_evaluation_preserves_prestart_and_adherence_guards() -> None:
     assert post_start["brier_score"] is None
     assert deviation["brier_score"] is None
 
+    tombstone = evaluate_prediction(
+        _prediction(),
+        {**feedback, "status": "tombstone"},
+        feedback["match_snapshot"],
+        latest_eligible_id=7,
+    )
+    assert tombstone["status"] == "unscored"
+    assert tombstone["unscored_reason"] == "feedback_tombstoned"
+
 
 def test_evaluation_journal_appends_for_feedback_correction(tmp_path) -> None:
     db = Database(str(tmp_path / "evaluation.db"))
@@ -627,6 +636,25 @@ def test_admin_resolve_bridges_match_feedback_and_evaluation_without_mutating_fo
     )
     assert evaluations[0]["feedback_id"] == feedback["id"]
 
+    corrected = resolve_prediction_via_feedback(
+        db,
+        prediction["id"],
+        activity_ids=["ride-1"],
+        actual_role="quality",
+        quality_rating_1_5=1,
+        note="admin corrected rating",
+        submitted_at="2026-07-13T09:05:00Z",
+    )
+    assert corrected["predictions"][0]["quality_outcome"] == "failure"
+    history = db.get_session_feedback_history(session_id)
+    assert [row["revision"] for row in history] == [1, 2]
+    assert history[1]["supersedes_feedback_id"] == history[0]["id"]
+    evaluation_history = db.get_session_quality_evaluations(
+        prediction_ids=[prediction["id"]]
+    )
+    assert [row["revision"] for row in evaluation_history] == [1, 2]
+    assert evaluation_history[1]["supersedes_evaluation_id"] == evaluation_history[0]["id"]
+
 
 def test_feedback_correction_appends_new_evaluation_and_preserves_history(
     tmp_path, monkeypatch
@@ -725,6 +753,26 @@ def test_stale_feedback_correction_is_rejected(tmp_path, monkeypatch) -> None:
             },
             now_utc=datetime(2026, 7, 13, 9, 10, tzinfo=timezone.utc),
         )
+
+
+def test_empty_feedback_history_does_not_return_other_evaluations() -> None:
+    from api.session_feedback import feedback_history
+
+    class EmptyHistoryDatabase:
+        def get_session_feedback_history(self, _session_id):
+            return []
+
+        def get_session_quality_evaluations(self, **_kwargs):
+            raise AssertionError("evaluation journal must not be queried without feedback IDs")
+
+    result = feedback_history(EmptyHistoryDatabase(), "missing-session")
+
+    assert result == {
+        "session_id": "missing-session",
+        "history": [],
+        "current": None,
+        "evaluations": [],
+    }
 
 
 def test_openapi_exposes_feedback_lifecycle_routes() -> None:

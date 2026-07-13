@@ -26,6 +26,9 @@ class StaleFeedbackError(RuntimeError):
     """Raised when a correction targets a superseded feedback revision."""
 
 
+_ACTUAL_ROLES = {"off", "recovery", "easy", "quality", "long"}
+
+
 def _now(value: datetime | None = None) -> datetime:
     current = value or datetime.now(timezone.utc)
     if current.tzinfo is None:
@@ -208,6 +211,7 @@ def _append_feedback(
         completion_pct=payload.get("completion_pct"),
         session_rpe_1_10=payload.get("session_rpe_1_10"),
         quality_rating_1_5=payload.get("quality_rating_1_5"),
+        require_started_ratings=source == "user_web" and status == "active",
     )
     row = dict(evidence.get("row") or {})
     template = dict(evidence.get("template") or {})
@@ -235,7 +239,9 @@ def _append_feedback(
             "actual_activity_ids": list(row.get("actual_activity_ids") or []),
             **values,
             "completion_pct_source": (
-                "athlete_entered" if values.get("completion_pct") is not None else None
+                ("athlete_entered" if source == "user_web" else "admin_entered")
+                if values.get("completion_pct") is not None
+                else None
             ),
             "note": payload.get("note"),
             "source": source,
@@ -344,6 +350,7 @@ def dismiss_feedback_prompt(
     session_id: str,
     *,
     client_submission_fingerprint: str,
+    prompt_fingerprint: str | None = None,
     reason: str | None = None,
 ) -> dict[str, Any]:
     return db.save_session_feedback_prompt_event(
@@ -351,6 +358,7 @@ def dismiss_feedback_prompt(
             "fingerprint": client_submission_fingerprint,
             "target_key": f"session:{session_id}",
             "session_id": session_id,
+            "prompt_fingerprint": prompt_fingerprint,
             "event": "dismissed",
             "reason": reason,
             "source": "user_web",
@@ -376,8 +384,6 @@ def _evaluate_feedback_predictions(
     db: Database,
     feedback: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
-    if feedback.get("status") == "tombstone":
-        return []
     predictions = [
         row
         for row in db.get_session_quality_predictions(days=36500, limit=5000)
@@ -458,6 +464,7 @@ def project_predictions_with_evaluations(
         item = dict(raw)
         evaluation = evaluations.get(item.get("id"))
         if evaluation:
+            feedback = db.get_session_feedback(evaluation["feedback_id"])
             item.update(
                 {
                     "status": evaluation["status"],
@@ -469,6 +476,9 @@ def project_predictions_with_evaluations(
                     "evaluation_id": evaluation["id"],
                     "evaluation_revision": evaluation["revision"],
                     "feedback_id": evaluation["feedback_id"],
+                    "actual_activity_ids": (feedback or {}).get("actual_activity_ids") or [],
+                    "actual_snapshot": (feedback or {}).get("match_snapshot") or {},
+                    "resolved_at": evaluation.get("created_at"),
                     "resolution_provenance": "session_feedback",
                 }
             )
@@ -586,11 +596,16 @@ def resolve_prediction_via_feedback(
     prediction = db.get_session_quality_prediction(prediction_id)
     if prediction is None:
         raise LookupError(f"prediction {prediction_id} not found")
+    normalized_role = str(actual_role or "").strip().lower()
+    if normalized_role and normalized_role not in _ACTUAL_ROLES:
+        raise ValueError(f"actual_role must be one of {sorted(_ACTUAL_ROLES)}")
+    if quality_rating_1_5 is not None and quality_rating_1_5 not in {1, 2, 3, 4, 5}:
+        raise ValueError("quality_rating_1_5 must be between 1 and 5")
     evidence, match = _admin_match_evidence(
         db,
         prediction,
         activity_ids=[str(value) for value in activity_ids or []],
-        actual_role=str(actual_role or "").strip().lower() or None,
+        actual_role=normalized_role or None,
     )
     timestamp = _utc(submitted_at) or datetime.now(timezone.utc)
     fingerprint = canonical_fingerprint(
@@ -602,6 +617,7 @@ def resolve_prediction_via_feedback(
             "note": str(note or "").strip() or None,
         }
     )
+    previous_feedback = db.get_latest_session_feedback(evidence["row"]["session_id"])
     _append_feedback(
         db,
         {
@@ -616,6 +632,7 @@ def resolve_prediction_via_feedback(
         evidence=evidence,
         now_utc=_now(timestamp),
         source="admin_resolve",
+        supersedes_feedback_id=(previous_feedback or {}).get("id"),
     )
     group = db.get_session_quality_predictions(days=36500, target_key=prediction["target_key"])
     projected = project_predictions_with_evaluations(db, group)
@@ -652,11 +669,11 @@ def list_feedback_prompts(
 def feedback_history(db: Database, session_id: str) -> dict[str, Any]:
     rows = db.get_session_feedback_history(session_id)
     feedback_ids = {row["id"] for row in rows}
-    evaluations = [
-        row
-        for row in db.get_latest_session_quality_evaluations()
-        if row.get("feedback_id") in feedback_ids
-    ]
+    evaluations = (
+        db.get_session_quality_evaluations(feedback_ids=sorted(feedback_ids))
+        if feedback_ids
+        else []
+    )
     return {
         "session_id": session_id,
         "history": rows,
