@@ -722,22 +722,44 @@ export interface PlanningHistory {
   items: PlanningHistoryItem[];
 }
 
-// --- Экран «Сегодня» (issue #158) -----------------------------------------
+// --- Экран «Сегодня» (issues #158/#174) -----------------------------------
 
-export type TodayScreenState = "silence" | "conflict" | "data_gap" | "no_plan";
+export type TodayScreenState =
+  | "silence"
+  | "conflict_actionable"
+  | "conflict_unactionable"
+  | "data_gap"
+  | "no_plan";
+
+export type TodayPrimaryActionKind =
+  | "follow_plan"
+  | "review_proposal"
+  | "inspect_evidence"
+  | "sync_or_wait"
+  | "open_planning";
+
+export interface TodayPrimaryAction {
+  kind: TodayPrimaryActionKind | string;
+  enabled: boolean;
+  reason: string;
+}
 
 export interface TodayReadiness {
   score: number;
   status: string;
   confidence: number | null;
+  computed_at?: string | null;
+  source_completeness?: number | null;
   drivers: Array<Record<string, unknown>>;
   factors: Array<Record<string, unknown>>;
+  missing_inputs?: string[];
   tsb: { ctl: number | null; atl: number | null; tsb: number | null; window_days: number } | null;
   stale: boolean;
   reason: string | null;
 }
 
 export interface TodaySession {
+  session_id?: string | null;
   date: string;
   name: string;
   role: string;
@@ -745,6 +767,9 @@ export interface TodaySession {
   tss: number;
   sport_label: string;
   is_key: boolean;
+  duration_minutes?: number | null;
+  phase?: string | null;
+  transition_minutes?: number | null;
   kind?: string;
   catalog_version?: string | null;
   template_key?: string | null;
@@ -760,21 +785,106 @@ export interface TodaySession {
 }
 
 export interface TodayYesterday {
+  status: "available" | "empty" | "unavailable" | string;
+  reason: string | null;
+  date: string;
+  planned_sessions: number;
+  matched_sessions: number;
+  adherence: Record<"exact" | "substituted" | "major_deviation" | "unknown", number>;
+  planned_tss: number;
+  matched_actual_tss: number;
+  unplanned_tss: number;
+  total_actual_tss: number;
+  rows: ReconRow[];
+  unplanned_activities: ReconActivity[];
+  data_quality: Record<string, unknown>;
+  rule_version: string | null;
+  base_checkpoint_id: number | null;
   activities: number;
   minutes: number;
   tss: number;
   sports: string[];
 }
 
+export interface TodayGateConflict {
+  date?: string;
+  days_until?: number;
+  severity?: string;
+  kind?: string;
+  session?: Record<string, unknown>;
+  evidence?: string[];
+}
+
+export interface TodayGate {
+  outcome: string | null;
+  reason: string | null;
+  data_gap: boolean;
+  silence: boolean;
+  conflicts: TodayGateConflict[];
+  sessions_evaluated: Array<Record<string, unknown>>;
+  readiness: Record<string, unknown> | null;
+  proposal_gap: string | null;
+  decision: {
+    id: number | null;
+    fingerprint: string | null;
+    plan_checkpoint_id: number | null;
+  };
+  forecast_error?: string | null;
+}
+
+export interface TodayProposalResolution {
+  relation: "current" | "stale" | "resolved" | "none" | "unavailable" | string;
+  proposal: CoachProposal | null;
+  base_checkpoint_id: number | null;
+  active_checkpoint_id: number | null;
+  reason: string;
+}
+
+export interface TodayForecastPrediction {
+  id: number;
+  target_key: string;
+  revision: number;
+  rule_version: string;
+  target_date: string;
+  plan_checkpoint_id: number;
+  plan_session_index: number;
+  planned_role: string;
+  planned_sport: string;
+  planned_tss: number;
+  planned_duration_minutes: number | null;
+  prediction_pct: number;
+  prediction_band: string;
+  evidence: string[];
+  status: string;
+  created_at: string;
+}
+
+export interface TodayForecast {
+  mode: "shadow";
+  affects_decision: false;
+  relation: "current_checkpoint" | "stale_checkpoint" | "none" | "unavailable" | string;
+  prediction: TodayForecastPrediction | null;
+  session_id: string | null;
+  target_time_provenance: "date_only" | string;
+  prestart_status: string;
+  error: string | null;
+}
+
 export interface TodayResponse {
+  snapshot_version: "today_decision_snapshot_v2" | string;
   date: string;
   state: TodayScreenState | string;
   reason: string;
+  primary_action: TodayPrimaryAction;
   readiness: TodayReadiness | null;
   readiness_source: string;
   session: TodaySession | null;
+  gate: TodayGate;
+  proposal: TodayProposalResolution;
+  forecast: TodayForecast;
   pending_proposal: CoachProposal | null;
-  yesterday: TodayYesterday | null;
+  yesterday: TodayYesterday;
   loop_outcome: string | null;
+  provenance: Record<string, unknown>;
   operational_state?: Record<string, unknown>;
 }

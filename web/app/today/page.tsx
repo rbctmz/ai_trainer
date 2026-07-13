@@ -12,6 +12,16 @@ const STATE_META: Record<
   { title: string; icon: string; tone: string }
 > = {
   silence: { title: "План в силе", icon: "✓", tone: "text-tone-success" },
+  conflict_actionable: {
+    title: "Есть предложение",
+    icon: "!",
+    tone: "text-tone-warning",
+  },
+  conflict_unactionable: {
+    title: "Конфликт требует внимания",
+    icon: "!",
+    tone: "text-tone-warning",
+  },
   conflict: { title: "Есть предложение", icon: "!", tone: "text-tone-warning" },
   data_gap: { title: "Данных недостаточно", icon: "…", tone: "text-ink-soft" },
   no_plan: { title: "Плана нет", icon: "→", tone: "text-ink-soft" },
@@ -42,7 +52,8 @@ export default function TodayPage() {
   const readiness = data?.readiness ?? null;
   const session = data?.session ?? null;
   const proposal = data?.pending_proposal ?? null;
-  const yesterday = data?.yesterday ?? null;
+  const forecast = data?.forecast?.prediction ?? null;
+  const yesterday = data?.yesterday;
 
   return (
     <main className="mx-auto max-w-2xl space-y-5">
@@ -86,7 +97,7 @@ export default function TodayPage() {
             </div>
           ) : null}
 
-          {state === "conflict" && proposal ? (
+          {(state === "conflict_actionable" || state === "conflict") && proposal ? (
             <ProposalCard
               proposalId={proposal.id}
               action={proposal.action}
@@ -102,6 +113,45 @@ export default function TodayPage() {
                 void mutate();
               }}
             />
+          ) : null}
+
+          {state === "conflict_unactionable" ? (
+            <section className="rounded-card border border-tone-warning/40 bg-tone-warning/10 p-4 shadow-card">
+              <h2 className="text-sm font-semibold text-ink">
+                Автоматическая правка сейчас небезопасна
+              </h2>
+              <p className="mt-1 text-sm text-ink-soft">
+                Контур увидел расхождение готовности и нагрузки, но не создал применимое
+                предложение. План не объявляется безопасным автоматически — проверьте улики
+                ниже и при необходимости скорректируйте день вручную.
+              </p>
+              {data.proposal.relation === "stale" ? (
+                <p className="mt-2 text-xs text-tone-warning">
+                  Предыдущее предложение относится к checkpoint #
+                  {data.proposal.base_checkpoint_id ?? "—"}, активный checkpoint #
+                  {data.proposal.active_checkpoint_id ?? "—"}. Кнопки применения отключены.
+                </p>
+              ) : null}
+              {data.gate.proposal_gap ? (
+                <p className="mt-2 text-xs text-ink-faint">
+                  Причина отсутствия варианта: {data.gate.proposal_gap}
+                </p>
+              ) : null}
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  href="/planning"
+                  className="rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-ink"
+                >
+                  Проверить план
+                </Link>
+                <Link
+                  href="/decisions"
+                  className="rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-ink"
+                >
+                  Открыть журнал
+                </Link>
+              </div>
+            </section>
           ) : null}
 
           {state !== "no_plan" ? (
@@ -198,18 +248,165 @@ export default function TodayPage() {
             </details>
           ) : null}
 
+          {data.gate.conflicts.length || data.gate.data_gap || data.gate.proposal_gap ? (
+            <details className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+              <summary className="cursor-pointer text-sm font-medium text-ink">
+                Улики salience-gate
+                <span className="ml-2 text-xs font-normal text-ink-faint">
+                  {data.gate.outcome ?? "недоступен"}
+                </span>
+              </summary>
+              <div className="mt-3 space-y-3 text-sm text-ink-soft">
+                {data.gate.conflicts.map((conflict, conflictIndex) => (
+                  <div key={`${conflict.kind ?? "conflict"}-${conflictIndex}`}>
+                    <p className="font-medium text-ink">
+                      {conflict.date ?? data.date}
+                      {conflict.severity ? ` · severity ${conflict.severity}` : ""}
+                    </p>
+                    {(conflict.evidence ?? []).map((evidence, evidenceIndex) => (
+                      <p key={evidenceIndex}>• {evidence}</p>
+                    ))}
+                  </div>
+                ))}
+                {!data.gate.conflicts.length && data.gate.reason ? (
+                  <p>{data.gate.reason}</p>
+                ) : null}
+                {data.gate.decision.id ? (
+                  <p className="text-xs text-ink-faint">
+                    decision #{data.gate.decision.id} · snapshot {data.snapshot_version}
+                  </p>
+                ) : null}
+              </div>
+            </details>
+          ) : null}
+
+          {forecast ? (
+            <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-sm font-semibold text-ink">Прогноз качества сессии</h2>
+                    <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-medium text-ink-soft">
+                      shadow
+                    </span>
+                  </div>
+                  <p className="mt-1 text-xs text-ink-faint">
+                    Наблюдение · не влияет на решение и корректировку плана
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className="text-2xl font-bold tabular-nums text-ink">
+                    {forecast.prediction_pct}%
+                  </div>
+                  <div className="text-xs text-ink-faint">
+                    {forecastBandLabel(forecast.prediction_band)}
+                  </div>
+                </div>
+              </div>
+              <p className="mt-3 text-sm text-ink-soft">
+                Цель {formatHumanDate(forecast.target_date)} · ревизия {forecast.revision}
+                {forecast.planned_tss ? ` · ${Math.round(forecast.planned_tss)} TSS` : ""}
+              </p>
+              {data.forecast.relation === "stale_checkpoint" ? (
+                <p className="mt-2 text-xs text-tone-warning">
+                  Прогноз относится к прошлой версии плана и показан только как evidence.
+                </p>
+              ) : null}
+              <p className="mt-2 text-xs text-ink-faint">
+                Время цели известно только как дата; pre-start статус будет подтверждён после
+                фактической активности.
+              </p>
+            </section>
+          ) : null}
+
           {yesterday ? (
-            <p className="border-t border-surface-border pt-3 text-sm text-ink-faint">
-              Вчера: {yesterday.activities}{" "}
-              {yesterday.activities === 1 ? "активность" : "активности"} ·{" "}
-              {yesterday.minutes} мин · {yesterday.tss} TSS
-              {yesterday.sports.length ? ` · ${yesterday.sports.join(", ")}` : ""}
-            </p>
+            <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+              <div className="flex items-center justify-between gap-3">
+                <h2 className="text-sm font-semibold text-ink">Вчера · план vs факт</h2>
+                <span className="text-xs text-ink-faint">{yesterday.date}</span>
+              </div>
+              {yesterday.status === "unavailable" ? (
+                <p className="mt-2 text-sm text-ink-soft">
+                  Сопоставление временно недоступно: {yesterday.reason ?? "нет данных"}
+                </p>
+              ) : yesterday.status === "empty" ? (
+                <p className="mt-2 text-sm text-ink-soft">Нет плановых или фактических сессий.</p>
+              ) : (
+                <>
+                  <div className="mt-3 grid grid-cols-3 gap-2">
+                    <YesterdayMetric label="План" value={`${Math.round(yesterday.planned_tss)} TSS`} />
+                    <YesterdayMetric
+                      label="Факт"
+                      value={`${Math.round(yesterday.total_actual_tss)} TSS`}
+                    />
+                    <YesterdayMetric
+                      label="Матч"
+                      value={`${yesterday.matched_sessions}/${yesterday.planned_sessions}`}
+                    />
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {Object.entries(yesterday.adherence)
+                      .filter(([, count]) => count > 0)
+                      .map(([key, count]) => (
+                        <span
+                          key={key}
+                          className="rounded-full bg-surface-muted px-2 py-0.5 text-xs text-ink-soft"
+                        >
+                          {adherenceLabel(key)} {count}
+                        </span>
+                      ))}
+                    {yesterday.unplanned_tss > 0 ? (
+                      <span className="rounded-full bg-tone-warning/10 px-2 py-0.5 text-xs text-tone-warning">
+                        вне плана {Math.round(yesterday.unplanned_tss)} TSS
+                      </span>
+                    ) : null}
+                  </div>
+                  {yesterday.rows.map((row) => (
+                    <div
+                      key={row.session_id}
+                      className="mt-3 border-t border-surface-border pt-2 text-xs text-ink-soft"
+                    >
+                      <span className="font-medium text-ink">{row.name}</span>
+                      {` · ${Math.round(row.tss)} → ${Math.round(row.actual_total_tss)} TSS`}
+                      {` · ${adherenceLabel(row.adherence)}`}
+                    </div>
+                  ))}
+                  <p className="mt-3 text-xs text-ink-faint">
+                    {yesterday.activities} активности · {yesterday.minutes} мин · rule {" "}
+                    {yesterday.rule_version ?? "—"}
+                  </p>
+                </>
+              )}
+            </section>
           ) : null}
         </>
       ) : null}
     </main>
   );
+}
+
+function YesterdayMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-lg bg-surface-muted px-2.5 py-2">
+      <div className="text-[11px] uppercase tracking-wide text-ink-faint">{label}</div>
+      <div className="mt-0.5 font-semibold tabular-nums text-ink">{value}</div>
+    </div>
+  );
+}
+
+function adherenceLabel(value: string): string {
+  return {
+    exact: "по плану",
+    substituted: "замена",
+    major_deviation: "сильное отклонение",
+    unknown: "не определено",
+  }[value] ?? value;
+}
+
+function forecastBandLabel(value: string): string {
+  return { low: "низкая вероятность", uncertain: "неопределённо", high: "высокая вероятность" }[
+    value
+  ] ?? value;
 }
 
 function TodaySteps({ steps }: { steps: WorkoutStep[] }) {
