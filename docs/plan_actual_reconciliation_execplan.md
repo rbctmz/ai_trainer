@@ -14,10 +14,10 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
 - [x] (2026-07-13 10:27Z) Audited the active checkpoint, legacy execution matcher, Issue D adherence rules, Intervals client, SQLite patterns and web Adjust surface.
 - [x] (2026-07-13 10:27Z) Pre-registered stable identity, evidence coverage and load-response formulas in this plan before tests or implementation.
 - [x] (2026-07-13 10:35Z) Added failing BDD/contract tests for session identity, matching, ledger revisions, provider evidence and future-only preview; red evidence is `ModuleNotFoundError: models.plan_actual_reconciliation`.
-- [ ] Implement stable session identity and persist it through checkpoints/API exports.
-- [ ] Implement bounded Intervals GET adapters and the append-only match ledger.
-- [ ] Replace legacy reconciliation with evidence rows relative to explicit `as_of`.
-- [ ] Implement deterministic future-only rebalance preview and stale-safe confirm.
+- [ ] Implement stable session identity and persist it through checkpoints/API exports (completed: pure deterministic identity and replacement lineage; remaining: generation/checkpoint/API integration).
+- [ ] Implement bounded Intervals GET adapters and the append-only match ledger (completed: SQLite ledger with idempotent append-only revisions; remaining: provider adapters and API correction path).
+- [ ] Replace legacy reconciliation with evidence rows relative to explicit `as_of` (completed: pure matcher, load/accounting and data-quality contract; remaining: planning-service integration).
+- [ ] Implement deterministic future-only rebalance preview and stale-safe confirm (completed: pure bounded preview/apply; remaining: protected-date collection, checkpoint stale guard and API persistence).
 - [ ] Replace the web optimistic outcome selector with evidence and preview/confirm UI.
 - [ ] Run focused, smoke, broader non-live and Next.js build checks; perform synthetic 07–12 July acceptance.
 - [ ] Self-review the full diff, finalize this living plan, push the branch and open a draft PR with `Closes #172`.
@@ -91,7 +91,7 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
 
 ## Outcomes & Retrospective
 
-Implementation is in progress. The current outcome is a frozen design contract and isolated branch. Update this section after each milestone with observed behavior, remaining gaps and test evidence.
+Implementation is in progress. The first domain milestone is green: eight new contract scenarios plus the existing SessionQualityForecast suite pass (`32 passed`). The matcher preserves the full 144.7 TSS synthetic window, including the ambiguous cross-sport activity and unplanned swims. API/web and provider integration remain.
 
 ## Context and Orientation
 

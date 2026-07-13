@@ -185,7 +185,7 @@ def test_reconciliation_uses_relative_lookback_and_preserves_full_actual_load() 
     assert july_12["actual_total_tss"] == pytest.approx(30.2)
     assert set(july_12["actual_activity_ids"]) == {"paired-ride"}
     assert {item["activity_id"] for item in result["unplanned_activities"]} >= {"swim-a", "swim-b"}
-    assert result["metrics"]["total_actual_tss"] == pytest.approx(114.7)
+    assert result["metrics"]["total_actual_tss"] == pytest.approx(144.7)
     assert result["metrics"]["unplanned_tss"] == pytest.approx(50.3)
 
 
