@@ -22,7 +22,7 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 - [x] (2026-07-13 15:12Z) Exposed compact prescriptions in Planning and Today, including stimulus/fatigue/step evidence, one composite card and separate leg exports; Next.js production build passes.
 - [x] (2026-07-13 15:23Z) Completed focused and synthetic UI acceptance, `555 passed, 1 skipped` smoke, `598 passed, 6 skipped, 24 deselected` broader non-live, and a clean 12-route Next.js production build.
 - [x] (2026-07-13 15:23Z) Self-reviewed the complete diff, closed the Taper-long and Today-data-gap edges found in acceptance, and finalized this living plan.
-- [ ] Publish a draft PR with `Closes #173` and leave merge to the human gate.
+- [x] (2026-07-13 15:27Z) Published draft PR #180 with `Closes #173`; merge remains at the human gate.
 
 ## Surprises & Discoveries
 
