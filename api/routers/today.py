@@ -50,7 +50,7 @@ def today_view(
 
     as_of = str(report.get("as_of") or datetime.now().date().isoformat())[:10]
     readiness = _project_readiness(snapshot)
-    session = _day_session(report, goal_plan)
+    session = _day_session(report, goal_plan, as_of)
     proposal = _active_proposal(loop_result)
     outcome = loop_result.get("outcome")
 
@@ -129,6 +129,7 @@ def _project_readiness(snapshot: dict[str, Any]) -> dict[str, Any] | None:
 def _day_session(
     report: dict[str, Any],
     goal_plan: dict[str, Any] | None = None,
+    as_of: str = "",
 ) -> dict[str, Any] | None:
     for session in report.get("sessions_evaluated") or []:
         if not isinstance(session, dict):
@@ -138,49 +139,90 @@ def _day_session(
                 continue
         except (TypeError, ValueError):
             continue
-        role = str(session.get("role") or "")
         session_date = str(session.get("date") or "")[:10]
-        template = _template_for_date(goal_plan, session_date)
-        return {
-            "date": session_date,
-            "name": str(
-                template.get("template_name")
-                or template.get("export_name")
-                or session.get("name")
-                or "Сессия"
-            ),
-            "role": role,
-            "role_label": ROLE_LABELS_RU.get(role, role),
-            "tss": int(round(float(session.get("tss") or 0.0))),
-            "sport_label": str(session.get("sport_label") or ""),
-            "is_key": role in _KEY_ROLES,
-            "kind": str(template.get("kind") or "single"),
-            "catalog_version": template.get("catalog_version"),
-            "template_key": template.get("template_key"),
-            "template_version": template.get("template_version"),
-            "template_name": template.get("template_name"),
-            "stimulus": template.get("stimulus"),
-            "fatigue_cost": list(template.get("fatigue_cost") or []),
-            "expected_recovery_hours": template.get("expected_recovery_hours"),
-            "materialization_status": template.get("materialization_status"),
-            "target_provenance": template.get("target_provenance"),
-            "steps": _compact_steps(template.get("materialized_steps")),
-            "legs": [
-                {
-                    "leg_index": leg.get("leg_index"),
-                    "leg_id": leg.get("leg_id"),
-                    "sport": leg.get("sport"),
-                    "template_name": leg.get("template_name"),
-                    "duration_minutes": leg.get("duration_minutes"),
-                    "target_tss": leg.get("target_tss"),
-                    "target_provenance": leg.get("target_provenance"),
-                    "steps": _compact_steps(leg.get("materialized_steps")),
-                }
-                for leg in list(template.get("legs") or [])
-                if isinstance(leg, dict)
-            ],
-        }
-    return None
+        return _project_session(session, _template_for_date(goal_plan, session_date))
+
+    template = _template_for_date(goal_plan, as_of)
+    if not template or str(template.get("session_role") or "") == "off":
+        return None
+    return _project_session(
+        {
+            "date": as_of,
+            "role": template.get("session_role"),
+            "tss": _planned_tss_for_date(goal_plan, as_of),
+            "name": template.get("session_focus") or template.get("export_name"),
+            "sport_label": template.get("sport_label") or template.get("sport"),
+        },
+        template,
+    )
+
+
+def _project_session(
+    session: dict[str, Any],
+    template: dict[str, Any],
+) -> dict[str, Any]:
+    role = str(session.get("role") or template.get("session_role") or "")
+    session_date = str(session.get("date") or template.get("date") or "")[:10]
+    return {
+        "date": session_date,
+        "name": str(
+            template.get("template_name")
+            or template.get("export_name")
+            or session.get("name")
+            or "Сессия"
+        ),
+        "role": role,
+        "role_label": ROLE_LABELS_RU.get(role, role),
+        "tss": int(round(float(session.get("tss") or 0.0))),
+        "sport_label": str(
+            session.get("sport_label")
+            or template.get("sport_label")
+            or template.get("sport")
+            or ""
+        ),
+        "is_key": role in _KEY_ROLES,
+        "kind": str(template.get("kind") or "single"),
+        "catalog_version": template.get("catalog_version"),
+        "template_key": template.get("template_key"),
+        "template_version": template.get("template_version"),
+        "template_name": template.get("template_name"),
+        "stimulus": template.get("stimulus"),
+        "fatigue_cost": list(template.get("fatigue_cost") or []),
+        "expected_recovery_hours": template.get("expected_recovery_hours"),
+        "materialization_status": template.get("materialization_status"),
+        "target_provenance": template.get("target_provenance"),
+        "steps": _compact_steps(template.get("materialized_steps")),
+        "legs": [
+            {
+                "leg_index": leg.get("leg_index"),
+                "leg_id": leg.get("leg_id"),
+                "sport": leg.get("sport"),
+                "template_name": leg.get("template_name"),
+                "duration_minutes": leg.get("duration_minutes"),
+                "target_tss": leg.get("target_tss"),
+                "target_provenance": leg.get("target_provenance"),
+                "steps": _compact_steps(leg.get("materialized_steps")),
+            }
+            for leg in list(template.get("legs") or [])
+            if isinstance(leg, dict)
+        ],
+    }
+
+
+def _planned_tss_for_date(
+    goal_plan: dict[str, Any] | None,
+    session_date: str,
+) -> float:
+    for row in list((goal_plan or {}).get("daily_plan") or []):
+        if not isinstance(row, (list, tuple)) or len(row) < 2:
+            continue
+        if str(row[0])[:10] != session_date:
+            continue
+        try:
+            return float(row[1] or 0.0)
+        except (TypeError, ValueError):
+            return 0.0
+    return 0.0
 
 
 def _template_for_date(

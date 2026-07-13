@@ -501,13 +501,22 @@ def _single_candidates(
     for definition in _CATALOG:
         if definition.kind != "single" or definition.sport != sport:
             continue
-        if session_role not in definition.roles or phase not in definition.phase_eligibility:
+        sharpening_override = (
+            phase in {"Taper", "Race Week"}
+            and session_role == "long"
+            and any(role in definition.roles for role in ("quality", "easy"))
+        )
+        if (
+            session_role not in definition.roles and not sharpening_override
+        ) or phase not in definition.phase_eligibility:
             continue
         if not _goal_matches(definition, goal_type):
             continue
         if load_state == "deep_fatigue" and max(definition.fatigue_cost) >= 3:
             continue
         duration = _candidate_duration(definition, target_tss, estimated_duration_minutes)
+        if duration is not None and phase in {"Taper", "Race Week"} and duration > 60:
+            duration = 60 if not _failed_bounds(definition, 60, target_tss) else None
         if duration is not None:
             candidates.append((definition, duration))
     fresh = [item for item in candidates if item[0].template_key not in recent]
@@ -577,6 +586,11 @@ def materialize_session_template(
         "candidate_keys": [item[0].template_key for item in candidates],
         "estimated_duration_minutes": int(estimated_duration_minutes),
         "selected_duration_minutes": duration,
+        "role_override": (
+            "long_to_sharpening"
+            if phase in {"Taper", "Race Week"} and session_role == "long"
+            else None
+        ),
     }
     prescription = {
         "definition_snapshot": materialized["definition_snapshot"],

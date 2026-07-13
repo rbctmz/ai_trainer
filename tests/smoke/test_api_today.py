@@ -205,6 +205,8 @@ def test_today_data_gap_names_reason_without_proposal(tmp_path, monkeypatch) -> 
     assert "Недостаточно" in payload["reason"]
     assert payload["pending_proposal"] is None
     assert payload["readiness"] is None
+    assert payload["session"]["date"] == today.isoformat()
+    assert payload["session"]["role"] == "quality"
 
 
 def test_today_silence_projects_day_session_and_canonical_readiness(

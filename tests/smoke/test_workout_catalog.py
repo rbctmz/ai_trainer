@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta
+import json
 
 import pytest
 
@@ -11,6 +12,7 @@ from models.workout_catalog import (
     MATERIALIZER_RULE_VERSION,
     SELECTOR_RULE_VERSION,
     catalog_definitions,
+    materialize_session_template,
     materialize_workout,
     prepare_weekly_brick_allocations,
     select_workout_template,
@@ -18,6 +20,11 @@ from models.workout_catalog import (
 from models.session_identity import ensure_session_identities
 from models.planning_near_term import apply_near_term_day_edits
 from models.plan_actual_reconciliation import apply_weekly_rebalance_preview
+from models.planning_checkpoints import (
+    build_planning_checkpoint,
+    restore_goal_plan_from_checkpoint,
+)
+from data.database import Database
 from models.training_planner import build_daily_session_templates
 
 
@@ -114,6 +121,26 @@ def test_selector_rotates_recent_exposure_and_guards_deep_fatigue():
         "bike_threshold_intervals",
         "bike_vo2max_intervals",
     }
+
+
+def test_taper_long_role_becomes_bounded_sharpening_not_long_endurance():
+    result = materialize_session_template(
+        phase="Taper",
+        session_role="long",
+        sport="bike",
+        target_tss=60.0,
+        estimated_duration_minutes=120,
+        goal_type="triathlon",
+        zone_snapshot={"ftp": 200},
+    )
+
+    assert result["materialization_status"] == "materialized"
+    assert result["duration_minutes"] <= 60
+    assert result["template_key"] in {
+        "bike_vo2max_intervals",
+        "bike_neuromuscular_sprints",
+    }
+    assert result["selection_evidence"]["role_override"] == "long_to_sharpening"
 
 
 def test_materializer_preserves_exact_seconds_tss_and_ftp_provenance():
@@ -556,3 +583,69 @@ def test_weekly_rebalance_refreshes_persisted_prescription_and_identity():
     assert after["prescription_fingerprint"] != before["prescription_fingerprint"]
     assert after["session_id"] != before["session_id"]
     assert after["replaces_session_id"] == before["session_id"]
+
+
+def test_checkpoint_roundtrip_keeps_immutable_prescription_snapshot(tmp_path, monkeypatch):
+    from models import workout_catalog
+
+    dt = datetime(2026, 7, 13)
+    daily = [(dt, 80.0, {"run": 0.0, "bike": 80.0, "swim": 0.0})]
+    summary = [{"phase": "Build", "day_roles": ["quality"], "day_focuses": ["Качество"]}]
+    templates = build_daily_session_templates(
+        daily,
+        summary,
+        "Триатлон",
+        "Олимпийка",
+        zone_snapshot={"ftp": 200},
+    )
+    plan = ensure_session_identities(
+        {
+            "goal_type": "Триатлон",
+            "distance": "Олимпийка",
+            "daily_plan": daily,
+            "session_templates": templates,
+            "weekly_summary": summary,
+            "weekly_tss_plan": [80],
+            "base_weekly_tss_plan": [80],
+            "phases": ["Build"],
+            "constraint_summary": {},
+        }
+    )
+    db = Database(str(tmp_path / "catalog-checkpoint.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    checkpoint = db.get_latest_planning_checkpoint()
+    expected = json.dumps(
+        {
+            "definition_snapshot": plan["session_templates"][0]["definition_snapshot"],
+            "parameter_snapshot": plan["session_templates"][0]["parameter_snapshot"],
+            "materialized_steps": plan["session_templates"][0]["materialized_steps"],
+            "prescription_fingerprint": plan["session_templates"][0]["prescription_fingerprint"],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+
+    mutated = tuple(
+        replace(item, display_name="Changed after save")
+        if item.template_key == "bike_threshold_intervals"
+        else item
+        for item in workout_catalog.catalog_definitions()
+    )
+    monkeypatch.setattr(workout_catalog, "_CATALOG", mutated)
+    restored = restore_goal_plan_from_checkpoint(checkpoint)
+    actual_template = restored["session_templates"][0]
+    actual = json.dumps(
+        {
+            "definition_snapshot": actual_template["definition_snapshot"],
+            "parameter_snapshot": actual_template["parameter_snapshot"],
+            "materialized_steps": actual_template["materialized_steps"],
+            "prescription_fingerprint": actual_template["prescription_fingerprint"],
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+
+    assert actual == expected
+    assert actual_template["template_name"] != "Changed after save"
