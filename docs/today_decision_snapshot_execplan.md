@@ -17,7 +17,7 @@
 - [ ] Закоммитить этот ExecPlan отдельным docs-коммитом.
 - [x] (2026-07-13 17:28Z) Добавлены контрактные BDD-тесты; красная фаза: `8 failed, 2 passed` на отсутствующих v2-полях/состояниях, без production-изменений.
 - [x] (2026-07-13 17:35Z) Реализован headless `today_decision_snapshot_v2`; FastAPI-роутер сокращён до адаптера. Focused: `14 passed`; smoke: `563 passed, 1 skipped`.
-- [ ] Обновить `/today` в Next.js для пяти состояний, evidence, shadow forecast и reconciliation-вчера.
+- [x] (2026-07-13 17:43Z) Next.js `/today` обновлён для пяти состояний, gate evidence, shadow forecast и reconciliation-вчера; lint/build зелёные.
 - [ ] Прогнать focused/smoke/broad Python, Ruff/compile/diff, web lint/build и живую приёмку.
 - [ ] Финализировать ExecPlan, опубликовать ветку и открыть draft PR с `Closes #174`.
 
@@ -43,6 +43,9 @@
 
 - Observation: красная фаза падает ровно на новой границе контракта.
   Evidence: focused Today suite дала `8 failed, 2 passed`: отсутствуют `snapshot_version`, `primary_action`, `gate`, `proposal`, `forecast`, reconciliation-поля и `session_id`; старое состояние по-прежнему возвращает `conflict` или ошибочно `silence`.
+
+- Observation: живая БД сразу дала осмысленный составной Today v2 без специальных acceptance-фикстур.
+  Evidence: на копии `ai_trainer.db` экран показал `silence`, readiness 69.2, recovery bike 16 TSS, shadow forecast 65% на 18.07 revision 8 и reconciliation за 12.07: план 9 TSS, факт 50 TSS, major deviation, 19 TSS вне плана. Console warnings/errors отсутствуют.
 
 ## Decision Log
 
