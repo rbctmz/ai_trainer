@@ -469,6 +469,73 @@ class Database:
         ''')
 
         conn.execute('''
+            CREATE TABLE IF NOT EXISTS session_feedback (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerprint TEXT NOT NULL UNIQUE,
+                target_key TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                supersedes_feedback_id INTEGER,
+                session_id TEXT NOT NULL,
+                parent_session_id TEXT,
+                match_revision_id INTEGER,
+                match_snapshot_json TEXT NOT NULL,
+                actual_activity_ids_json TEXT NOT NULL,
+                completion_status TEXT NOT NULL,
+                completion_pct REAL,
+                completion_pct_source TEXT,
+                session_rpe_1_10 INTEGER,
+                quality_rating_1_5 INTEGER,
+                note TEXT,
+                source TEXT NOT NULL,
+                session_end_at_utc TEXT,
+                session_end_provenance TEXT NOT NULL,
+                status TEXT NOT NULL DEFAULT 'active',
+                rule_version TEXT NOT NULL,
+                submitted_at TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(target_key, revision)
+            )
+        ''')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS session_feedback_prompt_events (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerprint TEXT NOT NULL UNIQUE,
+                target_key TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                event TEXT NOT NULL,
+                reason TEXT,
+                source TEXT NOT NULL,
+                rule_version TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS session_quality_evaluations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerprint TEXT NOT NULL UNIQUE,
+                target_key TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                supersedes_evaluation_id INTEGER,
+                prediction_id INTEGER NOT NULL,
+                prediction_target_key TEXT NOT NULL,
+                feedback_id INTEGER NOT NULL,
+                match_revision_id INTEGER,
+                status TEXT NOT NULL,
+                plan_adherence TEXT,
+                quality_rating_1_5 INTEGER,
+                quality_outcome TEXT,
+                unscored_reason TEXT,
+                brier_score REAL,
+                evidence_json TEXT NOT NULL,
+                rule_version TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(target_key, revision)
+            )
+        ''')
+
+        conn.execute('''
             CREATE TABLE IF NOT EXISTS coach_constraints (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT NOT NULL,
@@ -514,6 +581,22 @@ class Database:
         conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_plan_actual_matches_date
             ON plan_actual_matches(session_date, match_status)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_session_feedback_target
+            ON session_feedback(target_key, revision)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_session_feedback_session
+            ON session_feedback(session_id, revision)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_session_feedback_prompt_session
+            ON session_feedback_prompt_events(session_id, created_at)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_session_quality_evaluation_prediction
+            ON session_quality_evaluations(prediction_id, revision)
         ''')
         conn.commit()
         conn.close()
@@ -1387,6 +1470,349 @@ class Database:
             "created_at": row[16],
         }
 
+    def save_session_feedback(self, payload):
+        """Append an immutable feedback revision, idempotent by client fingerprint."""
+        required = {
+            "fingerprint", "target_key", "session_id", "match_snapshot",
+            "actual_activity_ids", "completion_status", "source",
+            "session_end_provenance", "status", "rule_version", "submitted_at",
+        }
+        missing = sorted(key for key in required if key not in payload)
+        if missing:
+            raise ValueError(f"session feedback missing fields: {', '.join(missing)}")
+        fingerprint = str(payload.get("fingerprint") or "").strip()
+        target_key = str(payload.get("target_key") or "").strip()
+        session_id = str(payload.get("session_id") or "").strip()
+        if not fingerprint or not target_key or not session_id:
+            raise ValueError("session feedback identity must be non-empty")
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM session_feedback WHERE fingerprint = ? LIMIT 1",
+                (fingerprint,),
+            )
+            existing = cursor.fetchone()
+            if existing:
+                conn.commit()
+                return {"feedback": self._deserialize_session_feedback(existing), "created": False}
+            cursor.execute(
+                "SELECT COALESCE(MAX(revision), 0) + 1 FROM session_feedback WHERE target_key = ?",
+                (target_key,),
+            )
+            revision = int(cursor.fetchone()[0])
+            cursor.execute(
+                '''
+                INSERT INTO session_feedback
+                    (fingerprint, target_key, revision, supersedes_feedback_id, session_id,
+                     parent_session_id, match_revision_id, match_snapshot_json,
+                     actual_activity_ids_json, completion_status, completion_pct,
+                     completion_pct_source, session_rpe_1_10, quality_rating_1_5, note,
+                     source, session_end_at_utc, session_end_provenance, status,
+                     rule_version, submitted_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    fingerprint,
+                    target_key,
+                    revision,
+                    payload.get("supersedes_feedback_id"),
+                    session_id,
+                    payload.get("parent_session_id"),
+                    payload.get("match_revision_id"),
+                    json.dumps(payload.get("match_snapshot") or {}, ensure_ascii=False, sort_keys=True, default=str),
+                    json.dumps(payload.get("actual_activity_ids") or [], ensure_ascii=False),
+                    str(payload.get("completion_status") or ""),
+                    payload.get("completion_pct"),
+                    payload.get("completion_pct_source"),
+                    payload.get("session_rpe_1_10"),
+                    payload.get("quality_rating_1_5"),
+                    self.clean_value(payload.get("note")),
+                    str(payload.get("source") or ""),
+                    payload.get("session_end_at_utc"),
+                    str(payload.get("session_end_provenance") or ""),
+                    str(payload.get("status") or "active"),
+                    str(payload.get("rule_version") or ""),
+                    str(payload.get("submitted_at") or ""),
+                ),
+            )
+            row_id = int(cursor.lastrowid)
+            cursor.execute("SELECT * FROM session_feedback WHERE id = ?", (row_id,))
+            row = cursor.fetchone()
+            conn.commit()
+            return {"feedback": self._deserialize_session_feedback(row), "created": True}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_session_feedback(self, feedback_id):
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute(
+            "SELECT * FROM session_feedback WHERE id = ? LIMIT 1",
+            (int(feedback_id),),
+        ).fetchone()
+        conn.close()
+        return self._deserialize_session_feedback(row)
+
+    def get_session_feedback_history(self, session_id):
+        conn = sqlite3.connect(self.db_path)
+        rows = conn.execute(
+            "SELECT * FROM session_feedback WHERE session_id = ? ORDER BY revision, id",
+            (str(session_id),),
+        ).fetchall()
+        conn.close()
+        return [self._deserialize_session_feedback(row) for row in rows]
+
+    def get_latest_session_feedback(self, session_id):
+        conn = sqlite3.connect(self.db_path)
+        row = conn.execute(
+            '''
+            SELECT * FROM session_feedback
+            WHERE session_id = ?
+            ORDER BY revision DESC, id DESC
+            LIMIT 1
+            ''',
+            (str(session_id),),
+        ).fetchone()
+        conn.close()
+        return self._deserialize_session_feedback(row)
+
+    def get_latest_session_feedbacks(self, *, start_date=None, end_date=None):
+        conn = sqlite3.connect(self.db_path)
+        clauses = []
+        params = []
+        if start_date is not None:
+            clauses.append("substr(sf.submitted_at, 1, 10) >= ?")
+            params.append(str(start_date)[:10])
+        if end_date is not None:
+            clauses.append("substr(sf.submitted_at, 1, 10) <= ?")
+            params.append(str(end_date)[:10])
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = conn.execute(
+            f'''
+            SELECT sf.*
+            FROM session_feedback sf
+            JOIN (
+                SELECT target_key, MAX(revision) AS revision
+                FROM session_feedback
+                GROUP BY target_key
+            ) latest
+              ON latest.target_key = sf.target_key AND latest.revision = sf.revision
+            {where}
+            ORDER BY sf.submitted_at DESC, sf.id DESC
+            ''',
+            tuple(params),
+        ).fetchall()
+        conn.close()
+        return [self._deserialize_session_feedback(row) for row in rows]
+
+    @staticmethod
+    def _deserialize_session_feedback(row):
+        if not row:
+            return None
+        def _json(value, fallback):
+            try:
+                return json.loads(value) if value else fallback
+            except (TypeError, json.JSONDecodeError):
+                return fallback
+        return {
+            "id": row[0],
+            "fingerprint": row[1],
+            "target_key": row[2],
+            "revision": row[3],
+            "supersedes_feedback_id": row[4],
+            "session_id": row[5],
+            "parent_session_id": row[6],
+            "match_revision_id": row[7],
+            "match_snapshot": _json(row[8], {}),
+            "actual_activity_ids": _json(row[9], []),
+            "completion_status": row[10],
+            "completion_pct": row[11],
+            "completion_pct_source": row[12],
+            "session_rpe_1_10": row[13],
+            "quality_rating_1_5": row[14],
+            "note": row[15],
+            "source": row[16],
+            "provenance_label": "athlete-entered" if row[16] == "user_web" else "admin-entered",
+            "session_end_at_utc": row[17],
+            "session_end_provenance": row[18],
+            "status": row[19],
+            "rule_version": row[20],
+            "submitted_at": row[21],
+            "created_at": row[22],
+        }
+
+    def save_session_feedback_prompt_event(self, payload):
+        required = {"fingerprint", "target_key", "session_id", "event", "source", "rule_version"}
+        missing = sorted(key for key in required if key not in payload)
+        if missing:
+            raise ValueError(f"session feedback prompt event missing fields: {', '.join(missing)}")
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            cursor.execute(
+                '''
+                INSERT OR IGNORE INTO session_feedback_prompt_events
+                    (fingerprint, target_key, session_id, event, reason, source, rule_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    str(payload["fingerprint"]), str(payload["target_key"]),
+                    str(payload["session_id"]), str(payload["event"]),
+                    self.clean_value(payload.get("reason")), str(payload["source"]),
+                    str(payload["rule_version"]),
+                ),
+            )
+            created = cursor.rowcount == 1
+            row = cursor.execute(
+                "SELECT * FROM session_feedback_prompt_events WHERE fingerprint = ?",
+                (str(payload["fingerprint"]),),
+            ).fetchone()
+            conn.commit()
+            return {"event": self._deserialize_session_feedback_prompt_event(row), "created": created}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_latest_session_feedback_prompt_events(self):
+        conn = sqlite3.connect(self.db_path)
+        rows = conn.execute(
+            '''
+            SELECT event.*
+            FROM session_feedback_prompt_events event
+            JOIN (
+                SELECT session_id, MAX(id) AS id
+                FROM session_feedback_prompt_events
+                GROUP BY session_id
+            ) latest ON latest.id = event.id
+            ORDER BY event.id DESC
+            '''
+        ).fetchall()
+        conn.close()
+        return [self._deserialize_session_feedback_prompt_event(row) for row in rows]
+
+    @staticmethod
+    def _deserialize_session_feedback_prompt_event(row):
+        if not row:
+            return None
+        return {
+            "id": row[0], "fingerprint": row[1], "target_key": row[2],
+            "session_id": row[3], "event": row[4], "reason": row[5],
+            "source": row[6], "rule_version": row[7], "created_at": row[8],
+        }
+
+    def save_session_quality_evaluation(self, payload):
+        """Append one immutable evaluation revision for a forecast prediction."""
+        required = {
+            "fingerprint", "target_key", "prediction_id", "prediction_target_key",
+            "feedback_id", "status", "evidence", "rule_version",
+        }
+        missing = sorted(key for key in required if key not in payload)
+        if missing:
+            raise ValueError(f"session quality evaluation missing fields: {', '.join(missing)}")
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM session_quality_evaluations WHERE fingerprint = ? LIMIT 1",
+                (str(payload["fingerprint"]),),
+            )
+            existing = cursor.fetchone()
+            if existing:
+                conn.commit()
+                return {"evaluation": self._deserialize_session_quality_evaluation(existing), "created": False}
+            cursor.execute(
+                "SELECT COALESCE(MAX(revision), 0) + 1 FROM session_quality_evaluations WHERE target_key = ?",
+                (str(payload["target_key"]),),
+            )
+            revision = int(cursor.fetchone()[0])
+            cursor.execute(
+                '''
+                INSERT INTO session_quality_evaluations
+                    (fingerprint, target_key, revision, supersedes_evaluation_id,
+                     prediction_id, prediction_target_key, feedback_id, match_revision_id,
+                     status, plan_adherence, quality_rating_1_5, quality_outcome,
+                     unscored_reason, brier_score, evidence_json, rule_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    str(payload["fingerprint"]), str(payload["target_key"]), revision,
+                    payload.get("supersedes_evaluation_id"), int(payload["prediction_id"]),
+                    str(payload["prediction_target_key"]), int(payload["feedback_id"]),
+                    payload.get("match_revision_id"), str(payload["status"]),
+                    payload.get("plan_adherence"), payload.get("quality_rating_1_5"),
+                    payload.get("quality_outcome"), payload.get("unscored_reason"),
+                    payload.get("brier_score"),
+                    json.dumps(payload.get("evidence") or {}, ensure_ascii=False, sort_keys=True, default=str),
+                    str(payload["rule_version"]),
+                ),
+            )
+            row_id = int(cursor.lastrowid)
+            row = cursor.execute(
+                "SELECT * FROM session_quality_evaluations WHERE id = ?", (row_id,)
+            ).fetchone()
+            conn.commit()
+            return {"evaluation": self._deserialize_session_quality_evaluation(row), "created": True}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_latest_session_quality_evaluations(self, prediction_ids=None):
+        ids = [int(value) for value in (prediction_ids or [])]
+        where = ""
+        params = []
+        if ids:
+            placeholders = ", ".join("?" for _ in ids)
+            where = f"WHERE prediction_id IN ({placeholders})"
+            params.extend(ids)
+        conn = sqlite3.connect(self.db_path)
+        rows = conn.execute(
+            f'''
+            SELECT evaluation.*
+            FROM session_quality_evaluations evaluation
+            JOIN (
+                SELECT target_key, MAX(revision) AS revision
+                FROM session_quality_evaluations
+                {where}
+                GROUP BY target_key
+            ) latest
+              ON latest.target_key = evaluation.target_key
+             AND latest.revision = evaluation.revision
+            ORDER BY evaluation.prediction_id, evaluation.revision
+            ''',
+            tuple(params),
+        ).fetchall()
+        conn.close()
+        return [self._deserialize_session_quality_evaluation(row) for row in rows]
+
+    @staticmethod
+    def _deserialize_session_quality_evaluation(row):
+        if not row:
+            return None
+        try:
+            evidence = json.loads(row[15]) if row[15] else {}
+        except (TypeError, json.JSONDecodeError):
+            evidence = {}
+        return {
+            "id": row[0], "fingerprint": row[1], "target_key": row[2],
+            "revision": row[3], "supersedes_evaluation_id": row[4],
+            "prediction_id": row[5], "prediction_target_key": row[6],
+            "feedback_id": row[7], "match_revision_id": row[8],
+            "status": row[9], "plan_adherence": row[10],
+            "quality_rating_1_5": row[11], "quality_outcome": row[12],
+            "unscored_reason": row[13], "brier_score": row[14],
+            "evidence": evidence, "rule_version": row[16], "created_at": row[17],
+        }
+
     def save_coach_proposal(
         self,
         action,
@@ -2144,6 +2570,16 @@ class Database:
         except sqlite3.OperationalError:
             pass
 
+        for table in (
+            'session_feedback',
+            'session_feedback_prompt_events',
+            'session_quality_evaluations',
+        ):
+            try:
+                cursor.execute(f'DELETE FROM {table}')
+            except sqlite3.OperationalError:
+                pass
+
         try:
             cursor.execute('DELETE FROM coach_constraints')
         except sqlite3.OperationalError:
@@ -2291,6 +2727,18 @@ class Database:
             session_quality_predictions_count = cursor.fetchone()[0]
         except sqlite3.OperationalError:
             session_quality_predictions_count = 0
+
+        journal_counts = {}
+        for table in (
+            'session_feedback',
+            'session_feedback_prompt_events',
+            'session_quality_evaluations',
+        ):
+            try:
+                cursor.execute(f'SELECT COUNT(*) FROM {table}')
+                journal_counts[table] = cursor.fetchone()[0]
+            except sqlite3.OperationalError:
+                journal_counts[table] = 0
         
         conn.close()
         
@@ -2306,6 +2754,7 @@ class Database:
             'coach_constraints': coach_constraints_count,
             'recovery_decisions': recovery_decisions_count,
             'session_quality_predictions': session_quality_predictions_count,
+            **journal_counts,
         }
     
     # =================== НОВЫЕ МЕТОДЫ СИНХРОНИЗАЦИИ ФАЗА 1 ===================

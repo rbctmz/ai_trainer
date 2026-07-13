@@ -8,6 +8,8 @@ from threading import Barrier
 import pytest
 
 from data.database import Database
+from models.planning_checkpoints import build_planning_checkpoint
+from models.session_identity import ensure_session_identities
 from models.post_workout_feedback import (
     EVALUATION_RULE_VERSION,
     FEEDBACK_RULE_VERSION,
@@ -142,6 +144,41 @@ def _prediction(*, prediction_id: int = 7, created_at: str = "2026-07-12T06:00:0
         },
         "created_at": created_at,
     }
+
+
+def _one_session_plan() -> dict:
+    plan = {
+        "goal_type": "Триатлон",
+        "distance": "Олимпийка",
+        "event_date": "2026-10-04",
+        "weeks_to_race": 12,
+        "start_week": "2026-07-06",
+        "weekly_tss_plan": [60],
+        "base_weekly_tss_plan": [60],
+        "phases": ["Build"],
+        "daily_plan": [
+            (datetime(2026, 7, 12), 60.0, {"bike": 60.0}),
+        ],
+        "session_templates": [
+            {
+                "date": "2026-07-12",
+                "week_index": 0,
+                "day_index": 6,
+                "phase": "Build",
+                "session_role": "quality",
+                "session_focus": "Threshold Intervals",
+                "export_name": "Threshold Intervals",
+                "sport": "bike",
+                "sport_label": "вело",
+                "duration_minutes": 60,
+                "kind": "single",
+            }
+        ],
+        "weekly_summary": [],
+        "constraint_summary": {},
+        "near_term_edit_version": 0,
+    }
+    return ensure_session_identities(plan)
 
 
 def test_source_backed_end_uses_latest_leg_and_never_guesses_missing_utc() -> None:
@@ -478,6 +515,218 @@ def test_new_journals_participate_in_stats_and_clear(tmp_path) -> None:
     assert cleared["session_quality_evaluations"] == 0
 
 
+def test_today_feedback_projection_consumes_supplied_reconciliation_without_writes(tmp_path) -> None:
+    from api.session_feedback import feedback_from_today_evidence
+
+    db = Database(str(tmp_path / "today-feedback.db"))
+    before = db.get_database_stats()
+    result = feedback_from_today_evidence(
+        db,
+        yesterday={"status": "available", "rows": [_row()]},
+        goal_plan={"session_templates": [_template()]},
+        forecasts=[_prediction()],
+        now_utc=datetime(2026, 7, 13, 9, 0, tzinfo=timezone.utc),
+        as_of="2026-07-13",
+    )
+
+    assert result["primary"]["session_id"] == "ats_quality"
+    assert result["primary"]["state"] == "ready"
+    assert db.get_database_stats() == before
+
+
+def test_feedback_without_forecast_is_stored_without_synthetic_prediction(
+    tmp_path, monkeypatch
+) -> None:
+    from api import session_feedback as service
+
+    db = Database(str(tmp_path / "no-forecast.db"))
+    monkeypatch.setattr(
+        service,
+        "_feedback_evidence_for_session",
+        lambda _db, _session_id, **_kwargs: {
+            "row": _row(),
+            "template": _template(),
+            "match_revision_id": None,
+        },
+    )
+    result = service.submit_session_feedback(
+        db,
+        {
+            "session_id": "ats_quality",
+            "client_submission_fingerprint": "web-submit-no-forecast",
+            "completion_status": "completed",
+            "completion_pct": 100,
+            "session_rpe_1_10": 9,
+            "quality_rating_1_5": 5,
+            "note": "Готово",
+        },
+        now_utc=datetime(2026, 7, 13, 9, 0, tzinfo=timezone.utc),
+    )
+
+    assert result["feedback"]["source"] == "user_web"
+    assert result["feedback"]["provenance_label"] == "athlete-entered"
+    assert result["evaluations"] == []
+    assert db.get_session_quality_predictions(days=36500) == []
+
+
+def test_admin_resolve_bridges_match_feedback_and_evaluation_without_mutating_forecast(
+    tmp_path,
+) -> None:
+    from api.session_feedback import resolve_prediction_via_feedback
+
+    db = Database(str(tmp_path / "admin-bridge.db"))
+    plan = _one_session_plan()
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    session_id = checkpoint["goal_plan_snapshot"]["session_templates"][0]["session_id"]
+    prediction = db.save_session_quality_prediction(
+        fingerprint="admin-forecast",
+        target_key=f"{checkpoint['id']}:2026-07-12:0:session_quality_v1",
+        rule_version="session_quality_v1",
+        target_date="2026-07-12",
+        plan_checkpoint_id=checkpoint["id"],
+        plan_session_index=0,
+        planned_session={
+            "date": "2026-07-12",
+            "index": 0,
+            "role": "quality",
+            "sport": "bike",
+            "tss": 60.0,
+            "duration_minutes": 60,
+        },
+        forecast={"prediction_pct": 70, "prediction_band": "uncertain"},
+        inputs={"readiness_source": "canonical_snapshot"},
+        evidence=["pre-start"],
+        created_at="2026-07-12T06:00:00Z",
+    )["prediction"]
+    db.save_activities([_activity("ride-1")])
+
+    result = resolve_prediction_via_feedback(
+        db,
+        prediction["id"],
+        activity_ids=["ride-1"],
+        actual_role="quality",
+        quality_rating_1_5=5,
+        note="admin migration bridge",
+        submitted_at="2026-07-13T09:00:00Z",
+    )
+
+    assert result["predictions"][0]["status"] == "scored"
+    assert result["predictions"][0]["quality_outcome"] == "success"
+    raw = db.get_session_quality_prediction(prediction["id"])
+    assert raw["status"] == "pending"
+    assert raw["quality_rating_1_5"] is None
+    feedback = db.get_latest_session_feedback(session_id)
+    assert feedback["source"] == "admin_resolve"
+    matches = db.get_latest_plan_actual_matches(
+        start_date="2026-07-12", end_date="2026-07-12"
+    )
+    assert matches[0]["match_method"] == "admin_resolve"
+    assert feedback["match_revision_id"] == matches[0]["id"]
+    evaluations = db.get_latest_session_quality_evaluations(
+        prediction_ids=[prediction["id"]]
+    )
+    assert evaluations[0]["feedback_id"] == feedback["id"]
+
+
+def test_feedback_correction_appends_new_evaluation_and_preserves_history(
+    tmp_path, monkeypatch
+) -> None:
+    from api import session_feedback as service
+
+    db = Database(str(tmp_path / "correction-service.db"))
+    monkeypatch.setattr(
+        service,
+        "_feedback_evidence_for_session",
+        lambda _db, _session_id, **_kwargs: {
+            "row": _row(),
+            "template": _template(),
+            "match_revision_id": None,
+        },
+    )
+    first = service.submit_session_feedback(
+        db,
+        {
+            "session_id": "ats_quality",
+            "client_submission_fingerprint": "web-submit-1",
+            "completion_status": "completed",
+            "completion_pct": 100,
+            "session_rpe_1_10": 9,
+            "quality_rating_1_5": 5,
+            "note": None,
+        },
+        now_utc=datetime(2026, 7, 13, 9, 0, tzinfo=timezone.utc),
+    )["feedback"]
+    corrected = service.correct_session_feedback(
+        db,
+        first["id"],
+        {
+            "client_submission_fingerprint": "web-submit-2",
+            "completion_status": "partial",
+            "completion_pct": 70,
+            "session_rpe_1_10": 8,
+            "quality_rating_1_5": 3,
+            "note": "Исправил после проверки",
+        },
+        now_utc=datetime(2026, 7, 13, 9, 10, tzinfo=timezone.utc),
+    )
+
+    assert corrected["feedback"]["revision"] == 2
+    assert corrected["feedback"]["supersedes_feedback_id"] == first["id"]
+    assert len(db.get_session_feedback_history("ats_quality")) == 2
+
+
+def test_stale_feedback_correction_is_rejected(tmp_path, monkeypatch) -> None:
+    from api import session_feedback as service
+
+    db = Database(str(tmp_path / "stale-correction.db"))
+    monkeypatch.setattr(
+        service,
+        "_feedback_evidence_for_session",
+        lambda _db, _session_id, **_kwargs: {
+            "row": _row(),
+            "template": _template(),
+            "match_revision_id": None,
+        },
+    )
+    first = service.submit_session_feedback(
+        db,
+        {
+            "session_id": "ats_quality",
+            "client_submission_fingerprint": "stale-submit-1",
+            "completion_status": "completed",
+            "completion_pct": 100,
+            "session_rpe_1_10": 6,
+            "quality_rating_1_5": 4,
+        },
+        now_utc=datetime(2026, 7, 13, 9, 0, tzinfo=timezone.utc),
+    )["feedback"]
+    service.correct_session_feedback(
+        db,
+        first["id"],
+        {
+            "client_submission_fingerprint": "stale-submit-2",
+            "completion_status": "partial",
+            "completion_pct": 80,
+            "session_rpe_1_10": 7,
+            "quality_rating_1_5": 3,
+        },
+        now_utc=datetime(2026, 7, 13, 9, 5, tzinfo=timezone.utc),
+    )
+    with pytest.raises(service.StaleFeedbackError):
+        service.correct_session_feedback(
+            db,
+            first["id"],
+            {
+                "client_submission_fingerprint": "stale-submit-3",
+                "completion_status": "completed",
+                "completion_pct": 100,
+                "session_rpe_1_10": 5,
+                "quality_rating_1_5": 5,
+            },
+            now_utc=datetime(2026, 7, 13, 9, 10, tzinfo=timezone.utc),
+        )
+
+
 def test_openapi_exposes_feedback_lifecycle_routes() -> None:
     from api.main import app
 
@@ -486,4 +735,3 @@ def test_openapi_exposes_feedback_lifecycle_routes() -> None:
     assert "/api/session-feedback/prompts" in paths
     assert "/api/session-feedback/{feedback_id}/correct" in paths
     assert "/api/session-feedback/{session_id}/history" in paths
-
