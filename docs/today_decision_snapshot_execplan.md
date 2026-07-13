@@ -16,7 +16,7 @@
 - [x] (2026-07-13 17:24Z) Подтверждено, что #173 уже добавил persisted structured prescription и checkpoint fallback; этот код переносится без изменения доменной семантики.
 - [ ] Закоммитить этот ExecPlan отдельным docs-коммитом.
 - [x] (2026-07-13 17:28Z) Добавлены контрактные BDD-тесты; красная фаза: `8 failed, 2 passed` на отсутствующих v2-полях/состояниях, без production-изменений.
-- [ ] Реализовать headless `today_decision_snapshot_v2` и сделать роутер тонким.
+- [x] (2026-07-13 17:35Z) Реализован headless `today_decision_snapshot_v2`; FastAPI-роутер сокращён до адаптера. Focused: `14 passed`; smoke: `563 passed, 1 skipped`.
 - [ ] Обновить `/today` в Next.js для пяти состояний, evidence, shadow forecast и reconciliation-вчера.
 - [ ] Прогнать focused/smoke/broad Python, Ruff/compile/diff, web lint/build и живую приёмку.
 - [ ] Финализировать ExecPlan, опубликовать ветку и открыть draft PR с `Closes #174`.

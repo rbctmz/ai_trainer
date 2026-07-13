@@ -172,7 +172,7 @@ def _patch_report(monkeypatch, report: dict) -> None:
 
 
 def _patch_snapshot(monkeypatch, snapshot: dict) -> None:
-    from api.routers import today as today_module
+    from api import today_snapshot as today_module
 
     monkeypatch.setattr(today_module, "build_readiness_snapshot", lambda _db: snapshot)
 
@@ -335,6 +335,7 @@ def test_today_conflict_without_safe_proposal_is_explicitly_unactionable(
     tmp_path, monkeypatch
 ) -> None:
     """Issue #174 regression: a real gate conflict must never look like silence."""
+    from api import today_snapshot as snapshot_module
     from api.routers import today as today_module
 
     today = date(2026, 7, 10)
@@ -349,9 +350,9 @@ def test_today_conflict_without_safe_proposal_is_explicitly_unactionable(
         status="low",
     )
     monkeypatch.setattr(
-        today_module,
+        snapshot_module,
         "_run_loop",
-        lambda _db: {
+        lambda _db, **_kwargs: {
             "outcome": "conflict",
             "decision": {"id": 17, "fingerprint": "conflict-gap"},
             "proposal": None,
@@ -372,6 +373,121 @@ def test_today_conflict_without_safe_proposal_is_explicitly_unactionable(
     assert payload["gate"]["proposal_gap"] == "protected_date"
     assert payload["gate"]["conflicts"] == report["conflicts"]
     assert "План в силе" not in payload["reason"]
+
+
+def test_today_keeps_current_pending_proposal_visible_when_latest_loop_is_silent(
+    tmp_path, monkeypatch
+) -> None:
+    from api import today_snapshot as snapshot_module
+    from api.routers.today import today_view
+
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "pending-survives.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    proposal = db.save_coach_proposal(
+        action="recovery_replan",
+        params={"base_checkpoint_id": checkpoint["id"]},
+        preview={"reason": "earlier conflict"},
+        source="recovery_replan",
+        source_key="earlier-conflict",
+        active_key="same-session",
+    )
+    report = _report(today)
+    monkeypatch.setattr(
+        snapshot_module,
+        "_run_loop",
+        lambda _db, **_kwargs: {
+            "outcome": "silence",
+            "decision": {"id": 18, "fingerprint": "later-silence"},
+            "proposal": None,
+            "readiness_conflicts": report,
+        },
+    )
+    _patch_snapshot(monkeypatch, _snapshot())
+
+    payload = today_view(db=db)
+
+    assert payload["state"] == "conflict_actionable"
+    assert payload["pending_proposal"]["id"] == proposal["id"]
+    assert payload["proposal"]["relation"] == "current"
+
+
+def test_today_stale_pending_proposal_is_evidence_without_controls(
+    tmp_path, monkeypatch
+) -> None:
+    from api import today_snapshot as snapshot_module
+    from api.routers.today import today_view
+
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "stale-proposal.db"))
+    old_checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    stale = db.save_coach_proposal(
+        action="recovery_replan",
+        params={"base_checkpoint_id": old_checkpoint["id"]},
+        preview={"reason": "old plan"},
+        source="recovery_replan",
+        source_key="stale-conflict",
+        active_key="stale-session",
+    )
+    current_checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    day_session = _session(today, days_until=0, role="quality", tss=60.0)
+    report = _report(today, sessions=[day_session], conflicts=[_conflict_for(day_session)])
+    monkeypatch.setattr(
+        snapshot_module,
+        "_run_loop",
+        lambda _db, **_kwargs: {
+            "outcome": "conflict",
+            "decision": {"id": 19, "fingerprint": "current-conflict"},
+            "proposal": None,
+            "proposal_gap": "stale checkpoint",
+            "readiness_conflicts": report,
+        },
+    )
+    _patch_snapshot(monkeypatch, _snapshot(score=35.0, status="low"))
+
+    payload = today_view(db=db)
+
+    assert payload["state"] == "conflict_unactionable"
+    assert payload["pending_proposal"] is None
+    assert payload["proposal"]["relation"] == "stale"
+    assert payload["proposal"]["proposal"]["id"] == stale["id"]
+    assert payload["proposal"]["active_checkpoint_id"] == current_checkpoint["id"]
+
+
+def test_today_failed_proposal_remains_unactionable(tmp_path, monkeypatch) -> None:
+    from api import today_snapshot as snapshot_module
+    from api.routers.today import today_view
+
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "failed.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    day_session = _session(today, days_until=0, role="quality", tss=60.0)
+    report = _report(today, sessions=[day_session], conflicts=[_conflict_for(day_session)])
+    failed = {
+        "id": 20,
+        "action": "recovery_replan",
+        "status": "failed",
+        "params": {"base_checkpoint_id": checkpoint["id"]},
+        "error": "apply failed",
+    }
+    monkeypatch.setattr(
+        snapshot_module,
+        "_run_loop",
+        lambda _db, **_kwargs: {
+            "outcome": "conflict",
+            "decision": {"id": 20, "fingerprint": "failed-conflict"},
+            "proposal": failed,
+            "readiness_conflicts": report,
+        },
+    )
+    _patch_snapshot(monkeypatch, _snapshot(score=35.0, status="low"))
+
+    payload = today_view(db=db)
+
+    assert payload["state"] == "conflict_unactionable"
+    assert payload["proposal"]["relation"] == "resolved"
+    assert payload["proposal"]["proposal"]["status"] == "failed"
+    assert payload["pending_proposal"] is None
 
 
 def test_today_resolved_conflict_returns_to_silence(tmp_path, monkeypatch) -> None:
@@ -411,7 +527,9 @@ def test_today_summarizes_yesterday_fact(tmp_path, monkeypatch) -> None:
     today = datetime.now().date()
     yesterday = (today - timedelta(days=1)).isoformat()
     db = Database(str(tmp_path / "yesterday.db"))
-    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today, target_role="easy")))
+    db.save_planning_checkpoint(
+        build_planning_checkpoint(_goal_plan(today - timedelta(days=1), target_role="easy"))
+    )
     db.save_activities(
         [
             {
@@ -442,7 +560,8 @@ def test_today_summarizes_yesterday_fact(tmp_path, monkeypatch) -> None:
     assert payload["yesterday"]["tss"] == 37
     assert payload["yesterday"]["sports"] == ["cycling"]
     assert payload["yesterday"]["status"] == "available"
-    assert payload["yesterday"]["unplanned_tss"] == 37.0
+    assert payload["yesterday"]["matched_actual_tss"] == 37.0
+    assert payload["yesterday"]["unplanned_tss"] == 0.0
     assert payload["yesterday"]["rows"]
     assert payload["yesterday"]["rule_version"] == "plan_actual_match_v1"
 
@@ -504,6 +623,29 @@ def test_today_selects_latest_shadow_revision_without_changing_decision(
     assert payload["forecast"]["relation"] == "current_checkpoint"
     assert payload["forecast"]["target_time_provenance"] == "date_only"
     assert payload["forecast"]["session_id"] == payload["session"]["session_id"]
+
+
+def test_today_survives_reconciliation_failure(tmp_path, monkeypatch) -> None:
+    from api import today_snapshot as snapshot_module
+    from api.routers.today import today_view
+
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "reconciliation-failure.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today, target_role="easy")))
+    _patch_report(monkeypatch, _report(today))
+    _patch_snapshot(monkeypatch, _snapshot())
+    monkeypatch.setattr(
+        snapshot_module,
+        "reconciliation_at",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("matcher offline")),
+    )
+
+    payload = today_view(db=db)
+
+    assert payload["state"] == "silence"
+    assert payload["primary_action"]["kind"] == "follow_plan"
+    assert payload["yesterday"]["status"] == "unavailable"
+    assert "matcher offline" in payload["yesterday"]["reason"]
 
 
 def test_today_route_is_wired_into_app() -> None:
