@@ -378,3 +378,63 @@ def test_prescription_change_replaces_session_identity():
     new = changed["session_templates"][0]
     assert new["session_id"] != old["session_id"]
     assert new["replaces_session_id"] == old["session_id"]
+
+
+def test_export_uses_persisted_seconds_and_honest_target_type():
+    from api.planning_service import export_workout
+
+    dt = datetime(2026, 7, 13)
+    daily = [(dt, 80.0, {"run": 0.0, "bike": 80.0, "swim": 0.0})]
+    summary = [{"phase": "Build", "day_roles": ["quality"], "day_focuses": ["Качество"]}]
+    template = build_daily_session_templates(
+        daily,
+        summary,
+        "Триатлон",
+        "Олимпийка",
+        zone_snapshot={"ftp": 200},
+    )[0]
+    plan = {"goal_type": "Триатлон", "daily_plan": daily, "session_templates": [template]}
+
+    fit = export_workout(plan, 0, "fit_csv")
+    tcx = export_workout(plan, 0, "tcx")
+    first_step = template["materialized_steps"][0]
+
+    assert f"duration_time,{first_step['duration_seconds']},s" in fit["content"]
+    assert "target_type,4" in fit["content"]  # FIT power, not the legacy HR zone.
+    assert "target_hr_zone" not in "\n".join(
+        line for line in fit["content"].splitlines() if line.startswith("Data,2,workout_step")
+    )
+    assert f"<Seconds>{first_step['duration_seconds']}</Seconds>" in tcx["content"]
+    assert '<Target xsi:type="None_t" />' in tcx["content"]
+    assert "AI Trainer target evidence: power" in tcx["content"]
+    assert "<ZoneNumber>2</ZoneNumber>" not in tcx["content"]
+
+
+def test_composite_export_requires_and_resolves_explicit_leg():
+    from api.planning_service import export_workout
+
+    dt = datetime(2026, 7, 18)
+    daily = [(dt, 80.0, {"run": 25.0, "bike": 55.0, "swim": 0.0})]
+    summary = [{"phase": "Build", "day_roles": ["long"], "day_focuses": ["Длительная"]}]
+    template = build_daily_session_templates(
+        daily,
+        summary,
+        "Триатлон",
+        "Олимпийка",
+        zone_snapshot={"ftp": 200, "lthr": 165},
+        brick_day_indices={0},
+    )[0]
+    identified = ensure_session_identities(
+        {"goal_type": "Триатлон", "daily_plan": daily, "session_templates": [template]}
+    )
+
+    with pytest.raises(ValueError, match="requires leg=1 or leg=2"):
+        export_workout(identified, 0, "tcx")
+
+    bike = export_workout(identified, 0, "fit_csv", leg=1)
+    run = export_workout(identified, 0, "tcx", leg=2)
+    assert bike["filename"].endswith("_leg1_bike.csv")
+    assert "target_type,4" in bike["content"]
+    assert run["filename"].endswith("_leg2_run.tcx")
+    assert 'Workout Sport="Running"' in run["content"]
+    assert identified["session_templates"][0]["legs"][1]["leg_id"].endswith(":2")
