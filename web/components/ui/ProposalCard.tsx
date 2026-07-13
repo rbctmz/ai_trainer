@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ApiError, postJSON } from "@/lib/api";
-import type { AdjustResult, BuiltPlan, CoachProposalAction } from "@/lib/types";
+import type { AdjustResult, BuiltPlan, CoachProposalAction, RebalanceConfirmResult } from "@/lib/types";
 
 const DAY_LABELS: Record<string, string> = {
   mon: "Пн",
@@ -25,6 +25,9 @@ export interface BuildPlanParams {
 export interface AdjustPlanParams {
   rows: Record<string, unknown>[];
   weeks: number;
+  base_checkpoint_id?: number;
+  preview_fingerprint?: string;
+  as_of?: string;
 }
 
 interface ProposalCardProps {
@@ -39,7 +42,7 @@ interface ProposalCardProps {
 
 interface ProposalApprovalResponse {
   proposal: { id: number; status: string };
-  result: BuiltPlan | AdjustResult | RecoveryReplanResult;
+  result: BuiltPlan | AdjustResult | RebalanceConfirmResult | RecoveryReplanResult;
 }
 
 interface RecoveryReplanResult {
@@ -90,6 +93,9 @@ function adjustPlanParams(params: Record<string, unknown>): AdjustPlanParams {
   return {
     rows: asRecordList(params.rows),
     weeks: asNumber(params.weeks, 1),
+    base_checkpoint_id: params.base_checkpoint_id != null ? asNumber(params.base_checkpoint_id) : undefined,
+    preview_fingerprint: params.preview_fingerprint ? asString(params.preview_fingerprint) : undefined,
+    as_of: params.as_of ? asString(params.as_of) : undefined,
   };
 }
 
@@ -107,7 +113,14 @@ function buildConfirmedMessage(result: BuiltPlan): string {
   ].join(" ");
 }
 
-function adjustConfirmedMessage(result: AdjustResult): string {
+function adjustConfirmedMessage(result: AdjustResult | RebalanceConfirmResult): string {
+  if (!("adjustment" in result)) {
+    return [
+      "✅ Future-only пересборка применена.",
+      `Δ ${result.preview.future_tss_delta} TSS`,
+      `checkpoint #${result.applied_checkpoint_id}`,
+    ].join(" ");
+  }
   return [
     "✅ Корректировка плана применена.",
     result.adjustment.label,
@@ -240,7 +253,7 @@ export function ProposalCard({
         `/api/decisions/proposals/${proposalId}/approve`,
         {},
       );
-      onConfirmed(adjustConfirmedMessage(response.result as AdjustResult));
+      onConfirmed(adjustConfirmedMessage(response.result as AdjustResult | RebalanceConfirmResult));
     } catch (err) {
       setError(err instanceof ApiError ? err.message : "Не удалось применить изменение");
     } finally {
@@ -356,13 +369,31 @@ export function ProposalCard({
         <>
           <ul className="mt-3 space-y-1 text-sm text-ink-soft">
             <li>Недель для пересборки: {adjustParams?.weeks ?? "—"}</li>
+            {preview.coverage != null ? (
+              <li>
+                Evidence coverage: {Math.round(asNumber(preview.coverage) * 100)}% · matched {asNumber(preview.matched_count)}/{asNumber(preview.planned_session_count)}
+              </li>
+            ) : null}
             {preview.adjustment_label || preview.adjustment_status ? (
               <li>Статус: {asString(preview.adjustment_label || preview.adjustment_status)}</li>
             ) : null}
+            {preview.reason ? <li>Причина: {asString(preview.reason)}</li> : null}
             {preview.missed_sessions != null ? (
               <li>Пропущено сессий: {asNumber(preview.missed_sessions)}</li>
             ) : null}
           </ul>
+
+          {Array.isArray(preview.changes) && preview.changes.length > 0 ? (
+            <div className="mt-3 space-y-2">
+              {asRecordList(preview.changes).map((item) => (
+                <div key={asString(item.session_id)} className="flex justify-between rounded-lg bg-surface/70 px-3 py-2 text-sm">
+                  <span>{asString(item.date)} · easy</span>
+                  <span>{asNumber(item.before_tss)} → {asNumber(item.after_tss)} TSS</span>
+                </div>
+              ))}
+              <p className="text-xs text-ink-faint">Прошлое, сегодня и protected dates не меняются.</p>
+            </div>
+          ) : null}
 
           {preview.completion_share != null ? (
             <div className="mt-3">
