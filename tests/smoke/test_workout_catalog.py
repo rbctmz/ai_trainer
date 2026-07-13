@@ -16,6 +16,7 @@ from models.workout_catalog import (
     select_workout_template,
 )
 from models.session_identity import ensure_session_identities
+from models.planning_near_term import apply_near_term_day_edits
 from models.training_planner import build_daily_session_templates
 
 
@@ -438,3 +439,61 @@ def test_composite_export_requires_and_resolves_explicit_leg():
     assert run["filename"].endswith("_leg2_run.tcx")
     assert 'Workout Sport="Running"' in run["content"]
     assert identified["session_templates"][0]["legs"][1]["leg_id"].endswith(":2")
+
+
+def test_recovery_replan_rescales_brick_legs_atomically():
+    start = datetime(2026, 7, 13)
+    daily = [
+        (start + timedelta(days=index), 20.0, {"run": 5.0, "bike": 5.0, "swim": 10.0})
+        for index in range(7)
+    ]
+    daily[5] = (start + timedelta(days=5), 80.0, {"run": 25.0, "bike": 55.0, "swim": 0.0})
+    summary = [
+        {
+            "phase": "Build",
+            "weekly_tss": 200,
+            "day_roles": ["easy", "quality", "easy", "recovery", "easy", "long", "off"],
+            "day_focuses": ["Легкая"] * 5 + ["Длительная"] + ["Отдых"],
+        }
+    ]
+    templates = build_daily_session_templates(
+        daily,
+        summary,
+        "Триатлон",
+        "Олимпийка",
+        zone_snapshot={"ftp": 200, "lthr": 165},
+        brick_day_indices={5},
+    )
+    original = ensure_session_identities(
+        {
+            "goal_type": "Триатлон",
+            "distance": "Олимпийка",
+            "daily_plan": daily,
+            "session_templates": templates,
+            "weekly_summary": summary,
+            "weekly_tss_plan": [200],
+            "constraint_summary": {"load_state": "balanced", "notes": []},
+        }
+    )
+    before = original["session_templates"][5]
+
+    updated = apply_near_term_day_edits(
+        original,
+        [{"index": 5, "session_role": "recovery", "sport": "brick", "total_tss": 60}],
+        horizon_days=7,
+        post_edit_strategy="protect_recovery",
+    )
+    after = updated["session_templates"][5]
+
+    assert updated["daily_plan"][5][1] == 60.0
+    assert after["kind"] == "composite"
+    assert after["sport"] == "brick"
+    assert [leg["sport"] for leg in after["legs"]] == ["bike", "run"]
+    assert sum(leg["target_tss"] for leg in after["legs"]) == pytest.approx(60.0, abs=0.1)
+    assert sum(leg["duration_minutes"] for leg in after["legs"]) + after["transition_minutes"] == after["duration_minutes"]
+    assert all(
+        sum(step["tss"] for step in leg["materialized_steps"])
+        == pytest.approx(leg["target_tss"], abs=0.1)
+        for leg in after["legs"]
+    )
+    assert after["prescription_fingerprint"] != before["prescription_fingerprint"]
