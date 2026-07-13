@@ -90,7 +90,9 @@ def test_build_persists_catalog_prescriptions_and_one_brick_per_eligible_week(tm
     from api import planning_service as ps
     from models.workout_catalog import CATALOG_VERSION
 
-    db = _seeded_db(tmp_path)
+    # A clean profile keeps the explicit load-state guard balanced; the shared
+    # seeded fixture intentionally creates deep fatigue, where bricks are banned.
+    db = Database(str(tmp_path / "catalog-plan.db"))
     db.save_athlete_profile({"ftp": 200, "lthr": 165, "weight_kg": 80, "source": "test"})
     ps.build_plan(
         db,

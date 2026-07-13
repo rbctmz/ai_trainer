@@ -3,6 +3,8 @@ from __future__ import annotations
 from copy import deepcopy
 from dataclasses import asdict, dataclass
 from datetime import date, datetime
+import hashlib
+import json
 import math
 from typing import Any, Mapping, Sequence
 
@@ -448,6 +450,287 @@ def materialize_workout(
     return base
 
 
+_TARGET_DENSITY = {
+    "recovery": 35.0,
+    "endurance": 55.0,
+    "progression": 70.0,
+    "tempo": 75.0,
+    "threshold": 80.0,
+    "vo2": 95.0,
+    "neuromuscular": 70.0,
+    "technique": 45.0,
+    "race_pace": 80.0,
+}
+
+
+def _prescription_fingerprint(payload: Mapping[str, Any]) -> str:
+    raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()
+
+
+def _candidate_duration(
+    definition: WorkoutTemplateDefinition,
+    target_tss: float,
+    estimated_duration_minutes: int,
+) -> int | None:
+    estimated = int(round(float(estimated_duration_minutes or 0) / 5.0) * 5)
+    if estimated > 0 and not _failed_bounds(definition, estimated, target_tss):
+        return estimated
+    target_density = _TARGET_DENSITY.get(definition.step_builder_key, 60.0)
+    raw = target_tss * 60.0 / target_density if target_density > 0 else estimated
+    resolved = int(round(raw / 5.0) * 5)
+    resolved = max(definition.min_duration_minutes, min(definition.max_duration_minutes, resolved))
+    return resolved if not _failed_bounds(definition, resolved, target_tss) else None
+
+
+def _single_candidates(
+    *,
+    phase: str,
+    session_role: str,
+    sport: str,
+    goal_type: str,
+    target_tss: float,
+    estimated_duration_minutes: int,
+    load_state: str,
+    recent_template_keys: Sequence[str],
+) -> list[tuple[WorkoutTemplateDefinition, int]]:
+    recent = {str(item) for item in recent_template_keys}
+    preferences = _PHASE_PREFERENCE.get(phase, _PHASE_PREFERENCE["Base"])
+    preference_rank = {stimulus: index for index, stimulus in enumerate(preferences)}
+    candidates: list[tuple[WorkoutTemplateDefinition, int]] = []
+    for definition in _CATALOG:
+        if definition.kind != "single" or definition.sport != sport:
+            continue
+        if session_role not in definition.roles or phase not in definition.phase_eligibility:
+            continue
+        if not _goal_matches(definition, goal_type):
+            continue
+        if load_state == "deep_fatigue" and max(definition.fatigue_cost) >= 3:
+            continue
+        duration = _candidate_duration(definition, target_tss, estimated_duration_minutes)
+        if duration is not None:
+            candidates.append((definition, duration))
+    fresh = [item for item in candidates if item[0].template_key not in recent]
+    if fresh:
+        candidates = fresh
+    candidates.sort(
+        key=lambda item: (
+            preference_rank.get(item[0].step_builder_key, len(preferences)),
+            item[0].fatigue_cost,
+            item[0].template_key,
+        )
+    )
+    return candidates
+
+
+def materialize_session_template(
+    *,
+    phase: str,
+    session_role: str,
+    sport: str,
+    target_tss: float,
+    estimated_duration_minutes: int,
+    goal_type: str,
+    zone_snapshot: Mapping[str, Any],
+    load_state: str = "balanced",
+    recent_template_keys: Sequence[str] = (),
+) -> dict[str, Any]:
+    """Select and persist one catalog prescription for a planned single session."""
+    candidates = _single_candidates(
+        phase=phase,
+        session_role=session_role,
+        sport=sport,
+        goal_type=goal_type,
+        target_tss=target_tss,
+        estimated_duration_minutes=estimated_duration_minutes,
+        load_state=load_state,
+        recent_template_keys=recent_template_keys,
+    )
+    if not candidates:
+        return {
+            "kind": "single",
+            "materialization_status": "legacy_role_fallback",
+            "catalog_version": CATALOG_VERSION,
+            "selection_evidence": {
+                "rule_version": SELECTOR_RULE_VERSION,
+                "phase": phase,
+                "role": session_role,
+                "sport": sport,
+                "load_state": load_state,
+                "reason": "no_feasible_catalog_definition",
+            },
+        }
+
+    definition, duration = candidates[0]
+    materialized = materialize_workout(
+        definition,
+        {"duration_minutes": duration, "target_tss": target_tss},
+        zone_snapshot,
+    )
+    evidence = {
+        "rule_version": SELECTOR_RULE_VERSION,
+        "phase": phase,
+        "role": session_role,
+        "sport": sport,
+        "load_state": load_state,
+        "recent_template_keys": [str(item) for item in recent_template_keys],
+        "candidate_keys": [item[0].template_key for item in candidates],
+        "estimated_duration_minutes": int(estimated_duration_minutes),
+        "selected_duration_minutes": duration,
+    }
+    prescription = {
+        "definition_snapshot": materialized["definition_snapshot"],
+        "parameter_snapshot": materialized["parameter_snapshot"],
+        "materialized_steps": materialized["steps"],
+        "target_provenance": materialized.get("target_provenance"),
+    }
+    return {
+        "kind": "single",
+        "catalog_version": CATALOG_VERSION,
+        "selector_rule_version": SELECTOR_RULE_VERSION,
+        "materializer_rule_version": MATERIALIZER_RULE_VERSION,
+        "template_key": definition.template_key,
+        "template_version": definition.version,
+        "template_name": definition.display_name,
+        "stimulus": definition.stimulus,
+        "fatigue_cost": list(definition.fatigue_cost),
+        "expected_recovery_hours": definition.expected_recovery_hours,
+        "duration_minutes": duration,
+        "materialization_status": materialized["materialization_status"],
+        "definition_snapshot": materialized["definition_snapshot"],
+        "parameter_snapshot": materialized["parameter_snapshot"],
+        "materialized_steps": materialized["steps"],
+        "target_provenance": materialized.get("target_provenance"),
+        "selection_evidence": evidence,
+        "prescription_fingerprint": _prescription_fingerprint(prescription),
+    }
+
+
+def materialize_brick_session(
+    *,
+    phase: str,
+    target_tss: float,
+    parts: Mapping[str, float],
+    estimated_duration_minutes: int,
+    goal_type: str,
+    zone_snapshot: Mapping[str, Any],
+    load_state: str = "balanced",
+) -> dict[str, Any]:
+    """Build one atomic bike→transition→run parent with independently exportable legs."""
+    template_key = "brick_race_pace" if phase == "Peak" else "brick_endurance"
+    definition = next(item for item in _CATALOG if item.template_key == template_key)
+    if load_state == "deep_fatigue" or not _goal_matches(definition, goal_type):
+        return {"kind": "single", "materialization_status": "legacy_role_fallback"}
+
+    transition_minutes = 5
+    target_tss = round(float(target_tss or 0.0), 1)
+    bike_tss = round(float(parts.get("bike", 0.0) or 0.0), 1)
+    run_tss = round(float(parts.get("run", 0.0) or 0.0), 1)
+    if bike_tss <= 0 or run_tss <= 0 or abs((bike_tss + run_tss) - target_tss) > 0.1:
+        return {"kind": "single", "materialization_status": "legacy_role_fallback"}
+
+    duration = max(105, int(round(float(estimated_duration_minutes or 0) / 5.0) * 5))
+    duration = min(definition.max_duration_minutes, max(definition.min_duration_minutes, duration))
+    parent_check = materialize_workout(
+        definition,
+        {"duration_minutes": duration, "target_tss": target_tss},
+        zone_snapshot,
+    )
+    if parent_check["materialization_status"] != "materialized":
+        candidate = _candidate_duration(definition, target_tss, duration)
+        if candidate is None:
+            return {"kind": "single", "materialization_status": "legacy_role_fallback"}
+        duration = max(candidate, 105)
+        parent_check = materialize_workout(
+            definition,
+            {"duration_minutes": duration, "target_tss": target_tss},
+            zone_snapshot,
+        )
+        if parent_check["materialization_status"] != "materialized":
+            return {"kind": "single", "materialization_status": "legacy_role_fallback"}
+
+    active_minutes = duration - transition_minutes
+    bike_minutes = max(40, int(round((active_minutes * 0.70) / 5.0) * 5))
+    run_minutes = active_minutes - bike_minutes
+    if run_minutes < 30:
+        run_minutes = 30
+        bike_minutes = active_minutes - run_minutes
+    bike_definition = next(item for item in _CATALOG if item.template_key == "bike_aerobic_endurance")
+    run_definition = next(item for item in _CATALOG if item.template_key == "run_aerobic_endurance")
+    bike = materialize_workout(
+        bike_definition,
+        {"duration_minutes": bike_minutes, "target_tss": bike_tss},
+        zone_snapshot,
+    )
+    run = materialize_workout(
+        run_definition,
+        {"duration_minutes": run_minutes, "target_tss": run_tss},
+        zone_snapshot,
+    )
+    if any(item["materialization_status"] != "materialized" for item in (bike, run)):
+        return {"kind": "single", "materialization_status": "legacy_role_fallback"}
+
+    legs = []
+    for leg_index, (sport, leg_tss, leg_duration, leg_definition, materialized) in enumerate(
+        (
+            ("bike", bike_tss, bike_minutes, bike_definition, bike),
+            ("run", run_tss, run_minutes, run_definition, run),
+        ),
+        start=1,
+    ):
+        legs.append(
+            {
+                "leg_index": leg_index,
+                "sport": sport,
+                "target_tss": leg_tss,
+                "duration_minutes": leg_duration,
+                "template_key": leg_definition.template_key,
+                "template_version": leg_definition.version,
+                "template_name": leg_definition.display_name,
+                "definition_snapshot": materialized["definition_snapshot"],
+                "parameter_snapshot": materialized["parameter_snapshot"],
+                "materialized_steps": materialized["steps"],
+                "target_provenance": materialized["target_provenance"],
+            }
+        )
+    prescription = {
+        "definition_snapshot": parent_check["definition_snapshot"],
+        "parameter_snapshot": parent_check["parameter_snapshot"],
+        "transition_minutes": transition_minutes,
+        "legs": legs,
+    }
+    return {
+        "kind": "composite",
+        "sport": "brick",
+        "sport_label": "вело → бег",
+        "catalog_version": CATALOG_VERSION,
+        "selector_rule_version": SELECTOR_RULE_VERSION,
+        "materializer_rule_version": MATERIALIZER_RULE_VERSION,
+        "template_key": definition.template_key,
+        "template_version": definition.version,
+        "template_name": definition.display_name,
+        "stimulus": definition.stimulus,
+        "fatigue_cost": list(definition.fatigue_cost),
+        "expected_recovery_hours": definition.expected_recovery_hours,
+        "duration_minutes": duration,
+        "transition_minutes": transition_minutes,
+        "materialization_status": "materialized",
+        "definition_snapshot": parent_check["definition_snapshot"],
+        "parameter_snapshot": parent_check["parameter_snapshot"],
+        "materialized_steps": [],
+        "legs": legs,
+        "selection_evidence": {
+            "rule_version": SELECTOR_RULE_VERSION,
+            "phase": phase,
+            "role": "long",
+            "sport": "brick",
+            "load_state": load_state,
+            "reason": "eligible_triathlon_long_day",
+        },
+        "prescription_fingerprint": _prescription_fingerprint(prescription),
+    }
+
+
 def _date_key(value: Any) -> str:
     if isinstance(value, datetime):
         return value.date().isoformat()
@@ -593,5 +876,7 @@ __all__ = [
     "definition_snapshot",
     "select_workout_template",
     "materialize_workout",
+    "materialize_session_template",
+    "materialize_brick_session",
     "prepare_weekly_brick_allocations",
 ]

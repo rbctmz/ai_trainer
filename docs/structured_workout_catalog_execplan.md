@@ -16,7 +16,8 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 - [x] (2026-07-13 11:21Z) Pre-registered the catalog bounds, phase matrix, selector precedence, target fallback rules, brick allocation and exporter contract in this plan before tests or implementation.
 - [ ] Add failing BDD/contract tests for the catalog, selector, materializer, checkpoint history, brick, recovery atomics, exporters and public API.
 - [x] (2026-07-13 11:41Z) Implemented the immutable 19-definition catalog, deterministic selector/materializer and conservative weekly brick allocator as a headless Python domain; 8 new BDD tests and 10 existing planner tests pass.
-- [ ] Integrate catalog snapshots, prescription identity and one brick per eligible triathlon week into plan generation and all mutation paths.
+- [x] (2026-07-13 12:03Z) Integrated catalog snapshots, prescription-aware identity, athlete FTP/LTHR provenance and one conservative brick per eligible balanced triathlon week into initial plan generation and checkpoint persistence.
+- [ ] Refresh/rescale immutable prescriptions through manual edits, recovery replans and weekly rebalances while treating composite bricks atomically.
 - [ ] Migrate FIT/TCX/local export, Planning and Today to the persisted materialized prescription.
 - [ ] Run focused, smoke, broader non-live and Next.js production checks; execute synthetic bike-to-run brick acceptance.
 - [ ] Self-review, finalize this living plan, publish a PR with `Closes #173`, and leave merge to the human gate.
@@ -43,6 +44,9 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 
 - Observation: a phase preference cannot rank on the human-readable `stimulus` explanation because it is deliberately descriptive rather than an enum.
   Evidence: the first selector test chose neuromuscular work instead of aerobic progression when the rank map compared `progression` to `progressive aerobic durability`. Selection now ranks the stable `step_builder_key` while preserving the richer stimulus text as product evidence.
+
+- Observation: the shared API planning fixture represents a genuinely deep-fatigued athlete, so expecting bricks from it would violate the pre-registered fatigue guard.
+  Evidence: its active plan reported `load_state=deep_fatigue` and `brick_allocation.reason=deep_fatigue`; the same deterministic build on a clean balanced profile allocated exactly one brick in each Build week and preserved all sport totals.
 
 ## Decision Log
 

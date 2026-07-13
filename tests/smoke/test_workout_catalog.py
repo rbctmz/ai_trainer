@@ -261,11 +261,19 @@ def test_brick_allocator_is_conservative_when_swim_cannot_move_or_day_is_protect
 def test_session_templates_store_phase_specific_materialized_prescriptions():
     start = datetime(2026, 7, 13)
     daily = [
-        (start, 80.0, {"run": 0.0, "bike": 80.0, "swim": 0.0}),
-        (start + timedelta(days=7), 80.0, {"run": 0.0, "bike": 80.0, "swim": 0.0}),
+        (
+            start + timedelta(days=index),
+            80.0 if index in {0, 7} else 0.0,
+            {"run": 0.0, "bike": 80.0 if index in {0, 7} else 0.0, "swim": 0.0},
+        )
+        for index in range(8)
     ]
     summaries = [
-        {"phase": "Base", "day_roles": ["quality"], "day_focuses": ["Качество • вело"]},
+        {
+            "phase": "Base",
+            "day_roles": ["quality"] + ["off"] * 6,
+            "day_focuses": ["Качество • вело"] + ["Отдых"] * 6,
+        },
         {"phase": "Build", "day_roles": ["quality"], "day_focuses": ["Качество • вело"]},
     ]
 
@@ -278,7 +286,7 @@ def test_session_templates_store_phase_specific_materialized_prescriptions():
         zone_snapshot={"ftp": 200},
     )
 
-    base, build = templates
+    base, build = templates[0], templates[7]
     assert base["template_key"] == "bike_aerobic_progression"
     assert build["template_key"] == "bike_threshold_intervals"
     assert base["template_version"] == 1
