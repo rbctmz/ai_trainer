@@ -18,7 +18,8 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 - [x] (2026-07-13 11:41Z) Implemented the immutable 19-definition catalog, deterministic selector/materializer and conservative weekly brick allocator as a headless Python domain; 8 new BDD tests and 10 existing planner tests pass.
 - [x] (2026-07-13 12:03Z) Integrated catalog snapshots, prescription-aware identity, athlete FTP/LTHR provenance and one conservative brick per eligible balanced triathlon week into initial plan generation and checkpoint persistence.
 - [ ] Refresh/rescale immutable prescriptions through manual edits, recovery replans and weekly rebalances while treating composite bricks atomically.
-- [ ] Migrate FIT/TCX/local export, Planning and Today to the persisted materialized prescription.
+- [x] (2026-07-13 12:17Z) Migrated FIT-CSV, workout TCX and activity TCX to persisted seconds and honest targets; composite export requires an explicit leg and never reconstructs parent steps.
+- [ ] Expose compact prescriptions in Planning and Today, including one composite card with separate leg exports.
 - [ ] Run focused, smoke, broader non-live and Next.js production checks; execute synthetic bike-to-run brick acceptance.
 - [ ] Self-review, finalize this living plan, publish a PR with `Closes #173`, and leave merge to the human gate.
 
@@ -47,6 +48,9 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 
 - Observation: the shared API planning fixture represents a genuinely deep-fatigued athlete, so expecting bricks from it would violate the pre-registered fatigue guard.
   Evidence: its active plan reported `load_state=deep_fatigue` and `brick_allocation.reason=deep_fatigue`; the same deterministic build on a clean balanced profile allocated exactly one brick in each Build week and preserved all sport totals.
+
+- Observation: the legacy FIT/TCX duration heuristic can accidentally equal a materialized duration for one step, so duration-only assertions do not prove that persisted prescriptions are used.
+  Evidence: the red exporter test's first duration matched while FIT still emitted `target_type=heart_rate`; target semantics and explicit composite-leg selection are required companion assertions.
 
 ## Decision Log
 

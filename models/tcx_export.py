@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from html import escape
 from typing import List, Dict
 
 
@@ -38,10 +39,31 @@ def generate_tcx_workout(workout_name: str, sport: str, steps: List[Dict], creat
     created = created or datetime.utcnow()
     sport_attr = _sport_to_tcx(sport)
 
-    # Простейшая оценка длительности из TSS (секунды)
     def step_seconds(st: Dict) -> int:
+        explicit = st.get('duration_seconds')
+        if explicit is not None:
+            return max(1, int(explicit))
         tss = float(st.get('tss', 0) or 0)
         return int(max(300, round(tss * 60)))
+
+    def target_lines(st: Dict) -> List[str]:
+        target = st.get('target')
+        if not isinstance(target, dict):
+            return [
+                '        <Target xsi:type="HeartRateZone_t">',
+                '          <ZoneNumber>2</ZoneNumber>',
+                '        </Target>',
+            ]
+        target_type = str(target.get('type') or 'open')
+        evidence = " ".join(
+            f"{key}={value}"
+            for key, value in target.items()
+            if value is not None
+        ).replace('--', '-')
+        return [
+            '        <Target xsi:type="None_t" />',
+            f'        <!-- AI Trainer target evidence: {escape(target_type)} {escape(evidence)} -->',
+        ]
 
     lines: List[str] = []
     a = lines.append
@@ -52,22 +74,20 @@ def generate_tcx_workout(workout_name: str, sport: str, steps: List[Dict], creat
       'http://www.garmin.com/xmlschemas/TrainingCenterDatabasev2.xsd">')
     a('  <Workouts>')
     a(f'    <Workout Sport="{sport_attr}">')
-    a(f'      <Name>{workout_name}</Name>')
+    a(f'      <Name>{escape(workout_name)}</Name>')
 
     for i, st in enumerate(steps):
         name = st.get('name', f'Step {i+1}')
         secs = step_seconds(st)
         intensity = _intensity_to_tcx(st.get('intensity', ''), name)
         a('      <Step xsi:type="Step_t">')
-        a(f'        <Name>{name}</Name>')
+        a(f'        <Name>{escape(str(name))}</Name>')
         a('        <Duration xsi:type="Time_t">')
         a(f'          <Seconds>{secs}</Seconds>')
         a('        </Duration>')
         a(f'        <Intensity>{intensity}</Intensity>')
-        # Для совместимости с Garmin Connect используем HR-зону как таргет
-        a('        <Target xsi:type="HeartRateZone_t">')
-        a('          <ZoneNumber>2</ZoneNumber>')
-        a('        </Target>')
+        for target_line in target_lines(st):
+            a(target_line)
         a('      </Step>')
 
     a('    </Workout>')

@@ -739,7 +739,12 @@ def export_ics(goal_plan: Dict[str, Any]) -> str:
     )
 
 
-def export_workout(goal_plan: Dict[str, Any], index: int, fmt: str) -> Dict[str, str]:
+def export_workout(
+    goal_plan: Dict[str, Any],
+    index: int,
+    fmt: str,
+    leg: int | None = None,
+) -> Dict[str, str]:
     """Return {filename, mimetype, content} for a single planned session."""
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
     templates = list(goal_plan.get("session_templates", []) or [])
@@ -748,13 +753,36 @@ def export_workout(goal_plan: Dict[str, Any], index: int, fmt: str) -> Dict[str,
 
     dt, total, parts = daily_plan[index]
     tpl = templates[index] if index < len(templates) else {}
-    sport = _infer_sport(parts, tpl)
-    steps = build_steps_for_sport(
-        float(total or 0),
-        sport,
-        session_role=str((tpl or {}).get("session_role", "easy")),
-        phase=(tpl or {}).get("phase"),
-    )
+    kind = str((tpl or {}).get("kind") or "single")
+    suffix = ""
+    if kind == "composite":
+        if leg not in {1, 2}:
+            raise ValueError("composite session requires leg=1 or leg=2")
+        resolved_leg = next(
+            (
+                item
+                for item in list((tpl or {}).get("legs") or [])
+                if int(item.get("leg_index") or 0) == leg
+            ),
+            None,
+        )
+        if not resolved_leg:
+            raise ValueError(f"composite session has no leg={leg}")
+        sport = str(resolved_leg.get("sport") or "")
+        steps = list(resolved_leg.get("materialized_steps") or [])
+        suffix = f"_leg{leg}_{sport}"
+    else:
+        if leg is not None:
+            raise ValueError("leg is only valid for composite sessions")
+        sport = _infer_sport(parts, tpl)
+        steps = list((tpl or {}).get("materialized_steps") or [])
+        if not steps:
+            steps = build_steps_for_sport(
+                float(total or 0),
+                sport,
+                session_role=str((tpl or {}).get("session_role", "easy")),
+                phase=(tpl or {}).get("phase"),
+            )
     name = str(
         (tpl or {}).get("export_name")
         or f"{goal_plan.get('goal_type','')} — {dt.strftime('%Y-%m-%d')}"
@@ -763,7 +791,7 @@ def export_workout(goal_plan: Dict[str, Any], index: int, fmt: str) -> Dict[str,
 
     if fmt == "fit_csv":
         return {
-            "filename": f"workout_{stamp}.csv",
+            "filename": f"workout_{stamp}{suffix}.csv",
             "mimetype": "text/csv",
             "content": generate_fit_csv(name, sport, steps, created=dt),
         }
@@ -772,13 +800,13 @@ def export_workout(goal_plan: Dict[str, Any], index: int, fmt: str) -> Dict[str,
             name, sport, steps, start_time=datetime.combine(dt.date(), datetime.min.time())
         )
         return {
-            "filename": f"activity_{stamp}.tcx",
+            "filename": f"activity_{stamp}{suffix}.tcx",
             "mimetype": "application/vnd.garmin.tcx+xml",
             "content": content,
         }
     # default: structured TCX workout
     return {
-        "filename": f"workout_{stamp}.tcx",
+        "filename": f"workout_{stamp}{suffix}.tcx",
         "mimetype": "application/vnd.garmin.tcx+xml",
         "content": generate_tcx_workout(name, sport, steps, created=dt),
     }
