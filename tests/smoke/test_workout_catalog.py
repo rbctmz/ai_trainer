@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import FrozenInstanceError
 from datetime import datetime, timedelta
 
@@ -14,6 +15,8 @@ from models.workout_catalog import (
     prepare_weekly_brick_allocations,
     select_workout_template,
 )
+from models.session_identity import ensure_session_identities
+from models.training_planner import build_daily_session_templates
 
 
 pytestmark = pytest.mark.smoke
@@ -253,3 +256,117 @@ def test_brick_allocator_is_conservative_when_swim_cannot_move_or_day_is_protect
     assert no_donor["reason"] == "insufficient_unprotected_donor_capacity"
     assert protected["status"] == "unchanged"
     assert protected["reason"] == "no_eligible_long_day"
+
+
+def test_session_templates_store_phase_specific_materialized_prescriptions():
+    start = datetime(2026, 7, 13)
+    daily = [
+        (start, 80.0, {"run": 0.0, "bike": 80.0, "swim": 0.0}),
+        (start + timedelta(days=7), 80.0, {"run": 0.0, "bike": 80.0, "swim": 0.0}),
+    ]
+    summaries = [
+        {"phase": "Base", "day_roles": ["quality"], "day_focuses": ["Качество • вело"]},
+        {"phase": "Build", "day_roles": ["quality"], "day_focuses": ["Качество • вело"]},
+    ]
+
+    templates = build_daily_session_templates(
+        daily,
+        summaries,
+        "Триатлон",
+        "Олимпийка",
+        load_state="balanced",
+        zone_snapshot={"ftp": 200},
+    )
+
+    base, build = templates
+    assert base["template_key"] == "bike_aerobic_progression"
+    assert build["template_key"] == "bike_threshold_intervals"
+    assert base["template_version"] == 1
+    assert build["template_version"] == 1
+    assert base["catalog_version"] == CATALOG_VERSION
+    assert base["kind"] == "single"
+    assert build["kind"] == "single"
+    assert base["materialization_status"] == "materialized"
+    assert build["materialization_status"] == "materialized"
+    assert sum(step["duration_seconds"] for step in build["materialized_steps"]) == 3600
+    assert sum(step["tss"] for step in build["materialized_steps"]) == pytest.approx(80.0)
+    assert build["definition_snapshot"]["template_key"] == "bike_threshold_intervals"
+    assert build["selection_evidence"]["phase"] == "Build"
+
+
+def test_build_templates_represents_brick_as_one_parent_with_ordered_legs():
+    start = datetime(2026, 7, 13)
+    daily = [
+        (start + timedelta(days=index), 20.0, {"run": 5.0, "bike": 5.0, "swim": 10.0})
+        for index in range(7)
+    ]
+    daily[5] = (
+        start + timedelta(days=5),
+        80.0,
+        {"run": 25.0, "bike": 55.0, "swim": 0.0},
+    )
+    summary = [
+        {
+            "phase": "Build",
+            "day_roles": ["easy", "quality", "easy", "recovery", "easy", "long", "off"],
+            "day_focuses": ["Легкая"] * 5 + ["Длительная"] + ["Отдых"],
+        }
+    ]
+
+    templates = build_daily_session_templates(
+        daily,
+        summary,
+        "Триатлон",
+        "Олимпийка",
+        load_state="balanced",
+        zone_snapshot={"ftp": 200, "lthr": 165},
+        brick_day_indices={5},
+    )
+
+    brick = templates[5]
+    assert brick["kind"] == "composite"
+    assert brick["template_key"] == "brick_endurance"
+    assert brick["sport"] == "brick"
+    assert brick["transition_minutes"] == 5
+    assert [leg["sport"] for leg in brick["legs"]] == ["bike", "run"]
+    assert [leg["leg_index"] for leg in brick["legs"]] == [1, 2]
+    assert sum(leg["target_tss"] for leg in brick["legs"]) == pytest.approx(80.0)
+    assert sum(leg["duration_minutes"] for leg in brick["legs"]) + 5 == brick["duration_minutes"]
+    assert all(leg["materialized_steps"] for leg in brick["legs"])
+
+    identified = ensure_session_identities(
+        {"daily_plan": daily, "session_templates": templates}
+    )
+    parent = identified["session_templates"][5]
+    assert parent["session_id"].startswith("ats_")
+    assert [leg["leg_id"] for leg in parent["legs"]] == [
+        f"{parent['session_id']}:1",
+        f"{parent['session_id']}:2",
+    ]
+
+
+def test_prescription_change_replaces_session_identity():
+    dt = datetime(2026, 7, 13)
+    daily = [(dt, 80.0, {"run": 0.0, "bike": 80.0, "swim": 0.0})]
+    summary = [{"phase": "Build", "day_roles": ["quality"], "day_focuses": ["Качество"]}]
+    templates = build_daily_session_templates(
+        daily,
+        summary,
+        "Триатлон",
+        "Олимпийка",
+        zone_snapshot={"ftp": 200},
+    )
+    original = ensure_session_identities({"daily_plan": daily, "session_templates": templates})
+
+    changed_templates = deepcopy(original["session_templates"])
+    changed_templates[0]["materialized_steps"][1]["target"]["high"] += 1
+    changed_templates[0].pop("prescription_fingerprint", None)
+    changed = ensure_session_identities(
+        {"daily_plan": daily, "session_templates": changed_templates},
+        previous_goal_plan=original,
+    )
+
+    old = original["session_templates"][0]
+    new = changed["session_templates"][0]
+    assert new["session_id"] != old["session_id"]
+    assert new["replaces_session_id"] == old["session_id"]
