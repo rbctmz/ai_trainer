@@ -9,6 +9,7 @@ import re
 from typing import Any, Iterable, Mapping, Sequence
 
 from models.session_identity import ensure_session_identities
+from models.workout_catalog import rescale_materialized_session
 from models.session_quality_forecast import (
     SUBSTITUTED_LOAD_MAX,
     SUBSTITUTED_LOAD_MIN,
@@ -552,6 +553,19 @@ def apply_weekly_rebalance_preview(
             after_duration,
             after_parts,
         )
+        if template.get("materialization_status") == "materialized":
+            refreshed = rescale_materialized_session(
+                template,
+                target_tss=after_total,
+                parts=after_parts,
+            )
+            refreshed["description"] = _updated_description(
+                str(template.get("description") or ""),
+                after_total,
+                int(refreshed.get("duration_minutes") or after_duration),
+                after_parts,
+            )
+            templates[index] = refreshed
 
     updated["daily_plan"] = daily_plan
     updated["session_templates"] = templates

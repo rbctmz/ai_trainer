@@ -731,6 +731,155 @@ def materialize_brick_session(
     }
 
 
+def _rescale_steps(
+    steps: Sequence[Mapping[str, Any]],
+    *,
+    target_seconds: int,
+    target_tss: float,
+) -> list[dict[str, Any]]:
+    copied = [deepcopy(dict(step or {})) for step in steps]
+    if not copied:
+        return copied
+    old_seconds = [max(0.0, float(step.get("duration_seconds") or 0.0)) for step in copied]
+    old_tss = [max(0.0, float(step.get("tss") or 0.0)) for step in copied]
+    seconds_total = sum(old_seconds)
+    tss_total = sum(old_tss)
+    seconds_shares = (
+        [value / seconds_total for value in old_seconds]
+        if seconds_total > 0
+        else [1.0 / len(copied)] * len(copied)
+    )
+    tss_shares = (
+        [value / tss_total for value in old_tss]
+        if tss_total > 0
+        else [1.0 / len(copied)] * len(copied)
+    )
+    seconds = [int(value) for value in _exact_distribution(target_seconds, seconds_shares, 0)]
+    tss_values = _exact_distribution(round(float(target_tss), 1), tss_shares, 1)
+    for index, step in enumerate(copied):
+        step["index"] = index
+        step["duration_seconds"] = seconds[index]
+        step["tss"] = tss_values[index]
+    return copied
+
+
+def rescale_materialized_session(
+    template: Mapping[str, Any],
+    *,
+    target_tss: float,
+    parts: Mapping[str, float],
+) -> dict[str, Any]:
+    """Rescale one persisted prescription without re-selecting its stimulus."""
+    updated = deepcopy(dict(template))
+    if updated.get("materialization_status") != "materialized":
+        return updated
+    old_parameters = dict(updated.get("parameter_snapshot") or {})
+    old_tss = float(old_parameters.get("target_tss") or 0.0)
+    target_tss = round(float(target_tss or 0.0), 1)
+    if old_tss <= 0 or target_tss <= 0:
+        return updated
+    scale = target_tss / old_tss
+
+    if str(updated.get("kind") or "single") == "composite":
+        transition = int(updated.get("transition_minutes") or 0)
+        legs: list[dict[str, Any]] = []
+        for raw_leg in list(updated.get("legs") or []):
+            leg = deepcopy(dict(raw_leg or {}))
+            sport = str(leg.get("sport") or "")
+            old_leg_tss = float(leg.get("target_tss") or 0.0)
+            new_leg_tss = round(float(parts.get(sport, 0.0) or 0.0), 1)
+            leg_scale = new_leg_tss / old_leg_tss if old_leg_tss > 0 else scale
+            old_minutes = int(leg.get("duration_minutes") or 0)
+            new_minutes = max(1, int(round(old_minutes * leg_scale)))
+            leg["target_tss"] = new_leg_tss
+            leg["duration_minutes"] = new_minutes
+            leg["parameter_snapshot"] = {
+                "duration_minutes": new_minutes,
+                "target_tss": new_leg_tss,
+                "tss_per_hour": round(new_leg_tss * 60.0 / new_minutes, 1),
+            }
+            leg["materialized_steps"] = _rescale_steps(
+                list(leg.get("materialized_steps") or []),
+                target_seconds=new_minutes * 60,
+                target_tss=new_leg_tss,
+            )
+            legs.append(leg)
+        updated["legs"] = legs
+        duration = sum(int(leg.get("duration_minutes") or 0) for leg in legs) + transition
+        updated["duration_minutes"] = duration
+        updated["parameter_snapshot"] = {
+            "duration_minutes": duration,
+            "target_tss": target_tss,
+            "tss_per_hour": round(target_tss * 60.0 / duration, 1),
+        }
+        updated["materialized_steps"] = []
+        fingerprint_legs = []
+        for leg in legs:
+            clean_leg = dict(leg)
+            clean_leg.pop("leg_id", None)
+            fingerprint_legs.append(clean_leg)
+        prescription = {
+            "definition_snapshot": updated.get("definition_snapshot"),
+            "parameter_snapshot": updated.get("parameter_snapshot"),
+            "transition_minutes": transition,
+            "legs": fingerprint_legs,
+        }
+    else:
+        old_minutes = int(old_parameters.get("duration_minutes") or updated.get("duration_minutes") or 0)
+        duration = max(1, int(round(old_minutes * scale)))
+        updated["duration_minutes"] = duration
+        updated["parameter_snapshot"] = {
+            "duration_minutes": duration,
+            "target_tss": target_tss,
+            "tss_per_hour": round(target_tss * 60.0 / duration, 1),
+        }
+        updated["materialized_steps"] = _rescale_steps(
+            list(updated.get("materialized_steps") or []),
+            target_seconds=duration * 60,
+            target_tss=target_tss,
+        )
+        prescription = {
+            "definition_snapshot": updated.get("definition_snapshot"),
+            "parameter_snapshot": updated.get("parameter_snapshot"),
+            "materialized_steps": updated.get("materialized_steps"),
+            "target_provenance": updated.get("target_provenance"),
+        }
+    updated["mutation_evidence"] = {
+        "kind": "proportional_rescale",
+        "from_tss": round(old_tss, 1),
+        "to_tss": target_tss,
+        "scale": round(scale, 4),
+        "rule_version": MATERIALIZER_RULE_VERSION,
+    }
+    updated["prescription_fingerprint"] = _prescription_fingerprint(prescription)
+    return updated
+
+
+def extract_zone_snapshot(templates: Sequence[Mapping[str, Any]]) -> dict[str, float]:
+    """Recover explicit immutable zone values from persisted prescriptions."""
+    zones: dict[str, float] = {}
+    for template in templates:
+        candidates = [template.get("target_provenance")]
+        candidates += [
+            leg.get("target_provenance")
+            for leg in list(template.get("legs") or [])
+            if isinstance(leg, Mapping)
+        ]
+        for raw in candidates:
+            if not isinstance(raw, Mapping) or raw.get("fallback"):
+                continue
+            kind = str(raw.get("kind") or "")
+            if kind not in {"ftp", "lthr", "threshold_pace", "css"}:
+                continue
+            try:
+                value = float(raw.get("value"))
+            except (TypeError, ValueError):
+                continue
+            if value > 0:
+                zones.setdefault(kind, value)
+    return zones
+
+
 def _date_key(value: Any) -> str:
     if isinstance(value, datetime):
         return value.date().isoformat()
@@ -878,5 +1027,7 @@ __all__ = [
     "materialize_workout",
     "materialize_session_template",
     "materialize_brick_session",
+    "rescale_materialized_session",
+    "extract_zone_snapshot",
     "prepare_weekly_brick_allocations",
 ]

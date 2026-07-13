@@ -18,6 +18,13 @@ from models.training_planner import (
     build_daily_session_templates,
     expand_weekly_to_daily_triathlon,
 )
+from models.workout_catalog import (
+    CATALOG_VERSION,
+    MATERIALIZER_RULE_VERSION,
+    SELECTOR_RULE_VERSION,
+    extract_zone_snapshot,
+    prepare_weekly_brick_allocations,
+)
 
 EXECUTION_DAY_OUTCOME_LABELS = {
     "as_planned": "По плану",
@@ -1204,11 +1211,26 @@ def rebuild_goal_plan_with_adjustment(
     )
     weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
 
+    brick_allocation = prepare_weekly_brick_allocations(
+        daily_plan,
+        weekly_summary,
+        goal_type=goal_type,
+        protected_dates=set(event_overlay.get("protected_dates") or []),
+        load_state=str(rebuilt_constraint_summary.get("load_state", "balanced")),
+    )
+    daily_plan = list(brick_allocation.get("daily_plan") or daily_plan)
+    zone_snapshot = extract_zone_snapshot(
+        list(goal_plan.get("session_templates") or [])
+    )
+
     session_templates = build_daily_session_templates(
         daily_plan,
         weekly_summary,
         goal_type=goal_type,
         distance=distance,
+        load_state=str(rebuilt_constraint_summary.get("load_state", "balanced")),
+        zone_snapshot=zone_snapshot,
+        brick_day_indices=set(brick_allocation.get("brick_day_indices") or []),
     )
     corrective_microcycle = None
     rebuilt_plan_adjustment = rebuilt_constraint_summary.get("plan_adjustment")
@@ -1249,6 +1271,15 @@ def rebuild_goal_plan_with_adjustment(
         "phases": phases,
         "daily_plan": daily_plan,
         "session_templates": session_templates,
+        "catalog_version": CATALOG_VERSION,
+        "selector_rule_version": SELECTOR_RULE_VERSION,
+        "materializer_rule_version": MATERIALIZER_RULE_VERSION,
+        "brick_allocation": {
+            "status": brick_allocation.get("status"),
+            "brick_day_indices": list(brick_allocation.get("brick_day_indices") or []),
+            "reason": brick_allocation.get("reason"),
+            "evidence": dict(brick_allocation.get("evidence") or {}),
+        },
         "weekly_summary": weekly_summary,
         "overlay_rule_version": event_overlay["rule_version"],
         "event_overlays": event_overlay["overlays"],
