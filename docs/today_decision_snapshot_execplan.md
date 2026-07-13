@@ -18,8 +18,8 @@
 - [x] (2026-07-13 17:28Z) Добавлены контрактные BDD-тесты; красная фаза: `8 failed, 2 passed` на отсутствующих v2-полях/состояниях, без production-изменений.
 - [x] (2026-07-13 17:35Z) Реализован headless `today_decision_snapshot_v2`; FastAPI-роутер сокращён до адаптера. Focused: `14 passed`; smoke: `563 passed, 1 skipped`.
 - [x] (2026-07-13 17:43Z) Next.js `/today` обновлён для пяти состояний, gate evidence, shadow forecast и reconciliation-вчера; lint/build зелёные.
-- [ ] Прогнать focused/smoke/broad Python, Ruff/compile/diff, web lint/build и живую приёмку.
-- [ ] Финализировать ExecPlan, опубликовать ветку и открыть draft PR с `Closes #174`.
+- [x] (2026-07-13 17:46Z) Пройдены focused 14, smoke 563+1 skip, broad 606+6 skips+24 deselected, compileall, touched-file Ruff, diff check, web lint/build и живая приёмка.
+- [ ] Опубликовать ветку и открыть draft PR с `Closes #174`.
 
 ## Surprises & Discoveries
 
@@ -46,6 +46,9 @@
 
 - Observation: живая БД сразу дала осмысленный составной Today v2 без специальных acceptance-фикстур.
   Evidence: на копии `ai_trainer.db` экран показал `silence`, readiness 69.2, recovery bike 16 TSS, shadow forecast 65% на 18.07 revision 8 и reconciliation за 12.07: план 9 TSS, факт 50 TSS, major deviation, 19 TSS вне плана. Console warnings/errors отсутствуют.
+
+- Observation: repository-wide Ruff пока не является зелёным проектным gate.
+  Evidence: полный `ruff check api models services data tests/smoke` находит 51 ошибку в нетронутых legacy-файлах (`garmin_client.py`, `ai_coach*.py`, `planning_near_term.py` и другие). Ruff на всех изменённых Python-файлах проходит без ошибок; массовая legacy-зачистка не включена в #174.
 
 ## Decision Log
 
@@ -260,6 +263,7 @@ Focused API-тесты доказывают все пять состояний �
     def build_today_decision_snapshot(
         db: Database,
         *,
+        demo: bool = False,
         today: date | None = None,
     ) -> dict[str, Any]:
         """Build one fail-open, versioned daily decision snapshot."""
@@ -268,7 +272,15 @@ Focused API-тесты доказывают все пять состояний �
 
 ## Outcomes & Retrospective
 
-Пока не заполнено. По завершении здесь будут фактический контракт, тестовые counts, результаты живой приёмки, отклонения от плана и оставшиеся риски.
+Today v2 реализован как один headless snapshot, а FastAPI-роутер теперь только передаёт Database/demo. Структурная prescription из #173 сохранена и получила stable `session_id`; новое состояние `conflict_unactionable` закрывает маскировку реального gate-конфликта; active/stale/resolved proposal разрешаются относительно planning checkpoint; shadow forecast явно помечен `affects_decision=false`; вчерашний блок использует plan-actual matcher #172 вместо собственной суммы активностей.
+
+Поведенческий контракт вырос с 8 до 14 focused-сценариев. Финальные локальные результаты: Today `14 passed`; adjacent Today/forecast/recovery/reconciliation `57 passed`; contributor-safe `563 passed, 1 skipped`; broad non-live/non-debug `606 passed, 6 skipped, 24 deselected`. Compileall и `git diff --check` чисты. Ruff чист на изменённых Python-файлах; полный старый tree имеет 51 не относящуюся к PR ошибку. Next lint/build зелёные.
+
+Живая приёмка выполнена на `/tmp/ai_trainer_issue174_acceptance.db`, копии пользовательской БД, через FastAPI `:8024` и Next `:3024`. Корень дал 307 на `/today`, API — 200, DOM содержит каноническую session/readiness/forecast/reconciliation композицию, browser console warnings/errors пуст. Локальный снимок: `/tmp/ai_trainer_issue174_today_v2.png`. Он не публикуется автоматически, потому что содержит персональные тренировочные метрики.
+
+Отклонение от исходного псевдо-контракта одно и осознанное: builder принимает `demo`, чтобы `operational_state` оставался частью того же headless payload. Строгую pre-start eligibility Today не утверждает, потому что в плане нет времени начала; показан честный `date_only / unverified_date_only`, а окончательный скоринг остаётся в Issue D resolver.
+
+Оставшиеся риски: один active proposal текущего checkpoint может относиться к будущей сессии, поэтому экран намеренно показывает самый свежий current action; multi-athlete scope всё ещё ограничен текущей single-athlete SQLite архитектурой; day-level summary использует evidence matcher недельного окна и показывает его `data_quality` как provenance, не как отдельный новый score.
 
 ## Artifacts and Notes
 
@@ -280,4 +292,4 @@ Starting base:
 
     9d65568 Merge pull request #182
 
-Revision note: 2026-07-13 / Codex — создан начальный самостоятельный план после аудита текущего контракта; решения и acceptance pre-registered до production-кода.
+Revision note: 2026-07-13 / Codex — создан начальный самостоятельный план после аудита текущего контракта; решения и acceptance pre-registered до production-кода. Финализирован после реализации: добавлены фактические counts, live evidence, отклонение интерфейса `demo` и граница pre-start provenance.
