@@ -19,7 +19,7 @@
 - [x] (2026-07-13 17:35Z) Реализован headless `today_decision_snapshot_v2`; FastAPI-роутер сокращён до адаптера. Focused: `14 passed`; smoke: `563 passed, 1 skipped`.
 - [x] (2026-07-13 17:43Z) Next.js `/today` обновлён для пяти состояний, gate evidence, shadow forecast и reconciliation-вчера; lint/build зелёные.
 - [x] (2026-07-13 17:46Z) Пройдены focused 14, smoke 563+1 skip, broad 606+6 skips+24 deselected, compileall, touched-file Ruff, diff check, web lint/build и живая приёмка.
-- [ ] Опубликовать ветку и открыть draft PR с `Closes #174`.
+- [x] (2026-07-13 17:50Z) Ветка опубликована, draft PR #183 открыт с `Closes #174`; первый CI-head зелёный.
 
 ## Surprises & Discoveries
 
@@ -274,7 +274,7 @@ Focused API-тесты доказывают все пять состояний �
 
 Today v2 реализован как один headless snapshot, а FastAPI-роутер теперь только передаёт Database/demo. Структурная prescription из #173 сохранена и получила stable `session_id`; новое состояние `conflict_unactionable` закрывает маскировку реального gate-конфликта; active/stale/resolved proposal разрешаются относительно planning checkpoint; shadow forecast явно помечен `affects_decision=false`; вчерашний блок использует plan-actual matcher #172 вместо собственной суммы активностей.
 
-Поведенческий контракт вырос с 8 до 14 focused-сценариев. Финальные локальные результаты: Today `14 passed`; adjacent Today/forecast/recovery/reconciliation `57 passed`; contributor-safe `563 passed, 1 skipped`; broad non-live/non-debug `606 passed, 6 skipped, 24 deselected`. Compileall и `git diff --check` чисты. Ruff чист на изменённых Python-файлах; полный старый tree имеет 51 не относящуюся к PR ошибку. Next lint/build зелёные.
+Поведенческий контракт вырос с 8 до 14 focused-сценариев. Финальные локальные результаты: Today `14 passed`; adjacent Today/forecast/recovery/reconciliation `57 passed`; contributor-safe `563 passed, 1 skipped`; broad non-live/non-debug `606 passed, 6 skipped, 24 deselected`. Compileall и `git diff --check` чисты. Ruff чист на изменённых Python-файлах; полный старый tree имеет 51 не относящуюся к PR ошибку. Next lint/build зелёные. GitHub Contributor-safe pytest на опубликованном PR-head также зелёный.
 
 Живая приёмка выполнена на `/tmp/ai_trainer_issue174_acceptance.db`, копии пользовательской БД, через FastAPI `:8024` и Next `:3024`. Корень дал 307 на `/today`, API — 200, DOM содержит каноническую session/readiness/forecast/reconciliation композицию, browser console warnings/errors пуст. Локальный снимок: `/tmp/ai_trainer_issue174_today_v2.png`. Он не публикуется автоматически, потому что содержит персональные тренировочные метрики.
 
@@ -285,6 +285,8 @@ Today v2 реализован как один headless snapshot, а FastAPI-ро
 ## Artifacts and Notes
 
 Issue: `https://github.com/rbctmz/ai_trainer/issues/174`.
+
+Draft PR: `https://github.com/rbctmz/ai_trainer/pull/183`.
 
 Аудит перед реализацией: `https://github.com/rbctmz/ai_trainer/issues/174#issuecomment-4960647901`.
 
