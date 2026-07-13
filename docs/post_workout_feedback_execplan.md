@@ -18,7 +18,7 @@ The user-visible proof is a compact post-session card under the existing “Yest
 - [x] (2026-07-13 19:48Z) Implemented pure prompt/time/evaluation rules plus headless submission, correction, tombstone, dismissal, history, summary, projection, and `admin_resolve` compatibility orchestration.
 - [x] (2026-07-13 19:56Z) Added FastAPI lifecycle contracts and fail-open Today composition; a focused test proves one provider-disabled reconciliation call and no journal writes on repeated reads.
 - [x] (2026-07-13 19:56Z) Added the web feedback card with anchored completion/RPE/quality controls, evidence summary, athlete-entered provenance, retry-safe submit, explicit correction/history, dismiss, and ambiguous-match guidance.
-- [ ] Run focused, smoke, broad, web, migration/concurrency, and copy-of-real-database acceptance; self-review and finalize this plan.
+- [x] (2026-07-13 21:04Z) Completed focused, smoke, broad, Python/web lint, production-build, migration/concurrency, and copy-of-real-database browser acceptance; self-review removed the legacy scoring path and hardened revision/dismissal migration behavior.
 - [ ] Push the branch and open a draft PR with `Closes #175`; leave merge to the human gate.
 
 ## Surprises & Discoveries
@@ -52,6 +52,18 @@ The user-visible proof is a compact post-session card under the existing “Yest
 
 - Observation: the web contract compiles without a frontend copy of matching or scoring rules.
   Evidence: `npm run lint` reports no warnings/errors and `npm run build` compiles `/today`; the component only renders API-provided prompt state and posts athlete values.
+
+- Observation: the first self-review found that leaving the legacy resolver body in place would preserve a second, mutable scoring implementation even if the router no longer called it.
+  Evidence: the compatibility function now delegates directly to `resolve_prediction_via_feedback`; regression tests prove raw prediction rows remain pending/immutable while projected evaluations stay frozen after activity TSS changes.
+
+- Observation: prompt dismissal identity must describe the material evidence, not merely the athlete-day.
+  Evidence: dismissal events now store `prompt_fingerprint`; an unchanged prompt remains dismissed while changed match/activity evidence can prompt again without deleting history.
+
+- Observation: additive SQLite migrations can race when two test/API processes initialize the same file.
+  Evidence: the parallel validation exposed simultaneous `ALTER TABLE ... ADD COLUMN prompt_fingerprint`; initialization now treats only the competing `duplicate column name` result as success and still raises unrelated operational errors.
+
+- Observation: live product data contains a safe eligible prompt and exercises the correction path without fixture invention.
+  Evidence: a temporary copy of `ai_trainer.db` produced one ready matched cycling prompt. The browser saved athlete-entered RPE 8 and quality 4 as revision 1, corrected quality to 3 as revision 2, and displayed both immutable history rows. The real database was never opened for writes.
 
 ## Decision Log
 
@@ -109,7 +121,11 @@ The user-visible proof is a compact post-session card under the existing “Yest
 
 ## Outcomes & Retrospective
 
-The implementation milestones are complete. The project now has separate append-only observation, prompt-event, and evaluation journals; pure prompt/time/quality semantics; and one compatibility path that turns the old admin resolve request into an explicit match plus feedback plus evaluation. Raw forecast rows are not changed by new resolutions, while API projections preserve familiar status fields. Today embeds one provider-free prompt block and the web exposes athlete-entered submit/correct/history UX. Focused backend validation is `69 passed`; Next lint/build are green. Broad validation, copy-of-real-database acceptance, self-review, and publication remain.
+The implementation and local acceptance milestones are complete. The project now has separate append-only observation, prompt-event, and evaluation journals; pure prompt/time/quality semantics; and one compatibility path that turns the old admin resolve request into an explicit match plus feedback plus evaluation. Raw forecast rows are not changed by new resolutions, while API projections preserve familiar status fields. Today embeds one provider-free prompt block and the web exposes athlete-entered submit/correct/history UX.
+
+Final validation is green: focused contract coverage reports `70 passed`, contributor-safe smoke reports `585 passed, 1 skipped`, the broader non-live suite reports `628 passed, 6 skipped, 24 deselected`, Ruff and `compileall` pass, Next lint has no warnings, and the production build includes `/today`. Browser acceptance on a temporary copy of the real database demonstrated revision 1, correction revision 2, and both rows in append-only history with visible athlete-entered provenance. No provider write, historical WoZ import, plan mutation, Streamlit feature, or write to the real database was introduced.
+
+Self-review caught and closed four boundary risks before publication: the old mutable resolver implementation was removed instead of merely bypassed; tombstones append an unscored evaluation so an old score cannot remain current; repeated admin corrections create proper feedback/evaluation lineage; and material prompt fingerprints make dismissals expire only when evidence changes. The only remaining operational follow-up is longitudinal product observation: #176 can consume these athlete-entered samples once enough revisions accumulate.
 
 ## Context and Orientation
 
@@ -253,4 +269,4 @@ In `api/session_feedback.py`, provide orchestration resembling:
 
 Request/response schemas live in `api/routers/session_feedback.py`. TypeScript interfaces mirror the API; frontend code contains presentation and request state only, never matching, prompt eligibility, or scoring rules.
 
-Revision note (2026-07-13 / Codex): created the initial self-contained ExecPlan after the issue/reviewer/source audit and pre-registered all data, timing, provenance, compatibility, and composition decisions before tests or product implementation. Updated after the red BDD/TDD run, the green headless milestone, and the Today/web milestone to preserve evidence and actual progress.
+Revision note (2026-07-13 / Codex): created the initial self-contained ExecPlan after the issue/reviewer/source audit and pre-registered all data, timing, provenance, compatibility, and composition decisions before tests or product implementation. Updated after the red BDD/TDD run, the green headless milestone, the Today/web milestone, self-review hardening, full validation, and browser acceptance on a copied real database to preserve evidence and actual progress.
