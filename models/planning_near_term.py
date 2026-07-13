@@ -949,6 +949,7 @@ def apply_near_term_day_edits(
 
     original_horizon_total = round(sum(total for _dt, total, _parts in daily_plan[:resolved_horizon]), 1)
     changed_day_count = 0
+    edited_dates: List[str] = []
     touched_week_stats: Dict[int, Dict[str, float]] = {}
 
     for raw_row in edited_rows:
@@ -976,6 +977,7 @@ def apply_near_term_day_edits(
         )
         if changed:
             changed_day_count += 1
+            edited_dates.append(dt.strftime("%Y-%m-%d"))
             week_index = day_index // 7
             week_stat = touched_week_stats.setdefault(week_index, {"delta_tss": 0.0, "edited_days": 0.0})
             week_stat["delta_tss"] += round(target_total_tss - float(current_total or 0.0), 1)
@@ -1228,6 +1230,7 @@ def apply_near_term_day_edits(
     constraint_summary["near_term_edit"] = {
         "is_active": changed_day_count > 0,
         "edited_day_count": changed_day_count,
+        "edited_dates": edited_dates,
         "horizon_days": resolved_horizon,
         "total_delta_tss": horizon_delta,
         "label": "Ручная правка ближнего горизонта",

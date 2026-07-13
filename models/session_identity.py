@@ -79,7 +79,8 @@ def ensure_session_identities(
         total = _number(item[1])
         sport = str(template.get("sport") or "").strip().lower()
         role = str(template.get("session_role") or "").strip().lower()
-        if total <= 0 or sport in {"", "off", "rest"} or role == "off":
+        is_race = role == "race" or bool(template.get("is_race_event"))
+        if (total <= 0 and not is_race) or (sport in {"", "off", "rest"} and not is_race) or role == "off":
             template.pop("session_id", None)
             template.pop("session_material_fingerprint", None)
             template.pop("replaces_session_id", None)
@@ -88,9 +89,13 @@ def ensure_session_identities(
         material = _material_payload(item, template)
         material_fingerprint = _fingerprint(material)
         generated_id = f"ats_{material_fingerprint[:24]}"
+        embedded_id = str(template.get("session_id") or "").strip() or None
+        embedded_material_fingerprint = str(
+            template.get("session_material_fingerprint") or ""
+        ).strip() or None
         previous = previous_by_date.get(material["date"])
-        previous_id = None
-        previous_material_fingerprint = None
+        previous_id = embedded_id if previous is None else None
+        previous_material_fingerprint = embedded_material_fingerprint if previous is None else None
         if previous is not None:
             previous_item, previous_template = previous
             previous_id = str(previous_template.get("session_id") or "").strip() or None
@@ -108,6 +113,10 @@ def ensure_session_identities(
         template["session_material_fingerprint"] = material_fingerprint
         if previous_id and previous_id != session_id:
             template["replaces_session_id"] = previous_id
+        elif previous is not None and not template.get("replaces_session_id"):
+            inherited_replacement = str(previous_template.get("replaces_session_id") or "").strip()
+            if inherited_replacement and inherited_replacement != session_id:
+                template["replaces_session_id"] = inherited_replacement
         elif template.get("replaces_session_id") == session_id:
             template.pop("replaces_session_id", None)
 

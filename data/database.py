@@ -1250,6 +1250,18 @@ class Database:
         conn.close()
         return [dict(zip(columns, row)) for row in rows]
 
+    def get_activities_between(self, start_date, end_date):
+        columns = list(self._ACTIVITY_COLUMN_ORDER)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT {', '.join(columns)} FROM activities WHERE date BETWEEN ? AND ? ORDER BY date, started_at_utc, activity_id",
+            (str(start_date), str(end_date)),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(zip(columns, row)) for row in rows]
+
     def save_plan_actual_match(self, payload):
         """Append one immutable user match revision, idempotent by fingerprint."""
         required = {

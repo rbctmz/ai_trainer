@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api import planning_service
 from api.deps import get_database
@@ -40,6 +40,21 @@ class AdjustRequest(BaseModel):
     rows: List[Dict[str, Any]]
     weeks: int = 1
     persist: bool = True
+
+
+class RebalanceRequest(BaseModel):
+    as_of: Optional[str] = None
+    weeks: int = 1
+    base_checkpoint_id: Optional[int] = None
+    preview_fingerprint: Optional[str] = None
+
+
+class MatchCorrectionRequest(BaseModel):
+    base_checkpoint_id: int
+    session_id: str
+    activity_ids: List[str] = Field(default_factory=list)
+    actual_role: Optional[str] = None
+    action: str = "confirm"
 
 
 class DemandRequest(BaseModel):
@@ -224,9 +239,76 @@ def planning_export_workout(
 # --- Adjust mode -----------------------------------------------------------
 @router.get("/reconciliation")
 def planning_reconciliation(
-    weeks: int = 1, db: Database = Depends(get_database)
+    weeks: int = 1,
+    as_of: Optional[str] = None,
+    include_provider: bool = True,
+    db: Database = Depends(get_database),
 ) -> dict[str, Any]:
-    return planning_service.reconciliation(db, weeks=weeks)
+    try:
+        return planning_service.reconciliation_at(
+            db,
+            weeks=weeks,
+            as_of=as_of,
+            include_provider=include_provider,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/reconciliation/matches")
+def planning_record_match(
+    req: MatchCorrectionRequest,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    try:
+        return planning_service.record_plan_actual_match(
+            db,
+            base_checkpoint_id=req.base_checkpoint_id,
+            session_id=req.session_id,
+            activity_ids=req.activity_ids,
+            actual_role=req.actual_role,
+            action=req.action,
+        )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/rebalance/preview")
+def planning_rebalance_preview(
+    req: RebalanceRequest,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    try:
+        return planning_service.preview_weekly_rebalance(
+            db,
+            weeks=req.weeks,
+            as_of=req.as_of,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/rebalance/confirm")
+def planning_rebalance_confirm(
+    req: RebalanceRequest,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    if req.base_checkpoint_id is None or not req.preview_fingerprint:
+        raise HTTPException(status_code=422, detail="base_checkpoint_id and preview_fingerprint are required")
+    try:
+        return planning_service.confirm_weekly_rebalance(
+            db,
+            base_checkpoint_id=req.base_checkpoint_id,
+            preview_fingerprint=req.preview_fingerprint,
+            weeks=req.weeks,
+            as_of=req.as_of,
+        )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.post("/adjust")

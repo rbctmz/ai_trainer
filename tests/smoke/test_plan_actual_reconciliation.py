@@ -135,6 +135,22 @@ def test_session_identity_is_deterministic_and_replacement_safe() -> None:
     assert replaced["session_templates"][9]["session_id"] != preview["session_templates"][9]["session_id"]
     assert replaced["session_templates"][9]["replaces_session_id"] == preview["session_templates"][9]["session_id"]
 
+    embedded_edit = deepcopy(preview)
+    embedded_edit["daily_plan"][10] = (
+        embedded_edit["daily_plan"][10][0],
+        embedded_edit["daily_plan"][10][1] - 10.0,
+        {**embedded_edit["daily_plan"][10][2], "swim": embedded_edit["daily_plan"][10][1] - 10.0},
+    )
+    embedded_replacement = ensure_session_identities(embedded_edit)
+    assert embedded_replacement["session_templates"][10]["session_id"] != preview["session_templates"][10]["session_id"]
+    assert embedded_replacement["session_templates"][10]["replaces_session_id"] == preview["session_templates"][10]["session_id"]
+
+    unchanged_after_replacement = ensure_session_identities(
+        deepcopy(embedded_replacement),
+        previous_goal_plan=embedded_replacement,
+    )
+    assert unchanged_after_replacement["session_templates"][10]["replaces_session_id"] == preview["session_templates"][10]["session_id"]
+
 
 def test_reconciliation_uses_relative_lookback_and_preserves_full_actual_load() -> None:
     plan = ensure_session_identities(_goal_plan())
@@ -240,6 +256,47 @@ def test_ai_trainer_external_id_wins_while_foreign_provider_pair_is_only_evidenc
     assert any("provider paired event" in evidence.lower() for evidence in foreign_row["evidence"])
 
 
+def test_user_match_reserves_activity_before_automatic_heuristics() -> None:
+    raw = _goal_plan()
+    raw["daily_plan"].append(deepcopy(raw["daily_plan"][2]))
+    duplicate = deepcopy(raw["session_templates"][2])
+    duplicate["session_focus"] = "explicit second session"
+    duplicate["export_name"] = "Explicit second session"
+    raw["session_templates"].append(duplicate)
+    plan = ensure_session_identities(raw)
+    first = plan["session_templates"][2]
+    second = plan["session_templates"][-1]
+    activity = _activity("reserved-ride", "2026-07-08", "bike", 34.0)
+    ledger = [
+        {
+            "target_key": f"session:{second['session_id']}",
+            "session_id": second["session_id"],
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "confidence": 1.0,
+            "actual_activity_ids": ["reserved-ride"],
+            "actual_snapshot": {"role": "easy"},
+            "evidence": ["User selected the second session"],
+        }
+    ]
+
+    result = build_reconciliation(
+        plan,
+        [activity],
+        as_of=date(2026, 7, 13),
+        weeks=1,
+        base_checkpoint_id=63,
+        ledger_rows=ledger,
+    )
+
+    first_row = next(row for row in result["rows"] if row["session_id"] == first["session_id"])
+    second_row = next(row for row in result["rows"] if row["session_id"] == second["session_id"])
+    assert first_row["match_status"] == "unmatched"
+    assert second_row["match_method"] == "user_confirmed"
+    assert second_row["actual_activity_ids"] == ["reserved-ride"]
+    assert result["metrics"]["total_actual_tss"] == 34.0
+
+
 def test_match_ledger_is_idempotent_and_corrections_append_revisions(tmp_path) -> None:
     db = Database(str(tmp_path / "ledger.db"))
     payload = {
@@ -326,6 +383,7 @@ def test_weekly_rebalance_changes_only_allowed_future_easy_sessions() -> None:
     assert preview["status"] == "proposal"
     assert preview["reason"] == "over_plan_future_reduction"
     assert preview["reduction_budget_tss"] <= 40
+    assert preview["reduction_budget_tss"] <= int(preview["future_window_tss"] * 0.15 // 5) * 5
     assert preview["future_tss_delta"] < 0
     assert preview["changes"]
     assert all(item["date"] > "2026-07-13" for item in preview["changes"])
@@ -345,6 +403,7 @@ def test_weekly_rebalance_changes_only_allowed_future_easy_sessions() -> None:
         new = _session_by_date(updated, day_text)
         assert new["session_id"] != old["session_id"]
         assert new["replaces_session_id"] == old["session_id"]
+        assert f"Total TSS: {next(item['after_tss'] for item in preview['changes'] if item['date'] == day_text)}" in new["description"]
 
 
 @pytest.mark.parametrize(

@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta
 import hashlib
 import json
+import re
 from typing import Any, Iterable, Mapping, Sequence
 
 from models.session_identity import ensure_session_identities
@@ -178,10 +179,26 @@ def build_reconciliation(
         for row in (ledger_rows or [])
         if isinstance(row, Mapping) and row.get("target_key")
     }
+    reserved_user_activity_ids = {
+        str(activity_id)
+        for row in latest_ledger.values()
+        if str(row.get("match_method") or "") == "user_confirmed"
+        for activity_id in row.get("actual_activity_ids", []) or []
+    }
     assigned_ids: set[str] = set()
     rows: list[dict[str, Any]] = []
     daily_plan = list(resolved_plan.get("daily_plan") or [])
     templates = list(resolved_plan.get("session_templates") or [])
+    planned_signature_counts: dict[tuple[str, str], int] = {}
+    for index, daily_item in enumerate(daily_plan):
+        if not isinstance(daily_item, (list, tuple)) or len(daily_item) < 3:
+            continue
+        template = templates[index] if index < len(templates) else {}
+        planned = _planned_snapshot(daily_item, template, index)
+        planned_date = date.fromisoformat(planned["date"])
+        if start <= planned_date <= end and planned["tss"] > 0 and planned.get("session_id"):
+            signature = (planned["date"], planned["sport"])
+            planned_signature_counts[signature] = planned_signature_counts.get(signature, 0) + 1
 
     for index, daily_item in enumerate(daily_plan):
         if not isinstance(daily_item, (list, tuple)) or len(daily_item) < 3:
@@ -191,11 +208,21 @@ def build_reconciliation(
         planned_date = date.fromisoformat(planned["date"])
         if not (start <= planned_date <= end) or planned["tss"] <= 0 or not planned.get("session_id"):
             continue
-        day_activities = [
-            item for item in activities_by_date.get(planned["date"], []) if item["activity_id"] not in assigned_ids
-        ]
         target_key = f"session:{planned['session_id']}"
         ledger = latest_ledger.get(target_key)
+        ledger_selected_ids = {
+            str(value)
+            for value in (ledger or {}).get("actual_activity_ids", []) or []
+        }
+        day_activities = [
+            item
+            for item in activities_by_date.get(planned["date"], [])
+            if item["activity_id"] not in assigned_ids
+            and (
+                item["activity_id"] not in reserved_user_activity_ids
+                or item["activity_id"] in ledger_selected_ids
+            )
+        ]
         matched: list[dict[str, Any]] = []
         candidates: list[dict[str, Any]] = []
         evidence: list[str] = []
@@ -207,11 +234,14 @@ def build_reconciliation(
         if ledger and str(ledger.get("match_method")) in {"user_confirmed", "user_rejected"}:
             match_method = str(ledger.get("match_method"))
             match_status = str(ledger.get("match_status") or "unmatched")
-            selected_ids = {str(value) for value in ledger.get("actual_activity_ids", [])}
-            matched = [item for item in day_activities if item["activity_id"] in selected_ids]
+            matched = [item for item in day_activities if item["activity_id"] in ledger_selected_ids]
             confidence = float(ledger.get("confidence") or (1.0 if match_method == "user_confirmed" else 0.0))
             actual_role = str((ledger.get("actual_snapshot") or {}).get("role") or "").strip().lower() or None
             evidence.extend(str(value) for value in ledger.get("evidence", []) if value)
+            if match_method == "user_confirmed" and len(matched) != len(ledger_selected_ids):
+                match_status = "ambiguous"
+                confidence = 0.0
+                evidence.append("Stored user match references activity evidence that is no longer uniquely available")
         else:
             stable = []
             provider_pair_notes: list[str] = []
@@ -236,7 +266,8 @@ def build_reconciliation(
                 evidence.append("Intervals external_id and paired event resolve to this AI Trainer session")
             else:
                 same_sport = [item for item in day_activities if item.get("sport") == planned.get("sport")]
-                if same_sport:
+                signature_count = planned_signature_counts.get((planned["date"], planned["sport"]), 0)
+                if same_sport and signature_count == 1:
                     matched = same_sport
                     match_status = "matched"
                     match_method = "date_sport_heuristic"
@@ -247,7 +278,10 @@ def build_reconciliation(
                     candidates = list(day_activities)
                     match_status = "ambiguous"
                     confidence = 0.35
-                    evidence.append("Same-date activities exist, but sport evidence conflicts with the planned session")
+                    if same_sport:
+                        evidence.append("More than one planned session can claim the same-date, same-sport activity")
+                    else:
+                        evidence.append("Same-date activities exist, but sport evidence conflicts with the planned session")
                     evidence.extend(provider_pair_notes)
                 else:
                     evidence.append("No completed activity evidence for this planned session")
@@ -334,7 +368,7 @@ def build_reconciliation(
 
 
 def _round_to_5(value: float) -> int:
-    return max(0, int(round(float(value) / 5.0) * 5))
+    return max(0, int(float(value) // 5.0) * 5)
 
 
 def _canonical_fingerprint(payload: Mapping[str, Any]) -> str:
@@ -451,15 +485,42 @@ def build_weekly_rebalance_preview(
     return payload
 
 
-def _updated_description(description: str, total_tss: float, duration_minutes: int) -> str:
+def _updated_description(
+    description: str,
+    total_tss: float,
+    duration_minutes: int,
+    parts: Mapping[str, float],
+) -> str:
+    canonical = {
+        "total": f"Total TSS: {round(total_tss, 1)}",
+        "duration": f"Оценка длительности: {duration_minutes} мин",
+        "run": f"Run: {round(float(parts.get('run', 0.0) or 0.0), 1)}",
+        "bike": f"Bike: {round(float(parts.get('bike', 0.0) or 0.0), 1)}",
+        "swim": f"Swim: {round(float(parts.get('swim', 0.0) or 0.0), 1)}",
+    }
+    found: set[str] = set()
     lines = []
     for line in str(description or "").splitlines():
         if line.startswith("Total TSS:"):
-            lines.append(f"Total TSS: {round(total_tss, 1)}")
+            lines.append(canonical["total"])
+            found.add("total")
         elif line.startswith("Оценка длительности:"):
-            lines.append(f"Оценка длительности: {duration_minutes} мин")
+            lines.append(canonical["duration"])
+            found.add("duration")
+        elif line.startswith("Run:"):
+            lines.append(canonical["run"])
+            found.add("run")
+        elif line.startswith("Bike:"):
+            lines.append(canonical["bike"])
+            found.add("bike")
+        elif line.startswith("Swim:"):
+            lines.append(canonical["swim"])
+            found.add("swim")
         else:
-            lines.append(line)
+            lines.append(re.sub(r"\b\d+(?:\.\d+)?\s+TSS\b", f"{round(total_tss, 1)} TSS", line))
+    for key in ("total", "duration", "run", "bike", "swim"):
+        if key not in found:
+            lines.append(canonical[key])
     return "\n".join(lines)
 
 
@@ -489,6 +550,7 @@ def apply_weekly_rebalance_preview(
             str(template.get("description") or ""),
             after_total,
             after_duration,
+            after_parts,
         )
 
     updated["daily_plan"] = daily_plan

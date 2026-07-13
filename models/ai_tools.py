@@ -837,56 +837,49 @@ class AITools:
         }
 
     def propose_plan_adjustment(self, weeks: int = 1) -> Dict[str, Any]:
-        """Построить preview корректировки активного плана без сохранения."""
+        """Построить evidence-first future-only preview без сохранения."""
         try:
             resolved_weeks = int(weeks)
         except (TypeError, ValueError):
             return {"success": False, "error": "weeks должен быть целым числом."}
 
         try:
-            recon = planning_service.reconciliation(self.db, weeks=resolved_weeks)
-        except Exception as exc:
-            return {"success": False, "error": str(exc)}
-
-        if not recon.get("has_plan"):
-            return {"success": False, "error": "Нет активного плана для корректировки."}
-
-        rows = list(recon.get("rows") or [])
-        try:
-            preview = planning_service.apply_adjustment(
+            result = planning_service.preview_weekly_rebalance(
                 self.db,
-                rows=rows,
                 weeks=resolved_weeks,
-                persist=False,
             )
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
-        adjustment = preview.get("adjustment", {}) or {}
-        totals = preview.get("totals", {}) or {}
-        previous_totals = preview.get("previous_totals", {}) or {}
+        if not result.get("has_plan"):
+            return {"success": False, "error": "Нет активного плана для корректировки."}
+
+        reconciliation = result.get("reconciliation", {}) or {}
+        preview = result.get("preview", {}) or {}
+        data_quality = reconciliation.get("data_quality", {}) or {}
         preview_payload = {
-            "adjustment_status": adjustment.get("status"),
-            "adjustment_label": adjustment.get("label"),
-            "missed_sessions": adjustment.get("missed_sessions"),
-            "completion_share": adjustment.get("completion_share"),
-            "peak_tss": totals.get("peak_tss"),
-            "total_tss": totals.get("total_tss"),
-            "previous_peak_tss": previous_totals.get("peak_tss"),
-            "previous_total_tss": previous_totals.get("total_tss"),
-            "forecast_message": preview.get("forecast", {}).get("message"),
+            "status": preview.get("status"),
+            "reason": preview.get("reason"),
+            "future_tss_delta": preview.get("future_tss_delta"),
+            "changes": preview.get("changes", []),
+            "coverage": data_quality.get("coverage"),
+            "matched_count": data_quality.get("matched_count"),
+            "planned_session_count": data_quality.get("planned_session_count"),
+            "ambiguous_count": data_quality.get("ambiguous_count"),
         }
         params_payload = {
-            "rows": rows,
             "weeks": resolved_weeks,
+            "as_of": preview.get("as_of"),
+            "base_checkpoint_id": preview.get("base_checkpoint_id"),
+            "preview_fingerprint": preview.get("preview_fingerprint"),
         }
 
-        if not _is_actionable_plan_adjustment(adjustment, rows):
+        if preview.get("status") != "proposal":
             return {
                 "is_proposal": False,
                 "action": "adjust_plan",
                 "status": "noop",
-                "message": "Корректировка не нужна: выбранное окно выполнено по плану.",
+                "message": "Future-only корректировка не нужна или пока недостаточно надёжных фактов.",
                 "params": {"weeks": resolved_weeks},
                 "preview": preview_payload,
             }

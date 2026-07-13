@@ -128,27 +128,48 @@ def test_propose_plan_adjustment_returns_noop_when_plan_is_completed(tmp_path) -
     assert proposal.get("action") == "adjust_plan"
     assert proposal["params"]["weeks"] == 1
     assert "rows" not in proposal["params"]
-    assert proposal["preview"].get("adjustment_status") == "completed"
-    assert proposal["preview"].get("missed_sessions") == 0
+    assert proposal["preview"].get("status") == "no_change"
+    assert proposal["preview"].get("reason") in {
+        "data_gap",
+        "no_change_under_plan",
+        "no_change_below_threshold",
+        "no_eligible_future_sessions",
+    }
 
 
 def test_propose_plan_adjustment_returns_proposal_for_changed_rows(tmp_path, monkeypatch) -> None:
     db = _seeded_db(tmp_path)
     _build_active_triathlon_plan(db)
-    original_reconciliation = planning_service.reconciliation(db, weeks=1)
-    rows = list(original_reconciliation["rows"])
-    missed_index = next(
-        index
-        for index, row in enumerate(rows)
-        if int(row.get("planned_total_tss", 0) or 0) > 0
-    )
-    rows[missed_index]["outcome"] = "missed"
-    rows[missed_index]["actual_total_tss"] = 0
+    def fake_preview(database: Database, weeks: int = 1):
+        return {
+            "has_plan": True,
+            "reconciliation": {
+                "data_quality": {
+                    "coverage": 0.8,
+                    "matched_count": 4,
+                    "planned_session_count": 5,
+                    "ambiguous_count": 0,
+                }
+            },
+            "preview": {
+                "status": "proposal",
+                "reason": "over_plan_future_reduction",
+                "future_tss_delta": -20,
+                "changes": [
+                    {
+                        "session_id": "ats_1",
+                        "date": "2026-07-14",
+                        "before_tss": 40,
+                        "after_tss": 30,
+                    }
+                ],
+                "as_of": "2026-07-13",
+                "base_checkpoint_id": 1,
+                "preview_fingerprint": "preview-1",
+            },
+        }
 
-    def fake_reconciliation(database: Database, weeks: int = 1):
-        return {**original_reconciliation, "rows": rows}
-
-    monkeypatch.setattr(planning_service, "reconciliation", fake_reconciliation)
+    monkeypatch.setattr(planning_service, "preview_weekly_rebalance", fake_preview)
     tools = AITools(db)
 
     result = tools.execute_tool("propose_plan_adjustment", weeks=1)
@@ -158,10 +179,11 @@ def test_propose_plan_adjustment_returns_proposal_for_changed_rows(tmp_path, mon
     assert proposal.get("is_proposal") is True
     assert proposal.get("action") == "adjust_plan"
     assert proposal["params"]["weeks"] == 1
-    assert isinstance(proposal["params"]["rows"], list)
-    assert proposal["preview"].get("peak_tss", 0) > 0
-    assert proposal["preview"].get("adjustment_status") in {"skipped", "reduced", "unavailable"}
-    assert proposal["preview"].get("missed_sessions") >= 1
+    assert "rows" not in proposal["params"]
+    assert proposal["params"]["base_checkpoint_id"] == 1
+    assert proposal["params"]["preview_fingerprint"] == "preview-1"
+    assert proposal["preview"].get("status") == "proposal"
+    assert proposal["preview"].get("future_tss_delta") == -20
 
 
 def test_noop_plan_adjustment_formatter_does_not_request_confirmation() -> None:

@@ -364,8 +364,204 @@ def test_planning_export_and_adjust_routes_registered():
         "/api/planning/export/ics",
         "/api/planning/export/workout/{index}",
         "/api/planning/reconciliation",
+        "/api/planning/reconciliation/matches",
+        "/api/planning/rebalance/preview",
+        "/api/planning/rebalance/confirm",
         "/api/planning/adjust",
     } <= paths
+
+
+def _reconciliation_db(tmp_path) -> tuple[Database, dict]:
+    from models.planning_checkpoints import build_planning_checkpoint
+    from models.session_identity import ensure_session_identities
+    from tests.smoke.test_plan_actual_reconciliation import _goal_plan
+
+    db = Database(str(tmp_path / "reconciliation.db"))
+    plan = ensure_session_identities(_goal_plan())
+    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    actuals = [
+        ("2026-07-07", "cycling", 40.0),
+        ("2026-07-08", "cycling", 42.0),
+        ("2026-07-09", "running", 45.0),
+        ("2026-07-10", "swimming", 65.0),
+        ("2026-07-11", "cycling", 80.0),
+    ]
+    db.save_activities(
+        [
+            {
+                "activity_id": f"actual-{day}",
+                "date": day,
+                "started_at_utc": f"{day}T06:00:00Z",
+                "sport": sport,
+                "duration_minutes": 60,
+                "tss": tss,
+            }
+            for day, sport, tss in actuals
+        ]
+    )
+    return db, plan
+
+
+def test_reconciliation_preview_confirm_is_future_only_and_stale_safe(tmp_path):
+    from api import planning_service as ps
+
+    db, base_plan = _reconciliation_db(tmp_path)
+    preview_result = ps.preview_weekly_rebalance(
+        db,
+        as_of="2026-07-13",
+        weeks=1,
+        include_provider=False,
+    )
+
+    reconciliation = preview_result["reconciliation"]
+    preview = preview_result["preview"]
+    assert reconciliation["base_checkpoint_id"] == 1
+    assert reconciliation["data_quality"]["status"] == "sufficient"
+    assert preview["status"] == "proposal"
+    assert all(item["date"] > "2026-07-13" for item in preview["changes"])
+
+    confirmed = ps.confirm_weekly_rebalance(
+        db,
+        base_checkpoint_id=1,
+        preview_fingerprint=preview["preview_fingerprint"],
+        as_of="2026-07-13",
+        weeks=1,
+        include_provider=False,
+    )
+    assert confirmed["applied_checkpoint_id"] == 2
+    latest = db.get_latest_planning_checkpoint()
+    assert latest["checkpoint_source"] == "weekly_rebalance"
+    active = ps.get_active_plan(db)
+    for index, item in enumerate(base_plan["daily_plan"]):
+        if item[0].date().isoformat() <= "2026-07-13":
+            assert active["daily_plan"][index] == item
+            assert active["session_templates"][index] == base_plan["session_templates"][index]
+
+    stale_preview = ps.preview_weekly_rebalance(
+        db,
+        as_of="2026-07-13",
+        weeks=1,
+        include_provider=False,
+    )["preview"]
+    db.save_planning_checkpoint(latest)
+    with pytest.raises(ps.StalePlanningCheckpointError):
+        ps.confirm_weekly_rebalance(
+            db,
+            base_checkpoint_id=2,
+            preview_fingerprint=stale_preview["preview_fingerprint"],
+            as_of="2026-07-13",
+            weeks=1,
+            include_provider=False,
+        )
+    assert db.get_latest_planning_checkpoint()["id"] == 3
+
+
+def test_provider_failure_blocks_rebalance_without_hiding_local_evidence(tmp_path, monkeypatch):
+    from api import planning_service as ps
+
+    db, _plan = _reconciliation_db(tmp_path)
+    monkeypatch.setattr(
+        ps,
+        "_provider_reconciliation_evidence",
+        lambda *_args, **_kwargs: ([], [], {"status": "unavailable", "error": "temporary"}),
+    )
+
+    result = ps.preview_weekly_rebalance(db, as_of="2026-07-13", weeks=1)
+
+    assert result["reconciliation"]["rows"]
+    assert result["reconciliation"]["provider"]["status"] == "unavailable"
+    assert result["reconciliation"]["data_quality"]["status"] == "data_gap"
+    assert "provider_unavailable" in result["reconciliation"]["data_quality"]["reasons"]
+    assert result["preview"]["status"] == "no_change"
+    assert result["preview"]["reason"] == "data_gap"
+
+
+def test_user_match_correction_appends_ledger_and_changes_reconciliation(tmp_path):
+    from api import planning_service as ps
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(item for item in plan["session_templates"] if item["date"] == "2026-07-09")
+    db.save_activities(
+        [
+            {
+                "activity_id": "cross-sport",
+                "date": "2026-07-09",
+                "started_at_utc": "2026-07-09T18:00:00Z",
+                "sport": "cycling",
+                "duration_minutes": 40,
+                "tss": 20.0,
+            }
+        ]
+    )
+
+    saved = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=["cross-sport"],
+        actual_role="easy",
+        action="confirm",
+    )
+    assert saved["match_method"] == "user_confirmed"
+    assert saved["revision"] == 1
+
+    result = ps.reconciliation_at(
+        db,
+        as_of="2026-07-13",
+        weeks=1,
+        include_provider=False,
+    )
+    row = next(item for item in result["rows"] if item["session_id"] == target["session_id"])
+    assert row["match_method"] == "user_confirmed"
+    assert row["actual_activity_ids"] == ["cross-sport"]
+    assert row["adherence"] == "substituted"
+
+    db.save_activities(
+        [{
+            "activity_id": "double-booked",
+            "date": "2026-07-09",
+            "started_at_utc": "2026-07-09T20:00:00Z",
+            "sport": "cycling",
+            "duration_minutes": 20,
+            "tss": 12.0,
+        }]
+    )
+    db.save_plan_actual_match(
+        {
+            "fingerprint": "other-session-match",
+            "target_key": "session:other-session",
+            "session_id": "other-session",
+            "base_checkpoint_id": 1,
+            "session_date": "2026-07-09",
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "confidence": 1.0,
+            "planned_snapshot": {},
+            "actual_activity_ids": ["double-booked"],
+            "actual_snapshot": {},
+            "evidence": ["existing explicit assignment"],
+            "rule_version": "test",
+        }
+    )
+    with pytest.raises(ValueError, match="already matched"):
+        ps.record_plan_actual_match(
+            db,
+            base_checkpoint_id=1,
+            session_id=target["session_id"],
+            activity_ids=["double-booked"],
+            actual_role=None,
+            action="confirm",
+        )
+
+    with pytest.raises(ValueError, match="at least one activity"):
+        ps.record_plan_actual_match(
+            db,
+            base_checkpoint_id=1,
+            session_id=target["session_id"],
+            activity_ids=[],
+            actual_role=None,
+            action="confirm",
+        )
 
 
 def test_export_and_adjust_active_plan(tmp_path):

@@ -9,6 +9,8 @@ math is reimplemented here — only orchestration + JSON shaping.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+import hashlib
+import json
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
@@ -32,10 +34,17 @@ from models.planning_checkpoints import (
 )
 from models.planning_near_term import apply_near_term_day_edits
 from models.planning_summary import summarize_near_term_edit
+from models.session_identity import ensure_session_identities
 from models.planning_execution import (
     build_execution_plan_adjustment,
     build_execution_reconciliation_rows,
     rebuild_goal_plan_with_adjustment,
+)
+from models.plan_actual_reconciliation import (
+    MATCH_RULE_VERSION,
+    apply_weekly_rebalance_preview,
+    build_reconciliation,
+    build_weekly_rebalance_preview,
 )
 from models.planning_targets import (
     DEFAULT_DEMAND_LEVEL,
@@ -448,9 +457,10 @@ def build_plan(
     })
     goal_plan, constraint_application = _apply_active_coach_constraints(db, goal_plan)
     goal_plan = synchronize_goal_plan_events(goal_plan)
+    existing_plan = restore_goal_plan_from_checkpoint(latest_checkpoint)
+    goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=existing_plan)
     goal_plan = with_checkpoint_provenance(goal_plan, source="initial_plan")
 
-    existing_plan = restore_goal_plan_from_checkpoint(latest_checkpoint)
     preview = _build_plan_preview(existing_plan, goal_plan)
     preview["base_checkpoint_id"] = latest_checkpoint_id
 
@@ -586,7 +596,8 @@ def _forecast(banister, metrics, daily_plan, start_week: date) -> Dict[str, Any]
 # Active plan access (restored from the latest persisted checkpoint)
 # ---------------------------------------------------------------------------
 def get_active_plan(db: Database) -> Optional[Dict[str, Any]]:
-    return restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    plan = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    return ensure_session_identities(plan) if plan else None
 
 
 def _infer_sport(parts: Any, template: Dict[str, Any] | None) -> str:
@@ -615,6 +626,8 @@ def plan_days(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
         out.append(
             {
                 "index": i,
+                "session_id": (tpl or {}).get("session_id"),
+                "replaces_session_id": (tpl or {}).get("replaces_session_id"),
                 "date": (dt.date() if hasattr(dt, "date") else dt).isoformat(),
                 "sport": _infer_sport(parts, tpl),
                 "sport_label": str((tpl or {}).get("sport_label") or _infer_sport(parts, tpl)),
@@ -686,13 +699,269 @@ def export_workout(goal_plan: Dict[str, Any], index: int, fmt: str) -> Dict[str,
 # Adjust mode (execution feedback → rebuilt plan)
 # ---------------------------------------------------------------------------
 def reconciliation(db: Database, weeks: int = 1) -> Dict[str, Any]:
-    goal_plan = get_active_plan(db)
+    return reconciliation_at(db, weeks=weeks)
+
+
+def _parse_as_of(value: date | str | None) -> date:
+    if isinstance(value, date):
+        return value
+    if value:
+        try:
+            return date.fromisoformat(str(value)[:10])
+        except ValueError as exc:
+            raise ValueError("as_of must be YYYY-MM-DD") from exc
+    return datetime.now().date()
+
+
+def _provider_reconciliation_evidence(
+    start: date,
+    end: date,
+    *,
+    include_provider: bool,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+    if not include_provider:
+        return [], [], {"status": "disabled"}
+    from services.intervals_icu import IntervalsICUError, get_client
+
+    client = get_client()
+    if not client.is_configured():
+        return [], [], {"status": "not_configured"}
+    try:
+        activities = client.list_activities(start, end)
+        events = client.list_workout_events(start, end)
+    except IntervalsICUError as exc:
+        return [], [], {"status": "unavailable", "error": str(exc)}
+    return activities, events, {
+        "status": "available",
+        "activity_count": len(activities),
+        "workout_event_count": len(events),
+    }
+
+
+def reconciliation_at(
+    db: Database,
+    *,
+    weeks: int = 1,
+    as_of: date | str | None = None,
+    include_provider: bool = True,
+) -> Dict[str, Any]:
+    latest = db.get_latest_planning_checkpoint()
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
     if not goal_plan or not goal_plan.get("daily_plan"):
-        return {"has_plan": False, "rows": []}
-    rows = build_execution_reconciliation_rows(
-        goal_plan, weeks=weeks, recent_activities=db.get_activities(30)
+        return {"has_plan": False, "rows": [], "unplanned_activities": []}
+    goal_plan = ensure_session_identities(goal_plan)
+    resolved_as_of = _parse_as_of(as_of)
+    resolved_weeks = max(1, min(12, int(weeks or 1)))
+    start = resolved_as_of - timedelta(days=resolved_weeks * 7 - 1)
+    provider_activities, provider_events, provider = _provider_reconciliation_evidence(
+        start,
+        resolved_as_of,
+        include_provider=include_provider,
     )
-    return {"has_plan": True, "weeks": weeks, "rows": rows}
+    ledger_rows = db.get_latest_plan_actual_matches(
+        start_date=start.isoformat(),
+        end_date=resolved_as_of.isoformat(),
+    )
+    payload = build_reconciliation(
+        goal_plan,
+        db.get_activities_between(start.isoformat(), resolved_as_of.isoformat()),
+        as_of=resolved_as_of,
+        weeks=resolved_weeks,
+        base_checkpoint_id=int(latest.get("id")),
+        provider_activities=provider_activities,
+        provider_events=provider_events,
+        ledger_rows=ledger_rows,
+    )
+    if provider.get("status") == "unavailable":
+        quality = dict(payload.get("data_quality") or {})
+        reasons = list(quality.get("reasons") or [])
+        if "provider_unavailable" not in reasons:
+            reasons.append("provider_unavailable")
+        quality["status"] = "data_gap"
+        quality["reasons"] = reasons
+        payload["data_quality"] = quality
+    return {"has_plan": True, **payload, "provider": provider}
+
+
+def _rebalance_protected_dates(
+    db: Database,
+    goal_plan: Dict[str, Any],
+    *,
+    as_of: date,
+) -> set[str]:
+    protected = {str(value)[:10] for value in goal_plan.get("protected_dates", []) or []}
+    constraints = db.get_coach_constraints(
+        start_date=(as_of + timedelta(days=1)).isoformat(),
+        end_date=(as_of + timedelta(days=7)).isoformat(),
+        active_only=True,
+        limit=100,
+    )
+    protected.update(str(item.get("date") or "")[:10] for item in constraints)
+    near_term = dict((goal_plan.get("constraint_summary") or {}).get("near_term_edit") or {})
+    edited_dates = {str(value)[:10] for value in near_term.get("edited_dates", []) or []}
+    protected.update(edited_dates)
+    if near_term.get("is_active") and not edited_dates:
+        legacy_horizon = max(0, int(near_term.get("horizon_days") or 0))
+        for item in list(goal_plan.get("daily_plan") or [])[:legacy_horizon]:
+            if isinstance(item, (list, tuple)) and item:
+                item_date = item[0].date() if hasattr(item[0], "date") else item[0]
+                protected.add(str(item_date)[:10])
+    return {value for value in protected if value}
+
+
+def preview_weekly_rebalance(
+    db: Database,
+    *,
+    weeks: int = 1,
+    as_of: date | str | None = None,
+    include_provider: bool = True,
+) -> Dict[str, Any]:
+    reconciliation_payload = reconciliation_at(
+        db,
+        weeks=weeks,
+        as_of=as_of,
+        include_provider=include_provider,
+    )
+    if not reconciliation_payload.get("has_plan"):
+        return {"has_plan": False, "reconciliation": reconciliation_payload, "preview": None}
+    latest = db.get_latest_planning_checkpoint()
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    assert goal_plan is not None
+    resolved_as_of = _parse_as_of(as_of)
+    preview = build_weekly_rebalance_preview(
+        goal_plan,
+        reconciliation_payload,
+        as_of=resolved_as_of,
+        protected_dates=_rebalance_protected_dates(db, goal_plan, as_of=resolved_as_of),
+    )
+    return {"has_plan": True, "reconciliation": reconciliation_payload, "preview": preview}
+
+
+def confirm_weekly_rebalance(
+    db: Database,
+    *,
+    base_checkpoint_id: int,
+    preview_fingerprint: str,
+    weeks: int = 1,
+    as_of: date | str | None = None,
+    include_provider: bool = True,
+) -> Dict[str, Any]:
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if latest and latest.get("id") is not None else 0
+    if latest_id != int(base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id or 'none'} no longer matches preview base #{base_checkpoint_id}"
+        )
+    current = preview_weekly_rebalance(
+        db,
+        weeks=weeks,
+        as_of=as_of,
+        include_provider=include_provider,
+    )
+    preview = dict(current.get("preview") or {})
+    if preview.get("preview_fingerprint") != str(preview_fingerprint):
+        raise StalePlanningCheckpointError("reconciliation evidence changed; request a fresh preview")
+    if preview.get("status") != "proposal":
+        raise ValueError("weekly rebalance preview has no applicable changes")
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    assert goal_plan is not None
+    updated = apply_weekly_rebalance_preview(goal_plan, preview)
+    updated = with_checkpoint_provenance(
+        updated,
+        source="weekly_rebalance",
+        parent_checkpoint_id=latest_id,
+    )
+    saved = db.save_planning_checkpoint(build_planning_checkpoint(updated))
+    return {
+        "plan_id": str(saved.get("id")),
+        "applied_checkpoint_id": int(saved.get("id")),
+        "base_checkpoint_id": latest_id,
+        "checkpoint_source": "weekly_rebalance",
+        "preview": preview,
+    }
+
+
+def record_plan_actual_match(
+    db: Database,
+    *,
+    base_checkpoint_id: int,
+    session_id: str,
+    activity_ids: List[str],
+    actual_role: str | None,
+    action: str,
+) -> Dict[str, Any]:
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if latest and latest.get("id") is not None else 0
+    if latest_id != int(base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id or 'none'} no longer matches match base #{base_checkpoint_id}"
+        )
+    goal_plan = ensure_session_identities(restore_goal_plan_from_checkpoint(latest) or {})
+    template = next(
+        (item for item in goal_plan.get("session_templates", []) or [] if item.get("session_id") == session_id),
+        None,
+    )
+    if template is None:
+        raise ValueError("planned session not found")
+    normalized_action = str(action or "confirm").strip().lower()
+    if normalized_action not in {"confirm", "reject"}:
+        raise ValueError("action must be confirm or reject")
+    if normalized_action == "confirm" and not activity_ids:
+        raise ValueError("confirm requires at least one activity")
+    activities = db.get_activities_by_ids(activity_ids if normalized_action == "confirm" else [])
+    if normalized_action == "confirm" and len(activities) != len(set(activity_ids)):
+        raise ValueError("one or more activities were not found")
+    session_date = str(template.get("date") or "")[:10]
+    if any(str(item.get("date") or "")[:10] != session_date for item in activities):
+        raise ValueError("confirmed activities must share the planned session date")
+    if normalized_action == "confirm":
+        requested_ids = {str(value) for value in activity_ids}
+        existing_matches = db.get_latest_plan_actual_matches(
+            start_date=session_date,
+            end_date=session_date,
+        )
+        conflicting_targets = [
+            str(item.get("target_key"))
+            for item in existing_matches
+            if item.get("target_key") != f"session:{session_id}"
+            and str(item.get("match_status") or "") == "matched"
+            and requested_ids.intersection(str(value) for value in item.get("actual_activity_ids", []) or [])
+        ]
+        if conflicting_targets:
+            raise ValueError("one or more activities are already matched to another planned session")
+    sports = {str(item.get("sport") or "") for item in activities if item.get("sport")}
+    actual_snapshot = {
+        "tss": round(sum(float(item.get("tss") or 0.0) for item in activities), 1),
+        "duration_minutes": round(sum(float(item.get("duration_minutes") or 0.0) for item in activities), 1),
+        "sport": next(iter(sports)) if len(sports) == 1 else "",
+        "role": str(actual_role or "").strip().lower() or None,
+    }
+    target_key = f"session:{session_id}"
+    previous = db.get_latest_plan_actual_matches(start_date=session_date, end_date=session_date)
+    previous_row = next((item for item in previous if item.get("target_key") == target_key), None)
+    payload = {
+        "target_key": target_key,
+        "session_id": session_id,
+        "base_checkpoint_id": latest_id,
+        "session_date": session_date,
+        "match_status": "matched" if normalized_action == "confirm" else "unmatched",
+        "match_method": "user_confirmed" if normalized_action == "confirm" else "user_rejected",
+        "confidence": 1.0,
+        "planned_snapshot": {
+            "date": session_date,
+            "sport": template.get("sport"),
+            "role": template.get("session_role"),
+            "session_id": session_id,
+        },
+        "actual_activity_ids": [str(item["activity_id"]) for item in activities],
+        "actual_snapshot": actual_snapshot,
+        "evidence": ["User explicitly confirmed activity match"] if normalized_action == "confirm" else ["User explicitly rejected candidate activity match"],
+        "rule_version": MATCH_RULE_VERSION,
+        "supersedes_match_id": previous_row.get("id") if previous_row else None,
+    }
+    fingerprint_source = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    payload["fingerprint"] = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
+    return db.save_plan_actual_match(payload)
 
 
 def apply_adjustment(

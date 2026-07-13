@@ -14,6 +14,7 @@ from config.settings import Settings
 from models.plan_events import normalize_intervals_event
 
 DEFAULT_USER_AGENT = "AI-Trainer/1.0 (+https://github.com/rbctmz/ai_trainer)"
+MAX_RECONCILIATION_WINDOW_DAYS = 90
 
 
 class IntervalsICUError(RuntimeError):
@@ -152,6 +153,61 @@ class IntervalsICUClient:
         )
         rows = payload if isinstance(payload, list) else []
         return [event for row in rows if isinstance(row, Mapping) if (event := normalize_intervals_event(row))]
+
+    @staticmethod
+    def _validate_reconciliation_window(oldest: date, newest: date) -> None:
+        if newest < oldest:
+            raise ValueError("newest must not be before oldest")
+        if (newest - oldest).days > MAX_RECONCILIATION_WINDOW_DAYS:
+            raise ValueError(
+                f"Intervals.icu reconciliation is limited to {MAX_RECONCILIATION_WINDOW_DAYS} days"
+            )
+
+    def list_activities(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
+        """Read only the provider fields required to join local completed activities."""
+        self._validate_reconciliation_window(oldest, newest)
+        payload = self._request_json(
+            "GET",
+            f"/api/v1/athlete/{self.athlete_id}/activities",
+            params={"oldest": oldest.isoformat(), "newest": newest.isoformat()},
+        )
+        fields = (
+            "id",
+            "external_id",
+            "paired_event_id",
+            "start_date_local",
+            "type",
+            "name",
+            "icu_training_load",
+            "moving_time",
+        )
+        return [
+            {field: row.get(field) for field in fields}
+            for row in (payload if isinstance(payload, list) else [])
+            if isinstance(row, Mapping) and row.get("id") is not None
+        ]
+
+    def list_workout_events(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
+        """Read bounded WORKOUT event identity evidence without writing the calendar."""
+        self._validate_reconciliation_window(oldest, newest)
+        payload = self._request_json(
+            "GET",
+            f"/api/v1/athlete/{self.athlete_id}/events",
+            params={"oldest": oldest.isoformat(), "newest": newest.isoformat()},
+        )
+        fields = (
+            "id",
+            "external_id",
+            "category",
+            "start_date_local",
+            "type",
+            "name",
+        )
+        return [
+            {field: row.get(field) for field in fields}
+            for row in (payload if isinstance(payload, list) else [])
+            if isinstance(row, Mapping) and str(row.get("category") or "").upper() == "WORKOUT"
+        ]
 
     def test_connection(self) -> Dict[str, Any]:
         calendars = self.list_calendars()
