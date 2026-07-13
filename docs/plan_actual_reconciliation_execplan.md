@@ -21,7 +21,8 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
 - [x] (2026-07-13 10:46Z) Replaced the web optimistic outcome selector with evidence, unplanned load, ambiguity resolution and explicit preview/confirm UI; updated Coach proposal rendering.
 - [x] (2026-07-13 10:48Z) Passed synthetic 07–12 July acceptance and the production Next.js build.
 - [x] (2026-07-13 10:51Z) Completed self-review and final validation: focused `56 passed`; smoke `536 passed, 1 skipped`; broader non-live `579 passed, 6 skipped, 24 deselected`; `git diff --check` clean.
-- [x] (2026-07-13 10:54Z) Pushed the isolated branch and opened draft PR #177 with `Closes #172`; link, sync and ready-to-merge automation passed while contributor-safe CI was running.
+- [x] (2026-07-13 10:54Z) Pushed the isolated branch and opened PR #177 with `Closes #172`; contributor-safe CI, link and ready-to-merge checks passed.
+- [x] (2026-07-13 10:58Z) Marked #177 ready for review according to the repository loop; it received `status: ready to merge`. The automatic `@codex review` request could not produce a review because the GitHub account is not connected to a Codex account, so Claude Code or a human remains the independent checker before merge.
 
 ## Surprises & Discoveries
 
@@ -105,7 +106,7 @@ Implementation is complete and ready for draft review. Planning now shows eviden
 
 Stable session identity survives checkpoint round-trips and unchanged rebuilds. Materially changed sessions get a new ID plus immediate replacement lineage, and lineage remains visible on subsequent unchanged rebuilds. Provider calls are bounded GETs only; no Intervals write path was added.
 
-Final evidence: focused `56 passed`; contributor-safe smoke `536 passed, 1 skipped`; broader non-live `579 passed, 6 skipped, 24 deselected`; production Next.js build passed; `git diff --check` passed. The socket, local-data and optional-Garth skips are environment-dependent and pre-existing, not regressions. The remaining publication step is push plus draft PR; human review and merge remain the project gate.
+Final evidence: focused `56 passed`; contributor-safe smoke `536 passed, 1 skipped`; broader non-live `579 passed, 6 skipped, 24 deselected`; production Next.js build passed; `git diff --check` passed. The socket, local-data and optional-Garth skips are environment-dependent and pre-existing, not regressions. PR #177 is ready and labelled `status: ready to merge`; independent review and the human merge decision remain the project gate.
 
 ## Context and Orientation
 
@@ -174,7 +175,7 @@ Do not delete or rewrite old execution checkpoints. Legacy checkpoints without I
 
 Issue: `https://github.com/rbctmz/ai_trainer/issues/172`.
 
-Draft PR: `https://github.com/rbctmz/ai_trainer/pull/177`.
+Pull request: `https://github.com/rbctmz/ai_trainer/pull/177`.
 
 Baseline commit: `3c94b70` (merged PR #171). The prior main baseline was 501 passed and one skipped; update exact final counts after validation.
 
