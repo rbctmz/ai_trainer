@@ -5,6 +5,7 @@ from copy import deepcopy
 from datetime import date, datetime, timedelta
 import hashlib
 import json
+import math
 import re
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -459,7 +460,7 @@ def build_weekly_rebalance_preview(
         reduction = min(item["capacity"], proportional)
         if position == len(eligible) - 1:
             reduction = min(item["capacity"], remaining)
-        reduction = round(reduction, 1)
+        reduction = math.floor((reduction + 1e-9) * 10.0) / 10.0
         if reduction <= 0:
             continue
         after = round(item["before_tss"] - reduction, 1)
