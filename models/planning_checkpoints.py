@@ -10,6 +10,7 @@ from models.planning_execution import (
     summarize_execution_weekly_review,
 )
 from models.plan_events import synchronize_goal_plan_events
+from models.session_identity import ensure_session_identities
 from models.planning_summary import (
     summarize_execution_adaptation_pressure,
     summarize_near_term_edit,
@@ -23,6 +24,7 @@ CHECKPOINT_SOURCE_LABELS = {
     "execution_adjustment": "Execution replan",
     "coach_constraint": "Ограничение Коуча",
     "recovery_replan": "Recovery Replan",
+    "weekly_rebalance": "Недельная пересборка по факту",
     "restore_version": "Восстановленная версия",
     "legacy_checkpoint": "Сохранённая версия",
 }
@@ -186,6 +188,10 @@ def summarize_checkpoint_provenance(checkpoint: Dict[str, Any] | None) -> Dict[s
             if isinstance(near_term_edit, dict)
             else "Ключевая сессия снижена по readiness-конфликту"
         )
+    elif source == "weekly_rebalance":
+        weekly_rebalance = snapshot_constraint_summary.get("weekly_rebalance", {}) or {}
+        delta = int(round(float(weekly_rebalance.get("future_tss_delta") or 0)))
+        detail = f"Future-only rebalance · Δ {delta:+d} TSS"
     else:
         detail = "Checkpoint без явной provenance-метки"
 
@@ -201,7 +207,7 @@ def summarize_checkpoint_provenance(checkpoint: Dict[str, Any] | None) -> Dict[s
 
 def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     """Build a compact persisted snapshot from the current goal plan."""
-    goal_plan = synchronize_goal_plan_events(goal_plan)
+    goal_plan = ensure_session_identities(synchronize_goal_plan_events(goal_plan))
     weekly_summary_rows: List[Dict[str, Any]] = []
     for row in goal_plan.get("weekly_summary", []) or []:
         weekly_summary_rows.append(
@@ -339,7 +345,7 @@ def checkpoint_to_goal_plan_context(checkpoint: Dict[str, Any] | None) -> Dict[s
         normalized_row["week_start"] = _parse_date(normalized_row.get("week_start"))
         weekly_summary.append(normalized_row)
     goal_plan_snapshot["weekly_summary"] = weekly_summary
-    return goal_plan_snapshot
+    return ensure_session_identities(goal_plan_snapshot)
 
 
 def restore_goal_plan_from_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict[str, Any] | None:
@@ -349,7 +355,7 @@ def restore_goal_plan_from_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict
         return None
 
     if goal_plan_snapshot.get("daily_plan") and goal_plan_snapshot.get("session_templates"):
-        return goal_plan_snapshot
+        return ensure_session_identities(goal_plan_snapshot)
 
     from models.training_planner import (
         build_daily_session_templates,
@@ -391,7 +397,7 @@ def restore_goal_plan_from_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict
         distance=distance,
     )
 
-    return {
+    return ensure_session_identities({
         **goal_plan_snapshot,
         "daily_plan": daily_plan,
         "session_templates": session_templates,
@@ -401,7 +407,7 @@ def restore_goal_plan_from_checkpoint(checkpoint: Dict[str, Any] | None) -> Dict
         "distance": distance,
         "constraint_summary": constraint_summary,
         "phases": phases,
-    }
+    })
 
 
 def get_near_term_edit_rollback_target_checkpoint_id(checkpoint: Dict[str, Any] | None) -> int | None:

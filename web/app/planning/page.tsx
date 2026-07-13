@@ -4,18 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
 import {
-  AdjustResult,
   BuiltPlan,
   ForecastPoint,
-  Outcome,
   PlanningEventsResponse,
   PlanningDemand,
   PlanningHistory,
   PlanExport,
   PlanningStatus,
   PlanWeek,
+  RebalanceConfirmResult,
+  RebalancePreviewResult,
   ReconResponse,
-  ReconRow,
   RaceEvent,
   TargetPreview,
 } from "@/lib/types";
@@ -57,13 +56,6 @@ const DAYS = [
   { value: "fri", label: "Пт" },
   { value: "sat", label: "Сб" },
   { value: "sun", label: "Вс" },
-];
-
-const OUTCOMES: { value: Outcome; label: string }[] = [
-  { value: "as_planned", label: "По плану" },
-  { value: "skipped", label: "Пропущено" },
-  { value: "reduced", label: "Урезано" },
-  { value: "unavailable", label: "Недоступно" },
 ];
 
 const TABS = ["build", "adjust", "export"] as const;
@@ -575,37 +567,82 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
     hasPlan ? "/api/planning/reconciliation?weeks=1" : null,
     fetcher,
   );
-  const [rows, setRows] = useState<ReconRow[] | null>(null);
-  const [result, setResult] = useState<AdjustResult | null>(null);
+  const [previewResult, setPreviewResult] = useState<RebalancePreviewResult | null>(null);
+  const [result, setResult] = useState<RebalanceConfirmResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const current = rows ?? data?.rows ?? null;
-
-  function setOutcome(i: number, outcome: Outcome) {
-    if (!current) return;
-    const next = current.map((r) =>
-      r.index === i
-        ? { ...r, outcome, actual_total_tss: outcome === "as_planned" ? r.planned_total_tss : outcome === "skipped" || outcome === "unavailable" ? 0 : Math.round(r.planned_total_tss * 0.6) }
-        : r,
-    );
-    setRows(next);
+  async function buildPreview() {
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const r = await postJSON<RebalancePreviewResult>("/api/planning/rebalance/preview", {
+        weeks: 1,
+      });
+      setPreviewResult(r);
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : "Не удалось подготовить пересборку");
+    } finally {
+      setBusy(false);
+    }
   }
 
-  async function submit() {
-    if (!current) return;
+  async function confirmPreview() {
+    const preview = previewResult?.preview;
+    if (!preview || preview.status !== "proposal") return;
     setBusy(true);
     setError(null);
     try {
-      const r = await postJSON<AdjustResult>("/api/planning/adjust", {
-        rows: current,
+      const confirmed = await postJSON<RebalanceConfirmResult>("/api/planning/rebalance/confirm", {
         weeks: 1,
+        as_of: preview.as_of,
+        base_checkpoint_id: preview.base_checkpoint_id,
+        preview_fingerprint: preview.preview_fingerprint,
       });
-      setResult(r);
-      mutate();
+      setResult(confirmed);
+      setPreviewResult(null);
+      await mutate();
+      mutateGlobal("/api/planning/status");
       mutateGlobal("/api/planning/history?limit=8");
     } catch (e) {
-      setError(e instanceof ApiError ? e.message : "Не удалось пересобрать план");
+      if (e instanceof ApiError && e.status === 409) {
+        setPreviewResult(null);
+        await mutate();
+        setError("План или фактические данные изменились. Подготовьте новый preview.");
+      } else {
+        setError(e instanceof ApiError ? e.message : "Не удалось применить пересборку");
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function resolveMatch(
+    row: ReconResponse["rows"][number],
+    action: "confirm" | "reject",
+  ) {
+    if (data?.base_checkpoint_id == null) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await postJSON("/api/planning/reconciliation/matches", {
+        base_checkpoint_id: data.base_checkpoint_id,
+        session_id: row.session_id,
+        activity_ids: action === "confirm" ? row.candidate_activities.map((item) => item.activity_id) : [],
+        actual_role: null,
+        action,
+      });
+      setPreviewResult(null);
+      await mutate();
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        setPreviewResult(null);
+        await mutate();
+        setError("Активный план изменился. Проверьте сопоставление заново.");
+      } else {
+        setError(e instanceof ApiError ? e.message : "Не удалось сохранить сопоставление");
+      }
     } finally {
       setBusy(false);
     }
@@ -614,11 +651,35 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
   if (!hasPlan) return <EmptyPlan />;
   if (!data) return <Skeleton />;
 
+  const matchLabels: Record<string, string> = {
+    matched: "Сопоставлено",
+    ambiguous: "Нужно уточнить",
+    unmatched: "Нет факта",
+  };
+  const adherenceLabels: Record<string, string> = {
+    exact: "точно",
+    substituted: "замена",
+    major_deviation: "сильное отклонение",
+    unknown: "не оценено",
+  };
+  const reasonLabels: Record<string, string> = {
+    data_gap: "Пока недостаточно надёжных сопоставлений — план не меняется.",
+    no_change_under_plan: "Недовыполнение принято как факт: догонять объём автоматически не будем.",
+    no_change_below_threshold: "Отклонение меньше 10 TSS — пересборка не нужна.",
+    no_eligible_future_sessions: "Нет будущих лёгких сессий, которые можно безопасно уменьшить.",
+  };
+  const preview = previewResult?.preview;
+
   return (
     <>
       <section className="overflow-hidden rounded-card border border-surface-border bg-surface shadow-card">
-        <div className="border-b border-surface-border p-4 text-sm text-ink-soft">
-          Отметьте, как прошли тренировки за неделю — план пересоберётся с учётом факта.
+        <div className="border-b border-surface-border p-4">
+          <div className="text-sm font-medium text-ink">План и факт · {data.window?.start}–{data.window?.end}</div>
+          <div className="mt-1 text-xs text-ink-soft">
+            Сопоставлено {data.data_quality?.matched_count ?? 0} из {data.data_quality?.planned_session_count ?? 0}
+            {data.data_quality ? ` · coverage ${Math.round(data.data_quality.coverage * 100)}%` : ""}
+            {data.provider?.status ? ` · Intervals: ${data.provider.status}` : ""}
+          </div>
         </div>
         <table className="w-full text-sm">
           <thead>
@@ -626,45 +687,78 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
               <th className="px-3 py-2.5 font-medium">Дата</th>
               <th className="px-3 py-2.5 font-medium">Сессия</th>
               <th className="px-3 py-2.5 text-right font-medium">План TSS</th>
-              <th className="px-3 py-2.5 font-medium">Итог</th>
+              <th className="px-3 py-2.5 text-right font-medium">Факт TSS</th>
+              <th className="px-3 py-2.5 font-medium">Доказательство</th>
             </tr>
           </thead>
           <tbody>
-            {(current ?? []).map((r) => (
-              <tr key={r.index} className="border-b border-surface-border last:border-0">
+            {data.rows.map((r) => (
+              <tr key={r.session_id} className="border-b border-surface-border last:border-0 align-top">
                 <td className="px-3 py-2.5 text-ink-soft">{r.date.slice(5)}</td>
                 <td className="px-3 py-2.5 text-ink">
-                  {r.sport_label}
-                  {r.session_role_label ? ` · ${r.session_role_label}` : ""}
+                  <div>{r.name}</div>
+                  <div className="mt-0.5 text-xs text-ink-faint">{r.sport} · {r.role}</div>
                 </td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-ink">
-                  {r.planned_total_tss}
+                  {r.tss}
+                </td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-ink">
+                  {r.actual_total_tss}
+                  {r.actual_activities.length ? (
+                    <div className="mt-1 text-[11px] text-ink-faint">
+                      {r.actual_activities.map((item) => `${item.name} ${item.tss} TSS`).join(" · ")}
+                    </div>
+                  ) : null}
                 </td>
                 <td className="px-3 py-2.5">
-                  <select
-                    value={r.outcome}
-                    onChange={(e) => setOutcome(r.index, e.target.value as Outcome)}
-                    className="rounded-lg border border-surface-border bg-surface px-2 py-1 text-xs"
-                  >
-                    {OUTCOMES.map((o) => (
-                      <option key={o.value} value={o.value}>
-                        {o.label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className={r.match_status === "ambiguous" ? "text-tone-warning" : r.match_status === "matched" ? "text-tone-success" : "text-ink-soft"}>
+                    {matchLabels[r.match_status] ?? r.match_status}
+                  </div>
+                  <div className="mt-0.5 text-xs text-ink-faint">
+                    {r.match_method} · {adherenceLabels[r.adherence] ?? r.adherence} · {Math.round(r.confidence * 100)}%
+                  </div>
+                  {r.evidence[0] ? <div className="mt-1 max-w-xs text-[11px] text-ink-faint">{r.evidence[0]}</div> : null}
+                  {r.match_status === "ambiguous" && r.candidate_activities.length ? (
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => resolveMatch(r, "confirm")}
+                        disabled={busy}
+                        className="rounded border border-tone-success/30 px-2 py-1 text-[11px] text-tone-success disabled:opacity-40"
+                      >
+                        Сопоставить {r.candidate_activities.length} акт.
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => resolveMatch(r, "reject")}
+                        disabled={busy}
+                        className="rounded border border-surface-border px-2 py-1 text-[11px] text-ink-soft disabled:opacity-40"
+                      >
+                        Не относится
+                      </button>
+                    </div>
+                  ) : null}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {data.unplanned_activities.length ? (
+          <div className="border-t border-surface-border bg-surface-muted/40 p-4 text-xs text-ink-soft">
+            <div className="font-medium text-ink">Несопоставленная нагрузка · {data.metrics?.unplanned_tss ?? 0} TSS</div>
+            <div className="mt-1">
+              {data.unplanned_activities.map((item) => `${item.date.slice(5)} ${item.name} · ${item.sport} · ${item.tss} TSS`).join("; ")}
+            </div>
+          </div>
+        ) : null}
         <div className="p-4">
           <button
             type="button"
-            onClick={submit}
+            onClick={buildPreview}
             disabled={busy}
             className="rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
           >
-            {busy ? "Пересобираю…" : "♻️ Пересобрать план"}
+            {busy ? "Проверяю…" : "Подготовить future-only preview"}
           </button>
           {error ? (
             <div className="mt-3 rounded-lg bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
@@ -674,18 +768,44 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
         </div>
       </section>
 
+      {preview ? (
+        <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+          <div className="text-sm font-medium text-ink">
+            {preview.status === "proposal" ? `Предложение: ${preview.future_tss_delta} TSS только в будущем` : "План остаётся без изменений"}
+          </div>
+          {preview.status === "no_change" ? (
+            <div className="mt-2 text-sm text-ink-soft">{reasonLabels[preview.reason] ?? preview.reason}</div>
+          ) : (
+            <>
+              <div className="mt-2 space-y-2 text-sm text-ink-soft">
+                {preview.changes.map((item) => (
+                  <div key={item.session_id} className="flex justify-between rounded-lg bg-surface-muted px-3 py-2">
+                    <span>{item.date} · easy</span>
+                    <span className="tabular-nums">{item.before_tss} → {item.after_tss} TSS</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 text-xs text-ink-faint">
+                Сегодня и прошлое, гонки, отдых, ограничения и ручные правки не меняются.
+                {preview.unused_reduction_tss > 0 ? ` Неиспользованный лимит: ${preview.unused_reduction_tss} TSS.` : ""}
+              </div>
+              <button
+                type="button"
+                onClick={confirmPreview}
+                disabled={busy}
+                className="mt-4 rounded-lg bg-accent px-6 py-2.5 text-sm font-medium text-accent-foreground disabled:opacity-40"
+              >
+                {busy ? "Применяю…" : "Подтвердить пересборку"}
+              </button>
+            </>
+          )}
+        </section>
+      ) : null}
+
       {result ? (
-        <>
-          <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
-            <div className="text-sm text-ink">
-              {result.adjustment.label} · выполнение{" "}
-              {Math.round(result.adjustment.completion_share * 100)}% · пропущено{" "}
-              {result.adjustment.missed_sessions}
-            </div>
-          </section>
-          <ForecastSection forecast={result.forecast} />
-          <WeeksTable weeks={result.weeks} />
-        </>
+        <section className="rounded-card border border-tone-success/30 bg-tone-success/10 p-4 text-sm text-tone-success shadow-card">
+          Создан checkpoint #{result.applied_checkpoint_id}. Прошлая версия осталась в истории.
+        </section>
       ) : null}
     </>
   );

@@ -251,6 +251,14 @@ def _apply_proposal(db: Database, proposal: dict[str, Any]) -> dict[str, Any]:
         )
 
     if action == "adjust_plan":
+        if params.get("preview_fingerprint") and params.get("base_checkpoint_id") is not None:
+            return planning_service.confirm_weekly_rebalance(
+                db,
+                base_checkpoint_id=int(params.get("base_checkpoint_id")),
+                preview_fingerprint=str(params.get("preview_fingerprint")),
+                weeks=int(params.get("weeks") or 1),
+                as_of=params.get("as_of"),
+            )
         rows = params.get("rows") or []
         if not isinstance(rows, list):
             raise ValueError("proposal adjustment rows are invalid")

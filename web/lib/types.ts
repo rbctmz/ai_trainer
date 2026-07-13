@@ -544,27 +544,110 @@ export interface DashboardWidgets {
   race_projection: RaceProjectionData | null;
 }
 
-// --- Planning: adjust (execution feedback) ---
-export type Outcome = "as_planned" | "skipped" | "reduced" | "unavailable";
+// --- Planning: evidence reconciliation + future-only rebalance ---
+export type MatchStatus = "matched" | "ambiguous" | "unmatched" | "unplanned";
+export type PlanAdherence = "exact" | "substituted" | "major_deviation" | "unknown";
+
+export interface ReconActivity {
+  activity_id: string;
+  date: string;
+  sport: string;
+  tss: number;
+  duration_minutes: number;
+  name: string;
+}
 
 export interface ReconRow {
   index: number;
+  session_id: string;
   date: string;
-  date_label?: string;
-  sport_label: string;
-  session_role_label?: string;
-  planned_total_tss: number;
+  name: string;
+  sport: string;
+  role: string;
+  tss: number;
+  duration_minutes: number;
+  match_status: MatchStatus;
+  match_method: string;
+  confidence: number;
+  evidence: string[];
+  adherence: PlanAdherence;
+  actual_activity_ids: string[];
+  actual_activities: ReconActivity[];
+  candidate_activities: ReconActivity[];
   actual_total_tss: number;
-  outcome: Outcome;
-  [key: string]: unknown; // round-tripped back to the backend untouched
+  actual_duration_minutes: number;
 }
 
 export interface ReconResponse {
   has_plan: boolean;
-  weeks?: number;
+  rule_version?: string;
+  base_checkpoint_id?: number;
+  as_of?: string;
+  window?: { start: string; end: string; weeks: number };
   rows: ReconRow[];
+  unplanned_activities: ReconActivity[];
+  data_quality?: {
+    status: "sufficient" | "data_gap";
+    planned_session_count: number;
+    matched_count: number;
+    ambiguous_count: number;
+    unmatched_count: number;
+    coverage: number;
+    reasons: string[];
+  };
+  metrics?: {
+    planned_tss: number;
+    matched_actual_tss: number;
+    unplanned_tss: number;
+    total_actual_tss: number;
+    exact_count: number;
+    substituted_count: number;
+    major_deviation_count: number;
+    unknown_count: number;
+  };
+  provider?: { status: string; activity_count?: number; workout_event_count?: number; error?: string };
 }
 
+export interface RebalanceChange {
+  index: number;
+  date: string;
+  session_id: string;
+  session_role: string;
+  before_tss: number;
+  after_tss: number;
+  delta_tss: number;
+}
+
+export interface RebalancePreview {
+  rule_version: string;
+  base_checkpoint_id: number;
+  as_of: string;
+  status: "proposal" | "no_change";
+  reason: string;
+  preview_fingerprint: string;
+  overage_tss?: number;
+  reduction_budget_tss: number;
+  future_tss_delta: number;
+  unused_reduction_tss: number;
+  changes: RebalanceChange[];
+}
+
+export interface RebalancePreviewResult {
+  has_plan: boolean;
+  reconciliation: ReconResponse;
+  preview: RebalancePreview | null;
+}
+
+export interface RebalanceConfirmResult {
+  plan_id: string;
+  applied_checkpoint_id: number;
+  base_checkpoint_id: number;
+  checkpoint_source: "weekly_rebalance";
+  preview: RebalancePreview;
+}
+
+// Compatibility result for existing Coach `adjust_plan` proposals. The Planning
+// Adjust tab uses RebalancePreviewResult/RebalanceConfirmResult instead.
 export interface AdjustResult {
   plan_id: string | null;
   adjustment: {

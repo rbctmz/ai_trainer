@@ -159,3 +159,84 @@ def test_list_race_events_rejects_more_than_one_year() -> None:
     client = intervals_icu.IntervalsICUClient(api_key="secret")
     with pytest.raises(ValueError, match="365"):
         client.list_race_events(date(2026, 1, 1), date(2027, 1, 2))
+
+
+def test_list_execution_evidence_is_bounded_get_and_keeps_match_fields(monkeypatch):
+    client = intervals_icu.IntervalsICUClient(api_key="secret", athlete_id="0")
+    calls = []
+
+    def fake_request(_self, method, path, payload=None, params=None):
+        calls.append({"method": method, "path": path, "payload": payload, "params": params})
+        if path.endswith("/activities"):
+            return [
+                {
+                    "id": "i123",
+                    "external_id": "garmin-123",
+                    "paired_event_id": "e456",
+                    "start_date_local": "2026-07-12T08:00:00",
+                    "type": "Ride",
+                    "name": "Morning Ride",
+                    "icu_training_load": 30.2,
+                    "moving_time": 3600,
+                }
+            ]
+        return [
+            {
+                "id": "e456",
+                "external_id": "ai_trainer:ats_123",
+                "category": "WORKOUT",
+                "start_date_local": "2026-07-12T07:00:00",
+                "type": "Ride",
+                "name": "Planned Ride",
+            },
+            {"id": "race", "category": "RACE_B", "start_date_local": "2026-07-12T09:00:00"},
+        ]
+
+    monkeypatch.setattr(intervals_icu.IntervalsICUClient, "_request_json", fake_request)
+    activities = client.list_activities(date(2026, 7, 7), date(2026, 7, 13))
+    events = client.list_workout_events(date(2026, 7, 7), date(2026, 7, 13))
+
+    assert calls == [
+        {
+            "method": "GET",
+            "path": "/api/v1/athlete/0/activities",
+            "payload": None,
+            "params": {"oldest": "2026-07-07", "newest": "2026-07-13"},
+        },
+        {
+            "method": "GET",
+            "path": "/api/v1/athlete/0/events",
+            "payload": None,
+            "params": {"oldest": "2026-07-07", "newest": "2026-07-13"},
+        },
+    ]
+    assert activities == [
+        {
+            "id": "i123",
+            "external_id": "garmin-123",
+            "paired_event_id": "e456",
+            "start_date_local": "2026-07-12T08:00:00",
+            "type": "Ride",
+            "name": "Morning Ride",
+            "icu_training_load": 30.2,
+            "moving_time": 3600,
+        }
+    ]
+    assert events == [
+        {
+            "id": "e456",
+            "external_id": "ai_trainer:ats_123",
+            "category": "WORKOUT",
+            "start_date_local": "2026-07-12T07:00:00",
+            "type": "Ride",
+            "name": "Planned Ride",
+        }
+    ]
+
+
+def test_execution_evidence_rejects_unbounded_window() -> None:
+    client = intervals_icu.IntervalsICUClient(api_key="secret")
+    with pytest.raises(ValueError, match="90"):
+        client.list_activities(date(2026, 1, 1), date(2026, 4, 2))
+    with pytest.raises(ValueError, match="newest"):
+        client.list_workout_events(date(2026, 7, 13), date(2026, 7, 12))

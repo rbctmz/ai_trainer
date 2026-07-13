@@ -446,6 +446,29 @@ class Database:
         ''')
 
         conn.execute('''
+            CREATE TABLE IF NOT EXISTS plan_actual_matches (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerprint TEXT NOT NULL UNIQUE,
+                target_key TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                supersedes_match_id INTEGER,
+                session_id TEXT,
+                base_checkpoint_id INTEGER NOT NULL,
+                session_date TEXT NOT NULL,
+                match_status TEXT NOT NULL,
+                match_method TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                planned_snapshot_json TEXT NOT NULL,
+                actual_activity_ids_json TEXT NOT NULL,
+                actual_snapshot_json TEXT NOT NULL,
+                evidence_json TEXT NOT NULL,
+                rule_version TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(target_key, revision)
+            )
+        ''')
+
+        conn.execute('''
             CREATE TABLE IF NOT EXISTS coach_constraints (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT NOT NULL,
@@ -483,6 +506,14 @@ class Database:
         conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_session_quality_status
             ON session_quality_predictions(status, target_date)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_plan_actual_matches_target
+            ON plan_actual_matches(target_key, revision)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_plan_actual_matches_date
+            ON plan_actual_matches(session_date, match_status)
         ''')
         conn.commit()
         conn.close()
@@ -1218,6 +1249,143 @@ class Database:
         rows = cursor.fetchall()
         conn.close()
         return [dict(zip(columns, row)) for row in rows]
+
+    def get_activities_between(self, start_date, end_date):
+        columns = list(self._ACTIVITY_COLUMN_ORDER)
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            f"SELECT {', '.join(columns)} FROM activities WHERE date BETWEEN ? AND ? ORDER BY date, started_at_utc, activity_id",
+            (str(start_date), str(end_date)),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(zip(columns, row)) for row in rows]
+
+    def save_plan_actual_match(self, payload):
+        """Append one immutable user match revision, idempotent by fingerprint."""
+        required = {
+            "fingerprint",
+            "target_key",
+            "base_checkpoint_id",
+            "session_date",
+            "match_status",
+            "match_method",
+            "confidence",
+            "planned_snapshot",
+            "actual_activity_ids",
+            "actual_snapshot",
+            "evidence",
+            "rule_version",
+        }
+        missing = sorted(key for key in required if key not in payload)
+        if missing:
+            raise ValueError(f"plan actual match missing fields: {', '.join(missing)}")
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM plan_actual_matches WHERE fingerprint = ? LIMIT 1",
+                (str(payload["fingerprint"]),),
+            )
+            existing = cursor.fetchone()
+            if existing:
+                conn.commit()
+                return self._deserialize_plan_actual_match(existing)
+            cursor.execute(
+                "SELECT COALESCE(MAX(revision), 0) + 1 FROM plan_actual_matches WHERE target_key = ?",
+                (str(payload["target_key"]),),
+            )
+            revision = int(cursor.fetchone()[0])
+            cursor.execute(
+                '''
+                INSERT INTO plan_actual_matches
+                    (fingerprint, target_key, revision, supersedes_match_id, session_id,
+                     base_checkpoint_id, session_date, match_status, match_method, confidence,
+                     planned_snapshot_json, actual_activity_ids_json, actual_snapshot_json,
+                     evidence_json, rule_version)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    str(payload["fingerprint"]),
+                    str(payload["target_key"]),
+                    revision,
+                    payload.get("supersedes_match_id"),
+                    payload.get("session_id"),
+                    int(payload["base_checkpoint_id"]),
+                    str(payload["session_date"]),
+                    str(payload["match_status"]),
+                    str(payload["match_method"]),
+                    float(payload["confidence"]),
+                    json.dumps(payload.get("planned_snapshot") or {}, ensure_ascii=False, sort_keys=True),
+                    json.dumps(payload.get("actual_activity_ids") or [], ensure_ascii=False),
+                    json.dumps(payload.get("actual_snapshot") or {}, ensure_ascii=False, sort_keys=True),
+                    json.dumps(payload.get("evidence") or [], ensure_ascii=False),
+                    str(payload["rule_version"]),
+                ),
+            )
+            row_id = cursor.lastrowid
+            cursor.execute("SELECT * FROM plan_actual_matches WHERE id = ?", (row_id,))
+            row = cursor.fetchone()
+            conn.commit()
+            return self._deserialize_plan_actual_match(row)
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_latest_plan_actual_matches(self, *, start_date, end_date):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT pam.*
+            FROM plan_actual_matches pam
+            JOIN (
+                SELECT target_key, MAX(revision) AS revision
+                FROM plan_actual_matches
+                WHERE session_date BETWEEN ? AND ?
+                GROUP BY target_key
+            ) latest
+              ON latest.target_key = pam.target_key AND latest.revision = pam.revision
+            ORDER BY pam.session_date, pam.target_key
+            ''',
+            (str(start_date), str(end_date)),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [self._deserialize_plan_actual_match(row) for row in rows]
+
+    @staticmethod
+    def _deserialize_plan_actual_match(row):
+        if not row:
+            return None
+        def _json(value, fallback):
+            try:
+                return json.loads(value) if value else fallback
+            except (TypeError, json.JSONDecodeError):
+                return fallback
+        return {
+            "id": row[0],
+            "fingerprint": row[1],
+            "target_key": row[2],
+            "revision": row[3],
+            "supersedes_match_id": row[4],
+            "session_id": row[5],
+            "base_checkpoint_id": row[6],
+            "session_date": row[7],
+            "match_status": row[8],
+            "match_method": row[9],
+            "confidence": row[10],
+            "planned_snapshot": _json(row[11], {}),
+            "actual_activity_ids": _json(row[12], []),
+            "actual_snapshot": _json(row[13], {}),
+            "evidence": _json(row[14], []),
+            "rule_version": row[15],
+            "created_at": row[16],
+        }
 
     def save_coach_proposal(
         self,
