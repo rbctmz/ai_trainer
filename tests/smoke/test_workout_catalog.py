@@ -53,7 +53,7 @@ def _selection_context(**overrides):
         "phase": "Base",
         "goal_type": "triathlon",
         "duration_minutes": 60,
-        "target_tss": 60.0,
+        "target_tss": 80.0,
         "load_state": "balanced",
         "recent_template_keys": [],
     }
@@ -253,4 +253,3 @@ def test_brick_allocator_is_conservative_when_swim_cannot_move_or_day_is_protect
     assert no_donor["reason"] == "insufficient_unprotected_donor_capacity"
     assert protected["status"] == "unchanged"
     assert protected["reason"] == "no_eligible_long_day"
-

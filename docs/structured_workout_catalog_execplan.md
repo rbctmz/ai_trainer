@@ -15,7 +15,7 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 - [x] (2026-07-13 11:21Z) Audited the role-only template builder, FIT/TCX exporters, checkpoint serializer, session identity, manual/recovery edits, readiness gate, Today API and Planning web surface.
 - [x] (2026-07-13 11:21Z) Pre-registered the catalog bounds, phase matrix, selector precedence, target fallback rules, brick allocation and exporter contract in this plan before tests or implementation.
 - [ ] Add failing BDD/contract tests for the catalog, selector, materializer, checkpoint history, brick, recovery atomics, exporters and public API.
-- [ ] Implement the immutable 19-definition catalog and deterministic selector/materializer as a headless Python domain.
+- [x] (2026-07-13 11:41Z) Implemented the immutable 19-definition catalog, deterministic selector/materializer and conservative weekly brick allocator as a headless Python domain; 8 new BDD tests and 10 existing planner tests pass.
 - [ ] Integrate catalog snapshots, prescription identity and one brick per eligible triathlon week into plan generation and all mutation paths.
 - [ ] Migrate FIT/TCX/local export, Planning and Today to the persisted materialized prescription.
 - [ ] Run focused, smoke, broader non-live and Next.js production checks; execute synthetic bike-to-run brick acceptance.
@@ -40,6 +40,9 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 
 - Observation: the persisted athlete profile currently contains FTP and LTHR but no threshold run pace or critical swim speed.
   Evidence: the `athlete_profile` schema and `Database.get_athlete_profile` expose only `ftp`, `weight_kg`, `lthr`, source and timestamp. Run and swim prescriptions need explicit relative/RPE fallback provenance until those zones exist.
+
+- Observation: a phase preference cannot rank on the human-readable `stimulus` explanation because it is deliberately descriptive rather than an enum.
+  Evidence: the first selector test chose neuromuscular work instead of aerobic progression when the rank map compared `progression` to `progressive aerobic durability`. Selection now ranks the stable `step_builder_key` while preserving the richer stimulus text as product evidence.
 
 ## Decision Log
 
