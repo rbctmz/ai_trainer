@@ -13,7 +13,7 @@ The user-visible proof is a compact post-session card under the existing “Yest
 - [x] (2026-07-13 19:05Z) Read Issue #175, the reviewer’s pre-ExecPlan audit, `.agent/PLANS.md`, the repository workflow/ADR, and the current Today, reconciliation, forecast, SQLite, API, web, and test contracts.
 - [x] (2026-07-13 19:05Z) Created isolated worktree `/private/tmp/ai_trainer_issue175` on `codex/issue-175-post-workout-feedback` from `origin/main` at `c105de9`.
 - [x] (2026-07-13 19:05Z) Pre-registered the append-only schemas, prompt lifecycle, time provenance, quality semantics, compatibility bridge, and no-duplicate-reconciliation boundary in this plan before product implementation.
-- [ ] Add BDD/TDD tests and record the expected red failures before production code.
+- [x] (2026-07-13 19:22Z) Added the first BDD/TDD contract for time provenance, prompt states, bricks, non-start timing, independent RPE/quality, append-only/idempotent feedback, correction evaluations, stats/clear, and API routes; the red run stopped at the expected missing domain module.
 - [ ] Implement transaction-safe feedback, prompt-event, and forecast-evaluation persistence.
 - [ ] Implement the headless feedback/prompt/evaluation service and compatibility bridge.
 - [ ] Add FastAPI contracts and compose feedback into Today without another provider fetch.
@@ -37,6 +37,9 @@ The user-visible proof is a compact post-session card under the existing “Yest
 
 - Observation: the same quality mapping is already a scientific contract in three places.
   Evidence: Issue D and `docs/session_quality_forecast_execplan.md`, `models/session_quality_forecast.py::brier_score`, and `docs/woz_tracking_schema.md` all define 1–2 as failure, 3 as ambiguous/unscored, and 4–5 as success.
+
+- Observation: the contract-first red phase fails at the intended first missing boundary.
+  Evidence: `python -m pytest tests/smoke/test_post_workout_feedback.py -q` stops during collection with `ModuleNotFoundError: No module named 'models.post_workout_feedback'`; no product implementation exists yet.
 
 ## Decision Log
 
@@ -238,4 +241,4 @@ In `api/session_feedback.py`, provide orchestration resembling:
 
 Request/response schemas live in `api/routers/session_feedback.py`. TypeScript interfaces mirror the API; frontend code contains presentation and request state only, never matching, prompt eligibility, or scoring rules.
 
-Revision note (2026-07-13 / Codex): created the initial self-contained ExecPlan after the issue/reviewer/source audit and pre-registered all data, timing, provenance, compatibility, and composition decisions before tests or product implementation.
+Revision note (2026-07-13 / Codex): created the initial self-contained ExecPlan after the issue/reviewer/source audit and pre-registered all data, timing, provenance, compatibility, and composition decisions before tests or product implementation. Updated after the first red BDD/TDD run to preserve the failure evidence and actual progress.
