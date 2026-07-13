@@ -17,8 +17,9 @@ The live-shaped regression is a B Olympic triathlon on 2026-07-26 followed by an
 - [x] (2026-07-13 09:26Z) Pre-registered the event/provenance contract, three planning modes, overlay precedence and bounded A/B/C rules in this ExecPlan.
 - [x] (2026-07-13 09:32Z) Added contract-first smoke tests for event normalization, Intervals.icu discovery, planning modes and A/B/C overlays. The pre-implementation run failed during collection on the intentionally absent `macrocycle_event` and `apply_race_event_overlays` interfaces.
 - [ ] Add API/checkpoint preview-confirm tests after the pure domain contract is green.
-- [ ] Implement shared event and periodization domain logic, then make the focused tests pass.
-- [ ] Wire the additive API contracts and Planning web preview/confirmation flow.
+- [x] (2026-07-13 09:44Z) Implemented provenance-aware event normalization, confirmed-A macrocycle selection, bounded Intervals.icu GET discovery, three phase modes, `race-overlay-v1`, checkpoint metadata, API preview/confirm enforcement, and the protected-date RecoveryReplan guard.
+- [x] (2026-07-13 09:44Z) Focused domain/API/checkpoint/recovery contour passes: 74 tests in 1.48s.
+- [ ] Wire the Planning web preview/confirmation flow and event discovery UI.
 - [ ] Run focused tests, full smoke, web build and a synthetic acceptance probe; self-review the diff and finalize this document.
 - [ ] Commit in process order, push the branch, open a draft PR with `Closes #169`, and leave merge to the human gate.
 
@@ -74,7 +75,7 @@ The live-shaped regression is a B Olympic triathlon on 2026-07-26 followed by an
 
 ## Outcomes & Retrospective
 
-Implementation has not started. The design milestone resolved the central ambiguity: macrocycle intent, event overlays and daily readiness are three ordered layers, not competing sources of phase truth. The next entry will record test-first evidence and any changes required by existing planner constraints.
+The shared domain and additive API contract are implemented and green on the focused contour. Macrocycle intent, event overlays and daily readiness are now three ordered layers rather than competing phase sources. Remaining work is the web preview/confirm surface, full regression/build verification, synthetic acceptance evidence and publication.
 
 ## Context and Orientation
 

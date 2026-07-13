@@ -9,6 +9,7 @@ from models.planning_summary import summarize_execution_adaptation_pressure
 WEEKDAY_LABELS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 SESSION_ROLE_LABELS_RU = {
     "off": "Отдых",
+    "race": "Старт",
     "recovery": "Восстановление",
     "easy": "Легкая",
     "quality": "Качество",
@@ -880,6 +881,167 @@ def compute_phase_schedule(weeks_total: int) -> List[str]:
     return phases
 
 
+RACE_OVERLAY_RULE_VERSION = "race-overlay-v1"
+_RACE_PRE_CAPS = {
+    "A": {-7: 0.65, -6: 0.60, -5: 0.55, -4: 0.50, -3: 0.40, -2: 0.30, -1: 0.20},
+    "B": {-4: 0.75, -3: 0.60, -2: 0.45, -1: 0.25},
+    "C": {-1: 0.70},
+}
+
+
+def compute_event_aware_phase_schedule(
+    weeks_total: int,
+    *,
+    planning_mode: str,
+    intent: str = "develop",
+    manual_phases: Sequence[str] | None = None,
+) -> List[str]:
+    """Return phases for race-anchored, rolling, or manual planning."""
+    weeks = max(0, int(weeks_total or 0))
+    if weeks == 0:
+        return []
+    mode = str(planning_mode or "event_goal").strip().lower()
+    normalized_intent = str(intent or "develop").strip().lower()
+
+    if mode == "manual":
+        phases = [str(value).strip() for value in (manual_phases or []) if str(value).strip()]
+        if len(phases) != weeks:
+            raise ValueError("manual_phases must contain exactly horizon_weeks phases")
+        return phases
+
+    if mode == "training_goal":
+        cycle = (
+            ["Maintenance", "Maintenance", "Maintenance", "Recovery"]
+            if normalized_intent == "maintain"
+            else ["Base", "Base", "Build", "Recovery"]
+        )
+        return [cycle[index % len(cycle)] for index in range(weeks)]
+
+    if mode != "event_goal":
+        raise ValueError("planning_mode must be event_goal, training_goal, or manual")
+    if weeks == 1:
+        return ["Race Week"]
+    if weeks == 2:
+        return ["Taper", "Race Week"]
+    return compute_phase_schedule(weeks - 2) + ["Taper", "Race Week"]
+
+
+def apply_race_event_overlays(
+    daily_plan: Sequence[Tuple[datetime, float, Dict[str, float]]],
+    weekly_summary: Sequence[Mapping[str, object]],
+    events: Any,
+) -> Tuple[
+    List[Tuple[datetime, float, Dict[str, float]]],
+    List[Dict[str, object]],
+    Dict[str, Any],
+]:
+    """Apply versioned A/B/C safety caps without ever increasing load."""
+    from models.plan_events import normalized_events
+
+    copied_daily = [(dt, float(total or 0.0), dict(parts or {})) for dt, total, parts in daily_plan]
+    copied_summary: List[Dict[str, object]] = []
+    for row in weekly_summary:
+        copied = dict(row)
+        copied["day_roles"] = list(row.get("day_roles") or ["easy"] * 7)
+        copied["day_focuses"] = list(row.get("day_focuses") or ["—"] * 7)
+        copied_summary.append(copied)
+
+    available_dates = {dt.date().isoformat() for dt, _total, _parts in copied_daily}
+    caps: Dict[str, float] = {}
+    role_overrides: Dict[str, str] = {}
+    focus_overrides: Dict[str, str] = {}
+    protected_dates: set[str] = set()
+    overlays: List[Dict[str, Any]] = []
+
+    def set_cap(day: date, cap: float, *, role: str | None = None, focus: str | None = None) -> None:
+        iso = day.isoformat()
+        if iso not in available_dates:
+            return
+        caps[iso] = min(float(cap), caps.get(iso, 1.0))
+        if role:
+            role_overrides[iso] = role
+        if focus:
+            focus_overrides[iso] = focus
+
+    for event in normalized_events(events):
+        try:
+            event_day = date.fromisoformat(str(event["date"])[:10])
+        except (TypeError, ValueError):
+            continue
+        priority = str(event["priority"])
+        affected: List[str] = []
+        for offset, cap in _RACE_PRE_CAPS[priority].items():
+            target = event_day + timedelta(days=offset)
+            set_cap(target, cap)
+            if target.isoformat() in available_dates:
+                affected.append(target.isoformat())
+
+        race_focus = f"Старт {priority} · {str(event.get('label') or '').strip()}".rstrip(" ·")
+        set_cap(event_day, 0.0, role="race", focus=race_focus)
+        if event_day.isoformat() in available_dates:
+            protected_dates.add(event_day.isoformat())
+            affected.append(event_day.isoformat())
+
+        if priority in {"A", "B"}:
+            for offset in (1, 2):
+                target = event_day + timedelta(days=offset)
+                set_cap(target, 0.0, role="off", focus="Восстановление после старта")
+                if target.isoformat() in available_dates:
+                    protected_dates.add(target.isoformat())
+                    affected.append(target.isoformat())
+        else:
+            target = event_day + timedelta(days=1)
+            set_cap(target, 0.50, role="recovery", focus="Восстановление после старта C")
+            if target.isoformat() in available_dates:
+                affected.append(target.isoformat())
+
+        overlays.append(
+            {
+                "date": event_day.isoformat(),
+                "priority": priority,
+                "label": str(event.get("label") or ""),
+                "affected_dates": sorted(set(affected)),
+            }
+        )
+
+    adjusted: List[Tuple[datetime, float, Dict[str, float]]] = []
+    for dt, total, parts in copied_daily:
+        iso = dt.date().isoformat()
+        cap = max(0.0, min(1.0, caps.get(iso, 1.0)))
+        adjusted_parts = {sport: round(float(value or 0.0) * cap, 1) for sport, value in parts.items()}
+        adjusted_total = round(sum(adjusted_parts.values()), 1)
+        if total > 0 and not parts:
+            adjusted_total = round(total * cap, 1)
+        adjusted.append((dt, min(total, adjusted_total), adjusted_parts))
+
+    for week_index, summary in enumerate(copied_summary):
+        week_rows = adjusted[week_index * 7 : week_index * 7 + 7]
+        roles = list(summary.get("day_roles") or ["easy"] * 7)
+        focuses = list(summary.get("day_focuses") or ["—"] * 7)
+        while len(roles) < 7:
+            roles.append("easy")
+        while len(focuses) < 7:
+            focuses.append("—")
+        for day_index, (dt, _total, _parts) in enumerate(week_rows):
+            iso = dt.date().isoformat()
+            if iso in role_overrides:
+                roles[day_index] = role_overrides[iso]
+            if iso in focus_overrides:
+                focuses[day_index] = focus_overrides[iso]
+        summary["day_roles"] = roles
+        summary["day_focuses"] = focuses
+        summary["weekly_tss"] = int(round(sum(row[1] for row in week_rows)))
+        for sport in ("bike", "run", "swim"):
+            summary[sport] = round(sum(float(row[2].get(sport, 0.0) or 0.0) for row in week_rows), 1)
+        summary.update(_build_week_structure_metadata(roles, focuses))
+
+    return adjusted, copied_summary, {
+        "rule_version": RACE_OVERLAY_RULE_VERSION,
+        "protected_dates": sorted(protected_dates),
+        "overlays": overlays,
+    }
+
+
 def current_periodization_phase(goal_plan: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
     """Resolve today's periodization phase (Base/Build/Peak/Taper) from an active goal plan.
 
@@ -935,6 +1097,8 @@ def triathlon_weekly_mix(distance: str, phase: str) -> Dict[str, float]:
         adj = {'bike': -0.02, 'run': +0.02, 'swim': 0.00}
     elif phase == 'peak':
         adj = {'bike': -0.02, 'run': +0.02, 'swim': 0.00}
+    elif phase in {'maintenance'}:
+        adj = {'bike': 0.00, 'run': 0.00, 'swim': 0.00}
     else:  # taper
         adj = {'bike': -0.03, 'run': -0.02, 'swim': +0.05}
 
@@ -961,7 +1125,11 @@ def daily_weights_for_phase(phase: str) -> Dict[str, List[float]]:
         run =  [0.08, 0.22, 0.20, 0.05, 0.25, 0.12, 0.08]
         bike = [0.08, 0.20, 0.24, 0.04, 0.26, 0.10, 0.08]
         swim = [0.18, 0.18, 0.16, 0.10, 0.16, 0.14, 0.08]
-    else:  # taper
+    elif p == 'maintenance':
+        run =  [0.10, 0.18, 0.15, 0.07, 0.22, 0.18, 0.10]
+        bike = [0.10, 0.15, 0.20, 0.05, 0.25, 0.15, 0.10]
+        swim = [0.15, 0.15, 0.20, 0.10, 0.15, 0.15, 0.10]
+    else:  # taper, race week, recovery
         run =  [0.12, 0.18, 0.16, 0.08, 0.18, 0.16, 0.12]
         bike = [0.12, 0.18, 0.18, 0.08, 0.18, 0.16, 0.10]
         swim = [0.18, 0.16, 0.18, 0.12, 0.16, 0.12, 0.08]
@@ -1007,8 +1175,10 @@ def _session_quality_count(phase: str, active_day_count: int, load_state: str) -
 
     if p in {"build", "peak"}:
         count = 2 if active_day_count >= 5 else 1
-    elif p == "taper":
+    elif p in {"taper", "race week"}:
         count = 1 if active_day_count >= 4 else 0
+    elif p == "recovery":
+        count = 0
     else:
         count = 1 if active_day_count >= 4 else 0
 
@@ -1030,7 +1200,7 @@ def _session_recovery_count(active_day_count: int, quality_count: int, load_stat
     recovery_count = 1
     if load_state in {"fatigued", "deep_fatigue"} and active_day_count >= 5:
         recovery_count = 2
-    elif (phase or "").lower() == "taper" and active_day_count >= 5:
+    elif (phase or "").lower() in {"taper", "race week", "recovery"} and active_day_count >= 5:
         recovery_count = 2
 
     max_recovery = max(0, active_day_count - quality_count - 1)

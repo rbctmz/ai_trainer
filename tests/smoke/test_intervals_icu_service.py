@@ -127,7 +127,7 @@ def test_list_race_events_is_bounded_read_only_and_normalized(monkeypatch):
     client = intervals_icu.IntervalsICUClient(api_key="secret", athlete_id="0")
     captured = {}
 
-    def fake_request(method, path, payload=None, params=None):
+    def fake_request(_self, method, path, payload=None, params=None):
         captured.update(method=method, path=path, payload=payload, params=params)
         return [
             {
@@ -141,7 +141,7 @@ def test_list_race_events_is_bounded_read_only_and_normalized(monkeypatch):
             {"id": 100, "category": "WORKOUT", "start_date_local": "2026-07-27T07:00:00"},
         ]
 
-    monkeypatch.setattr(client, "_request_json", fake_request)
+    monkeypatch.setattr(intervals_icu.IntervalsICUClient, "_request_json", fake_request)
     events = client.list_race_events(date(2026, 7, 1), date(2026, 12, 31))
 
     assert captured == {

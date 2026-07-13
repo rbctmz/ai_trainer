@@ -196,6 +196,27 @@ def test_medium_quality_conflict_downgrades_to_easy_without_llm() -> None:
     assert variant["recommended_session"]["delta_tss"] == -25
 
 
+def test_recovery_variant_never_targets_race_protected_date() -> None:
+    today = date(2026, 7, 10)
+    target_date = today + timedelta(days=4)
+    goal_plan = _goal_plan(today, conflict_days_until=4)
+    goal_plan["protected_dates"] = [target_date.isoformat()]
+    target_index = next(
+        index for index, row in enumerate(goal_plan["daily_plan"]) if row[0].date() == target_date
+    )
+    dt, _total, _parts = goal_plan["daily_plan"][target_index]
+    goal_plan["daily_plan"][target_index] = (dt, 0.0, {"bike": 0.0})
+    goal_plan["session_templates"][target_index]["protected_by_event"] = True
+
+    variant = build_recovery_replan_variant(
+        goal_plan,
+        _conflict_report(today, days_until=4),
+        today=today,
+    )
+
+    assert variant is None
+
+
 def test_database_recovery_decision_and_proposal_source_are_idempotent(tmp_path) -> None:
     db = Database(str(tmp_path / "recovery-log.db"))
     report = _silence_report(date(2026, 7, 10))

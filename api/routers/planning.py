@@ -21,11 +21,18 @@ router = APIRouter(prefix="/api/planning", tags=["planning"])
 class BuildRequest(BaseModel):
     goal_type: str
     distance: str
-    event_date: str  # YYYY-MM-DD
+    event_date: Optional[str] = None  # YYYY-MM-DD; legacy event_goal input
+    planning_mode: str = "event_goal"
+    intent: str = "develop"
+    focus: str = "balanced_triathlon"
+    horizon_weeks: int = 8
+    manual_phases: Optional[List[str]] = None
+    events: Optional[List[Dict[str, Any]]] = None
     available_hours: float = 10.0
     available_days: Optional[List[str]] = None  # ["mon","tue",...]
     demand: Optional[str] = None
-    persist: bool = True
+    persist: bool = False
+    confirm: bool = False
 
 
 class AdjustRequest(BaseModel):
@@ -129,6 +136,8 @@ def planning_set_demand(req: DemandRequest, db: Database = Depends(get_database)
 
 @router.post("/build")
 def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
+    if req.persist and not req.confirm:
+        raise HTTPException(status_code=409, detail="Сначала просмотрите план, затем подтвердите сохранение.")
     try:
         return planning_service.build_plan(
             db,
@@ -139,9 +148,27 @@ def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> d
             available_days=req.available_days,
             demand=req.demand,
             persist=req.persist,
+            planning_mode=req.planning_mode,
+            intent=req.intent,
+            focus=req.focus,
+            horizon_weeks=req.horizon_weeks,
+            manual_phases=req.manual_phases,
+            events=req.events,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.get("/events")
+def planning_events(
+    days: int = Query(180, ge=1, le=365),
+) -> dict[str, Any]:
+    from services.intervals_icu import IntervalsICUError
+
+    try:
+        return planning_service.discover_intervals_events(days=days)
+    except IntervalsICUError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
 
 
 # --- Export mode -----------------------------------------------------------

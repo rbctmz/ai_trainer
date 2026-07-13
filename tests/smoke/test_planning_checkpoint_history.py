@@ -271,8 +271,41 @@ def test_restore_legacy_event_date_synthesizes_primary_a_event():
     assert restored is not None
     assert restored["event_date"] == "2026-08-10"
     assert restored["events"] == [
-        {"date": "2026-08-10", "priority": "A", "label": "Триатлон Олимпийка"}
+        {
+            "date": "2026-08-10",
+            "priority": "A",
+            "label": "Триатлон Олимпийка",
+            "source": "legacy_checkpoint",
+            "priority_provenance": "legacy_assumed",
+            "confirmed": False,
+            "requires_confirmation": True,
+        }
     ]
+
+
+def test_checkpoint_round_trip_preserves_planning_mode_and_overlay_provenance():
+    plan = _sample_goal_plan()
+    plan.update(
+        {
+            "planning_mode": "event_goal",
+            "planning_intent": "develop",
+            "planning_focus": "balanced_triathlon",
+            "macrocycle_event_date": "2026-08-10",
+            "overlay_rule_version": "race-overlay-v1",
+            "event_overlays": [
+                {"date": "2026-07-12", "priority": "B", "affected_dates": ["2026-07-12"]}
+            ],
+            "protected_dates": ["2026-07-12", "2026-07-13"],
+        }
+    )
+
+    restored = restore_goal_plan_from_checkpoint(build_planning_checkpoint(plan))
+
+    assert restored is not None
+    assert restored["planning_mode"] == "event_goal"
+    assert restored["macrocycle_event_date"] == "2026-08-10"
+    assert restored["overlay_rule_version"] == "race-overlay-v1"
+    assert restored["protected_dates"] == ["2026-07-12", "2026-07-13"]
 
 
 def test_resolve_current_goal_plan_derives_alias_from_events():

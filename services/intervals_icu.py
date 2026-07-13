@@ -4,13 +4,14 @@ from __future__ import annotations
 import base64
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 from urllib import error as urlerror
 from urllib import parse as urlparse
 from urllib import request as urlrequest
 
 from config.settings import Settings
+from models.plan_events import normalize_intervals_event
 
 DEFAULT_USER_AGENT = "AI-Trainer/1.0 (+https://github.com/rbctmz/ai_trainer)"
 
@@ -138,6 +139,20 @@ class IntervalsICUClient:
     def get_athlete_profile(self) -> Any:
         return self._request_json("GET", f"/api/v1/athlete/{self.athlete_id}")
 
+    def list_race_events(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
+        """Read and normalize A/B/C events inside a bounded date window."""
+        if newest < oldest:
+            raise ValueError("newest must not be before oldest")
+        if (newest - oldest).days > 365:
+            raise ValueError("Intervals.icu event discovery is limited to 365 days")
+        payload = self._request_json(
+            "GET",
+            f"/api/v1/athlete/{self.athlete_id}/events",
+            params={"oldest": oldest.isoformat(), "newest": newest.isoformat()},
+        )
+        rows = payload if isinstance(payload, list) else []
+        return [event for row in rows if isinstance(row, Mapping) if (event := normalize_intervals_event(row))]
+
     def test_connection(self) -> Dict[str, Any]:
         calendars = self.list_calendars()
         return {
@@ -251,6 +266,11 @@ def test_connection() -> Dict[str, Any]:
 
 def push_planned_events(event_payloads: Iterable[Mapping[str, Any]]) -> List[Dict[str, Any]]:
     return get_client().create_events(event_payloads)
+
+
+def list_race_events(oldest: date, newest: date) -> List[Dict[str, Any]]:
+    """Return read-only normalized race events from the configured account."""
+    return get_client().list_race_events(oldest, newest)
 
 
 def _cycling_sport_settings(raw: Mapping[str, Any]) -> Mapping[str, Any]:
