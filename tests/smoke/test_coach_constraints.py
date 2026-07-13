@@ -131,6 +131,17 @@ def test_apply_constraints_to_goal_plan_marks_matching_days_protected():
     from models.coach_constraints import apply_constraints_to_goal_plan
 
     plan = _goal_plan()
+    plan["session_templates"][1].update(
+        {
+            "kind": "composite",
+            "template_key": "brick_endurance",
+            "materialization_status": "materialized",
+            "definition_snapshot": {"template_key": "brick_endurance"},
+            "materialized_steps": [],
+            "legs": [{"sport": "bike"}, {"sport": "run"}],
+            "prescription_fingerprint": "stale-if-kept",
+        }
+    )
     target_date = plan["daily_plan"][1][0].strftime("%Y-%m-%d")
     constraints = [
         {
@@ -154,5 +165,11 @@ def test_apply_constraints_to_goal_plan_marks_matching_days_protected():
     assert updated["daily_plan"][2][1] > 0
     protected_template = updated["session_templates"][1]
     assert protected_template["session_role"] == "off"
+    assert protected_template["sport"] == "off"
+    assert protected_template["template_key"] == "constraint:sick"
+    assert protected_template["materialization_status"] == "constraint_off"
+    assert "definition_snapshot" not in protected_template
+    assert "legs" not in protected_template
+    assert "prescription_fingerprint" not in protected_template
     assert protected_template["protected_by_constraint"] is True
     assert protected_template["constraint"]["kind"] == "sick"

@@ -57,9 +57,31 @@ def apply_constraints_to_goal_plan(
         if index < len(session_templates) and isinstance(session_templates[index], dict):
             template = dict(session_templates[index])
             note = _constraint_note(constraint)
+            for key in (
+                "definition_snapshot",
+                "parameter_snapshot",
+                "materialized_steps",
+                "target_provenance",
+                "selection_evidence",
+                "prescription_fingerprint",
+                "legs",
+                "transition_minutes",
+                "template_version",
+                "template_name",
+                "stimulus",
+                "fatigue_cost",
+                "expected_recovery_hours",
+                "mutation_evidence",
+            ):
+                template.pop(key, None)
             template.update(
                 {
                     "session_role": "off",
+                    "sport": "off",
+                    "sport_label": "отдых",
+                    "kind": "single",
+                    "template_key": f"constraint:{constraint.get('kind') or 'off'}",
+                    "materialization_status": "constraint_off",
                     "protected_by_constraint": True,
                     "constraint": {
                         "id": constraint.get("id"),

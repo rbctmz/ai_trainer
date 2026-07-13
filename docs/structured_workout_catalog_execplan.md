@@ -17,7 +17,7 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 - [ ] Add failing BDD/contract tests for the catalog, selector, materializer, checkpoint history, brick, recovery atomics, exporters and public API.
 - [x] (2026-07-13 11:41Z) Implemented the immutable 19-definition catalog, deterministic selector/materializer and conservative weekly brick allocator as a headless Python domain; 8 new BDD tests and 10 existing planner tests pass.
 - [x] (2026-07-13 12:03Z) Integrated catalog snapshots, prescription-aware identity, athlete FTP/LTHR provenance and one conservative brick per eligible balanced triathlon week into initial plan generation and checkpoint persistence.
-- [ ] Refresh/rescale immutable prescriptions through manual edits, recovery replans and weekly rebalances while treating composite bricks atomically.
+- [x] (2026-07-13 12:34Z) Refresh/rescale immutable prescriptions through manual/recovery edits and weekly rebalances, including exact composite-leg scaling, replacement identity and execution-plan rebuilds.
 - [x] (2026-07-13 12:17Z) Migrated FIT-CSV, workout TCX and activity TCX to persisted seconds and honest targets; composite export requires an explicit leg and never reconstructs parent steps.
 - [ ] Expose compact prescriptions in Planning and Today, including one composite card with separate leg exports.
 - [ ] Run focused, smoke, broader non-live and Next.js production checks; execute synthetic bike-to-run brick acceptance.
@@ -51,6 +51,12 @@ The observable acceptance is a synthetic Olympic-triathlon plan containing diffe
 
 - Observation: the legacy FIT/TCX duration heuristic can accidentally equal a materialized duration for one step, so duration-only assertions do not prove that persisted prescriptions are used.
   Evidence: the red exporter test's first duration matched while FIT still emitted `target_type=heart_rate`; target semantics and explicit composite-leg selection are required companion assertions.
+
+- Observation: persisted target provenance is sufficient to rebuild prescriptions without a live database profile.
+  Evidence: execution feedback rebuilds operate as pure plan transforms with no `Database`; `extract_zone_snapshot` recovers only non-fallback FTP/LTHR/pace/CSS values from immutable prior templates and never invents missing zones.
+
+- Observation: a durable coach constraint can turn a materialized brick into a rest day after catalog generation.
+  Evidence: the constraint layer runs after initial templates; it now removes definition/steps/legs/fingerprint and marks `constraint_off`, so a hidden prescription cannot survive behind zero TSS.
 
 ## Decision Log
 
