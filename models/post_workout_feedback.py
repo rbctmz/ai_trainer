@@ -12,13 +12,14 @@ from models.session_quality_forecast import brier_score
 FEEDBACK_RULE_VERSION = "session_feedback_v1"
 EVALUATION_RULE_VERSION = "session_quality_evaluation_v1"
 
-COMPLETION_STATUSES = {
+COMPLETION_STATUS_ORDER = (
     "completed",
     "partial",
     "stopped_early",
     "did_not_start",
     "unknown",
-}
+)
+COMPLETION_STATUSES = set(COMPLETION_STATUS_ORDER)
 AUTHORITATIVE_MATCH_METHODS = {
     "user_confirmed",
     "admin_resolve",
@@ -156,7 +157,7 @@ def build_feedback_prompts(
 
         state = "not_eligible"
         reason = "match_not_stable"
-        allowed = list(COMPLETION_STATUSES)
+        allowed = list(COMPLETION_STATUS_ORDER)
         if match_status == "ambiguous":
             state, reason = "pending_match", "ambiguous_match"
         elif match_status == "unmatched" and not activities:

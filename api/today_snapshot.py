@@ -8,6 +8,7 @@ from api.operational_state import build_operational_state
 from api.planning_service import reconciliation_at
 from api.readiness_snapshot import build_readiness_snapshot
 from api.recovery_replan_loop import run_recovery_replan_loop
+from api.session_feedback import feedback_from_today_evidence
 from data.database import Database
 from models.planning_checkpoints import (
     restore_goal_plan_from_checkpoint,
@@ -35,7 +36,8 @@ def build_today_decision_snapshot(
     today: date | None = None,
 ) -> dict[str, Any]:
     """Build one fail-open daily snapshot without delegating decisions to a UI."""
-    generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    generated_at_utc = datetime.now(timezone.utc).replace(microsecond=0)
+    generated_at = generated_at_utc.isoformat()
     checkpoint = _latest_checkpoint(db)
     goal_plan = restore_goal_plan_from_checkpoint(checkpoint) if checkpoint else None
     loop_result = _run_loop(db, today=today)
@@ -49,6 +51,14 @@ def build_today_decision_snapshot(
     proposal = _resolve_proposal(db, loop_result, checkpoint)
     forecast = _resolve_forecast(db, loop_result, checkpoint, goal_plan, as_of)
     yesterday = _yesterday_reconciliation(db, as_of, checkpoint is not None)
+    feedback = _feedback_block(
+        db,
+        yesterday=yesterday,
+        goal_plan=goal_plan,
+        forecast=forecast,
+        now_utc=generated_at_utc,
+        as_of=as_of,
+    )
     state, reason, primary_action = _resolve_state(
         checkpoint=checkpoint,
         report=report,
@@ -80,6 +90,7 @@ def build_today_decision_snapshot(
         "forecast": forecast,
         "pending_proposal": active_proposal,
         "yesterday": yesterday,
+        "feedback": feedback,
         "loop_outcome": loop_result.get("outcome"),
         "provenance": {
             "generated_at": generated_at,
@@ -106,6 +117,10 @@ def build_today_decision_snapshot(
                 "rule_version": yesterday.get("rule_version"),
                 "base_checkpoint_id": yesterday.get("base_checkpoint_id"),
             },
+            "feedback": {
+                "rule_version": feedback.get("rule_version"),
+                "status": feedback.get("status"),
+            },
         },
         "operational_state": build_operational_state(
             db,
@@ -115,6 +130,37 @@ def build_today_decision_snapshot(
             stale_after_days=2,
         ),
     }
+
+
+def _feedback_block(
+    db: Database,
+    *,
+    yesterday: Mapping[str, Any],
+    goal_plan: Mapping[str, Any] | None,
+    forecast: Mapping[str, Any],
+    now_utc: datetime,
+    as_of: str,
+) -> dict[str, Any]:
+    prediction = forecast.get("prediction")
+    forecasts = [dict(prediction)] if isinstance(prediction, Mapping) else []
+    try:
+        return feedback_from_today_evidence(
+            db,
+            yesterday=yesterday,
+            goal_plan=goal_plan,
+            forecasts=forecasts,
+            now_utc=now_utc,
+            as_of=as_of,
+        )
+    except Exception as exc:  # feedback must not take down the daily decision shell
+        return {
+            "status": "unavailable",
+            "reason": str(exc),
+            "rule_version": None,
+            "prompts": [],
+            "primary": None,
+            "metrics": {},
+        }
 
 
 def _latest_checkpoint(db: Database) -> dict[str, Any] | None:

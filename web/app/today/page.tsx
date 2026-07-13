@@ -6,6 +6,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import type { TodayResponse, WorkoutStep } from "@/lib/types";
 import { ProposalCard } from "@/components/ui/ProposalCard";
+import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackCard";
 
 const STATE_META: Record<
   string,
@@ -54,6 +55,13 @@ export default function TodayPage() {
   const proposal = data?.pending_proposal ?? null;
   const forecast = data?.forecast?.prediction ?? null;
   const yesterday = data?.yesterday;
+  const feedbackPrompt =
+    data?.feedback?.primary ??
+    data?.feedback?.prompts.find((prompt) => prompt.state === "submitted") ??
+    null;
+  const pendingMatch = data?.feedback?.prompts.find(
+    (prompt) => prompt.state === "pending_match",
+  );
 
   return (
     <main className="mx-auto max-w-2xl space-y-5">
@@ -377,6 +385,33 @@ export default function TodayPage() {
                   </p>
                 </>
               )}
+            </section>
+          ) : null}
+
+          {feedbackPrompt ? (
+            <PostWorkoutFeedbackCard
+              key={`${feedbackPrompt.session_id}-${feedbackPrompt.feedback?.revision ?? 0}`}
+              prompt={feedbackPrompt}
+              onSaved={(message) => {
+                setNotice(message);
+                void mutate();
+              }}
+            />
+          ) : null}
+
+          {pendingMatch && !feedbackPrompt ? (
+            <section className="rounded-card border border-tone-warning/30 bg-tone-warning/10 p-4 shadow-card">
+              <h2 className="text-sm font-semibold text-ink">Сначала уточните факт сессии</h2>
+              <p className="mt-1 text-sm text-ink-soft">
+                Для {pendingMatch.name} найдено неоднозначное совпадение активностей. Оценка
+                качества не будет приписана плану, пока match не подтверждён.
+              </p>
+              <Link
+                href="/planning"
+                className="mt-3 inline-block rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-ink"
+              >
+                Уточнить в Planning
+              </Link>
             </section>
           ) : null}
         </>

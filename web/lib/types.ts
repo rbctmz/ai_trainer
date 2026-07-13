@@ -870,6 +870,83 @@ export interface TodayForecast {
   error: string | null;
 }
 
+export interface SessionFeedbackRecord {
+  id: number;
+  fingerprint: string;
+  target_key: string;
+  revision: number;
+  supersedes_feedback_id: number | null;
+  session_id: string;
+  parent_session_id: string | null;
+  match_revision_id: number | null;
+  actual_activity_ids: string[];
+  completion_status: string;
+  completion_pct: number | null;
+  session_rpe_1_10: number | null;
+  quality_rating_1_5: number | null;
+  note: string | null;
+  source: "user_web" | "admin_resolve" | string;
+  provenance_label: "athlete-entered" | "admin-entered" | string;
+  session_end_at_utc: string | null;
+  session_end_provenance: string;
+  status: "active" | "tombstone" | string;
+  rule_version: string;
+  submitted_at: string;
+  created_at: string;
+}
+
+export interface SessionFeedbackPrompt {
+  prompt_fingerprint: string;
+  session_id: string;
+  parent_session_id: string | null;
+  date: string;
+  name: string;
+  role: string;
+  kind: "single" | "composite" | string;
+  state:
+    | "not_eligible"
+    | "pending_match"
+    | "ready"
+    | "submitted"
+    | "superseded"
+    | "dismissed"
+    | string;
+  reason: string;
+  is_primary: boolean;
+  match_status: string;
+  match_method: string;
+  match_confidence: number;
+  adherence: string;
+  actual_activity_ids: string[];
+  actual_activities: ReconActivity[];
+  session_end_at_utc: string | null;
+  session_end_provenance: string;
+  allowed_completion_statuses: string[];
+  feedback: SessionFeedbackRecord | null;
+  provenance_label: string | null;
+}
+
+export interface TodayFeedback {
+  status: "available" | "unavailable" | string;
+  reason?: string | null;
+  rule_version: string | null;
+  prompts: SessionFeedbackPrompt[];
+  primary: SessionFeedbackPrompt | null;
+  metrics: {
+    eligible?: number;
+    submitted?: number;
+    dismissed?: number;
+    pending_match?: number;
+  };
+}
+
+export interface SessionFeedbackHistoryResponse {
+  session_id: string;
+  history: SessionFeedbackRecord[];
+  current: SessionFeedbackRecord | null;
+  evaluations: Array<Record<string, unknown>>;
+}
+
 export interface TodayResponse {
   snapshot_version: "today_decision_snapshot_v2" | string;
   date: string;
@@ -884,6 +961,7 @@ export interface TodayResponse {
   forecast: TodayForecast;
   pending_proposal: CoachProposal | null;
   yesterday: TodayYesterday;
+  feedback: TodayFeedback;
   loop_outcome: string | null;
   provenance: Record<string, unknown>;
   operational_state?: Record<string, unknown>;

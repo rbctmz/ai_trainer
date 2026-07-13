@@ -16,8 +16,8 @@ The user-visible proof is a compact post-session card under the existing “Yest
 - [x] (2026-07-13 19:22Z) Added the first BDD/TDD contract for time provenance, prompt states, bricks, non-start timing, independent RPE/quality, append-only/idempotent feedback, correction evaluations, stats/clear, and API routes; the red run stopped at the expected missing domain module.
 - [x] (2026-07-13 19:48Z) Implemented transaction-safe feedback, prompt-event, and forecast-evaluation persistence; idempotency, concurrent retry, correction lineage, stats, and clear tests pass.
 - [x] (2026-07-13 19:48Z) Implemented pure prompt/time/evaluation rules plus headless submission, correction, tombstone, dismissal, history, summary, projection, and `admin_resolve` compatibility orchestration.
-- [ ] Add FastAPI contracts and compose feedback into Today without another provider fetch (completed: router registration and lifecycle routes; remaining: Today fail-open composition and tests).
-- [ ] Add the web feedback card, correction/history behavior, and explicit athlete-entered provenance.
+- [x] (2026-07-13 19:56Z) Added FastAPI lifecycle contracts and fail-open Today composition; a focused test proves one provider-disabled reconciliation call and no journal writes on repeated reads.
+- [x] (2026-07-13 19:56Z) Added the web feedback card with anchored completion/RPE/quality controls, evidence summary, athlete-entered provenance, retry-safe submit, explicit correction/history, dismiss, and ambiguous-match guidance.
 - [ ] Run focused, smoke, broad, web, migration/concurrency, and copy-of-real-database acceptance; self-review and finalize this plan.
 - [ ] Push the branch and open a draft PR with `Closes #175`; leave merge to the human gate.
 
@@ -46,6 +46,12 @@ The user-visible proof is a compact post-session card under the existing “Yest
 
 - Observation: the first headless milestone is green before Today/web integration.
   Evidence: `python -m pytest tests/smoke/test_post_workout_feedback.py -q` reports `19 passed`, including a two-connection SQLite retry and the admin bridge.
+
+- Observation: Today can add feedback without increasing reconciliation/provider work.
+  Evidence: the composition regression test records exactly one call with `include_provider=False`, obtains a ready prompt from the supplied `yesterday` row, and verifies `session_feedback` remains empty after the GET.
+
+- Observation: the web contract compiles without a frontend copy of matching or scoring rules.
+  Evidence: `npm run lint` reports no warnings/errors and `npm run build` compiles `/today`; the component only renders API-provided prompt state and posts athlete values.
 
 ## Decision Log
 
@@ -103,7 +109,7 @@ The user-visible proof is a compact post-session card under the existing “Yest
 
 ## Outcomes & Retrospective
 
-The headless milestone is implemented. The project now has separate append-only observation, prompt-event, and evaluation journals; pure prompt/time/quality semantics; and one compatibility path that turns the old admin resolve request into an explicit match plus feedback plus evaluation. Raw forecast rows are not changed by new resolutions, while API projections preserve familiar status fields. Today/web integration, broad validation, and publication remain.
+The implementation milestones are complete. The project now has separate append-only observation, prompt-event, and evaluation journals; pure prompt/time/quality semantics; and one compatibility path that turns the old admin resolve request into an explicit match plus feedback plus evaluation. Raw forecast rows are not changed by new resolutions, while API projections preserve familiar status fields. Today embeds one provider-free prompt block and the web exposes athlete-entered submit/correct/history UX. Focused backend validation is `69 passed`; Next lint/build are green. Broad validation, copy-of-real-database acceptance, self-review, and publication remain.
 
 ## Context and Orientation
 
@@ -247,4 +253,4 @@ In `api/session_feedback.py`, provide orchestration resembling:
 
 Request/response schemas live in `api/routers/session_feedback.py`. TypeScript interfaces mirror the API; frontend code contains presentation and request state only, never matching, prompt eligibility, or scoring rules.
 
-Revision note (2026-07-13 / Codex): created the initial self-contained ExecPlan after the issue/reviewer/source audit and pre-registered all data, timing, provenance, compatibility, and composition decisions before tests or product implementation. Updated after the red BDD/TDD run and after the green headless persistence/orchestration milestone to preserve evidence and actual progress.
+Revision note (2026-07-13 / Codex): created the initial self-contained ExecPlan after the issue/reviewer/source audit and pre-registered all data, timing, provenance, compatibility, and composition decisions before tests or product implementation. Updated after the red BDD/TDD run, the green headless milestone, and the Today/web milestone to preserve evidence and actual progress.
