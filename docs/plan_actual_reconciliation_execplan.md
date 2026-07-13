@@ -13,7 +13,7 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
 - [x] (2026-07-13 10:19Z) Synced `main` after merged PR #171 and created isolated branch `codex/issue-172-plan-actual-reconciliation` in `/private/tmp/ai_trainer_issue172`.
 - [x] (2026-07-13 10:27Z) Audited the active checkpoint, legacy execution matcher, Issue D adherence rules, Intervals client, SQLite patterns and web Adjust surface.
 - [x] (2026-07-13 10:27Z) Pre-registered stable identity, evidence coverage and load-response formulas in this plan before tests or implementation.
-- [ ] Add failing BDD/contract tests for session identity, matching, ledger revisions, provider evidence and future-only preview/confirm.
+- [x] (2026-07-13 10:35Z) Added failing BDD/contract tests for session identity, matching, ledger revisions, provider evidence and future-only preview; red evidence is `ModuleNotFoundError: models.plan_actual_reconciliation`.
 - [ ] Implement stable session identity and persist it through checkpoints/API exports.
 - [ ] Implement bounded Intervals GET adapters and the append-only match ledger.
 - [ ] Replace legacy reconciliation with evidence rows relative to explicit `as_of`.
