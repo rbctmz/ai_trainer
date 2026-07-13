@@ -86,6 +86,61 @@ def test_later_a_anchors_plan_while_earlier_b_is_local_overlay(tmp_path):
     assert [week["phase"] for week in result["weeks"]][-2:] == ["Taper", "Race Week"]
 
 
+def test_build_persists_catalog_prescriptions_and_one_brick_per_eligible_week(tmp_path):
+    from api import planning_service as ps
+    from models.workout_catalog import CATALOG_VERSION
+
+    db = _seeded_db(tmp_path)
+    db.save_athlete_profile({"ftp": 200, "lthr": 165, "weight_kg": 80, "source": "test"})
+    ps.build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=None,
+        planning_mode="training_goal",
+        intent="develop",
+        horizon_weeks=8,
+        events=[],
+        available_hours=12,
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        persist=True,
+    )
+
+    active = ps.get_active_plan(db)
+    assert active is not None
+    assert active["catalog_version"] == CATALOG_VERSION
+    materialized = [
+        item
+        for item in active["session_templates"]
+        if item.get("materialization_status") == "materialized"
+    ]
+    assert materialized
+    assert all(item.get("definition_snapshot") for item in materialized)
+    assert all(item.get("prescription_fingerprint") for item in materialized)
+
+    eligible_week_indices = {
+        index
+        for index, week in enumerate(active["weekly_summary"])
+        if week.get("phase") in {"Build", "Peak"}
+    }
+    bricks = [
+        item
+        for item in active["session_templates"]
+        if item.get("kind") == "composite"
+    ]
+    assert {int(item["week_index"]) for item in bricks} == eligible_week_indices
+    assert len({int(item["week_index"]) for item in bricks}) == len(bricks)
+    assert all([leg["sport"] for leg in item["legs"]] == ["bike", "run"] for item in bricks)
+
+    public_days = ps.plan_days(active)
+    catalog_day = next(item for item in public_days if item.get("template_key"))
+    assert catalog_day["catalog_version"] == CATALOG_VERSION
+    assert catalog_day["template_name"]
+    assert catalog_day["stimulus"]
+    assert catalog_day["fatigue_cost"]
+    assert catalog_day["steps"] or catalog_day["legs"]
+
+
 def test_b_overlay_persists_protected_days_and_resumes(tmp_path):
     from api import planning_service as ps
 
