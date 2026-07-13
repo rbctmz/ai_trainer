@@ -406,6 +406,33 @@ def test_weekly_rebalance_changes_only_allowed_future_easy_sessions() -> None:
         assert f"Total TSS: {next(item['after_tss'] for item in preview['changes'] if item['date'] == day_text)}" in new["description"]
 
 
+def test_weekly_rebalance_rounding_never_exceeds_per_session_capacity() -> None:
+    plan = ensure_session_identities(_goal_plan())
+    for index, total in zip((8, 9, 10), (34.1, 35.4, 36.7)):
+        dt, _old_total, parts = plan["daily_plan"][index]
+        sport = plan["session_templates"][index]["sport"]
+        plan["daily_plan"][index] = (
+            dt,
+            total,
+            {key: total if key == sport else 0.0 for key in parts},
+        )
+    plan = ensure_session_identities(plan)
+
+    preview = build_weekly_rebalance_preview(
+        plan,
+        _eligible_reconciliation(actual_tss=200.0),
+        as_of=date(2026, 7, 13),
+    )
+
+    assert preview["status"] == "proposal"
+    for change in preview["changes"]:
+        reduction = -float(change["delta_tss"])
+        exact_capacity = min(float(change["before_tss"]) * 0.25, float(change["before_tss"]) - 5.0)
+        assert reduction <= exact_capacity + 1e-9
+        assert float(change["after_tss"]) >= 5.0
+    assert -float(preview["future_tss_delta"]) <= float(preview["reduction_budget_tss"])
+
+
 @pytest.mark.parametrize(
     ("reconciliation", "expected_reason"),
     [
