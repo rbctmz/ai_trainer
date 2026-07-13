@@ -21,7 +21,7 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
 - [x] (2026-07-13 10:46Z) Replaced the web optimistic outcome selector with evidence, unplanned load, ambiguity resolution and explicit preview/confirm UI; updated Coach proposal rendering.
 - [x] (2026-07-13 10:48Z) Passed synthetic 07–12 July acceptance and the production Next.js build.
 - [x] (2026-07-13 10:51Z) Completed self-review and final validation: focused `56 passed`; smoke `536 passed, 1 skipped`; broader non-live `579 passed, 6 skipped, 24 deselected`; `git diff --check` clean.
-- [ ] Push the branch and open a draft PR with `Closes #172`.
+- [x] (2026-07-13 10:54Z) Pushed the isolated branch and opened draft PR #177 with `Closes #172`; link, sync and ready-to-merge automation passed while contributor-safe CI was running.
 
 ## Surprises & Discoveries
 
@@ -173,6 +173,8 @@ Do not delete or rewrite old execution checkpoints. Legacy checkpoints without I
 ## Artifacts and Notes
 
 Issue: `https://github.com/rbctmz/ai_trainer/issues/172`.
+
+Draft PR: `https://github.com/rbctmz/ai_trainer/pull/177`.
 
 Baseline commit: `3c94b70` (merged PR #171). The prior main baseline was 501 passed and one skipped; update exact final counts after validation.
 
