@@ -15,7 +15,7 @@
 - [x] (2026-07-13 17:24Z) Прочитаны issue #174, аудит Claude Code, исходный `/api/today`, Recovery Replan, readiness/gate, forecast, proposal/checkpoint persistence, reconciliation, web `/today` и существующие тесты.
 - [x] (2026-07-13 17:24Z) Подтверждено, что #173 уже добавил persisted structured prescription и checkpoint fallback; этот код переносится без изменения доменной семантики.
 - [ ] Закоммитить этот ExecPlan отдельным docs-коммитом.
-- [ ] Добавить контрактные BDD-тесты и зафиксировать красную фазу до production-изменений.
+- [x] (2026-07-13 17:28Z) Добавлены контрактные BDD-тесты; красная фаза: `8 failed, 2 passed` на отсутствующих v2-полях/состояниях, без production-изменений.
 - [ ] Реализовать headless `today_decision_snapshot_v2` и сделать роутер тонким.
 - [ ] Обновить `/today` в Next.js для пяти состояний, evidence, shadow forecast и reconciliation-вчера.
 - [ ] Прогнать focused/smoke/broad Python, Ruff/compile/diff, web lint/build и живую приёмку.
@@ -40,6 +40,9 @@
 
 - Observation: reconciliation уже вычисляет plan-vs-actual и adherence, но `/today` его не использует.
   Evidence: `api/planning_service.py::reconciliation_at` возвращает строки с `session_id`, match/adherence, фактическими активностями и метриками, тогда как `_yesterday_summary` лишь суммирует последние активности.
+
+- Observation: красная фаза падает ровно на новой границе контракта.
+  Evidence: focused Today suite дала `8 failed, 2 passed`: отсутствуют `snapshot_version`, `primary_action`, `gate`, `proposal`, `forecast`, reconciliation-поля и `session_id`; старое состояние по-прежнему возвращает `conflict` или ошибочно `silence`.
 
 ## Decision Log
 

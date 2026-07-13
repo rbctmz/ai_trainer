@@ -1,8 +1,9 @@
-"""Behavior contract for issue #158: GET /api/today — экран «Сегодня».
+"""Behavior contract for issues #158/#174: canonical daily decision snapshot.
 
 Специфицирует композицию канонического readiness snapshot, salience-gate
 (RecoveryReplanLoop) и активного плана в один утренний payload с каскадом
-состояний no_plan → data_gap → conflict → silence. Contributor-safe:
+состояний no_plan → data_gap → conflict_actionable/conflict_unactionable → silence.
+Contributor-safe:
 временный SQLite, отчёт gate и snapshot подменяются monkeypatch там, где
 нужен управляемый исход (тот же паттерн, что tests/smoke/test_recovery_replan_loop.py).
 """
@@ -183,6 +184,10 @@ def test_today_empty_db_is_no_plan(tmp_path) -> None:
     payload = today_view(db=db)
 
     assert payload["state"] == "no_plan"
+    assert payload["snapshot_version"] == "today_decision_snapshot_v2"
+    assert payload["primary_action"]["kind"] == "open_planning"
+    assert payload["proposal"]["relation"] == "none"
+    assert payload["forecast"]["affects_decision"] is False
     assert payload["pending_proposal"] is None
     assert payload["session"] is None
     assert payload["reason"]
@@ -207,6 +212,8 @@ def test_today_data_gap_names_reason_without_proposal(tmp_path, monkeypatch) -> 
     assert payload["readiness"] is None
     assert payload["session"]["date"] == today.isoformat()
     assert payload["session"]["role"] == "quality"
+    assert payload["session"]["session_id"]
+    assert payload["primary_action"]["kind"] == "sync_or_wait"
 
 
 def test_today_silence_projects_day_session_and_canonical_readiness(
@@ -228,6 +235,8 @@ def test_today_silence_projects_day_session_and_canonical_readiness(
     assert payload["session"]["role"] == "easy"
     assert payload["session"]["role_label"] == "лёгкая"
     assert payload["session"]["is_key"] is False
+    assert payload["gate"]["outcome"] == "silence"
+    assert payload["primary_action"]["kind"] == "follow_plan"
 
 
 def test_today_projects_persisted_catalog_prescription(tmp_path, monkeypatch) -> None:
@@ -311,13 +320,58 @@ def test_today_conflict_exposes_pending_proposal_idempotently(tmp_path, monkeypa
     first = today_view(db=db)
     second = today_view(db=db)
 
-    assert first["state"] == "conflict"
+    assert first["state"] == "conflict_actionable"
+    assert first["primary_action"]["kind"] == "review_proposal"
+    assert first["proposal"]["relation"] == "current"
     assert first["session"]["is_key"] is True
     assert first["pending_proposal"] is not None
     assert first["pending_proposal"]["action"] == "recovery_replan"
     assert first["pending_proposal"]["status"] == "pending"
     assert second["pending_proposal"]["id"] == first["pending_proposal"]["id"]
     assert len(db.get_coach_proposals(days=36500)) == 1
+
+
+def test_today_conflict_without_safe_proposal_is_explicitly_unactionable(
+    tmp_path, monkeypatch
+) -> None:
+    """Issue #174 regression: a real gate conflict must never look like silence."""
+    from api.routers import today as today_module
+
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "unactionable.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    day_session = _session(today, days_until=0, role="quality", tss=60.0)
+    report = _report(
+        today,
+        sessions=[day_session],
+        conflicts=[_conflict_for(day_session)],
+        score=35.0,
+        status="low",
+    )
+    monkeypatch.setattr(
+        today_module,
+        "_run_loop",
+        lambda _db: {
+            "outcome": "conflict",
+            "decision": {"id": 17, "fingerprint": "conflict-gap"},
+            "proposal": None,
+            "proposal_gap": "protected_date",
+            "readiness_conflicts": report,
+            "session_quality_forecast": None,
+            "session_quality_forecast_error": None,
+        },
+    )
+    _patch_snapshot(monkeypatch, _snapshot(score=35.0, status="low"))
+
+    payload = today_module.today_view(db=db)
+
+    assert payload["state"] == "conflict_unactionable"
+    assert payload["primary_action"]["kind"] == "inspect_evidence"
+    assert payload["pending_proposal"] is None
+    assert payload["proposal"]["relation"] == "none"
+    assert payload["gate"]["proposal_gap"] == "protected_date"
+    assert payload["gate"]["conflicts"] == report["conflicts"]
+    assert "План в силе" not in payload["reason"]
 
 
 def test_today_resolved_conflict_returns_to_silence(tmp_path, monkeypatch) -> None:
@@ -348,6 +402,7 @@ def test_today_resolved_conflict_returns_to_silence(tmp_path, monkeypatch) -> No
     assert payload["state"] == "silence"
     assert payload["loop_outcome"] == "conflict"
     assert payload["pending_proposal"] is None
+    assert payload["proposal"]["relation"] == "resolved"
 
 
 def test_today_summarizes_yesterday_fact(tmp_path, monkeypatch) -> None:
@@ -386,6 +441,69 @@ def test_today_summarizes_yesterday_fact(tmp_path, monkeypatch) -> None:
     assert payload["yesterday"]["minutes"] == 76
     assert payload["yesterday"]["tss"] == 37
     assert payload["yesterday"]["sports"] == ["cycling"]
+    assert payload["yesterday"]["status"] == "available"
+    assert payload["yesterday"]["unplanned_tss"] == 37.0
+    assert payload["yesterday"]["rows"]
+    assert payload["yesterday"]["rule_version"] == "plan_actual_match_v1"
+
+
+def test_today_selects_latest_shadow_revision_without_changing_decision(
+    tmp_path, monkeypatch
+) -> None:
+    from api.routers.today import today_view
+
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "forecast.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    plan = checkpoint["goal_plan_snapshot"]
+    session_index = next(
+        index
+        for index, template in enumerate(plan["session_templates"])
+        if template["date"] == today.isoformat()
+    )
+    target_key = f"{checkpoint['id']}:{today.isoformat()}:{session_index}:session_quality_v1"
+    planned = {
+        "date": today.isoformat(),
+        "index": session_index,
+        "role": "quality",
+        "sport": "bike",
+        "tss": 60.0,
+        "duration_minutes": 60,
+    }
+    for suffix, created_at, prediction_pct in (
+        ("old", "2026-07-10T05:00:00Z", 44),
+        ("new", "2026-07-10T06:00:00Z", 61),
+    ):
+        db.save_session_quality_prediction(
+            fingerprint=f"forecast-{suffix}",
+            target_key=target_key,
+            rule_version="session_quality_v1",
+            target_date=today.isoformat(),
+            plan_checkpoint_id=checkpoint["id"],
+            plan_session_index=session_index,
+            planned_session=planned,
+            forecast={
+                "prediction_pct": prediction_pct,
+                "prediction_band": "low" if prediction_pct < 60 else "uncertain",
+            },
+            inputs={"readiness_source": "canonical_snapshot"},
+            evidence=[suffix],
+            created_at=created_at,
+        )
+    day_session = _session(today, days_until=0, role="quality")
+    _patch_report(monkeypatch, _report(today, sessions=[day_session]))
+    _patch_snapshot(monkeypatch, _snapshot())
+
+    payload = today_view(db=db)
+
+    assert payload["state"] == "silence"
+    assert payload["primary_action"]["kind"] == "follow_plan"
+    assert payload["forecast"]["mode"] == "shadow"
+    assert payload["forecast"]["affects_decision"] is False
+    assert payload["forecast"]["prediction"]["prediction_pct"] == 61
+    assert payload["forecast"]["relation"] == "current_checkpoint"
+    assert payload["forecast"]["target_time_provenance"] == "date_only"
+    assert payload["forecast"]["session_id"] == payload["session"]["session_id"]
 
 
 def test_today_route_is_wired_into_app() -> None:
