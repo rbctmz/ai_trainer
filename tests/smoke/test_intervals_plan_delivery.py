@@ -39,6 +39,33 @@ def _single_plan() -> dict:
     }
 
 
+def _legacy_run_plan() -> dict:
+    return {
+        "goal_type": "Триатлон",
+        "distance": "Olympic",
+        "daily_plan": [
+            (datetime(2026, 7, 16), 20.0, {"bike": 0.0, "run": 20.0, "swim": 0.0}),
+        ],
+        "session_templates": [
+            {
+                "session_id": "ats_legacy_run_v1",
+                "date": "2026-07-16",
+                "sport": "run",
+                "session_role": "easy",
+                "phase": "Build",
+                "export_name": "Easy run",
+                "duration_minutes": 30,
+                "kind": "single",
+                "materialized_steps": [],
+            },
+        ],
+        "weekly_tss_plan": [20],
+        "phases": ["Build"],
+        "weekly_summary": [],
+        "constraint_summary": {},
+    }
+
+
 def _brick_plan() -> dict:
     return {
         "goal_type": "Триатлон",
@@ -165,6 +192,22 @@ def test_legacy_single_session_builds_owned_executable_native_payload() -> None:
     assert "uid" not in event
     assert "- Warmup" in event["description"]
     assert "m" in event["description"]
+    assert "95-105%" in event["description"]
+    assert "95-105% HR" not in event["description"]
+
+
+def test_legacy_run_marks_percentage_targets_as_heart_rate() -> None:
+    from models.intervals_workout_delivery import build_delivery_events
+
+    events = build_delivery_events(_legacy_run_plan(), ["2026-07-16"])
+
+    assert len(events) == 1
+    assert events[0]["type"] == "Run"
+    lines = events[0]["description"].splitlines()
+    assert any(line.endswith("65-80% HR") for line in lines)
+    assert any(line.endswith("75-90% HR") for line in lines)
+    assert any(line.endswith("60-70% HR") for line in lines)
+    assert not any(line.endswith(("65-80%", "75-90%", "60-70%")) for line in lines)
 
 
 def test_composite_brick_builds_two_ordered_leg_events() -> None:
