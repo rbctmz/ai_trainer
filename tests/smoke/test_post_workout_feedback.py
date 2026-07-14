@@ -236,6 +236,7 @@ def test_prompt_lifecycle_is_match_first_in_progress_safe_and_read_only() -> Non
     assert before_end["prompts"][0]["reason"] == "session_in_progress"
     assert ready["primary"]["state"] == "ready"
     assert ready["primary"]["is_primary"] is True
+    assert ready["primary"]["planned_sport"] == "bike"
     assert ambiguous["prompts"][0]["state"] == "pending_match"
 
 
