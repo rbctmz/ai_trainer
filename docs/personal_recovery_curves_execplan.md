@@ -19,11 +19,12 @@ The user-visible proof is a new web-first recovery analytics surface backed by e
 - [x] (2026-07-14 08:43Z) Recorded the contributor-safe baseline: `587 passed, 1 skipped`.
 - [x] (2026-07-14 09:05Z) Pre-registered the persistence, temporal anchoring, episode, cohort, uncertainty, API, web, and no-mutation contracts in this plan before product code.
 - [x] (2026-07-14 09:30Z) Added 37 BDD/TDD scenarios for no-look-ahead readiness, snapshot eligibility/revisions/concurrency, temporal anchors, load/RPE buckets, missing outcomes, exact sample/week gates, deterministic bootstrap, prospective separation, independent RPE overlays, read-only API, and route registration; the red run failed at the expected missing domain/service/table/route boundaries.
-- [ ] Implement the as-of-safe canonical readiness service and append-only prospective readiness snapshot journal.
-- [ ] Implement the append-only recovery episode ledger and write-event materializer.
-- [ ] Implement deterministic cohort analytics and sample gates.
-- [ ] Expose the headless API and web recovery surface without a Streamlit-only feature or any decision mutation.
-- [ ] Complete focused, smoke, broad, web build, migration/concurrency, and copy-of-real-database browser acceptance; self-review; finalize this plan; push and open a draft PR with `Closes #176`.
+- [x] (2026-07-14 11:10Z) Implemented the as-of-safe canonical readiness service, `ATHLETE_TIMEZONE`, v2 provenance, and append-only prospective snapshot journal with atomic same-run retry and same-day revisions.
+- [x] (2026-07-14 11:30Z) Implemented the append-only recovery episode ledger and provider-free write-event materializer over current reconciliation, catalog, match, feedback, constraints, and D+1 through D+3 snapshot evidence.
+- [x] (2026-07-14 11:35Z) Implemented deterministic cohort projections, exact sample/week gates, independently gated RPE overlays, and week-cluster bootstrap intervals.
+- [x] (2026-07-14 11:40Z) Exposed read-only FastAPI summary/detail routes and the web-first `/recovery` collection/maturity surface; no Streamlit-only feature or decision mutation was added.
+- [x] (2026-07-14 11:50Z) Completed focused, smoke, broad, web build, migration/concurrency, copy-of-real-database, and browser acceptance; self-review closed historical TSB anchoring, retry identity, terminal lifecycle ordering, exclusion normalization, and feedback-note privacy.
+- [ ] Finalize commits, push the implementation, update draft PR #187 from intentionally red to reviewable, and obtain independent human review before merge.
 
 ## Surprises & Discoveries
 
@@ -57,6 +58,18 @@ The user-visible proof is a new web-first recovery analytics surface backed by e
 - Observation: the contract-first red phase reaches every intended new boundary without touching product code.
   Evidence: `python -m pytest tests/smoke/test_recovery_response.py tests/smoke/test_api_recovery_analytics.py -q` reports 37 failures for missing `services.readiness_snapshot`, `models.recovery_response`, readiness journal methods, recovery router, and route registration. Both new test files pass `py_compile`.
 
+- Observation: a historical `as_of` fix must bound the activity query itself, not only filter an already current-relative frame.
+  Evidence: the first implementation called the existing `get_activities(90)`, whose cutoff is relative to process “now”. Self-review replaced it with `get_activities_between(as_of - 89 days, as_of)` before TSB calculation; the readiness/dashboard regression tests stayed green.
+
+- Observation: Next.js build in an isolated worktree needs worktree-local dependencies even when the main checkout has a complete `node_modules`.
+  Evidence: lint passed through a borrowed executable path, but build could not resolve `next/dist/lib/metadata` until `npm ci` populated the worktree. The clean rerun compiled `/recovery` and all thirteen static pages successfully.
+
+- Observation: the current real database correctly remains collection-only rather than manufacturing a historical curve.
+  Evidence: acceptance on `/private/tmp/ai_trainer_issue176_real_acceptance.db`, copied from the 58-activity local database, appended one eligible readiness snapshot, returned the same ID on same-run retry, created zero retrospective episodes, exposed zero cohorts, and left proposal/decision counts unchanged. The original database mtime and size were identical before and after.
+
+- Observation: the in-app browser rendered the new route and loaded the expected collection contract from the alternate-port acceptance stack.
+  Evidence: DOM acceptance at `http://localhost:3016/recovery` showed the navigation link, “Персональное восстановление”, visible `shadow`, one reliable snapshot, zero episodes, “Сбор данных”, and “Идёт сбор данных”; both local processes were stopped afterward.
+
 ## Decision Log
 
 - Decision: extract the canonical database-backed readiness builder into `services/readiness_snapshot.py`; keep `api/readiness_snapshot.py` as a compatibility import/projection boundary.
@@ -75,8 +88,8 @@ The user-visible proof is a new web-first recovery analytics surface backed by e
   Rationale: exclusion must be auditable. Dropping weak snapshots would hide coverage and make the denominator unknowable.
   Date/Author: 2026-07-14 / Codex.
 
-- Decision: readiness snapshot target identity is `readiness:<capture_mode>:<local_date>`. Its fingerprint includes capture run ID, rule version, capture mode, local date/timezone, and canonical frozen snapshot. A retry of one run is idempotent; a new same-day sync appends a revision even when values are unchanged.
-  Rationale: the requirement distinguishes a network retry from a separate observation. Monotonic daily revisions retain intraday history without a mutable current flag.
+- Decision: readiness snapshot target identity is `readiness:<capture_mode>:<local_date>`. Its idempotency fingerprint is the immutable pair `capture_mode + capture_run_id`; the complete rule version, local date/timezone, observation time, inputs, eligibility, and canonical snapshot are frozen in the resulting row. A retry of one run returns that row even if the retry clock differs; a new UUID on a later same-day sync appends a revision even when values are unchanged.
+  Rationale: run identity, not the caller’s retry timestamp, distinguishes a network retry from a separate observation. Monotonic daily revisions retain intraday history without a mutable current flag, and the unique capture-run index closes concurrent duplicates.
   Date/Author: 2026-07-14 / Codex.
 
 - Decision: a primary eligible readiness snapshot has a score, confidence at least `0.60`, `stale=false`, no included primary factor marked stale, a valid timezone, an explicit `as_of_date`, and all included factor dates at or before that `as_of_date`. Primary factors are HRV, resting heart rate, sleep, and training readiness; TSB is required to obey `as_of` but is not physiological freshness evidence. Missing inputs are allowed only when the canonical confidence still reaches the gate.
@@ -137,9 +150,13 @@ The user-visible proof is a new web-first recovery analytics surface backed by e
 
 ## Outcomes & Retrospective
 
-Implementation has not started. The audit and pre-registration are complete. Baseline smoke is `587 passed, 1 skipped`; the current live database is useful for migration and collection-only acceptance but cannot legitimately produce a primary curve because prospective readiness rows do not yet exist and most historical activity start times are missing.
+The implementation now delivers the prospective scientific collection loop end to end. Successful shared Garmin sync appends a versioned readiness observation and refreshes episodes after cache invalidation; explicit plan/actual matches and feedback revisions refresh the same materializer after their source transaction commits. The materializer is provider-free, preserves composite sessions as one parent, allows objective episodes without feedback, and refuses missing time provenance, major deviations, unversioned stimuli, and explicit health/travel confounders. GET projections are read-only and deterministic.
 
-This section will be updated after each milestone with observed test counts, migration/concurrency results, browser acceptance evidence, deviations from this plan, and any remaining risks. Completion requires a draft PR, green CI, independent human review, and merge; local implementation alone is not the outcome.
+The product surface is deliberately modest at current n. `/recovery` leads with evidence maturity and exclusion coverage, displays no curve below ten eligible comparable episodes, and only renders server-authorized D+1 through D+3 points at later gates. The detail endpoint strips free-text athlete notes. No recovery path mutates readiness decisions, coach proposals, planning checkpoints, or provider data.
+
+Validation evidence is `633 passed, 1 skipped` in contributor-safe smoke after the final two privacy/idempotency tests, `676 passed, 6 skipped, 24 deselected` in the final broad run, clean `compileall`, clean Next lint, and a successful Next production build with `/recovery` at 3.26 kB. Focused concurrency, migration, exact gates, missing-day, insertion-order, privacy, and real materialization tests are green. Copy-of-real-database and browser acceptance produced the honest `collection_only` state and left the source database unchanged.
+
+The remaining operational work is review and merge, not implementation. Statistical value still depends on future prospective syncs and proved plan/actual matches; this is an intentional evidence horizon rather than a missing backfill feature. The next roadmap issue should not consume recovery analytics as a decision input until the pre-registered gates have accumulated and been reviewed.
 
 ## Context and Orientation
 
@@ -345,4 +362,4 @@ FastAPI route functions depend on `Database` and call the headless service only.
 
 ## Revision Note
 
-2026-07-14 / Codex: Initial pre-registered plan created after the repository and live-data audit. It incorporates the reviewer’s Issue #176 contract, the newly observed missing-timezone and historical-start limitations, and exact v1 decisions for identity, exclusions, load/RPE buckets, week-cluster bootstrap, API routes, web maturity states, and write-event boundaries. No product implementation existed when these decisions were recorded. Updated after the red phase to record the 37 executable BDD scenarios and their expected missing-boundary evidence.
+2026-07-14 / Codex: Initial pre-registered plan created after the repository and live-data audit. It incorporates the reviewer’s Issue #176 contract, the newly observed missing-timezone and historical-start limitations, and exact v1 decisions for identity, exclusions, load/RPE buckets, week-cluster bootstrap, API routes, web maturity states, and write-event boundaries. No product implementation existed when these decisions were recorded. Updated after the red phase to record the 37 executable BDD scenarios and their expected missing-boundary evidence. Final implementation update records all delivered milestones, the same-run identity refinement, self-review fixes, test/build transcripts, copy-of-real-database evidence, browser acceptance, and the remaining human review/merge gate.
