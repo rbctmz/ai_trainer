@@ -17,6 +17,39 @@ const COMPLETION_LABELS: Record<string, string> = {
   unknown: "Не уверен",
 };
 
+const PROVENANCE_LABELS: Record<string, string> = {
+  "athlete-entered": "введено спортсменом",
+  "admin-entered": "введено администратором",
+};
+
+const SPORT_LABELS: Record<string, string> = {
+  run: "бег",
+  running: "бег",
+  bike: "вело",
+  cycling: "вело",
+  ride: "вело",
+  swim: "плавание",
+  swimming: "плавание",
+};
+
+function sportKey(value: string | null | undefined): string {
+  const key = String(value ?? "").trim().toLowerCase();
+  if (["run", "running"].includes(key)) return "run";
+  if (["bike", "cycling", "ride"].includes(key)) return "bike";
+  if (["swim", "swimming"].includes(key)) return "swim";
+  return key;
+}
+
+function sportLabel(value: string | null | undefined): string {
+  const key = String(value ?? "").trim().toLowerCase();
+  return SPORT_LABELS[key] ?? (key || "активность");
+}
+
+function provenanceLabel(value: string | null | undefined): string {
+  const key = String(value ?? "").trim();
+  return PROVENANCE_LABELS[key] ?? (key || "введено спортсменом");
+}
+
 function createSubmissionFingerprint(): string {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
     return crypto.randomUUID();
@@ -54,13 +87,26 @@ export function PostWorkoutFeedbackCard({
   );
   const needsRatings = !["did_not_start", "unknown"].includes(completionStatus);
   const canSubmit = !submitting && (!needsRatings || (rpe !== null && quality !== null));
+  const plannedSportKey = sportKey(prompt.planned_sport);
+  const actualSportKeys = Array.from(
+    new Set(
+      prompt.actual_activities
+        .map((activity) => sportKey(activity.sport))
+        .filter(Boolean),
+    ),
+  );
+  const confirmedSubstitution =
+    prompt.match_method === "user_confirmed" &&
+    Boolean(plannedSportKey) &&
+    actualSportKeys.some((key) => key !== plannedSportKey);
+  const actualSportLabel = actualSportKeys.map(sportLabel).join(" + ");
   const activitySummary = useMemo(
     () =>
       prompt.actual_activities
         .map((activity) => {
           const minutes = Math.round(Number(activity.duration_minutes ?? 0));
           const tss = Math.round(Number(activity.tss ?? 0));
-          return `${activity.sport || "активность"} · ${minutes} мин · ${tss} TSS`;
+          return `${sportLabel(activity.sport)} · ${minutes} мин · ${tss} TSS`;
         })
         .join("; "),
     [prompt.actual_activities],
@@ -91,7 +137,7 @@ export function PostWorkoutFeedbackCard({
           });
       setEditing(false);
       submissionFingerprintRef.current = null;
-      onSaved(`Фидбек сохранён · ревизия ${result.feedback.revision}`);
+      onSaved(`Фидбек сохранён · версия ${result.feedback.revision}`);
     } catch (error) {
       setFormError(error instanceof Error ? error.message : "Не удалось сохранить фидбек");
     } finally {
@@ -128,7 +174,7 @@ export function PostWorkoutFeedbackCard({
           </p>
         </div>
         <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">
-          {saved?.provenance_label ?? "athlete-entered"}
+          {provenanceLabel(saved?.provenance_label ?? prompt.provenance_label)}
         </span>
       </div>
 
@@ -142,9 +188,16 @@ export function PostWorkoutFeedbackCard({
         </p>
       )}
 
+      {confirmedSubstitution ? (
+        <p className="mt-2 text-xs font-medium text-accent">
+          Подтверждённая замена: {actualSportLabel} вместо {sportLabel(prompt.planned_sport)}
+        </p>
+      ) : null}
+
       {saved && !editing ? (
         <div className="mt-3 space-y-2 text-sm text-ink-soft">
           <p>
+            {confirmedSubstitution ? "Фактическая сессия" : "Сессия"} · {" "}
             {COMPLETION_LABELS[saved.completion_status] ?? saved.completion_status}
             {saved.completion_pct != null ? ` · ${Math.round(saved.completion_pct)}%` : ""}
             {saved.session_rpe_1_10 != null ? ` · RPE ${saved.session_rpe_1_10}/10` : ""}
@@ -153,7 +206,7 @@ export function PostWorkoutFeedbackCard({
               : ""}
           </p>
           {saved.note ? <p className="text-xs text-ink-faint">«{saved.note}»</p> : null}
-          <p className="text-xs text-ink-faint">Сохранена ревизия {saved.revision}</p>
+          <p className="text-xs text-ink-faint">Сохранена версия {saved.revision}</p>
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
@@ -174,7 +227,7 @@ export function PostWorkoutFeedbackCard({
             <div className="space-y-1 rounded-lg bg-surface-muted p-2.5 text-xs text-ink-soft">
               {(history?.history ?? []).map((item) => (
                 <p key={item.id}>
-                  рев. {item.revision} · {COMPLETION_LABELS[item.completion_status] ?? item.completion_status}
+                  версия {item.revision} · {COMPLETION_LABELS[item.completion_status] ?? item.completion_status}
                   {item.session_rpe_1_10 != null ? ` · RPE ${item.session_rpe_1_10}` : ""}
                   {item.quality_rating_1_5 != null ? ` · качество ${item.quality_rating_1_5}` : ""}
                 </p>
@@ -186,7 +239,7 @@ export function PostWorkoutFeedbackCard({
         <div className="mt-4 space-y-4">
           <fieldset>
             <legend className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-              Выполнение
+              {confirmedSubstitution ? "Выполнение фактической сессии" : "Выполнение"}
             </legend>
             <div className="mt-2 flex flex-wrap gap-2">
               {prompt.allowed_completion_statuses.map((status) => (
