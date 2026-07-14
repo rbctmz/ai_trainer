@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import logging
 import time
+import uuid
 from typing import Any, Callable, Dict
 
 from data.data_processor import ActivityProcessor, resolve_athlete_ftp_lthr
@@ -330,7 +331,27 @@ def sync_garmin_data(
 
     clear_data_caches()
 
-    result.details = _build_sync_details(sleep_data, daily_health_data, training_status_data)
+    # Scientific capture is derived and fail-open: a valid Garmin sync is not
+    # rolled back if the prospective journal cannot be refreshed.  Test/fake
+    # database handles that predate the journal simply skip this optional hook.
+    if callable(getattr(database, "save_readiness_snapshot", None)):
+        try:
+            from services.recovery_analytics import record_post_sync_recovery_state
+
+            recovery_capture = record_post_sync_recovery_state(
+                database,
+                capture_run_id=str(uuid.uuid4()),
+                observed_at_utc=datetime.now().astimezone(),
+            )
+            snapshot = recovery_capture.get("snapshot") or {}
+            result.details.append(
+                "Recovery snapshot: "
+                f"{snapshot.get('eligibility_status', 'unknown')} · rev {snapshot.get('revision', '—')}"
+            )
+        except Exception as exc:
+            result.warnings.append(f"⚠️ Recovery snapshot capture: {exc}")
+
+    result.details.extend(_build_sync_details(sleep_data, daily_health_data, training_status_data))
     result.success_messages = _build_success_messages(result)
 
     _emit_progress(

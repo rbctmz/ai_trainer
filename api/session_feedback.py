@@ -257,6 +257,9 @@ def _append_feedback(
         raise StaleFeedbackError("feedback revision is no longer current")
     feedback = saved["feedback"]
     evaluations = _evaluate_feedback_predictions(db, feedback)
+    from services.recovery_analytics import refresh_recovery_episodes_best_effort
+
+    refresh_recovery_episodes_best_effort(db, as_of=now_utc.date())
     return {"feedback": feedback, "created": saved["created"], "evaluations": evaluations}
 
 
