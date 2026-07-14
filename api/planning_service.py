@@ -1081,7 +1081,7 @@ def record_plan_actual_match(
     saved = db.save_plan_actual_match(payload)
     from services.recovery_analytics import refresh_recovery_episodes_best_effort
 
-    refresh_recovery_episodes_best_effort(db, as_of=date.fromisoformat(session_date))
+    refresh_recovery_episodes_best_effort(db, as_of=date.today())
     return saved
 
 

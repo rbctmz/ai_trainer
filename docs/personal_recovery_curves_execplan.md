@@ -24,7 +24,8 @@ The user-visible proof is a new web-first recovery analytics surface backed by e
 - [x] (2026-07-14 11:35Z) Implemented deterministic cohort projections, exact sample/week gates, independently gated RPE overlays, and week-cluster bootstrap intervals.
 - [x] (2026-07-14 11:40Z) Exposed read-only FastAPI summary/detail routes and the web-first `/recovery` collection/maturity surface; no Streamlit-only feature or decision mutation was added.
 - [x] (2026-07-14 11:50Z) Completed focused, smoke, broad, web build, migration/concurrency, copy-of-real-database, and browser acceptance; self-review closed historical TSB anchoring, retry identity, terminal lifecycle ordering, exclusion normalization, and feedback-note privacy.
-- [ ] Finalize commits, push the implementation, update draft PR #187 from intentionally red to reviewable, and obtain independent human review before merge.
+- [x] (2026-07-14 12:35Z) Addressed independent review with executable regressions: time-only `maturing` to `eligible` now appends revision 2, late manual matches refresh at the current date, backfilled anchor selection honors its requested mode, and direct API route registration no longer leaves a dead `APIRouter` contract.
+- [ ] Push the review fix to draft PR #187 and obtain the reviewer’s final verification before merge.
 
 ## Surprises & Discoveries
 
@@ -69,6 +70,12 @@ The user-visible proof is a new web-first recovery analytics surface backed by e
 
 - Observation: the in-app browser rendered the new route and loaded the expected collection contract from the alternate-port acceptance stack.
   Evidence: DOM acceptance at `http://localhost:3016/recovery` showed the navigation link, “Персональное восстановление”, visible `shadow`, one reliable snapshot, zero episodes, “Сбор данных”, and “Идёт сбор данных”; both local processes were stopped afterward.
+
+- Observation: an episode lifecycle transition can be material even when every evidence row and outcome remains unchanged.
+  Evidence: independent review reproduced a session with only pre and D+1 snapshots. Refresh at D+1 stored `maturing`; refresh after D+3 returned the same fingerprint and left revision 1 stuck. The regression test first failed with `created=0`, then passed after lifecycle `status` was added to the frozen fingerprint.
+
+- Observation: explicit match corrections need the observation clock, not the planned-session clock.
+  Evidence: `record_plan_actual_match` previously refreshed with `as_of=session_date`, so confirming an older session re-ran lifecycle rules as though no time had elapsed. The hook now supplies the current date, while the materializer itself still bounds candidate session dates and provider access remains disabled.
 
 ## Decision Log
 
@@ -120,6 +127,10 @@ The user-visible proof is a new web-first recovery analytics surface backed by e
   Rationale: a missing D+2 observation should remain visible without blocking D+1 and D+3. Terminal methodological failures must be distinguishable from an episode that is merely young.
   Date/Author: 2026-07-14 / Codex.
 
+- Decision: lifecycle `status` is part of the episode fingerprint, and a late explicit match refreshes recovery episodes with the current date rather than the session date.
+  Rationale: elapsed D+3 time is itself a material state transition even when no new snapshot arrives. Using the current clock also lets an old match enter its correct mature lifecycle immediately without mutating prior revisions.
+  Date/Author: 2026-07-14 / Codex.
+
 - Decision: primary episode exclusions are `capture_mode_mismatch`, `missing_pre_anchor`, `activity_start_missing`, `ambiguous_match`, `unknown_adherence`, `major_deviation`, `unversioned_stimulus`, `missing_actual_load`, `did_not_start`, and `unresolved_brick`. Explicit `sick` or `unavailable` constraints are stored as confounders and exclude the primary cohort with `explicit_health_or_travel_constraint`. Multiple same-day sessions, intervening load, and an accepted proposal are visible confounders but do not silently exclude; the API reports them and may stratify them.
   Rationale: the list is conservative and machine-readable. It separates evidence failure from observational context without inventing medical facts.
   Date/Author: 2026-07-14 / Codex.
@@ -154,7 +165,7 @@ The implementation now delivers the prospective scientific collection loop end t
 
 The product surface is deliberately modest at current n. `/recovery` leads with evidence maturity and exclusion coverage, displays no curve below ten eligible comparable episodes, and only renders server-authorized D+1 through D+3 points at later gates. The detail endpoint strips free-text athlete notes. No recovery path mutates readiness decisions, coach proposals, planning checkpoints, or provider data.
 
-Validation evidence is `633 passed, 1 skipped` in contributor-safe smoke after the final two privacy/idempotency tests, `676 passed, 6 skipped, 24 deselected` in the final broad run, clean `compileall`, clean Next lint, and a successful Next production build with `/recovery` at 3.26 kB. Focused concurrency, migration, exact gates, missing-day, insertion-order, privacy, and real materialization tests are green. Copy-of-real-database and browser acceptance produced the honest `collection_only` state and left the source database unchanged.
+Validation evidence is `635 passed, 1 skipped` in contributor-safe smoke after the independent-review regressions, `676 passed, 6 skipped, 24 deselected` in the final broad run, clean `compileall`, clean Next lint, and a successful Next production build with `/recovery` at 3.26 kB. Focused concurrency, migration, exact gates, missing-day, insertion-order, privacy, lifecycle-transition, and real materialization tests are green. Copy-of-real-database and browser acceptance produced the honest `collection_only` state and left the source database unchanged.
 
 The remaining operational work is review and merge, not implementation. Statistical value still depends on future prospective syncs and proved plan/actual matches; this is an intentional evidence horizon rather than a missing backfill feature. The next roadmap issue should not consume recovery analytics as a decision input until the pre-registered gates have accumulated and been reviewed.
 
@@ -362,4 +373,4 @@ FastAPI route functions depend on `Database` and call the headless service only.
 
 ## Revision Note
 
-2026-07-14 / Codex: Initial pre-registered plan created after the repository and live-data audit. It incorporates the reviewer’s Issue #176 contract, the newly observed missing-timezone and historical-start limitations, and exact v1 decisions for identity, exclusions, load/RPE buckets, week-cluster bootstrap, API routes, web maturity states, and write-event boundaries. No product implementation existed when these decisions were recorded. Updated after the red phase to record the 37 executable BDD scenarios and their expected missing-boundary evidence. Final implementation update records all delivered milestones, the same-run identity refinement, self-review fixes, test/build transcripts, copy-of-real-database evidence, browser acceptance, and the remaining human review/merge gate.
+2026-07-14 / Codex: Initial pre-registered plan created after the repository and live-data audit. It incorporates the reviewer’s Issue #176 contract, the newly observed missing-timezone and historical-start limitations, and exact v1 decisions for identity, exclusions, load/RPE buckets, week-cluster bootstrap, API routes, web maturity states, and write-event boundaries. No product implementation existed when these decisions were recorded. Updated after the red phase to record the 37 executable BDD scenarios and their expected missing-boundary evidence. Final implementation update records all delivered milestones, the same-run identity refinement, self-review fixes, test/build transcripts, copy-of-real-database evidence, browser acceptance, and the remaining human review/merge gate. The independent-review update adds the lifecycle-clock regression and its append-only fix, current-date late-match refresh, mode-aware anchors, direct-route cleanup, and the `635 passed, 1 skipped` smoke transcript.

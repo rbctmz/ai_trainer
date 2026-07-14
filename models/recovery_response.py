@@ -101,6 +101,7 @@ def select_daily_anchor(
     *,
     local_date: date,
     athlete_timezone: str,
+    capture_mode: str = "prospective",
 ) -> dict[str, Any]:
     """Choose the latest eligible snapshot before activity start or local noon."""
     if not _valid_timezone(athlete_timezone):
@@ -125,7 +126,7 @@ def select_daily_anchor(
     for row in snapshots:
         observed = _utc_datetime(row.get("observed_at_utc"))
         if (
-            row.get("capture_mode") == "prospective"
+            row.get("capture_mode") == capture_mode
             and row.get("eligibility_status") == "eligible"
             and _iso_date(row.get("local_date")) == local_date
             and observed is not None

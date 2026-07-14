@@ -200,6 +200,7 @@ def refresh_recovery_episodes(
             activities,
             local_date=session_date,
             athlete_timezone=str(Settings.ATHLETE_TIMEZONE),
+            capture_mode=capture_mode,
         )
         if pre_anchor["snapshot"] is None:
             anchor_reason = str(pre_anchor["reason"] or "missing_pre_anchor")
@@ -214,6 +215,7 @@ def refresh_recovery_episodes(
                 activities,
                 local_date=session_date + timedelta(days=day_number),
                 athlete_timezone=str(Settings.ATHLETE_TIMEZONE),
+                capture_mode=capture_mode,
             )
             anchors[day_number] = selected["snapshot"]
 
@@ -254,6 +256,7 @@ def refresh_recovery_episodes(
             },
             "outcome": outcome,
             "reasons": sorted(set(reasons)),
+            "status": status,
             "capture_mode": capture_mode,
         }
         iso = session_date.isocalendar()

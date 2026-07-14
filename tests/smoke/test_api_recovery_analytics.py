@@ -42,10 +42,14 @@ def test_unknown_recovery_cohort_returns_404(tmp_path) -> None:
 def test_recovery_routes_are_registered() -> None:
     from api.main import app
 
-    routes = {getattr(route, "path", None) for route in app.routes}
+    paths = app.openapi()["paths"]
 
-    assert "/api/recovery-analytics" in routes
-    assert "/api/recovery-analytics/cohorts/{cohort_id}" in routes
+    assert "/api/recovery-analytics" in paths
+    assert "/api/recovery-analytics/cohorts/{cohort_id}" in paths
+    assert sum(
+        getattr(route, "path", None) == "/api/recovery-analytics"
+        for route in app.routes
+    ) == 1
 
 
 def test_cohort_evidence_never_exposes_athlete_note(tmp_path) -> None:

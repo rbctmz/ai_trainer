@@ -256,6 +256,26 @@ def test_daily_anchor_without_activity_uses_local_noon() -> None:
     assert selected["cutoff_at_utc"] == "2026-07-14T09:00:00Z"
 
 
+def test_daily_anchor_honors_requested_capture_mode() -> None:
+    from models.recovery_response import select_daily_anchor
+
+    prospective = _snapshot_row(1, "2026-07-14T03:30:00Z")
+    backfilled = {
+        **_snapshot_row(2, "2026-07-14T04:30:00Z"),
+        "capture_mode": "backfilled",
+    }
+
+    selected = select_daily_anchor(
+        [prospective, backfilled],
+        [],
+        local_date=date(2026, 7, 14),
+        athlete_timezone="Europe/Moscow",
+        capture_mode="backfilled",
+    )
+
+    assert selected["snapshot"]["id"] == 2
+
+
 def test_snapshot_journal_is_idempotent_and_revisions_are_append_only(tmp_path) -> None:
     db = Database(str(tmp_path / "snapshots.db"))
     first_payload = _snapshot_payload(

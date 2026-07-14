@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Depends, HTTPException
 
 from api.deps import get_database
 from data.database import Database
@@ -13,10 +13,6 @@ from services.recovery_analytics import (
 )
 
 
-router = APIRouter(prefix="/api/recovery-analytics", tags=["recovery-analytics"])
-
-
-@router.get("")
 def recovery_analytics_summary_view(
     capture_mode: str = "prospective",
     db: Database = Depends(get_database),
@@ -26,7 +22,6 @@ def recovery_analytics_summary_view(
     return recovery_analytics_summary(db)
 
 
-@router.get("/cohorts/{cohort_id}")
 def recovery_cohort_view(
     cohort_id: str,
     db: Database = Depends(get_database),
@@ -37,4 +32,4 @@ def recovery_cohort_view(
     return result
 
 
-__all__ = ["router", "recovery_analytics_summary_view", "recovery_cohort_view"]
+__all__ = ["recovery_analytics_summary_view", "recovery_cohort_view"]

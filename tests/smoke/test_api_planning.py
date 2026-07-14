@@ -5,7 +5,7 @@ Contributor-safe: temp SQLite seeded with a little history, no network/AI.
 from __future__ import annotations
 
 import importlib
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -533,10 +533,19 @@ def test_provider_failure_blocks_rebalance_without_hiding_local_evidence(tmp_pat
     assert result["preview"]["reason"] == "data_gap"
 
 
-def test_user_match_correction_appends_ledger_and_changes_reconciliation(tmp_path):
+def test_user_match_correction_appends_ledger_and_changes_reconciliation(
+    tmp_path, monkeypatch
+):
     from api import planning_service as ps
+    from services import recovery_analytics
 
     db, plan = _reconciliation_db(tmp_path)
+    refresh_calls = []
+    monkeypatch.setattr(
+        recovery_analytics,
+        "refresh_recovery_episodes_best_effort",
+        lambda _db, *, as_of=None: refresh_calls.append(as_of) or {"created": 0},
+    )
     target = next(item for item in plan["session_templates"] if item["date"] == "2026-07-09")
     db.save_activities(
         [
@@ -561,6 +570,7 @@ def test_user_match_correction_appends_ledger_and_changes_reconciliation(tmp_pat
     )
     assert saved["match_method"] == "user_confirmed"
     assert saved["revision"] == 1
+    assert refresh_calls == [date.today()]
 
     result = ps.reconciliation_at(
         db,

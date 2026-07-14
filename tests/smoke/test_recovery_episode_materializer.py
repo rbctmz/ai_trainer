@@ -146,6 +146,90 @@ def test_materializer_builds_one_idempotent_episode_without_feedback(tmp_path) -
     }
 
 
+def test_materializer_revises_maturing_episode_after_d3_without_new_snapshots(
+    tmp_path,
+) -> None:
+    db = Database(str(tmp_path / "maturity.db"))
+    plan = ensure_session_identities(
+        {
+            "goal_type": "triathlon",
+            "distance": "olympic",
+            "start_week": date(2026, 7, 6),
+            "weekly_tss_plan": [60],
+            "phases": ["Build"],
+            "daily_plan": [
+                (datetime(2026, 7, 10), 60.0, {"bike": 60.0, "run": 0.0, "swim": 0.0})
+            ],
+            "session_templates": [
+                {
+                    "date": "2026-07-10",
+                    "week_index": 0,
+                    "day_index": 4,
+                    "phase": "Build",
+                    "session_role": "long",
+                    "session_focus": "Endurance",
+                    "sport": "bike",
+                    "duration_minutes": 60,
+                    "kind": "single",
+                    "template_key": "bike_endurance",
+                    "definition_snapshot": {
+                        "step_builder_key": "endurance",
+                        "catalog_version": "workout_catalog_v1",
+                    },
+                }
+            ],
+            "weekly_summary": [],
+            "constraint_summary": {},
+            "near_term_edit_version": 0,
+        }
+    )
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    session_id = plan["session_templates"][0]["session_id"]
+    db.save_activities(
+        [
+            {
+                "activity_id": "ride-maturing",
+                "date": "2026-07-10",
+                "started_at_utc": "2026-07-10T08:00:00Z",
+                "sport": "bike",
+                "duration_minutes": 60,
+                "tss": 60.0,
+            }
+        ]
+    )
+    db.save_plan_actual_match(
+        {
+            "fingerprint": "match-ride-maturing",
+            "target_key": f"session:{session_id}",
+            "session_id": session_id,
+            "base_checkpoint_id": checkpoint["id"],
+            "session_date": "2026-07-10",
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "confidence": 1.0,
+            "planned_snapshot": {"date": "2026-07-10", "sport": "bike", "role": "long"},
+            "actual_activity_ids": ["ride-maturing"],
+            "actual_snapshot": {"tss": 60.0, "sport": "bike", "role": "long"},
+            "evidence": ["User explicitly confirmed activity match"],
+            "rule_version": "plan_actual_match_v1",
+        }
+    )
+    _snapshot(db, "2026-07-10", 70)
+    _snapshot(db, "2026-07-11", 62)
+
+    first = refresh_recovery_episodes(db, as_of=date(2026, 7, 11))
+    matured = refresh_recovery_episodes(db, as_of=date(2026, 7, 17))
+    retry = refresh_recovery_episodes(db, as_of=date(2026, 7, 17))
+    latest = db.get_recovery_episodes(latest_only=True)[0]
+
+    assert first["created"] == 1
+    assert matured["created"] == 1
+    assert retry["created"] == 0
+    assert latest["revision"] == 2
+    assert latest["status"] == "eligible"
+    assert latest["outcome"]["missing_days"] == [2, 3]
+
+
 def test_capture_run_identity_wins_over_retry_clock(tmp_path) -> None:
     db = Database(str(tmp_path / "capture.db"))
 
