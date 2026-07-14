@@ -27,6 +27,7 @@ from api.routers import (  # noqa: E402  (after env setup)
     decisions,
     hrv,
     planning,
+    recovery_analytics,
     session_feedback,
     session_quality,
     sleep,
@@ -63,6 +64,21 @@ app.include_router(hrv.router)
 app.include_router(activities.router)
 app.include_router(athlete_profile.router)
 app.include_router(planning.router)
+# FastAPI 0.138 represents included routers lazily.  Register these two
+# contract-critical read routes directly so route introspection (and tooling)
+# sees their stable paths without forcing app startup.
+app.add_api_route(
+    "/api/recovery-analytics",
+    recovery_analytics.recovery_analytics_summary_view,
+    methods=["GET"],
+    tags=["recovery-analytics"],
+)
+app.add_api_route(
+    "/api/recovery-analytics/cohorts/{cohort_id}",
+    recovery_analytics.recovery_cohort_view,
+    methods=["GET"],
+    tags=["recovery-analytics"],
+)
 app.include_router(session_feedback.router)
 app.include_router(session_quality.router)
 app.include_router(sleep.router)

@@ -46,3 +46,50 @@ def test_recovery_routes_are_registered() -> None:
 
     assert "/api/recovery-analytics" in routes
     assert "/api/recovery-analytics/cohorts/{cohort_id}" in routes
+
+
+def test_cohort_evidence_never_exposes_athlete_note(tmp_path) -> None:
+    from services.recovery_analytics import (
+        recovery_analytics_summary,
+        recovery_cohort_detail,
+    )
+
+    db = Database(str(tmp_path / "privacy.db"))
+    for index in range(10):
+        db.save_recovery_episode(
+            {
+                "fingerprint": f"episode-{index}",
+                "target_key": f"session:s{index}",
+                "session_id": f"s{index}",
+                "session_date": f"2026-07-{index + 1:02d}",
+                "iso_week": f"2026-W{27 + index % 2}",
+                "capture_mode": "prospective",
+                "status": "eligible",
+                "rule_version": "recovery_response_v1",
+                "stimulus_family": "endurance",
+                "sport": "bike",
+                "actual_tss": 60,
+                "load_bucket": "moderate",
+                "adherence": "exact",
+                "exclusion_reasons": [],
+                "planned": {},
+                "actual": {},
+                "feedback": {
+                    "id": index + 1,
+                    "session_rpe_1_10": 5,
+                    "quality_rating_1_5": 4,
+                    "note": "private athlete note",
+                },
+                "outcome": {
+                    "readiness_deltas": {"d1": -5, "d2": -2, "d3": 1},
+                    "recovered_by_day": 1,
+                },
+                "confounders": {},
+            }
+        )
+    summary = recovery_analytics_summary(db)
+    detail = recovery_cohort_detail(db, summary["registry"][0]["cohort_id"])
+
+    assert detail is not None
+    assert all("note" not in row["feedback"] for row in detail["included_episodes"])
+    assert "private athlete note" not in str(detail)
