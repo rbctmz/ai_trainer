@@ -415,3 +415,87 @@ def test_modern_chat_consumes_pending_response_contract_once(monkeypatch: pytest
     assert state.pending_ai_response_contract is None
     assert state.selected_page == "🤖 AI Коучинг"
     assert state.switch_to_chat_tab is True
+
+
+def _grounding_responses():
+    return {
+        name: {"success": True, "result": {"tool": name}}
+        for name, _params in ai_coach_runtime.GROUNDING_TOOL_CALLS
+    }
+
+
+def test_finalize_grounds_answer_when_model_skips_tool_markers():
+    # Issue #188: модель не выдала ни одного [TOOL: ...] — раньше её сырой
+    # сфабрикованный ответ уходил пользователю как финальный.
+    ai_tools = _DummyAiTools(responses=_grounding_responses())
+    provider = _DummyProvider("Ответ по реальным данным.")
+
+    final = ai_coach_runtime.finalize_ai_chat_response(
+        "Сфабрикованный брифинг без единого вызова инструмента.",
+        ai_tools,
+        tool_result_formatter=lambda name, data: f"{name}:ok",
+        provider=provider,
+        user_input="Дай ежедневный брифинг",
+        history_messages=[],
+    )
+
+    assert ai_tools.calls == [
+        (name, dict(params)) for name, params in ai_coach_runtime.GROUNDING_TOOL_CALLS
+    ]
+    assert final == "Ответ по реальным данным."
+    prompt = provider.calls[0]["prompt"]
+    assert "РЕЗУЛЬТАТЫ ИНСТРУМЕНТОВ" in prompt
+    for name, _params in ai_coach_runtime.GROUNDING_TOOL_CALLS:
+        assert f"{name}:ok" in prompt
+
+
+def test_grounding_toolset_covers_mandated_briefing_minimum():
+    # Набор fallback-инструментов не должен разойтись с минимумом,
+    # который системный промпт требует для общего анализа/брифинга.
+    grounding_names = {name for name, _params in ai_coach_runtime.GROUNDING_TOOL_CALLS}
+    for mandated in (
+        "get_performance_metrics",
+        "analyze_hrv_trends",
+        "analyze_training_status",
+        "get_upcoming_workouts",
+        "get_active_plan",
+    ):
+        assert mandated in grounding_names
+
+
+def test_finalize_without_provider_keeps_previous_behavior():
+    ai_tools = _DummyAiTools()
+
+    final = ai_coach_runtime.finalize_ai_chat_response(
+        "Просто текст без инструментов.",
+        ai_tools,
+        tool_result_formatter=lambda name, data: f"{name}:ok",
+    )
+
+    assert final == "Просто текст без инструментов."
+    assert ai_tools.calls == []
+
+
+def test_grounding_tolerates_failing_tools():
+    # _DummyAiTools без ответов кидает KeyError на каждый инструмент:
+    # grounding обязан вернуть error-записи, а не упасть.
+    ai_tools = _DummyAiTools(responses={})
+
+    results = ai_coach_runtime.build_grounding_tool_results(
+        ai_tools,
+        tool_result_formatter=lambda name, data: f"{name}:ok",
+    )
+
+    assert len(results) == len(ai_coach_runtime.GROUNDING_TOOL_CALLS)
+    assert all(entry["success"] is False for entry in results)
+    assert all("Ошибка" in entry["formatted_result"] for entry in results)
+
+
+def test_grounding_skipped_without_executable_tools():
+    assert ai_coach_runtime.build_grounding_tool_results(None, lambda _n, _d: "") == []
+
+
+def test_synthesis_prompt_forbids_inventing_metric_values():
+    prompt = ai_coach_runtime.create_chat_synthesis_system_prompt()
+    assert "которых НЕТ в результатах инструментов" in prompt
+    assert "не выдумывай числа" in prompt
