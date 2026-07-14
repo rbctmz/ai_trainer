@@ -420,6 +420,7 @@ def test_planning_export_and_adjust_routes_registered():
         "/api/planning/plan",
         "/api/planning/export/ics",
         "/api/planning/export/workout/{index}",
+        "/api/planning/delivery/intervals",
         "/api/planning/reconciliation",
         "/api/planning/reconciliation/matches",
         "/api/planning/rebalance/preview",

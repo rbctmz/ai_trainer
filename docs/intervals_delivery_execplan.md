@@ -16,7 +16,8 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - [x] (2026-07-14 13:02Z) Added failing provider-adapter, delivery-domain, API, proposal lifecycle, and reconciliation contracts before production code; the focused red run reported 11 expected failures at missing module/method/route/identity boundaries and retained 47 passing adjacent tests.
 - [x] (2026-07-14 13:30Z) Implemented deterministic UUID-v5 slot identity, material external ids, native executable workout text with legacy fallback, composite-leg delivery, bounded bulk upsert/delete, and owned-only cleanup.
 - [x] (2026-07-14 13:30Z) Exposed the FastAPI delivery action and connected recovery approve plus rollback with affected-date sync and fail-open provider evidence; the focused contour is green at `58 passed`.
-- [ ] Run focused tests, contributor-safe smoke, broad non-live tests, Python compilation, Next lint/build, self-review, and isolated browser acceptance.
+- [x] (2026-07-14 13:48Z) Added the web Export delivery selector/button and explicit executable/calendar-only/deleted/failed result states; Next lint and production build pass.
+- [x] (2026-07-14 13:50Z) Completed focused (`58 passed`), contributor-safe smoke (`602 passed, 1 skipped`), broad non-live (`645 passed, 6 skipped, 24 deselected`), Python compilation, Next lint/build, and static self-review. Isolated browser/provider acceptance remains.
 - [ ] Perform a reversible live Intervals.icu acceptance: upsert twice, inspect parsed `workout_doc`, verify no foreign mutation, and remove only the temporary AI Trainer acceptance events.
 - [ ] Finalize this living document, commit by milestone, push the branch, and open a draft PR with `Closes #168`.
 

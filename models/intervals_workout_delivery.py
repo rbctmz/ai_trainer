@@ -62,7 +62,7 @@ def _target_text(target: Any) -> str:
             unit = "/100m" if str(target.get("unit") or "").endswith("100m") else "/km"
             if fast > 0:
                 return f"{_clock_text(fast)}-{_clock_text(slow)}{unit}"
-        if target_type in {"relative", "rpe"}:
+        if target_type in {"relative", "relative_rpe", "rpe"}:
             low = target.get("low") or target.get("value") or 3
             high = target.get("high")
             return f"RPE {low}-{high}" if high is not None else f"RPE {low}"

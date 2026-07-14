@@ -6,6 +6,7 @@ import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
 import {
   BuiltPlan,
   ForecastPoint,
+  IntervalsDeliveryResult,
   PlanningEventsResponse,
   PlanningDemand,
   PlanningHistory,
@@ -814,6 +815,26 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
 /* ---------------- Export mode ---------------- */
 function ExportMode() {
   const { data } = useSWR<PlanExport>("/api/planning/plan", fetcher);
+  const [deliveryDays, setDeliveryDays] = useState<7 | 14>(7);
+  const [deliveryBusy, setDeliveryBusy] = useState(false);
+  const [deliveryResult, setDeliveryResult] = useState<IntervalsDeliveryResult | null>(null);
+  const [deliveryError, setDeliveryError] = useState("");
+
+  async function deliverToIntervals() {
+    setDeliveryBusy(true);
+    setDeliveryError("");
+    try {
+      const result = await postJSON<IntervalsDeliveryResult>(
+        "/api/planning/delivery/intervals",
+        { days: deliveryDays },
+      );
+      setDeliveryResult(result);
+    } catch (error) {
+      setDeliveryError(error instanceof Error ? error.message : "Не удалось доставить план");
+    } finally {
+      setDeliveryBusy(false);
+    }
+  }
 
   if (!data) return <Skeleton />;
   if (!data.has_plan) return <EmptyPlan />;
@@ -830,6 +851,67 @@ function ExportMode() {
         >
           📅 Весь план в календарь (ICS)
         </a>
+      </section>
+
+      <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium text-ink">Доставить через Intervals.icu</div>
+            <p className="mt-1 max-w-2xl text-xs text-ink-faint">
+              Обновляет только события AI Trainer с защищённым идентификатором. Чужие тренировки,
+              гонки и ручные записи не изменяются.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            {([7, 14] as const).map((days) => (
+              <button
+                key={days}
+                type="button"
+                onClick={() => setDeliveryDays(days)}
+                className={`rounded-md border px-3 py-1.5 text-xs ${
+                  deliveryDays === days
+                    ? "border-accent bg-accent/10 text-accent"
+                    : "border-surface-border text-ink-soft"
+                }`}
+              >
+                {days} дней
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={deliverToIntervals}
+              disabled={!data.delivery.configured || deliveryBusy}
+              className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {deliveryBusy ? "Доставляю…" : "Отправить план"}
+            </button>
+          </div>
+        </div>
+        {!data.delivery.configured ? (
+          <p className="mt-3 text-xs text-tone-warning">
+            Intervals.icu не настроен: добавьте INTERVALS_ICU_API_KEY в локальный .env.
+          </p>
+        ) : null}
+        {deliveryError ? <p className="mt-3 text-xs text-tone-danger">{deliveryError}</p> : null}
+        {deliveryResult ? (
+          <div className="mt-4 grid gap-2 text-xs sm:grid-cols-4">
+            <div className="rounded-lg bg-tone-success/10 p-3 text-tone-success">
+              Исполняемые: <strong>{deliveryResult.executable_count}</strong>
+            </div>
+            <div className="rounded-lg bg-tone-warning/10 p-3 text-tone-warning">
+              Только календарь: <strong>{deliveryResult.calendar_only_count}</strong>
+            </div>
+            <div className="rounded-lg bg-surface-muted p-3 text-ink-soft">
+              Удалено старых AI Trainer: <strong>{deliveryResult.deleted_count}</strong>
+            </div>
+            <div className="rounded-lg bg-tone-danger/10 p-3 text-tone-danger">
+              Ошибки: <strong>{deliveryResult.failed_count}</strong>
+            </div>
+            {deliveryResult.error ? (
+              <p className="sm:col-span-4 text-tone-danger">{deliveryResult.error}</p>
+            ) : null}
+          </div>
+        ) : null}
       </section>
 
       <section className="overflow-hidden rounded-card border border-surface-border bg-surface shadow-card">
