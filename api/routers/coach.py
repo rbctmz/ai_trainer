@@ -18,11 +18,12 @@ from api.recovery_replan_loop import run_recovery_replan_loop
 from data.database import Database
 from models.ai_coach_runtime import (
     apply_response_contract_to_final_response,
+    build_grounding_tool_results,
     collect_tool_results,
     create_chat_synthesis_system_prompt,
     build_chat_synthesis_prompt,
-    finalize_ai_chat_response,
     generate_ai_chat_response,
+    synthesize_ai_chat_response,
 )
 from models.coach_decisions import build_coach_decision
 from models.ai_tools import AITools
@@ -136,6 +137,13 @@ def coach_chat(
                 ai_tools,
                 format_tool_result,
             )
+            grounding_used = False
+            if not tool_results:
+                # Модель не выдала ни одного [TOOL: ...] — без данных её сырой
+                # ответ уходит сфабрикованным (issue #188). Собираем базовый
+                # набор реальных данных и синтезируем ответ по ним.
+                tool_results = build_grounding_tool_results(ai_tools, format_tool_result)
+                grounding_used = bool(tool_results)
 
             for item in tool_results:
                 yield _sse(
@@ -144,6 +152,7 @@ def coach_chat(
                         "name": tool_label(item["tool_name"]),
                         "tool_name": item["tool_name"],
                         "status": "done",
+                        "auto": grounding_used,
                     }
                 )
                 raw_result = item.get("raw_result") or {}
@@ -188,15 +197,22 @@ def coach_chat(
                     else _rendered_response
                 )
             else:
-                final = finalize_ai_chat_response(
-                    raw,
-                    ai_tools,
-                    format_tool_result,
-                    response_contract=None,
-                    provider=provider,
-                    user_input=message,
-                    history_messages=history,
-                )
+                # Инструменты уже выполнены выше — синтезируем напрямую,
+                # не прогоняя их второй раз через finalize_ai_chat_response.
+                if tool_results:
+                    final = (
+                        synthesize_ai_chat_response(
+                            provider=provider,
+                            history_messages=history,
+                            user_input=message,
+                            tool_results=tool_results,
+                            goal_plan=goal_plan,
+                        )
+                        or _rendered_response
+                    )
+                else:
+                    final = _rendered_response
+                final = apply_response_contract_to_final_response(final, None)
                 for chunk in _chunk(final):
                     yield _sse({"type": "token", "content": chunk})
 
