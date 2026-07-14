@@ -544,6 +544,26 @@ export interface PlanExport {
   has_plan: boolean;
   goal: { goal_type: string; distance: string } | null;
   days: PlanDay[];
+  delivery: {
+    configured: boolean;
+    athlete_id: string;
+    base_url: string;
+  };
+}
+
+export interface IntervalsDeliveryResult {
+  status: "success" | "calendar_only" | "partial" | "failed" | "not_configured" | "no_plan" | "skipped";
+  source: string;
+  checkpoint_id: number | null;
+  dates: string[];
+  provider_event_ids: Array<number | string>;
+  desired_count: number;
+  executable_count: number;
+  calendar_only_count: number;
+  deleted_count: number;
+  failed_count: number;
+  retryable: boolean;
+  error: string | null;
 }
 
 // --- Dashboard Widgets ---

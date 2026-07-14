@@ -4,6 +4,8 @@ from pathlib import Path
 
 import pytest
 
+from config.settings import Settings
+
 
 LIVE_PREFIXES = (
     "test_real_",
@@ -23,6 +25,13 @@ DEBUG_TOKENS = (
 DEBUG_FILES = {
     "test_sync_chain_debugging.py",
 }
+
+
+@pytest.fixture(autouse=True)
+def disable_live_intervals_credentials(monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest):
+    """Contributor-safe tests never inherit a developer's live write credential."""
+    if request.node.get_closest_marker("live") is None:
+        monkeypatch.setattr(Settings, "INTERVALS_ICU_API_KEY", None)
 
 
 def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:

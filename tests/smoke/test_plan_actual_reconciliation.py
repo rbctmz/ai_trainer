@@ -256,6 +256,51 @@ def test_ai_trainer_external_id_wins_while_foreign_provider_pair_is_only_evidenc
     assert any("provider paired event" in evidence.lower() for evidence in foreign_row["evidence"])
 
 
+def test_ai_trainer_brick_leg_external_ids_are_exact_parent_evidence() -> None:
+    raw = _goal_plan()
+    target = _session_by_date(raw, "2026-07-08")
+    target["kind"] = "composite"
+    target["sport"] = "brick"
+    target["legs"] = [
+        {"leg_index": 1, "sport": "bike"},
+        {"leg_index": 2, "sport": "run"},
+    ]
+    plan = ensure_session_identities(raw)
+    target = _session_by_date(plan, "2026-07-08")
+    activities = [
+        _activity("bike-leg", "2026-07-08", "bike", 45.0),
+        _activity("run-leg", "2026-07-08", "run", 20.0),
+    ]
+    provider_activities = [
+        {"external_id": "bike-leg", "paired_event_id": "event-bike"},
+        {"external_id": "run-leg", "paired_event_id": "event-run"},
+    ]
+    provider_events = [
+        {
+            "id": "event-bike",
+            "external_id": f"ai_trainer:{target['session_id']}:leg:1",
+        },
+        {
+            "id": "event-run",
+            "external_id": f"ai_trainer:{target['session_id']}:leg:2",
+        },
+    ]
+
+    result = build_reconciliation(
+        plan,
+        activities,
+        as_of=date(2026, 7, 13),
+        weeks=1,
+        base_checkpoint_id=63,
+        provider_activities=provider_activities,
+        provider_events=provider_events,
+    )
+
+    row = next(item for item in result["rows"] if item["date"] == "2026-07-08")
+    assert row["match_method"] == "ai_trainer_external_id"
+    assert set(row["actual_activity_ids"]) == {"bike-leg", "run-leg"}
+
+
 def test_user_match_reserves_activity_before_automatic_heuristics() -> None:
     raw = _goal_plan()
     raw["daily_plan"].append(deepcopy(raw["daily_plan"][2]))

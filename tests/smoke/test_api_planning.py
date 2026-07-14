@@ -420,6 +420,7 @@ def test_planning_export_and_adjust_routes_registered():
         "/api/planning/plan",
         "/api/planning/export/ics",
         "/api/planning/export/workout/{index}",
+        "/api/planning/delivery/intervals",
         "/api/planning/reconciliation",
         "/api/planning/reconciliation/matches",
         "/api/planning/rebalance/preview",
@@ -740,6 +741,36 @@ def test_build_run_goal_maps_distance(tmp_path):
     )
     assert plan["goal"]["goal_type"] == "Бег"
     assert plan["goal"]["distance"] == "Марафон"
+
+
+def test_intervals_delivery_route_rejects_demo_before_provider_and_returns_result(
+    tmp_path, monkeypatch
+):
+    from fastapi import HTTPException
+    from api import planning_service as ps
+    from api.routers.planning import IntervalsDeliveryRequest, planning_deliver_intervals
+
+    db = _seeded_db(tmp_path)
+    calls = []
+    monkeypatch.setattr(
+        ps,
+        "deliver_intervals_plan",
+        lambda _db, *, days: calls.append(days) or {
+            "status": "success",
+            "executable_count": 2,
+            "calendar_only_count": 0,
+        },
+        raising=False,
+    )
+    request = IntervalsDeliveryRequest(days=7)
+
+    with pytest.raises(HTTPException) as blocked:
+        planning_deliver_intervals(request, demo=True, db=db)
+    result = planning_deliver_intervals(request, demo=False, db=db)
+
+    assert blocked.value.status_code == 409
+    assert calls == [7]
+    assert result["executable_count"] == 2
 
 
 if __name__ == "__main__":  # pragma: no cover

@@ -188,6 +188,11 @@ def test_list_execution_evidence_is_bounded_get_and_keeps_match_fields(monkeypat
                 "start_date_local": "2026-07-12T07:00:00",
                 "type": "Ride",
                 "name": "Planned Ride",
+                "uid": "slot-uid",
+                "workout_doc": {"steps": [{"duration": 600}]},
+                "moving_time": 3600,
+                "oauth_client_id": 173,
+                "created_by_id": "athlete-1",
             },
             {"id": "race", "category": "RACE_B", "start_date_local": "2026-07-12T09:00:00"},
         ]
@@ -230,7 +235,61 @@ def test_list_execution_evidence_is_bounded_get_and_keeps_match_fields(monkeypat
             "start_date_local": "2026-07-12T07:00:00",
             "type": "Ride",
             "name": "Planned Ride",
+            "uid": "slot-uid",
+            "workout_doc": {"steps": [{"duration": 600}]},
+            "moving_time": 3600,
         }
+    ]
+
+
+def test_bulk_upsert_and_delete_use_official_external_id_contract(monkeypatch):
+    client = intervals_icu.IntervalsICUClient(api_key="secret", athlete_id="0")
+    calls = []
+
+    def fake_request(_self, method, path, payload=None, params=None):
+        calls.append({"method": method, "path": path, "payload": payload, "params": params})
+        if path.endswith("bulk-delete"):
+            return {"eventsDeleted": len(payload)}
+        return [
+            {
+                **payload[0],
+                "id": 123,
+                "workout_doc": {"steps": [{"duration": 600}]},
+            }
+        ]
+
+    monkeypatch.setattr(intervals_icu.IntervalsICUClient, "_request_json", fake_request)
+    event = {
+        "external_id": "ai_trainer:ats_123",
+        "category": "WORKOUT",
+        "start_date_local": "2026-07-15T07:00:00",
+        "name": "Endurance",
+        "description": "- Warmup 10m 55-70%",
+        "type": "Ride",
+    }
+
+    upserted = client.upsert_events_by_external_id([event])
+    deleted = client.delete_events([{"id": 123, "external_id": "ai_trainer:ats_123"}])
+
+    assert upserted[0]["id"] == 123
+    assert deleted == 1
+    assert calls == [
+        {
+            "method": "POST",
+            "path": "/api/v1/athlete/0/events/bulk",
+            "payload": [event],
+            "params": {
+                "upsert": "true",
+                "upsertOnUid": "false",
+                "updatePlanApplied": "true",
+            },
+        },
+        {
+            "method": "PUT",
+            "path": "/api/v1/athlete/0/events/bulk-delete",
+            "payload": [{"id": 123, "external_id": "ai_trainer:ats_123"}],
+            "params": None,
+        },
     ]
 
 
