@@ -233,10 +233,11 @@ class IntervalsICUClient:
             created.append(self.create_event(payload))
         return created
 
-    def upsert_events_by_uid(
+    def upsert_events_by_external_id(
         self,
         event_payloads: Iterable[Mapping[str, Any]],
     ) -> List[Dict[str, Any]]:
+        """Upsert events using the caller-owned Intervals.icu external_id."""
         payload = [dict(item) for item in event_payloads]
         if not payload:
             return []
@@ -244,7 +245,11 @@ class IntervalsICUClient:
             "POST",
             f"/api/v1/athlete/{self.athlete_id}/events/bulk",
             payload=payload,
-            params={"upsertOnUid": "true", "updatePlanApplied": "true"},
+            params={
+                "upsert": "true",
+                "upsertOnUid": "false",
+                "updatePlanApplied": "true",
+            },
         )
         return [dict(item) for item in response if isinstance(item, Mapping)] if isinstance(response, list) else []
 

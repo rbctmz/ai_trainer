@@ -108,16 +108,22 @@ def deliver_active_plan(
     newest = date.fromisoformat(selected[-1])
     existing = resolved_client.list_workout_events(oldest, newest)
     desired = build_delivery_events(plan, selected)
-    upserted = resolved_client.upsert_events_by_uid(desired) if desired else []
-    desired_uids = {str(row.get("uid") or "") for row in desired}
+    upserted = (
+        resolved_client.upsert_events_by_external_id(desired) if desired else []
+    )
+    desired_external_ids = {
+        str(row.get("external_id") or "") for row in desired
+    }
     selected_set = set(selected)
     confirmed = [
         row
         for row in upserted
-        if str(row.get("uid") or "") in desired_uids
+        if str(row.get("external_id") or "") in desired_external_ids
     ]
-    confirmed_uids = {str(row.get("uid") or "") for row in confirmed}
-    failed_count = len(desired_uids - confirmed_uids)
+    confirmed_external_ids = {
+        str(row.get("external_id") or "") for row in confirmed
+    }
+    failed_count = len(desired_external_ids - confirmed_external_ids)
 
     # Cleanup is fail closed. An explicit date list may be non-contiguous, so
     # the bounded provider read can contain managed workouts that were not part
@@ -131,7 +137,7 @@ def deliver_active_plan(
             if provider_event_is_owned(row)
             and row.get("id") is not None
             and str(row.get("start_date_local") or "")[:10] in selected_set
-            and str(row.get("uid") or "") not in desired_uids
+            and str(row.get("external_id") or "") not in desired_external_ids
         ]
         if can_cleanup
         else []

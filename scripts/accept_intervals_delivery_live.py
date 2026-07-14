@@ -8,25 +8,16 @@ import json
 from pathlib import Path
 import sys
 from typing import Any, Mapping, Sequence
-from uuid import uuid5
 
 
 if __package__ in {None, ""}:  # pragma: no cover - direct script execution
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from models.intervals_workout_delivery import (  # noqa: E402
-    DELIVERY_NAMESPACE,
-    provider_event_is_executable,
-)
+from models.intervals_workout_delivery import provider_event_is_executable  # noqa: E402
 
 
 LIVE_ACCEPTANCE_CONFIRMATION = "CREATE-VERIFY-AND-DELETE-ONE-INTERVALS-EVENT"
 _ACCEPTANCE_PREFIX = "ai_trainer:acceptance:"
-
-
-def acceptance_uid(target_date: date) -> str:
-    """Use an acceptance-only slot that cannot collide with product delivery."""
-    return str(uuid5(DELIVERY_NAMESPACE, f"acceptance:{target_date.isoformat()}"))
 
 
 def acceptance_external_id(target_date: date) -> str:
@@ -36,7 +27,6 @@ def acceptance_external_id(target_date: date) -> str:
 def _acceptance_payload(target_date: date) -> dict[str, Any]:
     name = "AI Trainer acceptance · temporary · delete me"
     return {
-        "uid": acceptance_uid(target_date),
         "external_id": acceptance_external_id(target_date),
         "start_date_local": datetime.combine(
             target_date,
@@ -60,24 +50,19 @@ def _acceptance_payload(target_date: date) -> dict[str, Any]:
 def _is_exact_probe(
     event: Mapping[str, Any],
     *,
-    uid: str,
     external_id: str,
 ) -> bool:
-    return (
-        str(event.get("uid") or "") == uid
-        or str(event.get("external_id") or "") == external_id
-    )
+    return str(event.get("external_id") or "") == external_id
 
 
 def _foreign_snapshot(
     events: Sequence[Mapping[str, Any]],
     *,
-    uid: str,
     external_id: str,
 ) -> dict[str, dict[str, Any]]:
     snapshot: dict[str, dict[str, Any]] = {}
     for index, event in enumerate(events):
-        if _is_exact_probe(event, uid=uid, external_id=external_id):
+        if _is_exact_probe(event, external_id=external_id):
             continue
         key = str(event.get("id") or event.get("uid") or f"row:{index}")
         snapshot[key] = dict(event)
@@ -87,14 +72,12 @@ def _foreign_snapshot(
 def _one_confirmed_probe(
     rows: Sequence[Mapping[str, Any]],
     *,
-    uid: str,
     external_id: str,
 ) -> dict[str, Any]:
     matches = [
         dict(row)
         for row in rows
-        if str(row.get("uid") or "") == uid
-        and str(row.get("external_id") or "") == external_id
+        if str(row.get("external_id") or "") == external_id
     ]
     if len(matches) != 1 or matches[0].get("id") is None:
         raise RuntimeError("provider did not confirm exactly one acceptance event")
@@ -119,14 +102,13 @@ def run_live_acceptance(
     if not client.is_configured():
         raise ValueError("Intervals.icu client is not configured")
 
-    uid = acceptance_uid(target_date)
     external_id = acceptance_external_id(target_date)
     before = client.list_workout_events(target_date, target_date)
-    if any(_is_exact_probe(row, uid=uid, external_id=external_id) for row in before):
+    if any(_is_exact_probe(row, external_id=external_id) for row in before):
         raise RuntimeError(
             "residual acceptance event exists; inspect it before any new mutation"
         )
-    foreign_before = _foreign_snapshot(before, uid=uid, external_id=external_id)
+    foreign_before = _foreign_snapshot(before, external_id=external_id)
     payload = _acceptance_payload(target_date)
     mutated = False
     report: dict[str, Any] = {
@@ -142,13 +124,11 @@ def run_live_acceptance(
     try:
         mutated = True
         first = _one_confirmed_probe(
-            client.upsert_events_by_uid([payload]),
-            uid=uid,
+            client.upsert_events_by_external_id([payload]),
             external_id=external_id,
         )
         second = _one_confirmed_probe(
-            client.upsert_events_by_uid([payload]),
-            uid=uid,
+            client.upsert_events_by_external_id([payload]),
             external_id=external_id,
         )
         same_provider_id = first["id"] == second["id"]
@@ -160,13 +140,12 @@ def run_live_acceptance(
         after = client.list_workout_events(target_date, target_date)
         listed = _one_confirmed_probe(
             after,
-            uid=uid,
             external_id=external_id,
         )
         if listed["id"] != second["id"]:
             raise RuntimeError("bounded provider read returned a different event id")
         foreign_unchanged = (
-            _foreign_snapshot(after, uid=uid, external_id=external_id)
+            _foreign_snapshot(after, external_id=external_id)
             == foreign_before
         )
         if not foreign_unchanged:
@@ -186,8 +165,7 @@ def run_live_acceptance(
             exact = [
                 row
                 for row in current_rows
-                if str(row.get("uid") or "") == uid
-                and str(row.get("external_id") or "") == external_id
+                if str(row.get("external_id") or "") == external_id
                 and row.get("id") is not None
             ]
             cleanup_payload = [
@@ -198,12 +176,12 @@ def run_live_acceptance(
             report["cleanup_deleted"] = int(deleted or 0)
             remaining = client.list_workout_events(target_date, target_date)
             if any(
-                _is_exact_probe(row, uid=uid, external_id=external_id)
+                _is_exact_probe(row, external_id=external_id)
                 for row in remaining
             ):
                 raise RuntimeError("acceptance cleanup did not remove the probe")
             if (
-                _foreign_snapshot(remaining, uid=uid, external_id=external_id)
+                _foreign_snapshot(remaining, external_id=external_id)
                 != foreign_before
             ):
                 raise RuntimeError("foreign provider events changed during cleanup")

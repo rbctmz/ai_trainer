@@ -112,13 +112,14 @@ class _FakeClient:
         self.list_calls.append((oldest, newest))
         return list(self.existing)
 
-    def upsert_events_by_uid(self, payloads):
+    def upsert_events_by_external_id(self, payloads):
         rows = [dict(row) for row in payloads]
         self.upsert_calls.append(rows)
         return [
             {
                 **row,
                 "id": index + 100,
+                "uid": f"provider-generated-{index}",
                 "workout_doc": {"steps": [{"duration": 600}]} if self.executable else None,
             }
             for index, row in enumerate(rows)
@@ -131,7 +132,7 @@ class _FakeClient:
 
 
 class _PartialUpsertClient(_FakeClient):
-    def upsert_events_by_uid(self, payloads):
+    def upsert_events_by_external_id(self, payloads):
         rows = [dict(row) for row in payloads]
         self.upsert_calls.append(rows)
         if not rows:
@@ -140,17 +141,10 @@ class _PartialUpsertClient(_FakeClient):
             {
                 **rows[0],
                 "id": 100,
+                "uid": "provider-generated-0",
                 "workout_doc": {"steps": [{"duration": 600}]},
             }
         ]
-
-
-def test_slot_uid_is_stable_per_date_and_leg() -> None:
-    from models.intervals_workout_delivery import delivery_slot_uid
-
-    assert delivery_slot_uid("2026-07-15") == delivery_slot_uid("2026-07-15")
-    assert delivery_slot_uid("2026-07-15") != delivery_slot_uid("2026-07-15", 1)
-    assert delivery_slot_uid("2026-07-15", 1) != delivery_slot_uid("2026-07-15", 2)
 
 
 def test_legacy_single_session_builds_owned_executable_native_payload() -> None:
@@ -168,7 +162,7 @@ def test_legacy_single_session_builds_owned_executable_native_payload() -> None:
     assert event["type"] == "Ride"
     assert event["moving_time"] > 0
     assert event["icu_training_load"] == 40
-    assert event["uid"]
+    assert "uid" not in event
     assert "- Warmup" in event["description"]
     assert "m" in event["description"]
 
@@ -236,6 +230,7 @@ def test_delivery_upserts_desired_slots_and_deletes_only_owned_stale_events(tmp_
     assert result["calendar_only_count"] == 0
     assert result["deleted_count"] == 1
     assert len(client.upsert_calls) == 1
+    assert "uid" not in client.upsert_calls[0][0]
     assert client.delete_calls == [[{"id": 2, "external_id": "ai_trainer:ats_old"}]]
     assert all(row.get("id") != 1 for call in client.delete_calls for row in call)
 

@@ -242,7 +242,7 @@ def test_list_execution_evidence_is_bounded_get_and_keeps_match_fields(monkeypat
     ]
 
 
-def test_bulk_upsert_and_delete_use_official_event_contract(monkeypatch):
+def test_bulk_upsert_and_delete_use_official_external_id_contract(monkeypatch):
     client = intervals_icu.IntervalsICUClient(api_key="secret", athlete_id="0")
     calls = []
 
@@ -260,7 +260,6 @@ def test_bulk_upsert_and_delete_use_official_event_contract(monkeypatch):
 
     monkeypatch.setattr(intervals_icu.IntervalsICUClient, "_request_json", fake_request)
     event = {
-        "uid": "4ca85f64-9079-52ac-9915-32e5a625223e",
         "external_id": "ai_trainer:ats_123",
         "category": "WORKOUT",
         "start_date_local": "2026-07-15T07:00:00",
@@ -269,7 +268,7 @@ def test_bulk_upsert_and_delete_use_official_event_contract(monkeypatch):
         "type": "Ride",
     }
 
-    upserted = client.upsert_events_by_uid([event])
+    upserted = client.upsert_events_by_external_id([event])
     deleted = client.delete_events([{"id": 123, "external_id": "ai_trainer:ats_123"}])
 
     assert upserted[0]["id"] == 123
@@ -279,7 +278,11 @@ def test_bulk_upsert_and_delete_use_official_event_contract(monkeypatch):
             "method": "POST",
             "path": "/api/v1/athlete/0/events/bulk",
             "payload": [event],
-            "params": {"upsertOnUid": "true", "updatePlanApplied": "true"},
+            "params": {
+                "upsert": "true",
+                "upsertOnUid": "false",
+                "updatePlanApplied": "true",
+            },
         },
         {
             "method": "PUT",

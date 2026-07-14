@@ -14,17 +14,18 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - [x] (2026-07-14 09:17Z) Published the pre-ExecPlan contract and mandatory BDD scenarios in issue #168 comment `4967348427`.
 - [x] (2026-07-14 09:22Z) Created isolated worktree `/private/tmp/ai_trainer_issue168` on branch `codex/issue-168-intervals-delivery` from clean `main` at `3983cf5`.
 - [x] (2026-07-14 13:02Z) Added failing provider-adapter, delivery-domain, API, proposal lifecycle, and reconciliation contracts before production code; the focused red run reported 11 expected failures at missing module/method/route/identity boundaries and retained 47 passing adjacent tests.
-- [x] (2026-07-14 13:30Z) Implemented deterministic UUID-v5 slot identity, material external ids, native executable workout text with legacy fallback, composite-leg delivery, bounded bulk upsert/delete, and owned-only cleanup.
+- [x] (2026-07-14 13:30Z) Implemented the initial deterministic slot/material identities, native executable workout text with legacy fallback, composite-leg delivery, bounded bulk upsert/delete, and owned-only cleanup. Live acceptance later replaced the slot-UID assumption with the documented external-id contract.
 - [x] (2026-07-14 13:30Z) Exposed the FastAPI delivery action and connected recovery approve plus rollback with affected-date sync and fail-open provider evidence; the focused contour is green at `58 passed`.
 - [x] (2026-07-14 13:48Z) Added the web Export delivery selector/button and explicit executable/calendar-only/deleted/failed result states; Next lint and production build pass.
 - [x] (2026-07-14 13:50Z) Completed focused (`58 passed`), contributor-safe smoke (`602 passed, 1 skipped`), broad non-live (`645 passed, 6 skipped, 24 deselected`), Python compilation, Next lint/build, and static self-review. Isolated browser/provider acceptance remains.
 - [x] (2026-07-14 13:58Z) Completed isolated browser acceptance against a local Intervals-compatible mock and temporary SQLite: two UI submissions returned `1 executable / 0 calendar-only / 0 failed` and converged on one event id with parsed steps; all temporary servers were stopped.
 - [x] (2026-07-14 14:25Z) Repeated deletion-safety self-review after opening implementation PR #192. Added regression coverage for non-contiguous recovery dates and partial bulk responses, then made cleanup fail closed; the focused delivery/recovery/API/reconciliation contour is green at `60 passed`.
 - [x] (2026-07-14 14:38Z) Merged current `main` after recovery-curves PR #187 landed and verified the combined tree: focused integration `102 passed`, smoke `649 passed, 1 skipped`, broad non-live `692 passed, 6 skipped, 24 deselected`, Next lint and production build clean.
-- [x] (2026-07-14 14:55Z) Added a test-driven, fail-closed live acceptance runner. Five fake-provider scenarios prove the exact confirmation gate, acceptance-only UID, two-upsert identity, foreign preservation, cleanup on parser failure, residual refusal, and future-only date guard without any live request; the expanded smoke suite is `654 passed, 1 skipped`.
+- [x] (2026-07-14 14:55Z) Added a test-driven, fail-closed live acceptance runner. Five fake-provider scenarios prove the exact confirmation gate, acceptance-only external id, two-upsert identity, foreign preservation, cleanup on parser failure, residual refusal, and future-only date guard without any live request; the expanded smoke suite is `654 passed, 1 skipped`.
 - [x] (2026-07-14 15:10Z) Addressed both independent-review findings plus the cheap follow-ups: empty recovery date sets are provider-free `skipped`, template/day alignment is verified before payload creation, manual windows use `ATHLETE_TIMEZONE`, and unused creator fields were removed. A legacy pre-#168 rollback integration test proves the false failure is gone; smoke is `658 passed, 1 skipped`, broad non-live is `701 passed, 6 skipped, 24 deselected`, and Next lint/build plus compileall are clean.
-- [ ] Perform the separately authorized reversible live Intervals.icu acceptance: upsert twice, inspect parsed `workout_doc`, verify no foreign mutation, and remove only the temporary AI Trainer acceptance events.
-- [ ] Finalize this living document after live evidence and obtain independent review of implementation PR #192 before merge. PR #191 contains only the already-merged ExecPlan because it was merged while implementation was still in progress.
+- [x] (2026-07-14 15:25Z) Ran the explicitly authorized live probe. The first attempt exposed that Intervals.icu replaces a caller-supplied `uid`; its one temporary event (`122790346`) was removed and a bounded read confirmed no residue. Changed the adapter to the documented `external_id` plus `upsert=true` contract, added RED/GREEN provider-generated-UID tests, then reran the probe: both upserts returned event `122790909`, parsed steps were present, foreign rows were unchanged, and `finally` deleted exactly one probe with no residue.
+- [x] (2026-07-14 15:31Z) Repeated post-live validation: focused delivery/recovery/API/reconciliation `68 passed`, smoke `657 passed, 1 skipped`, broad non-live `700 passed, 6 skipped, 24 deselected`, compileall and diff check clean, and Next lint plus production build pass.
+- [ ] Obtain repeat independent review of implementation PR #192 before merge. PR #191 contains only the already-merged ExecPlan because it was merged while implementation was still in progress.
 
 ## Surprises & Discoveries
 
@@ -50,13 +51,13 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
   Evidence: a first reconciliation test mutated an already-identified session into an index-less composite, so a second identity pass correctly produced a different material ID. Real catalog bricks already freeze `leg_index`; the corrected fixture builds the composite before identity and the exact leg external-id contract passes.
 
 - Observation: the complete web/API/provider loop is idempotent under an Intervals-compatible runtime, not only under unit mocks.
-  Evidence: an isolated Next page on `:3018` called an isolated FastAPI on `:8018`, which called a local provider mock on `:8099`. Two button clicks both showed one executable workout and zero errors; the bounded provider read contained exactly one event, id `9001`, with the same UUID-v5 slot, owned external id, native four-step description, and non-empty `workout_doc.steps`.
+  Evidence: an isolated Next page on `:3018` called an isolated FastAPI on `:8018`, which called a local provider mock on `:8099`. Two button clicks both showed one executable workout and zero errors; the bounded provider read contained exactly one event, id `9001`, with the same owned external id, native four-step description, and non-empty `workout_doc.steps`.
 
 - Observation: a bounded provider window is wider than an explicit non-contiguous recovery date set.
   Evidence: the first implementation listed from the earliest to latest affected date and considered every owned event in that interval stale. A regression with selected dates 15 and 17 July proved it would delete the untouched 16 July workout. Cleanup now additionally requires the event's local date to be in the explicit selected set.
 
 - Observation: cleanup after a partial or malformed bulk response can make a transient provider failure destructive.
-  Evidence: a two-leg replacement returning confirmation for only one UID previously deleted the old single-slot event before reporting `partial`. Cleanup now runs only after every desired UID is confirmed, while a deliberate all-rest or removed-date sync can still delete stale owned slots.
+  Evidence: a two-leg replacement returning confirmation for only one external id previously deleted the old single-session event before reporting `partial`. Cleanup now runs only after every desired external id is confirmed, while a deliberate all-rest or removed-date sync can still delete stale owned rows.
 
 - Observation: legacy approved recovery proposals do not contain `affected_dates`.
   Evidence: independent review reproduced `safe_deliver_active_plan(dates=[])` as a retryable failure even though no provider call was needed. Empty explicit date sets now return a zero-count, non-retryable `skipped` result before client resolution; an integration fixture removes `affected_dates` from an approved proposal and verifies rollback remains honest.
@@ -64,10 +65,16 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - Observation: positional day/template alignment is an internal builder invariant but an unsafe assumption at an external write boundary.
   Evidence: equal-length lists with shifted template dates previously produced a valid-looking payload for the wrong prescription. Delivery now requires `template.date == daily_plan.date` for every non-rest selected row and fails before provider access otherwise.
 
+- Observation: Intervals.icu does not preserve a caller-selected event `uid` on first creation, even when `upsertOnUid=true` is supplied.
+  Evidence: the first authorized live probe submitted a valid UUID-v5 UID but event `122790346` was returned and listed with provider UID `671b0506-261b-4282-85ad-e19c49f6940b`; its `external_id=ai_trainer:acceptance:2026-07-29` was preserved. The probe failed closed, the exact event was deleted, and a bounded read confirmed no residual acceptance rows.
+
+- Observation: the documented external-id upsert contract works on the configured personal API-key account and produces executable workout evidence.
+  Evidence: after switching to `POST /events/bulk?upsert=true`, two identical live submissions returned the same provider event id `122790909`, the response contained non-empty `workout_doc.steps`, all foreign rows compared equal, and cleanup deleted exactly one matching external id. The runner's final bounded read found no probe.
+
 ## Decision Log
 
-- Decision: use two provider identities with different meanings.
-  Rationale: a deterministic UUID v5 `uid` identifies the AI Trainer delivery slot for a date and optional brick leg, so changing TSS still updates the same event. `external_id="ai_trainer:<session_id>"` identifies the exact material prescription used by plan-actual reconciliation. One identifier cannot remain stable across an edit and also identify the edited material.
+- Decision: use `external_id` as the sole caller-owned provider identity and treat `uid` as provider-owned evidence.
+  Rationale: the official Intervals.icu guide describes `external_id` as the external application's primary key and `upsert=true` as the corresponding update contract. Live evidence proved the provider replaces caller-supplied UIDs. `external_id="ai_trainer:<session_id>"` remains the exact material prescription used by plan-actual reconciliation; an unchanged delivery updates in place, while a material change creates the new identity and owned-only cleanup removes the prior one.
   Date/Author: 2026-07-14 / Codex
 
 - Decision: delete only events whose `external_id` starts with `ai_trainer:` and whose date is inside the explicit delivery window.
@@ -75,7 +82,7 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
   Date/Author: 2026-07-14 / Codex
 
 - Decision: perform one bounded list, one bulk upsert, and at most one bulk delete per delivery request.
-  Rationale: this reduces rate-limit usage and lets the provider implement atomic upsert by deterministic `uid`. It also makes concurrency safe: simultaneous retries converge on the same slots rather than racing two create-only calls.
+  Rationale: this reduces rate-limit usage and lets the provider implement atomic upsert by caller-owned `external_id`. Simultaneous retries of the same active checkpoint converge rather than racing two create-only calls.
   Date/Author: 2026-07-14 / Codex
 
 - Decision: keep local plan mutation authoritative when provider delivery fails.
@@ -100,11 +107,11 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 
 ## Outcomes & Retrospective
 
-The implementation now delivers the active plan through a bounded, owned-only Intervals.icu write path. Manual web delivery supports seven or fourteen days; recovery approve and rollback synchronize only affected dates after the local append-only checkpoint succeeds. UUID-v5 slots make retries and material edits converge, while `external_id` preserves exact plan-actual identity. Composite bricks become ordered leg events, and legacy checkpoints receive the existing FIT-compatible step fallback instead of calendar-only notes.
+The implementation now delivers the active plan through a bounded, owned-only Intervals.icu write path. Manual web delivery supports seven or fourteen days; recovery approve and rollback synchronize only affected dates after the local append-only checkpoint succeeds. Documented `external_id` upserts make unchanged retries converge and preserve exact plan-actual identity; material changes replace only prior AI Trainer-owned rows. Composite bricks become ordered leg events, and legacy checkpoints receive the existing FIT-compatible step fallback instead of calendar-only notes.
 
-Validation before integrating recovery curves was green at `60 passed` for the focused delivery contour, `604 passed, 1 skipped` for contributor-safe smoke, and `647 passed, 6 skipped, 24 deselected` for the broad non-live suite. After merging current `main`, the combined #176 + #168 tree passes `102` focused integration tests, `649 passed, 1 skipped` smoke, and `692 passed, 6 skipped, 24 deselected` broad non-live tests. Python compilation, Next lint, and Next production build pass. Browser acceptance proved two-click idempotency and executable result rendering against a local provider-compatible mock; it did not touch `ai_trainer.db` or the live Intervals calendar.
+Validation before integrating recovery curves was green at `60 passed` for the focused delivery contour, `604 passed, 1 skipped` for contributor-safe smoke, and `647 passed, 6 skipped, 24 deselected` for the broad non-live suite. After merging current `main`, the combined #176 + #168 tree passed `102` focused integration tests, `649 passed, 1 skipped` smoke, and `692 passed, 6 skipped, 24 deselected` broad non-live tests. After the live-contract correction, the final focused contour is `68 passed`, smoke is `657 passed, 1 skipped`, and broad non-live is `700 passed, 6 skipped, 24 deselected`; Python compilation, diff check, Next lint, and Next production build pass. Browser acceptance proved two-click behavior and executable result rendering against a local provider-compatible mock without touching `ai_trainer.db`.
 
-The remaining acceptance gap is deliberately external: a reversible write to the athlete's real Intervals.icu calendar must confirm that its parser produces non-empty `workout_doc.steps`, preserves all foreign events, and, separately, whether Garmin receives the workout. That live write requires an explicit human gate; until it is run, the PR must not claim verified Garmin delivery.
+The explicitly authorized real-provider acceptance is complete: two submissions converged on provider event `122790909`, Intervals.icu returned parsed `workout_doc.steps`, foreign events were unchanged, and the temporary row was deleted with no residue. This also corrected an important false assumption before merge: Intervals.icu owns `uid`; integrations own `external_id`. Garmin delivery remains a separate unverified observation because the reversible probe was intentionally removed immediately. The PR may claim verified Intervals.icu executable delivery, but not verified Garmin arrival.
 
 ## Context and Orientation
 
@@ -118,7 +125,7 @@ A recovery proposal is stored in `coach_proposals`. `api/routers/decisions.py::a
 
 The web Planning export tab is `web/app/planning/page.tsx::ExportMode`. It already displays the active plan and download links. It is the manual delivery surface. The Decisions and Today pages reuse the proposal response and do not need a second delivery button for this slice.
 
-An Intervals.icu event has two useful caller-controlled identities. `uid` can be used by the provider's `upsertOnUid=true` mode. AI Trainer will compute a standard UUID v5 from a fixed namespace and slot key `YYYY-MM-DD:single` or `YYYY-MM-DD:leg:<n>`. `external_id` is the material key `ai_trainer:<session_id>` for a single session and `ai_trainer:<session_id>:leg:<n>` for a composite leg. The `ai_trainer:` prefix is also the only ownership marker that authorizes deletion.
+An Intervals.icu event has a provider-owned `uid` and an optional caller-owned `external_id`. AI Trainer uses the material key `ai_trainer:<session_id>` for a single session and `ai_trainer:<session_id>:leg:<n>` for a composite leg, sending it through `upsert=true`. The `ai_trainer:` prefix is also the only ownership marker that authorizes deletion. Provider UIDs are retained in read evidence but never generated or trusted as ownership proof.
 
 An executable workout is a WORKOUT event whose native Intervals.icu description has been parsed into a non-empty `workout_doc.steps` array. Native text expresses one step per line, for example `- Warmup 10m 55-70%`. AI Trainer converts exact `duration_seconds` and materialized power, heart-rate, or pace targets when they exist. For legacy steps, it estimates duration using the same fallback as FIT export and maps stable zone tokens conservatively. Unsupported relative targets remain open/RPE instructions in the text and the delivery result must report whether the provider parsed them.
 
@@ -126,13 +133,13 @@ An executable workout is a WORKOUT event whose native Intervals.icu description 
 
 Given an active plan with workouts in the next fourteen calendar days, when the athlete confirms delivery from the web Export tab, then the API sends only future non-rest sessions in that bounded range, returns every provider event id and parse status, and the page states how many executable workouts were updated.
 
-Given the same unchanged plan and date range, when delivery is requested twice or concurrently, then the provider contains one AI Trainer event per deterministic slot and both responses refer to the same event ids.
+Given the same unchanged plan and date range, when delivery is requested twice or concurrently, then the provider contains one AI Trainer event per material external id and both responses refer to the same event ids.
 
-Given an AI Trainer session whose TSS or role changes but whose date and leg slot remain the same, when the range is delivered again, then the same provider event is updated, its `external_id` changes to the new session material id, and the old event is not left beside it.
+Given an AI Trainer session whose TSS or role changes, when the range is delivered again, then the new material external id is upserted and the prior owned event is removed, so only the active prescription remains. The provider event id may change because material identity changed.
 
 Given a previously delivered AI Trainer date that is now rest or absent from the selected plan window, when that window is synchronized, then only the old managed AI Trainer event is deleted. An IntervalCoach workout, race, manually created workout, or legacy event without the ownership prefix remains byte-for-byte untouched.
 
-Given a composite brick, when it is delivered, then Intervals.icu receives ordered bike and run events with separate deterministic leg slots and times, while both external ids retain the parent session id. Plan-actual reconciliation accepts paired activities whose event external ids equal either the parent id or one of its leg ids as exact evidence for the same planned session.
+Given a composite brick, when it is delivered, then Intervals.icu receives ordered bike and run events with separate leg external ids and times, while both external ids retain the parent session id. Plan-actual reconciliation accepts paired activities whose event external ids equal either the parent id or one of its leg ids as exact evidence for the same planned session.
 
 Given a provider timeout, HTTP 401, 403, 429, or malformed response, when a recovery proposal has already created its checkpoint, then the proposal remains `approved` and its result contains `delivery.status=failed`, `retryable=true`, and a sanitized error. A later manual delivery converges on the same slots without applying the plan again.
 
@@ -144,7 +151,7 @@ Given a provider event response with no parsed steps, when delivery completes, t
 
 ## Plan of Work
 
-Milestone 1 establishes the delivery contract and provider identity. First add failing tests to `tests/smoke/test_intervals_icu_service.py` for parameterized HTTP requests, bounded event listing with `uid` and `external_id`, bulk upsert, bulk delete, deterministic payload identity, and sanitized rate-limit errors. Add a new focused file `tests/smoke/test_intervals_plan_delivery.py` that specifies range selection, foreign-event preservation, removed-day cleanup, changed-session upsert, concurrency-safe retries, legacy fallback, composite slots, parsed-step status, and exact-match leg identity. Implement the pure payload and workout text rules in `models/intervals_workout_delivery.py`; keep HTTP in `services/intervals_icu.py`; compose plan plus provider state in `services/intervals_plan_delivery.py`.
+Milestone 1 establishes the delivery contract and provider identity. First add failing tests to `tests/smoke/test_intervals_icu_service.py` for parameterized HTTP requests, bounded event listing with provider `uid` and caller `external_id`, external-id bulk upsert, bulk delete, deterministic payload identity, and sanitized rate-limit errors. Add a new focused file `tests/smoke/test_intervals_plan_delivery.py` that specifies range selection, foreign-event preservation, removed-day cleanup, changed-session replacement, concurrency-safe retries, legacy fallback, composite identities, parsed-step status, and exact-match leg identity. Implement the pure payload and workout text rules in `models/intervals_workout_delivery.py`; keep HTTP in `services/intervals_icu.py`; compose plan plus provider state in `services/intervals_plan_delivery.py`.
 
 Milestone 2 exposes manual delivery through FastAPI and Next.js. Extend `api/routers/planning.py` with an explicit request model and `POST /api/planning/delivery/intervals`. Add a thin `api/planning_service.py` function that restores the latest checkpoint and calls the shared delivery service; it must accept an injected `today` in tests and reject demo mode before provider access. Extend `GET /api/planning/plan` only with local configuration metadata so rendering Export mode does not spend a provider GET. Update `web/lib/types.ts` and `web/app/planning/page.tsx::ExportMode` with a seven/fourteen day selector, one delivery button, disabled/not-configured explanation, busy state, and a result card separating executable, calendar-only, deleted, and failed counts.
 
@@ -191,7 +198,7 @@ After explicit athlete authorization, run the reversible provider probe from the
       --date YYYY-MM-DD \
       --confirm-live-write CREATE-VERIFY-AND-DELETE-ONE-INTERVALS-EVENT
 
-The runner performs no provider read until the confirmation and future-date guards pass. Its UUID-v5 key uses an acceptance-only namespace input rather than the product's date slot. It refuses a residual probe, upserts the same payload twice, requires the same provider id and parsed steps, compares all foreign rows before and after, and deletes in `finally` only rows matching both the exact acceptance UID and external id.
+The runner performs no provider read until the confirmation and future-date guards pass. Its acceptance-only `external_id` cannot collide with product delivery. It refuses a residual probe, upserts the same payload twice, requires the same provider id and parsed steps, compares all foreign rows before and after, and deletes in `finally` only rows matching that exact external id and returned provider id.
 
 Recovery acceptance is successful when approving a test proposal creates one new checkpoint and delivers its edited date, rollback creates another append-only checkpoint and restores the provider event, and a simulated provider failure leaves the proposal terminal with a visible retryable delivery error.
 
@@ -199,17 +206,17 @@ Garmin acceptance is successful only when at least one newly delivered executabl
 
 ## Idempotence and Recovery
 
-All delivery requests are safe to retry because the provider upserts deterministic slot UIDs. A failed response does not trigger a second local plan mutation. A recovery proposal remains terminal and the athlete retries delivery through the same web action.
+All unchanged delivery requests are safe to retry because the provider upserts caller-owned material `external_id` values. A failed response does not trigger a second local plan mutation. A recovery proposal remains terminal and the athlete retries delivery through the same web action.
 
 Cleanup is fail closed. The implementation lists a bounded date range and deletes only event ids whose external id has the `ai_trainer:` prefix. It never deletes by name, date alone, type, calendar, or creator. The old June AI Trainer event has no managed identity and remains untouched.
 
-If bulk upsert partially succeeds before a network failure, retrying the same payload converges on the same UIDs. If parsing produces `calendar_only`, the event remains visible for diagnosis and can be updated by a later serializer fix using the same slot. If the live acceptance itself fails, remove only event ids returned by that acceptance run or carrying its explicit AI Trainer external ids.
+If bulk upsert partially succeeds before a network failure, retrying the same payload converges on the same external ids. If parsing produces `calendar_only`, the event remains visible for diagnosis and can be updated by a later serializer fix using the same material identity. If the live acceptance itself fails, remove only event ids returned by that acceptance run or carrying its explicit acceptance external id.
 
 ## Artifacts and Notes
 
 The official API evidence used by this plan is:
 
-    POST /api/v1/athlete/{id}/events/bulk?upsertOnUid=true
+    POST /api/v1/athlete/{id}/events/bulk?upsert=true&upsertOnUid=false
     PUT  /api/v1/athlete/{id}/events/bulk-delete
 
 The live IntervalCoach example that proves executable native text has this shape:
@@ -227,20 +234,19 @@ Do not add a new dependency. Continue using the Python standard library HTTP ada
 In `services/intervals_icu.py`, extend `IntervalsICUClient` with bounded methods equivalent to:
 
     list_workout_events(oldest: date, newest: date) -> list[dict[str, Any]]
-    upsert_events_by_uid(payloads: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]
+    upsert_events_by_external_id(payloads: Iterable[Mapping[str, Any]]) -> list[dict[str, Any]]
     delete_events(payloads: Iterable[Mapping[str, Any]]) -> int
 
 `list_workout_events` must retain `uid`, `external_id`, `workout_doc`, and the existing reconciliation fields. Bulk methods must use the official endpoints and query parameters and must return normalized provider evidence without credentials.
 
 In `models/intervals_workout_delivery.py`, provide pure functions equivalent to:
 
-    delivery_slot_uid(session_date: str, leg_index: int | None = None) -> str
     build_delivery_events(goal_plan: Mapping[str, Any], dates: Sequence[str]) -> list[dict[str, Any]]
     build_intervals_workout_description(steps: Sequence[Mapping[str, Any]], ...) -> str
     provider_event_is_owned(event: Mapping[str, Any]) -> bool
     provider_event_is_executable(event: Mapping[str, Any]) -> bool
 
-The slot UID must be deterministic UUID v5. Every payload must include category, local date/time, name, type, load, moving time, uid, external id, and native description. Single sessions use the parent session id; composite legs append `:leg:<n>`.
+Every payload must include category, local date/time, name, type, load, moving time, external id, and native description. It must not submit a caller-generated provider UID. Single sessions use the parent session id; composite legs append `:leg:<n>`.
 
 V1 has no persisted per-session start-time preference. Delivery therefore uses 07:00 athlete-local for the first event and a fixed five-minute gap between composite brick legs. These are explicit export defaults, not inferred coaching recommendations; changing them requires a separate scheduling contract rather than silent serializer heuristics.
 
@@ -267,4 +273,4 @@ The route rejects `demo=true` before calling the provider. `GET /api/planning/pl
 
 Recovery proposal responses retain their current `proposal` and `result` keys. For recovery apply and rollback, `result` gains `affected_dates` and `delivery`. Existing clients that ignore those fields remain compatible.
 
-Revision note (2026-07-14, Codex): initial ExecPlan created after source, official API, and live read-only audit. It intentionally includes the executable-device milestone because a calendar-only HTTP success does not satisfy the user problem recorded in issue #168. Updated after contract-first RED, backend/API/recovery GREEN, full local validation, two-click browser acceptance, integration with #176, and the fail-closed live-runner contract; the remaining real-provider/Garmin observation stays explicit rather than being inferred from mocks.
+Revision note (2026-07-14, Codex): initial ExecPlan created after source, official API, and live read-only audit. It intentionally includes the executable-device milestone because a calendar-only HTTP success does not satisfy the user problem recorded in issue #168. Updated after contract-first RED, backend/API/recovery GREEN, full local validation, two-click browser acceptance, integration with #176, independent review fixes, and the explicitly authorized live probe. The probe disproved caller-owned UID semantics, so the final adapter follows the official external-id upsert guide; real Intervals parsing is verified and Garmin arrival remains explicitly unverified.

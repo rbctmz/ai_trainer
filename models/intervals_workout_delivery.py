@@ -3,23 +3,14 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any, Mapping, Sequence
-from uuid import UUID, uuid5
 
 from models.fit_export import build_steps_for_sport
 from models.session_identity import ensure_session_identities
 
 
 AI_TRAINER_EXTERNAL_ID_PREFIX = "ai_trainer:"
-DELIVERY_NAMESPACE = UUID("c0287df8-c56a-5c4f-b8ea-44903ea3b7e5")
 _SPORT_TYPES = {"bike": "Ride", "run": "Run", "swim": "Swim"}
 _LEG_GAP_SECONDS = 5 * 60
-
-
-def delivery_slot_uid(session_date: str, leg_index: int | None = None) -> str:
-    """Return one stable provider slot identity per local date and leg."""
-    day = datetime.fromisoformat(str(session_date)[:10]).date().isoformat()
-    suffix = "single" if leg_index is None else f"leg:{int(leg_index)}"
-    return str(uuid5(DELIVERY_NAMESPACE, f"{day}:{suffix}"))
 
 
 def provider_event_is_owned(event: Mapping[str, Any]) -> bool:
@@ -128,7 +119,6 @@ def _event_payload(
     if leg_index is not None:
         external_id += f":leg:{leg_index}"
     return {
-        "uid": delivery_slot_uid(session_date, leg_index),
         "external_id": external_id,
         "start_date_local": start_at.strftime("%Y-%m-%dT%H:%M:%S"),
         "category": "WORKOUT",
@@ -234,7 +224,6 @@ __all__ = [
     "AI_TRAINER_EXTERNAL_ID_PREFIX",
     "build_delivery_events",
     "build_intervals_workout_description",
-    "delivery_slot_uid",
     "provider_event_is_executable",
     "provider_event_is_owned",
 ]
