@@ -126,6 +126,8 @@ def create_chat_synthesis_system_prompt(goal_plan: Optional[Dict] = None) -> str
 • оставлять черновые формулировки вроде «сейчас проанализирую»
 • упоминать служебный синтаксис [TOOL: ...]
 • говорить «HRV отсутствует», «данных readiness нет», если инструмент не вызывался — просто не упоминай или скажи «не проверял в этом запросе»
+• называть значения метрик (CTL, ATL, TSB, HRV, VO₂max, пульс, TSS, даты стартов, тренировки плана), которых НЕТ в результатах инструментов — не выдумывай числа и сессии; если значения нет в данных, так и скажи
+• если вопрос пользователя не требует данных (благодарность, уточнение формулировки) — не перечисляй метрики, ответь кратко по сути
 """.strip()
 
 
@@ -271,6 +273,73 @@ def generate_ai_chat_response(
     return provider.generate_response(full_prompt, "")
 
 
+def _execute_tool_to_result(
+    ai_tools: Any,
+    tool_name: str,
+    params: Dict[str, Any],
+    tool_result_formatter: Callable[[str, Any], str],
+) -> Dict[str, Any]:
+    """Execute one tool call and normalize the outcome to a tool-result entry."""
+    try:
+        result = ai_tools.execute_tool(tool_name, **params)
+
+        if result.get("success"):
+            data = result["result"]
+            return {
+                "tool_name": tool_name,
+                "params": params,
+                "formatted_result": tool_result_formatter(tool_name, data),
+                "raw_result": data,
+                "success": True,
+            }
+
+        return {
+            "tool_name": tool_name,
+            "params": params,
+            "formatted_result": f"❌ Ошибка инструмента: {result.get('error', 'Неизвестная ошибка')}",
+            "success": False,
+        }
+    except Exception as exc:  # pragma: no cover - defensive path
+        return {
+            "tool_name": tool_name,
+            "params": params,
+            "formatted_result": f"❌ Ошибка выполнения {tool_name}: {str(exc)}",
+            "success": False,
+        }
+
+
+# Baseline data toolset for the grounding fallback: the same minimum set the
+# system prompt mandates for a general state/briefing answer, plus the active
+# plan (race date and phase are the costliest things to get wrong).
+GROUNDING_TOOL_CALLS: tuple[tuple[str, Dict[str, Any]], ...] = (
+    ("get_performance_metrics", {}),
+    ("analyze_hrv_trends", {}),
+    ("analyze_training_status", {}),
+    ("get_active_plan", {}),
+    ("get_upcoming_workouts", {}),
+)
+
+
+def build_grounding_tool_results(
+    ai_tools: Any,
+    tool_result_formatter: Callable[[str, Any], str],
+) -> list[Dict[str, Any]]:
+    """Deterministically execute the baseline toolset when the model skipped tools.
+
+    Tool calling here is marker-based: the model must emit [TOOL: ...] itself.
+    When it doesn't, the raw first-pass answer used to go out ungrounded — with
+    fabricated metrics, plan and race dates. This fallback feeds the synthesis
+    pass real data instead. Per-tool failures become error entries so synthesis
+    can honestly say what is missing.
+    """
+    if ai_tools is None or not hasattr(ai_tools, "execute_tool"):
+        return []
+    return [
+        _execute_tool_to_result(ai_tools, tool_name, dict(params), tool_result_formatter)
+        for tool_name, params in GROUNDING_TOOL_CALLS
+    ]
+
+
 def collect_tool_results(
     ai_response: str,
     ai_tools: Any,
@@ -283,46 +352,9 @@ def collect_tool_results(
         tool_name = match.group(1).strip()
         params_str = match.group(2).strip() if match.group(2) else ""
         params = _parse_tool_params(params_str)
-
-        try:
-            result = ai_tools.execute_tool(tool_name, **params)
-
-            if result.get("success"):
-                data = result["result"]
-                formatted_result = tool_result_formatter(tool_name, data)
-                tool_results.append(
-                    {
-                        "tool_name": tool_name,
-                        "params": params,
-                        "formatted_result": formatted_result,
-                        "raw_result": data,
-                        "success": True,
-                    }
-                )
-                return formatted_result
-
-            error_text = f"❌ Ошибка инструмента: {result.get('error', 'Неизвестная ошибка')}"
-            tool_results.append(
-                {
-                    "tool_name": tool_name,
-                    "params": params,
-                    "formatted_result": error_text,
-                    "success": False,
-                }
-            )
-            return error_text
-
-        except Exception as exc:  # pragma: no cover - defensive path
-            error_text = f"❌ Ошибка выполнения {tool_name}: {str(exc)}"
-            tool_results.append(
-                {
-                    "tool_name": tool_name,
-                    "params": params,
-                    "formatted_result": error_text,
-                    "success": False,
-                }
-            )
-            return error_text
+        entry = _execute_tool_to_result(ai_tools, tool_name, params, tool_result_formatter)
+        tool_results.append(entry)
+        return entry["formatted_result"]
 
     rendered_response = _TOOL_PATTERN.sub(replace_tool_call, ai_response)
     return rendered_response, tool_results
@@ -334,6 +366,7 @@ def synthesize_ai_chat_response(
     user_input: str,
     tool_results: Iterable[Dict[str, Any]],
     response_contract: Any = None,
+    goal_plan: Optional[Dict] = None,
 ) -> str:
     """Run the second pass that turns tool results into a final user answer."""
     synthesis_prompt = build_chat_synthesis_prompt(
@@ -344,7 +377,7 @@ def synthesize_ai_chat_response(
     )
     return provider.generate_response(
         synthesis_prompt,
-        create_chat_synthesis_system_prompt(),
+        create_chat_synthesis_system_prompt(goal_plan=goal_plan),
     )
 
 
@@ -378,6 +411,12 @@ def finalize_ai_chat_response(
         ai_tools,
         tool_result_formatter,
     )
+
+    if not tool_results and provider is not None and user_input is not None:
+        # The model skipped tool markers entirely: without grounding its raw
+        # answer goes out with fabricated metrics/plan. Feed the synthesis
+        # pass the baseline real data instead.
+        tool_results = build_grounding_tool_results(ai_tools, tool_result_formatter)
 
     if provider is not None and user_input is not None and tool_results:
         final_response = synthesize_ai_chat_response(
