@@ -19,8 +19,9 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - [x] (2026-07-14 13:48Z) Added the web Export delivery selector/button and explicit executable/calendar-only/deleted/failed result states; Next lint and production build pass.
 - [x] (2026-07-14 13:50Z) Completed focused (`58 passed`), contributor-safe smoke (`602 passed, 1 skipped`), broad non-live (`645 passed, 6 skipped, 24 deselected`), Python compilation, Next lint/build, and static self-review. Isolated browser/provider acceptance remains.
 - [x] (2026-07-14 13:58Z) Completed isolated browser acceptance against a local Intervals-compatible mock and temporary SQLite: two UI submissions returned `1 executable / 0 calendar-only / 0 failed` and converged on one event id with parsed steps; all temporary servers were stopped.
+- [x] (2026-07-14 14:25Z) Repeated deletion-safety self-review after opening implementation PR #192. Added regression coverage for non-contiguous recovery dates and partial bulk responses, then made cleanup fail closed; the focused delivery/recovery/API/reconciliation contour is green at `60 passed`.
 - [ ] Perform the separately authorized reversible live Intervals.icu acceptance: upsert twice, inspect parsed `workout_doc`, verify no foreign mutation, and remove only the temporary AI Trainer acceptance events.
-- [ ] Finalize this living document after live evidence, push the implementation commits to draft PR #191, and obtain independent review before merge.
+- [ ] Finalize this living document after live evidence and obtain independent review of implementation PR #192 before merge. PR #191 contains only the already-merged ExecPlan because it was merged while implementation was still in progress.
 
 ## Surprises & Discoveries
 
@@ -47,6 +48,12 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 
 - Observation: the complete web/API/provider loop is idempotent under an Intervals-compatible runtime, not only under unit mocks.
   Evidence: an isolated Next page on `:3018` called an isolated FastAPI on `:8018`, which called a local provider mock on `:8099`. Two button clicks both showed one executable workout and zero errors; the bounded provider read contained exactly one event, id `9001`, with the same UUID-v5 slot, owned external id, native four-step description, and non-empty `workout_doc.steps`.
+
+- Observation: a bounded provider window is wider than an explicit non-contiguous recovery date set.
+  Evidence: the first implementation listed from the earliest to latest affected date and considered every owned event in that interval stale. A regression with selected dates 15 and 17 July proved it would delete the untouched 16 July workout. Cleanup now additionally requires the event's local date to be in the explicit selected set.
+
+- Observation: cleanup after a partial or malformed bulk response can make a transient provider failure destructive.
+  Evidence: a two-leg replacement returning confirmation for only one UID previously deleted the old single-slot event before reporting `partial`. Cleanup now runs only after every desired UID is confirmed, while a deliberate all-rest or removed-date sync can still delete stale owned slots.
 
 ## Decision Log
 
@@ -82,7 +89,7 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 
 The implementation now delivers the active plan through a bounded, owned-only Intervals.icu write path. Manual web delivery supports seven or fourteen days; recovery approve and rollback synchronize only affected dates after the local append-only checkpoint succeeds. UUID-v5 slots make retries and material edits converge, while `external_id` preserves exact plan-actual identity. Composite bricks become ordered leg events, and legacy checkpoints receive the existing FIT-compatible step fallback instead of calendar-only notes.
 
-Validation is green at `58 passed` for the focused contract, `602 passed, 1 skipped` for contributor-safe smoke, and `645 passed, 6 skipped, 24 deselected` for the broad non-live suite. Python compilation, Next lint, and Next production build pass. Browser acceptance proved two-click idempotency and executable result rendering against a local provider-compatible mock; it did not touch `ai_trainer.db` or the live Intervals calendar.
+Validation before the deletion-safety follow-up was green at `58 passed` for the focused contract, `602 passed, 1 skipped` for contributor-safe smoke, and `645 passed, 6 skipped, 24 deselected` for the broad non-live suite. The expanded focused contour is now `60 passed`. Python compilation, Next lint, and Next production build pass. Browser acceptance proved two-click idempotency and executable result rendering against a local provider-compatible mock; it did not touch `ai_trainer.db` or the live Intervals calendar.
 
 The remaining acceptance gap is deliberately external: a reversible write to the athlete's real Intervals.icu calendar must confirm that its parser produces non-empty `workout_doc.steps`, preserves all foreign events, and, separately, whether Garmin receives the workout. That live write requires an explicit human gate; until it is run, the PR must not claim verified Garmin delivery.
 

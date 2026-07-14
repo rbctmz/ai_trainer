@@ -128,6 +128,21 @@ class _FakeClient:
         return len(rows)
 
 
+class _PartialUpsertClient(_FakeClient):
+    def upsert_events_by_uid(self, payloads):
+        rows = [dict(row) for row in payloads]
+        self.upsert_calls.append(rows)
+        if not rows:
+            return []
+        return [
+            {
+                **rows[0],
+                "id": 100,
+                "workout_doc": {"steps": [{"duration": 600}]},
+            }
+        ]
+
+
 def test_slot_uid_is_stable_per_date_and_leg() -> None:
     from models.intervals_workout_delivery import delivery_slot_uid
 
@@ -210,6 +225,75 @@ def test_delivery_upserts_desired_slots_and_deletes_only_owned_stale_events(tmp_
     assert len(client.upsert_calls) == 1
     assert client.delete_calls == [[{"id": 2, "external_id": "ai_trainer:ats_old"}]]
     assert all(row.get("id") != 1 for call in client.delete_calls for row in call)
+
+
+def test_explicit_dates_do_not_delete_owned_events_on_unselected_days(tmp_path) -> None:
+    from services.intervals_plan_delivery import deliver_active_plan
+
+    plan = _single_plan()
+    plan["daily_plan"].append(
+        (datetime(2026, 7, 17), 30.0, {"bike": 30.0, "run": 0.0, "swim": 0.0})
+    )
+    plan["session_templates"].append(
+        {
+            "session_id": "ats_material_v2",
+            "date": "2026-07-17",
+            "sport": "bike",
+            "session_role": "easy",
+            "phase": "Build",
+            "export_name": "Bike endurance",
+            "kind": "single",
+            "materialized_steps": [],
+        }
+    )
+    db = Database(str(tmp_path / "explicit-dates.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    unselected_owned = {
+        "id": 22,
+        "uid": "owned-middle-day",
+        "external_id": "ai_trainer:ats_middle",
+        "category": "WORKOUT",
+        "start_date_local": "2026-07-16T07:00:00",
+    }
+    client = _FakeClient(existing=[unselected_owned])
+
+    result = deliver_active_plan(
+        db,
+        dates=["2026-07-15", "2026-07-17"],
+        source="recovery_approve",
+        client=client,
+    )
+
+    assert result["status"] == "success"
+    assert result["deleted_count"] == 0
+    assert client.delete_calls == []
+
+
+def test_partial_upsert_never_deletes_previous_owned_slots(tmp_path) -> None:
+    from services.intervals_plan_delivery import deliver_active_plan
+
+    db = Database(str(tmp_path / "partial-upsert.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_brick_plan()))
+    previous_single = {
+        "id": 31,
+        "uid": "previous-single-slot",
+        "external_id": "ai_trainer:ats_previous",
+        "category": "WORKOUT",
+        "start_date_local": "2026-07-18T07:00:00",
+    }
+    client = _PartialUpsertClient(existing=[previous_single])
+
+    result = deliver_active_plan(
+        db,
+        dates=["2026-07-18"],
+        source="recovery_approve",
+        client=client,
+    )
+
+    assert result["status"] == "partial"
+    assert result["failed_count"] == 1
+    assert result["deleted_count"] == 0
+    assert client.delete_calls == []
 
 
 def test_delivery_reports_calendar_only_and_missing_configuration_without_writes(tmp_path) -> None:

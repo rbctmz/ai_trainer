@@ -94,17 +94,35 @@ def deliver_active_plan(
     desired = build_delivery_events(plan, selected)
     upserted = resolved_client.upsert_events_by_uid(desired) if desired else []
     desired_uids = {str(row.get("uid") or "") for row in desired}
-    doomed = [
-        {"id": row.get("id"), "external_id": row.get("external_id")}
-        for row in existing
-        if provider_event_is_owned(row)
-        and row.get("id") is not None
-        and str(row.get("uid") or "") not in desired_uids
+    selected_set = set(selected)
+    confirmed = [
+        row
+        for row in upserted
+        if str(row.get("uid") or "") in desired_uids
     ]
+    confirmed_uids = {str(row.get("uid") or "") for row in confirmed}
+    failed_count = len(desired_uids - confirmed_uids)
+
+    # Cleanup is fail closed. An explicit date list may be non-contiguous, so
+    # the bounded provider read can contain managed workouts that were not part
+    # of this recovery edit. Also keep the previous slots if the provider only
+    # confirms part of a replacement payload.
+    can_cleanup = not desired or failed_count == 0
+    doomed = (
+        [
+            {"id": row.get("id"), "external_id": row.get("external_id")}
+            for row in existing
+            if provider_event_is_owned(row)
+            and row.get("id") is not None
+            and str(row.get("start_date_local") or "")[:10] in selected_set
+            and str(row.get("uid") or "") not in desired_uids
+        ]
+        if can_cleanup
+        else []
+    )
     deleted_count = resolved_client.delete_events(doomed) if doomed else 0
-    executable_count = sum(provider_event_is_executable(row) for row in upserted)
-    calendar_only_count = len(upserted) - executable_count
-    failed_count = max(0, len(desired) - len(upserted))
+    executable_count = sum(provider_event_is_executable(row) for row in confirmed)
+    calendar_only_count = len(confirmed) - executable_count
     status = (
         "partial"
         if failed_count
@@ -115,7 +133,7 @@ def deliver_active_plan(
     return {
         **result,
         "status": status,
-        "provider_event_ids": [row.get("id") for row in upserted if row.get("id") is not None],
+        "provider_event_ids": [row.get("id") for row in confirmed if row.get("id") is not None],
         "desired_count": len(desired),
         "executable_count": executable_count,
         "calendar_only_count": calendar_only_count,
