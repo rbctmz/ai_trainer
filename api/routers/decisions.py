@@ -9,6 +9,7 @@ from api import planning_service
 from api.deps import get_database
 from api.operational_state import build_operational_state
 from data.database import Database
+from services.intervals_plan_delivery import safe_deliver_active_plan
 
 router = APIRouter(prefix="/api/decisions", tags=["decisions"])
 
@@ -152,6 +153,16 @@ def approve_proposal(
         db.update_coach_proposal_status(proposal_id, "failed", error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
 
+    if proposal.get("action") == "recovery_replan":
+        result = {
+            **result,
+            "delivery": safe_deliver_active_plan(
+                db,
+                dates=list(result.get("affected_dates") or []),
+                source="recovery_approve",
+            ),
+        }
+
     updated = db.update_coach_proposal_status(proposal_id, "approved", result=result)
     return {"proposal": updated, "result": result}
 
@@ -196,7 +207,21 @@ def rollback_proposal(
         db.transition_coach_proposal_status(proposal_id, "rolling_back", "approved")
         raise HTTPException(status_code=422, detail=str(exc))
 
-    result = {**(proposal.get("result") or {}), "rollback": rollback}
+    affected_dates = list((proposal.get("result") or {}).get("affected_dates") or [])
+    rollback = {
+        **rollback,
+        "affected_dates": affected_dates,
+        "delivery": safe_deliver_active_plan(
+            db,
+            dates=affected_dates,
+            source="recovery_rollback",
+        ),
+    }
+    result = {
+        **(proposal.get("result") or {}),
+        "rollback": rollback,
+        "delivery": rollback["delivery"],
+    }
     updated = db.update_coach_proposal_status(
         proposal_id,
         "rolled_back",

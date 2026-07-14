@@ -1200,11 +1200,15 @@ def apply_recovery_replan(
 
     weekly_tss_plan = list(updated.get("weekly_tss_plan") or [])
     summary = summarize_near_term_edit(updated.get("constraint_summary") or {}) or {}
+    affected_dates = sorted(
+        {str(value)[:10] for value in near_term_edit.get("edited_dates", []) or []}
+    )
     return {
         "plan_id": plan_id,
         "applied_checkpoint_id": int(plan_id) if plan_id else None,
         "rollback_checkpoint_id": base_checkpoint_id,
         "checkpoint_source": "recovery_replan",
+        "affected_dates": affected_dates,
         "near_term_edit": summary,
         "totals": {
             "peak_tss": int(max(weekly_tss_plan) if weekly_tss_plan else 0),
@@ -1258,7 +1262,25 @@ def rollback_recovery_replan(
         "checkpoint_source": "restore_version",
         "replaced_checkpoint_id": applied_checkpoint_id,
         "restored_from_checkpoint_id": rollback_checkpoint_id,
+        "affected_dates": list(proposal_result.get("affected_dates") or []),
     }
+
+
+def deliver_intervals_plan(
+    db: Database,
+    *,
+    days: int,
+    today: date | None = None,
+) -> Dict[str, Any]:
+    """Deliver a future slice through the shared headless provider boundary."""
+    from services.intervals_plan_delivery import safe_deliver_active_plan
+
+    return safe_deliver_active_plan(
+        db,
+        days=days,
+        today=today,
+        source="manual",
+    )
 
 
 def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:

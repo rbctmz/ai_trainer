@@ -198,10 +198,15 @@ class IntervalsICUClient:
         fields = (
             "id",
             "external_id",
+            "uid",
             "category",
             "start_date_local",
             "type",
             "name",
+            "workout_doc",
+            "moving_time",
+            "oauth_client_id",
+            "created_by_id",
         )
         return [
             {field: row.get(field) for field in fields}
@@ -230,11 +235,44 @@ class IntervalsICUClient:
             created.append(self.create_event(payload))
         return created
 
+    def upsert_events_by_uid(
+        self,
+        event_payloads: Iterable[Mapping[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        payload = [dict(item) for item in event_payloads]
+        if not payload:
+            return []
+        response = self._request_json(
+            "POST",
+            f"/api/v1/athlete/{self.athlete_id}/events/bulk",
+            payload=payload,
+            params={"upsertOnUid": "true", "updatePlanApplied": "true"},
+        )
+        return [dict(item) for item in response if isinstance(item, Mapping)] if isinstance(response, list) else []
+
+    def delete_events(self, event_payloads: Iterable[Mapping[str, Any]]) -> int:
+        payload = [
+            {
+                "id": item.get("id"),
+                "external_id": item.get("external_id"),
+            }
+            for item in event_payloads
+            if item.get("id") is not None
+        ]
+        if not payload:
+            return 0
+        response = self._request_json(
+            "PUT",
+            f"/api/v1/athlete/{self.athlete_id}/events/bulk-delete",
+            payload=payload,
+        )
+        return int(response.get("eventsDeleted") or 0) if isinstance(response, Mapping) else 0
+
     def _request_json(
         self,
         method: str,
         path: str,
-        payload: Mapping[str, Any] | None = None,
+        payload: Any | None = None,
         params: Mapping[str, Any] | None = None,
     ) -> Any:
         if not self.is_configured():

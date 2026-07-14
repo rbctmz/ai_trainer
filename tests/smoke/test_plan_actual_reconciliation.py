@@ -257,10 +257,16 @@ def test_ai_trainer_external_id_wins_while_foreign_provider_pair_is_only_evidenc
 
 
 def test_ai_trainer_brick_leg_external_ids_are_exact_parent_evidence() -> None:
-    plan = ensure_session_identities(_goal_plan())
-    target = _session_by_date(plan, "2026-07-08")
+    raw = _goal_plan()
+    target = _session_by_date(raw, "2026-07-08")
     target["kind"] = "composite"
-    target["legs"] = [{"sport": "bike"}, {"sport": "run"}]
+    target["sport"] = "brick"
+    target["legs"] = [
+        {"leg_index": 1, "sport": "bike"},
+        {"leg_index": 2, "sport": "run"},
+    ]
+    plan = ensure_session_identities(raw)
+    target = _session_by_date(plan, "2026-07-08")
     activities = [
         _activity("bike-leg", "2026-07-08", "bike", 45.0),
         _activity("run-leg", "2026-07-08", "run", 20.0),

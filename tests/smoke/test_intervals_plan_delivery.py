@@ -5,6 +5,7 @@ from datetime import date, datetime
 
 from data.database import Database
 from models.planning_checkpoints import build_planning_checkpoint
+from models.session_identity import ensure_session_identities
 
 
 def _single_plan() -> dict:
@@ -48,6 +49,7 @@ def _brick_plan() -> dict:
                 "session_id": "ats_brick_v1",
                 "date": "2026-07-18",
                 "kind": "composite",
+                "sport": "brick",
                 "session_role": "brick",
                 "phase": "Build",
                 "export_name": "Race brick",
@@ -137,11 +139,14 @@ def test_slot_uid_is_stable_per_date_and_leg() -> None:
 def test_legacy_single_session_builds_owned_executable_native_payload() -> None:
     from models.intervals_workout_delivery import build_delivery_events
 
-    events = build_delivery_events(_single_plan(), ["2026-07-15"])
+    plan = ensure_session_identities(_single_plan())
+    events = build_delivery_events(plan, ["2026-07-15"])
 
     assert len(events) == 1
     event = events[0]
-    assert event["external_id"] == "ai_trainer:ats_material_v1"
+    assert event["external_id"] == (
+        f"ai_trainer:{plan['session_templates'][0]['session_id']}"
+    )
     assert event["category"] == "WORKOUT"
     assert event["type"] == "Ride"
     assert event["moving_time"] > 0
@@ -154,11 +159,13 @@ def test_legacy_single_session_builds_owned_executable_native_payload() -> None:
 def test_composite_brick_builds_two_ordered_leg_events() -> None:
     from models.intervals_workout_delivery import build_delivery_events
 
-    events = build_delivery_events(_brick_plan(), ["2026-07-18"])
+    plan = ensure_session_identities(_brick_plan())
+    events = build_delivery_events(plan, ["2026-07-18"])
+    session_id = plan["session_templates"][0]["session_id"]
 
     assert [row["external_id"] for row in events] == [
-        "ai_trainer:ats_brick_v1:leg:1",
-        "ai_trainer:ats_brick_v1:leg:2",
+        f"ai_trainer:{session_id}:leg:1",
+        f"ai_trainer:{session_id}:leg:2",
     ]
     assert [row["type"] for row in events] == ["Ride", "Run"]
     assert events[0]["start_date_local"] < events[1]["start_date_local"]

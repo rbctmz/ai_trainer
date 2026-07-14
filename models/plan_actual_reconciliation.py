@@ -260,7 +260,10 @@ def build_reconciliation(
                 if not paired_event:
                     continue
                 external_id = str(paired_event.get("external_id") or "").strip()
-                if external_id == f"ai_trainer:{planned['session_id']}":
+                expected_external_id = f"ai_trainer:{planned['session_id']}"
+                if external_id == expected_external_id or external_id.startswith(
+                    f"{expected_external_id}:leg:"
+                ):
                     stable.append(item)
                 else:
                     provider_pair_notes.append(f"Provider paired event {paired_id} has no AI Trainer session identity")

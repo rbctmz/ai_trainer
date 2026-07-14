@@ -61,6 +61,10 @@ class DemandRequest(BaseModel):
     level: str
 
 
+class IntervalsDeliveryRequest(BaseModel):
+    days: int = Field(7, ge=7, le=14)
+
+
 class ConstraintRequest(BaseModel):
     date: str
     kind: str
@@ -193,14 +197,38 @@ def planning_events(
 # --- Export mode -----------------------------------------------------------
 @router.get("/plan")
 def planning_plan(db: Database = Depends(get_database)) -> dict[str, Any]:
+    from services.intervals_icu import connection_info
+
     plan = planning_service.get_active_plan(db)
     if not plan or not plan.get("daily_plan"):
-        return {"has_plan": False, "goal": None, "days": []}
+        return {
+            "has_plan": False,
+            "goal": None,
+            "days": [],
+            "delivery": connection_info(),
+        }
     return {
         "has_plan": True,
         "goal": {"goal_type": plan.get("goal_type"), "distance": plan.get("distance")},
         "days": planning_service.plan_days(plan),
+        "delivery": connection_info(),
     }
+
+
+@router.post("/delivery/intervals")
+def planning_deliver_intervals(
+    req: IntervalsDeliveryRequest,
+    demo: bool = False,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    if demo:
+        raise HTTPException(
+            status_code=409,
+            detail="Demo mode cannot write to Intervals.icu",
+        )
+    if req.days not in {7, 14}:
+        raise HTTPException(status_code=422, detail="days must be 7 or 14")
+    return planning_service.deliver_intervals_plan(db, days=req.days)
 
 
 @router.get("/export/ics")
