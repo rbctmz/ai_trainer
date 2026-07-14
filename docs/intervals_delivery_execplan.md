@@ -21,6 +21,7 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - [x] (2026-07-14 13:58Z) Completed isolated browser acceptance against a local Intervals-compatible mock and temporary SQLite: two UI submissions returned `1 executable / 0 calendar-only / 0 failed` and converged on one event id with parsed steps; all temporary servers were stopped.
 - [x] (2026-07-14 14:25Z) Repeated deletion-safety self-review after opening implementation PR #192. Added regression coverage for non-contiguous recovery dates and partial bulk responses, then made cleanup fail closed; the focused delivery/recovery/API/reconciliation contour is green at `60 passed`.
 - [x] (2026-07-14 14:38Z) Merged current `main` after recovery-curves PR #187 landed and verified the combined tree: focused integration `102 passed`, smoke `649 passed, 1 skipped`, broad non-live `692 passed, 6 skipped, 24 deselected`, Next lint and production build clean.
+- [x] (2026-07-14 14:55Z) Added a test-driven, fail-closed live acceptance runner. Five fake-provider scenarios prove the exact confirmation gate, acceptance-only UID, two-upsert identity, foreign preservation, cleanup on parser failure, residual refusal, and future-only date guard without any live request; the expanded smoke suite is `654 passed, 1 skipped`.
 - [ ] Perform the separately authorized reversible live Intervals.icu acceptance: upsert twice, inspect parsed `workout_doc`, verify no foreign mutation, and remove only the temporary AI Trainer acceptance events.
 - [ ] Finalize this living document after live evidence and obtain independent review of implementation PR #192 before merge. PR #191 contains only the already-merged ExecPlan because it was merged while implementation was still in progress.
 
@@ -173,6 +174,14 @@ Manual browser acceptance is successful when `/planning?tab=export` shows config
 
 Provider acceptance is successful when a bounded GET after delivery shows only `external_id` values beginning with `ai_trainer:` for AI Trainer-created events, the original IntervalCoach event ids still exist unchanged, and each supported delivered event returns non-empty `workout_doc.steps`. The acceptance script must capture the provider ids before and after and clean up only the temporary AI Trainer external ids.
 
+After explicit athlete authorization, run the reversible provider probe from the repository root with a near future date:
+
+    python scripts/accept_intervals_delivery_live.py \
+      --date YYYY-MM-DD \
+      --confirm-live-write CREATE-VERIFY-AND-DELETE-ONE-INTERVALS-EVENT
+
+The runner performs no provider read until the confirmation and future-date guards pass. Its UUID-v5 key uses an acceptance-only namespace input rather than the product's date slot. It refuses a residual probe, upserts the same payload twice, requires the same provider id and parsed steps, compares all foreign rows before and after, and deletes in `finally` only rows matching both the exact acceptance UID and external id.
+
 Recovery acceptance is successful when approving a test proposal creates one new checkpoint and delivers its edited date, rollback creates another append-only checkpoint and restores the provider event, and a simulated provider failure leaves the proposal terminal with a visible retryable delivery error.
 
 Garmin acceptance is successful only when at least one newly delivered executable workout is visible in Garmin. If it is not visible despite parsed `workout_doc`, record the observed provider/Garmin state as an unresolved external integration gap; do not weaken the acceptance wording.
@@ -245,4 +254,4 @@ The route rejects `demo=true` before calling the provider. `GET /api/planning/pl
 
 Recovery proposal responses retain their current `proposal` and `result` keys. For recovery apply and rollback, `result` gains `affected_dates` and `delivery`. Existing clients that ignore those fields remain compatible.
 
-Revision note (2026-07-14, Codex): initial ExecPlan created after source, official API, and live read-only audit. It intentionally includes the executable-device milestone because a calendar-only HTTP success does not satisfy the user problem recorded in issue #168. Updated after contract-first RED, backend/API/recovery GREEN, full local validation, and two-click browser acceptance; the remaining real-provider/Garmin observation stays explicit rather than being inferred from mocks.
+Revision note (2026-07-14, Codex): initial ExecPlan created after source, official API, and live read-only audit. It intentionally includes the executable-device milestone because a calendar-only HTTP success does not satisfy the user problem recorded in issue #168. Updated after contract-first RED, backend/API/recovery GREEN, full local validation, two-click browser acceptance, integration with #176, and the fail-closed live-runner contract; the remaining real-provider/Garmin observation stays explicit rather than being inferred from mocks.
