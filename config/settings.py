@@ -49,6 +49,9 @@ class Settings:
     # База данных
     DATABASE_PATH = os.getenv("DATABASE_PATH", "ai_trainer.db")
     CHATS_DIR = os.getenv("CHATS_DIR", "chats")
+    # Canonical IANA timezone for prospective scientific cutoffs.  Recovery
+    # evidence fails closed if this value is invalid.
+    ATHLETE_TIMEZONE = os.getenv("ATHLETE_TIMEZONE", "Europe/Moscow")
 
     # Acceptance mode: isolated runtime for safe browser verification
     ACCEPTANCE_MODE = _env_flag("ACCEPTANCE_MODE", "0")

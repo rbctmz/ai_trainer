@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
 import {
@@ -91,7 +91,16 @@ function defaultEventDate(): string {
 export default function PlanningPage() {
   const { data: status } = useSWR<PlanningStatus>("/api/planning/status", fetcher);
   const [tab, setTab] = useState<Tab>("build");
+  const [targetSessionId, setTargetSessionId] = useState<string | null>(null);
   const m = status?.metrics;
+
+  useEffect(() => {
+    const searchParams = new URLSearchParams(window.location.search);
+    const sessionId = searchParams.get("session_id")?.trim();
+    if (!sessionId) return;
+    setTargetSessionId(sessionId);
+    setTab("adjust");
+  }, []);
 
   return (
     <main className="space-y-5">
@@ -125,7 +134,12 @@ export default function PlanningPage() {
       </div>
 
       {tab === "build" ? <BuildMode status={status} /> : null}
-      {tab === "adjust" ? <AdjustMode hasPlan={status?.has_plan ?? false} /> : null}
+      {tab === "adjust" ? (
+        <AdjustMode
+          hasPlan={status?.has_plan ?? false}
+          targetSessionId={targetSessionId}
+        />
+      ) : null}
       {tab === "export" ? <ExportMode /> : null}
       <AdjustmentHistory />
     </main>
@@ -562,7 +576,13 @@ function AdjustmentHistory() {
 }
 
 /* ---------------- Adjust mode ---------------- */
-function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
+function AdjustMode({
+  hasPlan,
+  targetSessionId,
+}: {
+  hasPlan: boolean;
+  targetSessionId: string | null;
+}) {
   const { mutate: mutateGlobal } = useSWRConfig();
   const { data, mutate } = useSWR<ReconResponse>(
     hasPlan ? "/api/planning/reconciliation?weeks=1" : null,
@@ -572,6 +592,23 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
   const [result, setResult] = useState<RebalanceConfirmResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const targetRowRef = useRef<HTMLTableRowElement | null>(null);
+  const focusedTargetRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!targetSessionId || !data || focusedTargetRef.current === targetSessionId) return;
+    const targetRow = targetRowRef.current;
+    if (!targetRow) return;
+    const frame = window.requestAnimationFrame(() => {
+      targetRow.scrollIntoView({ behavior: "smooth", block: "center" });
+      const targetAction = targetRow.querySelector<HTMLElement>(
+        '[data-target-action="primary"]',
+      );
+      (targetAction ?? targetRow).focus({ preventScroll: true });
+      focusedTargetRef.current = targetSessionId;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [data, targetSessionId]);
 
   async function buildPreview() {
     setBusy(true);
@@ -693,8 +730,18 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
             </tr>
           </thead>
           <tbody>
-            {data.rows.map((r) => (
-              <tr key={r.session_id} className="border-b border-surface-border last:border-0 align-top">
+            {data.rows.map((r) => {
+              const isTarget = targetSessionId === r.session_id;
+              return (
+              <tr
+                key={r.session_id}
+                ref={isTarget ? targetRowRef : undefined}
+                tabIndex={isTarget ? -1 : undefined}
+                aria-current={isTarget ? "true" : undefined}
+                className={`border-b border-surface-border last:border-0 align-top transition ${
+                  isTarget ? "bg-accent/10 ring-1 ring-inset ring-accent/40" : ""
+                }`}
+              >
                 <td className="px-3 py-2.5 text-ink-soft">{r.date.slice(5)}</td>
                 <td className="px-3 py-2.5 text-ink">
                   <div>{r.name}</div>
@@ -723,6 +770,7 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <button
                         type="button"
+                        data-target-action="primary"
                         onClick={() => resolveMatch(r, "confirm")}
                         disabled={busy}
                         className="rounded border border-tone-success/30 px-2 py-1 text-[11px] text-tone-success disabled:opacity-40"
@@ -741,7 +789,8 @@ function AdjustMode({ hasPlan }: { hasPlan: boolean }) {
                   ) : null}
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
         {data.unplanned_activities.length ? (

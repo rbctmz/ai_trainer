@@ -922,6 +922,7 @@ export interface SessionFeedbackPrompt {
   date: string;
   name: string;
   role: string;
+  planned_sport: string;
   kind: "single" | "composite" | string;
   state:
     | "not_eligible"
@@ -985,4 +986,77 @@ export interface TodayResponse {
   loop_outcome: string | null;
   provenance: Record<string, unknown>;
   operational_state?: Record<string, unknown>;
+}
+
+// --- Prospective personal recovery analytics (shadow-only) ---
+export type RecoveryMaturity =
+  | "collection_only"
+  | "early_signal"
+  | "exploratory"
+  | "shadow_pattern";
+
+export interface RecoveryCurvePoint {
+  day: 1 | 2 | 3;
+  n_observed: number;
+  missing: number;
+  median: number | null;
+  q1: number | null;
+  q3: number | null;
+  interval: { low: number; high: number } | null;
+}
+
+export interface RecoveryCohort {
+  cohort_id: string;
+  dimensions: {
+    stimulus_family: string;
+    sport: string;
+    load_bucket: string;
+    adherence: string;
+  };
+  n: number;
+  distinct_weeks: number;
+  maturity: RecoveryMaturity;
+  publishable: boolean;
+  points: RecoveryCurvePoint[];
+  last_observation: string | null;
+  rpe_overlays: Record<
+    "low" | "moderate" | "high",
+    {
+      n: number;
+      distinct_weeks: number;
+      maturity: RecoveryMaturity;
+      publishable: boolean;
+      points: RecoveryCurvePoint[];
+    }
+  >;
+  included_episode_ids: number[];
+}
+
+export interface RecoveryAnalyticsResponse {
+  rule_version: string;
+  bootstrap_rule_version: string;
+  capture_mode: "prospective";
+  maturity: RecoveryMaturity;
+  generated_at: string | null;
+  coverage: {
+    total_latest: number;
+    eligible: number;
+    excluded: number;
+    backfilled_excluded: number;
+    exclusion_counts: Record<string, number>;
+  };
+  snapshot_coverage: {
+    total: number;
+    eligible: number;
+    ineligible: number;
+    distinct_days: number;
+  };
+  registry: RecoveryCohort[];
+  guardrails: {
+    shadow_mode: true;
+    affects_decisions: false;
+    provider_writeback: false;
+    causal_claim: false;
+    message: string;
+  };
 }

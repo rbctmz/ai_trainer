@@ -407,7 +407,7 @@ export default function TodayPage() {
                 качества не будет приписана плану, пока match не подтверждён.
               </p>
               <Link
-                href="/planning"
+                href={`/planning?session_id=${encodeURIComponent(pendingMatch.session_id)}`}
                 className="mt-3 inline-block rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-ink"
               >
                 Уточнить в Planning
