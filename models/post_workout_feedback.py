@@ -218,6 +218,7 @@ def build_feedback_prompts(
                 "name": row.get("name") or template.get("template_name") or "Сессия",
                 "role": role,
                 "kind": str(template.get("kind") or "single"),
+                "planned_sport": str(row.get("sport") or template.get("sport") or ""),
                 "state": state,
                 "reason": reason,
                 "is_primary": is_primary,

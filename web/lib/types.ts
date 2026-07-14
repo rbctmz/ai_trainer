@@ -902,6 +902,7 @@ export interface SessionFeedbackPrompt {
   date: string;
   name: string;
   role: string;
+  planned_sport: string;
   kind: "single" | "composite" | string;
   state:
     | "not_eligible"
