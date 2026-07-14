@@ -18,8 +18,9 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - [x] (2026-07-14 13:30Z) Exposed the FastAPI delivery action and connected recovery approve plus rollback with affected-date sync and fail-open provider evidence; the focused contour is green at `58 passed`.
 - [x] (2026-07-14 13:48Z) Added the web Export delivery selector/button and explicit executable/calendar-only/deleted/failed result states; Next lint and production build pass.
 - [x] (2026-07-14 13:50Z) Completed focused (`58 passed`), contributor-safe smoke (`602 passed, 1 skipped`), broad non-live (`645 passed, 6 skipped, 24 deselected`), Python compilation, Next lint/build, and static self-review. Isolated browser/provider acceptance remains.
-- [ ] Perform a reversible live Intervals.icu acceptance: upsert twice, inspect parsed `workout_doc`, verify no foreign mutation, and remove only the temporary AI Trainer acceptance events.
-- [ ] Finalize this living document, commit by milestone, push the branch, and open a draft PR with `Closes #168`.
+- [x] (2026-07-14 13:58Z) Completed isolated browser acceptance against a local Intervals-compatible mock and temporary SQLite: two UI submissions returned `1 executable / 0 calendar-only / 0 failed` and converged on one event id with parsed steps; all temporary servers were stopped.
+- [ ] Perform the separately authorized reversible live Intervals.icu acceptance: upsert twice, inspect parsed `workout_doc`, verify no foreign mutation, and remove only the temporary AI Trainer acceptance events.
+- [ ] Finalize this living document after live evidence, push the implementation commits to draft PR #191, and obtain independent review before merge.
 
 ## Surprises & Discoveries
 
@@ -43,6 +44,9 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 
 - Observation: composite identity fixtures must include the same ordered leg indexes as materialized catalog plans.
   Evidence: a first reconciliation test mutated an already-identified session into an index-less composite, so a second identity pass correctly produced a different material ID. Real catalog bricks already freeze `leg_index`; the corrected fixture builds the composite before identity and the exact leg external-id contract passes.
+
+- Observation: the complete web/API/provider loop is idempotent under an Intervals-compatible runtime, not only under unit mocks.
+  Evidence: an isolated Next page on `:3018` called an isolated FastAPI on `:8018`, which called a local provider mock on `:8099`. Two button clicks both showed one executable workout and zero errors; the bounded provider read contained exactly one event, id `9001`, with the same UUID-v5 slot, owned external id, native four-step description, and non-empty `workout_doc.steps`.
 
 ## Decision Log
 
@@ -76,7 +80,11 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 
 ## Outcomes & Retrospective
 
-Implementation has not started. The design audit proved that the repository already owns the difficult inputs: stable material session ids, exact plan-actual provider matching, structured catalog steps, legacy step fallback, and an atomic proposal lifecycle. The remaining work is integration and delivery correctness, not new planning math. This section must be updated after each milestone with observed behavior and any remaining gap between Intervals.icu calendar acceptance and Garmin device acceptance.
+The implementation now delivers the active plan through a bounded, owned-only Intervals.icu write path. Manual web delivery supports seven or fourteen days; recovery approve and rollback synchronize only affected dates after the local append-only checkpoint succeeds. UUID-v5 slots make retries and material edits converge, while `external_id` preserves exact plan-actual identity. Composite bricks become ordered leg events, and legacy checkpoints receive the existing FIT-compatible step fallback instead of calendar-only notes.
+
+Validation is green at `58 passed` for the focused contract, `602 passed, 1 skipped` for contributor-safe smoke, and `645 passed, 6 skipped, 24 deselected` for the broad non-live suite. Python compilation, Next lint, and Next production build pass. Browser acceptance proved two-click idempotency and executable result rendering against a local provider-compatible mock; it did not touch `ai_trainer.db` or the live Intervals calendar.
+
+The remaining acceptance gap is deliberately external: a reversible write to the athlete's real Intervals.icu calendar must confirm that its parser produces non-empty `workout_doc.steps`, preserves all foreign events, and, separately, whether Garmin receives the workout. That live write requires an explicit human gate; until it is run, the PR must not claim verified Garmin delivery.
 
 ## Context and Orientation
 
@@ -229,4 +237,4 @@ The route rejects `demo=true` before calling the provider. `GET /api/planning/pl
 
 Recovery proposal responses retain their current `proposal` and `result` keys. For recovery apply and rollback, `result` gains `affected_dates` and `delivery`. Existing clients that ignore those fields remain compatible.
 
-Revision note (2026-07-14, Codex): initial ExecPlan created after source, official API, and live read-only audit. It intentionally includes the executable-device milestone because a calendar-only HTTP success does not satisfy the user problem recorded in issue #168.
+Revision note (2026-07-14, Codex): initial ExecPlan created after source, official API, and live read-only audit. It intentionally includes the executable-device milestone because a calendar-only HTTP success does not satisfy the user problem recorded in issue #168. Updated after contract-first RED, backend/API/recovery GREEN, full local validation, and two-click browser acceptance; the remaining real-provider/Garmin observation stays explicit rather than being inferred from mocks.
