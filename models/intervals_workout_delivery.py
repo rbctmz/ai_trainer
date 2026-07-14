@@ -159,6 +159,12 @@ def build_delivery_events(
         if day not in selected_dates or float(total_tss or 0.0) <= 0:
             continue
         template = dict(templates[index]) if index < len(templates) else {}
+        template_date = str(template.get("date") or "")[:10]
+        if template_date != day:
+            raise ValueError(
+                f"planned session {day} template date mismatch: "
+                f"{template_date or 'missing'}"
+            )
         session_id = str(template.get("session_id") or "").strip()
         if not session_id:
             raise ValueError(f"planned session {day} has no stable session_id")

@@ -586,3 +586,34 @@ def test_recovery_approve_and_rollback_refuse_stale_active_plan(
     assert rollback_error.value.status_code == 409
     assert stale_rollback_db.get_latest_planning_checkpoint()["id"] != applied_id
     assert stale_rollback_db.get_coach_proposal(proposal["id"])["status"] == "approved"
+
+
+def test_legacy_recovery_rollback_without_affected_dates_skips_delivery(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import recovery_replan_loop as loop_module
+    from api.routers.decisions import approve_proposal, rollback_proposal
+
+    today = date(2026, 7, 10)
+    report = _conflict_report(today, days_until=4)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    db = Database(str(tmp_path / "legacy-empty-affected-dates.db"))
+    _save_plan(db, _goal_plan(today, conflict_days_until=4))
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    approved = approve_proposal(proposal["id"], db=db)
+    legacy_result = dict(approved["result"])
+    legacy_result.pop("affected_dates", None)
+    db.update_coach_proposal_status(
+        proposal["id"],
+        "approved",
+        result=legacy_result,
+    )
+
+    rolled_back = rollback_proposal(proposal["id"], db=db)
+
+    assert rolled_back["proposal"]["status"] == "rolled_back"
+    assert rolled_back["result"]["affected_dates"] == []
+    assert rolled_back["result"]["delivery"]["status"] == "skipped"
+    assert rolled_back["result"]["delivery"]["failed_count"] == 0
+    assert rolled_back["result"]["delivery"]["retryable"] is False

@@ -1,8 +1,9 @@
 """Headless bounded delivery of the active plan to Intervals.icu."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Sequence
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from config.settings import Settings
 from data.database import Database
@@ -13,6 +14,19 @@ from models.intervals_workout_delivery import (
 )
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from services.intervals_icu import IntervalsICUClient, get_client
+
+
+def athlete_local_date(observed_at_utc: datetime | None = None) -> date:
+    """Resolve today's delivery boundary in the configured athlete timezone."""
+    observed = observed_at_utc or datetime.now(timezone.utc)
+    if observed.tzinfo is None:
+        raise ValueError("observed_at_utc must be timezone-aware")
+    timezone_name = str(Settings.ATHLETE_TIMEZONE or "").strip()
+    try:
+        zone = ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError("ATHLETE_TIMEZONE must be a valid IANA timezone") from exc
+    return observed.astimezone(zone).date()
 
 
 def _selected_dates(
@@ -27,11 +41,11 @@ def _selected_dates(
         count = int(days)
         if not 1 <= count <= 90:
             raise ValueError("delivery range must be between 1 and 90 days")
-        start = today or date.today()
+        start = today or athlete_local_date()
         return [(start + timedelta(days=offset)).isoformat() for offset in range(count)]
     normalized = sorted({date.fromisoformat(str(value)[:10]).isoformat() for value in (dates or [])})
     if not normalized:
-        raise ValueError("at least one delivery date is required")
+        return []
     if (date.fromisoformat(normalized[-1]) - date.fromisoformat(normalized[0])).days > 90:
         raise ValueError("delivery dates must fit inside 90 days")
     return normalized
@@ -81,6 +95,8 @@ def deliver_active_plan(
         checkpoint_id=checkpoint_id,
         dates=selected,
     )
+    if not selected:
+        return {**result, "status": "skipped"}
     resolved_client = client or get_client()
     if not resolved_client.is_configured():
         return {**result, "status": "not_configured"}
@@ -193,4 +209,8 @@ def safe_deliver_active_plan(
         }
 
 
-__all__ = ["deliver_active_plan", "safe_deliver_active_plan"]
+__all__ = [
+    "athlete_local_date",
+    "deliver_active_plan",
+    "safe_deliver_active_plan",
+]

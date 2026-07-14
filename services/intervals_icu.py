@@ -205,8 +205,6 @@ class IntervalsICUClient:
             "name",
             "workout_doc",
             "moving_time",
-            "oauth_client_id",
-            "created_by_id",
         )
         return [
             {field: row.get(field) for field in fields}

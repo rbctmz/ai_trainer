@@ -22,6 +22,7 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - [x] (2026-07-14 14:25Z) Repeated deletion-safety self-review after opening implementation PR #192. Added regression coverage for non-contiguous recovery dates and partial bulk responses, then made cleanup fail closed; the focused delivery/recovery/API/reconciliation contour is green at `60 passed`.
 - [x] (2026-07-14 14:38Z) Merged current `main` after recovery-curves PR #187 landed and verified the combined tree: focused integration `102 passed`, smoke `649 passed, 1 skipped`, broad non-live `692 passed, 6 skipped, 24 deselected`, Next lint and production build clean.
 - [x] (2026-07-14 14:55Z) Added a test-driven, fail-closed live acceptance runner. Five fake-provider scenarios prove the exact confirmation gate, acceptance-only UID, two-upsert identity, foreign preservation, cleanup on parser failure, residual refusal, and future-only date guard without any live request; the expanded smoke suite is `654 passed, 1 skipped`.
+- [x] (2026-07-14 15:10Z) Addressed both independent-review findings plus the cheap follow-ups: empty recovery date sets are provider-free `skipped`, template/day alignment is verified before payload creation, manual windows use `ATHLETE_TIMEZONE`, and unused creator fields were removed. A legacy pre-#168 rollback integration test proves the false failure is gone; smoke is `658 passed, 1 skipped`, broad non-live is `701 passed, 6 skipped, 24 deselected`, and Next lint/build plus compileall are clean.
 - [ ] Perform the separately authorized reversible live Intervals.icu acceptance: upsert twice, inspect parsed `workout_doc`, verify no foreign mutation, and remove only the temporary AI Trainer acceptance events.
 - [ ] Finalize this living document after live evidence and obtain independent review of implementation PR #192 before merge. PR #191 contains only the already-merged ExecPlan because it was merged while implementation was still in progress.
 
@@ -57,6 +58,12 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - Observation: cleanup after a partial or malformed bulk response can make a transient provider failure destructive.
   Evidence: a two-leg replacement returning confirmation for only one UID previously deleted the old single-slot event before reporting `partial`. Cleanup now runs only after every desired UID is confirmed, while a deliberate all-rest or removed-date sync can still delete stale owned slots.
 
+- Observation: legacy approved recovery proposals do not contain `affected_dates`.
+  Evidence: independent review reproduced `safe_deliver_active_plan(dates=[])` as a retryable failure even though no provider call was needed. Empty explicit date sets now return a zero-count, non-retryable `skipped` result before client resolution; an integration fixture removes `affected_dates` from an approved proposal and verifies rollback remains honest.
+
+- Observation: positional day/template alignment is an internal builder invariant but an unsafe assumption at an external write boundary.
+  Evidence: equal-length lists with shifted template dates previously produced a valid-looking payload for the wrong prescription. Delivery now requires `template.date == daily_plan.date` for every non-rest selected row and fails before provider access otherwise.
+
 ## Decision Log
 
 - Decision: use two provider identities with different meanings.
@@ -77,6 +84,10 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 
 - Decision: automatically deliver both recovery apply and rollback.
   Rationale: synchronizing only approval leaves the device on the reduced prescription after a successful local rollback. The same affected dates are available from the proposal result and can be delivered idempotently in either direction.
+  Date/Author: 2026-07-14 / Codex
+
+- Decision: treat an empty explicit recovery date set as a successful no-op and derive manual delivery windows in the athlete timezone.
+  Rationale: a legacy proposal may have no affected-date evidence, which is not a provider failure. Manual seven/fourteen-day windows are local-calendar concepts and must not move at UTC midnight on a VPS.
   Date/Author: 2026-07-14 / Codex
 
 - Decision: require provider-parsed steps for `executable` status.
@@ -230,6 +241,8 @@ In `models/intervals_workout_delivery.py`, provide pure functions equivalent to:
     provider_event_is_executable(event: Mapping[str, Any]) -> bool
 
 The slot UID must be deterministic UUID v5. Every payload must include category, local date/time, name, type, load, moving time, uid, external id, and native description. Single sessions use the parent session id; composite legs append `:leg:<n>`.
+
+V1 has no persisted per-session start-time preference. Delivery therefore uses 07:00 athlete-local for the first event and a fixed five-minute gap between composite brick legs. These are explicit export defaults, not inferred coaching recommendations; changing them requires a separate scheduling contract rather than silent serializer heuristics.
 
 In `services/intervals_plan_delivery.py`, expose one orchestration result equivalent to:
 

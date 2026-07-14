@@ -238,8 +238,6 @@ def test_list_execution_evidence_is_bounded_get_and_keeps_match_fields(monkeypat
             "uid": "slot-uid",
             "workout_doc": {"steps": [{"duration": 600}]},
             "moving_time": 3600,
-            "oauth_client_id": 173,
-            "created_by_id": "athlete-1",
         }
     ]
 

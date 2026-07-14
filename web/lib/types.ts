@@ -552,7 +552,7 @@ export interface PlanExport {
 }
 
 export interface IntervalsDeliveryResult {
-  status: "success" | "calendar_only" | "partial" | "failed" | "not_configured" | "no_plan";
+  status: "success" | "calendar_only" | "partial" | "failed" | "not_configured" | "no_plan" | "skipped";
   source: string;
   checkpoint_id: number | null;
   dates: string[];

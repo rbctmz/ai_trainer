@@ -1,7 +1,9 @@
 """Contract-first tests for deterministic Intervals.icu plan delivery."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+
+import pytest
 
 from data.database import Database
 from models.planning_checkpoints import build_planning_checkpoint
@@ -188,6 +190,17 @@ def test_composite_brick_builds_two_ordered_leg_events() -> None:
     assert "125-140bpm" in events[1]["description"]
 
 
+def test_delivery_refuses_shifted_template_dates_before_provider_payload() -> None:
+    from models.intervals_workout_delivery import build_delivery_events
+
+    plan = _single_plan()
+    plan["session_templates"][0]["date"] = "2026-07-16"
+    plan["session_templates"][1]["date"] = "2026-07-15"
+
+    with pytest.raises(ValueError, match="template date"):
+        build_delivery_events(plan, ["2026-07-15"])
+
+
 def test_delivery_upserts_desired_slots_and_deletes_only_owned_stale_events(tmp_path) -> None:
     from services.intervals_plan_delivery import deliver_active_plan
 
@@ -323,6 +336,39 @@ def test_delivery_reports_calendar_only_and_missing_configuration_without_writes
     assert missing["status"] == "not_configured"
     assert missing_client.list_calls == []
     assert missing_client.upsert_calls == []
+
+
+def test_empty_explicit_delivery_dates_are_skipped_without_provider_access(tmp_path) -> None:
+    from services.intervals_plan_delivery import safe_deliver_active_plan
+
+    db = Database(str(tmp_path / "empty-dates.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+    client = _FakeClient()
+
+    result = safe_deliver_active_plan(
+        db,
+        dates=[],
+        source="recovery_rollback",
+        client=client,
+    )
+
+    assert result["status"] == "skipped"
+    assert result["dates"] == []
+    assert result["failed_count"] == 0
+    assert result["retryable"] is False
+    assert client.list_calls == []
+    assert client.upsert_calls == []
+    assert client.delete_calls == []
+
+
+def test_default_delivery_window_uses_athlete_timezone(monkeypatch) -> None:
+    from config.settings import Settings
+    from services.intervals_plan_delivery import athlete_local_date
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "Pacific/Kiritimati")
+    observed = datetime(2026, 7, 14, 12, 30, tzinfo=timezone.utc)
+
+    assert athlete_local_date(observed) == date(2026, 7, 15)
 
 
 def test_safe_delivery_sanitizes_provider_failure(tmp_path) -> None:
