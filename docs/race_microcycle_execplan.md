@@ -15,7 +15,7 @@ The active local checkpoint #63 is deliberately not modified by this work. The r
 - [x] (2026-07-14 13:05Z) Read Issue #198, its live-status comment, `AGENTS.md`, `.agent/PLANS.md`, the predecessor race-priority ExecPlan, and the current planner/catalog/checkpoint/rebuild/web contracts.
 - [x] (2026-07-14 13:05Z) Completed publish preflight, created `codex/issue-198-race-microcycles` in `/private/tmp/ai_trainer_issue198`, and verified that `origin` points to `rbctmz/ai_trainer` with authenticated GitHub publication available.
 - [x] (2026-07-14 13:05Z) Pre-registered `race-microcycle-v2`, its exact A/B/C prescriptions, overlap precedence, deep-fatigue behavior, persistence boundary, and preview contract in this ExecPlan.
-- [ ] Add contract-first tests and record the expected red state before implementation.
+- [x] (2026-07-14 13:18Z) Added contract-first A/B/C, overlap, no-increase, and deep-fatigue tests. The pre-implementation run failed 5/5 on the intentionally absent `goal_type` keyword contract.
 - [ ] Implement the pure microcycle overlay and thread it through initial builds and execution-feedback rebuilds.
 - [ ] Persist the same microcycle explainability metadata and expose before/after changes in the Planning preview and web UI.
 - [ ] Validate a read-only preview on a copy of the real database with B 2026-07-26 and A 2026-10-04.
@@ -40,6 +40,9 @@ The active local checkpoint #63 is deliberately not modified by this work. The r
 
 - Observation: the Intervals.icu provider-category blocker is resolved.
   Evidence: the Issue #198 owner update records 2026-10-04 as `RACE_A`; 2026-07-26 remains `RACE_B`. No plan has been rebuilt or persisted.
+
+- Observation: the initial BDD run is red for the intended missing public contract, not fixture or environment failures.
+  Evidence: all five tests in `tests/smoke/test_race_microcycles.py` fail at `apply_race_event_overlays(..., goal_type="Триатлон")` with `unexpected keyword argument 'goal_type'`.
 
 ## Decision Log
 
