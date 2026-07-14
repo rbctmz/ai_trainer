@@ -537,6 +537,79 @@ class Database:
         ''')
 
         conn.execute('''
+            CREATE TABLE IF NOT EXISTS readiness_snapshots (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerprint TEXT NOT NULL UNIQUE,
+                target_key TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                supersedes_snapshot_id INTEGER,
+                capture_mode TEXT NOT NULL,
+                local_date TEXT NOT NULL,
+                athlete_timezone TEXT NOT NULL,
+                observed_at_utc TEXT NOT NULL,
+                capture_run_id TEXT NOT NULL,
+                rule_version TEXT NOT NULL,
+                score REAL,
+                status TEXT NOT NULL,
+                confidence REAL NOT NULL,
+                as_of_date TEXT NOT NULL,
+                is_provisional INTEGER NOT NULL,
+                source_completeness REAL NOT NULL,
+                stale INTEGER NOT NULL,
+                eligibility_status TEXT NOT NULL,
+                eligibility_reasons_json TEXT NOT NULL,
+                factors_json TEXT NOT NULL,
+                drivers_json TEXT NOT NULL,
+                missing_inputs_json TEXT NOT NULL,
+                tsb_json TEXT NOT NULL,
+                provenance_json TEXT NOT NULL,
+                snapshot_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(target_key, revision)
+            )
+        ''')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS recovery_episodes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerprint TEXT NOT NULL UNIQUE,
+                target_key TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                supersedes_episode_id INTEGER,
+                session_id TEXT NOT NULL,
+                plan_checkpoint_id INTEGER,
+                match_revision_id INTEGER,
+                feedback_id INTEGER,
+                session_date TEXT NOT NULL,
+                iso_week TEXT,
+                capture_mode TEXT NOT NULL,
+                status TEXT NOT NULL,
+                rule_version TEXT NOT NULL,
+                template_id TEXT,
+                stimulus_family TEXT,
+                sport TEXT,
+                role TEXT,
+                phase TEXT,
+                actual_tss REAL,
+                load_bucket TEXT,
+                adherence TEXT,
+                rpe_band TEXT,
+                pre_snapshot_id INTEGER,
+                d1_snapshot_id INTEGER,
+                d2_snapshot_id INTEGER,
+                d3_snapshot_id INTEGER,
+                exclusion_reasons_json TEXT NOT NULL,
+                planned_json TEXT NOT NULL,
+                actual_json TEXT NOT NULL,
+                feedback_json TEXT NOT NULL,
+                outcome_json TEXT NOT NULL,
+                confounders_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(target_key, revision)
+            )
+        ''')
+
+        conn.execute('''
             CREATE TABLE IF NOT EXISTS coach_constraints (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT NOT NULL,
@@ -599,6 +672,26 @@ class Database:
         conn.execute('''
             CREATE INDEX IF NOT EXISTS idx_session_quality_evaluation_prediction
             ON session_quality_evaluations(prediction_id, revision)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_readiness_snapshot_target
+            ON readiness_snapshots(target_key, revision)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_readiness_snapshot_anchor
+            ON readiness_snapshots(capture_mode, local_date, observed_at_utc)
+        ''')
+        conn.execute('''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_readiness_snapshot_capture_run
+            ON readiness_snapshots(capture_mode, capture_run_id)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_recovery_episode_target
+            ON recovery_episodes(target_key, revision)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_recovery_episode_projection
+            ON recovery_episodes(capture_mode, status, session_date)
         ''')
         conn.commit()
         conn.close()
@@ -742,6 +835,254 @@ class Database:
             if column not in existing_columns:
                 cursor.execute(f'ALTER TABLE coach_proposals ADD COLUMN {column} {column_type}')
         conn.commit()
+
+    @staticmethod
+    def _json_value(value):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+
+    @staticmethod
+    def _json_load(value, fallback):
+        if value is None:
+            return fallback
+        try:
+            parsed = json.loads(value)
+        except (TypeError, json.JSONDecodeError):
+            return fallback
+        return parsed
+
+    def save_readiness_snapshot(self, payload):
+        """Atomically append or idempotently return a readiness revision."""
+        required = {
+            'fingerprint', 'target_key', 'capture_mode', 'local_date',
+            'athlete_timezone', 'observed_at_utc', 'capture_run_id',
+            'rule_version', 'status', 'confidence', 'as_of_date',
+            'eligibility_status',
+        }
+        missing = sorted(required - set(payload or {}))
+        if missing:
+            raise ValueError(f"missing readiness snapshot fields: {missing}")
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA busy_timeout = 30000')
+        try:
+            conn.execute('BEGIN IMMEDIATE')
+            existing = conn.execute(
+                'SELECT * FROM readiness_snapshots WHERE fingerprint = ?',
+                (str(payload['fingerprint']),),
+            ).fetchone()
+            if existing is not None:
+                conn.commit()
+                return {'snapshot': self._deserialize_readiness_snapshot(existing), 'created': False}
+            previous = conn.execute(
+                '''
+                SELECT id, revision FROM readiness_snapshots
+                WHERE target_key = ? ORDER BY revision DESC, id DESC LIMIT 1
+                ''',
+                (str(payload['target_key']),),
+            ).fetchone()
+            revision = int(previous['revision']) + 1 if previous else 1
+            columns = (
+                'fingerprint', 'target_key', 'revision', 'supersedes_snapshot_id',
+                'capture_mode', 'local_date', 'athlete_timezone', 'observed_at_utc',
+                'capture_run_id', 'rule_version', 'score', 'status', 'confidence',
+                'as_of_date', 'is_provisional', 'source_completeness', 'stale',
+                'eligibility_status', 'eligibility_reasons_json', 'factors_json',
+                'drivers_json', 'missing_inputs_json', 'tsb_json', 'provenance_json',
+                'snapshot_json',
+            )
+            values = (
+                str(payload['fingerprint']), str(payload['target_key']), revision,
+                int(previous['id']) if previous else None, str(payload['capture_mode']),
+                str(payload['local_date']), str(payload['athlete_timezone']),
+                str(payload['observed_at_utc']), str(payload['capture_run_id']),
+                str(payload['rule_version']), payload.get('score'), str(payload['status']),
+                float(payload.get('confidence') or 0.0), str(payload['as_of_date']),
+                int(bool(payload.get('is_provisional'))),
+                float(payload.get('source_completeness') or 0.0),
+                int(bool(payload.get('stale'))), str(payload['eligibility_status']),
+                self._json_value(payload.get('eligibility_reasons') or []),
+                self._json_value(payload.get('factors') or []),
+                self._json_value(payload.get('drivers') or []),
+                self._json_value(payload.get('missing_inputs') or []),
+                self._json_value(payload.get('tsb') or {}),
+                self._json_value(payload.get('provenance') or {}),
+                self._json_value(payload.get('snapshot') or {}),
+            )
+            placeholders = ', '.join('?' for _ in columns)
+            cursor = conn.execute(
+                f"INSERT INTO readiness_snapshots ({', '.join(columns)}) VALUES ({placeholders})",
+                values,
+            )
+            row = conn.execute(
+                'SELECT * FROM readiness_snapshots WHERE id = ?', (int(cursor.lastrowid),)
+            ).fetchone()
+            conn.commit()
+            return {'snapshot': self._deserialize_readiness_snapshot(row), 'created': True}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_readiness_snapshot_history(self, target_key):
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            '''SELECT * FROM readiness_snapshots
+               WHERE target_key = ? ORDER BY revision, id''',
+            (str(target_key),),
+        ).fetchall()
+        conn.close()
+        return [self._deserialize_readiness_snapshot(row) for row in rows]
+
+    def get_readiness_snapshots(self, *, capture_mode=None, local_date=None):
+        clauses, params = [], []
+        if capture_mode is not None:
+            clauses.append('capture_mode = ?')
+            params.append(str(capture_mode))
+        if local_date is not None:
+            clauses.append('local_date = ?')
+            params.append(str(local_date))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            f'''SELECT * FROM readiness_snapshots {where}
+                ORDER BY local_date, observed_at_utc, revision, id''',
+            tuple(params),
+        ).fetchall()
+        conn.close()
+        return [self._deserialize_readiness_snapshot(row) for row in rows]
+
+    def _deserialize_readiness_snapshot(self, row):
+        if row is None:
+            return None
+        value = dict(row)
+        mapping = {
+            'eligibility_reasons_json': ('eligibility_reasons', []),
+            'factors_json': ('factors', []), 'drivers_json': ('drivers', []),
+            'missing_inputs_json': ('missing_inputs', []), 'tsb_json': ('tsb', {}),
+            'provenance_json': ('provenance', {}), 'snapshot_json': ('snapshot', {}),
+        }
+        for source, (target, fallback) in mapping.items():
+            value[target] = self._json_load(value.pop(source, None), fallback)
+        value['is_provisional'] = bool(value.get('is_provisional'))
+        value['stale'] = bool(value.get('stale'))
+        return value
+
+    def save_recovery_episode(self, payload):
+        """Atomically append one immutable recovery-episode revision."""
+        required = {
+            'fingerprint', 'target_key', 'session_id', 'session_date',
+            'capture_mode', 'status', 'rule_version',
+        }
+        missing = sorted(required - set(payload or {}))
+        if missing:
+            raise ValueError(f"missing recovery episode fields: {missing}")
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA busy_timeout = 30000')
+        try:
+            conn.execute('BEGIN IMMEDIATE')
+            existing = conn.execute(
+                'SELECT * FROM recovery_episodes WHERE fingerprint = ?',
+                (str(payload['fingerprint']),),
+            ).fetchone()
+            if existing is not None:
+                conn.commit()
+                return {'episode': self._deserialize_recovery_episode(existing), 'created': False}
+            previous = conn.execute(
+                '''SELECT id, revision FROM recovery_episodes
+                   WHERE target_key = ? ORDER BY revision DESC, id DESC LIMIT 1''',
+                (str(payload['target_key']),),
+            ).fetchone()
+            revision = int(previous['revision']) + 1 if previous else 1
+            scalar_columns = (
+                'fingerprint', 'target_key', 'revision', 'supersedes_episode_id',
+                'session_id', 'plan_checkpoint_id', 'match_revision_id', 'feedback_id',
+                'session_date', 'iso_week', 'capture_mode', 'status', 'rule_version',
+                'template_id', 'stimulus_family', 'sport', 'role', 'phase', 'actual_tss',
+                'load_bucket', 'adherence', 'rpe_band', 'pre_snapshot_id',
+                'd1_snapshot_id', 'd2_snapshot_id', 'd3_snapshot_id',
+            )
+            scalar_values = (
+                str(payload['fingerprint']), str(payload['target_key']), revision,
+                int(previous['id']) if previous else None, str(payload['session_id']),
+                payload.get('plan_checkpoint_id'), payload.get('match_revision_id'),
+                payload.get('feedback_id'), str(payload['session_date']),
+                payload.get('iso_week'), str(payload['capture_mode']), str(payload['status']),
+                str(payload['rule_version']), payload.get('template_id'),
+                payload.get('stimulus_family'), payload.get('sport'), payload.get('role'),
+                payload.get('phase'), payload.get('actual_tss'), payload.get('load_bucket'),
+                payload.get('adherence'), payload.get('rpe_band'), payload.get('pre_snapshot_id'),
+                payload.get('d1_snapshot_id'), payload.get('d2_snapshot_id'),
+                payload.get('d3_snapshot_id'),
+            )
+            json_columns = (
+                'exclusion_reasons_json', 'planned_json', 'actual_json', 'feedback_json',
+                'outcome_json', 'confounders_json',
+            )
+            json_values = tuple(
+                self._json_value(payload.get(key) or ([] if key == 'exclusion_reasons' else {}))
+                for key in ('exclusion_reasons', 'planned', 'actual', 'feedback', 'outcome', 'confounders')
+            )
+            columns = scalar_columns + json_columns
+            values = scalar_values + json_values
+            cursor = conn.execute(
+                f"INSERT INTO recovery_episodes ({', '.join(columns)}) VALUES ({', '.join('?' for _ in columns)})",
+                values,
+            )
+            row = conn.execute(
+                'SELECT * FROM recovery_episodes WHERE id = ?', (int(cursor.lastrowid),)
+            ).fetchone()
+            conn.commit()
+            return {'episode': self._deserialize_recovery_episode(row), 'created': True}
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def get_recovery_episodes(self, *, latest_only=False, capture_mode=None):
+        params = []
+        where = ''
+        if capture_mode is not None:
+            where = 'WHERE capture_mode = ?'
+            params.append(str(capture_mode))
+        if latest_only:
+            query = f'''
+                SELECT episode.* FROM recovery_episodes episode
+                JOIN (
+                    SELECT target_key, MAX(revision) AS revision
+                    FROM recovery_episodes {where} GROUP BY target_key
+                ) latest ON latest.target_key = episode.target_key
+                        AND latest.revision = episode.revision
+                {'WHERE episode.capture_mode = ?' if capture_mode is not None else ''}
+                ORDER BY episode.session_date, episode.target_key
+            '''
+            query_params = tuple(params + (params if capture_mode is not None else []))
+        else:
+            query = f'''SELECT * FROM recovery_episodes {where}
+                        ORDER BY session_date, target_key, revision'''
+            query_params = tuple(params)
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(query, query_params).fetchall()
+        conn.close()
+        return [self._deserialize_recovery_episode(row) for row in rows]
+
+    def _deserialize_recovery_episode(self, row):
+        if row is None:
+            return None
+        value = dict(row)
+        for source, target, fallback in (
+            ('exclusion_reasons_json', 'exclusion_reasons', []),
+            ('planned_json', 'planned', {}), ('actual_json', 'actual', {}),
+            ('feedback_json', 'feedback', {}), ('outcome_json', 'outcome', {}),
+            ('confounders_json', 'confounders', {}),
+        ):
+            value[target] = self._json_load(value.pop(source, None), fallback)
+        return value
 
     def save_planning_checkpoint(self, checkpoint_data):
         """Сохраняет компактный planning checkpoint для dashboard/AI handoff."""
@@ -2668,6 +3009,8 @@ class Database:
             'session_feedback',
             'session_feedback_prompt_events',
             'session_quality_evaluations',
+            'readiness_snapshots',
+            'recovery_episodes',
         ):
             try:
                 cursor.execute(f'DELETE FROM {table}')
@@ -2827,6 +3170,8 @@ class Database:
             'session_feedback',
             'session_feedback_prompt_events',
             'session_quality_evaluations',
+            'readiness_snapshots',
+            'recovery_episodes',
         ):
             try:
                 cursor.execute(f'SELECT COUNT(*) FROM {table}')

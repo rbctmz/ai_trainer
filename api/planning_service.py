@@ -1078,7 +1078,11 @@ def record_plan_actual_match(
     }
     fingerprint_source = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     payload["fingerprint"] = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
-    return db.save_plan_actual_match(payload)
+    saved = db.save_plan_actual_match(payload)
+    from services.recovery_analytics import refresh_recovery_episodes_best_effort
+
+    refresh_recovery_episodes_best_effort(db, as_of=date.fromisoformat(session_date))
+    return saved
 
 
 def apply_adjustment(
