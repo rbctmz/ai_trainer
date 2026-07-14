@@ -18,7 +18,7 @@ The user-visible proof is a new web-first recovery analytics surface backed by e
 - [x] (2026-07-14 08:42Z) Created isolated worktree `/private/tmp/ai_trainer_issue176` on `codex/issue-176-recovery-curves` from clean `main` at `38de146`.
 - [x] (2026-07-14 08:43Z) Recorded the contributor-safe baseline: `587 passed, 1 skipped`.
 - [x] (2026-07-14 09:05Z) Pre-registered the persistence, temporal anchoring, episode, cohort, uncertainty, API, web, and no-mutation contracts in this plan before product code.
-- [ ] Add BDD/TDD failures for no-look-ahead readiness, snapshot revisions, anchor selection, episode lifecycle, exclusions, gates, bootstrap determinism, read-only API, and web maturity states.
+- [x] (2026-07-14 09:30Z) Added 37 BDD/TDD scenarios for no-look-ahead readiness, snapshot eligibility/revisions/concurrency, temporal anchors, load/RPE buckets, missing outcomes, exact sample/week gates, deterministic bootstrap, prospective separation, independent RPE overlays, read-only API, and route registration; the red run failed at the expected missing domain/service/table/route boundaries.
 - [ ] Implement the as-of-safe canonical readiness service and append-only prospective readiness snapshot journal.
 - [ ] Implement the append-only recovery episode ledger and write-event materializer.
 - [ ] Implement deterministic cohort analytics and sample gates.
@@ -53,6 +53,9 @@ The user-visible proof is a new web-first recovery analytics surface backed by e
 
 - Observation: explicit illness and travel evidence already has a durable source.
   Evidence: `coach_constraints` stores `sick` and `unavailable` constraints, with `travel` normalized to `unavailable`. Inferring illness from low HRV would be circular and is outside the issue.
+
+- Observation: the contract-first red phase reaches every intended new boundary without touching product code.
+  Evidence: `python -m pytest tests/smoke/test_recovery_response.py tests/smoke/test_api_recovery_analytics.py -q` reports 37 failures for missing `services.readiness_snapshot`, `models.recovery_response`, readiness journal methods, recovery router, and route registration. Both new test files pass `py_compile`.
 
 ## Decision Log
 
@@ -342,4 +345,4 @@ FastAPI route functions depend on `Database` and call the headless service only.
 
 ## Revision Note
 
-2026-07-14 / Codex: Initial pre-registered plan created after the repository and live-data audit. It incorporates the reviewer’s Issue #176 contract, the newly observed missing-timezone and historical-start limitations, and exact v1 decisions for identity, exclusions, load/RPE buckets, week-cluster bootstrap, API routes, web maturity states, and write-event boundaries. No product implementation existed when these decisions were recorded.
+2026-07-14 / Codex: Initial pre-registered plan created after the repository and live-data audit. It incorporates the reviewer’s Issue #176 contract, the newly observed missing-timezone and historical-start limitations, and exact v1 decisions for identity, exclusions, load/RPE buckets, week-cluster bootstrap, API routes, web maturity states, and write-event boundaries. No product implementation existed when these decisions were recorded. Updated after the red phase to record the 37 executable BDD scenarios and their expected missing-boundary evidence.
