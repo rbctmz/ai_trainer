@@ -474,11 +474,29 @@ def test_recovery_proposal_reject_approve_and_append_only_rollback(
     monkeypatch,
 ) -> None:
     from api import recovery_replan_loop as loop_module
+    from api.routers import decisions as decisions_router
     from api.routers.decisions import approve_proposal, reject_proposal, rollback_proposal
 
     today = date(2026, 7, 10)
     report = _conflict_report(today, days_until=4)
     monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    delivery_calls = []
+
+    def fake_delivery(_db, *, dates, source, **_kwargs):
+        delivery_calls.append({"dates": list(dates), "source": source})
+        return {
+            "status": "failed",
+            "retryable": True,
+            "error": "provider unavailable",
+            "dates": list(dates),
+        }
+
+    monkeypatch.setattr(
+        decisions_router,
+        "safe_deliver_active_plan",
+        fake_delivery,
+        raising=False,
+    )
 
     reject_db = Database(str(tmp_path / "reject.db"))
     reject_base = _save_plan(reject_db, _goal_plan(today, conflict_days_until=4))
@@ -494,6 +512,10 @@ def test_recovery_proposal_reject_approve_and_append_only_rollback(
 
     assert approved["proposal"]["status"] == "approved"
     assert approved["result"]["rollback_checkpoint_id"] == base["id"]
+    assert approved["result"]["affected_dates"] == [
+        (today + timedelta(days=4)).isoformat()
+    ]
+    assert approved["result"]["delivery"]["status"] == "failed"
     applied = db.get_latest_planning_checkpoint()
     assert applied["id"] == int(approved["result"]["plan_id"])
     assert applied["checkpoint_source"] == "recovery_replan"
@@ -508,6 +530,16 @@ def test_recovery_proposal_reject_approve_and_append_only_rollback(
 
     rolled_back = rollback_proposal(proposal["id"], db=db)
     assert rolled_back["proposal"]["status"] == "rolled_back"
+    assert delivery_calls == [
+        {
+            "dates": [(today + timedelta(days=4)).isoformat()],
+            "source": "recovery_approve",
+        },
+        {
+            "dates": [(today + timedelta(days=4)).isoformat()],
+            "source": "recovery_rollback",
+        },
+    ]
     restored = db.get_latest_planning_checkpoint()
     assert restored["id"] > applied["id"]
     assert restored["checkpoint_source"] == "restore_version"

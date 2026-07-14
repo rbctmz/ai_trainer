@@ -13,7 +13,7 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - [x] (2026-07-14 09:17Z) Audited issue #168, the current create-only Intervals.icu adapter, active plan/session identity, plan-actual reconciliation, recovery proposal apply/rollback, web Export mode, official Intervals.icu OpenAPI, and the live account in read-only mode.
 - [x] (2026-07-14 09:17Z) Published the pre-ExecPlan contract and mandatory BDD scenarios in issue #168 comment `4967348427`.
 - [x] (2026-07-14 09:22Z) Created isolated worktree `/private/tmp/ai_trainer_issue168` on branch `codex/issue-168-intervals-delivery` from clean `main` at `3983cf5`.
-- [ ] Add failing provider-adapter, delivery-domain, API, proposal lifecycle, reconciliation, and web contract tests before production code.
+- [x] (2026-07-14 13:02Z) Added failing provider-adapter, delivery-domain, API, proposal lifecycle, and reconciliation contracts before production code; the focused red run reported 11 expected failures at missing module/method/route/identity boundaries and retained 47 passing adjacent tests.
 - [ ] Implement deterministic event identity, bounded bulk upsert/delete, executable workout serialization, and composite-leg delivery.
 - [ ] Expose the explicit web/API delivery action and connect recovery approve plus rollback without changing local mutation truth on provider failure.
 - [ ] Run focused tests, contributor-safe smoke, broad non-live tests, Python compilation, Next lint/build, self-review, and isolated browser acceptance.
@@ -36,6 +36,9 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 
 - Observation: a real IntervalCoach event contains parseable native workout text and a populated provider-side workout document.
   Evidence: event `119641533` contains lines such as `- Race Pace 1 9m 87-95% 90rpm`; the read-only response includes five `workout_doc.steps` and `moving_time=1860`.
+
+- Observation: the contract-first red run reached every intended writeback boundary without any provider I/O.
+  Evidence: the focused command reported `11 failed, 47 passed`. Failures were the missing deterministic delivery model/service, bulk adapter methods and retained provider fields, delivery API contract, recovery affected dates/side effect, and composite-leg exact identity. The contributor-safe autouse fixture removed the developer API key before every non-live test.
 
 ## Decision Log
 
