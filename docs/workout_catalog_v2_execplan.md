@@ -15,7 +15,7 @@ This change is prospective. Existing checkpoints retain their v1 definition snap
 - [x] (2026-07-15) Read issue #197 and architecture analysis #201, including ASR-PERF-4, ASR-REL-1, and the API-contract risk register.
 - [x] (2026-07-15) Audited Workout Catalog v1, checkpoint restore and session identity, brick materialization, proportional recovery rescaling, FIT/TCX fallback, Intervals.icu serialization, the reversible live probe, and the v1/delivery ExecPlans.
 - [x] (2026-07-15) Confirmed publish preflight, created isolated worktree `/private/tmp/ai_trainer_issue197` on `codex/issue-197-workout-catalog-v2`, and removed the obsolete blocked label after #198 merged.
-- [ ] Add contract-first failing tests for repeated structures, target provenance, deterministic simplification, brick reuse, immutable old checkpoints, and ordered Intervals serialization.
+- [x] (2026-07-15) Added contract-first tests for repeated structures, target provenance, deterministic simplification, brick reuse, immutable old checkpoints, and ordered Intervals serialization. The clean RED run reported `14 failed, 17 passed` at the intended v2 boundaries.
 - [ ] Implement the smallest versioned v2 materializer without changing provider ownership, delivery orchestration, planner selection architecture, or historical restore.
 - [ ] Run focused, contributor-safe smoke, broad non-live, Python compilation, and Next lint/build validation; record timings against ASR-PERF-4.
 - [ ] Open a draft PR with `Closes #197`, complete independent review, and only after explicit athlete authorization run two isolated provider probes (one bike and one run) with exact cleanup.
@@ -36,6 +36,9 @@ This change is prospective. Existing checkpoints retain their v1 definition snap
 
 - Observation: provider ownership and idempotence are independent of step grammar.
   Evidence: Intervals delivery uses `external_id="ai_trainer:<session_id>"`; session identity fingerprints the persisted prescription. A v2 prescription naturally receives a new material identity, while provider UID, cleanup rules, and bounded upsert do not need modification.
+
+- Observation: the explicit v1 checkpoint fixture is preserved even though restore legitimately adds deterministic session identity metadata.
+  Evidence: the RED fixture's catalog/materializer versions, definition snapshot, exact old step, and fingerprint round-trip byte-for-byte; only `session_id`, identity rule version, and material fingerprint are appended by the existing restore contract.
 
 ## Decision Log
 
@@ -111,6 +114,12 @@ Architecture analysis #201 requires a 16-week plan in under four seconds after P
 First add a focused `tests/smoke/test_workout_catalog_v2.py` contract. It will assert catalog/materializer/definition versions, explicit numbered bike and run repeats, deterministic order, positive durations, exact duration/TSS sums, pace→LTHR→RPE provenance, short-tier simplification, ordered endurance/progression stages, race-pace selection, and Peak/Build brick leg reuse. Add an Intervals delivery contract that the serialized line order equals persisted step order and that bike lines contain watts while running lines contain `/km`, `bpm`, or `RPE` but no bare FTP percentage.
 
 Run those tests before production edits and record the expected failures here. Commit the tests separately so TDD order remains inspectable.
+
+The pre-implementation command was:
+
+    python -m pytest tests/smoke/test_workout_catalog_v2.py tests/smoke/test_workout_catalog.py -q
+
+It produced `14 failed, 17 passed` in 0.78 seconds. Failures were the absent v2 versions and definition, absent repeat/stage metadata, absent provenance scale, Peak bricks still using endurance legs, and the two updated v2 assertions in the original catalog contract. The explicit v1 restore and all unrelated v1 behavior passed.
 
 Then evolve `models/workout_catalog.py`. Allow explicit per-definition versions, add `bike_race_pace`, keep the selector algorithm, and introduce a small internal step-spec representation plus deterministic builders for flat stages and repeat tiers. Dispatch v2 only for bike/run definitions; retain `_STEP_PATTERNS` as the non-bike/run v1 compatibility path. Attach `structure_status`, selected tier, repeat evidence, and target-scale provenance to the materialization result and persisted template without adding a database migration.
 

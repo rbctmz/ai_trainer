@@ -39,6 +39,7 @@ EXPECTED_TEMPLATE_KEYS = {
     "bike_threshold_intervals",
     "bike_vo2max_intervals",
     "bike_neuromuscular_sprints",
+    "bike_race_pace",
     "run_recovery",
     "run_aerobic_endurance",
     "run_progression",
@@ -76,12 +77,12 @@ def _selection_context(**overrides):
 def test_catalog_is_exact_versioned_and_immutable():
     definitions = catalog_definitions()
 
-    assert CATALOG_VERSION == "workout_catalog_v1"
+    assert CATALOG_VERSION == "workout_catalog_v2"
     assert SELECTOR_RULE_VERSION == "workout_selector_v1"
-    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v1"
-    assert len(definitions) == 19
+    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v2"
+    assert len(definitions) == 20
     assert {item.template_key for item in definitions} == EXPECTED_TEMPLATE_KEYS
-    assert len({(item.template_key, item.version) for item in definitions}) == 19
+    assert len({(item.template_key, item.version) for item in definitions}) == 20
     assert all(item.min_duration_minutes <= item.max_duration_minutes for item in definitions)
     assert all(item.min_tss_per_hour <= item.max_tss_per_hour for item in definitions)
     assert all(len(item.fatigue_cost) == 3 for item in definitions)
@@ -318,8 +319,8 @@ def test_session_templates_store_phase_specific_materialized_prescriptions():
     base, build = templates[0], templates[7]
     assert base["template_key"] == "bike_aerobic_progression"
     assert build["template_key"] == "bike_threshold_intervals"
-    assert base["template_version"] == 1
-    assert build["template_version"] == 1
+    assert base["template_version"] == 2
+    assert build["template_version"] == 2
     assert base["catalog_version"] == CATALOG_VERSION
     assert base["kind"] == "single"
     assert build["kind"] == "single"
