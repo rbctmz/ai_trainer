@@ -207,3 +207,45 @@ def test_legacy_template_without_sessions_migrates_on_read():
     # original day fields are preserved unchanged
     assert template["date"] == "2026-07-20"
     assert template["materialized_steps"] == legacy["materialized_steps"]
+
+
+def test_iter_leaf_sessions_orders_singles_and_splits_brick_legs():
+    """Milestone 2.6: the Today/dashboard read model lists every leaf session in
+    order, splits a brick into its legs, and yields nothing for rest/race."""
+    from models.training_planner import iter_leaf_sessions
+
+    two_single = {
+        "sessions": [
+            {"kind": "single", "session_id": "a", "sport": "swim",
+             "session_role": "recovery", "total_tss": 20.0, "export_name": "Swim"},
+            {"kind": "single", "session_id": "b", "sport": "bike",
+             "session_role": "easy", "total_tss": 30.0, "export_name": "Bike"},
+        ]
+    }
+    leaves = iter_leaf_sessions(two_single)
+    assert [(l["kind"], l["sport"], l["session_id"], l["total_tss"]) for l in leaves] == [
+        ("single", "swim", "a", 20.0),
+        ("single", "bike", "b", 30.0),
+    ]
+
+    brick = {
+        "sessions": [
+            {"kind": "composite", "session_id": "grp", "export_name": "Brick",
+             "session_role": "long", "legs": [
+                 {"leg_index": 1, "sport": "bike", "target_tss": 40.0,
+                  "leg_id": "grp:1", "template_name": "Bike leg"},
+                 {"leg_index": 2, "sport": "run", "target_tss": 20.0,
+                  "leg_id": "grp:2", "template_name": "Run leg"},
+             ]},
+        ]
+    }
+    legs = iter_leaf_sessions(brick)
+    assert [(l["kind"], l["sport"], l["leg_index"], l["group_id"], l["session_id"]) for l in legs] == [
+        ("brick_leg", "bike", 1, "grp", "grp:1"),
+        ("brick_leg", "run", 2, "grp", "grp:2"),
+    ]
+    assert [l["total_tss"] for l in legs] == [40.0, 20.0]
+
+    # rest/race days carry no deliverable session, so they yield no leaves
+    assert iter_leaf_sessions({"sessions": []}) == []
+    assert iter_leaf_sessions({}) == []

@@ -631,8 +631,13 @@ def _project_session(
 ) -> dict[str, Any]:
     role = str(session.get("role") or template.get("session_role") or "")
     session_date = str(session.get("date") or template.get("date") or "")[:10]
+    from models.training_planner import iter_leaf_sessions
+
     return {
         "session_id": template.get("session_id"),
+        # Issue #205 milestone 2.6: every executable leaf session of the day, in
+        # order, brick legs listed separately; a rest/race day yields none.
+        "sessions": iter_leaf_sessions(template),
         "date": session_date,
         "name": str(
             template.get("template_name")

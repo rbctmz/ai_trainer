@@ -1982,6 +1982,50 @@ def build_daily_session_templates(
     return templates
 
 
+def iter_leaf_sessions(template: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """Ordered executable leaf sessions of one day template.
+
+    Issue #205 read model shared by delivery, Today, and dashboards. A single
+    session yields one leaf; a composite brick yields one leaf per leg in leg
+    order (kept separate); a rest or race day (``sessions == []``) yields none,
+    so race/rest is never counted as a training session.
+    """
+    leaves: List[Dict[str, Any]] = []
+    for session in list(template.get("sessions") or []):
+        if not isinstance(session, Mapping):
+            continue
+        if str(session.get("kind") or "single") == "composite":
+            for position, leg in enumerate(list(session.get("legs") or []), start=1):
+                leaves.append(
+                    {
+                        "kind": "brick_leg",
+                        "session_id": leg.get("leg_id") or session.get("session_id"),
+                        "group_id": session.get("session_id"),
+                        "leg_index": int(leg.get("leg_index") or position),
+                        "sport": str(leg.get("sport") or ""),
+                        "sport_label": SPORT_LABELS_RU.get(str(leg.get("sport") or ""), str(leg.get("sport") or "")),
+                        "session_role": str(session.get("session_role") or ""),
+                        "total_tss": round(float(leg.get("target_tss") or 0.0), 1),
+                        "name": str(leg.get("template_name") or session.get("export_name") or "Brick leg"),
+                        "materialized_steps": list(leg.get("materialized_steps") or []),
+                    }
+                )
+        else:
+            leaves.append(
+                {
+                    "kind": "single",
+                    "session_id": session.get("session_id"),
+                    "sport": str(session.get("sport") or ""),
+                    "sport_label": str(session.get("sport_label") or SPORT_LABELS_RU.get(str(session.get("sport") or ""), str(session.get("sport") or ""))),
+                    "session_role": str(session.get("session_role") or ""),
+                    "total_tss": round(float(session.get("total_tss") or 0.0), 1),
+                    "name": str(session.get("export_name") or session.get("template_name") or "Сессия"),
+                    "materialized_steps": list(session.get("materialized_steps") or []),
+                }
+            )
+    return leaves
+
+
 def create_ics_from_daily(
     daily: List[Tuple[datetime, float, Dict[str, float]]],
     title_prefix: str = "Planned Training",
