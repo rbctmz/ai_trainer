@@ -21,7 +21,7 @@ The active local checkpoint is deliberately not modified by this work (it was #6
 - [x] (2026-07-15) Audited Issue #201 and `docs/architecture/architecture_analysis_add3.md`; added an ASR-PERF-4 regression for a 16-week read-only preview and retained the existing append-only/evidence contracts required by ASR-REL-1.
 - [x] (2026-07-15) Validated a read-only preview on a copy of the real database with B 2026-07-26 and A 2026-10-04: 0.110 s, checkpoint #65 unchanged, `plan_id=null`, and no provider method invoked.
 - [x] (2026-07-15) Completed verification: 66 focused, 667 smoke (+1 environment skip), 710 broad non-live (+6 environment skips, 24 deselected), clean `git diff --check`, and a successful Next.js 14 production build.
-- [ ] Run focused tests, full smoke, broad contributor-safe tests, Next.js production build, self-review, then push and open a draft PR with `Closes #198`.
+- [x] (2026-07-15) Rebased onto `origin/main` containing the #201 architecture analysis, reopened #198, pushed implementation commit `53fae50`, and opened replacement draft PR #202 with `Closes #198`.
 
 ## Surprises & Discoveries
 
@@ -95,7 +95,7 @@ The active local checkpoint is deliberately not modified by this work (it was #6
 
 ## Outcomes & Retrospective
 
-Implementation, real-data acceptance, and the final verification matrix are complete pending publication. A single versioned race-microcycle truth is created before catalog materialization, survives checkpoint round-trip and execution rebuild, and appears in the Planning preview. On the copied production fixture the A race remains the macrocycle anchor, the phase tail is Peak/Taper/Race Week, and B/A microcycles are explicit without persisting a checkpoint. The implementation deliberately preserves Workout Catalog v1 structures and provider transport; #197 owns richer running and cycling workouts. Issue #201 added a measurable 16-week preview latency guard and caused the readiness interaction to be audited prospectively rather than only on the July fixture. Self-review also prevented triathlon-specific swim/bike/run focus labels from leaking into single-sport goals.
+Implementation, real-data acceptance, verification, and publication are complete in draft PR #202. A single versioned race-microcycle truth is created before catalog materialization, survives checkpoint round-trip and execution rebuild, and appears in the Planning preview. On the copied production fixture the A race remains the macrocycle anchor, the phase tail is Peak/Taper/Race Week, and B/A microcycles are explicit without persisting a checkpoint. The implementation deliberately preserves Workout Catalog v1 structures and provider transport; #197 owns richer running and cycling workouts. Issue #201 added a measurable 16-week preview latency guard and caused the readiness interaction to be audited prospectively rather than only on the July fixture. Self-review also prevented triathlon-specific swim/bike/run focus labels from leaking into single-sport goals. The earlier PR #200 remains a docs-only historical merge; #202 is the implementation review gate.
 
 ## Context and Orientation
 
