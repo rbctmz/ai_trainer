@@ -31,16 +31,30 @@ def _session_tss(session: dict) -> float:
     return round(sum(float(step.get("tss") or 0.0) for step in steps), 1)
 
 
+def _session_discipline_loads(session: dict):
+    """(sport, tss) pairs a single session exports, descending into brick legs."""
+    legs = session.get("legs")
+    if str(session.get("kind") or "") == "composite" and legs:
+        return [(str(leg.get("sport") or ""), float(leg.get("target_tss") or 0.0)) for leg in legs]
+    sport = str(session.get("sport") or "")
+    if not sport or sport in {"off", "race", "—"}:
+        return []
+    return [(sport, _session_tss(session))]
+
+
 def _exported_discipline_loads(template: dict, day_total: float, parts: dict):
     """(sport, tss) pairs a day would actually export.
 
-    Handles three shapes so the invariant is expressed identically before and
-    after the fix: the target nested ``sessions`` model, today's composite brick
-    (``legs``), and today's single collapsed session.
+    Handles both shapes so the invariant is expressed identically before and
+    after the fix: the nested ``sessions`` model (each a session, bricks split
+    into their bike/run legs), and a legacy day-as-single-session template.
     """
     sessions = template.get("sessions")
-    if sessions:
-        return [(str(s.get("sport") or ""), _session_tss(s)) for s in sessions]
+    if sessions is not None:
+        out = []
+        for session in sessions:
+            out.extend(_session_discipline_loads(session))
+        return out
     legs = template.get("legs")
     if str(template.get("kind") or "") == "composite" and legs:
         return [(str(leg.get("sport") or ""), float(leg.get("target_tss") or 0.0)) for leg in legs]

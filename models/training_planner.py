@@ -1936,6 +1936,30 @@ def build_daily_session_templates(
             duration_minutes=duration_minutes,
         )
 
+        # Issue #205 milestone 2: a day carries an ordered list of executable
+        # sessions. Today each day has exactly one discipline, so `sessions` has
+        # length one (or zero for a rest/race day) and mirrors the day scalars;
+        # milestone 3 splits blended days into several sessions. The day-level
+        # scalar fields remain a projection of `sessions[0]` for consumers that
+        # have not yet been taught about `sessions`.
+        if float(total or 0.0) > 0 and sport not in {"off", "race"} and session_role != "off":
+            day_sessions = [
+                {
+                    "sport": sport,
+                    "sport_label": SPORT_LABELS_RU.get(sport, sport),
+                    "session_role": session_role,
+                    "session_focus": session_focus,
+                    "duration_minutes": duration_minutes,
+                    "total_tss": round(float(total or 0.0), 1),
+                    "template_key": f"{phase.lower()}:{session_role}:{sport}",
+                    "export_name": export_name,
+                    "description": description,
+                    **catalog_template,
+                }
+            ]
+        else:
+            day_sessions = []
+
         templates.append(
             {
                 "date": dt.strftime("%Y-%m-%d"),
@@ -1951,6 +1975,7 @@ def build_daily_session_templates(
                 "export_name": export_name,
                 "description": description,
                 **catalog_template,
+                "sessions": day_sessions,
             }
         )
 
