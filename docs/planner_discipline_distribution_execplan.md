@@ -100,9 +100,9 @@ Milestone seven proves the whole plan end to end and finishes the surfaces. It c
 - [ ] Milestone two: nested `sessions` model end to end, behavior-preserving; smoke green.
     - [x] (2026-07-15) M2.1 `build_daily_session_templates` emits `sessions[]` additively; 688 other smoke tests green.
     - [x] (2026-07-15) M2.2 per-session identity on `sessions[0]`, day id a projection, no churn; 689 green, new identity test.
-    - [ ] M2.3 `restore_goal_plan_from_checkpoint` migrate-on-read wraps legacy templates as `sessions=[legacy_session]`.
-    - [ ] M2.4 delivery emits one event per session with `session_id` in `external_id`.
-    - [ ] M2.5 near-term editing addresses `session_id`.
+    - [x] (2026-07-15) M2.3 `ensure_session_identities` migrates legacy templates on read to `sessions=[legacy_session]`; 690 green, migration test.
+    - [x] (2026-07-15) M2.4 delivery emits one event per leaf session (single session or brick leg), `session_id` in `external_id`; delivery smoke green.
+    - [ ] M2.5 near-term editing consistency (edited days re-wrap via migration at planning_near_term.py:1340); explicit `session_id` addressing lands with the split in M3.
     - [ ] M2.6 Today snapshot and dashboard read `sessions`.
 - [ ] Milestone three: sessions-as-truth distribution and weekly buckets derived from sessions; anchor test green with a balanced plan.
 - [ ] Milestone four: activation structures, fallback cleanup, bookend contract with activation exception.
