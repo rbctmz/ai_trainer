@@ -88,6 +88,13 @@ def test_weekly_discipline_summary_equals_exported_sessions(tmp_path):
         for session in template.get("sessions") or []:
             assert int(session.get("duration_minutes") or 0) > 0, session
 
+    # Total load is conserved on both sides; only the per-discipline split is
+    # wrong today. This holds before and after the fix and proves the defect is
+    # re-labelling onto the dominant sport, not lost data.
+    assert round(sum(exported.values()), 1) == pytest.approx(
+        round(sum(table.values()), 1), abs=0.1
+    ), f"total TSS must be conserved: table={round(sum(table.values()),1)} exported={round(sum(exported.values()),1)}"
+
     for d in _DISCIPLINES:
         assert exported[d] == pytest.approx(table[d], abs=0.1), (
             f"discipline {d}: weekly table {table[d]} != exported sessions {exported[d]} "
