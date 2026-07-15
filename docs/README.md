@@ -16,6 +16,7 @@ This directory contains current project docs, active/historical ExecPlans, and a
 - `docs/activity_tss_methodology.md`: current per-sport Activity TSS cascade, formulas, zone weights, and provenance/comparison notes against Garmin and Intervals.icu.
 - `docs/ollama_setup.md`: local model setup.
 - `docs/competitive_analysis_intervalcoach.md`: product/reference analysis for future planning work.
+- `docs/competitive_analysis_blocks.md`: Blocks product/MCP reference covering multi-session planning, workout catalogs, scientific knowledge provenance, athlete memory, and plan-to-actual loops.
 - `docs/code_review_recommendations.md`: living audit checklist; check dates and baseline before using line references.
 
 ## Current ExecPlans
