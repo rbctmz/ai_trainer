@@ -6,7 +6,7 @@ AI Trainer is in an active web migration. The main product development path is `
 ## Build, Test, and Development Commands
 Create or activate the virtualenv via `source ai_trainer_env/bin/activate` (macOS/Linux) or the Windows `Scripts` path. Install base dependencies with `pip install -r requirements.txt` and `pip install -r requirements-dev.txt` for tests. When working on API/web runtime, also install `pip install -r requirements-web.txt`. Launch the web stack with `./run_web.sh` when working on FastAPI/Next.js flows; the script starts FastAPI on `:8000`, Next.js on `:3000`, and reconciles missing web dependencies. Use `./run.sh` or `streamlit run app.py` for legacy Streamlit flows that have not been fully migrated yet. For runtime dependency issues, prefer `python scripts/doctor_env.py check --runtime` and `python scripts/doctor_env.py repair --runtime`. Use `python -m pytest tests/smoke -q` for the contributor-safe pass, and `python -m pytest -m "not live and not debug" tests/` for a broader local pass. Use `python -m pytest tests/test_ai_coach.py` (swap the filename) for focused checks.
 
-|## Product Surface Policy
+## Product Surface Policy
 New product-facing behavior should go through shared Python logic plus explicit API contracts in `api/`, then be consumed from `web/`. Streamlit changes are acceptable for bug fixes, acceptance/admin tooling, compatibility bridges, or extracting reusable logic out of legacy UI code. Do not ship new product features only in `ui/pages/*` unless the task is explicitly legacy-only, and do not duplicate business logic between Streamlit and API/web paths.
 
 ## Architecture Context (ADD 3.0)

@@ -9,8 +9,8 @@ This directory contains current project docs, active/historical ExecPlans, and a
 - `CLAUDE.md` at repository root: Claude Code orientation.
 - `docs/AI_Feature_Development_Workflow.md`: canonical SpecDD/BDD/TDD/Contract First workflow for non-trivial feature work.
 - `docs/loop_engineering_instruction.md`: current issue-first agent loop and GitHub automation operating model.
-|- `docs/architecture/adr_0001_web_primary_ui.md`: active migration policy; web-first for new product work, Streamlit still supported as fallback during parity work.
-|- `docs/architecture/architecture_analysis_add3.md`: **ADD 3.0 analysis** — full catalog of ASR (Quality Attribute Scenarios), architectural tactics inventory, risk/tradeoff heatmap (ATAM), missing ADRs, and actionable next steps. Read this before planning major architecture work.
+- `docs/architecture/adr_0001_web_primary_ui.md`: active migration policy; web-first for new product work, Streamlit still supported as fallback during parity work.
+- `docs/architecture/architecture_analysis_add3.md`: **ADD 3.0 analysis** — full catalog of ASR (Quality Attribute Scenarios), architectural tactics inventory, risk/tradeoff heatmap (ATAM), missing ADRs, and actionable next steps. Read this before planning major architecture work.
 - `docs/codex_project_notes.md` and `docs/codex_project_notes_ru.md`: compact architecture notes.
 - `docs/ai_coaching_guide.md`: current AI provider and AI Coaching behavior.
 - `docs/activity_tss_methodology.md`: current per-sport Activity TSS cascade, formulas, zone weights, and provenance/comparison notes against Garmin and Intervals.icu.
