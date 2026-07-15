@@ -508,7 +508,14 @@ def _repeat_specs(
         + (tier.repeat_count - 1) * tier.recovery_seconds
     )
     remaining = total_seconds - core_seconds
-    warmup_seconds = int(math.floor(remaining * 0.55))
+    minimum_bookend_seconds = 5 * 60
+    warmup_seconds = min(
+        remaining - minimum_bookend_seconds,
+        max(
+            minimum_bookend_seconds,
+            int(math.floor(remaining * 0.55)),
+        ),
+    )
     cooldown_seconds = remaining - warmup_seconds
     easy_fraction = 0.50 if definition.sport == "bike" else 0.68
     cooldown_fraction = 0.40 if definition.sport == "bike" else 0.60

@@ -19,7 +19,8 @@ This change is prospective. Existing checkpoints retain their v1 definition snap
 - [x] (2026-07-15) Implemented the versioned v2 materializer, 20th `bike_race_pace` definition, sport-specific stages/repeat tiers, prospective definition versions, Peak race-pace brick legs, and Intervals `% LTHR` serialization without changing provider ownership, delivery orchestration, selector version, or historical restore.
 - [x] (2026-07-15) Completed the final focused contour (`47 passed`), contributor-safe smoke (`687 passed, 1 skipped`), broad non-live (`730 passed, 6 skipped, 24 deselected`), Python compilation, and Next lint/build. The 16-week planner remained inside its four-second regression guard.
 - [x] (2026-07-15) With explicit athlete authorization, ran two isolated provider probes on 2026-07-30. Repeated upserts converged on bike event `123028945` and run event `123028946`; Intervals parsed seven ordered power steps and seven ordered HR steps, foreign events stayed byte-equivalent, both probes were deleted, and a bounded read found zero residue.
-- [ ] Open a draft PR with `Closes #197` and obtain independent review before human merge.
+- [x] (2026-07-15) Addressed the independent review follow-up: clamp repeat bookends so both warm-up and cool-down are literally at least five minutes, and extend the all-definition min/mid/max contract to enforce it. Confirmed separately that the brick allocator only creates bricks in Build or Peak, so no Taper/Race Week race-leg ambiguity is reachable.
+- [x] (2026-07-15) Opened draft PR #203 with `Closes #197`; independent review found no blockers and one prose/code bookend nuance, which is fixed and regression-tested before the human merge gate.
 
 ## Surprises & Discoveries
 
@@ -46,6 +47,9 @@ This change is prospective. Existing checkpoints retain their v1 definition snap
 
 - Observation: the corrected `% LTHR` representation is parsed end-to-end by the configured provider account.
   Evidence: the final authorized probe returned seven parsed steps for each sport; the recursive provider evidence contained `power` for the bike and `hr` for the run, a second upsert retained the same provider ids, cleanup deleted exactly two acceptance rows, and foreign rows were unchanged.
+
+- Observation: an independent review found that a ten-minute combined repeat bookend split at 55/45 could leave a 4:30 cool-down despite the plan saying five minutes per side.
+  Evidence: `_repeat_specs` originally gated only `remaining >= 10 minutes`. The final implementation clamps warm-up into `[5 minutes, remaining - 5 minutes]`, then assigns the exact remainder to cool-down. The all-definition boundary test now checks both bookends on every structured repeat at feasible min/mid/max durations.
 
 ## Decision Log
 

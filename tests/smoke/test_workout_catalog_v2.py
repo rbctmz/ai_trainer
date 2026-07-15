@@ -97,6 +97,11 @@ def test_every_catalog_definition_is_exact_and_deterministic_at_feasible_bounds(
                 target_tss,
             )
             _assert_exact(first, seconds=minutes * 60, tss=target_tss)
+            if first["structure_evidence"]["repeat_count"] is not None:
+                assert first["steps"][0]["segment_kind"] == "warmup"
+                assert first["steps"][0]["duration_seconds"] >= 5 * 60
+                assert first["steps"][-1]["segment_kind"] == "cooldown"
+                assert first["steps"][-1]["duration_seconds"] >= 5 * 60
             feasible_cases += 1
         assert feasible_cases > 0, definition.template_key
 
