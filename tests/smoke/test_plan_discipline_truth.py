@@ -114,3 +114,48 @@ def test_weekly_discipline_summary_equals_exported_sessions(tmp_path):
             f"discipline {d}: weekly table {table[d]} != exported sessions {exported[d]} "
             f"(full table={table}, full exported={exported})"
         )
+
+
+def test_each_training_day_has_sessions_with_projected_stable_ids(tmp_path):
+    """Milestone 2: every training day exposes sessions[] whose primary id equals
+    the day id (projection), each session has a unique stable session_id, and
+    rest/race days carry no deliverable session."""
+    db = Database(str(tmp_path / "session-ids.db"))
+    event = (datetime.now().date() + timedelta(weeks=12)).isoformat()
+    ps.build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=event,
+        available_hours=10,
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        persist=True,
+    )
+    active = ps.get_active_plan(db)
+    assert active is not None
+    daily_plan = list(active.get("daily_plan") or [])
+    templates = list(active.get("session_templates") or [])
+
+    seen_ids: set[str] = set()
+    training_days = 0
+    for (dt, total, parts), template in zip(daily_plan, templates):
+        sessions = template.get("sessions")
+        assert sessions is not None, template.get("date")
+        is_training = (
+            float(total or 0.0) > 0
+            and str(template.get("session_role") or "") != "off"
+            and str(template.get("sport") or "") not in {"off", "race"}
+        )
+        if is_training:
+            training_days += 1
+            assert sessions, template.get("date")
+            assert template.get("session_id"), template.get("date")
+            assert sessions[0].get("session_id") == template.get("session_id")
+            for session in sessions:
+                sid = str(session.get("session_id") or "")
+                assert sid, template.get("date")
+                assert sid not in seen_ids, sid
+                seen_ids.add(sid)
+        else:
+            assert sessions == [], template.get("date")
+    assert training_days > 0

@@ -152,6 +152,26 @@ def ensure_session_identities(
                 legs.append(leg)
             template["legs"] = legs
 
+        # Issue #205 milestone 2: the day's identity is a projection of its
+        # primary session. Propagate the stamped id/fingerprint/lineage into
+        # sessions[0] so every session carries a stable session_id and position
+        # is never identity. Multi-session days (milestone 3) fingerprint each
+        # secondary session on its own material.
+        sessions = list(template.get("sessions") or [])
+        if sessions:
+            primary = dict(sessions[0] or {})
+            primary["session_id"] = template["session_id"]
+            primary["session_material_fingerprint"] = template["session_material_fingerprint"]
+            primary["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
+            if template.get("replaces_session_id"):
+                primary["replaces_session_id"] = template["replaces_session_id"]
+            else:
+                primary.pop("replaces_session_id", None)
+            if str(template.get("kind") or "") == "composite":
+                primary["legs"] = template["legs"]
+            sessions[0] = primary
+            template["sessions"] = sessions
+
     result["session_templates"] = templates
     result["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
     return result
