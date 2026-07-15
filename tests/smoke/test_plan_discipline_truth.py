@@ -159,3 +159,51 @@ def test_each_training_day_has_sessions_with_projected_stable_ids(tmp_path):
         else:
             assert sessions == [], template.get("date")
     assert training_days > 0
+
+
+def test_legacy_template_without_sessions_migrates_on_read():
+    """Milestone 2.3: a pre-#205 checkpoint template with no `sessions` key is
+    wrapped as sessions=[legacy_session] on read, day scalars preserved."""
+    from models.session_identity import ensure_session_identities
+
+    legacy = {
+        "date": "2026-07-20",
+        "week_index": 0,
+        "day_index": 0,
+        "phase": "Build",
+        "sport": "bike",
+        "session_role": "quality",
+        "session_focus": "Threshold",
+        "duration_minutes": 60,
+        "kind": "single",
+        "catalog_version": "workout_catalog_v1",
+        "template_key": "build:quality:bike",
+        "materialized_steps": [
+            {"index": 0, "name": "Work", "intensity": "work",
+             "duration_seconds": 3600, "tss": 80.0, "target": {"type": "power"}},
+        ],
+    }
+    plan = {
+        "daily_plan": [(datetime(2026, 7, 20), 80.0, {"run": 0.0, "bike": 80.0, "swim": 0.0})],
+        "session_templates": [dict(legacy)],
+    }
+
+    resolved = ensure_session_identities(plan)
+    template = resolved["session_templates"][0]
+
+    assert template.get("sessions") is not None
+    assert len(template["sessions"]) == 1
+    session = template["sessions"][0]
+    assert session["sport"] == "bike"
+    assert session["session_role"] == "quality"
+    assert session["materialized_steps"] == legacy["materialized_steps"]
+    assert session["total_tss"] == 80.0
+    # day-only keys are not duplicated into the session
+    for day_only in ("date", "week_index", "day_index", "phase", "sessions"):
+        assert day_only not in session
+    # identity is projected onto the primary session
+    assert template.get("session_id")
+    assert session["session_id"] == template["session_id"]
+    # original day fields are preserved unchanged
+    assert template["date"] == "2026-07-20"
+    assert template["materialized_steps"] == legacy["materialized_steps"]

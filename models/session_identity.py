@@ -74,6 +74,22 @@ def _fingerprint(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+# Day-level keys that describe the calendar slot rather than the executable
+# session, and so are not copied into a session when migrating a legacy template.
+_DAY_ONLY_TEMPLATE_KEYS = frozenset({"date", "week_index", "day_index", "phase", "sessions"})
+
+
+def _session_from_legacy_template(template: Mapping[str, Any], total_tss: float) -> dict[str, Any]:
+    """Wrap a pre-Issue-#205 single day template as one executable session."""
+    session = {
+        key: deepcopy(value)
+        for key, value in template.items()
+        if key not in _DAY_ONLY_TEMPLATE_KEYS
+    }
+    session.setdefault("total_tss", round(float(total_tss or 0.0), 1))
+    return session
+
+
 def ensure_session_identities(
     goal_plan: Mapping[str, Any],
     previous_goal_plan: Mapping[str, Any] | None = None,
@@ -101,6 +117,15 @@ def ensure_session_identities(
         total = _number(item[1])
         sport = str(template.get("sport") or "").strip().lower()
         role = str(template.get("session_role") or "").strip().lower()
+        # Issue #205 milestone 2: migrate legacy checkpoints on read. A template
+        # saved before this change has no `sessions`; wrap its single session so
+        # every downstream consumer sees the nested shape uniformly. A rest or
+        # race day carries no deliverable session.
+        if "sessions" not in template:
+            if total > 0 and sport not in {"", "off", "rest", "race"} and role != "off":
+                template["sessions"] = [_session_from_legacy_template(template, total)]
+            else:
+                template["sessions"] = []
         is_race = role == "race" or bool(template.get("is_race_event"))
         if (total <= 0 and not is_race) or (sport in {"", "off", "rest"} and not is_race) or role == "off":
             template.pop("session_id", None)
