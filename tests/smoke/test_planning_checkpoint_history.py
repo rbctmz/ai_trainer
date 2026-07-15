@@ -295,6 +295,17 @@ def test_checkpoint_round_trip_preserves_planning_mode_and_overlay_provenance():
             "event_overlays": [
                 {"date": "2026-07-12", "priority": "B", "affected_dates": ["2026-07-12"]}
             ],
+            "microcycle_changes": [
+                {
+                    "date": "2026-07-11",
+                    "event_date": "2026-07-12",
+                    "priority": "B",
+                    "offset": -1,
+                    "phase": "Peak",
+                    "before": {"role": "long", "sport": "bike", "focus": "Long", "tss": 40.0},
+                    "after": {"role": "activation", "sport": "run", "focus": "Activation", "tss": 10.0},
+                }
+            ],
             "protected_dates": ["2026-07-12", "2026-07-13"],
         }
     )
@@ -305,6 +316,7 @@ def test_checkpoint_round_trip_preserves_planning_mode_and_overlay_provenance():
     assert restored["planning_mode"] == "event_goal"
     assert restored["macrocycle_event_date"] == "2026-08-10"
     assert restored["overlay_rule_version"] == "race-overlay-v1"
+    assert restored["microcycle_changes"][0]["after"]["role"] == "activation"
     assert restored["protected_dates"] == ["2026-07-12", "2026-07-13"]
 
 
@@ -397,7 +409,8 @@ def test_execution_rebuild_reapplies_race_protection_and_mode_metadata():
 
     assert rebuilt["planning_mode"] == "training_goal"
     assert rebuilt["event_date"] == ""
-    assert rebuilt["overlay_rule_version"] == "race-overlay-v1"
+    assert rebuilt["overlay_rule_version"] == "race-microcycle-v2"
+    assert rebuilt["microcycle_changes"]
     assert by_date[event_date][1] == 0
     assert event_date in rebuilt["protected_dates"]
 

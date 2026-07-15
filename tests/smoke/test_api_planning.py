@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import importlib
 from datetime import date, datetime, timedelta
+from time import perf_counter
 
 import pytest
 
@@ -67,8 +68,9 @@ def test_later_a_anchors_plan_while_earlier_b_is_local_overlay(tmp_path):
     today = datetime.now().date()
     b_date = today + timedelta(days=13)
     a_date = today + timedelta(weeks=12)
+    db = _seeded_db(tmp_path)
     result = ps.build_plan(
-        _seeded_db(tmp_path),
+        db,
         goal_type="triathlon",
         distance="olympic",
         event_date=None,
@@ -84,6 +86,48 @@ def test_later_a_anchors_plan_while_earlier_b_is_local_overlay(tmp_path):
 
     assert result["goal"]["macrocycle_event_date"] == a_date.isoformat()
     assert [week["phase"] for week in result["weeks"]][-2:] == ["Taper", "Race Week"]
+    assert result["preview"]["microcycle_changes"]
+    assert result["preview"]["microcycle_changes"] == result["event_overlay"]["microcycle_changes"]
+    assert {row["priority"] for row in result["preview"]["microcycle_changes"]} >= {"A", "B"}
+    assert all({"phase", "before", "after"} <= set(row) for row in result["preview"]["microcycle_changes"])
+    active = ps.get_active_plan(db)
+    assert active is not None
+    by_date = {
+        item[0].date().isoformat(): (item, active["session_templates"][index])
+        for index, item in enumerate(active["daily_plan"])
+    }
+    for change in result["preview"]["microcycle_changes"]:
+        daily_row, template = by_date[change["date"]]
+        assert daily_row[1] == change["after"]["tss"]
+        assert template["session_role"] == change["after"]["role"]
+        assert template["sport"] == change["after"]["sport"]
+        assert template["session_focus"] == change["after"]["focus"]
+
+
+def test_event_goal_without_confirmed_a_is_rejected_without_checkpoint(tmp_path):
+    from api import planning_service as ps
+
+    db = _seeded_db(tmp_path)
+    with pytest.raises(ValueError, match="confirmed A event"):
+        ps.build_plan(
+            db,
+            goal_type="triathlon",
+            distance="olympic",
+            event_date=None,
+            events=[
+                {
+                    "date": (datetime.now().date() + timedelta(weeks=4)).isoformat(),
+                    "priority": "B",
+                    "label": "Tune-up",
+                    "confirmed": True,
+                }
+            ],
+            planning_mode="event_goal",
+            available_hours=10,
+            persist=False,
+        )
+
+    assert db.get_latest_planning_checkpoint() is None
 
 
 def test_build_persists_catalog_prescriptions_and_one_brick_per_eligible_week(tmp_path):
@@ -169,7 +213,7 @@ def test_b_overlay_persists_protected_days_and_resumes(tmp_path):
     assert by_date[(b_date + timedelta(days=1)).isoformat()][1] == 0
     assert by_date[(b_date + timedelta(days=2)).isoformat()][1] == 0
     assert by_date[(b_date + timedelta(days=3)).isoformat()][1] > 0
-    assert active["overlay_rule_version"] == "race-overlay-v1"
+    assert active["overlay_rule_version"] == "race-microcycle-v2"
     assert b_date.isoformat() in active["protected_dates"]
 
 
@@ -349,6 +393,29 @@ def test_build_plan_contract(tmp_path):
     assert len(plan["forecast"]["points"]) >= 2
     for pt in plan["forecast"]["points"]:
         assert {"date", "ctl", "atl", "tsb"} <= set(pt.keys())
+
+
+def test_sixteen_week_preview_meets_planning_latency_asr(tmp_path):
+    from api.planning_service import build_plan
+
+    db = Database(str(tmp_path / "planning-latency.db"))
+    event = (datetime.now().date() + timedelta(weeks=16)).isoformat()
+
+    started = perf_counter()
+    plan = build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=event,
+        available_hours=10,
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        persist=False,
+    )
+    elapsed = perf_counter() - started
+
+    assert len(plan["weeks"]) >= 15
+    assert elapsed < 10.0
+    assert db.get_latest_planning_checkpoint() is None
 
 
 def test_build_plan_applies_active_coach_constraints(tmp_path):

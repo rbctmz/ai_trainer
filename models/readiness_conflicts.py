@@ -21,7 +21,7 @@ DEFAULT_HORIZON_DAYS = 3
 # the nearest quality session only when it is still inside this bounded window.
 MAX_QUALITY_LOOKAHEAD_DAYS = 7
 
-KNOWN_ROLES = ("recovery", "easy", "long", "quality")
+KNOWN_ROLES = ("recovery", "easy", "activation", "long", "quality")
 
 # (роль сессии, статус готовности) → severity. Отсутствие ключа = нет конфликта.
 # recovery/отдых не конфликтуют никогда: план и состояние согласны.
@@ -31,11 +31,13 @@ SEVERITY_MATRIX: dict[tuple[str, str], str] = {
     ("long", "low"): "high",
     ("long", "limited"): "medium",
     ("easy", "low"): "medium",
+    ("activation", "low"): "medium",
 }
 
 ROLE_LABELS_RU = {
     "recovery": "восстановление",
     "easy": "лёгкая",
+    "activation": "активация",
     "long": "длительная",
     "quality": "качественная",
 }

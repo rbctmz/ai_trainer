@@ -27,7 +27,7 @@ from models.training_planner import (
 
 EDITABLE_NEAR_TERM_HORIZON_MIN = 7
 EDITABLE_NEAR_TERM_HORIZON_MAX = 10
-EDITABLE_SESSION_ROLES = ["off", "recovery", "easy", "quality", "long"]
+EDITABLE_SESSION_ROLES = ["off", "recovery", "easy", "activation", "quality", "long"]
 EDITABLE_SPORTS = ["run", "bike", "swim", "brick", "off"]
 RISK_LEVEL_RANK = {"low": 0, "medium": 1, "high": 2}
 

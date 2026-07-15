@@ -268,6 +268,7 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "weekly_summary": weekly_summary_rows,
         "overlay_rule_version": goal_plan.get("overlay_rule_version"),
         "event_overlays": list(goal_plan.get("event_overlays", []) or []),
+        "microcycle_changes": list(goal_plan.get("microcycle_changes", []) or []),
         "protected_dates": list(goal_plan.get("protected_dates", []) or []),
         "constraint_summary": constraint_summary,
         "demand_level": goal_plan.get("demand_level"),

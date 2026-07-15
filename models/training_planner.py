@@ -10,6 +10,7 @@ WEEKDAY_LABELS_RU = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
 SESSION_ROLE_LABELS_RU = {
     "off": "Отдых",
     "race": "Старт",
+    "activation": "Активация",
     "recovery": "Восстановление",
     "easy": "Легкая",
     "quality": "Качество",
@@ -882,12 +883,40 @@ def compute_phase_schedule(weeks_total: int) -> List[str]:
     return phases
 
 
-RACE_OVERLAY_RULE_VERSION = "race-overlay-v1"
+RACE_OVERLAY_RULE_VERSION = "race-microcycle-v2"
 _RACE_PRE_CAPS = {
     "A": {-7: 0.65, -6: 0.60, -5: 0.55, -4: 0.50, -3: 0.40, -2: 0.30, -1: 0.20},
     "B": {-4: 0.75, -3: 0.60, -2: 0.45, -1: 0.25},
     "C": {-1: 0.70},
 }
+
+_RACE_MICROCYCLE_PRESCRIPTIONS = {
+    "A": {
+        -7: ("recovery", "swim", "Техника и восстановление • плавание"),
+        -6: ("easy", "bike", "Легкая аэробная • вело"),
+        -5: ("easy", "run", "Легкая аэробная • бег"),
+        -4: ("recovery", "swim", "Техника • плавание"),
+        -3: ("activation", "bike", "Короткое заострение • вело"),
+        -2: ("off", "off", "Отдых перед стартом"),
+        -1: ("activation", "run", "Короткая активация • бег"),
+    },
+    "B": {
+        -4: ("easy", "swim", "Легкая техника • плавание"),
+        -3: ("activation", "bike", "Короткое заострение • вело"),
+        -2: ("off", "off", "Отдых перед стартом"),
+        -1: ("activation", "run", "Короткая активация • бег"),
+    },
+    "C": {},
+}
+_RACE_PRIORITY_RANK = {"A": 0, "B": 1, "C": 2}
+_PRESCRIPTION_SAFETY_RANK = {
+    "race": 0,
+    "off": 1,
+    "recovery": 2,
+    "activation": 3,
+    "easy": 4,
+}
+_RACE_READINESS_HORIZON_DAYS = 7
 
 
 def compute_event_aware_phase_schedule(
@@ -931,12 +960,16 @@ def apply_race_event_overlays(
     daily_plan: Sequence[Tuple[datetime, float, Dict[str, float]]],
     weekly_summary: Sequence[Mapping[str, object]],
     events: Any,
+    *,
+    goal_type: str = "",
+    load_state: str = "balanced",
+    as_of: date | None = None,
 ) -> Tuple[
     List[Tuple[datetime, float, Dict[str, float]]],
     List[Dict[str, object]],
     Dict[str, Any],
 ]:
-    """Apply versioned A/B/C safety caps without ever increasing load."""
+    """Apply versioned A/B/C caps and deterministic race-microcycle intent."""
     from models.plan_events import normalized_events
 
     copied_daily = [(dt, float(total or 0.0), dict(parts or {})) for dt, total, parts in daily_plan]
@@ -949,22 +982,94 @@ def apply_race_event_overlays(
 
     available_dates = {dt.date().isoformat() for dt, _total, _parts in copied_daily}
     caps: Dict[str, float] = {}
-    role_overrides: Dict[str, str] = {}
-    focus_overrides: Dict[str, str] = {}
+    prescriptions: Dict[str, Dict[str, Any]] = {}
+    contexts: Dict[str, Dict[str, Any]] = {}
     protected_dates: set[str] = set()
     overlays: List[Dict[str, Any]] = []
+    is_triathlon = "триатлон" in str(goal_type or "").lower() or "tri" in str(goal_type or "").lower()
+    normalized_load_state = str(load_state or "balanced").strip().lower()
 
-    def set_cap(day: date, cap: float, *, role: str | None = None, focus: str | None = None) -> None:
+    def activation_is_readiness_bounded(target: date) -> bool:
+        if normalized_load_state != "deep_fatigue":
+            return False
+        if as_of is None:
+            return True
+        days_until = (target - as_of).days
+        return 0 <= days_until < _RACE_READINESS_HORIZON_DAYS
+
+    before_rows: Dict[str, Dict[str, Any]] = {}
+    for index, (dt, total, parts) in enumerate(copied_daily):
+        week_meta = copied_summary[index // 7] if index // 7 < len(copied_summary) else {}
+        day_index = index % 7
+        roles = list(week_meta.get("day_roles") or ["easy"] * 7)
+        focuses = list(week_meta.get("day_focuses") or ["—"] * 7)
+        before_rows[dt.date().isoformat()] = {
+            "phase": str(week_meta.get("phase") or ""),
+            "role": str(roles[day_index] if day_index < len(roles) else "easy"),
+            "sport": _dominant_sport(parts),
+            "focus": str(focuses[day_index] if day_index < len(focuses) else "—"),
+            "tss": round(float(total or 0.0), 1),
+        }
+
+    def context_score(context: Mapping[str, Any]) -> tuple[int, int, str]:
+        return (
+            _RACE_PRIORITY_RANK.get(str(context.get("priority") or "C"), 3),
+            abs(int(context.get("offset") or 0)),
+            str(context.get("event_date") or ""),
+        )
+
+    def register_context(iso: str, context: Dict[str, Any]) -> None:
+        current = contexts.get(iso)
+        if current is None or context_score(context) < context_score(current):
+            contexts[iso] = dict(context)
+
+    def prescription_score(prescription: Mapping[str, Any]) -> tuple[int, int, int, str]:
+        context = prescription.get("context") or {}
+        return (
+            _PRESCRIPTION_SAFETY_RANK.get(str(prescription.get("role") or "easy"), 5),
+            _RACE_PRIORITY_RANK.get(str(context.get("priority") or "C"), 3),
+            abs(int(context.get("offset") or 0)),
+            str(context.get("event_date") or ""),
+        )
+
+    def set_cap(day: date, cap: float, *, context: Dict[str, Any]) -> None:
         iso = day.isoformat()
         if iso not in available_dates:
             return
         caps[iso] = min(float(cap), caps.get(iso, 1.0))
-        if role:
-            role_overrides[iso] = role
-        if focus:
-            focus_overrides[iso] = focus
+        register_context(iso, context)
 
-    for event in normalized_events(events):
+    def set_prescription(
+        day: date,
+        *,
+        role: str,
+        sport: str | None,
+        focus: str,
+        context: Dict[str, Any],
+    ) -> None:
+        iso = day.isoformat()
+        if iso not in available_dates:
+            return
+        candidate = {
+            "role": role,
+            "sport": sport if is_triathlon else None,
+            "focus": focus,
+            "context": dict(context),
+        }
+        current = prescriptions.get(iso)
+        if current is None or prescription_score(candidate) < prescription_score(current):
+            prescriptions[iso] = candidate
+            contexts[iso] = dict(context)
+
+    ordered_events = sorted(
+        normalized_events(events),
+        key=lambda event: (
+            str(event.get("date") or ""),
+            _RACE_PRIORITY_RANK.get(str(event.get("priority") or "C"), 3),
+            str(event.get("label") or ""),
+        ),
+    )
+    for event in ordered_events:
         try:
             event_day = date.fromisoformat(str(event["date"])[:10])
         except (TypeError, ValueError):
@@ -973,12 +1078,50 @@ def apply_race_event_overlays(
         affected: List[str] = []
         for offset, cap in _RACE_PRE_CAPS[priority].items():
             target = event_day + timedelta(days=offset)
-            set_cap(target, cap)
+            context = {
+                "event_date": event_day.isoformat(),
+                "priority": priority,
+                "offset": offset,
+                "label": str(event.get("label") or ""),
+            }
+            set_cap(target, cap, context=context)
+            prescription = (
+                _RACE_MICROCYCLE_PRESCRIPTIONS[priority].get(offset)
+                if is_triathlon
+                else None
+            )
+            if prescription is not None:
+                role, sport, focus = prescription
+                if role == "activation" and activation_is_readiness_bounded(target):
+                    role, sport, focus = "off", "off", "Отдых вместо активации · глубокая усталость"
+                if role == "off":
+                    set_cap(target, 0.0, context=context)
+                    protected_dates.add(target.isoformat())
+                set_prescription(
+                    target,
+                    role=role,
+                    sport=sport,
+                    focus=focus,
+                    context=context,
+                )
             if target.isoformat() in available_dates:
                 affected.append(target.isoformat())
 
         race_focus = f"Старт {priority} · {str(event.get('label') or '').strip()}".rstrip(" ·")
-        set_cap(event_day, 0.0, role="race", focus=race_focus)
+        race_context = {
+            "event_date": event_day.isoformat(),
+            "priority": priority,
+            "offset": 0,
+            "label": str(event.get("label") or ""),
+        }
+        set_cap(event_day, 0.0, context=race_context)
+        set_prescription(
+            event_day,
+            role="race",
+            sport="off",
+            focus=race_focus,
+            context=race_context,
+        )
         if event_day.isoformat() in available_dates:
             protected_dates.add(event_day.isoformat())
             affected.append(event_day.isoformat())
@@ -986,13 +1129,39 @@ def apply_race_event_overlays(
         if priority in {"A", "B"}:
             for offset in (1, 2):
                 target = event_day + timedelta(days=offset)
-                set_cap(target, 0.0, role="off", focus="Восстановление после старта")
+                context = {
+                    "event_date": event_day.isoformat(),
+                    "priority": priority,
+                    "offset": offset,
+                    "label": str(event.get("label") or ""),
+                }
+                set_cap(target, 0.0, context=context)
+                set_prescription(
+                    target,
+                    role="off",
+                    sport="off",
+                    focus="Восстановление после старта",
+                    context=context,
+                )
                 if target.isoformat() in available_dates:
                     protected_dates.add(target.isoformat())
                     affected.append(target.isoformat())
         else:
             target = event_day + timedelta(days=1)
-            set_cap(target, 0.50, role="recovery", focus="Восстановление после старта C")
+            context = {
+                "event_date": event_day.isoformat(),
+                "priority": priority,
+                "offset": 1,
+                "label": str(event.get("label") or ""),
+            }
+            set_cap(target, 0.50, context=context)
+            set_prescription(
+                target,
+                role="recovery",
+                sport=None,
+                focus="Восстановление после старта C",
+                context=context,
+            )
             if target.isoformat() in available_dates:
                 affected.append(target.isoformat())
 
@@ -1013,7 +1182,17 @@ def apply_race_event_overlays(
         adjusted_total = round(sum(adjusted_parts.values()), 1)
         if total > 0 and not parts:
             adjusted_total = round(total * cap, 1)
-        adjusted.append((dt, min(total, adjusted_total), adjusted_parts))
+        prescription = prescriptions.get(iso) or {}
+        role = str(prescription.get("role") or "")
+        prescribed_sport = str(prescription.get("sport") or "")
+        if role in {"off", "race"}:
+            adjusted_parts = {sport: 0.0 for sport in (parts or {"run": 0, "bike": 0, "swim": 0})}
+            adjusted_total = 0.0
+        elif prescribed_sport in {"run", "bike", "swim"} and adjusted_total > 0:
+            adjusted_parts = {"run": 0.0, "bike": 0.0, "swim": 0.0}
+            adjusted_parts[prescribed_sport] = round(min(float(total or 0.0), adjusted_total), 1)
+            adjusted_total = round(sum(adjusted_parts.values()), 1)
+        adjusted.append((dt, round(min(float(total or 0.0), adjusted_total), 1), adjusted_parts))
 
     for week_index, summary in enumerate(copied_summary):
         week_rows = adjusted[week_index * 7 : week_index * 7 + 7]
@@ -1025,10 +1204,10 @@ def apply_race_event_overlays(
             focuses.append("—")
         for day_index, (dt, _total, _parts) in enumerate(week_rows):
             iso = dt.date().isoformat()
-            if iso in role_overrides:
-                roles[day_index] = role_overrides[iso]
-            if iso in focus_overrides:
-                focuses[day_index] = focus_overrides[iso]
+            prescription = prescriptions.get(iso)
+            if prescription is not None:
+                roles[day_index] = str(prescription["role"])
+                focuses[day_index] = str(prescription["focus"])
         summary["day_roles"] = roles
         summary["day_focuses"] = focuses
         summary["weekly_tss"] = int(round(sum(row[1] for row in week_rows)))
@@ -1036,11 +1215,88 @@ def apply_race_event_overlays(
             summary[sport] = round(sum(float(row[2].get(sport, 0.0) or 0.0) for row in week_rows), 1)
         summary.update(_build_week_structure_metadata(roles, focuses))
 
+    after_rows: Dict[str, Dict[str, Any]] = {}
+    for index, (dt, total, parts) in enumerate(adjusted):
+        week_meta = copied_summary[index // 7] if index // 7 < len(copied_summary) else {}
+        day_index = index % 7
+        roles = list(week_meta.get("day_roles") or ["easy"] * 7)
+        focuses = list(week_meta.get("day_focuses") or ["—"] * 7)
+        after_rows[dt.date().isoformat()] = {
+            "role": str(roles[day_index] if day_index < len(roles) else "easy"),
+            "sport": _dominant_sport(parts),
+            "focus": str(focuses[day_index] if day_index < len(focuses) else "—"),
+            "tss": round(float(total or 0.0), 1),
+        }
+
+    microcycle_changes: List[Dict[str, Any]] = []
+    for iso in sorted(contexts):
+        before = before_rows.get(iso)
+        after = after_rows.get(iso)
+        if before is None or after is None:
+            continue
+        context = contexts[iso]
+        microcycle_changes.append(
+            {
+                "date": iso,
+                "event_date": str(context.get("event_date") or ""),
+                "priority": str(context.get("priority") or ""),
+                "label": str(context.get("label") or ""),
+                "offset": int(context.get("offset") or 0),
+                "phase": str(before.get("phase") or ""),
+                "before": {
+                    "role": before["role"],
+                    "sport": before["sport"],
+                    "focus": before["focus"],
+                    "tss": before["tss"],
+                },
+                "after": dict(after),
+            }
+        )
+
     return adjusted, copied_summary, {
         "rule_version": RACE_OVERLAY_RULE_VERSION,
         "protected_dates": sorted(protected_dates),
         "overlays": overlays,
+        "microcycle_changes": microcycle_changes,
     }
+
+
+def synchronize_microcycle_changes(
+    changes: Sequence[Mapping[str, Any]],
+    daily_plan: Sequence[Tuple[datetime, float, Dict[str, float]]],
+    session_templates: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    """Refresh overlay explainability from the final persisted daily/template truth."""
+    daily_by_date = {
+        dt.date().isoformat(): (round(float(total or 0.0), 1), dict(parts or {}))
+        for dt, total, parts in daily_plan
+    }
+    templates_by_date = {
+        str(template.get("date") or "")[:10]: dict(template)
+        for template in session_templates
+        if str(template.get("date") or "")[:10]
+    }
+    synchronized: List[Dict[str, Any]] = []
+    for raw_change in changes:
+        change = dict(raw_change or {})
+        day = str(change.get("date") or "")[:10]
+        daily = daily_by_date.get(day)
+        template = templates_by_date.get(day)
+        if daily is not None and template is not None:
+            total, parts = daily
+            change["after"] = {
+                "role": str(template.get("session_role") or "easy"),
+                "sport": str(template.get("sport") or _dominant_sport(parts)),
+                "focus": str(
+                    template.get("adjustment_note")
+                    or template.get("session_focus")
+                    or template.get("export_name")
+                    or "—"
+                ),
+                "tss": total,
+            }
+        synchronized.append(change)
+    return synchronized
 
 
 def current_periodization_phase(goal_plan: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -1407,12 +1663,17 @@ def _build_week_structure_metadata(
 ) -> Dict[str, object]:
     long_days = [idx for idx, role in enumerate(roles) if role == "long"]
     quality_days = [idx for idx, role in enumerate(roles) if role == "quality"]
+    activation_days = [idx for idx, role in enumerate(roles) if role == "activation"]
     recovery_days = [idx for idx, role in enumerate(roles) if role == "recovery"]
 
-    key_labels = [f"{WEEKDAY_LABELS_RU[idx]} {focuses[idx].lower()}" for idx in quality_days + long_days]
+    key_labels = [
+        f"{WEEKDAY_LABELS_RU[idx]} {focuses[idx].lower()}"
+        for idx in quality_days + long_days + activation_days
+    ]
     recovery_labels = [WEEKDAY_LABELS_RU[idx] for idx in recovery_days]
     structure_summary = (
         f"{len(quality_days)} качеств. дн., "
+        f"{len(activation_days)} активац., "
         f"{len(recovery_days)} восстановит. дн., "
         f"длительная: {WEEKDAY_LABELS_RU[long_days[0]] if long_days else '—'}"
     )

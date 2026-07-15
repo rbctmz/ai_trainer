@@ -82,6 +82,30 @@ const PLANNING_MODES: Array<{ value: PlanningMode; label: string; detail: string
   { value: "manual", label: "Ручные фазы", detail: "Фазы задаёте вы" },
 ];
 
+const MICRO_ROLE_LABELS: Record<string, string> = {
+  off: "отдых",
+  race: "старт",
+  recovery: "восстановление",
+  easy: "легко",
+  activation: "активация",
+  quality: "качество",
+  long: "длительная",
+};
+
+const MICRO_SPORT_LABELS: Record<string, string> = {
+  off: "—",
+  bike: "вело",
+  run: "бег",
+  swim: "плавание",
+  brick: "вело → бег",
+};
+
+function microcycleStateLabel(state: { role: string; sport: string; tss: number }): string {
+  const role = MICRO_ROLE_LABELS[state.role] ?? state.role;
+  const sport = MICRO_SPORT_LABELS[state.sport] ?? state.sport;
+  return `${role} · ${sport} · ${Number(state.tss).toFixed(1)} TSS`;
+}
+
 function defaultEventDate(): string {
   const d = new Date();
   d.setDate(d.getDate() + 56);
@@ -478,6 +502,30 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
               ) : null}
             </div>
           </section>
+          {plan.preview.microcycle_changes.length ? (
+            <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+              <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+                Подводка к стартам · до подтверждения
+              </div>
+              <div className="mt-3 divide-y divide-surface-border">
+                {plan.preview.microcycle_changes.map((change) => (
+                  <div key={`${change.date}-${change.event_date}-${change.priority}`} className="grid gap-1 py-2.5 sm:grid-cols-[100px_1fr]">
+                    <div className="text-xs font-medium tabular-nums text-ink-soft">
+                      {change.date.slice(5)} · {change.priority}{change.offset === 0 ? "" : ` ${change.offset > 0 ? "+" : ""}${change.offset}`}
+                    </div>
+                    <div>
+                      <div className="text-sm text-ink">
+                        {microcycleStateLabel(change.before)} → {microcycleStateLabel(change.after)}
+                      </div>
+                      <div className="mt-0.5 text-xs text-ink-soft">
+                        {change.phase} · {change.after.focus} · {change.label || `Старт ${change.priority}`}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
           <section className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <Stat label="Горизонт" value={plan.goal.weeks_to_race ? `${plan.goal.weeks_to_race} нед. до старта` : `${plan.weeks.length} нед. rolling`} />
             <Stat label="Цель/нед" value={`${plan.weekly_target.target_weekly_tss} TSS`} />

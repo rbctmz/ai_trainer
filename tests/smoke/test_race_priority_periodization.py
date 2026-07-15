@@ -106,7 +106,7 @@ def test_b_overlay_caps_load_protects_race_and_resumes() -> None:
     assert by_date["2026-07-27"][1] == 0.0
     assert by_date["2026-07-28"][1] == 0.0
     assert by_date["2026-07-29"][1] == 40.0
-    assert metadata["rule_version"] == "race-overlay-v1"
+    assert metadata["rule_version"] == "race-microcycle-v2"
     assert set(metadata["protected_dates"]) >= {"2026-07-26", "2026-07-27", "2026-07-28"}
     assert summaries[0]["weekly_tss"] < 280
 

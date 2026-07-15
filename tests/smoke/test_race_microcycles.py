@@ -142,6 +142,30 @@ def test_c_microcycle_keeps_day_before_role_and_sport_train_through() -> None:
     assert metadata["overlays"][0]["priority"] == "C"
 
 
+def test_single_sport_goal_keeps_original_pre_race_roles_and_focuses() -> None:
+    start = date(2026, 7, 20)
+    daily, summaries = _constant_plan(start, 7, phases=("Peak",))
+    running_daily = [
+        (dt, total, {"run": total, "bike": 0.0, "swim": 0.0})
+        for dt, total, _parts in daily
+    ]
+    before = _rows_by_date(running_daily, summaries)
+
+    adjusted, after_summaries, _metadata = apply_race_event_overlays(
+        running_daily,
+        summaries,
+        [{"date": "2026-07-26", "priority": "B", "label": "10K", "confirmed": True}],
+        goal_type="Бег",
+    )
+    after = _rows_by_date(adjusted, after_summaries)
+
+    for day in ("2026-07-22", "2026-07-23", "2026-07-24", "2026-07-25"):
+        assert after[day]["role"] == before[day]["role"]
+        assert after[day]["sport"] == "run"
+        assert after[day]["focus"] == "Исходный фокус"
+        assert after[day]["total"] <= before[day]["total"]
+
+
 def test_overlapping_event_windows_are_order_independent_and_safety_first() -> None:
     start = date(2026, 9, 28)
     daily, summaries = _constant_plan(start, 7, phases=("Race Week",))
@@ -171,6 +195,7 @@ def test_deep_fatigue_removes_a_and_b_activation_without_restoring_hard_work() -
         [{"date": "2026-10-04", "priority": "A", "label": "Sirius", "confirmed": True}],
         goal_type="Триатлон",
         load_state="deep_fatigue",
+        as_of=date(2026, 9, 28),
     )
     rows = _rows_by_date(adjusted, after_summaries)
 
@@ -180,3 +205,21 @@ def test_deep_fatigue_removes_a_and_b_activation_without_restoring_hard_work() -
     assert not {"quality", "long", "activation"}.intersection(
         rows[day]["role"] for day in rows if "2026-09-27" <= day <= "2026-10-03"
     )
+
+
+def test_deep_fatigue_does_not_remove_activation_outside_readiness_horizon() -> None:
+    start = date(2026, 9, 21)
+    daily, summaries = _constant_plan(start, 14)
+
+    adjusted, after_summaries, _metadata = apply_race_event_overlays(
+        daily,
+        summaries,
+        [{"date": "2026-10-04", "priority": "A", "label": "Sirius", "confirmed": True}],
+        goal_type="Триатлон",
+        load_state="deep_fatigue",
+        as_of=date(2026, 7, 14),
+    )
+    rows = _rows_by_date(adjusted, after_summaries)
+
+    assert rows["2026-10-01"]["role"] == "activation"
+    assert rows["2026-10-03"]["role"] == "activation"

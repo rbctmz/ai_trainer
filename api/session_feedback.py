@@ -26,7 +26,7 @@ class StaleFeedbackError(RuntimeError):
     """Raised when a correction targets a superseded feedback revision."""
 
 
-_ACTUAL_ROLES = {"off", "recovery", "easy", "quality", "long"}
+_ACTUAL_ROLES = {"off", "recovery", "easy", "activation", "quality", "long"}
 
 
 def _now(value: datetime | None = None) -> datetime:
