@@ -55,9 +55,9 @@ Race load participates in the CTL and ATL forecast so the load model reflects th
 
 Milestone one establishes the guard rail before touching behavior, and it is complete. `tests/smoke/test_plan_discipline_truth.py` builds a real-shaped twelve-week triathlon plan and asserts that, per discipline, the weekly summary equals the sum of the TSS across every exported session for that discipline, within one decimal, and that no session has a non-positive duration. It expresses the exported load in a way that is identical before and after the fix by reading the `sessions` list when present, the composite brick `legs` otherwise, and the single collapsed session as a last resort. The test fails RED today (evidence under Surprises & Discoveries). Commit it alone so the TDD order is inspectable.
 
-Milestone two introduces the nested `sessions` model end to end while keeping behavior identical, so no intermediate commit leaves the model half-understood by the system. Following the reviewer's instruction, the teaching of checkpoint, delivery, Today, and the near-term editor is done vertically here rather than deferred. In this milestone every day still has exactly one discipline, so `sessions` has length one and equals the current single session, but the whole stack now speaks `sessions`: `build_daily_session_templates` emits `sessions=[primary]` with a per-session `session_id`; the day scalars become a projection of `sessions[0]`; `daily_plan` totals and `weekly_summary` buckets are recomputed from sessions; `restore_goal_plan_from_checkpoint` wraps legacy single templates as `sessions=[legacy_session]`; delivery emits one event per session with `session_id` inside the `external_id`; the Today snapshot and dashboard list sessions; and near-term editing addresses a session by `session_id` while still locating the day by index. Contributor-safe smoke stays green because behavior is unchanged.
+Milestone two introduces the nested `sessions` model end to end while keeping behavior identical, so no intermediate commit leaves the model half-understood by the system. Following the reviewer's instruction, the teaching of checkpoint, delivery, Today, and the near-term editor is done vertically here rather than deferred. In this milestone every day still has exactly one discipline, so `sessions` has length one and equals the current single session, but the whole stack now speaks `sessions`: `build_daily_session_templates` emits `sessions=[primary]` with a per-session `session_id`; the day scalars stay a projection of `sessions[0]`; `restore_goal_plan_from_checkpoint` wraps legacy single templates as `sessions=[legacy_session]`; delivery emits one event per session with `session_id` inside the `external_id`; the Today snapshot and dashboard list sessions; and near-term editing addresses a session by `session_id` while still locating the day by index. Contributor-safe smoke stays green because behavior is unchanged. The weekly per-sport buckets are deliberately NOT yet derived from sessions in this milestone (see the Decision Log): while days are still collapsed onto one dominant sport, deriving the table from sessions would make the table itself collapse and the anchor pass trivially on a bad plan.
 
-Milestone three makes executable sessions the single truth for distribution (Issue item 1). `build_daily_session_templates` splits each day's blended `parts` into one session per discipline above the minimum-TSS and minimum-duration threshold, folds sub-threshold buckets deterministically, materializes each session through the Catalog v2 path, and stops attributing the entire day to one sport. At the end of this milestone `tests/smoke/test_plan_discipline_truth.py` passes and the weekly table equals the export.
+Milestone three makes executable sessions the single truth for distribution (Issue item 1). `build_daily_session_templates` splits each day's blended `parts` into one session per discipline above the minimum-TSS and minimum-duration threshold, folds sub-threshold buckets deterministically, materializes each session through the Catalog v2 path, and stops attributing the entire day to one sport. Simultaneously the `daily_plan` totals and the `weekly_summary` per-sport buckets are recomputed as the sum of the materialized sessions (deferred here from milestone two so the weekly table cannot collapse before the split). At the end of this milestone `tests/smoke/test_plan_discipline_truth.py` passes with a genuinely balanced plan, and the weekly table equals the export.
 
 Milestone four gives race lead-up its real structures and removes invalid fallbacks (Issue items 2 and 3). It adds deterministic `activation` prescriptions for bike and run to `models/workout_catalog.py` so an `activation` role materializes short structured sharpening instead of an empty or dominant-sport block, audits the seven currently unstructured days (a long day, four activations, two over-heavy Recovery Spins) so each materializes a valid structure or fails closed to an explicitly simpler valid session, and applies the five-minute bookend contract with the short-activation exception.
 
@@ -85,6 +85,8 @@ Milestone seven proves the whole plan end to end and finishes the surfaces. It c
 
 - Decision: teach checkpoint, delivery, Today, and the editor about `sessions` vertically in Milestone two rather than deferring to the end. Rationale: intermediate commits must never leave the new model half-understood by the system. Date/Author: 2026-07-15 / Greg.
 
+- Decision: derive `daily_plan` totals and `weekly_summary` per-sport buckets from the materialized sessions only in Milestone three, together with the day split, not in Milestone two. Rationale: in Milestone two each day is still collapsed onto one dominant sport; deriving the weekly table from sessions while collapsed would make the table itself show the collapsed distribution and the anchor test would pass trivially on a ninety-percent-bike plan. Deferring the derivation to the same milestone as the split keeps the anchor honest — it turns green only when the plan is genuinely balanced. Date/Author: 2026-07-15 / Claude Code.
+
 - Decision: build on top of merged #202 and #203 rather than folding into those drafts. Rationale: both are correct within scope and independently reviewed green; this defect is a separate, largely pre-existing week-day boundary problem and deserves its own reviewable slice. Date/Author: 2026-07-15 / Greg + Claude Code.
 
 ## Progress
@@ -92,7 +94,13 @@ Milestone seven proves the whole plan end to end and finishes the surfaces. It c
 - [x] (2026-07-15) Confirmed #202 and #203 are merged into `main`; cut worktree branch `claude/issue-205-discipline-distribution` from `origin/main`; opened Issue #205.
 - [x] (2026-07-15) Milestone one: added `tests/smoke/test_plan_discipline_truth.py` and recorded the RED anchor failure (see Surprises & Discoveries).
 - [ ] Milestone two: nested `sessions` model end to end, behavior-preserving; smoke green.
-- [ ] Milestone three: sessions-as-truth distribution; anchor test green.
+    - [x] (2026-07-15) M2.1 `build_daily_session_templates` emits `sessions[]` additively; 688 other smoke tests green.
+    - [x] (2026-07-15) M2.2 per-session identity on `sessions[0]`, day id a projection, no churn; 689 green, new identity test.
+    - [ ] M2.3 `restore_goal_plan_from_checkpoint` migrate-on-read wraps legacy templates as `sessions=[legacy_session]`.
+    - [ ] M2.4 delivery emits one event per session with `session_id` in `external_id`.
+    - [ ] M2.5 near-term editing addresses `session_id`.
+    - [ ] M2.6 Today snapshot and dashboard read `sessions`.
+- [ ] Milestone three: sessions-as-truth distribution and weekly buckets derived from sessions; anchor test green with a balanced plan.
 - [ ] Milestone four: activation structures, fallback cleanup, bookend contract with activation exception.
 - [ ] Milestone five: bricks as grouped ordered sessions; deep-fatigue brick suppression bounded to seven days.
 - [ ] Milestone six: A/B race forecast load into CTL/ATL, never delivered or overwritten.
@@ -111,6 +119,10 @@ Milestone seven proves the whole plan end to end and finishes the surfaces. It c
          full exported={'bike': 3953.2, 'run': 411.6, 'swim': 259.3})
 
   The weekly table is a balanced triathlon while the exported sessions are about eighty-five percent bike, matching the reported 90/7/3 split.
+
+- Observation: total TSS is conserved on both sides of the divergence, which proves the defect is re-labelling load onto the dominant sport rather than losing data. Evidence: in the RED run above the weekly table and the exported sessions both sum to 4624.1 TSS. The anchor test now asserts this conservation explicitly, before the per-discipline comparison.
+
+- Observation: deriving the weekly buckets from sessions too early would make the anchor pass on a bad plan. Evidence: during Milestone 2.2 it became clear that if the weekly table were computed from the still-collapsed one-session-per-day, both sides of the anchor would collapse to about ninety percent bike and the equality would hold trivially. The derivation was therefore moved to Milestone three, alongside the split (see Decision Log).
 
 ## Outcomes & Retrospective
 
