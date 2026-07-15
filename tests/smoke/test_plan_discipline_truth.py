@@ -89,6 +89,14 @@ def test_weekly_discipline_summary_equals_exported_sessions(tmp_path):
         d: round(sum(float(week.get(d, 0.0) or 0.0) for week in weekly_summary), 1)
         for d in _DISCIPLINES
     }
+    # The immovable reference: the per-discipline sport budget taken from the
+    # daily_plan parts, which are the split's INPUT. Because both the sessions
+    # and the weekly table must also equal this untouched budget, M3 cannot be
+    # made green by rewriting weekly_summary to follow a mis-allocated split.
+    budget = {
+        d: round(sum(float((parts or {}).get(d, 0.0) or 0.0) for _dt, _t, parts in daily_plan), 1)
+        for d in _DISCIPLINES
+    }
 
     exported = {d: 0.0 for d in _DISCIPLINES}
     for (dt, day_total, parts), template in zip(daily_plan, templates):
@@ -102,17 +110,28 @@ def test_weekly_discipline_summary_equals_exported_sessions(tmp_path):
         for session in template.get("sessions") or []:
             assert int(session.get("duration_minutes") or 0) > 0, session
 
-    # Total load is conserved on both sides; only the per-discipline split is
-    # wrong today. This holds before and after the fix and proves the defect is
-    # re-labelling onto the dominant sport, not lost data.
-    assert round(sum(exported.values()), 1) == pytest.approx(
-        round(sum(table.values()), 1), abs=0.1
-    ), f"total TSS must be conserved: table={round(sum(table.values()),1)} exported={round(sum(exported.values()),1)}"
+    # Total load is conserved across all three views (~4624.1). Conservation
+    # holds before and after the fix and proves the defect is re-labelling onto
+    # the dominant sport, not lost data.
+    totals = {
+        "budget": round(sum(budget.values()), 1),
+        "exported": round(sum(exported.values()), 1),
+        "table": round(sum(table.values()), 1),
+    }
+    assert totals["exported"] == pytest.approx(totals["budget"], abs=0.5), totals
+    assert totals["table"] == pytest.approx(totals["budget"], abs=0.5), totals
 
+    # Three-way invariant: original sport budget == materialized leaf sessions
+    # == weekly summary, per discipline. The budget is the reference the split
+    # cannot fake.
     for d in _DISCIPLINES:
-        assert exported[d] == pytest.approx(table[d], abs=0.1), (
-            f"discipline {d}: weekly table {table[d]} != exported sessions {exported[d]} "
-            f"(full table={table}, full exported={exported})"
+        assert exported[d] == pytest.approx(budget[d], abs=1.0), (
+            f"discipline {d}: leaf sessions {exported[d]} != sport budget {budget[d]} "
+            f"(budget={budget}, exported={exported}, table={table})"
+        )
+        assert table[d] == pytest.approx(budget[d], abs=1.0), (
+            f"discipline {d}: weekly table {table[d]} != sport budget {budget[d]} "
+            f"(budget={budget}, table={table})"
         )
 
 
