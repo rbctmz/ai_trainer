@@ -160,6 +160,7 @@ def test_materializer_preserves_exact_seconds_tss_and_ftp_provenance():
         "source": "athlete_profile.ftp",
         "value": 200.0,
         "fallback": False,
+        "scale": "absolute_power_from_ftp",
     }
     work_steps = [step for step in result["steps"] if step["intensity"] == "work"]
     assert work_steps

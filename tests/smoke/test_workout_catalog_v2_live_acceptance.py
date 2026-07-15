@@ -143,4 +143,3 @@ def test_v2_live_acceptance_refuses_residue_before_any_write() -> None:
 
     assert client.upsert_calls == []
     assert client.delete_calls == []
-

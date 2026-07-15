@@ -56,6 +56,51 @@ def test_v2_versions_only_change_materialization_and_changed_definitions() -> No
     assert definitions["bike_race_pace"].version == 1
 
 
+def test_every_catalog_definition_is_exact_and_deterministic_at_feasible_bounds() -> None:
+    zone_snapshot = {
+        "ftp": 200,
+        "threshold_pace": 300,
+        "lthr": 165,
+        "css": 110,
+    }
+
+    for definition in catalog_definitions():
+        feasible_cases = 0
+        for minutes in {
+            definition.min_duration_minutes,
+            (definition.min_duration_minutes + definition.max_duration_minutes) // 2,
+            definition.max_duration_minutes,
+        }:
+            low_tss = max(
+                definition.min_tss,
+                definition.min_tss_per_hour * minutes / 60.0,
+            )
+            high_tss = min(
+                definition.max_tss,
+                definition.max_tss_per_hour * minutes / 60.0,
+            )
+            if low_tss > high_tss:
+                continue
+            target_tss = round((low_tss + high_tss) / 2.0, 1)
+            parameters = {
+                "duration_minutes": minutes,
+                "target_tss": target_tss,
+            }
+
+            first = materialize_workout(definition, parameters, zone_snapshot)
+            second = materialize_workout(definition, parameters, zone_snapshot)
+
+            assert first == second, definition.template_key
+            assert first["materialization_status"] == "materialized", (
+                definition.template_key,
+                minutes,
+                target_tss,
+            )
+            _assert_exact(first, seconds=minutes * 60, tss=target_tss)
+            feasible_cases += 1
+        assert feasible_cases > 0, definition.template_key
+
+
 def test_bike_threshold_materializes_numbered_repeats_deterministically() -> None:
     definition = _definition("bike_threshold_intervals")
     parameters = {"duration_minutes": 60, "target_tss": 80.0}
@@ -160,6 +205,9 @@ def test_run_vo2_uses_pace_then_lthr_then_rpe_without_ftp_semantics() -> None:
     assert all(step["target"]["type"] == "pace" for step in pace["steps"])
     assert all(
         step["target"]["type"] == "heart_rate" for step in heart_rate["steps"]
+    )
+    assert all(
+        step["target"]["reference"] == "lthr" for step in heart_rate["steps"]
     )
     assert all(
         step["target"]["type"] == "relative_rpe" for step in fallback["steps"]
@@ -293,6 +341,21 @@ def test_intervals_text_preserves_repeat_order_and_sport_target_types() -> None:
     assert all(line.endswith("w") for line in bike_text.splitlines()[1:])
     assert all(line.endswith("/km") for line in run_text.splitlines()[1:])
     assert "%" not in run_text
+
+
+def test_intervals_serializes_lthr_fallback_as_supported_lthr_percentage() -> None:
+    run = materialize_workout(
+        _definition("run_tempo_threshold"),
+        {"duration_minutes": 60, "target_tss": 70.0},
+        {"lthr": 165},
+    )
+
+    text = build_intervals_workout_description(run["steps"], title="Run")
+
+    assert run["target_provenance"]["scale"] == "absolute_hr_from_lthr"
+    assert all(line.endswith("% LTHR") for line in text.splitlines()[1:])
+    assert "bpm" not in text
+    assert "% HR" not in text
 
 
 def test_restoring_explicit_v1_checkpoint_does_not_upgrade_prescription(tmp_path) -> None:

@@ -9,9 +9,10 @@ import math
 from typing import Any, Mapping, Sequence
 
 
-CATALOG_VERSION = "workout_catalog_v1"
+CATALOG_VERSION = "workout_catalog_v2"
 SELECTOR_RULE_VERSION = "workout_selector_v1"
-MATERIALIZER_RULE_VERSION = "workout_materializer_v1"
+MATERIALIZER_RULE_VERSION = "workout_materializer_v2"
+STRUCTURE_RULE_VERSION = "workout_structure_v2"
 
 
 @dataclass(frozen=True)
@@ -39,6 +40,25 @@ class WorkoutTemplateDefinition:
     step_builder_key: str
 
 
+@dataclass(frozen=True)
+class _StepSpec:
+    name: str
+    intensity: str
+    duration_seconds: int
+    target_fraction: float
+    segment_kind: str
+    repeat_index: int | None = None
+
+
+@dataclass(frozen=True)
+class _RepeatTier:
+    name: str
+    min_duration_minutes: int
+    repeat_count: int
+    work_seconds: int
+    recovery_seconds: int
+
+
 _ALL_TRAINING_PHASES = ("Base", "Build", "Peak", "Taper", "Race Week", "Maintenance")
 _TRIATHLON_GOALS = ("triathlon", "триатлон")
 
@@ -62,10 +82,14 @@ def _definition(
     goals: tuple[str, ...] = ("any",),
     requirements: tuple[str, ...] = (),
     contraindications: tuple[str, ...] = (),
+    version: int | None = None,
 ) -> WorkoutTemplateDefinition:
+    resolved_version = version
+    if resolved_version is None:
+        resolved_version = 2 if sport in {"bike", "run"} or kind == "composite" else 1
     return WorkoutTemplateDefinition(
         template_key=template_key,
-        version=1,
+        version=resolved_version,
         display_name=display_name,
         kind=kind,
         sport=sport,
@@ -123,6 +147,12 @@ _CATALOG = (
         "bike_neuromuscular_sprints", "Neuromuscular Sprints", "bike", ("quality", "easy"),
         "neuromuscular recruitment", ("Base", "Build", "Peak", "Taper", "Race Week", "Maintenance"),
         (30, 75), (20, 85), (40, 90), (1, 1, 3), 30, ("ftp", "relative_rpe"), "neuromuscular",
+    ),
+    _definition(
+        "bike_race_pace", "Race Pace Ride", "bike", ("quality", "race"),
+        "event-specific cycling pace", ("Peak", "Taper", "Race Week"),
+        (40, 150), (30, 180), (50, 105), (2, 1, 1), 36,
+        ("ftp", "relative_rpe"), "race_pace", version=1,
     ),
     _definition(
         "run_recovery", "Recovery Run", "run", ("recovery", "easy"),
@@ -190,7 +220,7 @@ _CATALOG = (
 
 
 def catalog_definitions() -> tuple[WorkoutTemplateDefinition, ...]:
-    """Return the immutable v1 catalog in stable declaration order."""
+    """Return the immutable current catalog in stable declaration order."""
     return _CATALOG
 
 
@@ -314,6 +344,344 @@ _STEP_PATTERNS: dict[str, tuple[tuple[str, str, float, float], ...]] = {
 }
 
 
+_REPEAT_PRESCRIPTIONS: dict[
+    str,
+    tuple[str, float, float, tuple[_RepeatTier, ...]],
+] = {
+    "bike_tempo": (
+        "Tempo",
+        0.88,
+        0.50,
+        (
+            _RepeatTier("short", 45, 2, 8 * 60, 4 * 60),
+            _RepeatTier("medium", 70, 3, 10 * 60, 4 * 60),
+            _RepeatTier("long", 100, 3, 15 * 60, 5 * 60),
+        ),
+    ),
+    "bike_threshold": (
+        "Threshold",
+        1.00,
+        0.50,
+        (
+            _RepeatTier("short", 40, 3, 5 * 60, 3 * 60),
+            _RepeatTier("medium", 60, 3, 8 * 60, 4 * 60),
+            _RepeatTier("long", 85, 4, 8 * 60, 4 * 60),
+        ),
+    ),
+    "bike_vo2": (
+        "VO2",
+        1.15,
+        0.45,
+        (
+            _RepeatTier("short", 35, 4, 2 * 60, 2 * 60),
+            _RepeatTier("medium", 50, 5, 3 * 60, 3 * 60),
+            _RepeatTier("long", 75, 5, 4 * 60, 4 * 60),
+        ),
+    ),
+    "bike_neuromuscular": (
+        "Sprint",
+        1.30,
+        0.35,
+        (
+            _RepeatTier("short", 30, 6, 20, 100),
+            _RepeatTier("medium", 45, 8, 30, 150),
+            _RepeatTier("long", 60, 10, 30, 150),
+        ),
+    ),
+    "bike_race_pace": (
+        "Race pace",
+        0.92,
+        0.50,
+        (
+            _RepeatTier("short", 40, 2, 8 * 60, 4 * 60),
+            _RepeatTier("medium", 60, 3, 10 * 60, 4 * 60),
+            _RepeatTier("long", 90, 3, 15 * 60, 5 * 60),
+        ),
+    ),
+    "run_threshold": (
+        "Threshold",
+        1.00,
+        0.70,
+        (
+            _RepeatTier("short", 35, 3, 5 * 60, 2 * 60),
+            _RepeatTier("medium", 55, 3, 8 * 60, 3 * 60),
+            _RepeatTier("long", 80, 4, 8 * 60, 3 * 60),
+        ),
+    ),
+    "run_vo2": (
+        "VO2",
+        1.08,
+        0.68,
+        (
+            _RepeatTier("short", 30, 6, 30, 90),
+            _RepeatTier("medium", 45, 5, 2 * 60, 2 * 60),
+            _RepeatTier("long", 60, 5, 3 * 60, 3 * 60),
+        ),
+    ),
+    "run_race_pace": (
+        "Race pace",
+        0.92,
+        0.70,
+        (
+            _RepeatTier("short", 30, 2, 8 * 60, 3 * 60),
+            _RepeatTier("medium", 55, 3, 10 * 60, 4 * 60),
+            _RepeatTier("long", 80, 3, 15 * 60, 5 * 60),
+        ),
+    ),
+}
+
+
+_STAGE_PRESCRIPTIONS: dict[
+    tuple[str, str],
+    tuple[tuple[str, str, float, float, str], ...],
+] = {
+    ("bike", "recovery"): (
+        ("Warm-up", "easy", 0.15, 0.45, "warmup"),
+        ("Recovery", "steady", 0.70, 0.50, "stage"),
+        ("Cool-down", "easy", 0.15, 0.35, "cooldown"),
+    ),
+    ("run", "recovery"): (
+        ("Warm-up", "easy", 0.15, 0.65, "warmup"),
+        ("Recovery", "steady", 0.70, 0.68, "stage"),
+        ("Cool-down", "easy", 0.15, 0.60, "cooldown"),
+    ),
+    ("bike", "endurance"): (
+        ("Warm-up", "easy", 0.15, 0.50, "warmup"),
+        ("Aerobic endurance", "steady", 0.55, 0.68, "stage"),
+        ("Steady finish", "steady", 0.15, 0.75, "stage"),
+        ("Cool-down", "easy", 0.15, 0.40, "cooldown"),
+    ),
+    ("run", "endurance"): (
+        ("Warm-up", "easy", 0.15, 0.65, "warmup"),
+        ("Aerobic endurance", "steady", 0.55, 0.72, "stage"),
+        ("Steady finish", "steady", 0.15, 0.80, "stage"),
+        ("Cool-down", "easy", 0.15, 0.60, "cooldown"),
+    ),
+    ("bike", "progression"): (
+        ("Warm-up", "easy", 0.15, 0.50, "warmup"),
+        ("Aerobic", "steady", 0.35, 0.65, "stage"),
+        ("Moderate", "steady", 0.25, 0.75, "stage"),
+        ("Strong finish", "work", 0.15, 0.85, "work"),
+        ("Cool-down", "easy", 0.10, 0.40, "cooldown"),
+    ),
+    ("run", "progression"): (
+        ("Warm-up", "easy", 0.15, 0.65, "warmup"),
+        ("Aerobic", "steady", 0.35, 0.70, "stage"),
+        ("Moderate", "steady", 0.25, 0.80, "stage"),
+        ("Strong finish", "work", 0.15, 0.90, "work"),
+        ("Cool-down", "easy", 0.10, 0.60, "cooldown"),
+    ),
+}
+
+
+def _prescription_key(definition: WorkoutTemplateDefinition) -> str:
+    return f"{definition.sport}_{definition.step_builder_key}"
+
+
+def _repeat_specs(
+    definition: WorkoutTemplateDefinition,
+    total_seconds: int,
+) -> tuple[list[_StepSpec], dict[str, Any]] | None:
+    prescription_key = _prescription_key(definition)
+    prescription = _REPEAT_PRESCRIPTIONS.get(prescription_key)
+    if prescription is None:
+        return None
+    work_name, work_fraction, recovery_fraction, tiers = prescription
+    feasible: list[_RepeatTier] = []
+    for tier in tiers:
+        core_seconds = (
+            tier.repeat_count * tier.work_seconds
+            + (tier.repeat_count - 1) * tier.recovery_seconds
+        )
+        if (
+            definition.min_duration_minutes <= total_seconds / 60.0
+            and tier.min_duration_minutes * 60 <= total_seconds
+            and total_seconds - core_seconds >= 10 * 60
+        ):
+            feasible.append(tier)
+    if not feasible:
+        return _simplified_specs(definition, total_seconds)
+
+    tier = feasible[-1]
+    core_seconds = (
+        tier.repeat_count * tier.work_seconds
+        + (tier.repeat_count - 1) * tier.recovery_seconds
+    )
+    remaining = total_seconds - core_seconds
+    warmup_seconds = int(math.floor(remaining * 0.55))
+    cooldown_seconds = remaining - warmup_seconds
+    easy_fraction = 0.50 if definition.sport == "bike" else 0.68
+    cooldown_fraction = 0.40 if definition.sport == "bike" else 0.60
+    specs = [
+        _StepSpec(
+            "Warm-up",
+            "easy",
+            warmup_seconds,
+            easy_fraction,
+            "warmup",
+        )
+    ]
+    for repeat_index in range(1, tier.repeat_count + 1):
+        specs.append(
+            _StepSpec(
+                f"{work_name} {repeat_index}/{tier.repeat_count}",
+                "work",
+                tier.work_seconds,
+                work_fraction,
+                "work",
+                repeat_index,
+            )
+        )
+        if repeat_index < tier.repeat_count:
+            specs.append(
+                _StepSpec(
+                    f"Recovery {repeat_index}/{tier.repeat_count - 1}",
+                    "easy",
+                    tier.recovery_seconds,
+                    recovery_fraction,
+                    "recovery",
+                    repeat_index,
+                )
+            )
+    specs.append(
+        _StepSpec(
+            "Cool-down",
+            "easy",
+            cooldown_seconds,
+            cooldown_fraction,
+            "cooldown",
+        )
+    )
+    return specs, {
+        "rule_version": STRUCTURE_RULE_VERSION,
+        "prescription_key": prescription_key,
+        "tier": tier.name,
+        "repeat_count": tier.repeat_count,
+        "simplification_reason": None,
+    }
+
+
+def _stage_specs(
+    definition: WorkoutTemplateDefinition,
+    total_seconds: int,
+) -> tuple[list[_StepSpec], dict[str, Any]] | None:
+    pattern = _STAGE_PRESCRIPTIONS.get(
+        (definition.sport, definition.step_builder_key)
+    )
+    if pattern is None:
+        return None
+    seconds = [
+        int(value)
+        for value in _exact_distribution(
+            total_seconds,
+            [item[2] for item in pattern],
+            0,
+        )
+    ]
+    specs = [
+        _StepSpec(
+            name,
+            intensity,
+            seconds[index],
+            target_fraction,
+            segment_kind,
+        )
+        for index, (name, intensity, _share, target_fraction, segment_kind) in enumerate(pattern)
+    ]
+    return specs, {
+        "rule_version": STRUCTURE_RULE_VERSION,
+        "prescription_key": _prescription_key(definition),
+        "tier": None,
+        "repeat_count": None,
+        "simplification_reason": None,
+    }
+
+
+def _simplified_specs(
+    definition: WorkoutTemplateDefinition,
+    total_seconds: int,
+) -> tuple[list[_StepSpec], dict[str, Any]]:
+    if total_seconds < 3:
+        raise ValueError("materialized workout must have at least three seconds")
+    seconds = [
+        int(value)
+        for value in _exact_distribution(total_seconds, (0.20, 0.60, 0.20), 0)
+    ]
+    easy_fraction = 0.50 if definition.sport == "bike" else 0.68
+    controlled_fraction = 0.72 if definition.sport == "bike" else 0.78
+    cooldown_fraction = 0.40 if definition.sport == "bike" else 0.60
+    specs = [
+        _StepSpec("Warm-up", "easy", seconds[0], easy_fraction, "warmup"),
+        _StepSpec(
+            "Controlled aerobic",
+            "steady",
+            seconds[1],
+            controlled_fraction,
+            "stage",
+        ),
+        _StepSpec("Cool-down", "easy", seconds[2], cooldown_fraction, "cooldown"),
+    ]
+    return specs, {
+        "rule_version": STRUCTURE_RULE_VERSION,
+        "prescription_key": _prescription_key(definition),
+        "tier": None,
+        "repeat_count": None,
+        "simplification_reason": "repeat_budget_below_short_tier",
+    }
+
+
+def _legacy_specs(
+    definition: WorkoutTemplateDefinition,
+    total_seconds: int,
+) -> tuple[list[_StepSpec], dict[str, Any]]:
+    pattern_key = definition.step_builder_key
+    if pattern_key.startswith("brick_"):
+        pattern_key = "race_pace" if pattern_key == "brick_race_pace" else "endurance"
+    pattern = _STEP_PATTERNS[pattern_key]
+    seconds = [
+        int(value)
+        for value in _exact_distribution(
+            total_seconds,
+            [item[2] for item in pattern],
+            0,
+        )
+    ]
+    specs = [
+        _StepSpec(
+            name,
+            intensity,
+            seconds[index],
+            target_fraction,
+            "work" if intensity == "work" else "stage",
+        )
+        for index, (name, intensity, _share, target_fraction) in enumerate(pattern)
+    ]
+    return specs, {
+        "rule_version": STRUCTURE_RULE_VERSION,
+        "prescription_key": _prescription_key(definition),
+        "tier": None,
+        "repeat_count": None,
+        "simplification_reason": None,
+    }
+
+
+def _structured_specs(
+    definition: WorkoutTemplateDefinition,
+    total_seconds: int,
+) -> tuple[list[_StepSpec], str, dict[str, Any]]:
+    repeated = _repeat_specs(definition, total_seconds)
+    if repeated is not None:
+        specs, evidence = repeated
+        status = "simplified" if evidence["simplification_reason"] else "structured"
+        return specs, status, evidence
+    staged = _stage_specs(definition, total_seconds)
+    if staged is not None:
+        specs, evidence = staged
+        return specs, "structured", evidence
+    specs, evidence = _legacy_specs(definition, total_seconds)
+    return specs, "legacy_pattern", evidence
+
+
 def _resolve_provenance(
     definition: WorkoutTemplateDefinition,
     zone_snapshot: Mapping[str, Any],
@@ -327,11 +695,18 @@ def _resolve_provenance(
         except (TypeError, ValueError):
             continue
         if value > 0:
+            scale = {
+                "ftp": "absolute_power_from_ftp",
+                "lthr": "absolute_hr_from_lthr",
+                "threshold_pace": "absolute_pace_from_threshold",
+                "css": "absolute_pace_from_css",
+            }[kind]
             return {
                 "kind": kind,
                 "source": f"athlete_profile.{kind}",
                 "value": value,
                 "fallback": False,
+                "scale": scale,
             }
     missing = [item for item in definition.target_preference if item != "relative_rpe"]
     return {
@@ -340,6 +715,7 @@ def _resolve_provenance(
         "value": None,
         "fallback": True,
         "missing": missing,
+        "scale": "relative_rpe",
     }
 
 
@@ -361,6 +737,7 @@ def _target_for_step(provenance: Mapping[str, Any], intensity: str, fraction: fl
         return {
             "type": "heart_rate",
             "unit": "bpm",
+            "reference": "lthr",
             "low": int(round(float(value) * low_fraction)),
             "high": int(round(float(value) * high_fraction)),
             "relative_low": round(low_fraction, 2),
@@ -425,28 +802,38 @@ def materialize_workout(
     if failed:
         return base
 
-    pattern_key = definition.step_builder_key
-    if pattern_key.startswith("brick_"):
-        pattern_key = "race_pace" if pattern_key == "brick_race_pace" else "endurance"
-    pattern = _STEP_PATTERNS[pattern_key]
-    shares = [item[2] for item in pattern]
-    seconds = [int(value) for value in _exact_distribution(duration * 60, shares, 0)]
-    tss_values = _exact_distribution(target_tss, shares, 1)
+    specs, structure_status, structure_evidence = _structured_specs(
+        definition,
+        duration * 60,
+    )
+    duration_shares = [
+        spec.duration_seconds / (duration * 60)
+        for spec in specs
+    ]
+    tss_values = _exact_distribution(target_tss, duration_shares, 1)
     provenance = _resolve_provenance(definition, zone_snapshot)
     steps = []
-    for index, (name, intensity, _share, target_fraction) in enumerate(pattern):
-        steps.append(
-            {
-                "index": index,
-                "name": name,
-                "intensity": intensity,
-                "duration_seconds": seconds[index],
-                "tss": tss_values[index],
-                "target": _target_for_step(provenance, intensity, target_fraction),
-            }
-        )
+    for index, spec in enumerate(specs):
+        step = {
+            "index": index,
+            "name": spec.name,
+            "intensity": spec.intensity,
+            "duration_seconds": spec.duration_seconds,
+            "tss": tss_values[index],
+            "target": _target_for_step(
+                provenance,
+                spec.intensity,
+                spec.target_fraction,
+            ),
+            "segment_kind": spec.segment_kind,
+        }
+        if spec.repeat_index is not None:
+            step["repeat_index"] = spec.repeat_index
+        steps.append(step)
     base["steps"] = steps
     base["target_provenance"] = provenance
+    base["structure_status"] = structure_status
+    base["structure_evidence"] = structure_evidence
     return base
 
 
@@ -597,6 +984,8 @@ def materialize_session_template(
         "parameter_snapshot": materialized["parameter_snapshot"],
         "materialized_steps": materialized["steps"],
         "target_provenance": materialized.get("target_provenance"),
+        "structure_status": materialized.get("structure_status"),
+        "structure_evidence": materialized.get("structure_evidence"),
     }
     return {
         "kind": "single",
@@ -615,6 +1004,8 @@ def materialize_session_template(
         "parameter_snapshot": materialized["parameter_snapshot"],
         "materialized_steps": materialized["steps"],
         "target_provenance": materialized.get("target_provenance"),
+        "structure_status": materialized.get("structure_status"),
+        "structure_evidence": materialized.get("structure_evidence"),
         "selection_evidence": evidence,
         "prescription_fingerprint": _prescription_fingerprint(prescription),
     }
@@ -669,8 +1060,10 @@ def materialize_brick_session(
     if run_minutes < 30:
         run_minutes = 30
         bike_minutes = active_minutes - run_minutes
-    bike_definition = next(item for item in _CATALOG if item.template_key == "bike_aerobic_endurance")
-    run_definition = next(item for item in _CATALOG if item.template_key == "run_aerobic_endurance")
+    bike_template_key = "bike_race_pace" if phase == "Peak" else "bike_aerobic_endurance"
+    run_template_key = "run_race_pace" if phase == "Peak" else "run_aerobic_endurance"
+    bike_definition = next(item for item in _CATALOG if item.template_key == bike_template_key)
+    run_definition = next(item for item in _CATALOG if item.template_key == run_template_key)
     bike = materialize_workout(
         bike_definition,
         {"duration_minutes": bike_minutes, "target_tss": bike_tss},
@@ -705,6 +1098,8 @@ def materialize_brick_session(
                 "parameter_snapshot": materialized["parameter_snapshot"],
                 "materialized_steps": materialized["steps"],
                 "target_provenance": materialized["target_provenance"],
+                "structure_status": materialized.get("structure_status"),
+                "structure_evidence": materialized.get("structure_evidence"),
             }
         )
     prescription = {
@@ -732,6 +1127,8 @@ def materialize_brick_session(
         "definition_snapshot": parent_check["definition_snapshot"],
         "parameter_snapshot": parent_check["parameter_snapshot"],
         "materialized_steps": [],
+        "structure_status": parent_check.get("structure_status"),
+        "structure_evidence": parent_check.get("structure_evidence"),
         "legs": legs,
         "selection_evidence": {
             "rule_version": SELECTOR_RULE_VERSION,
@@ -1034,6 +1431,7 @@ __all__ = [
     "CATALOG_VERSION",
     "SELECTOR_RULE_VERSION",
     "MATERIALIZER_RULE_VERSION",
+    "STRUCTURE_RULE_VERSION",
     "WorkoutTemplateDefinition",
     "catalog_definitions",
     "definition_snapshot",

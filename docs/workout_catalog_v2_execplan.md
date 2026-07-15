@@ -16,9 +16,10 @@ This change is prospective. Existing checkpoints retain their v1 definition snap
 - [x] (2026-07-15) Audited Workout Catalog v1, checkpoint restore and session identity, brick materialization, proportional recovery rescaling, FIT/TCX fallback, Intervals.icu serialization, the reversible live probe, and the v1/delivery ExecPlans.
 - [x] (2026-07-15) Confirmed publish preflight, created isolated worktree `/private/tmp/ai_trainer_issue197` on `codex/issue-197-workout-catalog-v2`, and removed the obsolete blocked label after #198 merged.
 - [x] (2026-07-15) Added contract-first tests for repeated structures, target provenance, deterministic simplification, brick reuse, immutable old checkpoints, and ordered Intervals serialization. The clean RED run reported `14 failed, 17 passed` at the intended v2 boundaries.
-- [ ] Implement the smallest versioned v2 materializer without changing provider ownership, delivery orchestration, planner selection architecture, or historical restore.
-- [ ] Run focused, contributor-safe smoke, broad non-live, Python compilation, and Next lint/build validation; record timings against ASR-PERF-4.
-- [ ] Open a draft PR with `Closes #197`, complete independent review, and only after explicit athlete authorization run two isolated provider probes (one bike and one run) with exact cleanup.
+- [x] (2026-07-15) Implemented the versioned v2 materializer, 20th `bike_race_pace` definition, sport-specific stages/repeat tiers, prospective definition versions, Peak race-pace brick legs, and Intervals `% LTHR` serialization without changing provider ownership, delivery orchestration, selector version, or historical restore.
+- [x] (2026-07-15) Completed the final focused contour (`47 passed`), contributor-safe smoke (`687 passed, 1 skipped`), broad non-live (`730 passed, 6 skipped, 24 deselected`), Python compilation, and Next lint/build. The 16-week planner remained inside its four-second regression guard.
+- [x] (2026-07-15) With explicit athlete authorization, ran two isolated provider probes on 2026-07-30. Repeated upserts converged on bike event `123028945` and run event `123028946`; Intervals parsed seven ordered power steps and seven ordered HR steps, foreign events stayed byte-equivalent, both probes were deleted, and a bounded read found zero residue.
+- [ ] Open a draft PR with `Closes #197` and obtain independent review before human merge.
 
 ## Surprises & Discoveries
 
@@ -26,7 +27,7 @@ This change is prospective. Existing checkpoints retain their v1 definition snap
   Evidence: `models.intervals_workout_delivery.build_delivery_events` reads `materialized_steps` from the persisted checkpoint and `build_intervals_workout_description` emits them in list order. The legacy `build_steps_for_sport` path is used only when old checkpoints have no stored steps.
 
 - Observation: run target semantics are already safer than the legacy adapter when a catalog prescription exists.
-  Evidence: `_resolve_provenance` prefers `threshold_pace`, then `lthr`, then `relative_rpe`; `_target_for_step` stores absolute pace or bpm dictionaries. The serializer prints pace as `/km`, heart rate as `bpm`, and therefore cannot be parsed as FTP. The ambiguous `% HR` behavior belongs only to the legacy fallback.
+  Evidence: `_resolve_provenance` prefers `threshold_pace`, then `lthr`, then `relative_rpe`; `_target_for_step` stores absolute pace or bpm dictionaries plus relative bounds. The serializer prints pace as `/km` and LTHR-derived heart rate as `% LTHR`, so neither can be parsed as FTP or max-HR. The ambiguous `% HR` behavior belongs only to the legacy fallback.
 
 - Observation: v1 step-builder keys are shared across sports, so replacing the global pattern table would silently change swim and walk prescriptions.
   Evidence: `swim_threshold_repeats` also uses `step_builder_key="threshold"`, while `walk_recovery` uses `recovery`. V2 must dispatch on both sport and builder and retain the v1 pattern for non-bike/run definitions.
@@ -39,6 +40,12 @@ This change is prospective. Existing checkpoints retain their v1 definition snap
 
 - Observation: the explicit v1 checkpoint fixture is preserved even though restore legitimately adds deterministic session identity metadata.
   Evidence: the RED fixture's catalog/materializer versions, definition snapshot, exact old step, and fingerprint round-trip byte-for-byte; only `session_id`, identity rule version, and material fingerprint are appended by the existing restore contract.
+
+- Observation: Intervals.icu accepts `% LTHR` but does not parse absolute `bpm` from workout-builder text as an executable HR target.
+  Evidence: the first authorized v2 live probe parsed all seven run lines only as `{duration, text}` when the serializer emitted absolute `bpm`; the bike event parsed as power and both temporary events were removed with zero residue. The current Intervals Workout Builder guide documents `% LTHR`, HR zones, and `% HR`, but not absolute bpm as a supported target. The existing target snapshot already retains both absolute bpm and relative LTHR bounds, so delivery can use the supported relative representation without losing provenance.
+
+- Observation: the corrected `% LTHR` representation is parsed end-to-end by the configured provider account.
+  Evidence: the final authorized probe returned seven parsed steps for each sport; the recursive provider evidence contained `power` for the bike and `hr` for the run, a second upsert retained the same provider ids, cleanup deleted exactly two acceptance rows, and foreign rows were unchanged.
 
 ## Decision Log
 
@@ -83,8 +90,8 @@ This change is prospective. Existing checkpoints retain their v1 definition snap
   Rationale: seconds are allocated exactly to the requested duration and per-step TSS is allocated to one decimal so the sum equals requested session TSS. This keeps planner load accounting stable. V2 improves execution structure, not the existing TSS model.
   Date/Author: 2026-07-15 / Codex
 
-- Decision: express running fallbacks as absolute bpm from LTHR, never percent maximum heart rate.
-  Rationale: the live provider observation showed `% HR` is interpreted as `%hr`/max-HR. The catalog already has LTHR and the serializer supports absolute bpm, which is unambiguous. If threshold pace is absent, provenance is `athlete_profile.lthr`; if both are absent, targets are explicit RPE and `fallback=true` lists the missing inputs.
+- Decision: store absolute bpm from LTHR in the immutable catalog target, but serialize its existing relative bounds as `% LTHR` for Intervals.icu; never emit `% HR`/max-HR.
+  Rationale: the first live v2 probe disproved the pre-implementation assumption that Intervals parses absolute bpm. `% LTHR` is explicitly supported, preserves the intended threshold scale, and is portable if the athlete profile changes. If threshold pace is absent, provenance remains `athlete_profile.lthr` with absolute bpm plus relative bounds; if both are absent, targets are explicit RPE and `fallback=true` lists the missing inputs.
   Date/Author: 2026-07-15 / Codex
 
 - Decision: Peak race bricks reuse `bike_race_pace` and `run_race_pace`; Build endurance bricks reuse both aerobic-endurance builders.
@@ -97,13 +104,15 @@ This change is prospective. Existing checkpoints retain their v1 definition snap
 
 ## Outcomes & Retrospective
 
-Implementation is not yet complete. This section will record the final catalog versions, changed files, exact red/green evidence, performance timing, live parse evidence if authorized, review findings, and remaining follow-ups. Garmin arrival is explicitly outside this issue; Intervals parsing is the provider acceptance boundary.
+Workout Catalog v2 now produces real ordered cycling and running prescriptions prospectively. The selector remains `workout_selector_v1`; new material is labeled `workout_catalog_v2`, `workout_materializer_v2`, and `workout_structure_v2`. Changed bike/run/brick definitions are version 2, unchanged swim/walk definitions remain version 1, and the new bike race-pace definition begins at version 1. Existing v1 checkpoint fixtures round-trip unchanged apart from the already-established deterministic session-identity metadata.
+
+The contract-first run began at `14 failed, 17 passed`; the final focused contour is `47 passed`. Contributor-safe smoke is `687 passed, 1 skipped`, broad non-live is `730 passed, 6 skipped, 24 deselected`, Python compilation passed, the 16-week planner stayed under its four-second regression guard, and Next lint/build passed. The explicitly authorized live probe corrected one false assumption before publication: Intervals does not parse absolute bpm from workout text, but does parse the same LTHR-relative target as `% LTHR`. Final evidence is seven ordered bike power steps and seven ordered run HR steps, stable provider ids, exact cleanup, and no foreign mutation. Garmin arrival remains outside this issue; Intervals parsing is the provider acceptance boundary.
 
 ## Context and Orientation
 
 `models/workout_catalog.py` owns immutable definitions, selection, materialization, brick construction, and proportional rescaling. `models/planning_checkpoints.py` persists the complete returned template dictionaries. Restore reads those snapshots and does not look up current definitions. `models/session_identity.py` fingerprints the materialized prescription, so changed v2 steps produce new session ids only for new builds.
 
-`models/intervals_workout_delivery.py` converts persisted steps to Intervals native text. It already maps target dictionaries to watts, bpm, pace per kilometre or 100 metres, and RPE. `models/fit_export.py` contains a legacy generic fallback for checkpoints with no catalog steps; #197 must not rewrite or delete it.
+`models/intervals_workout_delivery.py` converts persisted steps to Intervals native text. It maps target dictionaries to watts, supported `% LTHR`, pace per kilometre or 100 metres, and RPE. `models/fit_export.py` contains a legacy generic fallback for checkpoints with no catalog steps; #197 must not rewrite or delete it.
 
 The planning surface is FastAPI plus Next.js. No new endpoint or web component is required because the existing plan/Today responses expose persisted templates and the existing Export action consumes them. The Streamlit fallback is outside scope.
 
@@ -111,7 +120,7 @@ Architecture analysis #201 requires a 16-week plan in under four seconds after P
 
 ## Plan of Work
 
-First add a focused `tests/smoke/test_workout_catalog_v2.py` contract. It will assert catalog/materializer/definition versions, explicit numbered bike and run repeats, deterministic order, positive durations, exact duration/TSS sums, pace→LTHR→RPE provenance, short-tier simplification, ordered endurance/progression stages, race-pace selection, and Peak/Build brick leg reuse. Add an Intervals delivery contract that the serialized line order equals persisted step order and that bike lines contain watts while running lines contain `/km`, `bpm`, or `RPE` but no bare FTP percentage.
+First add a focused `tests/smoke/test_workout_catalog_v2.py` contract. It will assert catalog/materializer/definition versions, explicit numbered bike and run repeats, deterministic order, positive durations, exact duration/TSS sums, pace→LTHR→RPE provenance, short-tier simplification, ordered endurance/progression stages, race-pace selection, and Peak/Build brick leg reuse. Add an Intervals delivery contract that the serialized line order equals persisted step order and that bike lines contain watts while running lines contain `/km`, `% LTHR`, or `RPE` but no bare FTP or max-HR percentage.
 
 Run those tests before production edits and record the expected failures here. Commit the tests separately so TDD order remains inspectable.
 
@@ -138,7 +147,7 @@ Run commands from `/private/tmp/ai_trainer_issue197` with the project environmen
 After implementation:
 
     python -m compileall models api services data
-    python -m pytest tests/smoke/test_workout_catalog_v2.py tests/smoke/test_workout_catalog.py tests/smoke/test_intervals_plan_delivery.py tests/smoke/test_fit_export_session_templates.py tests/smoke/test_race_microcycle.py tests/smoke/test_planning_performance.py -q
+    python -m pytest tests/smoke/test_workout_catalog_v2.py tests/smoke/test_workout_catalog.py tests/smoke/test_intervals_plan_delivery.py tests/smoke/test_fit_export_session_templates.py tests/smoke/test_race_microcycles.py tests/smoke/test_api_planning.py -q
     python -m pytest tests/smoke -q
     python -m pytest -m "not live and not debug" tests/ -q
     cd web && npm run lint && npm run build
@@ -151,7 +160,7 @@ Focused tests are green when every changed cycling/running stimulus has the pre-
 
 Persistence acceptance is green when a newly built template advertises catalog/materializer v2 and changed definition version 2, while restoring a fixture saved with v1 snapshots returns exactly those v1 dictionaries. A material change creates a different fingerprint/session identity; a plain restore does not.
 
-Delivery acceptance is green when the native text line sequence matches the persisted step names. Cycling work steps use absolute watts. Running with threshold pace uses `/km`; without pace but with LTHR it uses absolute `bpm`; without either it uses `RPE`. No new catalog running event contains an unqualified percent target.
+Delivery acceptance is green when the native text line sequence matches the persisted step names. Cycling work steps use absolute watts. Running with threshold pace uses `/km`; without pace but with LTHR it uses `% LTHR`; without either it uses `RPE`. No new catalog running event contains a bare FTP or `% HR` max-heart-rate target.
 
 Brick acceptance is green when Build legs use bike/run endurance definitions and Peak legs use bike/run race-pace definitions, ordered bike then run, while parent TSS, sport buckets, transition, leg ids, and fingerprint rules remain conserved.
 
