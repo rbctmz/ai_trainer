@@ -452,6 +452,24 @@ export interface PlanningEventsResponse {
   read_only: true;
 }
 
+export interface RaceMicrocycleState {
+  role: string;
+  sport: string;
+  focus: string;
+  tss: number;
+}
+
+export interface RaceMicrocycleChange {
+  date: string;
+  event_date: string;
+  priority: "A" | "B" | "C";
+  label: string;
+  offset: number;
+  phase: string;
+  before: RaceMicrocycleState;
+  after: RaceMicrocycleState;
+}
+
 export interface BuiltPlan {
   plan_id: string | null;
   planning_mode: "event_goal" | "training_goal" | "manual";
@@ -465,6 +483,7 @@ export interface BuiltPlan {
     weekly_tss_before: number[];
     weekly_tss_after: number[];
     weekly_tss_delta: number;
+    microcycle_changes: RaceMicrocycleChange[];
   };
   goal: {
     goal_type: string;
@@ -478,6 +497,7 @@ export interface BuiltPlan {
     rule_version: string;
     protected_dates: string[];
     overlays: Array<{ date: string; priority: "A" | "B" | "C"; label: string; affected_dates: string[] }>;
+    microcycle_changes: RaceMicrocycleChange[];
   };
   weekly_target: {
     target_weekly_tss: number;

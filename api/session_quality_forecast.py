@@ -18,7 +18,7 @@ from utils.product_semantics import normalize_sport_key
 
 
 TARGET_ROLES = {"quality", "long"}
-ACTUAL_ROLES = {"off", "recovery", "easy", "quality", "long"}
+ACTUAL_ROLES = {"off", "recovery", "easy", "activation", "quality", "long"}
 FORECAST_HORIZON_DAYS = 7
 
 

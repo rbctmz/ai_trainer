@@ -66,6 +66,7 @@ from models.training_planner import (
     create_weekly_tss_plan,
     expand_weekly_to_daily_triathlon,
     flatten_daily_total,
+    synchronize_microcycle_changes,
     weeks_until,
 )
 from models.workout_catalog import (
@@ -402,6 +403,9 @@ def build_plan(
         daily_plan,
         weekly_summary,
         plan_events,
+        goal_type=gt,
+        load_state=str(constraint_summary.get("load_state", "balanced")),
+        as_of=datetime.now().date(),
     )
     weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
 
@@ -463,6 +467,12 @@ def build_plan(
                 }
             )
 
+    microcycle_changes = synchronize_microcycle_changes(
+        event_overlay["microcycle_changes"],
+        daily_plan,
+        session_templates,
+    )
+
     goal_plan = synchronize_goal_plan_events({
         "goal_type": gt,
         "distance": dist,
@@ -492,6 +502,7 @@ def build_plan(
         "weekly_summary": weekly_summary,
         "overlay_rule_version": event_overlay["rule_version"],
         "event_overlays": event_overlay["overlays"],
+        "microcycle_changes": microcycle_changes,
         "protected_dates": event_overlay["protected_dates"],
         "constraint_summary": constraint_summary,
         "demand_level": demand_level,
@@ -504,6 +515,15 @@ def build_plan(
         "near_term_edit_rollback_target_checkpoint_id": None,
     })
     goal_plan, constraint_application = _apply_active_coach_constraints(db, goal_plan)
+    goal_plan["microcycle_changes"] = synchronize_microcycle_changes(
+        list(goal_plan.get("microcycle_changes") or []),
+        list(goal_plan.get("daily_plan") or []),
+        list(goal_plan.get("session_templates") or []),
+    )
+    event_overlay = {
+        **event_overlay,
+        "microcycle_changes": list(goal_plan["microcycle_changes"]),
+    }
     goal_plan = synchronize_goal_plan_events(goal_plan)
     existing_plan = restore_goal_plan_from_checkpoint(latest_checkpoint)
     goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=existing_plan)
@@ -567,6 +587,7 @@ def _build_plan_preview(
         "weekly_tss_before": before_weekly,
         "weekly_tss_after": after_weekly,
         "weekly_tss_delta": sum(after_weekly) - sum(before_weekly),
+        "microcycle_changes": [dict(row) for row in (after.get("microcycle_changes") or [])],
     }
 
 

@@ -98,6 +98,29 @@ def apply_constraints_to_goal_plan(
 
     updated["daily_plan"] = daily_plan
     updated["session_templates"] = session_templates
+    if protected_dates:
+        updated["protected_dates"] = sorted(
+            {
+                str(value)[:10]
+                for value in list(updated.get("protected_dates") or []) + protected_dates
+                if value
+            }
+        )
+        refreshed_changes = []
+        for raw_change in list(updated.get("microcycle_changes") or []):
+            change = deepcopy(dict(raw_change or {}))
+            day = str(change.get("date") or "")[:10]
+            if day in protected_dates:
+                matching = next((row for row in applied if row.get("date") == day), {})
+                change["after"] = {
+                    **dict(change.get("after") or {}),
+                    "role": "off",
+                    "sport": "off",
+                    "focus": _constraint_note(matching),
+                    "tss": 0.0,
+                }
+            refreshed_changes.append(change)
+        updated["microcycle_changes"] = refreshed_changes
     _refresh_weekly_totals(updated, applied)
 
     constraint_summary = dict(updated.get("constraint_summary") or {})

@@ -17,6 +17,7 @@ from models.training_planner import (
     apply_planning_constraints,
     build_daily_session_templates,
     expand_weekly_to_daily_triathlon,
+    synchronize_microcycle_changes,
 )
 from models.workout_catalog import (
     CATALOG_VERSION,
@@ -1208,6 +1209,9 @@ def rebuild_goal_plan_with_adjustment(
         daily_plan,
         weekly_summary,
         goal_plan.get("events", []),
+        goal_type=goal_type,
+        load_state=str(rebuilt_constraint_summary.get("load_state", "balanced")),
+        as_of=date.today(),
     )
     weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
 
@@ -1231,6 +1235,11 @@ def rebuild_goal_plan_with_adjustment(
         load_state=str(rebuilt_constraint_summary.get("load_state", "balanced")),
         zone_snapshot=zone_snapshot,
         brick_day_indices=set(brick_allocation.get("brick_day_indices") or []),
+    )
+    microcycle_changes = synchronize_microcycle_changes(
+        event_overlay["microcycle_changes"],
+        daily_plan,
+        session_templates,
     )
     corrective_microcycle = None
     rebuilt_plan_adjustment = rebuilt_constraint_summary.get("plan_adjustment")
@@ -1283,6 +1292,7 @@ def rebuild_goal_plan_with_adjustment(
         "weekly_summary": weekly_summary,
         "overlay_rule_version": event_overlay["rule_version"],
         "event_overlays": event_overlay["overlays"],
+        "microcycle_changes": microcycle_changes,
         "protected_dates": event_overlay["protected_dates"],
         "constraint_summary": rebuilt_constraint_summary,
         "planner_mix": planner_mix,
