@@ -993,7 +993,7 @@ def apply_race_event_overlays(
         if normalized_load_state != "deep_fatigue":
             return False
         if as_of is None:
-            return True
+            return False
         days_until = (target - as_of).days
         return 0 <= days_until < _RACE_READINESS_HORIZON_DAYS
 
@@ -1090,13 +1090,25 @@ def apply_race_event_overlays(
                 if is_triathlon
                 else None
             )
+            if (
+                not is_triathlon
+                and priority in {"A", "B"}
+                and offset == -1
+                and str((before_rows.get(target.isoformat()) or {}).get("role") or "")
+                in {"long", "quality"}
+            ):
+                prescription = ("easy", None, "Легкая подводка перед стартом")
             if prescription is not None:
                 role, sport, focus = prescription
-                if role == "activation" and activation_is_readiness_bounded(target):
+                readiness_removed_activation = (
+                    role == "activation" and activation_is_readiness_bounded(target)
+                )
+                if readiness_removed_activation:
                     role, sport, focus = "off", "off", "Отдых вместо активации · глубокая усталость"
                 if role == "off":
                     set_cap(target, 0.0, context=context)
-                    protected_dates.add(target.isoformat())
+                    if not readiness_removed_activation:
+                        protected_dates.add(target.isoformat())
                 set_prescription(
                     target,
                     role=role,

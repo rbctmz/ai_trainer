@@ -414,7 +414,7 @@ def test_sixteen_week_preview_meets_planning_latency_asr(tmp_path):
     elapsed = perf_counter() - started
 
     assert len(plan["weeks"]) >= 15
-    assert elapsed < 10.0
+    assert elapsed < 4.0
     assert db.get_latest_planning_checkpoint() is None
 
 

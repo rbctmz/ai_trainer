@@ -22,6 +22,7 @@ The active local checkpoint is deliberately not modified by this work (it was #6
 - [x] (2026-07-15) Validated a read-only preview on a copy of the real database with B 2026-07-26 and A 2026-10-04: 0.110 s, checkpoint #65 unchanged, `plan_id=null`, and no provider method invoked.
 - [x] (2026-07-15) Completed verification: 66 focused, 667 smoke (+1 environment skip), 710 broad non-live (+6 environment skips, 24 deselected), clean `git diff --check`, and a successful Next.js 14 production build.
 - [x] (2026-07-15) Rebased onto `origin/main` containing the #201 architecture analysis, reopened #198, pushed implementation commit `53fae50`, and opened replacement draft PR #202 with `Closes #198`.
+- [x] (2026-07-15) Addressed independent review findings: enforced same-sport race-eve degradation, removed readiness `as_of=None` and protected-date footguns, tightened ASR-PERF-4 to 4 seconds, and reverified 67 focused, 668 smoke, and 711 broad non-live tests.
 
 ## Surprises & Discoveries
 
@@ -74,7 +75,7 @@ The active local checkpoint is deliberately not modified by this work (it was #6
   Date/Author: 2026-07-14 / Codex.
 
 - Decision: In `deep_fatigue`, prescribed activations within the next seven days become off days with zero TSS; more distant activations remain in the prospective plan. Recovery/easy prescriptions remain, while catalog selection still receives `deep_fatigue` and can only choose allowed low-cost material.
-  Rationale: readiness is allowed to remove imminent stimulation but is not a valid forecast for a race weeks or months away. Seven days matches the bounded planning horizon and prevents today's fatigue from corrupting the October A-race microcycle.
+  Rationale: readiness is allowed to remove imminent stimulation but is not a valid forecast for a race weeks or months away. Seven days matches the bounded planning horizon and prevents today's fatigue from corrupting the October A-race microcycle. Suppression requires an explicit `as_of`; readiness-created rest is zero-load but is not added to immutable event `protected_dates`.
   Date/Author: 2026-07-14 / Codex.
 
 - Decision: Prescription conflicts resolve by safety first (`race`, `off`, `recovery`, `activation`, `easy`), then event priority A before B before C, then nearest offset and event date. Caps always combine by minimum.
@@ -85,8 +86,12 @@ The active local checkpoint is deliberately not modified by this work (it was #6
   Rationale: multisport activation requires changing the dominant sport, but overlays must never create training load or bypass availability.
   Date/Author: 2026-07-14 / Codex.
 
-- Decision: Non-triathlon goals retain their original pre-race roles, sports, and focuses under the existing A/B/C caps; only race and post-race safety roles are universal.
-  Rationale: the registered swim/bike/run sequence is a triathlon prescription. Applying its labels to a run- or bike-only plan would create contradictory plan truth, so a regression test keeps those paths fail-closed and backward compatible.
+- Decision: Non-triathlon goals retain their sport and normal pre-race structure under the existing A/B/C caps, except that a hard `long`/`quality` role on D-1 of A or B degrades to same-sport `easy`.
+  Rationale: the registered swim/bike/run sequence is a triathlon prescription, but the issue-level safety invariant that race eve cannot remain hard applies to every sport. The minimal degradation satisfies it without inventing a multisport pattern.
+  Date/Author: 2026-07-15 / Codex.
+
+- Decision: `activation` is not a quality-forecast target and does not trigger post-workout quality scoring.
+  Rationale: activation is a short, low-fatigue primer rather than a key quality outcome. Readiness conflict detection still recognizes it and may remove it under imminent deep fatigue.
   Date/Author: 2026-07-15 / Codex.
 
 - Decision: Persist root-level `microcycle_changes` alongside `event_overlays`, and expose the same list in preview. Each row contains event/offset, phase, before/after role, sport, focus, and TSS.
@@ -117,11 +122,15 @@ Given a confirmed A triathlon on Sunday, when Race Week is built, then D-7 throu
 
 Given a C race, when the overlay is applied, then D-1 keeps its original role and sport under the 70% cap, D0 is race, D+1 is recovery-capped, and macrocycle phases do not change.
 
+Given a run- or bike-only A/B goal whose D-1 role is `long` or `quality`, when the overlay is applied, then D-1 becomes same-sport `easy` under the cap without receiving triathlon-specific labels.
+
 Given overlapping A and B windows in either input order, when overlays are applied, then daily caps, prescriptions, protected dates, and `microcycle_changes` are identical; race/off/recovery safety wins before event priority.
 
 Given `load_state=deep_fatigue`, when A or B activations fall within seven days of `as_of`, then those dates are off at zero TSS and no quality/long role appears.
 
 Given `load_state=deep_fatigue` in July and an A race in October, when the prospective plan is built, then the October activation sessions remain prescribed because current readiness is not projected beyond seven days.
+
+Given `load_state=deep_fatigue` without an explicit `as_of`, when the pure overlay is called, then no readiness-based activation is removed; and when an imminent activation is removed with `as_of`, its rest day is not marked as an immutable protected event date.
 
 Given `planning_mode=event_goal` without a confirmed A event, when a build is requested, then the existing no-A validation still rejects it and creates no checkpoint.
 
