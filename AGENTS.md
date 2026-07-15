@@ -6,8 +6,16 @@ AI Trainer is in an active web migration. The main product development path is `
 ## Build, Test, and Development Commands
 Create or activate the virtualenv via `source ai_trainer_env/bin/activate` (macOS/Linux) or the Windows `Scripts` path. Install base dependencies with `pip install -r requirements.txt` and `pip install -r requirements-dev.txt` for tests. When working on API/web runtime, also install `pip install -r requirements-web.txt`. Launch the web stack with `./run_web.sh` when working on FastAPI/Next.js flows; the script starts FastAPI on `:8000`, Next.js on `:3000`, and reconciles missing web dependencies. Use `./run.sh` or `streamlit run app.py` for legacy Streamlit flows that have not been fully migrated yet. For runtime dependency issues, prefer `python scripts/doctor_env.py check --runtime` and `python scripts/doctor_env.py repair --runtime`. Use `python -m pytest tests/smoke -q` for the contributor-safe pass, and `python -m pytest -m "not live and not debug" tests/` for a broader local pass. Use `python -m pytest tests/test_ai_coach.py` (swap the filename) for focused checks.
 
-## Product Surface Policy
+|## Product Surface Policy
 New product-facing behavior should go through shared Python logic plus explicit API contracts in `api/`, then be consumed from `web/`. Streamlit changes are acceptable for bug fixes, acceptance/admin tooling, compatibility bridges, or extracting reusable logic out of legacy UI code. Do not ship new product features only in `ui/pages/*` unless the task is explicitly legacy-only, and do not duplicate business logic between Streamlit and API/web paths.
+
+## Architecture Context (ADD 3.0)
+Before starting significant architecture or planning work, read `docs/architecture/architecture_analysis_add3.md`. It documents:
+- Explicit Quality Attribute Scenarios (ASR) for performance, reliability, modifiability, security, deployability
+- Architectural tactics already used and gaps to fill
+- Risk/tradeoff heatmap (ATAM-style) — know what you might break
+- Missing ADRs that should be written alongside new decisions
+- Map of `ASR → Module → Tactic` for traceability
 
 ## Coding Style & Naming Conventions
 Use 4-space indentation and follow PEP 8; type hints are expected for public functions, as seen across `models/`. Module and package names stay lowercase with underscores (`ai_coach_universal.py`). Keep docstrings concise and in the language already used within the file (many core modules are Russian-first). For new product UX/backend flows, prefer shared Python services/models plus API contracts over adding logic to Streamlit pages. When touching Streamlit components, prefer existing helpers in `utils/modern_ui.py` and page/component helpers under `ui/` instead of inline HTML.
