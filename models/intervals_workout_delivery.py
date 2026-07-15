@@ -46,6 +46,17 @@ def _target_text(target: Any) -> str:
         if target_type == "power":
             return f"{float(target.get('low') or 0):g}-{float(target.get('high') or 0):g}w"
         if target_type == "heart_rate":
+            relative_low = target.get("relative_low")
+            relative_high = target.get("relative_high")
+            if (
+                str(target.get("reference") or "").lower() == "lthr"
+                and relative_low is not None
+                and relative_high is not None
+            ):
+                return (
+                    f"{float(relative_low) * 100:g}-"
+                    f"{float(relative_high) * 100:g}% LTHR"
+                )
             return f"{float(target.get('low') or 0):g}-{float(target.get('high') or 0):g}bpm"
         if target_type == "pace":
             fast = float(target.get("fast") or target.get("low") or 0)
