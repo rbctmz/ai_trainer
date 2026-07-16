@@ -1200,6 +1200,7 @@ def rebuild_goal_plan_with_adjustment(
         available_day_indices=list(rebuilt_constraint_summary.get("available_day_indices", []) or []),
         goal_type=goal_type,
         load_state=str(rebuilt_constraint_summary.get("load_state", "balanced")),
+        available_weekly_hours=float(rebuilt_constraint_summary.get("available_hours", 0.0) or 0.0) or None,
     )
 
     for week_row, detail in zip(weekly_summary, constraint_details):

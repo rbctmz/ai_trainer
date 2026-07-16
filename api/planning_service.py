@@ -395,6 +395,7 @@ def build_plan(
         available_day_indices=day_indices,
         goal_type=gt,
         load_state=str(constraint_summary.get("load_state", "balanced")),
+        available_weekly_hours=float(available_hours or 0.0) or None,
     )
     for week_row, detail in zip(weekly_summary, constraint_details):
         week_row["capacity_tss"] = detail.get("capacity_tss")

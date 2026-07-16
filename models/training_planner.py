@@ -1720,6 +1720,7 @@ def expand_weekly_to_daily_triathlon(
     available_day_indices: List[int] | None = None,
     goal_type: str = "Триатлон",
     load_state: str = "balanced",
+    available_weekly_hours: float | None = None,
 ) -> Tuple[List[Tuple[datetime, float, Dict[str, float]]], List[Dict[str, object]]]:
     """Разворачивает недельный triathlon-план в поминутную ленту по дням с разбивкой по видам спорта.
     Возвращает:
@@ -1741,36 +1742,33 @@ def expand_weekly_to_daily_triathlon(
             # вызывающая сторона подаст mix_overrides для не‑триатлона.
             # По умолчанию берём триатлонский базовый микс.
             mix = triathlon_weekly_mix(distance, phase)
-        # Дневные веса: кастом или дефолт
-        if weights_overrides and phase in weights_overrides:
-            custom = weights_overrides[phase]
-            weights = {
-                'run': _normalize_weights(custom.get('run', daily_weights_for_phase(phase)['run'])),
-                'bike': _normalize_weights(custom.get('bike', daily_weights_for_phase(phase)['bike'])),
-                'swim': _normalize_weights(custom.get('swim', daily_weights_for_phase(phase)['swim'])),
-            }
-        else:
-            weights = daily_weights_for_phase(phase)
-        weights = constrain_weights_to_available_days(weights, available_day_indices)
+        # Сумма по видам на неделю — недельный sport budget.
+        run_week = round(w_tss * mix['run'], 1)
+        bike_week = round(w_tss * mix['bike'], 1)
+        swim_week = round(w_tss * mix['swim'], 1)
 
-        # Сумма по видам на неделю
-        run_week = w_tss * mix['run']
-        bike_week = w_tss * mix['bike']
-        swim_week = w_tss * mix['swim']
-        week_parts: List[Dict[str, float]] = []
-        for i in range(7):
-            run_d = round(run_week * weights['run'][i], 1)
-            bike_d = round(bike_week * weights['bike'][i], 1)
-            swim_d = round(swim_week * weights['swim'][i], 1)
-            week_parts.append({'run': run_d, 'bike': bike_d, 'swim': swim_d})
+        # Issue #205 M3b: недельный бюджет размещается детерминированным slot
+        # scheduler'ом в ограниченное число дневных слотов (роли, two-a-day
+        # пары, день отдыха), а не размазывается весами по всем семи дням.
+        # Цепочка: weekly sport budget → слоты → allocated_parts → sessions[]
+        # → weekly_summary. Текущая готовность (load_state) ограничена
+        # семидневным окном от начала плана: будущие недели планируются как
+        # "balanced", чтобы сегодняшняя усталость не стирала будущие brick'и и
+        # активации (прецедент Issue #201/#202).
+        from models.session_scheduler import schedule_week_slots
 
-        adjusted_week_parts, day_roles, day_focuses = _apply_recovery_aware_day_structure(
-            week_parts,
-            int(round(w_tss)),
-            phase,
-            goal_type,
-            load_state,
+        week_within_readiness_window = current.date() < start_date + timedelta(days=7)
+        slot_plan = schedule_week_slots(
+            week_budget={"run": run_week, "bike": bike_week, "swim": swim_week},
+            phase=phase,
+            goal_type=goal_type,
+            load_state=load_state if week_within_readiness_window else "balanced",
+            available_day_indices=available_day_indices,
+            available_weekly_hours=available_weekly_hours,
         )
+        adjusted_week_parts = slot_plan["allocated_parts"]
+        day_roles = slot_plan["day_roles"]
+        day_focuses = slot_plan["day_focuses"]
 
         bike_total = round(sum(parts.get('bike', 0.0) for parts in adjusted_week_parts), 1)
         run_total = round(sum(parts.get('run', 0.0) for parts in adjusted_week_parts), 1)
@@ -1780,12 +1778,17 @@ def expand_weekly_to_daily_triathlon(
         weekly_summary.append({
             'week_start': current.date(),
             'phase': phase,
-            'weekly_tss': int(round(w_tss)),
+            # Issue #205 M3b: недельный TSS — сумма размещённого бюджета; при
+            # явном hours-трим scheduler'а она честно меньше исходного w_tss.
+            'weekly_tss': int(round(bike_total + run_total + swim_total)),
             'bike': bike_total,
             'run': run_total,
             'swim': swim_total,
             **structure_meta,
         })
+        if slot_plan["notes"]:
+            weekly_summary[-1]["scheduler_notes"] = list(slot_plan["notes"])
+            weekly_summary[-1]["scheduler_status"] = slot_plan["status"]
 
         for parts in adjusted_week_parts:
             total = round(parts.get('run', 0.0) + parts.get('bike', 0.0) + parts.get('swim', 0.0), 1)

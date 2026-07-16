@@ -103,6 +103,40 @@ def test_normal_ten_hour_week_meets_quantitative_contract():
     assert result["status"] == "scheduled"
 
 
+def test_no_single_occasion_absorbs_disproportionate_weekly_share():
+    result = _schedule()
+    week_total = sum(_sport_week_totals(result).values())
+    for day in _occasions(result):
+        for occasion in day:
+            occasion_total = sum(float(t) for t in occasion["parts"].values())
+            assert occasion_total <= 0.40 * week_total, (occasion, week_total)
+
+
+def test_weekly_hours_are_trimmed_explicitly_to_availability():
+    result = _schedule(available_weekly_hours=10.0)
+    # the duration model exceeds 10h for this budget, so the scheduler must
+    # trim EXPLICITLY (recorded note), never hide the overflow behind a floor
+    from models.training_planner import _estimate_session_duration_minutes
+
+    minutes = 0
+    for day in _occasions(result):
+        for occasion in day:
+            if occasion["is_brick"]:
+                for sport, role in (("bike", "long"), ("run", "easy")):
+                    tss = float(occasion["parts"].get(sport, 0.0) or 0.0)
+                    if tss > 0:
+                        minutes += _estimate_session_duration_minutes(tss, sport, role)
+            else:
+                sport = next(iter(occasion["parts"]))
+                minutes += _estimate_session_duration_minutes(
+                    float(occasion["parts"][sport]), sport, occasion["role"]
+                )
+    assert minutes <= 10 * 60 + 5, minutes
+    trimmed_total = sum(_sport_week_totals(result).values())
+    if trimmed_total < sum(_TEN_HOUR_BUDGET.values()) - 0.5:
+        assert any("час" in note or "снижен" in note for note in result["notes"]), result["notes"]
+
+
 def test_restricted_available_days_are_respected():
     result = _schedule(available_day_indices=[1, 3, 5])
     counts = _day_session_counts(result)
@@ -200,11 +234,22 @@ def test_reference_plan_histogram_replaces_three_session_days(tmp_path):
             continue  # overlays may deliberately undershoot
         assert counts.count(0) >= 1, (week_index, counts)
         assert sum(1 for c in counts if c == 2) <= 2, (week_index, counts)
-        assert 5 <= sum(counts) <= 10, (week_index, counts)
-        # weekly hours stay within availability plus one technical step
+        # a NORMAL week keeps the 7-10 occasion band; only taper or an
+        # explicitly reduced week may drop to 5, and only with a stated reason
+        phase = str(weekly[week_index].get("phase") or "")
+        reduced = bool(weekly[week_index].get("scheduler_notes"))
+        if phase in {"Base", "Build", "Peak", "Maintenance"} and not reduced:
+            assert 7 <= sum(counts) <= 10, (week_index, phase, counts)
+        else:
+            assert 5 <= sum(counts) <= 10, (week_index, phase, counts)
+            assert reduced or phase in {"Taper", "Race Week", "Recovery"}, (
+                week_index,
+                phase,
+            )
+        # weekly hours stay within availability plus ONE scheduler quantum
         minutes = sum(
             int(s.get("duration_minutes") or 0)
             for t in week_templates
             for s in (t.get("sessions") or [])
         )
-        assert minutes <= 10 * 60 + 30, (week_index, minutes)
+        assert minutes <= 10 * 60 + 5, (week_index, minutes)

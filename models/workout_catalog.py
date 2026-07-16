@@ -1326,8 +1326,14 @@ def prepare_weekly_brick_allocations(
     normalized_goal = str(goal_type or "").lower()
     if "tri" not in normalized_goal and "триатлон" not in normalized_goal:
         return {"status": "unchanged", "daily_plan": original, "brick_day_indices": [], "reason": "non_triathlon_goal"}
-    if str(load_state or "").lower() == "deep_fatigue":
-        return {"status": "unchanged", "daily_plan": original, "brick_day_indices": [], "reason": "deep_fatigue"}
+    # Issue #205 (readiness bounding, precedent #201/#202): current deep
+    # fatigue suppresses bricks only within the seven-day readiness window from
+    # the plan start — it is not a forecast for Build/Peak weeks months away.
+    deep_fatigue = str(load_state or "").lower() == "deep_fatigue"
+    plan_start = None
+    if original and deep_fatigue:
+        first = original[0][0]
+        plan_start = first.date() if hasattr(first, "date") else first
 
     protected = {_date_key(item) for item in protected_dates}
     working = deepcopy(original)
@@ -1339,6 +1345,12 @@ def prepare_weekly_brick_allocations(
         phase = str(week.get("phase") or "Base")
         if phase not in {"Build", "Peak"}:
             continue
+        if deep_fatigue and plan_start is not None:
+            week_start_item = working[week_index * 7][0] if week_index * 7 < len(working) else None
+            if week_start_item is not None:
+                week_start = week_start_item.date() if hasattr(week_start_item, "date") else week_start_item
+                if (week_start - plan_start).days < 7:
+                    continue
         start = week_index * 7
         end = min(start + 7, len(working))
         roles = list(week.get("day_roles") or [])
