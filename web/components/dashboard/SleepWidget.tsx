@@ -39,7 +39,7 @@ export function SleepWidget({ className = "" }: { className?: string }) {
         </span>
         {score != null && (
           <span className="flex items-center gap-1 text-sm text-ink-soft mb-0.5">
-            оценка {score}
+            оценка {score} · {scoreSourceLabel(latest?.score_source)}
             <InfoTip metric="sleep_score" />
           </span>
         )}
@@ -66,4 +66,11 @@ export function SleepWidget({ className = "" }: { className?: string }) {
       )}
     </div>
   );
+}
+
+function scoreSourceLabel(source?: string) {
+  if (source === "garmin") return "Garmin";
+  if (source === "derived") return "расчётная";
+  if (source === "demo") return "демо";
+  return "источник не сохранён";
 }

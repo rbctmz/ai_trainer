@@ -286,6 +286,26 @@ def _sleep_factor(
 ) -> dict[str, Any] | None:
     score_value, as_of, stale, _ = _split_frame(sleep_df, "sleep_score", anchor, max_age)
     if score_value is not None:
+        metric_source = "legacy_unknown"
+        if (
+            isinstance(sleep_df, pd.DataFrame)
+            and "date" in sleep_df.columns
+            and "sleep_score_source" in sleep_df.columns
+            and as_of is not None
+        ):
+            source_rows = sleep_df.copy()
+            source_rows["date"] = pd.to_datetime(source_rows["date"], errors="coerce")
+            source_rows = source_rows[source_rows["date"].dt.date == date.fromisoformat(as_of)]
+            if not source_rows.empty:
+                candidate = source_rows.iloc[-1].get("sleep_score_source")
+                if candidate is not None and not pd.isna(candidate) and str(candidate).strip():
+                    metric_source = str(candidate).strip()
+
+        evidence_by_source = {
+            "garmin": f"Сон: оценка Garmin {score_value:.0f}/100",
+            "derived": f"Сон: расчётная оценка {score_value:.0f}/100",
+            "demo": f"Сон: демо-оценка {score_value:.0f}/100",
+        }
         return {
             "key": "sleep",
             "label": FACTOR_LABELS["sleep"],
@@ -294,8 +314,12 @@ def _sleep_factor(
             "raw_value": round(score_value, 1),
             "baseline": None,
             "deviation": None,
-            "evidence": f"Сон: оценка Garmin {score_value:.0f}/100",
+            "evidence": evidence_by_source.get(
+                metric_source,
+                f"Сон: оценка {score_value:.0f}/100 (источник не сохранён)",
+            ),
             "source": "sleep_score",
+            "metric_source": metric_source,
             "stale_input": stale,
             "as_of": as_of,
         }
@@ -314,6 +338,7 @@ def _sleep_factor(
         "deviation": None,
         "evidence": f"Сон {hours:.1f} ч",
         "source": "total_sleep_minutes",
+        "metric_source": "duration",
         "stale_input": stale,
         "as_of": as_of,
     }

@@ -13,10 +13,10 @@ The user-visible proof is the 2026-07-16 fixture: Garmin reports 6 hours 42 minu
 - [x] (2026-07-16 08:00 MSK) Reconciled Garmin CSV, local SQLite, API response, live read-only Garmin response, and readiness snapshot.
 - [x] (2026-07-16 08:20 MSK) Created Issue #207 with the root cause, impact, and acceptance criteria.
 - [x] (2026-07-16 08:45 MSK) Read the repository workflow, `.agent/PLANS.md`, and `docs/architecture/architecture_analysis_add3.md`; selected an additive provenance migration.
-- [ ] Add contributor-safe RED tests for nested, top-level, and missing Garmin scores, persistence migration, API provenance, and readiness wording.
-- [ ] Implement source-preserving extraction and actual-awake-time efficiency.
-- [ ] Add backward-compatible persistence and API/web contracts.
-- [ ] Validate focused tests, contributor-safe smoke, broad non-live tests, lint, and production web build.
+- [x] (2026-07-16 10:48 MSK) Added contributor-safe RED tests for nested, top-level, and missing Garmin scores, persistence migration, API provenance, and readiness wording; all six original scenarios failed on the intended contracts.
+- [x] (2026-07-16 10:55 MSK) Implemented source-preserving extraction and actual-awake-time efficiency; the 2026-07-16 fixture now resolves to 62 Garmin and 93.1% from 30 awake minutes.
+- [x] (2026-07-16 11:00 MSK) Added backward-compatible persistence, API/web contracts, demo provenance, and honest readiness/signal wording.
+- [x] (2026-07-16 11:08 MSK) Validated 694 contributor-safe smoke tests, 736 broad non-live tests, Next lint, and the production web build.
 - [ ] Finalize this plan, self-review the diff, push the branch, and open a draft PR that closes #207.
 
 ## Surprises & Discoveries
@@ -32,6 +32,9 @@ The user-visible proof is the 2026-07-16 fixture: Garmin reports 6 hours 42 minu
 
 - Observation: rounded stage minutes can sum one minute above total sleep.
   Evidence: Garmin CSV and SQLite both contain 45+326+32=403 stage minutes against 402 total minutes. This is acceptable independent rounding, not corruption.
+
+- Observation: demo awake minutes and demo efficiency must be generated from the same equation once both are visible.
+  Evidence: self-review found the initial additive fields would have shown 18 awake minutes beside 86% efficiency for 435 sleep minutes. The fixture now derives awake minutes from its chosen efficiency.
 
 ## Decision Log
 
@@ -65,7 +68,9 @@ The user-visible proof is the 2026-07-16 fixture: Garmin reports 6 hours 42 minu
 
 ## Outcomes & Retrospective
 
-Implementation is in progress. At completion this section will record the corrected fixture output, migration behavior, validation counts, and any remaining backfill action for the maintainer.
+The implementation now preserves the live Garmin score shape and exposes metric provenance through processing, SQLite, API, readiness, signals, and the web UI. The sanitized 2026-07-16 fixture returns 402 total minutes, Garmin score 62, 30 awake minutes, and 93.1% efficiency derived from awake time. A legacy SQLite fixture retained its original row byte-for-value while additive columns appeared with `legacy_unknown` sources.
+
+Validation completed with 694 passed and one environment-only socket skip in contributor-safe smoke; 736 passed, six expected skips, and 24 live/debug deselections in the broad non-live suite; Next lint and production build both succeeded. The maintainer's real cache has not been changed. After merge, a user-confirmed 31-day Garmin sync remains the only operational step needed to replace legacy cached estimates; existing append-only readiness snapshots remain historical evidence and are not rewritten.
 
 ## Context and Orientation
 

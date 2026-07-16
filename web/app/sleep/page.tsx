@@ -28,11 +28,17 @@ export default function SleepPage() {
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Metric label="Сон" value={data.latest.hours != null ? `${data.latest.hours}` : "—"} unit="ч" />
-            <Metric label="Оценка" value={data.latest.score != null ? `${data.latest.score}` : "—"} unit="/100" />
+            <Metric
+              label="Оценка"
+              value={data.latest.score != null ? `${data.latest.score}` : "—"}
+              unit="/100"
+              detail={scoreSourceLabel(data.latest.score_source)}
+            />
             <Metric
               label="Эффективность"
               value={data.latest.efficiency != null ? `${data.latest.efficiency}` : "—"}
               unit="%"
+              detail={efficiencySourceLabel(data.latest.efficiency_source)}
             />
             <Metric
               label="Пробуждения"
@@ -40,6 +46,12 @@ export default function SleepPage() {
               unit=""
             />
           </div>
+
+          {data.latest.awake_minutes != null ? (
+            <div className="text-xs text-ink-faint">
+              Бодрствование в окне сна: {data.latest.awake_minutes} мин
+            </div>
+          ) : null}
 
           <Stages stages={data.latest.stages} total={data.latest.hours} />
 
@@ -106,7 +118,33 @@ function Stages({
   );
 }
 
-function Metric({ label, value, unit }: { label: string; value: string; unit: string }) {
+function scoreSourceLabel(source: string) {
+  if (source === "garmin") return "Garmin";
+  if (source === "derived") return "расчётная";
+  if (source === "demo") return "демо";
+  if (source === "mixed") return "смешанные источники";
+  return "источник не сохранён";
+}
+
+function efficiencySourceLabel(source: string) {
+  if (source === "derived_awake_time") return "по времени бодрствования";
+  if (source === "derived_sleep_window") return "по окну сна";
+  if (source === "demo") return "демо";
+  if (source === "unavailable") return "нет исходных данных";
+  return "источник не сохранён";
+}
+
+function Metric({
+  label,
+  value,
+  unit,
+  detail,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+  detail?: string;
+}) {
   return (
     <div className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
       <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">{label}</div>
@@ -114,6 +152,7 @@ function Metric({ label, value, unit }: { label: string; value: string; unit: st
         {value}
         <span className="ml-1 text-sm font-normal text-ink-faint">{unit}</span>
       </div>
+      {detail ? <div className="mt-1 text-[11px] text-ink-faint">{detail}</div> : null}
     </div>
   );
 }

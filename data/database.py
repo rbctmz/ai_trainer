@@ -154,6 +154,12 @@ class Database:
         'skin_temperature_avg': 'REAL',
     }
 
+    _SLEEP_COLUMN_TYPES = {
+        'awake_sleep_minutes': 'REAL',
+        'sleep_score_source': "TEXT DEFAULT 'legacy_unknown'",
+        'sleep_efficiency_source': "TEXT DEFAULT 'legacy_unknown'",
+    }
+
     _COACH_DECISION_COLUMN_TYPES = {
         'metrics_window_days': 'INTEGER',
         'as_of_date': 'TEXT',
@@ -288,6 +294,9 @@ class Database:
                 bedtime TEXT,
                 wakeup_time TEXT,
                 sleep_efficiency REAL,
+                awake_sleep_minutes REAL,
+                sleep_score_source TEXT DEFAULT 'legacy_unknown',
+                sleep_efficiency_source TEXT DEFAULT 'legacy_unknown',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -626,6 +635,7 @@ class Database:
         ''')
         self._ensure_activity_columns(conn)
         self._repair_legacy_activity_tss(conn)
+        self._ensure_sleep_columns(conn)
         self._ensure_daily_health_columns(conn)
         self._ensure_training_status_columns(conn)
         self._ensure_coach_decision_columns(conn)
@@ -814,6 +824,21 @@ class Database:
         for column, column_type in self._DAILY_HEALTH_COLUMN_TYPES.items():
             if column not in existing_columns:
                 cursor.execute(f'ALTER TABLE daily_health ADD COLUMN {column} {column_type}')
+        conn.commit()
+
+    def _ensure_sleep_columns(self, conn: sqlite3.Connection) -> None:
+        """Add provenance columns without rewriting legacy sleep metrics."""
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(sleep_data)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        for column, column_type in self._SLEEP_COLUMN_TYPES.items():
+            if column in existing_columns:
+                continue
+            try:
+                cursor.execute(f'ALTER TABLE sleep_data ADD COLUMN {column} {column_type}')
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
         conn.commit()
 
     def _ensure_coach_decision_columns(self, conn: sqlite3.Connection) -> None:
@@ -3222,7 +3247,9 @@ class Database:
                     UPDATE sleep_data SET 
                     total_sleep_minutes=?, deep_sleep_minutes=?, light_sleep_minutes=?,
                     rem_sleep_minutes=?, awakenings_count=?, sleep_score=?,
-                    bedtime=?, wakeup_time=?, sleep_efficiency=?
+                    bedtime=?, wakeup_time=?, sleep_efficiency=?,
+                    awake_sleep_minutes=?, sleep_score_source=?,
+                    sleep_efficiency_source=?
                     WHERE date=?
                 ''', (
                     self.clean_value(data.get('total_sleep_minutes')),
@@ -3234,6 +3261,9 @@ class Database:
                     self.clean_value(data.get('bedtime')),
                     self.clean_value(data.get('wakeup_time')),
                     self.clean_value(data.get('sleep_efficiency')),
+                    self.clean_value(data.get('awake_sleep_minutes')),
+                    self.clean_value(data.get('sleep_score_source') or 'legacy_unknown'),
+                    self.clean_value(data.get('sleep_efficiency_source') or 'legacy_unknown'),
                     clean_date
                 ))
                 updated_count += 1
@@ -3243,8 +3273,9 @@ class Database:
                     INSERT INTO sleep_data 
                     (date, total_sleep_minutes, deep_sleep_minutes, light_sleep_minutes,
                      rem_sleep_minutes, awakenings_count, sleep_score, bedtime, 
-                     wakeup_time, sleep_efficiency)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     wakeup_time, sleep_efficiency, awake_sleep_minutes,
+                     sleep_score_source, sleep_efficiency_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     clean_date,
                     self.clean_value(data.get('total_sleep_minutes')),
@@ -3255,7 +3286,10 @@ class Database:
                     self.clean_value(data.get('sleep_score')),
                     self.clean_value(data.get('bedtime')),
                     self.clean_value(data.get('wakeup_time')),
-                    self.clean_value(data.get('sleep_efficiency'))
+                    self.clean_value(data.get('sleep_efficiency')),
+                    self.clean_value(data.get('awake_sleep_minutes')),
+                    self.clean_value(data.get('sleep_score_source') or 'legacy_unknown'),
+                    self.clean_value(data.get('sleep_efficiency_source') or 'legacy_unknown')
                 ))
                 existing_dates.add(clean_date)
                 new_count += 1

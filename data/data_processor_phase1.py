@@ -65,7 +65,13 @@ class Phase1DataProcessor:
         try:
             # 1. Извлекаем ключевые объекты
             sleep_dto = sleep_raw_data.get('dailySleepDTO', {})
-            sleep_scores = sleep_raw_data.get('sleepScores', {})
+            top_level_scores = sleep_raw_data.get('sleepScores')
+            nested_scores = sleep_dto.get('sleepScores') if isinstance(sleep_dto, dict) else None
+            sleep_scores = (
+                top_level_scores
+                if isinstance(top_level_scores, dict) and top_level_scores
+                else nested_scores if isinstance(nested_scores, dict) else {}
+            )
 
             # 2. Получаем общее время сна (самый надежный показатель)
             total_minutes = sleep_dto.get('sleepTimeSeconds', 0) // 60
@@ -126,9 +132,28 @@ class Phase1DataProcessor:
                 processed_data['rem_sleep_minutes'] = 0
 
             # 4. Извлекаем остальные данные
-            # Оценка сна
-            if sleep_scores.get('overall', {}).get('value'):
-                processed_data['sleep_score'] = sleep_scores['overall']['value']
+            # Оценка сна: Garmin currently returns sleepScores nested in
+            # dailySleepDTO, while older payloads/fixtures used a top-level
+            # object. Keep both shapes and store provenance explicitly.
+            source_score = sleep_scores.get('overall', {}).get('value')
+            try:
+                source_score = float(source_score) if source_score is not None else None
+            except (TypeError, ValueError):
+                source_score = None
+            if source_score is not None and 0 <= source_score <= 100:
+                processed_data['sleep_score'] = source_score
+                processed_data['sleep_score_source'] = 'garmin'
+
+            awake_seconds = sleep_dto.get('awakeSleepSeconds')
+            try:
+                awake_seconds = float(awake_seconds) if awake_seconds is not None else None
+            except (TypeError, ValueError):
+                awake_seconds = None
+            if awake_seconds is not None and awake_seconds >= 0:
+                processed_data['awake_sleep_minutes'] = round(awake_seconds / 60, 1)
+            else:
+                awake_seconds = None
+                processed_data['awake_sleep_minutes'] = None
             
             # Пробуждения: приоритет awakeCount, затем из sleepLevels, затем расчёт
             if 'awakeCount' in sleep_dto:
@@ -161,12 +186,33 @@ class Phase1DataProcessor:
                 duration_bonus = 10 if 420 <= total_minutes <= 540 else 0
                 score = 50 + (deep_rem_ratio * 40) - awakening_penalty + duration_bonus
                 processed_data['sleep_score'] = round(max(0, min(100, score)), 1)
+                processed_data['sleep_score_source'] = 'derived'
                 print(f"DEBUG PROCESSOR:  ক্যাল Расчетный sleep_score: {processed_data['sleep_score']}")
 
-            if 'sleep_efficiency' not in processed_data and total_minutes > 0:
-                in_bed_time = total_minutes + (processed_data.get('awakenings_count', 0) * 5) # Приблизительно
+            if 'sleep_score_source' not in processed_data:
+                processed_data['sleep_score_source'] = 'legacy_unknown'
+
+            # Awakening count is not awakening duration. Prefer Garmin's
+            # actual awake time, then the observed sleep window; otherwise
+            # expose the metric as unavailable instead of inventing minutes.
+            processed_data['sleep_efficiency'] = None
+            processed_data['sleep_efficiency_source'] = 'unavailable'
+            if total_minutes > 0 and awake_seconds is not None:
+                in_bed_time = total_minutes + awake_seconds / 60
                 if in_bed_time > 0:
-                    processed_data['sleep_efficiency'] = round((total_minutes / in_bed_time) * 100, 1)
+                    processed_data['sleep_efficiency'] = round(
+                        (total_minutes / in_bed_time) * 100,
+                        1,
+                    )
+                    processed_data['sleep_efficiency_source'] = 'derived_awake_time'
+            elif total_minutes > 0 and start_dt and end_dt:
+                window_minutes = (end_dt - start_dt).total_seconds() / 60
+                if window_minutes >= total_minutes > 0:
+                    processed_data['sleep_efficiency'] = round(
+                        (total_minutes / window_minutes) * 100,
+                        1,
+                    )
+                    processed_data['sleep_efficiency_source'] = 'derived_sleep_window'
 
         except Exception as e:
             print(f"❌ КРИТИЧЕСКАЯ ОШИБКА при обработке данных сна: {e}")

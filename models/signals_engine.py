@@ -187,6 +187,11 @@ def _sleep_signal(sleep_df: pd.DataFrame | None) -> dict[str, Any]:
     hours = round(total_mins / 60, 1) if total_mins > 0 else None
     score = row.get("sleep_score")
     sleep_score = _safe_float(score, 0.0) if score is not None else None
+    score_source = row.get("sleep_score_source")
+    if score_source is None or pd.isna(score_source) or not str(score_source).strip():
+        score_source = "legacy_unknown"
+    else:
+        score_source = str(score_source).strip()
 
     if hours is None:
         tone = "neutral"
@@ -204,6 +209,7 @@ def _sleep_signal(sleep_df: pd.DataFrame | None) -> dict[str, Any]:
     return {
         "hours": hours,
         "score": round(sleep_score, 1) if sleep_score is not None else None,
+        "score_source": score_source,
         "label": label,
         "tone": tone,
         "severity": tone_severity(tone),
@@ -414,4 +420,3 @@ def current_status_from_signals(signals: dict[str, Any]) -> dict[str, Any]:
     if advanced:
         status["hrv_advanced"] = advanced
     return status
-

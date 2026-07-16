@@ -79,6 +79,19 @@ def test_missing_garmin_score_is_explicitly_derived():
     assert result["sleep_efficiency_source"] == "derived_sleep_window"
 
 
+def test_efficiency_is_unavailable_without_awake_time_or_sleep_window():
+    payload = _nested_garmin_payload()
+    payload["dailySleepDTO"].pop("awakeSleepSeconds")
+    payload["dailySleepDTO"].pop("sleepStartTimestampLocal")
+    payload["dailySleepDTO"].pop("sleepEndTimestampLocal")
+
+    result = Phase1DataProcessor.process_sleep_data(payload)
+
+    assert result is not None
+    assert result["sleep_efficiency"] is None
+    assert result["sleep_efficiency_source"] == "unavailable"
+
+
 def test_legacy_sleep_table_migrates_without_rewriting_rows(tmp_path):
     db_path = tmp_path / "legacy.db"
     conn = sqlite3.connect(db_path)
@@ -175,4 +188,3 @@ def test_readiness_and_signal_do_not_call_derived_score_garmin():
     assert "расчёт" in factor["evidence"].lower()
     assert factor["metric_source"] == "derived"
     assert signal["score_source"] == "derived"
-
