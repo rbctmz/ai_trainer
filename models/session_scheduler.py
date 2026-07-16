@@ -351,41 +351,48 @@ def schedule_week_slots(
     # surrogate estimator. Capacity is a ceiling, not an obligation to fill.
     # A real trim is explicit: recorded note AND status="reduced".
     if available_weekly_hours and float(available_weekly_hours) > 0:
-        # Canonical occasion→sessions policy: measure through the SAME builder
-        # function the plan executes (`_split_day_sessions`), so a brick that
-        # the materializer rejects is honestly counted as its independent
-        # fallback sessions, not as one seed. Lazy import — the scheduler is
-        # itself called from training_planner, so the module is loaded; this
-        # never re-enters expand (no recursion).
-        def _occasion_minutes(occasion: Mapping[str, Any]) -> int:
+        # Canonical WEEK projection: measure exactly the way the builder will
+        # persist the week — occasions aggregated into calendar days (the same
+        # parts that reach daily_plan), one `_split_day_sessions` call per day
+        # with the day's hardest role, and ONE shared recent_template_keys
+        # rotation across the whole week. Lazy import; never re-enters expand.
+        def _week_minutes() -> int:
             from models.training_planner import _split_day_sessions
 
-            parts = {
-                "run": 0.0,
-                "bike": 0.0,
-                "swim": 0.0,
-                **{s: float(t or 0.0) for s, t in occasion["parts"].items()},
-            }
-            sessions, _allocated, _meta = _split_day_sessions(
-                parts=parts,
-                total=round(sum(parts.values()), 1),
-                is_brick=bool(occasion["is_brick"]),
-                phase=phase,
-                session_role=occasion["role"],
-                day_focus="—",
-                goal_type=goal_type,
-                distance="",
-                zone_snapshot={},
-                load_state=load_state,
-                recent_template_keys=[],
-            )
-            return sum(int(session.get("duration_minutes") or 0) for session in sessions)
+            rotation: List[str] = []
+            total_minutes = 0
+            for day in days:
+                entries = sorted(day_occasions[day], key=lambda o: _ROLE_RANK[o["role"]])
+                if not entries:
+                    continue
+                parts = {"run": 0.0, "bike": 0.0, "swim": 0.0}
+                for o in entries:
+                    for sport in _SPORTS:
+                        parts[sport] = round(parts[sport] + float(o["parts"][sport] or 0.0), 1)
+                total = round(sum(parts.values()), 1)
+                if total <= 0:
+                    continue
+                sessions, _allocated, _meta = _split_day_sessions(
+                    parts=parts,
+                    total=total,
+                    is_brick=any(o["is_brick"] for o in entries),
+                    phase=phase,
+                    session_role=entries[0]["role"],
+                    day_focus="—",
+                    goal_type=goal_type,
+                    distance="",
+                    zone_snapshot={},
+                    load_state=load_state,
+                    recent_template_keys=rotation,
+                )
+                total_minutes += sum(int(session.get("duration_minutes") or 0) for session in sessions)
+            return total_minutes
 
         limit_minutes = int(round(float(available_weekly_hours) * 60)) + SCHEDULER_TIME_QUANTUM_MINUTES
         original_total = round(sum(sum(o["parts"].values()) for o in placed), 1)
         trimmed = False
         for _outer in range(len(placed) + 1):
-            estimated = sum(_occasion_minutes(o) for o in placed)
+            estimated = _week_minutes()
             for _ in range(6):
                 if estimated <= limit_minutes:
                     break
@@ -395,7 +402,7 @@ def schedule_week_slots(
                         if o["parts"][sport] > 0:
                             o["parts"][sport] = round(o["parts"][sport] * scale, 1)
                 trimmed = True
-                estimated = sum(_occasion_minutes(o) for o in placed)
+                estimated = _week_minutes()
             if estimated <= limit_minutes:
                 break
             # Duration floors dominate: TSS scaling cannot shrink the week
