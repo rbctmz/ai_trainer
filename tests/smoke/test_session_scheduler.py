@@ -185,13 +185,8 @@ def test_actual_hours_trim_sets_reduced_status():
     assert _materialized_week_minutes(result) <= 3 * 60 + 5
 
 
-def test_reduced_week_materializes_within_availability_end_to_end():
-    """M3b.1 blocker (round 2): the hours contract must hold on the REAL
-    vertical path — expand → brick allocation → build_daily_session_templates —
-    summing persisted sessions[] durations (single: its duration; composite:
-    the parent; brick fallback: BOTH independent sessions). A 3h week must
-    materialize to <= 185 minutes end to end, not only in the scheduler's
-    internal occasion view."""
+def _vertical_week(phase: str, w_tss: int, hours: float):
+    """The real product path: expand → brick allocation → builder."""
     from datetime import date as _date
 
     from models.training_planner import (
@@ -201,13 +196,13 @@ def test_reduced_week_materializes_within_availability_end_to_end():
     from models.workout_catalog import prepare_weekly_brick_allocations
 
     daily, weekly = expand_weekly_to_daily_triathlon(
-        [420],
-        ["Build"],
+        [w_tss],
+        [phase],
         "Олимпийка",
         _date(2026, 8, 3),
         goal_type="Триатлон",
         load_state="balanced",
-        available_weekly_hours=3.0,
+        available_weekly_hours=hours,
     )
     allocation = prepare_weekly_brick_allocations(
         daily,
@@ -224,13 +219,38 @@ def test_reduced_week_materializes_within_availability_end_to_end():
         zone_snapshot=_PROBE_ZONES,
         brick_day_indices=set(allocation["brick_day_indices"]),
     )
-
-    assert weekly[0].get("scheduler_status") == "reduced"
     minutes = sum(
         int(s.get("duration_minutes") or 0)
         for t in templates
         for s in (t.get("sessions") or [])
     )
+    return weekly, minutes
+
+
+@pytest.mark.parametrize(
+    ("phase", "w_tss", "hours"),
+    [
+        ("Build", 420, 3.0),
+        ("Taper", 420, 6.0),  # round-3 minimal RED: two-a-day role/order drift
+        ("Taper", 550, 6.0),
+        ("Peak", 550, 4.0),
+        ("Base", 300, 5.0),
+    ],
+)
+def test_persisted_week_respects_hours_end_to_end(phase, w_tss, hours):
+    """The hours ceiling must hold on PERSISTED sessions for any phase/budget:
+    the scheduler's duration projection must aggregate occasions into the same
+    calendar days, the same day role/order, and the same shared weekly template
+    rotation the builder uses (single: its duration; composite: the parent;
+    brick fallback: both independent sessions)."""
+    weekly, minutes = _vertical_week(phase, w_tss, hours)
+    assert minutes <= int(hours * 60) + 5, (phase, w_tss, hours, minutes)
+
+
+def test_reduced_week_materializes_within_availability_end_to_end():
+    """M3b.1 round 2: a 3h Build week is explicitly reduced and fits."""
+    weekly, minutes = _vertical_week("Build", 420, 3.0)
+    assert weekly[0].get("scheduler_status") == "reduced"
     assert minutes <= 3 * 60 + 5, minutes
 
 
