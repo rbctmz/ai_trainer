@@ -63,6 +63,7 @@ def schedule_week_slots(
     available_day_indices: Sequence[int] | None = None,
     pinned_off_days: Sequence[int] = (),
     available_weekly_hours: float | None = None,
+    day_preferences: Mapping[str, Sequence[float]] | None = None,
 ) -> Dict[str, Any]:
     """Return the deterministic slot plan for one week.
 
@@ -247,28 +248,49 @@ def schedule_week_slots(
             return 7
         return min(abs(day - d) for d in hard_days)
 
+    # Issue #205 M3b.1: legacy `weights_overrides` become slot day PREFERENCES.
+    # A sport's preference vector steers where its slots land (the long ride
+    # follows the athlete's heaviest preferred day); zero/absent preferences
+    # reproduce the default deterministic placement exactly.
+    preferences = {
+        sport: [float(v or 0.0) for v in vector]
+        for sport, vector in (day_preferences or {}).items()
+        if sport in _SPORTS and vector and any(float(v or 0.0) > 0 for v in vector)
+    }
+
+    def _pref(sport: str, day: int) -> float:
+        vector = preferences.get(sport) or []
+        return vector[day] if day < len(vector) else 0.0
+
     ordered = sorted(
         occasions,
         key=lambda o: (0 if o["is_brick"] or o["role"] == "long" else _ROLE_RANK[o["role"]] + 1,
                        o["sport"]),
     )
-    preferred_long = 5 if 5 in days else days[-1]
+    default_long = 5 if 5 in days else days[-1]
+    preferred_long = max(
+        days,
+        key=lambda d: (_pref(long_sport, d), 1 if d == default_long else 0, d),
+    )
     for occasion in ordered:
+        occasion_sport = "bike" if occasion["is_brick"] else occasion["sport"]
         target: int | None = None
         if occasion["is_brick"] or occasion["role"] == "long":
             target = preferred_long if not day_occasions[preferred_long] else None
         if target is None:
             free_days = [d for d in days if not day_occasions[d]]
             if occasion["role"] in _HARD_ROLES:
-                candidates = [d for d in free_days]
-                if candidates:
-                    target = max(candidates, key=lambda d: (_hard_distance(d), -d))
+                if free_days:
+                    target = max(
+                        free_days,
+                        key=lambda d: (_pref(occasion_sport, d), _hard_distance(d), -d),
+                    )
             elif free_days:
-                target = free_days[0]
+                target = max(free_days, key=lambda d: (_pref(occasion_sport, d), -d))
         if target is None:
             pairable = [d for d in days if _can_pair(d, occasion)]
             if pairable:
-                target = pairable[0]
+                target = max(pairable, key=lambda d: (_pref(occasion_sport, d), -d))
         if target is None:
             # Rule 6: merge into an existing occasion of the same discipline.
             same_sport = [
@@ -323,45 +345,114 @@ def schedule_week_slots(
             o["parts"][sport] = round(o["parts"][sport] + share, 1)
 
     # 7. Weekly hours must not exceed availability except one scheduler time
-    # quantum (5 minutes). The estimate uses the same duration model that
-    # materialization uses; an oversized budget is trimmed EXPLICITLY with a
-    # recorded note — never hidden behind a duration floor.
+    # quantum (5 minutes). The canonical duration contract: the check
+    # MATERIALIZES each occasion through the workout catalog — the same path
+    # the plan will execute — so achievable load is never cut by a steeper
+    # surrogate estimator. Capacity is a ceiling, not an obligation to fill.
+    # A real trim is explicit: recorded note AND status="reduced".
     if available_weekly_hours and float(available_weekly_hours) > 0:
         from models.training_planner import _estimate_session_duration_minutes
+        from models.workout_catalog import (
+            materialize_brick_session,
+            materialize_session_template,
+        )
 
         def _occasion_minutes(occasion: Mapping[str, Any]) -> int:
-            minutes = 0
+            parts = {s: float(t or 0.0) for s, t in occasion["parts"].items()}
             if occasion["is_brick"]:
-                for sport, leg_role in (("bike", "long"), ("run", "easy")):
-                    tss = occasion["parts"].get(sport, 0.0)
-                    if tss > 0:
-                        minutes += _estimate_session_duration_minutes(tss, sport, leg_role)
-                return minutes
-            return _estimate_session_duration_minutes(
-                occasion["parts"].get(occasion["sport"], 0.0),
-                occasion["sport"],
-                occasion["role"],
+                total = round(sum(parts.values()), 1)
+                seed = _estimate_session_duration_minutes(total, "bike", "long")
+                brick = materialize_brick_session(
+                    phase=phase,
+                    target_tss=total,
+                    parts={"run": 0.0, "swim": 0.0, **parts},
+                    estimated_duration_minutes=seed,
+                    goal_type=goal_type,
+                    zone_snapshot={},
+                    load_state=load_state,
+                )
+                return int(brick.get("duration_minutes") or seed)
+            sport = occasion["sport"]
+            tss = parts.get(sport, 0.0)
+            seed = _estimate_session_duration_minutes(tss, sport, occasion["role"])
+            template = materialize_session_template(
+                phase=phase,
+                session_role=occasion["role"],
+                sport=sport,
+                target_tss=tss,
+                estimated_duration_minutes=seed,
+                goal_type=goal_type,
+                zone_snapshot={},
+                load_state=load_state,
+                recent_template_keys=[],
             )
+            return int(template.get("duration_minutes") or seed)
 
         limit_minutes = int(round(float(available_weekly_hours) * 60)) + SCHEDULER_TIME_QUANTUM_MINUTES
         original_total = round(sum(sum(o["parts"].values()) for o in placed), 1)
         trimmed = False
-        for _ in range(10):
+        for _outer in range(len(placed) + 1):
             estimated = sum(_occasion_minutes(o) for o in placed)
+            for _ in range(6):
+                if estimated <= limit_minutes:
+                    break
+                scale = max(0.5, (limit_minutes - SCHEDULER_TIME_QUANTUM_MINUTES) / estimated)
+                for o in placed:
+                    for sport in _SPORTS:
+                        if o["parts"][sport] > 0:
+                            o["parts"][sport] = round(o["parts"][sport] * scale, 1)
+                trimmed = True
+                estimated = sum(_occasion_minutes(o) for o in placed)
             if estimated <= limit_minutes:
                 break
-            scale = max(0.5, (limit_minutes - SCHEDULER_TIME_QUANTUM_MINUTES) / estimated)
-            for o in placed:
-                for sport in _SPORTS:
-                    if o["parts"][sport] > 0:
-                        o["parts"][sport] = round(o["parts"][sport] * scale, 1)
+            # Duration floors dominate: TSS scaling cannot shrink the week
+            # further, so drop the least loaded soft occasion explicitly and
+            # merge its remaining budget into the same discipline if possible.
+            victims = sorted(
+                (o for o in placed if o["role"] in {"easy", "recovery"} and not o["is_brick"]),
+                key=lambda o: sum(o["parts"].values()),
+            ) or sorted(
+                (o for o in placed if not o["is_brick"] and o["role"] != "long"),
+                key=lambda o: sum(o["parts"].values()),
+            )
+            if not victims:
+                status = "infeasible"
+                notes.append(
+                    f"Даже минимальные длительности сессий не помещаются в {available_weekly_hours} ч."
+                )
+                break
+            victim = victims[0]
+            placed.remove(victim)
+            for day in days:
+                if victim in day_occasions[day]:
+                    day_occasions[day].remove(victim)
+            same_sport = [
+                o
+                for o in placed
+                if o["sport"] == victim["sport"] or (o["is_brick"] and victim["sport"] in {"bike", "run"})
+            ]
+            if same_sport:
+                receiver = max(same_sport, key=lambda o: o["parts"].get(victim["sport"], 0.0))
+                receiver["parts"][victim["sport"]] = round(
+                    receiver["parts"].get(victim["sport"], 0.0) + victim["parts"].get(victim["sport"], 0.0), 1
+                )
+                notes.append(
+                    f"Слот {victim['sport']}/{victim['role']} снят ради лимита часов; "
+                    "его нагрузка объединена с сессией той же дисциплины."
+                )
+            else:
+                notes.append(
+                    f"Слот {victim['sport']}/{victim['role']} снят ради лимита часов; "
+                    "его остаток бюджета явно отброшен."
+                )
             trimmed = True
         if trimmed:
             trimmed_total = round(sum(sum(o["parts"].values()) for o in placed), 1)
+            status = "reduced" if status == "scheduled" else status
             notes.append(
                 f"Недельный бюджет {original_total} TSS не помещается в "
-                f"{available_weekly_hours} ч по модели длительности — бюджет явно "
-                f"снижен до {trimmed_total} TSS, чтобы часы не превышали доступность."
+                f"{available_weekly_hours} ч по материализованным длительностям — "
+                f"бюджет явно снижен до {trimmed_total} TSS."
             )
 
     # Assemble the 7-day outputs.

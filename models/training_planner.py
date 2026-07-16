@@ -1757,6 +1757,20 @@ def expand_weekly_to_daily_triathlon(
         # активации (прецедент Issue #201/#202).
         from models.session_scheduler import schedule_week_slots
 
+        # Issue #205 M3b.1: пользовательские weights_overrides не игнорируются
+        # молча — они становятся слот-преференциями (длинная едет в самый
+        # тяжёлый предпочтённый день спортсмена).
+        day_preferences = None
+        if weights_overrides and phase in weights_overrides:
+            converted = {
+                sport: [float(v or 0.0) for v in vector]
+                for sport, vector in weights_overrides[phase].items()
+                if sport in ("run", "bike", "swim")
+                and vector
+                and any(float(v or 0.0) > 0 for v in vector)
+            }
+            day_preferences = converted or None
+
         week_within_readiness_window = current.date() < start_date + timedelta(days=7)
         slot_plan = schedule_week_slots(
             week_budget={"run": run_week, "bike": bike_week, "swim": swim_week},
@@ -1765,6 +1779,7 @@ def expand_weekly_to_daily_triathlon(
             load_state=load_state if week_within_readiness_window else "balanced",
             available_day_indices=available_day_indices,
             available_weekly_hours=available_weekly_hours,
+            day_preferences=day_preferences,
         )
         adjusted_week_parts = slot_plan["allocated_parts"]
         day_roles = slot_plan["day_roles"]
