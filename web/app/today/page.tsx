@@ -193,7 +193,29 @@ export default function TodayPage() {
                         : ""}
                     </p>
                   ) : null}
-                  {session.kind === "composite" && session.legs?.length ? (
+                  {session.sessions && session.sessions.length > 1 ? (
+                    <div className="mt-3 grid gap-2">
+                      {session.sessions.map((leaf, index) => (
+                        <div
+                          key={leaf.session_id || `${leaf.sport}-${index}`}
+                          className="rounded-lg bg-surface-muted p-2.5"
+                        >
+                          <div className="text-xs font-medium text-ink">
+                            {index + 1}. {leaf.name}
+                            {leaf.kind === "brick_leg" ? (
+                              <span className="ml-1 rounded bg-accent/10 px-1 text-[10px] font-medium text-accent">
+                                brick · этап {leaf.leg_index}
+                              </span>
+                            ) : null}
+                            <span className="ml-1 font-normal text-ink-faint">
+                              {leaf.sport_label} · {leaf.total_tss} TSS
+                            </span>
+                          </div>
+                          <TodaySteps steps={leaf.materialized_steps || []} />
+                        </div>
+                      ))}
+                    </div>
+                  ) : session.kind === "composite" && session.legs?.length ? (
                     <div className="mt-3 grid gap-2 sm:grid-cols-2">
                       {session.legs.map((leg) => (
                         <div key={leg.leg_index} className="rounded-lg bg-surface-muted p-2.5">

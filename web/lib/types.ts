@@ -798,8 +798,22 @@ export interface TodayReadiness {
   reason: string | null;
 }
 
+export interface TodayLeafSession {
+  kind: "single" | "brick_leg";
+  session_id?: string | null;
+  group_id?: string | null;
+  leg_index?: number | null;
+  sport: string;
+  sport_label: string;
+  session_role: string;
+  total_tss: number;
+  name: string;
+  materialized_steps?: WorkoutStep[];
+}
+
 export interface TodaySession {
   session_id?: string | null;
+  sessions?: TodayLeafSession[];
   date: string;
   name: string;
   role: string;

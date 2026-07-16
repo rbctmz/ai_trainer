@@ -169,7 +169,9 @@ def test_each_training_day_has_sessions_with_projected_stable_ids(tmp_path):
             training_days += 1
             assert sessions, template.get("date")
             assert template.get("session_id"), template.get("date")
-            assert sessions[0].get("session_id") == template.get("session_id")
+            if len(sessions) == 1:
+                # single-session day: the session IS the day (legacy shape)
+                assert sessions[0].get("session_id") == template.get("session_id")
             for session in sessions:
                 sid = str(session.get("session_id") or "")
                 assert sid, template.get("date")
@@ -178,6 +180,212 @@ def test_each_training_day_has_sessions_with_projected_stable_ids(tmp_path):
         else:
             assert sessions == [], template.get("date")
     assert training_days > 0
+
+
+def _two_session_goal_plan():
+    """A minimal goal plan whose first day has two independent sessions."""
+    from models.session_identity import ensure_session_identities
+
+    day1 = {
+        "date": "2026-07-20",
+        "week_index": 0,
+        "day_index": 0,
+        "phase": "Build",
+        "sport": "bike",
+        "session_role": "quality",
+        "session_focus": "Threshold",
+        "duration_minutes": 60,
+        "kind": "single",
+        "template_key": "build:quality:bike",
+        "export_name": "Tri — Threshold",
+        "sessions": [
+            {"sport": "bike", "sport_label": "Вело", "session_role": "quality",
+             "session_focus": "Threshold", "duration_minutes": 60,
+             "total_tss": 60.0, "template_key": "build:quality:bike",
+             "export_name": "Tri — Threshold"},
+            {"sport": "swim", "sport_label": "Плавание", "session_role": "easy",
+             "session_focus": "Техника", "duration_minutes": 30,
+             "total_tss": 20.0, "template_key": "build:easy:swim",
+             "export_name": "Tri — Техника"},
+        ],
+    }
+    plan = {
+        "goal_type": "Триатлон",
+        "distance": "Олимпийка",
+        "daily_plan": [
+            (datetime(2026, 7, 20), 80.0, {"run": 0.0, "bike": 60.0, "swim": 20.0}),
+        ]
+        + [
+            (datetime(2026, 7, 20) + timedelta(days=offset), 0.0, {"run": 0.0, "bike": 0.0, "swim": 0.0})
+            for offset in range(1, 7)
+        ],
+        "session_templates": [day1]
+        + [
+            {
+                "date": (datetime(2026, 7, 20) + timedelta(days=offset)).strftime("%Y-%m-%d"),
+                "week_index": 0,
+                "day_index": offset,
+                "phase": "Build",
+                "sport": "off",
+                "session_role": "off",
+                "session_focus": "Отдых",
+                "duration_minutes": 0,
+            }
+            for offset in range(1, 7)
+        ],
+        "weekly_summary": [
+            {"week_start": datetime(2026, 7, 20).date(), "phase": "Build", "weekly_tss": 80,
+             "bike": 60.0, "run": 0.0, "swim": 20.0,
+             "day_roles": ["quality", "off", "off", "off", "off", "off", "off"],
+             "day_focuses": ["Threshold", "—", "—", "—", "—", "—", "—"]},
+        ],
+        "constraint_summary": {},
+    }
+    return ensure_session_identities(plan)
+
+
+def test_targeted_session_edit_changes_one_session_and_keeps_the_rest():
+    from models.planning_near_term import apply_near_term_day_edits, build_near_term_edit_rows
+
+    plan = _two_session_goal_plan()
+    rows = build_near_term_edit_rows(plan)
+    assert len(rows[0]["sessions"]) == 2
+    swim_id = next(s["session_id"] for s in rows[0]["sessions"] if s["sport"] == "swim")
+    bike_id = next(s["session_id"] for s in rows[0]["sessions"] if s["sport"] == "bike")
+    assert swim_id and bike_id and swim_id != bike_id
+
+    result = apply_near_term_day_edits(
+        plan,
+        [{"index": 0, "session_id": swim_id, "session_role": "recovery", "sport": "swim", "total_tss": 10.0}],
+    )
+    updated = result["goal_plan"] if "goal_plan" in result else result
+    template = updated["session_templates"][0]
+    sessions = template["sessions"]
+    assert len(sessions) == 2
+    bike_after = next(s for s in sessions if s["sport"] == "bike")
+    swim_after = next(s for s in sessions if s["sport"] == "swim")
+    # untouched session is preserved with its identity
+    assert bike_after["session_id"] == bike_id
+    assert bike_after["total_tss"] == 60.0
+    # edited session changed and carries lineage
+    assert swim_after["total_tss"] == 10.0
+    assert swim_after["session_role"] == "recovery"
+    assert swim_after.get("replaces_session_id") == swim_id
+    # day totals follow the sessions
+    assert updated["daily_plan"][0][1] == 70.0
+    assert updated["daily_plan"][0][2] == {"run": 0.0, "bike": 60.0, "swim": 10.0}
+
+
+def test_targeted_session_edit_with_unknown_id_fails_closed():
+    from models.planning_near_term import apply_near_term_day_edits
+
+    plan = _two_session_goal_plan()
+    with pytest.raises(ValueError, match="unknown session_id"):
+        apply_near_term_day_edits(
+            plan,
+            [{"index": 0, "session_id": "ats_does_not_exist", "session_role": "easy",
+              "sport": "bike", "total_tss": 30.0}],
+        )
+
+
+def test_day_level_edit_records_replaced_session_ids():
+    from models.planning_near_term import apply_near_term_day_edits, build_near_term_edit_rows
+
+    plan = _two_session_goal_plan()
+    rows = build_near_term_edit_rows(plan)
+    previous_ids = {s["session_id"] for s in rows[0]["sessions"]}
+
+    result = apply_near_term_day_edits(
+        plan,
+        [{"index": 0, "session_role": "easy", "sport": "run", "total_tss": 30.0}],
+    )
+    updated = result["goal_plan"] if "goal_plan" in result else result
+    template = updated["session_templates"][0]
+    # a whole-day edit never drops sessions silently
+    assert set(template.get("replaced_session_ids") or []) == previous_ids
+    assert [s["sport"] for s in template["sessions"]] == ["run"]
+    assert updated["daily_plan"][0][2] == {"run": 30.0, "bike": 0.0, "swim": 0.0}
+
+
+def test_legacy_plan_delivery_identities_are_unchanged_by_sessions_model():
+    """Issue #205 M3 regression: a legacy one-session-per-day plan (restored
+    checkpoint without `sessions`) produces byte-identical delivery events
+    whether or not the sessions wrapper is present, and the external_id remains
+    prefix+day session_id (+ :leg:N for bricks)."""
+    from copy import deepcopy
+
+    from models.intervals_workout_delivery import (
+        AI_TRAINER_EXTERNAL_ID_PREFIX,
+        build_delivery_events,
+    )
+    from models.session_identity import ensure_session_identities
+
+    single_day = {
+        "date": "2026-07-20",
+        "phase": "Build",
+        "sport": "bike",
+        "session_role": "quality",
+        "session_focus": "Threshold",
+        "duration_minutes": 60,
+        "kind": "single",
+        "template_key": "build:quality:bike",
+        "export_name": "Triathlon — Threshold",
+        "materialized_steps": [
+            {"index": 0, "name": "Work", "intensity": "work",
+             "duration_seconds": 3600, "tss": 80.0,
+             "target": {"type": "power", "unit": "watts", "low": 190, "high": 210}},
+        ],
+    }
+    brick_day = {
+        "date": "2026-07-21",
+        "phase": "Build",
+        "sport": "brick",
+        "session_role": "long",
+        "session_focus": "Brick",
+        "duration_minutes": 120,
+        "kind": "composite",
+        "template_key": "build:long:brick",
+        "export_name": "Triathlon — Brick",
+        "transition_minutes": 5,
+        "legs": [
+            {"leg_index": 1, "sport": "bike", "target_tss": 60.0,
+             "materialized_steps": [
+                 {"index": 0, "name": "Ride", "intensity": "steady",
+                  "duration_seconds": 4800, "tss": 60.0,
+                  "target": {"type": "power", "unit": "watts", "low": 140, "high": 160}}]},
+            {"leg_index": 2, "sport": "run", "target_tss": 30.0,
+             "materialized_steps": [
+                 {"index": 0, "name": "Run", "intensity": "steady",
+                  "duration_seconds": 1800, "tss": 30.0,
+                  "target": {"type": "pace", "unit": "sec_per_km", "fast": 300, "slow": 330}}]},
+        ],
+    }
+    legacy_plan = {
+        "daily_plan": [
+            (datetime(2026, 7, 20), 80.0, {"run": 0.0, "bike": 80.0, "swim": 0.0}),
+            (datetime(2026, 7, 21), 90.0, {"run": 30.0, "bike": 60.0, "swim": 0.0}),
+        ],
+        "session_templates": [dict(single_day), dict(brick_day)],
+    }
+
+    # The same plan, but already carrying the sessions wrapper (as migration
+    # would produce): delivery output must be byte-identical.
+    wrapped_plan = ensure_session_identities(deepcopy(legacy_plan))
+
+    dates = ["2026-07-20", "2026-07-21"]
+    legacy_events = build_delivery_events(legacy_plan, dates)
+    wrapped_events = build_delivery_events(wrapped_plan, dates)
+
+    assert legacy_events == wrapped_events
+    assert len(legacy_events) == 3  # one single + two brick legs
+
+    resolved = ensure_session_identities(legacy_plan)
+    day_ids = [t["session_id"] for t in resolved["session_templates"]]
+    assert legacy_events[0]["external_id"] == f"{AI_TRAINER_EXTERNAL_ID_PREFIX}{day_ids[0]}"
+    assert legacy_events[1]["external_id"] == f"{AI_TRAINER_EXTERNAL_ID_PREFIX}{day_ids[1]}:leg:1"
+    assert legacy_events[2]["external_id"] == f"{AI_TRAINER_EXTERNAL_ID_PREFIX}{day_ids[1]}:leg:2"
+    assert legacy_events[0]["icu_training_load"] == 80
+    assert [e["icu_training_load"] for e in legacy_events[1:]] == [60, 30]
 
 
 def test_legacy_template_without_sessions_migrates_on_read():
