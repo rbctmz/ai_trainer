@@ -112,29 +112,100 @@ def test_no_single_occasion_absorbs_disproportionate_weekly_share():
             assert occasion_total <= 0.40 * week_total, (occasion, week_total)
 
 
-def test_weekly_hours_are_trimmed_explicitly_to_availability():
-    result = _schedule(available_weekly_hours=10.0)
-    # the duration model exceeds 10h for this budget, so the scheduler must
-    # trim EXPLICITLY (recorded note), never hide the overflow behind a floor
+_PROBE_ZONES = {"ftp": 159, "lthr": 160, "threshold_pace": 300}
+
+
+def _materialized_week_minutes(result, *, phase: str = "Build") -> int:
+    """Measure the week the way the plan will actually materialize it."""
     from models.training_planner import _estimate_session_duration_minutes
+    from models.workout_catalog import (
+        materialize_brick_session,
+        materialize_session_template,
+    )
 
     minutes = 0
     for day in _occasions(result):
         for occasion in day:
+            parts = {s: float(t) for s, t in occasion["parts"].items()}
             if occasion["is_brick"]:
-                for sport, role in (("bike", "long"), ("run", "easy")):
-                    tss = float(occasion["parts"].get(sport, 0.0) or 0.0)
-                    if tss > 0:
-                        minutes += _estimate_session_duration_minutes(tss, sport, role)
-            else:
-                sport = next(iter(occasion["parts"]))
-                minutes += _estimate_session_duration_minutes(
-                    float(occasion["parts"][sport]), sport, occasion["role"]
+                total = round(sum(parts.values()), 1)
+                seed = _estimate_session_duration_minutes(total, "bike", "long")
+                brick = materialize_brick_session(
+                    phase=phase,
+                    target_tss=total,
+                    parts={"run": 0.0, "swim": 0.0, **parts},
+                    estimated_duration_minutes=seed,
+                    goal_type="триатлон",
+                    zone_snapshot=_PROBE_ZONES,
+                    load_state="balanced",
                 )
-    assert minutes <= 10 * 60 + 5, minutes
+                minutes += int(brick.get("duration_minutes") or seed)
+                continue
+            sport = occasion["sport"]
+            tss = parts.get(sport, 0.0)
+            seed = _estimate_session_duration_minutes(tss, sport, occasion["role"])
+            template = materialize_session_template(
+                phase=phase,
+                session_role=occasion["role"],
+                sport=sport,
+                target_tss=tss,
+                estimated_duration_minutes=seed,
+                goal_type="триатлон",
+                zone_snapshot=_PROBE_ZONES,
+                load_state="balanced",
+                recent_template_keys=[],
+            )
+            minutes += int(template.get("duration_minutes") or seed)
+    return minutes
+
+
+def test_hours_check_must_not_cut_budget_that_materializes_within_availability():
+    """M3b.1 blocker 1: the 420-TSS Build week materializes to ~455 minutes —
+    it already fits 10h+5min, so the scheduler must keep every TSS. Capacity is
+    a ceiling, not an obligation to fill; but achievable load must never be cut
+    by a steeper surrogate estimator."""
+    budget = {"bike": 189.0, "run": 155.4, "swim": 75.6}
+    result = _schedule(week_budget=dict(budget), available_weekly_hours=10.0)
+
+    assert _sport_week_totals(result) == pytest.approx(budget, abs=0.11)
+    assert result["status"] == "scheduled"
+    assert _materialized_week_minutes(result) <= 10 * 60 + 5
+
+
+def test_actual_hours_trim_sets_reduced_status():
+    """M3b.1 blocker 2: any real trim must be visible in the status field
+    itself, not only in a note."""
+    budget = {"bike": 189.0, "run": 155.4, "swim": 75.6}
+    result = _schedule(week_budget=dict(budget), available_weekly_hours=3.0)
+
     trimmed_total = sum(_sport_week_totals(result).values())
-    if trimmed_total < sum(_TEN_HOUR_BUDGET.values()) - 0.5:
-        assert any("час" in note or "снижен" in note for note in result["notes"]), result["notes"]
+    assert trimmed_total < sum(budget.values()) - 0.5
+    assert result["status"] in {"reduced", "infeasible"}
+    assert any("снижен" in note or "час" in note for note in result["notes"]), result["notes"]
+    assert _materialized_week_minutes(result) <= 3 * 60 + 5
+
+
+def test_weights_overrides_become_slot_day_preferences():
+    """M3b.1: `weights_overrides` must not be silently ignored — a user's
+    Sunday-heavy bike weighting moves the long ride to Sunday."""
+    from datetime import date as _date
+
+    from models.training_planner import expand_weekly_to_daily_triathlon
+
+    _daily, weekly = expand_weekly_to_daily_triathlon(
+        [420],
+        ["Build"],
+        "Олимпийка",
+        _date(2026, 8, 3),
+        weights_overrides={
+            "Build": {"bike": [0.0, 0.0, 0.0, 0.0, 0.0, 0.1, 0.9]}
+        },
+        goal_type="Триатлон",
+        load_state="balanced",
+    )
+
+    roles = weekly[0]["day_roles"]
+    assert roles.index("long") == 6, roles
 
 
 def test_restricted_available_days_are_respected():
