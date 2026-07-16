@@ -17,7 +17,7 @@ The user-visible proof is the 2026-07-16 fixture: Garmin reports 6 hours 42 minu
 - [x] (2026-07-16 10:55 MSK) Implemented source-preserving extraction and actual-awake-time efficiency; the 2026-07-16 fixture now resolves to 62 Garmin and 93.1% from 30 awake minutes.
 - [x] (2026-07-16 11:00 MSK) Added backward-compatible persistence, API/web contracts, demo provenance, and honest readiness/signal wording.
 - [x] (2026-07-16 11:08 MSK) Validated 694 contributor-safe smoke tests, 736 broad non-live tests, Next lint, and the production web build.
-- [ ] Finalize this plan, self-review the diff, push the branch, and open a draft PR that closes #207.
+- [x] (2026-07-16 11:18 MSK) Finalized the plan, self-reviewed the diff, pushed the branch, and opened draft PR #208 with `Closes #207`.
 
 ## Surprises & Discoveries
 
@@ -138,4 +138,4 @@ The source CSV remains local and is not committed because it contains personal w
 
 No new package dependency is needed. `Phase1DataProcessor.process_sleep_data` continues returning a dictionary and adds `awake_sleep_minutes`, `sleep_score_source`, and `sleep_efficiency_source`. `Database.sync_sleep_data` persists those keys. `Database.get_sleep_data` returns them as DataFrame columns. `GET /api/sleep/summary` adds the corresponding source fields while preserving all existing keys. The TypeScript `SleepSummary` interface mirrors that additive contract.
 
-Revision note: created 2026-07-16 to turn the data-quality diagnosis in Issue #207 into an executable, restartable repair plan. The plan explicitly preserves append-only readiness history and forbids real-database mutation during development.
+Revision note: created 2026-07-16 to turn the data-quality diagnosis in Issue #207 into an executable, restartable repair plan. Completed in draft PR #208. The plan explicitly preserves append-only readiness history and forbids real-database mutation during development.
