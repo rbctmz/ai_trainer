@@ -271,12 +271,20 @@ export interface SleepSummary {
     date: string;
     hours: number | null;
     score: number | null;
+    score_source: string;
     efficiency: number | null;
+    efficiency_source: string;
     awakenings: number | null;
+    awake_minutes: number | null;
     stages: { deep: number | null; light: number | null; rem: number | null };
   } | null;
-  averages: { hours: number | null; score: number | null; window_days: number } | null;
-  trend: { date: string; hours: number; score: number | null }[];
+  averages: {
+    hours: number | null;
+    score: number | null;
+    score_source: string;
+    window_days: number;
+  } | null;
+  trend: { date: string; hours: number; score: number | null; score_source: string }[];
 }
 
 // --- Athlete profile ---

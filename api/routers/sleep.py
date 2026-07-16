@@ -26,6 +26,22 @@ def _num(value: Any) -> float | None:
         return None
 
 
+def _source(value: Any, fallback: str = "legacy_unknown") -> str:
+    if value is None or pd.isna(value):
+        return fallback
+    text = str(value).strip()
+    return text or fallback
+
+
+def _common_source(values: pd.Series | None) -> str:
+    if values is None:
+        return "legacy_unknown"
+    sources = {_source(value) for value in values.tolist()}
+    if not sources:
+        return "legacy_unknown"
+    return next(iter(sources)) if len(sources) == 1 else "mixed"
+
+
 @router.get("/summary")
 def sleep_summary(
     days: int = 30,
@@ -55,12 +71,14 @@ def sleep_summary(
             "date_label": format_date_label(row.get("date")),
             "hours": hours(row.get("total_sleep_minutes")) or 0,
             "score": _num(row.get("sleep_score")),
+            "score_source": _source(row.get("sleep_score_source")),
         }
         for _, row in df.iterrows()
     ]
 
     avg_hours = hours(df["total_sleep_minutes"].mean()) if "total_sleep_minutes" in df else None
     avg_score = _num(df["sleep_score"].mean()) if "sleep_score" in df else None
+    scored_rows = df[df["sleep_score"].notna()] if "sleep_score" in df else df.iloc[0:0]
 
     return {
         "has_data": True,
@@ -69,8 +87,11 @@ def sleep_summary(
             "date_label": format_date_label(latest.get("date")),
             "hours": hours(latest.get("total_sleep_minutes")),
             "score": _num(latest.get("sleep_score")),
+            "score_source": _source(latest.get("sleep_score_source")),
             "efficiency": _num(latest.get("sleep_efficiency")),
+            "efficiency_source": _source(latest.get("sleep_efficiency_source")),
             "awakenings": _num(latest.get("awakenings_count")),
+            "awake_minutes": _num(latest.get("awake_sleep_minutes")),
             "stages": {
                 "deep": hours(latest.get("deep_sleep_minutes")),
                 "light": hours(latest.get("light_sleep_minutes")),
@@ -82,7 +103,12 @@ def sleep_summary(
                 {"key": "light", "label": "Лёгкий", "hours": hours(latest.get("light_sleep_minutes"))},
             ],
         },
-        "averages": {"hours": avg_hours, "score": avg_score, "window_days": len(df)},
+        "averages": {
+            "hours": avg_hours,
+            "score": avg_score,
+            "score_source": _common_source(scored_rows.get("sleep_score_source")),
+            "window_days": len(df),
+        },
         "trend": trend,
         "operational_state": build_operational_state(
             db,

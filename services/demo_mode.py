@@ -188,7 +188,9 @@ def _build_demo_sleep() -> dict[str, dict[str, Any]]:
         rem = 74 + (offset % 4) * 6
         light = total_sleep - deep - rem
         bedtime_minutes = 23 * 60 + 5 + (offset % 4) * 10
-        wake_minutes = bedtime_minutes + total_sleep + 18 + (offset % 3) * 6
+        sleep_efficiency = round(86.0 + (offset % 4) * 2.1, 1)
+        awake_minutes = round(total_sleep * (100 / sleep_efficiency - 1), 1)
+        wake_minutes = round(bedtime_minutes + total_sleep + awake_minutes)
 
         values[date.strftime("%Y-%m-%d")] = {
             "total_sleep_minutes": total_sleep,
@@ -197,9 +199,12 @@ def _build_demo_sleep() -> dict[str, dict[str, Any]]:
             "rem_sleep_minutes": rem,
             "awakenings_count": 1 + (offset % 3),
             "sleep_score": 78 + (offset % 4) * 4,
+            "sleep_score_source": "demo",
             "bedtime": _format_clock(bedtime_minutes),
             "wakeup_time": _format_clock(wake_minutes),
-            "sleep_efficiency": round(86.0 + (offset % 4) * 2.1, 1),
+            "sleep_efficiency": sleep_efficiency,
+            "awake_sleep_minutes": awake_minutes,
+            "sleep_efficiency_source": "demo",
         }
 
     return values
