@@ -351,42 +351,35 @@ def schedule_week_slots(
     # surrogate estimator. Capacity is a ceiling, not an obligation to fill.
     # A real trim is explicit: recorded note AND status="reduced".
     if available_weekly_hours and float(available_weekly_hours) > 0:
-        from models.training_planner import _estimate_session_duration_minutes
-        from models.workout_catalog import (
-            materialize_brick_session,
-            materialize_session_template,
-        )
-
+        # Canonical occasion→sessions policy: measure through the SAME builder
+        # function the plan executes (`_split_day_sessions`), so a brick that
+        # the materializer rejects is honestly counted as its independent
+        # fallback sessions, not as one seed. Lazy import — the scheduler is
+        # itself called from training_planner, so the module is loaded; this
+        # never re-enters expand (no recursion).
         def _occasion_minutes(occasion: Mapping[str, Any]) -> int:
-            parts = {s: float(t or 0.0) for s, t in occasion["parts"].items()}
-            if occasion["is_brick"]:
-                total = round(sum(parts.values()), 1)
-                seed = _estimate_session_duration_minutes(total, "bike", "long")
-                brick = materialize_brick_session(
-                    phase=phase,
-                    target_tss=total,
-                    parts={"run": 0.0, "swim": 0.0, **parts},
-                    estimated_duration_minutes=seed,
-                    goal_type=goal_type,
-                    zone_snapshot={},
-                    load_state=load_state,
-                )
-                return int(brick.get("duration_minutes") or seed)
-            sport = occasion["sport"]
-            tss = parts.get(sport, 0.0)
-            seed = _estimate_session_duration_minutes(tss, sport, occasion["role"])
-            template = materialize_session_template(
+            from models.training_planner import _split_day_sessions
+
+            parts = {
+                "run": 0.0,
+                "bike": 0.0,
+                "swim": 0.0,
+                **{s: float(t or 0.0) for s, t in occasion["parts"].items()},
+            }
+            sessions, _allocated, _meta = _split_day_sessions(
+                parts=parts,
+                total=round(sum(parts.values()), 1),
+                is_brick=bool(occasion["is_brick"]),
                 phase=phase,
                 session_role=occasion["role"],
-                sport=sport,
-                target_tss=tss,
-                estimated_duration_minutes=seed,
+                day_focus="—",
                 goal_type=goal_type,
+                distance="",
                 zone_snapshot={},
                 load_state=load_state,
                 recent_template_keys=[],
             )
-            return int(template.get("duration_minutes") or seed)
+            return sum(int(session.get("duration_minutes") or 0) for session in sessions)
 
         limit_minutes = int(round(float(available_weekly_hours) * 60)) + SCHEDULER_TIME_QUANTUM_MINUTES
         original_total = round(sum(sum(o["parts"].values()) for o in placed), 1)
