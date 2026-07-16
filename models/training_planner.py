@@ -1729,6 +1729,10 @@ def expand_weekly_to_daily_triathlon(
     """
     daily: List[Tuple[datetime, float, Dict[str, float]]] = []
     weekly_summary: List[Dict[str, object]] = []
+    # Issue #205 M3b.1 r4: rotation state — плановый, не недельный. Scheduler и
+    # builder стартуют с одинаково пустой истории шаблонов и проходят недели в
+    # одном порядке; projected rotation прошлой недели — вход следующей.
+    projected_template_rotation: List[str] = []
 
     current = datetime.combine(start_date, datetime.min.time())
     for w_idx, w_tss in enumerate(weekly_tss):
@@ -1780,7 +1784,9 @@ def expand_weekly_to_daily_triathlon(
             available_day_indices=available_day_indices,
             available_weekly_hours=available_weekly_hours,
             day_preferences=day_preferences,
+            template_rotation=projected_template_rotation,
         )
+        projected_template_rotation = list(slot_plan.get("template_rotation") or projected_template_rotation)
         adjusted_week_parts = slot_plan["allocated_parts"]
         day_roles = slot_plan["day_roles"]
         day_focuses = slot_plan["day_focuses"]

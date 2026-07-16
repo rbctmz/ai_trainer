@@ -64,6 +64,7 @@ def schedule_week_slots(
     pinned_off_days: Sequence[int] = (),
     available_weekly_hours: float | None = None,
     day_preferences: Mapping[str, Sequence[float]] | None = None,
+    template_rotation: Sequence[str] | None = None,
 ) -> Dict[str, Any]:
     """Return the deterministic slot plan for one week.
 
@@ -90,6 +91,7 @@ def schedule_week_slots(
         "day_roles": ["off"] * 7,
         "day_focuses": ["Отдых"] * 7,
         "occasions": [[] for _ in range(7)],
+        "template_rotation": list(template_rotation or []),
     }
     if total_budget <= 0 or not days:
         if total_budget > 0 and not days:
@@ -350,16 +352,20 @@ def schedule_week_slots(
     # the plan will execute — so achievable load is never cut by a steeper
     # surrogate estimator. Capacity is a ceiling, not an obligation to fill.
     # A real trim is explicit: recorded note AND status="reduced".
+    plan_rotation_out: List[str] = list(template_rotation or [])
     if available_weekly_hours and float(available_weekly_hours) > 0:
         # Canonical WEEK projection: measure exactly the way the builder will
         # persist the week — occasions aggregated into calendar days (the same
         # parts that reach daily_plan), one `_split_day_sessions` call per day
         # with the day's hardest role, and ONE shared recent_template_keys
         # rotation across the whole week. Lazy import; never re-enters expand.
-        def _week_minutes() -> int:
+        def _week_minutes() -> tuple:
+            """(minutes, rotation_out) — the plan-level rotation contract: the
+            week is projected starting from the rotation state accumulated by
+            the previous weeks, exactly as the builder will see it."""
             from models.training_planner import _split_day_sessions
 
-            rotation: List[str] = []
+            rotation: List[str] = list(template_rotation or [])
             total_minutes = 0
             for day in days:
                 entries = sorted(day_occasions[day], key=lambda o: _ROLE_RANK[o["role"]])
@@ -386,13 +392,14 @@ def schedule_week_slots(
                     recent_template_keys=rotation,
                 )
                 total_minutes += sum(int(session.get("duration_minutes") or 0) for session in sessions)
-            return total_minutes
+            return total_minutes, rotation
 
         limit_minutes = int(round(float(available_weekly_hours) * 60)) + SCHEDULER_TIME_QUANTUM_MINUTES
         original_total = round(sum(sum(o["parts"].values()) for o in placed), 1)
         trimmed = False
+        rotation_out: List[str] = list(template_rotation or [])
         for _outer in range(len(placed) + 1):
-            estimated = _week_minutes()
+            estimated, rotation_out = _week_minutes()
             for _ in range(6):
                 if estimated <= limit_minutes:
                     break
@@ -402,7 +409,7 @@ def schedule_week_slots(
                         if o["parts"][sport] > 0:
                             o["parts"][sport] = round(o["parts"][sport] * scale, 1)
                 trimmed = True
-                estimated = _week_minutes()
+                estimated, rotation_out = _week_minutes()
             if estimated <= limit_minutes:
                 break
             # Duration floors dominate: TSS scaling cannot shrink the week
@@ -454,6 +461,7 @@ def schedule_week_slots(
                 f"{available_weekly_hours} ч по материализованным длительностям — "
                 f"бюджет явно снижен до {trimmed_total} TSS."
             )
+        plan_rotation_out = list(rotation_out)
 
     # Assemble the 7-day outputs.
     from models.training_planner import _build_day_focus_label  # lazy: avoid import cycle
@@ -490,6 +498,7 @@ def schedule_week_slots(
         "day_roles": day_roles,
         "day_focuses": day_focuses,
         "occasions": occasions_out,
+        "template_rotation": plan_rotation_out,
     }
 
 
