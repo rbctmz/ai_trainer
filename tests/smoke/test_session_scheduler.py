@@ -185,6 +185,67 @@ def test_actual_hours_trim_sets_reduced_status():
     assert _materialized_week_minutes(result) <= 3 * 60 + 5
 
 
+def test_reduced_week_materializes_within_availability_end_to_end():
+    """M3b.1 blocker (round 2): the hours contract must hold on the REAL
+    vertical path — expand → brick allocation → build_daily_session_templates —
+    summing persisted sessions[] durations (single: its duration; composite:
+    the parent; brick fallback: BOTH independent sessions). A 3h week must
+    materialize to <= 185 minutes end to end, not only in the scheduler's
+    internal occasion view."""
+    from datetime import date as _date
+
+    from models.training_planner import (
+        build_daily_session_templates,
+        expand_weekly_to_daily_triathlon,
+    )
+    from models.workout_catalog import prepare_weekly_brick_allocations
+
+    daily, weekly = expand_weekly_to_daily_triathlon(
+        [420],
+        ["Build"],
+        "Олимпийка",
+        _date(2026, 8, 3),
+        goal_type="Триатлон",
+        load_state="balanced",
+        available_weekly_hours=3.0,
+    )
+    allocation = prepare_weekly_brick_allocations(
+        daily,
+        weekly,
+        goal_type="Триатлон",
+        protected_dates=set(),
+        load_state="balanced",
+    )
+    templates = build_daily_session_templates(
+        allocation["daily_plan"],
+        weekly,
+        goal_type="Триатлон",
+        distance="Олимпийка",
+        zone_snapshot=_PROBE_ZONES,
+        brick_day_indices=set(allocation["brick_day_indices"]),
+    )
+
+    assert weekly[0].get("scheduler_status") == "reduced"
+    minutes = sum(
+        int(s.get("duration_minutes") or 0)
+        for t in templates
+        for s in (t.get("sessions") or [])
+    )
+    assert minutes <= 3 * 60 + 5, minutes
+
+
+def test_absent_and_zero_preferences_reproduce_default_placement():
+    """Requested before merge: absent and all-zero day preferences must both
+    reproduce the default deterministic placement exactly."""
+    base = _schedule()
+    absent = _schedule(day_preferences=None)
+    zero = _schedule(
+        day_preferences={"bike": [0.0] * 7, "run": [0.0] * 7, "swim": [0.0] * 7}
+    )
+    assert base == absent
+    assert base == zero
+
+
 def test_weights_overrides_become_slot_day_preferences():
     """M3b.1: `weights_overrides` must not be silently ignored — a user's
     Sunday-heavy bike weighting moves the long ride to Sunday."""
