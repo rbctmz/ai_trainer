@@ -57,6 +57,13 @@ def apply_constraints_to_goal_plan(
         if index < len(session_templates) and isinstance(session_templates[index], dict):
             template = dict(session_templates[index])
             note = _constraint_note(constraint)
+            # Issue #205: a constraint-off day carries no executable sessions.
+            # Record the displaced ids instead of leaving stale sessions behind.
+            replaced_session_ids = [
+                str(session.get("session_id") or "")
+                for session in list(template.get("sessions") or [])
+                if isinstance(session, dict) and session.get("session_id")
+            ]
             for key in (
                 "definition_snapshot",
                 "parameter_snapshot",
@@ -72,6 +79,9 @@ def apply_constraints_to_goal_plan(
                 "fatigue_cost",
                 "expected_recovery_hours",
                 "mutation_evidence",
+                "allocated_parts",
+                "brick_status",
+                "brick_status_reason",
             ):
                 template.pop(key, None)
             template.update(
@@ -92,8 +102,11 @@ def apply_constraints_to_goal_plan(
                     "adjustment_note": note,
                     "export_name": note,
                     "duration_minutes": 0,
+                    "sessions": [],
                 }
             )
+            if replaced_session_ids:
+                template["replaced_session_ids"] = replaced_session_ids
             session_templates[index] = template
 
     updated["daily_plan"] = daily_plan

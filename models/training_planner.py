@@ -2143,6 +2143,30 @@ def iter_leaf_sessions(template: Mapping[str, Any]) -> List[Dict[str, Any]]:
     return leaves
 
 
+def derive_weekly_sport_buckets_from_sessions(
+    weekly_summary: Sequence[Mapping[str, object]],
+    session_templates: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, object]]:
+    """Issue #205: the weekly per-sport buckets are a derived projection of the
+    materialized leaf sessions — the product table must be computed from what
+    the athlete would actually execute, never from the pre-split accounting
+    parts. Layering: parts/allocated_parts → sessions[] → weekly_summary."""
+    derived = [dict(row or {}) for row in weekly_summary]
+    for week_index, row in enumerate(derived):
+        buckets = {"bike": 0.0, "run": 0.0, "swim": 0.0}
+        for template in list(session_templates)[week_index * 7 : week_index * 7 + 7]:
+            if not isinstance(template, Mapping):
+                continue
+            for leaf in iter_leaf_sessions(template):
+                sport = str(leaf.get("sport") or "")
+                if sport in buckets:
+                    buckets[sport] = round(
+                        buckets[sport] + float(leaf.get("total_tss") or 0.0), 1
+                    )
+        row.update(buckets)
+    return derived
+
+
 def create_ics_from_daily(
     daily: List[Tuple[datetime, float, Dict[str, float]]],
     title_prefix: str = "Planned Training",

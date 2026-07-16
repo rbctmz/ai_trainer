@@ -16,6 +16,7 @@ from models.training_planner import (
     apply_race_event_overlays,
     apply_planning_constraints,
     build_daily_session_templates,
+    derive_weekly_sport_buckets_from_sessions,
     expand_weekly_to_daily_triathlon,
     synchronize_microcycle_changes,
 )
@@ -1289,7 +1290,9 @@ def rebuild_goal_plan_with_adjustment(
             "reason": brick_allocation.get("reason"),
             "evidence": dict(brick_allocation.get("evidence") or {}),
         },
-        "weekly_summary": weekly_summary,
+        "weekly_summary": derive_weekly_sport_buckets_from_sessions(
+            weekly_summary, session_templates
+        ),
         "overlay_rule_version": event_overlay["rule_version"],
         "event_overlays": event_overlay["overlays"],
         "microcycle_changes": microcycle_changes,

@@ -64,6 +64,7 @@ from models.training_planner import (
     compute_event_aware_phase_schedule,
     create_ics_from_daily,
     create_weekly_tss_plan,
+    derive_weekly_sport_buckets_from_sessions,
     expand_weekly_to_daily_triathlon,
     flatten_daily_total,
     synchronize_microcycle_changes,
@@ -527,6 +528,13 @@ def build_plan(
     goal_plan = synchronize_goal_plan_events(goal_plan)
     existing_plan = restore_goal_plan_from_checkpoint(latest_checkpoint)
     goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=existing_plan)
+    # Issue #205: the product weekly table is a projection of the materialized
+    # leaf sessions (parts → sessions → weekly), computed after constraints and
+    # identity stamping so it reflects the final executable truth.
+    goal_plan["weekly_summary"] = derive_weekly_sport_buckets_from_sessions(
+        list(goal_plan.get("weekly_summary") or []),
+        list(goal_plan.get("session_templates") or []),
+    )
     goal_plan = with_checkpoint_provenance(goal_plan, source="initial_plan")
 
     preview = _build_plan_preview(existing_plan, goal_plan)
