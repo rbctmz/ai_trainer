@@ -47,7 +47,7 @@ def test_v2_versions_only_change_materialization_and_changed_definitions() -> No
     assert CATALOG_VERSION == "workout_catalog_v2"
     assert SELECTOR_RULE_VERSION == "workout_selector_v1"
     assert MATERIALIZER_RULE_VERSION == "workout_materializer_v2"
-    assert len(definitions) == 20
+    assert len(definitions) == 22
     assert definitions["bike_threshold_intervals"].version == 2
     assert definitions["run_tempo_threshold"].version == 2
     assert definitions["brick_race_pace"].version == 2

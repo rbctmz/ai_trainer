@@ -72,6 +72,9 @@ def test_bookend_floor_holds_for_full_structures():
         ("run", "easy", 25.0, 30),
         ("run", "quality", 50.0, 45),
         ("bike", "easy", 30.0, 45),
+        # the v1 legacy pattern path (swim) obeys the same single contract
+        ("swim", "recovery", 25.0, 40),
+        ("swim", "easy", 35.0, 50),
     ]
     for sport, role, tss, minutes in cases:
         result = _materialize(sport, role, tss, minutes, phase="Build")

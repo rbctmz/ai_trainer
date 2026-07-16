@@ -155,6 +155,12 @@ _CATALOG = (
         ("ftp", "relative_rpe"), "race_pace", version=1,
     ),
     _definition(
+        "bike_activation", "Race Openers Ride", "bike", ("activation",),
+        "pre-race sharpening openers", _ALL_TRAINING_PHASES,
+        (20, 50), (5, 45), (15, 75), (1, 1, 1), 12,
+        ("ftp", "relative_rpe"), "activation", version=1,
+    ),
+    _definition(
         "run_recovery", "Recovery Run", "run", ("recovery", "easy"),
         "low-cost running frequency", _ALL_TRAINING_PHASES,
         (20, 60), (8, 55), (20, 65), (1, 1, 0), 12, ("threshold_pace", "lthr", "relative_rpe"), "recovery",
@@ -183,6 +189,12 @@ _CATALOG = (
         "run_race_pace", "Race Pace Run", "run", ("quality", "race"),
         "event-specific pace", ("Peak", "Taper", "Race Week"),
         (30, 100), (30, 120), (55, 105), (2, 2, 1), 36, ("threshold_pace", "lthr", "relative_rpe"), "race_pace",
+    ),
+    _definition(
+        "run_activation", "Race Strides Run", "run", ("activation",),
+        "pre-race sharpening strides", _ALL_TRAINING_PHASES,
+        (20, 45), (4, 35), (10, 70), (1, 1, 1), 12,
+        ("threshold_pace", "lthr", "relative_rpe"), "activation", version=1,
     ),
     _definition(
         "swim_technique_aerobic", "Technique + Aerobic Swim", "swim", ("recovery", "easy", "quality"),
@@ -428,6 +440,29 @@ _REPEAT_PRESCRIPTIONS: dict[
             _RepeatTier("long", 80, 3, 15 * 60, 5 * 60),
         ),
     ),
+    # Issue #205 M4: pre-race activations are short sharpening openers/strides
+    # at race effort — never a fallback block (roles come from race-microcycle
+    # overlays, #202).
+    "bike_activation": (
+        "Opener",
+        1.00,
+        0.50,
+        (
+            _RepeatTier("short", 20, 2, 60, 120),
+            _RepeatTier("medium", 30, 3, 60, 120),
+            _RepeatTier("long", 40, 4, 60, 120),
+        ),
+    ),
+    "run_activation": (
+        "Stride",
+        1.00,
+        0.65,
+        (
+            _RepeatTier("short", 20, 3, 20, 70),
+            _RepeatTier("medium", 28, 4, 25, 95),
+            _RepeatTier("long", 38, 5, 30, 90),
+        ),
+    ),
 }
 
 
@@ -568,6 +603,37 @@ def _repeat_specs(
     }
 
 
+_BOOKEND_FLOOR_SECONDS = 5 * 60
+
+
+def _apply_bookend_floor(
+    seconds: list[int],
+    definition: WorkoutTemplateDefinition,
+    total_seconds: int,
+) -> list[int]:
+    """Issue #205 M4: full-size structures (>= 30 min) honour a five-minute
+    warm-up and cool-down; very short activation sessions are the explicit
+    exception. The deficit is taken from the largest middle stage."""
+    if (
+        total_seconds < 30 * 60
+        or "activation" in definition.roles
+        or len(seconds) < 3
+    ):
+        return seconds
+    adjusted = list(seconds)
+    for edge in (0, len(adjusted) - 1):
+        deficit = _BOOKEND_FLOOR_SECONDS - adjusted[edge]
+        while deficit > 0:
+            donor = max(range(1, len(adjusted) - 1), key=lambda i: adjusted[i])
+            take = min(deficit, adjusted[donor] - 60)
+            if take <= 0:
+                break
+            adjusted[donor] -= take
+            adjusted[edge] += take
+            deficit -= take
+    return adjusted
+
+
 def _stage_specs(
     definition: WorkoutTemplateDefinition,
     total_seconds: int,
@@ -585,6 +651,7 @@ def _stage_specs(
             0,
         )
     ]
+    seconds = _apply_bookend_floor(seconds, definition, total_seconds)
     specs = [
         _StepSpec(
             name,
@@ -614,6 +681,7 @@ def _simplified_specs(
         int(value)
         for value in _exact_distribution(total_seconds, (0.20, 0.60, 0.20), 0)
     ]
+    seconds = _apply_bookend_floor(seconds, definition, total_seconds)
     easy_fraction = 0.50 if definition.sport == "bike" else 0.68
     controlled_fraction = 0.72 if definition.sport == "bike" else 0.78
     cooldown_fraction = 0.40 if definition.sport == "bike" else 0.60
@@ -653,6 +721,9 @@ def _legacy_specs(
             0,
         )
     ]
+    # Issue #205 M4: the bookend floor is ONE contract for every full-size
+    # structure, including the v1 legacy pattern path (swim/walk).
+    seconds = _apply_bookend_floor(seconds, definition, total_seconds)
     specs = [
         _StepSpec(
             name,
