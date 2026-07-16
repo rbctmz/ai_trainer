@@ -254,6 +254,54 @@ def test_reduced_week_materializes_within_availability_end_to_end():
     assert minutes <= 3 * 60 + 5, minutes
 
 
+def test_second_week_respects_hours_despite_template_rotation_drift():
+    """M3b.1 round 4: the builder carries recent_template_keys across the WHOLE
+    plan, so week 2 selects fresher (sometimes longer) templates. The
+    scheduler's projection must start week 2 from week 1's projected rotation —
+    minimal RED case: two identical Base 420-TSS weeks at 6h, week 2 persists
+    385 min > 365 on the unfixed head."""
+    from datetime import date as _date
+
+    from models.training_planner import (
+        build_daily_session_templates,
+        expand_weekly_to_daily_triathlon,
+    )
+    from models.workout_catalog import prepare_weekly_brick_allocations
+
+    daily, weekly = expand_weekly_to_daily_triathlon(
+        [420, 420],
+        ["Base", "Base"],
+        "Олимпийка",
+        _date(2026, 8, 3),
+        goal_type="Триатлон",
+        load_state="balanced",
+        available_weekly_hours=6.0,
+    )
+    allocation = prepare_weekly_brick_allocations(
+        daily,
+        weekly,
+        goal_type="Триатлон",
+        protected_dates=set(),
+        load_state="balanced",
+    )
+    templates = build_daily_session_templates(
+        allocation["daily_plan"],
+        weekly,
+        goal_type="Триатлон",
+        distance="Олимпийка",
+        zone_snapshot=_PROBE_ZONES,
+        brick_day_indices=set(allocation["brick_day_indices"]),
+    )
+
+    for week_index in range(2):
+        minutes = sum(
+            int(s.get("duration_minutes") or 0)
+            for t in templates[week_index * 7 : week_index * 7 + 7]
+            for s in (t.get("sessions") or [])
+        )
+        assert minutes <= 6 * 60 + 5, (week_index, minutes)
+
+
 def test_absent_and_zero_preferences_reproduce_default_placement():
     """Requested before merge: absent and all-zero day preferences must both
     reproduce the default deterministic placement exactly."""
