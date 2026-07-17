@@ -93,6 +93,56 @@ def test_bookend_floor_holds_for_full_structures():
         )
 
 
+def test_activation_day_load_is_capped_to_definition_ceiling():
+    """A capped race-week day with a heavy base must not become a dishonest
+    60+ TSS 'short sharpening': the overlay caps an activation day to the
+    activation definitions' ceiling (bike 45 / run 35), which always reduces
+    and therefore stays inside the #202 overlay contract."""
+    from datetime import date as _date, datetime as _datetime, timedelta as _timedelta
+
+    from models.training_planner import apply_race_event_overlays
+
+    start = _date(2026, 7, 20)
+    daily = [
+        (
+            _datetime.combine(start + _timedelta(days=offset), _datetime.min.time()),
+            110.0,
+            {"run": 0.0, "bike": 110.0, "swim": 0.0},
+        )
+        for offset in range(14)
+    ]
+    summaries = [
+        {
+            "week_start": start + _timedelta(days=week * 7),
+            "phase": "Peak",
+            "weekly_tss": 770,
+            "bike": 770.0,
+            "run": 0.0,
+            "swim": 0.0,
+            "day_roles": ["easy"] * 7,
+            "day_focuses": ["—"] * 7,
+        }
+        for week in range(2)
+    ]
+
+    adjusted, _after, _meta = apply_race_event_overlays(
+        daily,
+        summaries,
+        [{"date": "2026-07-30", "priority": "B", "label": "B", "confirmed": True}],
+        goal_type="Триатлон",
+    )
+    by_date = {dt.date().isoformat(): (total, parts) for dt, total, parts in adjusted}
+    # B D-3 = bike activation: base 110 capped to 0.60 -> 66, then the
+    # activation ceiling brings it to an honest 45
+    total, parts = by_date["2026-07-27"]
+    assert total == 45.0, (total, parts)
+    assert parts["bike"] == 45.0
+    # B D-1 = run activation: 110 * 0.25 = 27.5 <= 35 stays as capped
+    total_d1, parts_d1 = by_date["2026-07-29"]
+    assert total_d1 == 27.5, (total_d1, parts_d1)
+    assert parts_d1["run"] == 27.5
+
+
 def test_reference_plan_has_no_unstructured_sessions(tmp_path):
     """Vertical audit: the full B+A reference plan has zero
     legacy_role_fallback sessions; every leaf carries executable steps."""
