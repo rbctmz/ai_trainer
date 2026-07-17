@@ -17,6 +17,10 @@ from typing import Any, Dict, List, Mapping, Tuple
 from models.session_identity import ensure_session_identities
 
 _SPORT_PARTS = ("run", "bike", "swim")
+# Порядок сессий внутри дня — hardest-first (#206: скаляры дня проецируют
+# sessions[0], поэтому лид дня обязан быть самой жёсткой сессией, а не
+# случайным первым соседом). Stable-сортировка сохраняет порядок равных.
+_ROLE_PRIORITY = {"long": 0, "quality": 1, "activation": 2, "easy": 3, "recovery": 4}
 # Зеркальные ключи дня: проекция первичной сессии на верхний уровень шаблона
 # (позиционный контракт «один шаблон на день» из #205/#206).
 _DAY_MIRROR_KEYS = ("kind", "legs", "transition_minutes", "materialized_steps")
@@ -188,6 +192,9 @@ def apply_session_transfer(
     target_template = templates[target_index]
     target_sessions = [dict(s or {}) for s in list(target_template.get("sessions") or [])]
     target_sessions.append(moved)
+    target_sessions.sort(
+        key=lambda s: _ROLE_PRIORITY.get(str(s.get("session_role") or "").strip().lower(), 5)
+    )
     target_template["sessions"] = target_sessions
 
     daily_plan = list(plan.get("daily_plan") or [])
@@ -219,14 +226,19 @@ def apply_session_transfer(
             )
         )
         # Недельная СТРУКТУРНАЯ проекция следует за итоговыми шаблонами —
-        # роли/фокусы дней не должны оставаться на прежних датах.
+        # роли/фокусы/ключевые сессии/восстановительные дни/сводка не должны
+        # оставаться на прежних датах. Пересборка — тем же builder'ом, что и
+        # у планировщика, а не параллельной копией его логики.
+        from models.training_planner import _build_week_structure_metadata
+
         week_templates = templates[week_index * 7 : week_index * 7 + 7]
-        row["day_roles"] = [
+        roles = [
             str((t or {}).get("session_role") or "off") for t in week_templates
         ] + ["off"] * (7 - len(week_templates))
-        row["day_focuses"] = [
+        focuses = [
             str((t or {}).get("session_focus") or "—") for t in week_templates
         ] + ["—"] * (7 - len(week_templates))
+        row.update(_build_week_structure_metadata(roles, focuses))
     from models.training_planner import derive_weekly_sport_buckets_from_sessions
 
     plan["weekly_summary"] = derive_weekly_sport_buckets_from_sessions(weekly_summary, templates)

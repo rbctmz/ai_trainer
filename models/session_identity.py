@@ -104,21 +104,23 @@ def _session_sort_key(session: Mapping[str, Any]) -> tuple[str, str, float, str,
     )
 
 
-def _session_content_order(date_text: str, sessions: list) -> list[tuple[int, str]]:
-    """Canonical (position, content fingerprint) pairs for a day's sessions.
+def _session_content_order(date_text: str, sessions: list) -> list[tuple[int, str, str]]:
+    """Canonical (position, fingerprint, base fingerprint) for a day's sessions.
 
     Identical same-day sessions are separated by an occurrence ordinal assigned
     in canonical content order, so reordering the array cannot change the
     fingerprint set. Shared by multi-session stamping and by cross-cardinality
-    matching (Issue #209): a session whose content fingerprint already lived on
-    the same date is the SAME session, whatever the day's session count was.
+    matching (Issue #209): a session whose content already lived on the same
+    date is the SAME session, whatever the day's session count was. Matching
+    uses the BASE fingerprint (no ordinal) because a twin's ordinal legitimately
+    shifts when its duplicate sibling leaves the day.
     """
     occurrence_counts: dict[str, int] = {}
     ordered = sorted(
         range(len(sessions)),
         key=lambda position: _session_sort_key(sessions[position] or {}),
     )
-    result: list[tuple[int, str]] = []
+    result: list[tuple[int, str, str]] = []
     for position in ordered:
         payload = _session_material_payload(date_text, dict(sessions[position] or {}))
         base_fingerprint = _fingerprint(payload)
@@ -127,7 +129,7 @@ def _session_content_order(date_text: str, sessions: list) -> list[tuple[int, st
         fingerprint = (
             _fingerprint({**payload, "occurrence": ordinal}) if ordinal else base_fingerprint
         )
-        result.append((position, fingerprint))
+        result.append((position, fingerprint, base_fingerprint))
     return result
 
 
@@ -155,6 +157,20 @@ def ensure_session_identities(
     result = deepcopy(dict(goal_plan))
     daily_plan = list(result.get("daily_plan") or [])
     templates = [dict(item or {}) for item in list(result.get("session_templates") or [])]
+
+    # Ids already claimed as lineage by some session in THIS plan may not be
+    # reused for a survivor match (Issue #209): the moved session's
+    # `replaces_session_id` owns that id's history, and handing it to a
+    # surviving identical twin would make the lineage ambiguous.
+    claimed_replacements: set[str] = set()
+    for claimed_template in templates:
+        claimed = str(claimed_template.get("replaces_session_id") or "").strip()
+        if claimed:
+            claimed_replacements.add(claimed)
+        for claimed_session in list(claimed_template.get("sessions") or []):
+            claimed = str((claimed_session or {}).get("replaces_session_id") or "").strip()
+            if claimed:
+                claimed_replacements.add(claimed)
 
     previous_daily = list((previous_goal_plan or {}).get("daily_plan") or [])
     previous_templates = list((previous_goal_plan or {}).get("session_templates") or [])
@@ -222,19 +238,19 @@ def ensure_session_identities(
             # #205/#206 semantics — new identity plus lineage — even when the
             # nested session content happens to be untouched.
             if len(previous_sessions) != len(sessions_now):
-                for prev_position, prev_fingerprint in _session_content_order(
+                for prev_position, _prev_fingerprint, prev_base in _session_content_order(
                     material["date"], previous_sessions
                 ):
                     prev_sid = str(
                         (previous_sessions[prev_position] or {}).get("session_id") or ""
                     ).strip()
-                    if prev_sid:
-                        prev_ids_by_fp.setdefault(prev_fingerprint, []).append(prev_sid)
+                    if prev_sid and prev_sid not in claimed_replacements:
+                        prev_ids_by_fp.setdefault(prev_base, []).append(prev_sid)
 
         reused_content_id: str | None = None
         if not (previous_id and previous_material_fingerprint == material_fingerprint):
             if len(sessions_now) == 1 and content_order:
-                survivor_candidates = prev_ids_by_fp.get(content_order[0][1]) or []
+                survivor_candidates = prev_ids_by_fp.get(content_order[0][2]) or []
                 if survivor_candidates:
                     reused_content_id = survivor_candidates[0]
 
@@ -319,14 +335,14 @@ def ensure_session_identities(
             # same-date sessions reuses that id (a day that just grew its
             # second session must not churn the neighbour that was already
             # there); else the id is freshly content-derived.
-            for position, session_fingerprint in content_order:
+            for position, session_fingerprint, session_base in content_order:
                 session = dict(sessions[position] or {})
                 embedded_sid = str(session.get("session_id") or "").strip()
                 embedded_fp = str(session.get("session_material_fingerprint") or "").strip()
                 if embedded_sid and embedded_fp == session_fingerprint:
                     resolved_id = embedded_sid
                 else:
-                    matched = prev_ids_by_fp.get(session_fingerprint) or []
+                    matched = prev_ids_by_fp.get(session_base) or []
                     resolved_id = matched.pop(0) if matched else f"ats_{session_fingerprint[:24]}"
                 session["session_id"] = resolved_id
                 session["session_material_fingerprint"] = session_fingerprint
