@@ -200,8 +200,11 @@ def _week(quality_today=True, d1=None, d2=None, d3=None, protected_days=(), tail
 
 
 def test_safe_d2_yields_atomic_transfer_with_lineage():
-    """BDD 1: D+1 collides with quality, D+2 is a free safe day."""
-    plan = _week(d1=[_session("run", "quality", 60.0)], d2=[], d3=[_session("swim", "easy", 25.0)])
+    """BDD 1 (re-scenario'd, review round 3): D+1 is protected, D+2 is a free
+    safe day. D+1 must NOT carry a hard session here — a quality neighbour
+    would legitimately fire `recovery_spacing` on D+2 (both `quality` and
+    `long` are hard); the easy D+3 neighbour does not."""
+    plan = _week(d1=[], d2=[], d3=[_session("swim", "easy", 25.0)], protected_days=(1,))
     conflict = _conflict(plan)
     old_id = conflict["session_id"]
     assert old_id
@@ -225,18 +228,21 @@ def test_safe_d2_yields_atomic_transfer_with_lineage():
 
     rows = _rows_by_offset(variant["candidates"])
     assert rows[1]["eligible"] is False
-    assert sorted(rows[1]["rejected_reasons"]) == ["hard_collision"]
+    assert sorted(rows[1]["rejected_reasons"]) == ["protected"]
     assert rows[2]["eligible"] is True and rows[2]["rejected_reasons"] == []
     assert all(row["rule_version"] == "recovery-transfer-v1" for row in variant["candidates"])
 
 
 def test_truly_unavailable_day_is_rejected_with_code():
     """A day outside available_day_indices is `unavailable`, not merely
-    protected: D+1 hard, D+2 unavailable (Wednesday excluded), D+3 clean."""
+    protected: D+1 protected, D+2 unavailable (Wednesday excluded), D+3 clean.
+    D+1 is protected-empty rather than hard so `unavailable` is isolated —
+    a hard D+1 would add `recovery_spacing` to D+2's exact set."""
     plan = _week(
-        d1=[_session("run", "quality", 60.0)],
+        d1=[],
         d2=[],
         d3=[],
+        protected_days=(1,),
         available_weekdays=[0, 1, 3, 4, 5, 6],  # Wednesday (weekday 2) excluded
     )
     conflict = _conflict(plan)
@@ -251,7 +257,8 @@ def test_truly_unavailable_day_is_rejected_with_code():
 
 def test_no_safe_date_reports_exact_codes_per_candidate():
     """BDD 2: hard collision on D+1, protected D+2, unavailable D+3 —
-    no transfer, each candidate names its exact stable code."""
+    no transfer, each candidate names its exact stable codes. D+2 sits next to
+    the hard D+1, so its honest exact set carries `recovery_spacing` too."""
     plan = _week(
         d1=[_session("run", "quality", 60.0)],
         d2=[_session("swim", "easy", 20.0)],
@@ -265,7 +272,7 @@ def test_no_safe_date_reports_exact_codes_per_candidate():
     rows = _rows_by_offset(_rank(plan, conflict))
     assert len(rows) == 3
     assert sorted(rows[1]["rejected_reasons"]) == ["hard_collision"]
-    assert sorted(rows[2]["rejected_reasons"]) == ["protected"]
+    assert sorted(rows[2]["rejected_reasons"]) == ["protected", "recovery_spacing"]
     assert sorted(rows[3]["rejected_reasons"]) == ["unavailable"]
     for row in rows.values():
         assert row["eligible"] is False
@@ -298,6 +305,34 @@ def test_recovery_spacing_uses_post_removal_state():
     assert sorted(rows[2]["rejected_reasons"]) == ["recovery_spacing"]
     variant = _variant(plan, conflict)
     assert variant is not None and variant["target_date"] == (_TODAY + timedelta(days=1)).isoformat()
+
+
+@pytest.mark.parametrize(
+    ("neighbour_role", "blocks"),
+    [
+        ("quality", True),
+        ("long", True),
+        ("easy", False),
+        ("recovery", False),
+    ],
+)
+def test_adjacent_role_spacing_matrix(neighbour_role, blocks):
+    """Review round 3: BOTH hard roles block a hard transfer on the adjacent
+    day with `recovery_spacing` — `quality` exactly like `long`; easy and
+    recovery neighbours never do. Probe: neighbour role on D+1, candidate D+2."""
+    plan = _week(d1=[_session("run", neighbour_role, 50.0)], d2=[], d3=[])
+    conflict = _conflict(plan)
+
+    rows = _rows_by_offset(_rank(plan, conflict))
+    if blocks:
+        assert rows[2]["eligible"] is False
+        assert sorted(rows[2]["rejected_reasons"]) == ["recovery_spacing"]
+        variant = _variant(plan, conflict)
+        assert variant is not None
+        assert variant["target_date"] == (_TODAY + timedelta(days=3)).isoformat()
+    else:
+        assert rows[2]["eligible"] is True
+        assert rows[2]["rejected_reasons"] == []
 
 
 def test_minimal_intervention_outranks_nearest_date():
@@ -566,12 +601,15 @@ def test_new_identity_is_reproducible_by_ensure_session_identities():
 def test_brick_transfers_whole_with_consistent_group_and_leg_ids():
     """BDD 3 + review: the composite parent moves atomically; on the target the
     legs' leg_id/group identity follow the NEW parent id, bike→run order kept,
-    an existing independent session on the target day survives."""
+    an existing independent session on the target day survives. D+2/D+3 are
+    protected so the occupied D+1 is the only eligible target — otherwise
+    minimal-intervention ranking would prefer an empty day and the surviving-
+    neighbour claim would probe nothing."""
     specs = [
         {"sessions": [_brick_session(60.0, 30.0)]},
         {"sessions": [_session("swim", "recovery", 15.0)]},
-        {"sessions": []},
-        {"sessions": []},
+        {"sessions": [], "protected": True},
+        {"sessions": [], "protected": True},
         {"sessions": []},
         {"sessions": []},
         {"sessions": []},
