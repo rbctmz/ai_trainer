@@ -117,6 +117,6 @@ jobs:
           branch_prefix: claude/
           track_progress: true
           claude_args: |
-            --max-turns 25
-            --allowedTools "Edit,Write,Bash(python -m pytest:*),Bash(python3 -m pytest:*)"
-            --append-system-prompt "Follow AGENTS.md and the linked issue/PR contract. Treat the checker findings above the mention as task context. Modify only files required by the request. Never merge, force-push, access live athlete/provider data, or expose application secrets. Run contributor-safe tests before committing."
+            --max-turns 60
+            --allowedTools "Edit,Write,Bash(python -m pytest:*),Bash(python3 -m pytest:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git rev-parse:*)"
+            --append-system-prompt "Follow AGENTS.md and the linked issue/PR contract. Treat the checker findings above the mention as task context. Modify only files required by the request. Commit the confirmed RED gate before implementation. Commit the GREEN fix separately. Never merge, force-push, access live athlete/provider data, or expose application secrets. Run contributor-safe tests before committing."

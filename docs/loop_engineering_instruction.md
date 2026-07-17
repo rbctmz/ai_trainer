@@ -124,6 +124,13 @@ blocked for authors whose GitHub association is not `OWNER`, `MEMBER`, or
 `COLLABORATOR`. It never uses `pull_request_target` or checks out an untrusted PR
 head with repository secrets. The system prompt also prohibits merge,
 force-push, live athlete/provider access, and disclosure of application secrets.
+Implementation runs have a bounded 60-turn budget. Claude may edit files, run
+the contributor-safe pytest contour, and use only read-only git diagnostics
+(`status`, `diff`, `log`, `show`, and `rev-parse`); unrestricted shell and git
+mutation commands are not exposed. For long RED-to-GREEN tasks, the confirmed
+RED gate is committed before implementation and the GREEN fix is committed
+separately, so a later bounded-run interruption does not erase the test-first
+checkpoint.
 
 For checker handoff, post the detailed findings first and finish with a direct
 instruction such as:

@@ -1,6 +1,7 @@
 """Contract for the trusted interactive Claude Code GitHub workflow (Issue #211)."""
 
 from pathlib import Path
+import re
 
 import pytest
 
@@ -62,6 +63,16 @@ def test_claude_action_is_pinned_and_bounded() -> None:
     assert "--max-turns" in workflow
 
 
+def test_claude_action_has_enough_turns_for_red_green_implementation() -> None:
+    """Regression for run 29609471840: a valid M3 implementation run must
+    not stop at the old 25-turn ceiling before it can persist any changes."""
+    workflow = _workflow_text()
+
+    match = re.search(r"--max-turns\s+(\d+)", workflow)
+    assert match is not None
+    assert int(match.group(1)) == 60
+
+
 def test_claude_action_can_edit_and_run_only_contributor_safe_pytest() -> None:
     """Regression for run 29586638834: Claude must be able to implement the
     requested change, without receiving unrestricted shell access."""
@@ -78,6 +89,39 @@ def test_claude_action_can_edit_and_run_only_contributor_safe_pytest() -> None:
     install_index = workflow.index("python -m pip install -r requirements.txt")
     claude_index = workflow.index("anthropics/claude-code-action@")
     assert setup_index < install_index < claude_index
+
+
+def test_claude_action_allows_only_safe_git_diagnostics() -> None:
+    """Claude may inspect the checked-out PR state without receiving git
+    mutation or unrestricted shell capabilities."""
+    workflow = _workflow_text()
+
+    for command in (
+        "Bash(git status:*)",
+        "Bash(git diff:*)",
+        "Bash(git log:*)",
+        "Bash(git show:*)",
+        "Bash(git rev-parse:*)",
+    ):
+        assert command in workflow
+
+    for command in (
+        "Bash(git reset:*)",
+        "Bash(git clean:*)",
+        "Bash(git checkout:*)",
+        "Bash(git push:*)",
+        "Bash(git merge:*)",
+    ):
+        assert command not in workflow
+
+
+def test_claude_action_persists_red_gate_before_green_implementation() -> None:
+    """Long tasks must leave an inspectable RED checkpoint even if a later
+    implementation turn exhausts the bounded action budget."""
+    workflow = _workflow_text()
+
+    assert "Commit the confirmed RED gate before implementation" in workflow
+    assert "Commit the GREEN fix separately" in workflow
 
 
 def test_executable_pr_context_is_same_repository_only() -> None:
