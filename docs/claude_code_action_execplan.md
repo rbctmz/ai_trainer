@@ -14,8 +14,9 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
 - [x] (2026-07-17) Confirmed the repository already contains the `CLAUDE_CODE_OAUTH_TOKEN` secret and found an unmerged installer branch containing the vendor-generated starter workflows.
 - [x] (2026-07-17) Created Issue #211 and branch `codex/issue-211-claude-code-action` from current `main`.
 - [x] (2026-07-17) Registered four contributor-safe workflow contract tests RED; all four fail because `.github/workflows/claude.yml` does not yet exist.
-- [ ] Add the minimal interactive tag-mode workflow and update the agent-loop guide.
-- [ ] Run focused tests, contributor-safe smoke, and workflow syntax validation; publish a draft PR.
+- [x] (2026-07-17) Added the minimal interactive tag-mode workflow and documented its trigger and security boundary in the canonical agent-loop guide.
+- [x] (2026-07-17) Validated four focused tests, 742 smoke tests (one environment skip), 788 broad non-live tests (three environment/dependency skips), YAML structure, and `git diff --check`.
+- [ ] Commit and push the GREEN implementation and publish a draft PR.
 - [ ] After human merge, perform one harmless live mention probe on Issue #211 or the setup PR.
 
 ## Surprises & Discoveries
@@ -25,6 +26,9 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
 
 - Observation: The generated branch includes an automatic review-on-every-PR workflow in addition to interactive tag mode.
   Evidence: `.github/workflows/claude-code-review.yml` on the installer branch triggers on `pull_request` opened/synchronize/ready/reopened. Issue #211 requires explicit mentions only, so that workflow is intentionally not adopted.
+
+- Observation: A normal user OAuth token cannot query GitHub's App-installation endpoint, so installation presence cannot be proven read-only through the current `gh` session.
+  Evidence: `gh api user/installations` returns HTTP 403 requiring a token authorized to a GitHub App. The existing OAuth secret and vendor installer branch are strong setup evidence; the harmless post-merge mention is the definitive end-to-end check.
 
 ## Decision Log
 
@@ -40,13 +44,21 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
   Rationale: `issue_comment` covers both issue and PR conversation comments. Avoiding `pull_request_target` prevents untrusted PR code from sharing a workspace with secrets, matching Anthropic's security guidance.
   Date/Author: 2026-07-17 / Codex.
 
+- Decision: Explicitly check out `github.event.repository.default_branch` for every event before invoking the action.
+  Rationale: Review events can otherwise resolve to a PR merge ref. Starting from the trusted default branch keeps PR-controlled files out of the secret-bearing workspace; the official action obtains entity context and manages PR branches through its GitHub App.
+  Date/Author: 2026-07-17 / Codex.
+
 - Decision: Pin `anthropics/claude-code-action` v1 to commit `700e7f8316990de46bed556429765647af760efc` and annotate the major version.
   Rationale: A full commit pin limits supply-chain drift while the comment records the intended upstream release line.
   Date/Author: 2026-07-17 / Codex.
 
 ## Outcomes & Retrospective
 
-Pending implementation and the post-merge mention probe.
+The static implementation is complete: explicit trusted mentions are the only
+trigger, the workflow token is read-only, the official action is commit-pinned,
+and contract/smoke/broad validation is green. The only remaining outcome is the
+post-merge GitHub-hosted mention probe, because comment-triggered workflows are
+loaded from the default branch and cannot be exercised from this feature branch.
 
 ## Context and Orientation
 
@@ -91,4 +103,4 @@ The official installer branch remains untouched as historical evidence. This imp
 
 The external dependency is `anthropics/claude-code-action` pinned to commit `700e7f8316990de46bed556429765647af760efc` (upstream major tag v1 on 2026-07-17). The only authentication input is `claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}`. The trigger phrase is the action default, `@claude`. No Python or JavaScript runtime dependency is added to the product.
 
-Revision note (2026-07-17): initial self-contained plan created after discovering the incomplete vendor-installer branch; scope narrowed to explicit trusted mentions only to avoid duplicate automatic reviews and unnecessary model spend.
+Revision note (2026-07-17): initial self-contained plan created after discovering the incomplete vendor-installer branch; scope narrowed to explicit trusted mentions only to avoid duplicate automatic reviews and unnecessary model spend. Updated after implementation to record the explicit default-branch checkout, validation evidence, and the GitHub App installation-verification limitation.

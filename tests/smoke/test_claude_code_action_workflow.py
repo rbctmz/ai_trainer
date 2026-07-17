@@ -33,6 +33,8 @@ def test_claude_action_is_trusted_actor_only_and_not_automatic_pr_review() -> No
     assert "author_association" in workflow
     assert "pull_request_target" not in workflow
     assert "\n  pull_request:" not in workflow
+    assert "ref: ${{ github.event.repository.default_branch }}" in workflow
+    assert "github.event.pull_request.head" not in workflow
 
 
 def test_claude_action_uses_only_the_named_oauth_secret_and_minimal_permissions() -> None:

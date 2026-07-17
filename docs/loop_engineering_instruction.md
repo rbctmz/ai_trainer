@@ -106,6 +106,33 @@ CI runs the contributor-safe test contour. The Codex review workflow requests
 review on PRs. A PR is mergeable only after checks are green and the maintainer
 accepts the result.
 
+### Claude Code Tag Mode
+
+Workflow: `.github/workflows/claude.yml`
+
+A repository owner, member, or collaborator can invoke the official Claude Code
+GitHub Action by writing the complete trigger `@claude` in an issue/PR
+conversation comment, an inline PR review comment, or a submitted PR review.
+The action receives the surrounding GitHub context, can read CI results, and
+posts progress and its final response as `claude[bot]`. It does not run on every
+new PR; each invocation must be explicit.
+
+The workflow references only the repository secret
+`CLAUDE_CODE_OAUTH_TOKEN`. Its GitHub Actions token is read-only apart from the
+OIDC permission required by Anthropic's installed GitHub App, and the job is
+blocked for authors whose GitHub association is not `OWNER`, `MEMBER`, or
+`COLLABORATOR`. It never uses `pull_request_target` or checks out an untrusted PR
+head with repository secrets. The system prompt also prohibits merge,
+force-push, live athlete/provider access, and disclosure of application secrets.
+
+For checker handoff, post the detailed findings first and finish with a direct
+instruction such as:
+
+    @claude Address the blocking findings above with RED tests before fixes.
+
+GitHub reads comment-triggered workflows from the default branch, so tag mode is
+available only after the workflow PR has been merged into `main`.
+
 ### Ready-To-Merge Projection
 
 Workflow: `.github/workflows/pr-ready-to-merge.yml`
