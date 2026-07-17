@@ -16,7 +16,7 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
 - [x] (2026-07-17) Registered four contributor-safe workflow contract tests RED; all four fail because `.github/workflows/claude.yml` does not yet exist.
 - [x] (2026-07-17) Added the minimal interactive tag-mode workflow and documented its trigger and security boundary in the canonical agent-loop guide.
 - [x] (2026-07-17) Validated four focused tests, 742 smoke tests (one environment skip), 788 broad non-live tests (three environment/dependency skips), YAML structure, and `git diff --check`.
-- [ ] Commit and push the GREEN implementation and publish a draft PR.
+- [x] (2026-07-17) Committed RED then GREEN, pushed `codex/issue-211-claude-code-action`, and opened draft PR #212 against `main` with `Closes #211`.
 - [ ] After human merge, perform one harmless live mention probe on Issue #211 or the setup PR.
 
 ## Surprises & Discoveries
@@ -54,7 +54,7 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
 
 ## Outcomes & Retrospective
 
-The static implementation is complete: explicit trusted mentions are the only
+The static implementation is complete in draft PR #212: explicit trusted mentions are the only
 trigger, the workflow token is read-only, the official action is commit-pinned,
 and contract/smoke/broad validation is green. The only remaining outcome is the
 post-merge GitHub-hosted mention probe, because comment-triggered workflows are
