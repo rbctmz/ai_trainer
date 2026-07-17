@@ -11,6 +11,11 @@ from api.session_quality_forecast import record_shadow_session_quality_forecast
 from data.database import Database
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.recovery_replan import build_recovery_replan_variant
+from models.recovery_transfer import build_transfer_variant, rank_transfer_candidates
+
+# Maps a v1 `options[]` entry's `key` onto its typed `variants[]` `kind`
+# (Issue #209 M3: `variants = [keep, downgrade_today, transfer_1_3d?]`).
+_VARIANT_KIND_BY_OPTION_KEY = {"keep": "keep", "recommended": "downgrade_today"}
 
 
 def _outcome(report: dict[str, Any]) -> str:
@@ -62,10 +67,63 @@ def _active_proposal_key(
     return f"recovery_replan:{sha256(canonical.encode('utf-8')).hexdigest()}"
 
 
+def _resolve_transfer_session_id(
+    goal_plan: dict[str, Any],
+    conflict: dict[str, Any],
+) -> str | None:
+    """Finds the `session_id` the readiness conflict is actually referring to.
+
+    The readiness report never carries a `session_id` (Issue #209 M3): it
+    only claims a date and a role. The active plan may have moved on since
+    the report was built (a prior downgrade already applied), so the match
+    is fail-closed on role — a mismatch means the transfer variant is
+    omitted while `keep`/`downgrade_today` (which use the report's claimed
+    role directly, per v1) stay unaffected.
+    """
+    conflict_date = str(conflict.get("date") or "")[:10]
+    claimed_role = str((conflict.get("session") or {}).get("role") or "").strip().lower()
+    for template in list(goal_plan.get("session_templates") or []):
+        if not isinstance(template, dict) or str(template.get("date") or "")[:10] != conflict_date:
+            continue
+        for session in list(template.get("sessions") or []):
+            if not isinstance(session, dict):
+                continue
+            if str(session.get("session_role") or "").strip().lower() == claimed_role:
+                session_id = str(session.get("session_id") or "").strip()
+                return session_id or None
+        return None
+    return None
+
+
+def _typed_variants(
+    variant: dict[str, Any],
+    transfer_variant: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    typed: list[dict[str, Any]] = []
+    for option in variant.get("options") or []:
+        kind = _VARIANT_KIND_BY_OPTION_KEY.get(str(option.get("key")))
+        if kind is None:
+            continue
+        entry = dict(option)
+        entry["kind"] = kind
+        entry.pop("recommended", None)
+        typed.append(entry)
+    if transfer_variant is not None:
+        typed.append(dict(transfer_variant))
+
+    recommended_kind = "transfer_1_3d" if transfer_variant is not None else "downgrade_today"
+    for entry in typed:
+        if entry["kind"] == recommended_kind:
+            entry["recommended"] = True
+    return typed
+
+
 def _proposal_payload(
     variant: dict[str, Any],
     *,
     base_checkpoint_id: int,
+    transfer_variant: dict[str, Any] | None,
+    transfer_candidates: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     draft_rows = [
         {
@@ -95,6 +153,8 @@ def _proposal_payload(
         "options": list(variant["options"]),
         "evidence": list(variant.get("evidence") or []),
         "lookahead_policy": variant.get("lookahead_policy"),
+        "variants": _typed_variants(variant, transfer_variant),
+        "transfer_candidates": list(transfer_candidates),
     }
     return params, preview
 
@@ -129,9 +189,31 @@ def run_recovery_replan_loop(
         if variant is None or checkpoint_id is None:
             proposal_gap = "conflict session is not addressable in the active plan"
         else:
+            transfer_variant = None
+            transfer_candidates: list[dict[str, Any]] = []
+            resolved_session_id = _resolve_transfer_session_id(
+                goal_plan, variant["selected_conflict"]
+            )
+            if resolved_session_id:
+                transfer_conflict = {**variant["selected_conflict"], "session_id": resolved_session_id}
+                try:
+                    transfer_candidates = rank_transfer_candidates(
+                        goal_plan, transfer_conflict, today=today
+                    )
+                    transfer_variant = build_transfer_variant(
+                        goal_plan, transfer_conflict, today=today
+                    )
+                except ValueError:
+                    # Fail-closed: a stale readiness snapshot racing a plan
+                    # that already moved on must never crash the loop —
+                    # keep/downgrade_today stay unaffected.
+                    transfer_variant = None
+                    transfer_candidates = []
             params, preview = _proposal_payload(
                 variant,
                 base_checkpoint_id=int(checkpoint_id),
+                transfer_variant=transfer_variant,
+                transfer_candidates=transfer_candidates,
             )
             proposal = db.save_coach_proposal(
                 action="recovery_replan",
@@ -142,6 +224,8 @@ def run_recovery_replan_loop(
                 active_key=_active_proposal_key(report, variant, int(checkpoint_id)),
                 date=f"{str(report.get('as_of') or today.isoformat())[:10]}T00:00:00",
             )
+            if proposal["status"] == "pending" and proposal.get("preview") != preview:
+                proposal = db.update_coach_proposal_preview(proposal["id"], preview)
             decision = db.link_recovery_decision_proposal(decision["id"], proposal["id"])
 
     shadow_forecast = None
