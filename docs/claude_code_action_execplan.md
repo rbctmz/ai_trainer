@@ -17,7 +17,8 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
 - [x] (2026-07-17) Added the minimal interactive tag-mode workflow and documented its trigger and security boundary in the canonical agent-loop guide.
 - [x] (2026-07-17) Validated four focused tests, 742 smoke tests (one environment skip), 788 broad non-live tests (three environment/dependency skips), YAML structure, and `git diff --check`.
 - [x] (2026-07-17) Committed RED then GREEN, pushed `codex/issue-211-claude-code-action`, and opened draft PR #212 against `main` with `Closes #211`.
-- [ ] After human merge, perform one harmless live mention probe on Issue #211 or the setup PR.
+- [x] (2026-07-17) Post-merge mention reached Claude, proving trigger/auth/comment wiring, but the implementation probe on PR #210 failed because the SDK tool allowlist contained no editor or pytest command (run 29586638834).
+- [x] (2026-07-17) Issue #213 registered the follow-up contract: explicit edit tools, pytest-only Bash, trusted Python setup, and a same-repository PR-head guard before any PR code may execute.
 
 ## Surprises & Discoveries
 
@@ -29,6 +30,9 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
 
 - Observation: A normal user OAuth token cannot query GitHub's App-installation endpoint, so installation presence cannot be proven read-only through the current `gh` session.
   Evidence: `gh api user/installations` returns HTTP 403 requiring a token authorized to a GitHub App. The existing OAuth secret and vendor installer branch are strong setup evidence; the harmless post-merge mention is the definitive end-to-end check.
+
+- Observation: A successful tag/authentication probe is not sufficient evidence that Claude can implement a requested fix. The first real PR task initialized Claude and produced a correct todo list, but the action exposed only read tools plus git publication commands; without explicit `--allowedTools`, the run ended `is_error:true` before any RED test or code edit.
+  Evidence: Actions run 29586638834 logs list `Glob`, `Grep`, `LS`, `Read`, comment/CI tools, and git add/commit/push, but no `Edit`, `Write`, or pytest-capable Bash tool. PR #210 remained at the same head.
 
 ## Decision Log
 
@@ -52,13 +56,24 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
   Rationale: A full commit pin limits supply-chain drift while the comment records the intended upstream release line.
   Date/Author: 2026-07-17 / Codex.
 
+- Decision: Add only `Edit`, `Write`, and the two explicit `python/python3 -m pytest:*` Bash prefixes; do not grant arbitrary shell execution.
+  Rationale: Claude needs to register RED tests, implement fixes, and run the repository's contributor-safe suite, but does not need a general-purpose secret-bearing shell.
+  Date/Author: 2026-07-17 / Codex (Issue #213).
+
+- Decision: Before preparing Python or invoking Claude with pytest access, resolve the referenced PR and require `pullRequest.head.repo.full_name` to equal the current repository; plain issue tasks remain allowed from the trusted default branch.
+  Rationale: pytest executes repository code. A trusted maintainer comment on an external PR must not cause fork-controlled code to run beside the Claude OAuth/App credentials.
+  Date/Author: 2026-07-17 / Codex (Issue #213).
+
 ## Outcomes & Retrospective
 
-The static implementation is complete in draft PR #212: explicit trusted mentions are the only
-trigger, the workflow token is read-only, the official action is commit-pinned,
-and contract/smoke/broad validation is green. The only remaining outcome is the
-post-merge GitHub-hosted mention probe, because comment-triggered workflows are
-loaded from the default branch and cannot be exercised from this feature branch.
+PR #212 established the trigger, authentication, and trusted-comment boundary,
+and its post-merge probe proved all three. The first implementation request then
+exposed the missing execution layer: Claude could read and plan but not edit or
+test. Issue #213 adds that layer with least privilege — explicit file editing,
+pytest-only Bash, dependencies installed from trusted `main`, and a same-repository
+PR-head gate before any PR code can run. The remaining outcome is a post-merge
+retry of the blocking PR #210 task; it must create RED and GREEN commits and leave
+the contributor-safe suite green.
 
 ## Context and Orientation
 
