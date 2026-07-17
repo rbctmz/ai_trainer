@@ -75,8 +75,8 @@ Milestone seven is the final vertical validation: full smoke, broad non-live, Ne
 ## Progress
 
 - [x] (2026-07-17) Read Issue #209, RecoveryReplan v1 (`models/recovery_replan.py`, `api/recovery_replan_loop.py`, apply/rollback in `api/planning_service.py`), and the #206 primitives; created worktree branch `claude/issue-209-recovery-transfer` from `origin/main` (`030652e`).
-- [ ] Milestone one: RED contract in `tests/smoke/test_recovery_transfer.py`.
-- [ ] Milestone two: `models/recovery_transfer.py` ranker + variant builder green.
+- [x] (2026-07-17) Milestone one: RED contract in `tests/smoke/test_recovery_transfer.py` + `tests/smoke/test_session_transfer.py`, expanded across three checker rounds (exact code registry, constraint_summary availability, source-date window, cross-week ban, actual-load spacing, hard-role adjacency matrix, day duration ceiling, whole-plan immutability, brick leaf projection); 29/29 honestly RED before implementation.
+- [x] (2026-07-17) Milestone two: `models/session_transfer.py::apply_session_transfer` (atomic clone → move → rebuild day projections and weekly buckets from sessions → identity restamp with lineage → conservation invariants) and `models/recovery_transfer.py` (registry, `rank_transfer_candidates`, `build_transfer_variant`), plus `MAX_DAY_DURATION_MINUTES`/`HARD_SESSION_ROLES` shared from `models/session_scheduler.py`. 29/29 GREEN; smoke 768 passed; broad non-live 811 passed.
 - [ ] Milestone three: three-variant decision contract in the loop.
 - [ ] Milestone four: confirm/reject/rollback with stale guard and append-only checkpoints.
 - [ ] Milestone five: reconciliation/feedback identity handoff.
@@ -86,6 +86,10 @@ Milestone seven is the final vertical validation: full smoke, broad non-live, Ne
 ## Surprises & Discoveries
 
 - (2026-07-17) `available_day_indices` does NOT live at the top level of the goal plan: `apply_planning_constraints` (models/training_planner.py:413) passes it through `summarize_availability(...)` and persists the result inside `constraint_summary`. The first RED fixture pinned the wrong location; the checker's round-2 probe caught it before implementation froze the mistake into the ranker contract.
+
+- (2026-07-17, M2) The primitive's TSS-conservation invariant must anchor to sessions[], not to `daily_plan` rows: the multi-session RED fixture deliberately carries a day whose daily projection lags its sessions (a real-world shape after partial edits), and the transfer repairs that projection as a side effect — comparing against the stale daily rows falsely reported a conservation breach. Duration conservation was session-anchored from the start and never tripped. Same #206 lesson again: derived views are not anchors.
+
+- (2026-07-17, M2) Adjacency detail fixed in code: planned spacing checks strictly the two neighbouring days (±1), while `actual_hard_dates` block at distance ≤ 1 — an actual hard workout on the candidate day itself also rejects (there is no planned-session analogue because a planned hard same-day is `hard_collision`).
 
 ## Outcomes & Retrospective
 
