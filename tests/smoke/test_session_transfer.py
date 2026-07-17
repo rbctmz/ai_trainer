@@ -179,6 +179,64 @@ def test_transfer_rebuilds_weekly_day_roles_and_focuses():
     assert week["day_focuses"] == [str(t.get("session_focus")) for t in templates]
 
 
+def test_duplicate_twin_transfer_keeps_survivor_id_unambiguous():
+    """Checker M2 remainder 1: with two content-identical sessions on a day,
+    transferring the FIRST must not hand its id to the surviving twin — the
+    survivor keeps its own ordinal-derived id with no lineage, the moved
+    session mints a fresh id whose `replaces_session_id` points at the old
+    first id, and the whole result is restamp-stable."""
+    twin = _session("bike", "quality", 60.0)
+    specs = [{"sessions": [dict(twin), dict(twin)]}] + [{"sessions": []} for _ in range(6)]
+    plan = _plan(specs)
+    ids_before = [s["session_id"] for s in plan["session_templates"][0]["sessions"]]
+    assert len(set(ids_before)) == 2
+    conflict = _conflict(plan)
+    assert conflict["session_id"] == ids_before[0]
+
+    result = _apply(plan, conflict["session_id"], 2)
+    moved_plan = result["goal_plan"]
+    source_sessions = moved_plan["session_templates"][0]["sessions"]
+    assert len(source_sessions) == 1
+    survivor = source_sessions[0]
+    assert survivor["session_id"] == ids_before[1]
+    assert "replaces_session_id" not in survivor
+
+    moved = moved_plan["session_templates"][2]["sessions"][0]
+    assert moved["replaces_session_id"] == ids_before[0]
+    assert moved["session_id"] not in ids_before
+
+    restamped = ensure_session_identities(moved_plan)
+    assert restamped["session_templates"] == moved_plan["session_templates"]
+
+
+def test_transfer_rebuilds_weekly_structure_metadata_and_day_lead():
+    """Checker M2 remainder 2: the weekly structure metadata (key_sessions /
+    recovery_days / structure_summary) follows the resulting templates, and on
+    an occupied target day the arriving hard session becomes the day's lead
+    (sessions[0] and the day role) instead of hiding behind a recovery
+    neighbour."""
+    from models.training_planner import WEEKDAY_LABELS_RU
+
+    plan = _week(d1=[], d2=[_session("swim", "recovery", 15.0)], d3=[])
+    conflict = _conflict(plan)
+
+    result = _apply(plan, conflict["session_id"], 2)
+    moved_plan = result["goal_plan"]
+
+    target = moved_plan["session_templates"][2]
+    assert target["sessions"][0]["sport"] == "bike"  # hardest-first ordering
+    assert target["session_role"] == "quality"       # the day lead is the hard arrival
+
+    week = moved_plan["weekly_summary"][0]
+    roles = [str(t.get("session_role")) for t in moved_plan["session_templates"][:7]]
+    assert week["day_roles"] == roles
+    assert week["key_sessions"] == f"{WEEKDAY_LABELS_RU[2]} quality bike"
+    assert week["recovery_days"] == "—"  # the recovery swim is no longer the day's role
+    assert week["structure_summary"] == (
+        "1 качеств. дн., 0 активац., 0 восстановит. дн., длительная: —"
+    )
+
+
 def test_transfer_to_same_date_fails_closed():
     """Checker M2 blocker 5: target == source is a reorder/no-op, not a
     transfer — the primitive rejects it before any mutation."""

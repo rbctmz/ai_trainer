@@ -134,6 +134,9 @@ def _plan(day_specs, available_weekdays=None):
                 "swim": 0.0,
                 "day_roles": week_roles,
                 "day_focuses": ["—"] * 7,
+                "key_sessions": "—",
+                "recovery_days": "—",
+                "structure_summary": "—",
             }
         )
     plan = {
