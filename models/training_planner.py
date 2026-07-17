@@ -918,6 +918,22 @@ _PRESCRIPTION_SAFETY_RANK = {
 }
 _RACE_READINESS_HORIZON_DAYS = 7
 
+# Issue #205 M6 — named race-effort forecast policy (race-forecast-v1). A race
+# is a hard effort the load model must anticipate: an amateur A-priority
+# olympic-distance triathlon is roughly 2.5-3 hours near threshold (~180-220
+# TSS), a B-priority tune-up roughly 1-1.5 hours (~90-130 TSS). The forecast
+# feeds the Banister CTL/ATL simulation and the race week's accounting row
+# ONLY: the race day itself stays a protected zero-load day, is never
+# materialized as a deliverable session, and the athlete's own provider race
+# event is never overwritten. C races stay train-through with no forecast.
+RACE_FORECAST_TSS_POLICY = {"A": 190.0, "B": 110.0}
+
+# An activation day may not carry more load than the activation definitions
+# honestly hold (mirrors bike_activation/run_activation max_tss). A capped
+# race-week day whose base was heavy would otherwise become a dishonest
+# 60+ TSS "short sharpening" that no catalog structure can materialize.
+_ACTIVATION_TSS_CEILING = {"bike": 45.0, "run": 35.0}
+
 
 def compute_event_aware_phase_schedule(
     weeks_total: int,
@@ -986,6 +1002,7 @@ def apply_race_event_overlays(
     contexts: Dict[str, Dict[str, Any]] = {}
     protected_dates: set[str] = set()
     overlays: List[Dict[str, Any]] = []
+    race_forecast_loads: List[Dict[str, Any]] = []
     is_triathlon = "триатлон" in str(goal_type or "").lower() or "tri" in str(goal_type or "").lower()
     normalized_load_state = str(load_state or "balanced").strip().lower()
 
@@ -1126,6 +1143,17 @@ def apply_race_event_overlays(
             "offset": 0,
             "label": str(event.get("label") or ""),
         }
+        forecast_tss = float(RACE_FORECAST_TSS_POLICY.get(priority) or 0.0)
+        if forecast_tss > 0 and event_day.isoformat() in available_dates:
+            race_forecast_loads.append(
+                {
+                    "date": event_day.isoformat(),
+                    "priority": priority,
+                    "label": str(event.get("label") or ""),
+                    "tss": round(forecast_tss, 1),
+                    "basis": "race-forecast-v1: гоночное усилие по приоритету старта",
+                }
+            )
         set_cap(event_day, 0.0, context=race_context)
         set_prescription(
             event_day,
@@ -1202,7 +1230,16 @@ def apply_race_event_overlays(
             adjusted_total = 0.0
         elif prescribed_sport in {"run", "bike", "swim"} and adjusted_total > 0:
             adjusted_parts = {"run": 0.0, "bike": 0.0, "swim": 0.0}
-            adjusted_parts[prescribed_sport] = round(min(float(total or 0.0), adjusted_total), 1)
+            capped = min(float(total or 0.0), adjusted_total)
+            # Issue #205 M4/M6: an activation is a SHORT sharpening stimulus —
+            # its day may not carry more load than the activation definition
+            # honestly holds. Overlays only ever reduce, so the extra cap is
+            # safe under the #202 contract.
+            if role == "activation":
+                ceiling = _ACTIVATION_TSS_CEILING.get(prescribed_sport)
+                if ceiling:
+                    capped = min(capped, ceiling)
+            adjusted_parts[prescribed_sport] = round(capped, 1)
             adjusted_total = round(sum(adjusted_parts.values()), 1)
         adjusted.append((dt, round(min(float(total or 0.0), adjusted_total), 1), adjusted_parts))
 
@@ -1265,11 +1302,24 @@ def apply_race_event_overlays(
             }
         )
 
+    # Issue #205 M6: the race week's accounting row shows the forecast
+    # explicitly, without polluting the discipline buckets or daily totals.
+    if race_forecast_loads and adjusted:
+        plan_start = adjusted[0][0].date()
+        for row in race_forecast_loads:
+            week_index = (date.fromisoformat(row["date"]) - plan_start).days // 7
+            if 0 <= week_index < len(copied_summary):
+                summary = copied_summary[week_index]
+                summary["race_forecast_tss"] = round(
+                    float(summary.get("race_forecast_tss") or 0.0) + float(row["tss"]), 1
+                )
+
     return adjusted, copied_summary, {
         "rule_version": RACE_OVERLAY_RULE_VERSION,
         "protected_dates": sorted(protected_dates),
         "overlays": overlays,
         "microcycle_changes": microcycle_changes,
+        "race_forecast_loads": race_forecast_loads,
     }
 
 

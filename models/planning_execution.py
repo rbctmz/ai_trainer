@@ -1296,6 +1296,7 @@ def rebuild_goal_plan_with_adjustment(
         ),
         "overlay_rule_version": event_overlay["rule_version"],
         "event_overlays": event_overlay["overlays"],
+        "race_forecast_loads": list(event_overlay.get("race_forecast_loads") or []),
         "microcycle_changes": microcycle_changes,
         "protected_dates": event_overlay["protected_dates"],
         "constraint_summary": rebuilt_constraint_summary,

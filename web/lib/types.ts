@@ -419,6 +419,9 @@ export interface PlanWeek {
   bike: number;
   run: number;
   swim: number;
+  /** Explicit race-effort forecast for the week (CTL/ATL model input) — shown
+   * separately, never folded into weekly_tss or the discipline buckets. */
+  race_forecast_tss?: number | null;
   adjustment_note: string;
 }
 
