@@ -1,10 +1,15 @@
-"""M1 RED contract for RecoveryReplan v2 (Issue #209).
+"""M1 RED contract for RecoveryReplan v2 (Issue #209), expanded per pre-M2 review.
 
-Pre-registers the deterministic candidate ranking and transfer safety guards
-from the issue's BDD list before `models/recovery_transfer.py` exists. The
-transfer unit is a session (`session_id`); a brick is one composite session, so
-atomic brick transfer is structural. Every candidate date reports ALL failed
-guards; no safe date → no transfer variant, downgrade/keep remain.
+Pins, before `models/recovery_transfer.py` exists:
+- stable machine-readable rejection codes (ALL failed guards per candidate);
+- the D+1…D+3 window relative to the SOURCE session date, never earlier;
+- cross-week transfers forbidden in v1 (`cross_week_boundary`);
+- fail-closed v1: no bounded reduction, neighbours never modified;
+- recovery spacing evaluated on the post-removal plan state;
+- minimal-intervention ranking (empty day beats occupied) before nearest-date;
+- the full atomic move proven via `day_changes` (source loses the id, target
+  gains the new session, neighbours preserved, totals recomputed from sessions);
+- content-derived identity reproducible by `ensure_session_identities`.
 """
 from __future__ import annotations
 
@@ -71,11 +76,8 @@ def _brick_session(bike_tss: float, run_tss: float):
     }
 
 
-def _plan(day_specs):
-    """Build a minimal, identity-stamped goal plan from per-day session specs.
-
-    Each spec: {"sessions": [...], "protected": bool}. Day 0 is _TODAY.
-    """
+def _plan(day_specs, available_weekdays=None):
+    """Minimal identity-stamped goal plan. Day 0 is _TODAY (Monday)."""
     daily_plan = []
     templates = []
     protected: list[str] = []
@@ -139,6 +141,8 @@ def _plan(day_specs):
         "protected_dates": protected,
         "constraint_summary": {},
     }
+    if available_weekdays is not None:
+        plan["available_day_indices"] = list(available_weekdays)
     return ensure_session_identities(plan)
 
 
@@ -165,19 +169,28 @@ def _variant(plan, conflict):
     return build_transfer_variant(plan, conflict, today=_TODAY)
 
 
-def _week(quality_today=True, d1=None, d2=None, d3=None, protected_days=()):
+def _rows_by_offset(rows):
+    return {int(row["offset"]): row for row in rows}
+
+
+def _week(quality_today=True, d1=None, d2=None, d3=None, protected_days=(), tail=None, **plan_kwargs):
     specs = [
         {"sessions": [_session("bike", "quality", 80.0)] if quality_today else []},
         {"sessions": d1 or []},
         {"sessions": d2 or []},
         {"sessions": d3 or []},
-        {"sessions": [_session("run", "easy", 30.0)]},
-        {"sessions": [_session("bike", "long", 100.0)]},
-        {"sessions": []},
+        {"sessions": (tail or {}).get(4, [_session("run", "easy", 30.0)])},
+        {"sessions": (tail or {}).get(5, [])},
+        {"sessions": (tail or {}).get(6, [])},
     ]
     for offset in protected_days:
         specs[offset]["protected"] = True
-    return _plan(specs)
+    return _plan(specs, **plan_kwargs)
+
+
+# ---------------------------------------------------------------------------
+# Ranking: codes, availability, spacing, minimal intervention
+# ---------------------------------------------------------------------------
 
 
 def test_safe_d2_yields_atomic_transfer_with_lineage():
@@ -200,55 +213,89 @@ def test_safe_d2_yields_atomic_transfer_with_lineage():
     assert new_session["replaces_session_id"] == old_id
     assert new_session.get("transfer_group_id")
     assert new_session.get("session_id") != old_id
-    assert variant.get("reduction") is None
+    assert variant.get("reduction") is None  # v1 is fail-closed, no reduction ever
 
-    rows = {row["offset"]: row for row in variant["candidates"]}
-    assert rows[1]["eligible"] is False and rows[1]["rejected_reasons"]
+    rows = _rows_by_offset(variant["candidates"])
+    assert rows[1]["eligible"] is False and "hard_collision" in rows[1]["rejected_reasons"]
     assert rows[2]["eligible"] is True and rows[2]["rejected_reasons"] == []
     assert all(row["rule_version"] == "recovery-transfer-v1" for row in variant["candidates"])
 
 
-def test_no_safe_date_reports_every_reason_per_candidate():
-    """BDD 2: quality collision on D+1, protected D+2, protected D+3 —
-    no transfer, three visible rejections."""
+def test_truly_unavailable_day_is_rejected_with_code():
+    """A day outside available_day_indices is `unavailable`, not merely
+    protected: D+1 hard, D+2 unavailable (Wednesday excluded), D+3 clean."""
+    plan = _week(
+        d1=[_session("run", "quality", 60.0)],
+        d2=[],
+        d3=[],
+        available_weekdays=[0, 1, 3, 4, 5, 6],  # Wednesday (weekday 2) excluded
+    )
+    conflict = _conflict(plan)
+
+    rows = _rows_by_offset(_rank(plan, conflict))
+    assert "unavailable" in rows[2]["rejected_reasons"]
+    assert rows[3]["eligible"] is True
+    variant = _variant(plan, conflict)
+    assert variant is not None and variant["target_date"] == (_TODAY + timedelta(days=3)).isoformat()
+
+
+def test_no_safe_date_reports_exact_codes_per_candidate():
+    """BDD 2: hard collision on D+1, protected D+2, unavailable D+3 —
+    no transfer, each candidate names its exact stable code."""
     plan = _week(
         d1=[_session("run", "quality", 60.0)],
         d2=[_session("swim", "easy", 20.0)],
         d3=[],
-        protected_days=(2, 3),
+        protected_days=(2,),
+        available_weekdays=[0, 1, 2, 4, 5, 6],  # Thursday (weekday 3) excluded
     )
     conflict = _conflict(plan)
 
     assert _variant(plan, conflict) is None
-    rows = _rank(plan, conflict)
+    rows = _rows_by_offset(_rank(plan, conflict))
     assert len(rows) == 3
-    for row in rows:
+    assert "hard_collision" in rows[1]["rejected_reasons"]
+    assert "protected" in rows[2]["rejected_reasons"]
+    assert "unavailable" in rows[3]["rejected_reasons"]
+    for row in rows.values():
         assert row["eligible"] is False
-        assert row["rejected_reasons"], row
 
 
-def test_brick_transfers_only_as_whole_composite():
-    """BDD 3: the parent and both ordered legs move together."""
-    specs = [
-        {"sessions": [_brick_session(60.0, 30.0)]},
-        {"sessions": [_session("run", "quality", 60.0)]},
-        {"sessions": []},
-        {"sessions": [_session("swim", "easy", 25.0)]},
-        {"sessions": []},
-        {"sessions": []},
-        {"sessions": []},
-    ]
-    plan = _plan(specs)
+def test_multi_guard_candidate_reports_all_codes_not_first():
+    """A candidate violating several guards lists every failed code."""
+    two_hard_day = [_session("run", "quality", 60.0), _session("swim", "easy", 20.0)]
+    plan = _week(d1=list(two_hard_day), d2=[], d3=[], protected_days=(1,))
     conflict = _conflict(plan)
 
+    rows = _rows_by_offset(_rank(plan, conflict))
+    assert {"protected", "hard_collision", "occasion_limit"} <= set(rows[1]["rejected_reasons"])
+
+
+def test_recovery_spacing_uses_post_removal_state():
+    """A hard transfer may not land adjacent to another hard day — but the
+    source day stops counting because the session is leaving it: D+1 (adjacent
+    to today's vacated quality) is fine; D+2 (adjacent to a D+3 long) is not."""
+    plan = _week(d1=[], d2=[], d3=[_session("bike", "long", 100.0)])
+    conflict = _conflict(plan)
+
+    rows = _rows_by_offset(_rank(plan, conflict))
+    assert rows[1]["eligible"] is True, rows[1]
+    assert "recovery_spacing" in rows[2]["rejected_reasons"]
+    variant = _variant(plan, conflict)
+    assert variant is not None and variant["target_date"] == (_TODAY + timedelta(days=1)).isoformat()
+
+
+def test_minimal_intervention_outranks_nearest_date():
+    """An empty D+2 beats an occupied-but-eligible D+1: fewer existing
+    occasions on the target day is ranked before nearness."""
+    plan = _week(d1=[_session("swim", "recovery", 15.0)], d2=[], d3=[])
+    conflict = _conflict(plan)
+
+    rows = _rows_by_offset(_rank(plan, conflict))
+    assert rows[1]["eligible"] is True and rows[2]["eligible"] is True
     variant = _variant(plan, conflict)
     assert variant is not None
-    new_session = variant["new_session"]
-    assert str(new_session.get("kind")) == "composite"
-    legs = new_session.get("legs") or []
-    assert [leg["sport"] for leg in legs] == ["bike", "run"]
-    assert [int(leg["leg_index"]) for leg in legs] == [1, 2]
-    assert float(new_session["total_tss"]) == 90.0
+    assert variant["target_date"] == (_TODAY + timedelta(days=2)).isoformat()
 
 
 def test_two_occasion_target_day_is_rejected_not_tripled():
@@ -260,12 +307,13 @@ def test_two_occasion_target_day_is_rejected_not_tripled():
     assert _variant(plan, conflict) is None
     for row in _rank(plan, conflict):
         assert row["eligible"] is False
-        assert any("occasion" in reason or "сесси" in reason for reason in row["rejected_reasons"]), row
+        assert "occasion_limit" in row["rejected_reasons"], row
 
 
-def test_oversized_stimulus_offers_only_named_bounded_reduction():
-    """BDD 5: if the full stimulus exceeds the target day's honest capacity,
-    only an explicit named reduction may be offered; weekly TSS never grows."""
+def test_oversized_stimulus_fails_closed_with_ceiling_code():
+    """BDD 5 (v1 semantics): no bounded reduction exists in v1 — an oversized
+    stimulus rejects the candidate with `day_tss_ceiling`; neighbours are never
+    modified; weekly TSS can never grow because nothing else changes."""
     specs = [
         {"sessions": [_session("bike", "quality", 200.0)]},
         {"sessions": [_session("bike", "easy", 100.0)]},
@@ -278,15 +326,11 @@ def test_oversized_stimulus_offers_only_named_bounded_reduction():
     plan = _plan(specs)
     conflict = _conflict(plan)
 
-    variant = _variant(plan, conflict)
-    if variant is None:
-        rows = _rank(plan, conflict)
-        assert all(not row["eligible"] and row["rejected_reasons"] for row in rows)
-    else:
-        reduction = variant.get("reduction")
-        assert reduction is not None and reduction.get("reason")
-        assert float(variant["new_session"]["total_tss"]) < 200.0
-        assert float(variant["weekly_tss_delta"]) <= 0.0
+    assert _variant(plan, conflict) is None
+    rows = _rows_by_offset(_rank(plan, conflict))
+    for row in rows.values():
+        assert row["eligible"] is False
+        assert "day_tss_ceiling" in row["rejected_reasons"], row
 
 
 def test_protected_race_and_post_race_days_are_never_targets():
@@ -297,7 +341,167 @@ def test_protected_race_and_post_race_days_are_never_targets():
     assert _variant(plan, conflict) is None
     for row in _rank(plan, conflict):
         assert row["eligible"] is False
-        assert any("protect" in reason or "защищ" in reason for reason in row["rejected_reasons"]), row
+        assert "protected" in row["rejected_reasons"], row
+
+
+# ---------------------------------------------------------------------------
+# Window and week-boundary semantics
+# ---------------------------------------------------------------------------
+
+
+def test_window_is_relative_to_source_session_date():
+    """A future-dated conflict transfers forward from ITS OWN date: conflict on
+    D+1 (Tuesday) → candidates are Wed/Thu/Fri, never today, never backwards."""
+    plan = _week(
+        quality_today=False,
+        d1=[_session("bike", "quality", 80.0)],
+        d2=[],
+        d3=[],
+    )
+    conflict = _conflict(plan, day_offset=1)
+
+    rows = _rank(plan, conflict)
+    expected = [(_TODAY + timedelta(days=offset)).isoformat() for offset in (2, 3, 4)]
+    assert [row["date"] for row in rows] == expected
+    assert all(row["date"] > conflict["date"] for row in rows)
+
+
+def test_cross_week_transfer_is_forbidden_in_v1():
+    """Weekly budget is the #206 anchor invariant: candidates beyond the source
+    week are rejected with `cross_week_boundary`. A Sunday conflict therefore
+    has no candidates at all — downgrade/keep remain."""
+    specs = [{"sessions": []} for _ in range(14)]
+    specs[6] = {"sessions": [_session("bike", "quality", 80.0)]}  # Sunday
+    plan = _plan(specs)
+    conflict = _conflict(plan, day_offset=6)
+
+    assert _variant(plan, conflict) is None
+    for row in _rank(plan, conflict):
+        assert row["eligible"] is False
+        assert "cross_week_boundary" in row["rejected_reasons"], row
+
+    # Friday conflict: Sat/Sun stay in-week, Monday is rejected
+    specs2 = [{"sessions": []} for _ in range(14)]
+    specs2[4] = {"sessions": [_session("bike", "quality", 80.0)]}  # Friday
+    plan2 = _plan(specs2)
+    rows2 = _rows_by_offset(_rank(plan2, _conflict(plan2, day_offset=4)))
+    assert rows2[1]["eligible"] is True
+    assert rows2[2]["eligible"] is True
+    assert "cross_week_boundary" in rows2[3]["rejected_reasons"]
+
+
+# ---------------------------------------------------------------------------
+# Full atomic move, identity, brick
+# ---------------------------------------------------------------------------
+
+
+def test_day_changes_prove_full_atomic_move_with_neighbours_preserved():
+    """The variant must prove the move end to end via day_changes: the source
+    day loses the old id (neighbours intact), the target day gains the new
+    session (neighbours intact), and totals are recomputed from sessions."""
+    neighbour = _session("swim", "recovery", 15.0)
+    plan = _week(d1=[], d2=[dict(neighbour)], d3=[])
+    # make today's plan carry a second, unrelated session next to the conflict
+    plan["session_templates"][0]["sessions"].append(
+        dict(_session("swim", "easy", 20.0))
+    )
+    plan = ensure_session_identities(plan)
+    conflict = _conflict(plan)
+    old_id = conflict["session_id"]
+
+    variant = _variant(plan, conflict)
+    assert variant is not None
+    changes = {row["date"]: row for row in variant["day_changes"]}
+    source = changes[conflict["date"]]
+    target = changes[variant["target_date"]]
+
+    before_ids = {s["session_id"] for s in source["before_sessions"]}
+    after_ids = {s["session_id"] for s in source["after_sessions"]}
+    assert old_id in before_ids and old_id not in after_ids
+    # the unrelated same-day swim survives untouched
+    assert len(source["after_sessions"]) == len(source["before_sessions"]) - 1
+
+    target_before_ids = {s["session_id"] for s in target["before_sessions"]}
+    target_after_ids = {s["session_id"] for s in target["after_sessions"]}
+    assert target_before_ids <= target_after_ids
+    new_ids = target_after_ids - target_before_ids
+    assert new_ids == {variant["new_session"]["session_id"]}
+
+    # totals recomputed from the resulting sessions, not asserted from a field
+    def _day_total(sessions):
+        total = 0.0
+        for s in sessions:
+            if str(s.get("kind")) == "composite":
+                total += sum(float(leg["target_tss"]) for leg in s.get("legs") or [])
+            else:
+                total += float(s.get("total_tss") or 0.0)
+        return round(total, 1)
+
+    assert _day_total(source["after_sessions"]) == round(
+        _day_total(source["before_sessions"]) - 80.0, 1
+    )
+    assert _day_total(target["after_sessions"]) == round(
+        _day_total(target["before_sessions"]) + 80.0, 1
+    )
+
+
+def test_new_identity_is_reproducible_by_ensure_session_identities():
+    """The new session's id must be the content-derived id that
+    ensure_session_identities itself would stamp on the target date — re-running
+    identity over the resulting plan changes nothing."""
+    from models.session_transfer import apply_session_transfer
+
+    plan = _week(d1=[], d2=[], d3=[])
+    conflict = _conflict(plan)
+
+    result = apply_session_transfer(
+        plan,
+        session_id=conflict["session_id"],
+        target_date=(_TODAY + timedelta(days=1)).isoformat(),
+    )
+    moved_plan = result["goal_plan"]
+    restamped = ensure_session_identities(moved_plan)
+    assert restamped["session_templates"] == moved_plan["session_templates"]
+
+    target_sessions = moved_plan["session_templates"][1]["sessions"]
+    assert len(target_sessions) == 1
+    assert target_sessions[0]["replaces_session_id"] == conflict["session_id"]
+    assert target_sessions[0]["session_id"] != conflict["session_id"]
+
+
+def test_brick_transfers_whole_with_consistent_group_and_leg_ids():
+    """BDD 3 + review: the composite parent moves atomically; on the target the
+    legs' leg_id/group identity follow the NEW parent id, bike→run order kept,
+    an existing independent session on the target day survives."""
+    specs = [
+        {"sessions": [_brick_session(60.0, 30.0)]},
+        {"sessions": [_session("swim", "recovery", 15.0)]},
+        {"sessions": []},
+        {"sessions": []},
+        {"sessions": []},
+        {"sessions": []},
+        {"sessions": []},
+    ]
+    plan = _plan(specs)
+    conflict = _conflict(plan)
+    old_parent_id = conflict["session_id"]
+
+    variant = _variant(plan, conflict)
+    assert variant is not None
+    new_session = variant["new_session"]
+    assert str(new_session.get("kind")) == "composite"
+    new_parent_id = str(new_session["session_id"])
+    assert new_parent_id and new_parent_id != old_parent_id
+    legs = new_session.get("legs") or []
+    assert [leg["sport"] for leg in legs] == ["bike", "run"]
+    assert [int(leg["leg_index"]) for leg in legs] == [1, 2]
+    assert [leg["leg_id"] for leg in legs] == [f"{new_parent_id}:1", f"{new_parent_id}:2"]
+    assert float(new_session["total_tss"]) == 90.0
+
+    changes = {row["date"]: row for row in variant["day_changes"]}
+    target = changes[variant["target_date"]]
+    surviving = [s for s in target["after_sessions"] if s.get("sport") == "swim"]
+    assert len(surviving) == 1  # the independent neighbour is untouched
 
 
 def test_ranking_and_variant_are_byte_deterministic():

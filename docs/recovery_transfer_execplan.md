@@ -54,6 +54,18 @@ Milestone seven is the final vertical validation: full smoke, broad non-live, Ne
 
 - Decision: recovery curves (#176) are explicitly out of the ranking inputs in this version; the lookahead is hard-fixed at D+1…D+3. Rationale: issue text; #195 must land before curves can influence dates. Date/Author: 2026-07-17 / Greg (issue).
 
+- Decision (pre-M2 review): rejection reasons are stable machine codes, not prose — the registry is `unavailable`, `protected`, `hard_collision`, `recovery_spacing`, `occasion_limit`, `day_tss_ceiling`, `weekly_hours_ceiling`, `cross_week_boundary`, each optionally with `details`; a candidate reports ALL failed codes. The UI never parses substrings. Date/Author: 2026-07-17 / Greg (review) + Claude Code.
+
+- Decision (pre-M2 review): the transfer window is D+1…D+3 relative to the SOURCE session's date (the conflict date), never relative to today, never earlier than the source, and never in the past. A future-dated conflict transfers forward from its own date. Date/Author: 2026-07-17 / Claude Code (per review).
+
+- Decision (pre-M2 review): cross-week transfer is FORBIDDEN in v1 (`cross_week_boundary`). Rationale: the weekly budget is the anchor invariant of #206; moving load across the week boundary either inflates the target week or demands explicit neighbour adjustments that contradict v1's minimal-intervention stance. A Friday-or-later conflict may therefore have no transfer candidates — the contour honestly stays on downgrade/keep. Widening to affected-window conservation is a separate future decision. Date/Author: 2026-07-17 / Claude Code (chosen from the review's three options).
+
+- Decision (pre-M2 review): v1 is fail-closed WITHOUT bounded reduction — an oversized stimulus that does not fit the target day's ceilings rejects the candidate (`day_tss_ceiling`/`weekly_hours_ceiling`); `variant["reduction"]` is always absent in v1 and the named numeric reduction policy is deferred to its own slice. Neighbour sessions are never modified by a v1 transfer, so "minimal neighbour disruption" ranks by the number of existing occasions on the target day (an empty day beats an occupied one even if farther). Date/Author: 2026-07-17 / Claude Code (chosen from the review's two options).
+
+- Decision (pre-M2 review): recovery spacing is evaluated on the POST-REMOVAL plan state: a hard transfer may not land adjacent (±1 day) to another hard day, but the source day no longer counts as hard because the session is leaving it. Spacing inputs come from the already-loaded plan sessions only — no DB or provider reads in the ranker. Date/Author: 2026-07-17 / Claude Code.
+
+- Decision (pre-M2 review): a shared atomic primitive `models/session_transfer.py::apply_session_transfer` owns the actual move (clone plan → validate source id → remove source + insert the preserved structured session at the target → rebuild both day projections and weekly buckets → `ensure_session_identities(previous_goal_plan=...)` → verify invariants). The near-term editor is NOT the transfer mechanism: it cannot insert a preserved structured session on another date and rebuilds sessions from scalars, losing steps. Preview and confirm both call this one primitive, so the ranker's promise and the applied result cannot diverge. Date/Author: 2026-07-17 / Greg (review).
+
 ## Progress
 
 - [x] (2026-07-17) Read Issue #209, RecoveryReplan v1 (`models/recovery_replan.py`, `api/recovery_replan_loop.py`, apply/rollback in `api/planning_service.py`), and the #206 primitives; created worktree branch `claude/issue-209-recovery-transfer` from `origin/main` (`030652e`).
