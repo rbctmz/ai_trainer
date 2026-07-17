@@ -65,12 +65,14 @@ def _day_sessions(template: Optional[Mapping[str, Any]]) -> List[Mapping[str, An
     return [s for s in list(template.get("sessions") or []) if isinstance(s, Mapping)]
 
 
-def _find_session(goal_plan: Mapping[str, Any], session_id: str) -> Mapping[str, Any]:
+def _find_session(
+    goal_plan: Mapping[str, Any], session_id: str
+) -> tuple[Mapping[str, Any], Mapping[str, Any]]:
     wanted = str(session_id or "").strip()
     for template in list(goal_plan.get("session_templates") or []):
         for session in _day_sessions(template if isinstance(template, Mapping) else None):
             if str(session.get("session_id") or "") == wanted:
-                return session
+                return template, session
     raise ValueError(f"conflict session '{session_id}' not found in plan")
 
 
@@ -88,7 +90,7 @@ def rank_transfer_candidates(
     post-removal касается только плановой конфликтной сессии — реальная
     выполненная нагрузка исходного дня продолжает блокировать соседей.
     """
-    moved = _find_session(goal_plan, str(conflict.get("session_id") or ""))
+    source_template, moved = _find_session(goal_plan, str(conflict.get("session_id") or ""))
     moved_id = str(moved.get("session_id") or "")
     moved_is_hard = _is_hard(moved)
     moved_tss = _session_tss(moved)
@@ -97,6 +99,14 @@ def rank_transfer_candidates(
     source_date = _parse_date(conflict.get("date"))
     if source_date is None:
         raise ValueError(f"conflict date '{conflict.get('date')}' is not a date")
+    actual_source_date = _parse_date(source_template.get("date"))
+    if actual_source_date != source_date:
+        # fail-closed: окно всегда строится от реальной даты сессии; конфликт
+        # с расходящейся датой — рассинхрон вызывающего кода, не вариант.
+        raise ValueError(
+            f"conflict date '{conflict.get('date')}' does not match the plan date "
+            f"'{source_template.get('date')}' of session '{moved_id}'"
+        )
 
     templates_by_date: Dict[str, Mapping[str, Any]] = {}
     plan_start: Optional[date] = None
@@ -155,7 +165,9 @@ def rank_transfer_candidates(
         reasons: List[str] = []
         if (candidate - plan_start).days // 7 != source_week:
             reasons.append("cross_week_boundary")
-        if available is not None and candidate.weekday() not in available:
+        # День вне available_day_indices ИЛИ за горизонтом persisted-плана —
+        # недоступен; builder никогда не падает на обычной границе горизонта.
+        if (available is not None and candidate.weekday() not in available) or template is None:
             reasons.append("unavailable")
         if candidate_iso in protected:
             reasons.append("protected")

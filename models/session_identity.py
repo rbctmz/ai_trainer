@@ -104,6 +104,33 @@ def _session_sort_key(session: Mapping[str, Any]) -> tuple[str, str, float, str,
     )
 
 
+def _session_content_order(date_text: str, sessions: list) -> list[tuple[int, str]]:
+    """Canonical (position, content fingerprint) pairs for a day's sessions.
+
+    Identical same-day sessions are separated by an occurrence ordinal assigned
+    in canonical content order, so reordering the array cannot change the
+    fingerprint set. Shared by multi-session stamping and by cross-cardinality
+    matching (Issue #209): a session whose content fingerprint already lived on
+    the same date is the SAME session, whatever the day's session count was.
+    """
+    occurrence_counts: dict[str, int] = {}
+    ordered = sorted(
+        range(len(sessions)),
+        key=lambda position: _session_sort_key(sessions[position] or {}),
+    )
+    result: list[tuple[int, str]] = []
+    for position in ordered:
+        payload = _session_material_payload(date_text, dict(sessions[position] or {}))
+        base_fingerprint = _fingerprint(payload)
+        ordinal = occurrence_counts.get(base_fingerprint, 0)
+        occurrence_counts[base_fingerprint] = ordinal + 1
+        fingerprint = (
+            _fingerprint({**payload, "occurrence": ordinal}) if ordinal else base_fingerprint
+        )
+        result.append((position, fingerprint))
+    return result
+
+
 # Day-level keys that describe the calendar slot rather than the executable
 # session, and so are not copied into a session when migrating a legacy template.
 _DAY_ONLY_TEMPLATE_KEYS = frozenset({"date", "week_index", "day_index", "phase", "sessions"})
@@ -180,15 +207,58 @@ def ensure_session_identities(
                 previous_template.get("session_material_fingerprint") or ""
             ).strip() or _fingerprint(_material_payload(previous_item, previous_template))
 
+        # Issue #209: cross-cardinality survivor matching. When the day
+        # fingerprint changed because a sibling session arrived or left, an
+        # untouched session must keep its id — match it by content fingerprint
+        # against the previous plan's SAME-DATE sessions (whatever their count
+        # was) instead of minting a fresh identity with false lineage.
+        sessions_now = list(template.get("sessions") or [])
+        content_order = _session_content_order(material["date"], sessions_now)
+        prev_ids_by_fp: dict[str, list[str]] = {}
+        if previous is not None:
+            previous_sessions = list(previous_template.get("sessions") or [])
+            # Content matching applies ONLY across a cardinality change: with
+            # the session count unchanged, a day-material edit must keep its
+            # #205/#206 semantics — new identity plus lineage — even when the
+            # nested session content happens to be untouched.
+            if len(previous_sessions) != len(sessions_now):
+                for prev_position, prev_fingerprint in _session_content_order(
+                    material["date"], previous_sessions
+                ):
+                    prev_sid = str(
+                        (previous_sessions[prev_position] or {}).get("session_id") or ""
+                    ).strip()
+                    if prev_sid:
+                        prev_ids_by_fp.setdefault(prev_fingerprint, []).append(prev_sid)
+
+        reused_content_id: str | None = None
+        if not (previous_id and previous_material_fingerprint == material_fingerprint):
+            if len(sessions_now) == 1 and content_order:
+                survivor_candidates = prev_ids_by_fp.get(content_order[0][1]) or []
+                if survivor_candidates:
+                    reused_content_id = survivor_candidates[0]
+
         if previous_id and previous_material_fingerprint == material_fingerprint:
             session_id = previous_id
+        elif reused_content_id:
+            session_id = reused_content_id
         else:
             session_id = generated_id
 
         template["session_id"] = session_id
         template["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
         template["session_material_fingerprint"] = material_fingerprint
-        if previous_id and previous_id != session_id:
+        if reused_content_id:
+            # The survivor is the same session, not a replacement: no new
+            # lineage; keep only lineage the session itself already carried.
+            survivor_replaces = str(
+                (sessions_now[0] or {}).get("replaces_session_id") or ""
+            ).strip()
+            if survivor_replaces and survivor_replaces != session_id:
+                template["replaces_session_id"] = survivor_replaces
+            else:
+                template.pop("replaces_session_id", None)
+        elif previous_id and previous_id != session_id:
             template["replaces_session_id"] = previous_id
         elif previous is not None and not template.get("replaces_session_id"):
             inherited_replacement = str(previous_template.get("replaces_session_id") or "").strip()
@@ -217,9 +287,18 @@ def ensure_session_identities(
             # A single-session day is the legacy-equivalent shape: the session
             # IS the day, so it inherits the day identity byte-for-byte. This
             # keeps every pre-#205 checkpoint's delivery external_id unchanged.
+            # Exception (Issue #209): a session that already carries its own
+            # content-level fingerprint (a survivor of a multi-session day)
+            # keeps it — overwriting with the day fingerprint would churn on
+            # every restamp because the content value is what recomputes.
             primary = dict(sessions[0] or {})
             primary["session_id"] = template["session_id"]
-            primary["session_material_fingerprint"] = template["session_material_fingerprint"]
+            own_fingerprint = str(primary.get("session_material_fingerprint") or "").strip()
+            sole_content_fingerprint = content_order[0][1] if content_order else ""
+            if own_fingerprint and own_fingerprint == sole_content_fingerprint:
+                primary["session_material_fingerprint"] = own_fingerprint
+            else:
+                primary["session_material_fingerprint"] = template["session_material_fingerprint"]
             primary["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
             if template.get("replaces_session_id"):
                 primary["replaces_session_id"] = template["replaces_session_id"]
@@ -234,26 +313,22 @@ def ensure_session_identities(
             # from that session's own content — never from the day fingerprint
             # (which includes sibling load, so inheriting it would churn an
             # untouched session's identity when a sibling is edited) and never
-            # from array position. Identical same-day sessions are separated by
-            # an occurrence ordinal assigned in canonical content order, so
-            # reordering the array cannot change the id set.
-            occurrence_counts: dict[str, int] = {}
-            ordered = sorted(
-                range(len(sessions)),
-                key=lambda position: _session_sort_key(sessions[position] or {}),
-            )
-            for position in ordered:
+            # from array position. Issue #209: an id is resolved in priority
+            # order — a session already carrying a fingerprint-matching id
+            # keeps it; else a content match against the previous plan's
+            # same-date sessions reuses that id (a day that just grew its
+            # second session must not churn the neighbour that was already
+            # there); else the id is freshly content-derived.
+            for position, session_fingerprint in content_order:
                 session = dict(sessions[position] or {})
-                payload = _session_material_payload(material["date"], session)
-                base_fingerprint = _fingerprint(payload)
-                ordinal = occurrence_counts.get(base_fingerprint, 0)
-                occurrence_counts[base_fingerprint] = ordinal + 1
-                session_fingerprint = (
-                    _fingerprint({**payload, "occurrence": ordinal})
-                    if ordinal
-                    else base_fingerprint
-                )
-                session["session_id"] = f"ats_{session_fingerprint[:24]}"
+                embedded_sid = str(session.get("session_id") or "").strip()
+                embedded_fp = str(session.get("session_material_fingerprint") or "").strip()
+                if embedded_sid and embedded_fp == session_fingerprint:
+                    resolved_id = embedded_sid
+                else:
+                    matched = prev_ids_by_fp.get(session_fingerprint) or []
+                    resolved_id = matched.pop(0) if matched else f"ats_{session_fingerprint[:24]}"
+                session["session_id"] = resolved_id
                 session["session_material_fingerprint"] = session_fingerprint
                 session["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
                 sessions[position] = session

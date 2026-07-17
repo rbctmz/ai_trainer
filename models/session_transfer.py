@@ -161,6 +161,11 @@ def apply_session_transfer(
             break
     if target_index is None:
         raise ValueError(f"no plan day for target date '{target_date}'")
+    if target_index == source_index:
+        raise ValueError(
+            f"target date '{target_date}' is the session's source day — "
+            "a transfer must change the date, not reorder the day"
+        )
 
     tss_before = _plan_total_tss(goal_plan)
     duration_before = _plan_total_duration(goal_plan)
@@ -213,6 +218,15 @@ def apply_session_transfer(
                 )
             )
         )
+        # Недельная СТРУКТУРНАЯ проекция следует за итоговыми шаблонами —
+        # роли/фокусы дней не должны оставаться на прежних датах.
+        week_templates = templates[week_index * 7 : week_index * 7 + 7]
+        row["day_roles"] = [
+            str((t or {}).get("session_role") or "off") for t in week_templates
+        ] + ["off"] * (7 - len(week_templates))
+        row["day_focuses"] = [
+            str((t or {}).get("session_focus") or "—") for t in week_templates
+        ] + ["—"] * (7 - len(week_templates))
     from models.training_planner import derive_weekly_sport_buckets_from_sessions
 
     plan["weekly_summary"] = derive_weekly_sport_buckets_from_sessions(weekly_summary, templates)
