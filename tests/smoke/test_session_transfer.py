@@ -209,6 +209,47 @@ def test_duplicate_twin_transfer_keeps_survivor_id_unambiguous():
     assert restamped["session_templates"] == moved_plan["session_templates"]
 
 
+@pytest.mark.parametrize(
+    ("twin_count", "moved_position"),
+    [(3, 0), (3, 1), (3, 2), (4, 0), (4, 1), (4, 2), (4, 3)],
+)
+def test_twin_matrix_transfer_keeps_all_ids_unique_and_survivors_stable(
+    twin_count, moved_position
+):
+    """Checker M2 blocker (round 3): the full twin matrix. Moving ANY one of
+    3 or 4 identical sessions must leave every resulting id unique across the
+    plan; each survivor keeps exactly its own prior id in day order with no
+    lineage; only the moved twin mints a fresh id replacing the old one. An
+    embedded-honored survivor must CONSUME its id so a later ordinal-shifted
+    twin can never take it again — and the guarantee must hold under restamp."""
+    twin = _session("bike", "quality", 30.0)
+    specs = [{"sessions": [dict(twin) for _ in range(twin_count)]}] + [
+        {"sessions": []} for _ in range(6)
+    ]
+    plan = _plan(specs)
+    before = [s["session_id"] for s in plan["session_templates"][0]["sessions"]]
+    assert len(set(before)) == twin_count
+    moved_id = before[moved_position]
+
+    result = _apply(plan, moved_id, 2)
+    moved_plan = result["goal_plan"]
+    source_sessions = moved_plan["session_templates"][0]["sessions"]
+    source_ids = [s["session_id"] for s in source_sessions]
+    target_sessions = moved_plan["session_templates"][2]["sessions"]
+    assert len(target_sessions) == 1
+    new_id = target_sessions[0]["session_id"]
+
+    assert len(set(source_ids + [new_id])) == twin_count, "every identity stays unique"
+    assert source_ids == [sid for i, sid in enumerate(before) if i != moved_position]
+    assert new_id not in before
+    assert target_sessions[0]["replaces_session_id"] == moved_id
+    for session in source_sessions:
+        assert "replaces_session_id" not in session
+
+    restamped = ensure_session_identities(moved_plan)
+    assert restamped["session_templates"] == moved_plan["session_templates"]
+
+
 def test_transfer_rebuilds_weekly_structure_metadata_and_day_lead():
     """Checker M2 remainder 2: the weekly structure metadata (key_sessions /
     recovery_days / structure_summary) follows the resulting templates, and on
