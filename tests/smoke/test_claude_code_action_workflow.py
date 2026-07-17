@@ -60,3 +60,34 @@ def test_claude_action_is_pinned_and_bounded() -> None:
     )
     assert "timeout-minutes:" in workflow
     assert "--max-turns" in workflow
+
+
+def test_claude_action_can_edit_and_run_only_contributor_safe_pytest() -> None:
+    """Regression for run 29586638834: Claude must be able to implement the
+    requested change, without receiving unrestricted shell access."""
+    workflow = _workflow_text()
+
+    assert '--allowedTools "Edit,Write,' in workflow
+    assert "Bash(python -m pytest:*)" in workflow
+    assert "Bash(python3 -m pytest:*)" in workflow
+    assert "Bash(*)" not in workflow
+    assert "Bash(bash:*)" not in workflow
+    assert "Bash(sh:*)" not in workflow
+
+    setup_index = workflow.index("actions/setup-python@v5")
+    install_index = workflow.index("python -m pip install -r requirements.txt")
+    claude_index = workflow.index("anthropics/claude-code-action@")
+    assert setup_index < install_index < claude_index
+
+
+def test_executable_pr_context_is_same_repository_only() -> None:
+    """Pytest executes repository code, so external PR heads must fail closed
+    even when a trusted maintainer wrote the triggering comment."""
+    workflow = _workflow_text()
+
+    assert "id: executable-context" in workflow
+    assert "github.event.issue.pull_request" in workflow
+    assert "pullRequest.head.repo.full_name" in workflow
+    assert "context.repo.owner" in workflow
+    assert "context.repo.repo" in workflow
+    assert "steps.executable-context.outputs.result == 'true'" in workflow
