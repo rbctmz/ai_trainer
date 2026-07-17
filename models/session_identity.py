@@ -335,16 +335,37 @@ def ensure_session_identities(
             # same-date sessions reuses that id (a day that just grew its
             # second session must not churn the neighbour that was already
             # there); else the id is freshly content-derived.
+            # Two-phase resolution (Issue #209 twin matrix): every id kept by
+            # an embedded-honored session is CONSUMED first, so an
+            # ordinal-shifted twin resolving afterwards can never take the
+            # same id again — regardless of the day's traversal order.
+            used_ids: set[str] = set()
+            resolutions: dict[int, str] = {}
+            pending: list[tuple[int, str, str]] = []
             for position, session_fingerprint, session_base in content_order:
-                session = dict(sessions[position] or {})
+                session = sessions[position] or {}
                 embedded_sid = str(session.get("session_id") or "").strip()
                 embedded_fp = str(session.get("session_material_fingerprint") or "").strip()
                 if embedded_sid and embedded_fp == session_fingerprint:
-                    resolved_id = embedded_sid
+                    resolutions[position] = embedded_sid
+                    used_ids.add(embedded_sid)
                 else:
-                    matched = prev_ids_by_fp.get(session_base) or []
-                    resolved_id = matched.pop(0) if matched else f"ats_{session_fingerprint[:24]}"
-                session["session_id"] = resolved_id
+                    pending.append((position, session_fingerprint, session_base))
+            for position, session_fingerprint, session_base in pending:
+                matched = prev_ids_by_fp.get(session_base) or []
+                resolved_id = ""
+                while matched:
+                    candidate = matched.pop(0)
+                    if candidate not in used_ids:
+                        resolved_id = candidate
+                        break
+                if not resolved_id:
+                    resolved_id = f"ats_{session_fingerprint[:24]}"
+                resolutions[position] = resolved_id
+                used_ids.add(resolved_id)
+            for position, session_fingerprint, _session_base in content_order:
+                session = dict(sessions[position] or {})
+                session["session_id"] = resolutions[position]
                 session["session_material_fingerprint"] = session_fingerprint
                 session["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
                 sessions[position] = session
