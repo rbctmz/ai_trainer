@@ -19,6 +19,8 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
 - [x] (2026-07-17) Committed RED then GREEN, pushed `codex/issue-211-claude-code-action`, and opened draft PR #212 against `main` with `Closes #211`.
 - [x] (2026-07-17) Post-merge mention reached Claude, proving trigger/auth/comment wiring, but the implementation probe on PR #210 failed because the SDK tool allowlist contained no editor or pytest command (run 29586638834).
 - [x] (2026-07-17) Issue #213 registered the follow-up contract: explicit edit tools, pytest-only Bash, trusted Python setup, and a same-repository PR-head guard before any PR code may execute.
+- [x] (2026-07-17) The first #213 post-merge retry proved the guard, Python setup, dependencies, and expanded SDK allowlist, then exposed a second boundary: tag-mode prefetch hashes changed files from the current checkout, which was still `main`; run 29588059065 could not see PR-only files and exited before a model turn.
+- [x] (2026-07-17) Registered and implemented the checkout follow-up: resolve the same-repository PR head ref in the guard, install dependencies while trusted `main` is checked out, then check out that ref before invoking Claude.
 
 ## Surprises & Discoveries
 
@@ -33,6 +35,9 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
 
 - Observation: A successful tag/authentication probe is not sufficient evidence that Claude can implement a requested fix. The first real PR task initialized Claude and produced a correct todo list, but the action exposed only read tools plus git publication commands; without explicit `--allowedTools`, the run ended `is_error:true` before any RED test or code edit.
   Evidence: Actions run 29586638834 logs list `Glob`, `Grep`, `LS`, `Read`, comment/CI tools, and git add/commit/push, but no `Edit`, `Write`, or pytest-capable Bash tool. PR #210 remained at the same head.
+
+- Observation: The pinned Claude Action's tag-mode prefetch computes changed-file hashes from the current local checkout (`git hash-object file.path`). Merely supplying PR metadata is insufficient: if the workflow intentionally remains on `main`, PR-only files are absent and Claude receives a broken working context.
+  Evidence: run 29588059065 lists the corrected `Edit`/`Write`/pytest tools, but logs `could not open` for the #210 ExecPlan, transfer modules, and tests before the SDK returns in 632 ms with zero model cost. The pinned upstream `src/github/data/fetcher.ts` confirms current-worktree hashing.
 
 ## Decision Log
 
@@ -63,6 +68,10 @@ The visible proof is a comment on a merged-workflow issue or PR such as `@claude
 - Decision: Before preparing Python or invoking Claude with pytest access, resolve the referenced PR and require `pullRequest.head.repo.full_name` to equal the current repository; plain issue tasks remain allowed from the trusted default branch.
   Rationale: pytest executes repository code. A trusted maintainer comment on an external PR must not cause fork-controlled code to run beside the Claude OAuth/App credentials.
   Date/Author: 2026-07-17 / Codex (Issue #213).
+
+- Decision: Use two checkouts for implementation runs: install dependencies from trusted `main`, then — only after the same-repository guard — check out `pullRequest.head.ref` before Claude. Plain issues resolve back to the default branch.
+  Rationale: This preserves the dependency trust boundary while satisfying tag-mode's requirement that the PR branch already be the active worktree for file prefetch, editing, testing, and push-back to the existing PR.
+  Date/Author: 2026-07-17 / Codex (Issue #213 follow-up).
 
 ## Outcomes & Retrospective
 

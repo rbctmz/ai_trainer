@@ -91,3 +91,23 @@ def test_executable_pr_context_is_same_repository_only() -> None:
     assert "context.repo.owner" in workflow
     assert "context.repo.repo" in workflow
     assert "steps.executable-context.outputs.result == 'true'" in workflow
+
+
+def test_claude_runs_on_resolved_pr_branch_after_trusted_dependency_install() -> None:
+    """Regression for run 29588059065: tag mode hashes changed files from the
+    current checkout, so a same-repository PR must be checked out before Claude
+    starts. Dependencies still come from the earlier trusted-main checkout."""
+    workflow = _workflow_text()
+
+    assert 'core.setOutput("checkout-ref", context.payload.repository.default_branch)' in workflow
+    assert 'core.setOutput("checkout-ref", pullRequest.head.ref)' in workflow
+    assert "name: Check out executable issue or PR branch" in workflow
+    assert "ref: ${{ steps.executable-context.outputs.checkout-ref }}" in workflow
+    assert "fetch-depth: 0" in workflow
+
+    install_index = workflow.index("name: Install trusted default-branch dependencies")
+    executable_checkout_index = workflow.index(
+        "name: Check out executable issue or PR branch"
+    )
+    claude_index = workflow.index("name: Run Claude Code")
+    assert install_index < executable_checkout_index < claude_index
