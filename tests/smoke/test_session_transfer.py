@@ -15,6 +15,7 @@ from datetime import date, timedelta
 
 import pytest
 
+from models.session_identity import ensure_session_identities
 from tests.smoke.test_recovery_transfer import (
     _TODAY,
     _brick_session,
@@ -99,6 +100,100 @@ def test_transfer_is_append_only_on_the_input_plan():
 
     _apply(plan, conflict["session_id"], 2)
 
+    assert json.dumps(plan, sort_keys=True, default=str) == before
+
+
+def test_target_neighbour_keeps_identity_when_day_gains_second_session():
+    """Checker M2 blocker 1 (1→2): the untouched existing session on the target
+    day keeps its session_id and gains no lineage when the transfer makes the
+    day two-session. Its fingerprint legitimately transitions from the day-level
+    to its own content-level value (#206: a multi-session day fingerprints each
+    session on its own material) — but the ID, which delivery/reconciliation
+    key on, must not churn, and the result must be restamp-stable."""
+    plan = _week(d1=[_session("swim", "recovery", 15.0)], d2=[], d3=[])
+    conflict = _conflict(plan)
+    neighbour_before = dict(plan["session_templates"][1]["sessions"][0])
+    assert neighbour_before["session_id"]
+
+    result = _apply(plan, conflict["session_id"], 1)
+    moved_plan = result["goal_plan"]
+    target_sessions = moved_plan["session_templates"][1]["sessions"]
+    assert len(target_sessions) == 2
+    neighbour_after = next(s for s in target_sessions if s["sport"] == "swim")
+    moved_after = next(s for s in target_sessions if s["sport"] == "bike")
+
+    assert neighbour_after["session_id"] == neighbour_before["session_id"]
+    assert "replaces_session_id" not in neighbour_after
+    assert moved_after["session_id"] != conflict["session_id"]
+    assert moved_after["replaces_session_id"] == conflict["session_id"]
+
+    restamped = ensure_session_identities(moved_plan)
+    assert restamped["session_templates"] == moved_plan["session_templates"]
+
+
+def test_source_survivor_keeps_identity_when_day_drops_to_single():
+    """Checker M2 blocker 1 (2→1): after the moved session leaves a two-session
+    day, the surviving neighbour keeps its exact session_id AND fingerprint and
+    gains no lineage — it did not change, only its sibling left."""
+    plan = _week(d1=[], d2=[], d3=[])
+    plan["session_templates"][0]["sessions"].append(dict(_session("swim", "easy", 20.0)))
+    plan = ensure_session_identities(plan)
+    conflict = _conflict(plan)
+    survivor_before = dict(
+        next(s for s in plan["session_templates"][0]["sessions"] if s["sport"] == "swim")
+    )
+
+    result = _apply(plan, conflict["session_id"], 2)
+    moved_plan = result["goal_plan"]
+    source_sessions = moved_plan["session_templates"][0]["sessions"]
+    assert len(source_sessions) == 1
+    survivor_after = source_sessions[0]
+
+    assert survivor_after["session_id"] == survivor_before["session_id"]
+    assert (
+        survivor_after["session_material_fingerprint"]
+        == survivor_before["session_material_fingerprint"]
+    )
+    assert "replaces_session_id" not in survivor_after
+    assert not moved_plan["session_templates"][0].get("replaces_session_id")
+
+    restamped = ensure_session_identities(moved_plan)
+    assert restamped["session_templates"] == moved_plan["session_templates"]
+
+
+def test_transfer_rebuilds_weekly_day_roles_and_focuses():
+    """Checker M2 blocker 4: the weekly structure projection (day_roles /
+    day_focuses) must follow the resulting templates, not stay on the old
+    dates — otherwise every weekly consumer renders the pre-transfer week."""
+    plan = _week(d1=[], d2=[], d3=[])
+    conflict = _conflict(plan)
+
+    result = _apply(plan, conflict["session_id"], 2)
+    moved_plan = result["goal_plan"]
+    week = moved_plan["weekly_summary"][0]
+    templates = moved_plan["session_templates"][:7]
+
+    assert week["day_roles"] == [str(t.get("session_role")) for t in templates]
+    assert week["day_roles"][0] == "off"
+    assert week["day_roles"][2] == "quality"
+    assert week["day_focuses"] == [str(t.get("session_focus")) for t in templates]
+
+
+def test_transfer_to_same_date_fails_closed():
+    """Checker M2 blocker 5: target == source is a reorder/no-op, not a
+    transfer — the primitive rejects it before any mutation."""
+    plan = _week(d1=[], d2=[], d3=[])
+    conflict = _conflict(plan)
+    before = json.dumps(plan, sort_keys=True, default=str)
+
+    from models.session_transfer import apply_session_transfer
+
+    with pytest.raises(ValueError, match="source day"):
+        apply_session_transfer(
+            plan,
+            session_id=conflict["session_id"],
+            target_date=conflict["date"],
+        )
     assert json.dumps(plan, sort_keys=True, default=str) == before
 
 

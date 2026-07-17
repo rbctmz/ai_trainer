@@ -495,6 +495,37 @@ def test_window_is_relative_to_source_session_date():
     assert all(row["date"] > conflict["date"] for row in rows)
 
 
+def test_conflict_date_mismatch_fails_closed():
+    """Checker M2 blocker 2: the window is anchored to the SOURCE session's
+    real plan date — a conflict whose `date` does not match where `session_id`
+    actually lives must fail closed, not silently rank a shifted window."""
+    plan = _week(d1=[], d2=[], d3=[])
+    conflict = dict(_conflict(plan), date=(_TODAY + timedelta(days=1)).isoformat())
+
+    with pytest.raises(ValueError, match="date"):
+        _rank(plan, conflict)
+    with pytest.raises(ValueError, match="date"):
+        _variant(plan, conflict)
+
+
+def test_missing_plan_day_is_unavailable_not_a_crash():
+    """Checker M2 blocker 3: a candidate date beyond the persisted plan horizon
+    is `unavailable` in the ranker itself — the builder must never crash on an
+    ordinary horizon edge. Two-day plan: D+1 protected, D+2/D+3 do not exist."""
+    specs = [
+        {"sessions": [_session("bike", "quality", 80.0)]},
+        {"sessions": [], "protected": True},
+    ]
+    plan = _plan(specs)
+    conflict = _conflict(plan)
+
+    rows = _rows_by_offset(_rank(plan, conflict))
+    assert sorted(rows[1]["rejected_reasons"]) == ["protected"]
+    assert sorted(rows[2]["rejected_reasons"]) == ["unavailable"]
+    assert sorted(rows[3]["rejected_reasons"]) == ["unavailable"]
+    assert _variant(plan, conflict) is None
+
+
 def test_cross_week_transfer_is_forbidden_in_v1():
     """Weekly budget is the #206 anchor invariant: candidates beyond the source
     week are rejected with `cross_week_boundary`. A Sunday conflict therefore
