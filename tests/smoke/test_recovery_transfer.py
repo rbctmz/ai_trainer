@@ -9,10 +9,14 @@ Pins, before `models/recovery_transfer.py` exists:
 - minimal-intervention ranking (empty day beats occupied) before nearest-date;
 - the full atomic move proven via `day_changes` (source loses the id, target
   gains the new session, neighbours preserved, totals recomputed from sessions);
-- content-derived identity reproducible by `ensure_session_identities`.
+- content-derived identity reproducible by `ensure_session_identities`;
+- (round 2) availability read from `constraint_summary`, EXACT reason sets,
+  actual executed load in spacing, day DURATION ceiling shared with the
+  scheduler, weekly duration conservation as evidence, exact code registry.
 """
 from __future__ import annotations
 
+import json
 from datetime import date, datetime, timedelta
 
 import pytest
@@ -142,7 +146,9 @@ def _plan(day_specs, available_weekdays=None):
         "constraint_summary": {},
     }
     if available_weekdays is not None:
-        plan["available_day_indices"] = list(available_weekdays)
+        # Availability lives INSIDE constraint_summary in real plans (built by
+        # apply_planning_constraints → summarize_availability), never top-level.
+        plan["constraint_summary"]["available_day_indices"] = list(available_weekdays)
     return ensure_session_identities(plan)
 
 
@@ -157,16 +163,16 @@ def _conflict(plan, day_offset: int = 0):
     }
 
 
-def _rank(plan, conflict):
+def _rank(plan, conflict, **kwargs):
     from models.recovery_transfer import rank_transfer_candidates
 
-    return rank_transfer_candidates(plan, conflict, today=_TODAY)
+    return rank_transfer_candidates(plan, conflict, today=_TODAY, **kwargs)
 
 
-def _variant(plan, conflict):
+def _variant(plan, conflict, **kwargs):
     from models.recovery_transfer import build_transfer_variant
 
-    return build_transfer_variant(plan, conflict, today=_TODAY)
+    return build_transfer_variant(plan, conflict, today=_TODAY, **kwargs)
 
 
 def _rows_by_offset(rows):
@@ -214,9 +220,12 @@ def test_safe_d2_yields_atomic_transfer_with_lineage():
     assert new_session.get("transfer_group_id")
     assert new_session.get("session_id") != old_id
     assert variant.get("reduction") is None  # v1 is fail-closed, no reduction ever
+    # in-week transfer conserves weekly duration BY CONSTRUCTION — evidence field
+    assert variant["weekly_duration_delta_minutes"] == 0
 
     rows = _rows_by_offset(variant["candidates"])
-    assert rows[1]["eligible"] is False and "hard_collision" in rows[1]["rejected_reasons"]
+    assert rows[1]["eligible"] is False
+    assert sorted(rows[1]["rejected_reasons"]) == ["hard_collision"]
     assert rows[2]["eligible"] is True and rows[2]["rejected_reasons"] == []
     assert all(row["rule_version"] == "recovery-transfer-v1" for row in variant["candidates"])
 
@@ -231,9 +240,10 @@ def test_truly_unavailable_day_is_rejected_with_code():
         available_weekdays=[0, 1, 3, 4, 5, 6],  # Wednesday (weekday 2) excluded
     )
     conflict = _conflict(plan)
+    assert "available_day_indices" not in plan  # lives ONLY in constraint_summary
 
     rows = _rows_by_offset(_rank(plan, conflict))
-    assert "unavailable" in rows[2]["rejected_reasons"]
+    assert sorted(rows[2]["rejected_reasons"]) == ["unavailable"]
     assert rows[3]["eligible"] is True
     variant = _variant(plan, conflict)
     assert variant is not None and variant["target_date"] == (_TODAY + timedelta(days=3)).isoformat()
@@ -254,21 +264,26 @@ def test_no_safe_date_reports_exact_codes_per_candidate():
     assert _variant(plan, conflict) is None
     rows = _rows_by_offset(_rank(plan, conflict))
     assert len(rows) == 3
-    assert "hard_collision" in rows[1]["rejected_reasons"]
-    assert "protected" in rows[2]["rejected_reasons"]
-    assert "unavailable" in rows[3]["rejected_reasons"]
+    assert sorted(rows[1]["rejected_reasons"]) == ["hard_collision"]
+    assert sorted(rows[2]["rejected_reasons"]) == ["protected"]
+    assert sorted(rows[3]["rejected_reasons"]) == ["unavailable"]
     for row in rows.values():
         assert row["eligible"] is False
 
 
 def test_multi_guard_candidate_reports_all_codes_not_first():
-    """A candidate violating several guards lists every failed code."""
+    """A candidate violating several guards lists every failed code — and ONLY
+    the failed codes: an exact set, so bogus extra reasons fail too."""
     two_hard_day = [_session("run", "quality", 60.0), _session("swim", "easy", 20.0)]
     plan = _week(d1=list(two_hard_day), d2=[], d3=[], protected_days=(1,))
     conflict = _conflict(plan)
 
     rows = _rows_by_offset(_rank(plan, conflict))
-    assert {"protected", "hard_collision", "occasion_limit"} <= set(rows[1]["rejected_reasons"])
+    assert sorted(rows[1]["rejected_reasons"]) == [
+        "hard_collision",
+        "occasion_limit",
+        "protected",
+    ]
 
 
 def test_recovery_spacing_uses_post_removal_state():
@@ -280,7 +295,7 @@ def test_recovery_spacing_uses_post_removal_state():
 
     rows = _rows_by_offset(_rank(plan, conflict))
     assert rows[1]["eligible"] is True, rows[1]
-    assert "recovery_spacing" in rows[2]["rejected_reasons"]
+    assert sorted(rows[2]["rejected_reasons"]) == ["recovery_spacing"]
     variant = _variant(plan, conflict)
     assert variant is not None and variant["target_date"] == (_TODAY + timedelta(days=1)).isoformat()
 
@@ -307,15 +322,17 @@ def test_two_occasion_target_day_is_rejected_not_tripled():
     assert _variant(plan, conflict) is None
     for row in _rank(plan, conflict):
         assert row["eligible"] is False
-        assert "occasion_limit" in row["rejected_reasons"], row
+        assert sorted(row["rejected_reasons"]) == ["occasion_limit"], row
 
 
 def test_oversized_stimulus_fails_closed_with_ceiling_code():
     """BDD 5 (v1 semantics): no bounded reduction exists in v1 — an oversized
     stimulus rejects the candidate with `day_tss_ceiling`; neighbours are never
-    modified; weekly TSS can never grow because nothing else changes."""
+    modified; weekly TSS can never grow because nothing else changes. The
+    conflict's duration is kept short so the DURATION guard stays silent and
+    the exact-set check proves TSS is the only firing code."""
     specs = [
-        {"sessions": [_session("bike", "quality", 200.0)]},
+        {"sessions": [_session("bike", "quality", 200.0, duration_minutes=90)]},
         {"sessions": [_session("bike", "easy", 100.0)]},
         {"sessions": [_session("run", "easy", 90.0)]},
         {"sessions": [_session("swim", "easy", 80.0)]},
@@ -330,7 +347,84 @@ def test_oversized_stimulus_fails_closed_with_ceiling_code():
     rows = _rows_by_offset(_rank(plan, conflict))
     for row in rows.values():
         assert row["eligible"] is False
-        assert "day_tss_ceiling" in row["rejected_reasons"], row
+        assert sorted(row["rejected_reasons"]) == ["day_tss_ceiling"], row
+
+
+def test_rejection_code_registry_is_exact():
+    """Review round 2: the registry is a tested contract. `weekly_hours_ceiling`
+    is REMOVED — unreachable in v1 because the cross-week ban makes every
+    in-week transfer conserve weekly duration by construction; the duration
+    guard that IS reachable is the day-level `day_duration_ceiling`."""
+    from models.recovery_transfer import REJECTION_REASON_CODES
+
+    assert REJECTION_REASON_CODES == {
+        "unavailable",
+        "protected",
+        "hard_collision",
+        "recovery_spacing",
+        "occasion_limit",
+        "day_tss_ceiling",
+        "day_duration_ceiling",
+        "cross_week_boundary",
+    }
+
+
+def test_day_duration_policy_lives_with_scheduler_policies():
+    """`MAX_DAY_DURATION_MINUTES` is a scheduler-owned policy next to
+    `MAX_DAY_TSS_POLICY` — RecoveryTransfer must not grow a parallel model."""
+    from models.session_scheduler import MAX_DAY_DURATION_MINUTES, MAX_DAY_TSS_POLICY
+
+    assert int(MAX_DAY_DURATION_MINUTES) == 240
+    assert float(MAX_DAY_TSS_POLICY) == 220.0
+
+
+def test_day_duration_ceiling_rejects_when_tss_fits():
+    """Review round 2: the TSS ceiling does not replace a duration bound. A
+    target day whose summed persisted duration would exceed the policy rejects
+    with exactly `day_duration_ceiling` even though its TSS total fits.
+    Duration comes from persisted sessions: independents sum their
+    `duration_minutes`; a composite brick counts the parent duration
+    (transition included)."""
+    from models.session_scheduler import MAX_DAY_DURATION_MINUTES
+
+    filler = _session(
+        "bike", "easy", 60.0, duration_minutes=int(MAX_DAY_DURATION_MINUTES) - 40
+    )
+    plan = _week(d1=[filler], d2=[], d3=[])
+    conflict = _conflict(plan)  # quality bike 80 TSS → 96 persisted minutes
+
+    rows = _rows_by_offset(_rank(plan, conflict))
+    assert rows[1]["eligible"] is False
+    assert sorted(rows[1]["rejected_reasons"]) == ["day_duration_ceiling"]
+    assert rows[2]["eligible"] is True
+    variant = _variant(plan, conflict)
+    assert variant is not None
+    assert variant["target_date"] == (_TODAY + timedelta(days=2)).isoformat()
+    assert variant["weekly_duration_delta_minutes"] == 0
+
+
+def test_unplanned_actual_hard_load_blocks_adjacent_candidate():
+    """Review round 2: spacing must respect ACTUAL executed load, not only the
+    plan. The ranker consumes `actual_hard_dates` (ISO dates the loop extracts
+    from its already-loaded reconciliation snapshot — the ranker itself never
+    reads DB or provider). Adjacency policy is fixed at ±1 calendar day. The
+    post-removal rule applies to the PLANNED session only: the source day's
+    planned conflict stops counting because it leaves, but a real workout
+    already executed there still blocks the neighbouring candidate."""
+    plan = _week(d1=[], d2=[], d3=[])
+    conflict = _conflict(plan)
+
+    baseline = _rows_by_offset(_rank(plan, conflict))
+    assert baseline[1]["eligible"] is True  # planned-only view: D+1 is fine
+
+    actual = [_TODAY.isoformat()]  # unplanned hard group ride done this morning
+    rows = _rows_by_offset(_rank(plan, conflict, actual_hard_dates=actual))
+    assert rows[1]["eligible"] is False
+    assert sorted(rows[1]["rejected_reasons"]) == ["recovery_spacing"]
+    assert rows[2]["eligible"] is True  # ±1 adjacency only — D+2 unaffected
+    variant = _variant(plan, conflict, actual_hard_dates=actual)
+    assert variant is not None
+    assert variant["target_date"] == (_TODAY + timedelta(days=2)).isoformat()
 
 
 def test_protected_race_and_post_race_days_are_never_targets():
@@ -341,7 +435,7 @@ def test_protected_race_and_post_race_days_are_never_targets():
     assert _variant(plan, conflict) is None
     for row in _rank(plan, conflict):
         assert row["eligible"] is False
-        assert "protected" in row["rejected_reasons"], row
+        assert sorted(row["rejected_reasons"]) == ["protected"], row
 
 
 # ---------------------------------------------------------------------------
@@ -378,7 +472,7 @@ def test_cross_week_transfer_is_forbidden_in_v1():
     assert _variant(plan, conflict) is None
     for row in _rank(plan, conflict):
         assert row["eligible"] is False
-        assert "cross_week_boundary" in row["rejected_reasons"], row
+        assert sorted(row["rejected_reasons"]) == ["cross_week_boundary"], row
 
     # Friday conflict: Sat/Sun stay in-week, Monday is rejected
     specs2 = [{"sessions": []} for _ in range(14)]
@@ -387,7 +481,7 @@ def test_cross_week_transfer_is_forbidden_in_v1():
     rows2 = _rows_by_offset(_rank(plan2, _conflict(plan2, day_offset=4)))
     assert rows2[1]["eligible"] is True
     assert rows2[2]["eligible"] is True
-    assert "cross_week_boundary" in rows2[3]["rejected_reasons"]
+    assert sorted(rows2[3]["rejected_reasons"]) == ["cross_week_boundary"]
 
 
 # ---------------------------------------------------------------------------
@@ -497,17 +591,33 @@ def test_brick_transfers_whole_with_consistent_group_and_leg_ids():
     assert [int(leg["leg_index"]) for leg in legs] == [1, 2]
     assert [leg["leg_id"] for leg in legs] == [f"{new_parent_id}:1", f"{new_parent_id}:2"]
     assert float(new_session["total_tss"]) == 90.0
+    assert variant["weekly_duration_delta_minutes"] == 0
 
     changes = {row["date"]: row for row in variant["day_changes"]}
     target = changes[variant["target_date"]]
     surviving = [s for s in target["after_sessions"] if s.get("sport") == "swim"]
     assert len(surviving) == 1  # the independent neighbour is untouched
 
+    # review round 2: the downstream leaf projection must regroup the legs
+    # under the NEW parent id — delivery/Today read group_id from here
+    from models.training_planner import iter_leaf_sessions
 
-def test_ranking_and_variant_are_byte_deterministic():
-    """BDD 12: identical inputs → identical candidates and variant."""
+    leaves = iter_leaf_sessions({"sessions": target["after_sessions"]})
+    brick_leaves = [leaf for leaf in leaves if leaf.get("kind") == "brick_leg"]
+    assert [leaf["group_id"] for leaf in brick_leaves] == [new_parent_id, new_parent_id]
+    assert [leaf["session_id"] for leaf in brick_leaves] == [
+        f"{new_parent_id}:1",
+        f"{new_parent_id}:2",
+    ]
+
+
+def test_ranking_and_variant_are_byte_deterministic_and_pure():
+    """BDD 12: identical inputs → identical candidates and variant; and the
+    ranker/builder never mutate the input plan (whole-plan deep snapshot)."""
     plan = _week(d1=[_session("run", "quality", 60.0)], d2=[], d3=[])
     conflict = _conflict(plan)
+    snapshot = json.dumps(plan, sort_keys=True, default=str)
 
     assert _rank(plan, conflict) == _rank(plan, conflict)
     assert _variant(plan, conflict) == _variant(plan, conflict)
+    assert json.dumps(plan, sort_keys=True, default=str) == snapshot

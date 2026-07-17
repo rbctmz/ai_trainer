@@ -90,23 +90,16 @@ def test_transfer_rebuilds_days_and_weekly_buckets_from_sessions():
 
 
 def test_transfer_is_append_only_on_the_input_plan():
-    """The primitive clones: the input goal plan is not mutated."""
-    plan = _week(d1=[], d2=[], d3=[])
+    """The primitive clones: the ENTIRE input goal plan — templates, daily_plan,
+    weekly_summary, constraint_summary, every nested session — is byte-identical
+    before and after (review round 2: whole-plan deep snapshot, not a sample)."""
+    plan = _week(d1=[_session("swim", "recovery", 15.0)], d2=[], d3=[])
     conflict = _conflict(plan)
-    before = json.dumps(
-        [t.get("date") for t in plan["session_templates"]]
-        + [str(plan["session_templates"][0]["sessions"])],
-        sort_keys=True,
-    )
+    before = json.dumps(plan, sort_keys=True, default=str)
 
     _apply(plan, conflict["session_id"], 2)
 
-    after = json.dumps(
-        [t.get("date") for t in plan["session_templates"]]
-        + [str(plan["session_templates"][0]["sessions"])],
-        sort_keys=True,
-    )
-    assert before == after
+    assert json.dumps(plan, sort_keys=True, default=str) == before
 
 
 def test_transfer_fails_closed_on_unknown_session_or_date():
@@ -150,6 +143,16 @@ def test_brick_moves_as_parent_with_relinked_leg_ids():
     assert new_id != conflict["session_id"]
     assert [leg["leg_id"] for leg in moved["legs"]] == [f"{new_id}:1", f"{new_id}:2"]
     assert [leg["sport"] for leg in moved["legs"]] == ["bike", "run"]
+
+    # review round 2: the persisted template must project consistent brick
+    # leaves — group_id and leg session_ids follow the NEW parent id
+    from models.training_planner import iter_leaf_sessions
+
+    leaves = iter_leaf_sessions(moved_plan["session_templates"][1])
+    assert [(leaf["kind"], leaf["group_id"], leaf["session_id"]) for leaf in leaves] == [
+        ("brick_leg", new_id, f"{new_id}:1"),
+        ("brick_leg", new_id, f"{new_id}:2"),
+    ]
 
 
 def test_preview_day_changes_equal_applied_result():
