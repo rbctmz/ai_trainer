@@ -58,6 +58,7 @@ jobs:
               context.eventName === "issue_comment" &&
               process.env.IS_PULL_REQUEST_COMMENT !== "true"
             ) {
+              core.setOutput("checkout-ref", context.payload.repository.default_branch);
               return true;
             }
 
@@ -76,7 +77,11 @@ jobs:
             if (!pullRequest || !pullRequest.head || !pullRequest.head.repo) {
               return false;
             }
-            return pullRequest.head.repo.full_name === repository;
+            const allowed = pullRequest.head.repo.full_name === repository;
+            if (allowed) {
+              core.setOutput("checkout-ref", pullRequest.head.ref);
+            }
+            return allowed;
 
       - name: Set up Python 3.11 for contributor-safe tests
         if: steps.executable-context.outputs.result == 'true'
@@ -94,6 +99,13 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
+
+      - name: Check out executable issue or PR branch
+        if: steps.executable-context.outputs.result == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.executable-context.outputs.checkout-ref }}
+          fetch-depth: 0
 
       - name: Run Claude Code
         if: steps.executable-context.outputs.result == 'true'
