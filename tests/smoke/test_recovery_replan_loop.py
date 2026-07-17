@@ -617,3 +617,241 @@ def test_legacy_recovery_rollback_without_affected_dates_skips_delivery(
     assert rolled_back["result"]["delivery"]["status"] == "skipped"
     assert rolled_back["result"]["delivery"]["failed_count"] == 0
     assert rolled_back["result"]["delivery"]["retryable"] is False
+
+
+# ---------------------------------------------------------------------------
+# M3 RED — three-variant decision contract in the loop (Issue #209).
+#
+# Pins, before the loop composes `variants = [keep, downgrade_today,
+# transfer_1_3d?]` per docs/recovery_transfer_execplan.md Design/M3:
+#
+# - a safe D+1..D+3 date yields all three typed variants, keyed by "kind",
+#   and `transfer_1_3d` is the recommended one when eligible (it preserves
+#   the key session instead of downgrading it in place);
+# - no safe date omits `transfer_1_3d` but the preview still exposes every
+#   candidate's exact rejection reasons via `transfer_candidates`, and
+#   `downgrade_today` stays the recommended fallback;
+# - the loop stays idempotent per readiness/proposal fingerprint even though
+#   the three variants are recomputed on every run (byte-stable recompute,
+#   no extra proposal rows);
+# - one current proposal per conflicting session survives repeated reruns
+#   with a shifted readiness score, and its preview keeps refreshing with
+#   the up-to-date `transfer_1_3d` variant;
+# - a conflict whose claimed role no longer matches the active plan's role
+#   at that date (a stale readiness snapshot racing a plan that already
+#   moved on) fails closed on the transfer variant only — keep/
+#   downgrade_today are unaffected and the loop never raises;
+# - a proposal row written before M3 shipped (preview without "variants")
+#   is reused by active_key, not duplicated, and its preview is upgraded
+#   in place once M3 recomputes it.
+#
+# `_goal_plan(today, conflict_days_until=1)` puts the conflicting quality
+# session on a Tuesday when `today` is the Monday start of the plan, so
+# D+1..D+3 (Wed/Thu/Fri) stay inside the source ISO week (no
+# `cross_week_boundary`) with easy, non-hard neighbours (no
+# `hard_collision`/`recovery_spacing`) and plenty of TSS/duration headroom.
+
+
+def _transfer_ready_goal_plan(today: date, *, days_until: int = 1) -> dict:
+    return _goal_plan(today, conflict_days_until=days_until)
+
+
+def _variant_kinds(proposal: dict) -> list:
+    return [str(v.get("kind")) for v in proposal["preview"]["variants"]]
+
+
+def test_loop_offers_transfer_variant_alongside_keep_and_downgrade_when_safe_date_exists(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)  # Monday
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    db = Database(str(tmp_path / "transfer-safe.db"))
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+
+    first = run_recovery_replan_loop(db, today=today)
+
+    assert first["outcome"] == "conflict"
+    assert _variant_kinds(first["proposal"]) == ["keep", "downgrade_today", "transfer_1_3d"]
+
+    transfer = next(
+        v for v in first["proposal"]["preview"]["variants"] if v["kind"] == "transfer_1_3d"
+    )
+    conflict_date = today + timedelta(days=1)
+    assert transfer["target_date"] == (conflict_date + timedelta(days=1)).isoformat()
+    assert transfer["new_session"]["sport"] == "bike"
+    assert transfer["new_session"]["session_role"] == "quality"
+    assert float(transfer["new_session"]["total_tss"]) == 60.0
+    assert transfer["new_session"]["replaces_session_id"]
+    assert transfer["new_session"]["transfer_group_id"]
+    assert transfer["rule_version"] == "recovery-transfer-v1"
+
+    recommended = [
+        v["kind"] for v in first["proposal"]["preview"]["variants"] if v.get("recommended")
+    ]
+    assert recommended == ["transfer_1_3d"]
+
+
+def test_loop_omits_transfer_variant_and_exposes_candidate_rejections_when_no_safe_date(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    goal_plan = _transfer_ready_goal_plan(today, days_until=1)
+    conflict_date = today + timedelta(days=1)
+    goal_plan["protected_dates"] = [
+        (conflict_date + timedelta(days=offset)).isoformat() for offset in (1, 2, 3)
+    ]
+    db = Database(str(tmp_path / "transfer-blocked.db"))
+    _save_plan(db, goal_plan)
+
+    first = run_recovery_replan_loop(db, today=today)
+
+    assert first["outcome"] == "conflict"
+    assert _variant_kinds(first["proposal"]) == ["keep", "downgrade_today"]
+    candidates = first["proposal"]["preview"]["transfer_candidates"]
+    assert len(candidates) == 3
+    assert all(row["eligible"] is False for row in candidates)
+    assert all(row["rejected_reasons"] == ["protected"] for row in candidates)
+    recommended = [
+        v["kind"] for v in first["proposal"]["preview"]["variants"] if v.get("recommended")
+    ]
+    assert recommended == ["downgrade_today"]
+
+
+def test_loop_transfer_variant_is_idempotent_across_repeated_runs(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    db = Database(str(tmp_path / "transfer-idempotent.db"))
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+
+    first = run_recovery_replan_loop(db, today=today)
+    second = run_recovery_replan_loop(db, today=today)
+
+    assert second["proposal"]["id"] == first["proposal"]["id"]
+    assert second["proposal"]["preview"]["variants"] == first["proposal"]["preview"]["variants"]
+    assert len(db.get_coach_proposals(days=36500)) == 1
+
+
+def test_loop_keeps_single_current_proposal_when_readiness_shifts_but_target_session_is_unchanged(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)
+    first_report = _conflict_report(today, days_until=1)
+    second_report = _conflict_report(today, days_until=1)
+    second_report["readiness"] = {**second_report["readiness"], "score": 36.0}
+    second_report["conflicts"][0]["evidence"][0] = (
+        "Готовность 36/100 (low): HRV -17% к базе"
+    )
+    reports = iter((first_report, second_report))
+    monkeypatch.setattr(
+        loop_module,
+        "build_readiness_conflict_report",
+        lambda _db: next(reports),
+    )
+    db = Database(str(tmp_path / "transfer-single-proposal.db"))
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+
+    first = run_recovery_replan_loop(db, today=today)
+    second = run_recovery_replan_loop(db, today=today)
+
+    assert second["decision"]["id"] != first["decision"]["id"]
+    assert second["proposal"]["id"] == first["proposal"]["id"]
+    assert len(db.get_coach_proposals(days=36500)) == 1
+    assert len(db.get_recovery_decisions(days=36500)) == 2
+    assert "transfer_1_3d" in _variant_kinds(second["proposal"])
+
+
+def test_loop_fails_closed_on_transfer_when_conflict_session_role_has_drifted(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Readiness report claims a quality session at D+1, but the active plan
+    already changed that day's role to easy (e.g. a prior downgrade already
+    applied). The transfer variant must fail closed instead of moving
+    whatever now sits on that date; keep/downgrade_today stay unaffected."""
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    goal_plan = _transfer_ready_goal_plan(today, days_until=1)
+    conflict_date = today + timedelta(days=1)
+    target_index = next(
+        index
+        for index, row in enumerate(goal_plan["daily_plan"])
+        if row[0].date() == conflict_date
+    )
+    dt, _total, _parts = goal_plan["daily_plan"][target_index]
+    goal_plan["daily_plan"][target_index] = (dt, 20.0, {"run": 20.0})
+    goal_plan["session_templates"][target_index].update(
+        {
+            "session_role": "easy",
+            "sport": "run",
+            "sport_label": "бег",
+            "session_focus": "Лёгкая • бег",
+            "duration_minutes": 30,
+        }
+    )
+    db = Database(str(tmp_path / "transfer-role-drift.db"))
+    _save_plan(db, goal_plan)
+
+    first = run_recovery_replan_loop(db, today=today)
+
+    assert first["outcome"] == "conflict"
+    assert _variant_kinds(first["proposal"]) == ["keep", "downgrade_today"]
+
+
+def test_loop_upgrades_legacy_pending_proposal_preview_with_variants_on_reuse(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A proposal row written by pre-M3 code (preview without "variants")
+    must be reused by active_key, not duplicated, and its preview upgraded
+    in place — the additive-fields back-compat promise from ASR-MOD-3."""
+    import json
+
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    db_path = tmp_path / "transfer-legacy-upgrade.db"
+    db = Database(str(db_path))
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+
+    seeded = run_recovery_replan_loop(db, today=today)["proposal"]
+    legacy_preview = {
+        key: value
+        for key, value in seeded["preview"].items()
+        if key not in ("variants", "transfer_candidates")
+    }
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE coach_proposals SET preview_json = ? WHERE id = ?",
+            (json.dumps(legacy_preview, ensure_ascii=False), seeded["id"]),
+        )
+        conn.commit()
+    assert "variants" not in db.get_coach_proposal(seeded["id"])["preview"]
+
+    second = run_recovery_replan_loop(db, today=today)
+
+    assert second["proposal"]["id"] == seeded["id"]
+    assert "variants" in second["proposal"]["preview"]
+    assert "transfer_1_3d" in _variant_kinds(second["proposal"])
