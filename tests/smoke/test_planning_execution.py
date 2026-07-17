@@ -95,7 +95,9 @@ def test_day_level_execution_rows_can_build_reduced_local_replan_payload():
     assert rows[0]["date_label"] == "Пн 15.06"
     assert rows[0]["phase_label"] == "База"
     assert rows[0]["sport_label"] == "вело"
-    assert rows[0]["session_role_label"] == "Легкая"
+    # Issue #205 M3b: the slot scheduler deterministically opens the week with
+    # the quality bike, spaced maximally from the Saturday long ride.
+    assert rows[0]["session_role_label"] == "Качество"
 
     rows[positive_rows[0]]["outcome"] = "missed"
     rows[positive_rows[1]]["outcome"] = "reduced"

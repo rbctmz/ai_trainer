@@ -162,6 +162,8 @@ def get_dashboard_goal_plan(state: Any) -> dict[str, Any]:
 
 
 def build_plan_day_lookup(goal_plan: dict[str, Any]) -> dict[date, dict[str, Any]]:
+    from models.training_planner import iter_leaf_sessions
+
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
     session_templates = list(goal_plan.get("session_templates", []) or [])
     lookup: dict[date, dict[str, Any]] = {}
@@ -196,6 +198,9 @@ def build_plan_day_lookup(goal_plan: dict[str, Any]) -> dict[date, dict[str, Any
             "session_role": str(
                 template.get("session_role_label") or template.get("session_role") or ""
             ),
+            # Issue #205 milestone 2.6: ordered executable leaf sessions of the
+            # day (single sessions and brick legs separately); rest/race -> [].
+            "sessions": iter_leaf_sessions(template),
         }
     return lookup
 

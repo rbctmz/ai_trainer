@@ -344,6 +344,78 @@ def _evaluate_near_term_edit_risk(
     }
 
 
+def _sessions_from_parts(
+    parts: Mapping[str, float],
+    role: str,
+    phase: str,
+    goal_type: str,
+    distance: str,
+) -> List[Dict[str, Any]]:
+    """Issue #205: rebuild a day's executable sessions from its edited parts.
+
+    One plain (manual) session per discipline with that discipline's TSS, largest
+    first; the primary keeps the day role, secondaries are easy. Same-discipline
+    preservation keeps the sport budget intact after an edit."""
+    ordered = sorted(
+        (
+            (sport, round(float(parts.get(sport, 0.0) or 0.0), 1))
+            for sport in ("bike", "run", "swim")
+        ),
+        key=lambda item: (-item[1], item[0]),
+    )
+    sessions: List[Dict[str, Any]] = []
+    for position, (sport, tss) in enumerate(item for item in ordered if item[1] > 0):
+        session_role = role if position == 0 else "easy"
+        focus = _build_day_focus_label(session_role, sport)
+        sessions.append(
+            {
+                "sport": sport,
+                "sport_label": SPORT_LABELS_RU.get(sport, sport),
+                "session_role": session_role,
+                "session_focus": focus,
+                "duration_minutes": _estimate_session_duration_minutes(tss, sport, session_role),
+                "total_tss": tss,
+                "template_key": f"manual:{phase.lower()}:{session_role}:{sport}",
+                "export_name": _build_session_export_name(goal_type, distance, focus),
+            }
+        )
+    return sessions
+
+
+def _rebuild_sessions_after_day_edit(
+    next_template: Dict[str, Any],
+    current_template: Mapping[str, Any],
+    *,
+    new_parts: Mapping[str, float],
+    role: str,
+    sport: str,
+    phase: str,
+    goal_type: str,
+    distance: str,
+) -> Dict[str, Any]:
+    """Issue #205: an edited day's `sessions` must follow the edit, never stay stale.
+
+    Every previously planned session id is recorded in `replaced_session_ids` —
+    a day edit never drops a session silently. Composite (brick) days keep the
+    template as the single session via migrate-on-read; other training days get
+    sessions rebuilt from the edited parts; off days carry none."""
+    replaced = [
+        str(session.get("session_id") or "")
+        for session in list(current_template.get("sessions") or [])
+        if session.get("session_id")
+    ]
+    for stale_key in ("sessions", "allocated_parts", "brick_status", "brick_status_reason"):
+        next_template.pop(stale_key, None)
+    if replaced:
+        next_template["replaced_session_ids"] = replaced
+    is_composite = str(next_template.get("kind") or "") == "composite"
+    if not is_composite and role != "off" and sport != "off":
+        rebuilt = _sessions_from_parts(new_parts, role, phase, goal_type, distance)
+        if rebuilt:
+            next_template["sessions"] = rebuilt
+    return next_template
+
+
 def _apply_week_total_delta(
     daily_plan: List[tuple[datetime, float, Dict[str, float]]],
     session_templates: List[Dict[str, Any]],
@@ -449,6 +521,16 @@ def _apply_week_total_delta(
                     "description": description,
                 }
             )
+        next_template = _rebuild_sessions_after_day_edit(
+            next_template,
+            current_template,
+            new_parts=new_parts,
+            role=role,
+            sport=sport,
+            phase=str(current_template.get("phase", "Base") or "Base"),
+            goal_type=goal_type,
+            distance=distance,
+        )
         session_templates[day_index] = next_template
         actual_week_total += day_total
 
@@ -489,6 +571,20 @@ def build_near_term_edit_rows(
                 "current_focus": focus,
                 "current_duration_minutes": int(template.get("duration_minutes", 0) or 0),
                 "original_parts": dict(parts),
+                # Issue #205: expose the day's executable sessions so an edit can
+                # address one specific session_id instead of the whole day.
+                "sessions": [
+                    {
+                        "session_id": str(session.get("session_id") or ""),
+                        "sport": _normalize_sport(session.get("sport") or "off"),
+                        "session_role": _normalize_session_role(session.get("session_role") or "easy"),
+                        "session_focus": str(session.get("session_focus") or "—"),
+                        "total_tss": round(float(session.get("total_tss") or 0.0), 1),
+                        "duration_minutes": int(session.get("duration_minutes") or 0),
+                        "kind": str(session.get("kind") or "single"),
+                    }
+                    for session in list(template.get("sessions") or [])
+                ],
             }
         )
 
@@ -954,6 +1050,84 @@ def _merge_adjustment_note(existing_note: Any, manual_note: str) -> str:
     return "; ".join(parts + [manual_note])
 
 
+def _session_parts_contribution(session: Mapping[str, Any]) -> Dict[str, float]:
+    """Per-discipline TSS one session contributes to its day (brick → legs)."""
+    if str(session.get("kind") or "") == "composite":
+        contribution: Dict[str, float] = {}
+        for leg in list(session.get("legs") or []):
+            sport = str(leg.get("sport") or "")
+            contribution[sport] = round(
+                contribution.get(sport, 0.0) + float(leg.get("target_tss") or 0.0), 1
+            )
+        return contribution
+    sport = str(session.get("sport") or "")
+    if sport in {"", "off", "race"}:
+        return {}
+    return {sport: round(float(session.get("total_tss") or 0.0), 1)}
+
+
+def _apply_targeted_session_edit(
+    day_sessions: List[Dict[str, Any]],
+    position: int,
+    raw_row: Mapping[str, Any],
+    *,
+    phase: str,
+    goal_type: str,
+    distance: str,
+):
+    """Issue #205: edit exactly one session inside a day, preserving the rest.
+
+    Returns ``(sessions, new_day_total, new_day_parts)`` or ``None`` when the
+    row changes nothing. Setting the session to off/zero removes it from the
+    day; the other sessions and the day totals follow."""
+    current = day_sessions[position]
+    current_role = _normalize_session_role(current.get("session_role") or "easy")
+    current_sport = _normalize_sport(current.get("sport") or "off")
+    current_tss = round(float(current.get("total_tss") or 0.0), 1)
+
+    target_role = _normalize_session_role(raw_row.get("session_role") or current_role)
+    target_sport = _normalize_sport(raw_row.get("sport") or current_sport)
+    if target_sport == "brick" and str(current.get("kind") or "") != "composite":
+        target_sport = current_sport
+    target_tss = (
+        _normalize_total_tss(raw_row.get("total_tss"))
+        if raw_row.get("total_tss") is not None
+        else current_tss
+    )
+    if target_role == "off" or target_sport == "off":
+        target_role, target_sport, target_tss = "off", "off", 0.0
+
+    if (target_role, target_sport, target_tss) == (current_role, current_sport, current_tss):
+        return None
+
+    old_id = str(current.get("session_id") or "").strip()
+    if target_tss <= 0 or target_role == "off":
+        rebuilt = [dict(item) for i, item in enumerate(day_sessions) if i != position]
+    else:
+        focus = _build_day_focus_label(target_role, target_sport)
+        edited_session: Dict[str, Any] = {
+            "sport": target_sport,
+            "sport_label": SPORT_LABELS_RU.get(target_sport, target_sport),
+            "session_role": target_role,
+            "session_focus": focus,
+            "duration_minutes": _estimate_session_duration_minutes(target_tss, target_sport, target_role),
+            "total_tss": target_tss,
+            "template_key": f"manual:{phase.lower()}:{target_role}:{target_sport}",
+            "export_name": _build_session_export_name(goal_type, distance, focus),
+        }
+        if old_id:
+            edited_session["replaces_session_id"] = old_id
+        rebuilt = [dict(item) for item in day_sessions]
+        rebuilt[position] = edited_session
+
+    new_parts: Dict[str, float] = {"run": 0.0, "bike": 0.0, "swim": 0.0}
+    for session in rebuilt:
+        for sport, tss in _session_parts_contribution(session).items():
+            new_parts[sport] = round(new_parts.get(sport, 0.0) + tss, 1)
+    new_total = round(sum(new_parts.values()), 1)
+    return rebuilt, new_total, new_parts
+
+
 def apply_near_term_day_edits(
     goal_plan: Mapping[str, Any],
     edited_rows: Sequence[Mapping[str, Any]],
@@ -993,6 +1167,60 @@ def apply_near_term_day_edits(
 
         dt, current_total, current_parts = daily_plan[day_index]
         current_template = session_templates[day_index]
+
+        # Issue #205: a row may address one specific session by its stable id.
+        # A targeted edit changes only that session and preserves the day's
+        # other sessions; an unknown id fails closed.
+        targeted_session_id = str(raw_row.get("session_id") or "").strip()
+        if targeted_session_id:
+            day_sessions = [dict(item or {}) for item in list(current_template.get("sessions") or [])]
+            position = next(
+                (
+                    i
+                    for i, session in enumerate(day_sessions)
+                    if str(session.get("session_id") or "") == targeted_session_id
+                ),
+                None,
+            )
+            if position is None:
+                raise ValueError(
+                    f"near-term edit addresses unknown session_id {targeted_session_id} on {dt.strftime('%Y-%m-%d')}"
+                )
+            edited = _apply_targeted_session_edit(
+                day_sessions,
+                position,
+                raw_row,
+                phase=str(current_template.get("phase", "Base") or "Base"),
+                goal_type=goal_type,
+                distance=distance,
+            )
+            if edited is None:
+                continue
+            day_sessions, new_day_total, new_day_parts = edited
+            changed_day_count += 1
+            edited_dates.append(dt.strftime("%Y-%m-%d"))
+            week_stat = touched_week_stats.setdefault(
+                day_index // 7,
+                {"delta_tss": 0.0, "edited_days": 0.0},
+            )
+            week_stat["delta_tss"] += round(new_day_total - float(current_total or 0.0), 1)
+            week_stat["edited_days"] += 1.0
+            daily_plan[day_index] = (dt, new_day_total, new_day_parts)
+            next_template = dict(current_template)
+            next_template["sessions"] = day_sessions
+            primary = day_sessions[0] if day_sessions else {}
+            next_template.update(
+                {
+                    "session_role": str(primary.get("session_role") or "off"),
+                    "session_focus": str(primary.get("session_focus") or "—"),
+                    "sport": str(primary.get("sport") or "off"),
+                    "sport_label": str(primary.get("sport_label") or SPORT_LABELS_RU.get("off", "off")),
+                    "duration_minutes": int(primary.get("duration_minutes") or 0),
+                }
+            )
+            session_templates[day_index] = next_template
+            continue
+
         current_role = _normalize_session_role(current_template.get("session_role") or ("off" if current_total <= 0 else "easy"))
         current_sport = _normalize_sport(current_template.get("sport") or _dominant_sport(current_parts))
 
@@ -1102,6 +1330,16 @@ def apply_near_term_day_edits(
                     ),
                 }
             )
+        next_template = _rebuild_sessions_after_day_edit(
+            next_template,
+            current_template,
+            new_parts=new_parts,
+            role=target_role,
+            sport=target_sport,
+            phase=phase,
+            goal_type=goal_type,
+            distance=distance,
+        )
         session_templates[day_index] = next_template
 
     refreshed_weekly_summary: List[Dict[str, Any]] = []

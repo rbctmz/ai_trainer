@@ -427,6 +427,9 @@ export interface PlanWeek {
   bike: number;
   run: number;
   swim: number;
+  /** Explicit race-effort forecast for the week (CTL/ATL model input) — shown
+   * separately, never folded into weekly_tss or the discipline buckets. */
+  race_forecast_tss?: number | null;
   adjustment_note: string;
 }
 
@@ -806,8 +809,22 @@ export interface TodayReadiness {
   reason: string | null;
 }
 
+export interface TodayLeafSession {
+  kind: "single" | "brick_leg";
+  session_id?: string | null;
+  group_id?: string | null;
+  leg_index?: number | null;
+  sport: string;
+  sport_label: string;
+  session_role: string;
+  total_tss: number;
+  name: string;
+  materialized_steps?: WorkoutStep[];
+}
+
 export interface TodaySession {
   session_id?: string | null;
+  sessions?: TodayLeafSession[];
   date: string;
   name: string;
   role: string;

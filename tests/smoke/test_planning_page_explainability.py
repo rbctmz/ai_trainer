@@ -426,7 +426,14 @@ def test_build_plan_fact_calendar_rows_marks_other_sport_and_upcoming_days():
     mismatch_row = next(row for row in rows if row["date"] == run_template["date"])
     upcoming_row = next(row for row in rows if row["date"] == "2026-06-20")
     assert mismatch_row["status"] == "other_sport"
-    assert mismatch_row["date_label"] == "Чт 18.06"
+    # Issue #205 M3b: the run slot's weekday is the scheduler's decision — pin
+    # the label to the found run template's date instead of a hardcoded day.
+    from models.training_planner import WEEKDAY_LABELS_RU
+
+    run_date = date.fromisoformat(str(run_template["date"]))
+    assert mismatch_row["date_label"] == (
+        f"{WEEKDAY_LABELS_RU[run_date.weekday()]} {run_date.strftime('%d.%m')}"
+    )
     assert mismatch_row["focus_action_label"] == "Проверить mismatch"
     assert mismatch_row["actual_sport_label"] == "плавание"
     assert upcoming_row["status"] == "upcoming"

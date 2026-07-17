@@ -166,68 +166,81 @@ def build_delivery_events(
                 f"planned session {day} template date mismatch: "
                 f"{template_date or 'missing'}"
             )
-        session_id = str(template.get("session_id") or "").strip()
-        if not session_id:
-            raise ValueError(f"planned session {day} has no stable session_id")
-        kind = str(template.get("kind") or "single")
-        start_at = datetime.fromisoformat(day).replace(hour=7)
-
-        if kind == "composite":
-            cursor = start_at
-            for position, raw_leg in enumerate(template.get("legs") or [], start=1):
-                leg = dict(raw_leg)
-                leg_index = int(leg.get("leg_index") or position)
-                sport = str(leg.get("sport") or "bike")
-                leg_tss = float(leg.get("target_tss") or (parts or {}).get(sport) or 0.0)
-                steps = list(leg.get("materialized_steps") or [])
-                if not steps:
-                    steps = build_steps_for_sport(
-                        leg_tss,
-                        sport,
-                        str(template.get("session_role") or "easy"),
-                        str(template.get("phase") or ""),
+        # Issue #205 milestone 2.4: one provider event per executable leaf —
+        # each single session, and each brick leg. Sessions on a day are laid out
+        # sequentially so a multi-session day (milestone 3) gets non-overlapping
+        # start times. `ensure_session_identities` above guarantees `sessions`;
+        # the None branch is defensive only.
+        sessions = template.get("sessions")
+        if sessions is None:
+            sessions = [template]
+        cursor = datetime.fromisoformat(day).replace(hour=7)
+        for session in sessions:
+            session_id = str(session.get("session_id") or "").strip()
+            if not session_id:
+                raise ValueError(f"planned session {day} has no stable session_id")
+            phase = str(session.get("phase") or template.get("phase") or "")
+            role = str(session.get("session_role") or "easy")
+            if str(session.get("kind") or "single") == "composite":
+                for position, raw_leg in enumerate(session.get("legs") or [], start=1):
+                    leg = dict(raw_leg)
+                    leg_index = int(leg.get("leg_index") or position)
+                    sport = str(leg.get("sport") or "bike")
+                    leg_tss = float(leg.get("target_tss") or (parts or {}).get(sport) or 0.0)
+                    steps = list(leg.get("materialized_steps") or [])
+                    if not steps:
+                        steps = build_steps_for_sport(leg_tss, sport, role, phase)
+                    name = str(
+                        leg.get("template_name")
+                        or session.get("export_name")
+                        or template.get("export_name")
+                        or "Brick leg"
                     )
-                name = str(leg.get("template_name") or template.get("export_name") or "Brick leg")
-                payload = _event_payload(
-                    session_date=day,
-                    session_id=session_id,
-                    sport=sport,
-                    name=f"{name} · leg {leg_index}",
-                    tss=leg_tss,
-                    steps=steps,
-                    start_at=cursor,
-                    leg_index=leg_index,
-                )
-                events.append(payload)
-                cursor += timedelta(seconds=int(payload["moving_time"]) + _LEG_GAP_SECONDS)
-            continue
+                    payload = _event_payload(
+                        session_date=day,
+                        session_id=session_id,
+                        sport=sport,
+                        name=f"{name} · leg {leg_index}",
+                        tss=leg_tss,
+                        steps=steps,
+                        start_at=cursor,
+                        leg_index=leg_index,
+                    )
+                    events.append(payload)
+                    cursor += timedelta(seconds=int(payload["moving_time"]) + _LEG_GAP_SECONDS)
+                continue
 
-        sport = str(template.get("sport") or "").strip()
-        if not sport:
-            sport = max(
-                ("bike", "run", "swim"),
-                key=lambda key: float((parts or {}).get(key) or 0.0),
+            sport = str(session.get("sport") or "").strip()
+            if not sport:
+                sport = max(
+                    ("bike", "run", "swim"),
+                    key=lambda key: float((parts or {}).get(key) or 0.0),
+                )
+            session_tss = (
+                float(session.get("total_tss"))
+                if session.get("total_tss") is not None
+                else float(total_tss or 0.0)
             )
-        steps = list(template.get("materialized_steps") or [])
-        if not steps:
-            steps = build_steps_for_sport(
-                float(total_tss or 0.0),
-                sport,
-                str(template.get("session_role") or "easy"),
-                str(template.get("phase") or ""),
-            )
-        events.append(
-            _event_payload(
+            steps = list(session.get("materialized_steps") or [])
+            if not steps:
+                steps = build_steps_for_sport(session_tss, sport, role, phase)
+            payload = _event_payload(
                 session_date=day,
                 session_id=session_id,
                 sport=sport,
-                name=str(template.get("export_name") or template.get("template_name") or "AI Trainer workout"),
-                tss=float(total_tss or 0.0),
+                name=str(
+                    session.get("export_name")
+                    or session.get("template_name")
+                    or template.get("export_name")
+                    or "AI Trainer workout"
+                ),
+                tss=session_tss,
                 steps=steps,
-                start_at=start_at,
+                start_at=cursor,
                 leg_index=None,
             )
-        )
+            events.append(payload)
+            cursor += timedelta(seconds=int(payload["moving_time"]) + _LEG_GAP_SECONDS)
     return events
 
 

@@ -40,6 +40,8 @@ EXPECTED_TEMPLATE_KEYS = {
     "bike_vo2max_intervals",
     "bike_neuromuscular_sprints",
     "bike_race_pace",
+    "bike_activation",
+    "run_activation",
     "run_recovery",
     "run_aerobic_endurance",
     "run_progression",
@@ -80,9 +82,9 @@ def test_catalog_is_exact_versioned_and_immutable():
     assert CATALOG_VERSION == "workout_catalog_v2"
     assert SELECTOR_RULE_VERSION == "workout_selector_v1"
     assert MATERIALIZER_RULE_VERSION == "workout_materializer_v2"
-    assert len(definitions) == 20
+    assert len(definitions) == 22
     assert {item.template_key for item in definitions} == EXPECTED_TEMPLATE_KEYS
-    assert len({(item.template_key, item.version) for item in definitions}) == 20
+    assert len({(item.template_key, item.version) for item in definitions}) == 22
     assert all(item.min_duration_minutes <= item.max_duration_minutes for item in definitions)
     assert all(item.min_tss_per_hour <= item.max_tss_per_hour for item in definitions)
     assert all(len(item.fatigue_cost) == 3 for item in definitions)

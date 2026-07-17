@@ -918,6 +918,22 @@ _PRESCRIPTION_SAFETY_RANK = {
 }
 _RACE_READINESS_HORIZON_DAYS = 7
 
+# Issue #205 M6 — named race-effort forecast policy (race-forecast-v1). A race
+# is a hard effort the load model must anticipate: an amateur A-priority
+# olympic-distance triathlon is roughly 2.5-3 hours near threshold (~180-220
+# TSS), a B-priority tune-up roughly 1-1.5 hours (~90-130 TSS). The forecast
+# feeds the Banister CTL/ATL simulation and the race week's accounting row
+# ONLY: the race day itself stays a protected zero-load day, is never
+# materialized as a deliverable session, and the athlete's own provider race
+# event is never overwritten. C races stay train-through with no forecast.
+RACE_FORECAST_TSS_POLICY = {"A": 190.0, "B": 110.0}
+
+# An activation day may not carry more load than the activation definitions
+# honestly hold (mirrors bike_activation/run_activation max_tss). A capped
+# race-week day whose base was heavy would otherwise become a dishonest
+# 60+ TSS "short sharpening" that no catalog structure can materialize.
+_ACTIVATION_TSS_CEILING = {"bike": 45.0, "run": 35.0}
+
 
 def compute_event_aware_phase_schedule(
     weeks_total: int,
@@ -986,6 +1002,7 @@ def apply_race_event_overlays(
     contexts: Dict[str, Dict[str, Any]] = {}
     protected_dates: set[str] = set()
     overlays: List[Dict[str, Any]] = []
+    race_forecast_loads: List[Dict[str, Any]] = []
     is_triathlon = "триатлон" in str(goal_type or "").lower() or "tri" in str(goal_type or "").lower()
     normalized_load_state = str(load_state or "balanced").strip().lower()
 
@@ -1126,6 +1143,17 @@ def apply_race_event_overlays(
             "offset": 0,
             "label": str(event.get("label") or ""),
         }
+        forecast_tss = float(RACE_FORECAST_TSS_POLICY.get(priority) or 0.0)
+        if forecast_tss > 0 and event_day.isoformat() in available_dates:
+            race_forecast_loads.append(
+                {
+                    "date": event_day.isoformat(),
+                    "priority": priority,
+                    "label": str(event.get("label") or ""),
+                    "tss": round(forecast_tss, 1),
+                    "basis": "race-forecast-v1: гоночное усилие по приоритету старта",
+                }
+            )
         set_cap(event_day, 0.0, context=race_context)
         set_prescription(
             event_day,
@@ -1202,7 +1230,16 @@ def apply_race_event_overlays(
             adjusted_total = 0.0
         elif prescribed_sport in {"run", "bike", "swim"} and adjusted_total > 0:
             adjusted_parts = {"run": 0.0, "bike": 0.0, "swim": 0.0}
-            adjusted_parts[prescribed_sport] = round(min(float(total or 0.0), adjusted_total), 1)
+            capped = min(float(total or 0.0), adjusted_total)
+            # Issue #205 M4/M6: an activation is a SHORT sharpening stimulus —
+            # its day may not carry more load than the activation definition
+            # honestly holds. Overlays only ever reduce, so the extra cap is
+            # safe under the #202 contract.
+            if role == "activation":
+                ceiling = _ACTIVATION_TSS_CEILING.get(prescribed_sport)
+                if ceiling:
+                    capped = min(capped, ceiling)
+            adjusted_parts[prescribed_sport] = round(capped, 1)
             adjusted_total = round(sum(adjusted_parts.values()), 1)
         adjusted.append((dt, round(min(float(total or 0.0), adjusted_total), 1), adjusted_parts))
 
@@ -1265,11 +1302,24 @@ def apply_race_event_overlays(
             }
         )
 
+    # Issue #205 M6: the race week's accounting row shows the forecast
+    # explicitly, without polluting the discipline buckets or daily totals.
+    if race_forecast_loads and adjusted:
+        plan_start = adjusted[0][0].date()
+        for row in race_forecast_loads:
+            week_index = (date.fromisoformat(row["date"]) - plan_start).days // 7
+            if 0 <= week_index < len(copied_summary):
+                summary = copied_summary[week_index]
+                summary["race_forecast_tss"] = round(
+                    float(summary.get("race_forecast_tss") or 0.0) + float(row["tss"]), 1
+                )
+
     return adjusted, copied_summary, {
         "rule_version": RACE_OVERLAY_RULE_VERSION,
         "protected_dates": sorted(protected_dates),
         "overlays": overlays,
         "microcycle_changes": microcycle_changes,
+        "race_forecast_loads": race_forecast_loads,
     }
 
 
@@ -1720,6 +1770,7 @@ def expand_weekly_to_daily_triathlon(
     available_day_indices: List[int] | None = None,
     goal_type: str = "Триатлон",
     load_state: str = "balanced",
+    available_weekly_hours: float | None = None,
 ) -> Tuple[List[Tuple[datetime, float, Dict[str, float]]], List[Dict[str, object]]]:
     """Разворачивает недельный triathlon-план в поминутную ленту по дням с разбивкой по видам спорта.
     Возвращает:
@@ -1728,6 +1779,10 @@ def expand_weekly_to_daily_triathlon(
     """
     daily: List[Tuple[datetime, float, Dict[str, float]]] = []
     weekly_summary: List[Dict[str, object]] = []
+    # Issue #205 M3b.1 r4: rotation state — плановый, не недельный. Scheduler и
+    # builder стартуют с одинаково пустой истории шаблонов и проходят недели в
+    # одном порядке; projected rotation прошлой недели — вход следующей.
+    projected_template_rotation: List[str] = []
 
     current = datetime.combine(start_date, datetime.min.time())
     for w_idx, w_tss in enumerate(weekly_tss):
@@ -1741,36 +1796,50 @@ def expand_weekly_to_daily_triathlon(
             # вызывающая сторона подаст mix_overrides для не‑триатлона.
             # По умолчанию берём триатлонский базовый микс.
             mix = triathlon_weekly_mix(distance, phase)
-        # Дневные веса: кастом или дефолт
+        # Сумма по видам на неделю — недельный sport budget.
+        run_week = round(w_tss * mix['run'], 1)
+        bike_week = round(w_tss * mix['bike'], 1)
+        swim_week = round(w_tss * mix['swim'], 1)
+
+        # Issue #205 M3b: недельный бюджет размещается детерминированным slot
+        # scheduler'ом в ограниченное число дневных слотов (роли, two-a-day
+        # пары, день отдыха), а не размазывается весами по всем семи дням.
+        # Цепочка: weekly sport budget → слоты → allocated_parts → sessions[]
+        # → weekly_summary. Текущая готовность (load_state) ограничена
+        # семидневным окном от начала плана: будущие недели планируются как
+        # "balanced", чтобы сегодняшняя усталость не стирала будущие brick'и и
+        # активации (прецедент Issue #201/#202).
+        from models.session_scheduler import schedule_week_slots
+
+        # Issue #205 M3b.1: пользовательские weights_overrides не игнорируются
+        # молча — они становятся слот-преференциями (длинная едет в самый
+        # тяжёлый предпочтённый день спортсмена).
+        day_preferences = None
         if weights_overrides and phase in weights_overrides:
-            custom = weights_overrides[phase]
-            weights = {
-                'run': _normalize_weights(custom.get('run', daily_weights_for_phase(phase)['run'])),
-                'bike': _normalize_weights(custom.get('bike', daily_weights_for_phase(phase)['bike'])),
-                'swim': _normalize_weights(custom.get('swim', daily_weights_for_phase(phase)['swim'])),
+            converted = {
+                sport: [float(v or 0.0) for v in vector]
+                for sport, vector in weights_overrides[phase].items()
+                if sport in ("run", "bike", "swim")
+                and vector
+                and any(float(v or 0.0) > 0 for v in vector)
             }
-        else:
-            weights = daily_weights_for_phase(phase)
-        weights = constrain_weights_to_available_days(weights, available_day_indices)
+            day_preferences = converted or None
 
-        # Сумма по видам на неделю
-        run_week = w_tss * mix['run']
-        bike_week = w_tss * mix['bike']
-        swim_week = w_tss * mix['swim']
-        week_parts: List[Dict[str, float]] = []
-        for i in range(7):
-            run_d = round(run_week * weights['run'][i], 1)
-            bike_d = round(bike_week * weights['bike'][i], 1)
-            swim_d = round(swim_week * weights['swim'][i], 1)
-            week_parts.append({'run': run_d, 'bike': bike_d, 'swim': swim_d})
-
-        adjusted_week_parts, day_roles, day_focuses = _apply_recovery_aware_day_structure(
-            week_parts,
-            int(round(w_tss)),
-            phase,
-            goal_type,
-            load_state,
+        week_within_readiness_window = current.date() < start_date + timedelta(days=7)
+        slot_plan = schedule_week_slots(
+            week_budget={"run": run_week, "bike": bike_week, "swim": swim_week},
+            phase=phase,
+            goal_type=goal_type,
+            load_state=load_state if week_within_readiness_window else "balanced",
+            available_day_indices=available_day_indices,
+            available_weekly_hours=available_weekly_hours,
+            day_preferences=day_preferences,
+            template_rotation=projected_template_rotation,
         )
+        projected_template_rotation = list(slot_plan.get("template_rotation") or projected_template_rotation)
+        adjusted_week_parts = slot_plan["allocated_parts"]
+        day_roles = slot_plan["day_roles"]
+        day_focuses = slot_plan["day_focuses"]
 
         bike_total = round(sum(parts.get('bike', 0.0) for parts in adjusted_week_parts), 1)
         run_total = round(sum(parts.get('run', 0.0) for parts in adjusted_week_parts), 1)
@@ -1780,12 +1849,17 @@ def expand_weekly_to_daily_triathlon(
         weekly_summary.append({
             'week_start': current.date(),
             'phase': phase,
-            'weekly_tss': int(round(w_tss)),
+            # Issue #205 M3b: недельный TSS — сумма размещённого бюджета; при
+            # явном hours-трим scheduler'а она честно меньше исходного w_tss.
+            'weekly_tss': int(round(bike_total + run_total + swim_total)),
             'bike': bike_total,
             'run': run_total,
             'swim': swim_total,
             **structure_meta,
         })
+        if slot_plan["notes"]:
+            weekly_summary[-1]["scheduler_notes"] = list(slot_plan["notes"])
+            weekly_summary[-1]["scheduler_status"] = slot_plan["status"]
 
         for parts in adjusted_week_parts:
             total = round(parts.get('run', 0.0) + parts.get('bike', 0.0) + parts.get('swim', 0.0), 1)
@@ -1859,6 +1933,124 @@ def _build_session_description(
     return "\n".join(lines)
 
 
+_SPLIT_SPORT_ORDER = ("bike", "run", "swim")
+
+
+def _split_day_sessions(
+    *,
+    parts: Mapping[str, float],
+    total: float,
+    is_brick: bool,
+    phase: str,
+    session_role: str,
+    day_focus: str,
+    goal_type: str,
+    distance: str,
+    zone_snapshot: Mapping[str, Any],
+    load_state: str,
+    recent_template_keys: List[str],
+) -> Tuple[List[Dict[str, Any]], Dict[str, float], Dict[str, str]]:
+    """Issue #205 M3: materialize one executable session per discipline.
+
+    The blended day budget in ``parts`` is preserved exactly: each discipline
+    with a non-zero share becomes its own session carrying that share's TSS
+    (short if small — same-discipline preservation, never re-glued onto the
+    dominant sport). A feasible brick day is one composite session whose legs
+    carry the bike/run budget (``brick_status="grouped"``); an infeasible brick
+    day falls back to independent same-discipline sessions with
+    ``brick_status="not_grouped"`` and the refusal reason. Returns
+    ``(sessions, allocated_parts, day_meta)`` where ``allocated_parts`` is the
+    immutable distributor decision.
+    """
+    from models.workout_catalog import materialize_brick_session, materialize_session_template
+
+    def _finalize(sport: str, role: str, tss: float, catalog: Dict[str, Any]) -> Dict[str, Any]:
+        duration = int(catalog.get("duration_minutes") or _estimate_session_duration_minutes(tss, sport, role))
+        name = str(catalog.get("template_name") or "").strip() or day_focus
+        export_name = _build_session_export_name(goal_type, distance, name)
+        description = _build_session_description(
+            goal_type=goal_type,
+            distance=distance,
+            phase=phase,
+            session_role=role,
+            session_focus=name,
+            sport=sport,
+            total_tss=tss,
+            parts={sport: tss},
+            duration_minutes=duration,
+        )
+        return {
+            "sport": sport,
+            "sport_label": SPORT_LABELS_RU.get(sport, sport),
+            "session_role": role,
+            "session_focus": name,
+            "duration_minutes": duration,
+            "total_tss": round(float(tss or 0.0), 1),
+            "template_key": f"{phase.lower()}:{role}:{sport}",
+            "export_name": export_name,
+            "description": description,
+            **catalog,
+        }
+
+    if is_brick:
+        duration = _estimate_session_duration_minutes(total, _dominant_sport(parts), session_role)
+        catalog = materialize_brick_session(
+            phase=phase,
+            target_tss=total,
+            parts=dict(parts),
+            estimated_duration_minutes=duration,
+            goal_type=goal_type,
+            zone_snapshot=zone_snapshot,
+            load_state=load_state,
+        )
+        if catalog.get("materialization_status") == "materialized" and catalog.get("kind") == "composite":
+            allocated: Dict[str, float] = {}
+            for leg in catalog.get("legs") or []:
+                leg_sport = str(leg.get("sport") or "")
+                allocated[leg_sport] = round(allocated.get(leg_sport, 0.0) + float(leg.get("target_tss") or 0.0), 1)
+            recent_template_keys.append(str(catalog.get("template_key") or ""))
+            return (
+                [_finalize("brick", session_role, total, catalog)],
+                allocated,
+                {"brick_status": "grouped"},
+            )
+        # Brick infeasible on this day: fall through to independent same-day
+        # sessions of the same disciplines with their original TSS. The refusal
+        # is recorded, never silently re-glued onto the dominant sport; the
+        # sport budget is not the brick allocator's to change.
+        brick_meta = {
+            "brick_status": "not_grouped",
+            "brick_status_reason": str(catalog.get("materialization_status") or "infeasible"),
+        }
+    else:
+        brick_meta = {}
+
+    disciplines = [d for d in _SPLIT_SPORT_ORDER if round(float(parts.get(d, 0.0) or 0.0), 1) > 0]
+    disciplines.sort(key=lambda d: (-round(float(parts.get(d, 0.0) or 0.0), 1), _SPLIT_SPORT_ORDER.index(d)))
+    sessions: List[Dict[str, Any]] = []
+    allocated = {}
+    for position, discipline in enumerate(disciplines):
+        discipline_tss = round(float(parts.get(discipline, 0.0) or 0.0), 1)
+        allocated[discipline] = discipline_tss
+        role = session_role if position == 0 else "easy"
+        duration = _estimate_session_duration_minutes(discipline_tss, discipline, role)
+        catalog = materialize_session_template(
+            phase=phase,
+            session_role=role,
+            sport=discipline,
+            target_tss=discipline_tss,
+            estimated_duration_minutes=duration,
+            goal_type=goal_type,
+            zone_snapshot=zone_snapshot,
+            load_state=load_state,
+            recent_template_keys=recent_template_keys,
+        )
+        if catalog.get("materialization_status") == "materialized":
+            recent_template_keys.append(str(catalog.get("template_key") or ""))
+        sessions.append(_finalize(discipline, role, discipline_tss, catalog))
+    return sessions, allocated, brick_meta
+
+
 def build_daily_session_templates(
     daily: List[Tuple[datetime, float, Dict[str, float]]],
     weekly_summary: Sequence[Mapping[str, object]],
@@ -1888,53 +2080,74 @@ def build_daily_session_templates(
         day_focuses = list(week_meta.get("day_focuses") or ["—"] * 7)
         session_role = str(day_roles[day_idx] if day_idx < len(day_roles) else "easy")
         session_focus = str(day_focuses[day_idx] if day_idx < len(day_focuses) else "—")
-        sport = _dominant_sport(parts)
         phase = str(week_meta.get("phase", "Base") or "Base")
-        duration_minutes = _estimate_session_duration_minutes(total, sport, session_role)
-        catalog_template: Dict[str, Any] = {}
-        if float(total or 0.0) > 0 and sport != "off" and session_role != "off":
-            if idx in brick_indices:
-                catalog_template = materialize_brick_session(
-                    phase=phase,
-                    target_tss=float(total or 0.0),
-                    parts=parts,
-                    estimated_duration_minutes=duration_minutes,
-                    goal_type=goal_type,
-                    zone_snapshot=resolved_zones,
-                    load_state=load_state,
-                )
-            else:
-                catalog_template = materialize_session_template(
-                    phase=phase,
-                    session_role=session_role,
-                    sport=sport,
-                    target_tss=float(total or 0.0),
-                    estimated_duration_minutes=duration_minutes,
-                    goal_type=goal_type,
-                    zone_snapshot=resolved_zones,
-                    load_state=load_state,
-                    recent_template_keys=recent_template_keys,
-                )
-            if catalog_template.get("materialization_status") == "materialized":
-                duration_minutes = int(catalog_template.get("duration_minutes") or duration_minutes)
-                template_name = str(catalog_template.get("template_name") or "").strip()
-                if template_name:
-                    session_focus = template_name
-                if catalog_template.get("kind") == "composite":
-                    sport = "brick"
-                recent_template_keys.append(str(catalog_template.get("template_key") or ""))
-        export_name = _build_session_export_name(goal_type, distance, session_focus)
-        description = _build_session_description(
-            goal_type=goal_type,
-            distance=distance,
-            phase=phase,
-            session_role=session_role,
-            session_focus=session_focus,
-            sport=sport,
-            total_tss=total,
-            parts=parts,
-            duration_minutes=duration_minutes,
+        dominant = _dominant_sport(parts)
+        is_training = (
+            float(total or 0.0) > 0 and dominant not in {"off", "race"} and session_role != "off"
         )
+        if is_training:
+            day_sessions, allocated_parts, day_meta = _split_day_sessions(
+                parts=parts,
+                total=float(total or 0.0),
+                is_brick=idx in brick_indices,
+                phase=phase,
+                session_role=session_role,
+                day_focus=session_focus,
+                goal_type=goal_type,
+                distance=distance,
+                zone_snapshot=resolved_zones,
+                load_state=load_state,
+                recent_template_keys=recent_template_keys,
+            )
+        else:
+            day_sessions, allocated_parts, day_meta = [], {}, {}
+
+        # Issue #205 M3: day-level scalar fields are a projection of sessions[0];
+        # a rest/race day (no sessions) keeps its off scalars. daily_plan parts
+        # are never overwritten — they remain the immutable budget.
+        if day_sessions:
+            primary = dict(day_sessions[0])
+            sport = str(primary.get("sport") or dominant)
+            session_focus = str(primary.get("session_focus") or session_focus)
+            duration_minutes = int(primary.get("duration_minutes") or 0)
+            export_name = str(
+                primary.get("export_name") or _build_session_export_name(goal_type, distance, session_focus)
+            )
+            description = str(primary.get("description") or "")
+            template_key = str(primary.get("template_key") or f"{phase.lower()}:{session_role}:{sport}")
+            projected = {
+                key: value
+                for key, value in primary.items()
+                if key
+                not in {
+                    "sport",
+                    "sport_label",
+                    "session_role",
+                    "session_focus",
+                    "duration_minutes",
+                    "total_tss",
+                    "template_key",
+                    "export_name",
+                    "description",
+                }
+            }
+        else:
+            sport = dominant if is_training else "off"
+            duration_minutes = 0
+            export_name = _build_session_export_name(goal_type, distance, session_focus)
+            description = _build_session_description(
+                goal_type=goal_type,
+                distance=distance,
+                phase=phase,
+                session_role=session_role,
+                session_focus=session_focus,
+                sport=sport,
+                total_tss=total,
+                parts=parts,
+                duration_minutes=duration_minutes,
+            )
+            template_key = f"{phase.lower()}:{session_role}:{sport}"
+            projected = {}
 
         templates.append(
             {
@@ -1947,14 +2160,85 @@ def build_daily_session_templates(
                 "sport": sport,
                 "sport_label": SPORT_LABELS_RU.get(sport, sport),
                 "duration_minutes": duration_minutes,
-                "template_key": f"{phase.lower()}:{session_role}:{sport}",
+                "template_key": template_key,
                 "export_name": export_name,
                 "description": description,
-                **catalog_template,
+                "allocated_parts": allocated_parts,
+                **day_meta,
+                **projected,
+                "sessions": day_sessions,
             }
         )
 
     return templates
+
+
+def iter_leaf_sessions(template: Mapping[str, Any]) -> List[Dict[str, Any]]:
+    """Ordered executable leaf sessions of one day template.
+
+    Issue #205 read model shared by delivery, Today, and dashboards. A single
+    session yields one leaf; a composite brick yields one leaf per leg in leg
+    order (kept separate); a rest or race day (``sessions == []``) yields none,
+    so race/rest is never counted as a training session.
+    """
+    leaves: List[Dict[str, Any]] = []
+    for session in list(template.get("sessions") or []):
+        if not isinstance(session, Mapping):
+            continue
+        if str(session.get("kind") or "single") == "composite":
+            for position, leg in enumerate(list(session.get("legs") or []), start=1):
+                leaves.append(
+                    {
+                        "kind": "brick_leg",
+                        "session_id": leg.get("leg_id") or session.get("session_id"),
+                        "group_id": session.get("session_id"),
+                        "leg_index": int(leg.get("leg_index") or position),
+                        "sport": str(leg.get("sport") or ""),
+                        "sport_label": SPORT_LABELS_RU.get(str(leg.get("sport") or ""), str(leg.get("sport") or "")),
+                        "session_role": str(session.get("session_role") or ""),
+                        "total_tss": round(float(leg.get("target_tss") or 0.0), 1),
+                        "name": str(leg.get("template_name") or session.get("export_name") or "Brick leg"),
+                        "materialized_steps": list(leg.get("materialized_steps") or []),
+                    }
+                )
+        else:
+            leaves.append(
+                {
+                    "kind": "single",
+                    "session_id": session.get("session_id"),
+                    "sport": str(session.get("sport") or ""),
+                    "sport_label": str(session.get("sport_label") or SPORT_LABELS_RU.get(str(session.get("sport") or ""), str(session.get("sport") or ""))),
+                    "session_role": str(session.get("session_role") or ""),
+                    "total_tss": round(float(session.get("total_tss") or 0.0), 1),
+                    "name": str(session.get("export_name") or session.get("template_name") or "Сессия"),
+                    "materialized_steps": list(session.get("materialized_steps") or []),
+                }
+            )
+    return leaves
+
+
+def derive_weekly_sport_buckets_from_sessions(
+    weekly_summary: Sequence[Mapping[str, object]],
+    session_templates: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, object]]:
+    """Issue #205: the weekly per-sport buckets are a derived projection of the
+    materialized leaf sessions — the product table must be computed from what
+    the athlete would actually execute, never from the pre-split accounting
+    parts. Layering: parts/allocated_parts → sessions[] → weekly_summary."""
+    derived = [dict(row or {}) for row in weekly_summary]
+    for week_index, row in enumerate(derived):
+        buckets = {"bike": 0.0, "run": 0.0, "swim": 0.0}
+        for template in list(session_templates)[week_index * 7 : week_index * 7 + 7]:
+            if not isinstance(template, Mapping):
+                continue
+            for leaf in iter_leaf_sessions(template):
+                sport = str(leaf.get("sport") or "")
+                if sport in buckets:
+                    buckets[sport] = round(
+                        buckets[sport] + float(leaf.get("total_tss") or 0.0), 1
+                    )
+        row.update(buckets)
+    return derived
 
 
 def create_ics_from_daily(

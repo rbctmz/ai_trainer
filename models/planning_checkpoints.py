@@ -221,6 +221,7 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
                 "day_roles": list(row.get("day_roles", []) or []),
                 "day_focuses": list(row.get("day_focuses", []) or []),
                 "capacity_tss": row.get("capacity_tss"),
+                "race_forecast_tss": row.get("race_forecast_tss"),
                 "adjustment_note": row.get("adjustment_note", "—"),
                 "structure_summary": row.get("structure_summary", ""),
             }
@@ -269,6 +270,7 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "overlay_rule_version": goal_plan.get("overlay_rule_version"),
         "event_overlays": list(goal_plan.get("event_overlays", []) or []),
         "microcycle_changes": list(goal_plan.get("microcycle_changes", []) or []),
+        "race_forecast_loads": list(goal_plan.get("race_forecast_loads", []) or []),
         "protected_dates": list(goal_plan.get("protected_dates", []) or []),
         "constraint_summary": constraint_summary,
         "demand_level": goal_plan.get("demand_level"),

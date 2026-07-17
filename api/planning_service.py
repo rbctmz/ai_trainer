@@ -64,6 +64,7 @@ from models.training_planner import (
     compute_event_aware_phase_schedule,
     create_ics_from_daily,
     create_weekly_tss_plan,
+    derive_weekly_sport_buckets_from_sessions,
     expand_weekly_to_daily_triathlon,
     flatten_daily_total,
     synchronize_microcycle_changes,
@@ -394,6 +395,7 @@ def build_plan(
         available_day_indices=day_indices,
         goal_type=gt,
         load_state=str(constraint_summary.get("load_state", "balanced")),
+        available_weekly_hours=float(available_hours or 0.0) or None,
     )
     for week_row, detail in zip(weekly_summary, constraint_details):
         week_row["capacity_tss"] = detail.get("capacity_tss")
@@ -503,6 +505,7 @@ def build_plan(
         "overlay_rule_version": event_overlay["rule_version"],
         "event_overlays": event_overlay["overlays"],
         "microcycle_changes": microcycle_changes,
+        "race_forecast_loads": list(event_overlay.get("race_forecast_loads") or []),
         "protected_dates": event_overlay["protected_dates"],
         "constraint_summary": constraint_summary,
         "demand_level": demand_level,
@@ -527,6 +530,13 @@ def build_plan(
     goal_plan = synchronize_goal_plan_events(goal_plan)
     existing_plan = restore_goal_plan_from_checkpoint(latest_checkpoint)
     goal_plan = ensure_session_identities(goal_plan, previous_goal_plan=existing_plan)
+    # Issue #205: the product weekly table is a projection of the materialized
+    # leaf sessions (parts → sessions → weekly), computed after constraints and
+    # identity stamping so it reflects the final executable truth.
+    goal_plan["weekly_summary"] = derive_weekly_sport_buckets_from_sessions(
+        list(goal_plan.get("weekly_summary") or []),
+        list(goal_plan.get("session_templates") or []),
+    )
     goal_plan = with_checkpoint_provenance(goal_plan, source="initial_plan")
 
     preview = _build_plan_preview(existing_plan, goal_plan)
@@ -537,7 +547,13 @@ def build_plan(
         saved = db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
         plan_id = str((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or "")
 
-    forecast = _forecast(banister, metrics, goal_plan.get("daily_plan", []), start_week)
+    forecast = _forecast(
+        banister,
+        metrics,
+        goal_plan.get("daily_plan", []),
+        start_week,
+        race_forecast_loads=goal_plan.get("race_forecast_loads"),
+    )
     weeks = _weeks_payload(
         list(goal_plan.get("weekly_summary", []) or []),
         list(goal_plan.get("phases", []) or []),
@@ -622,6 +638,13 @@ def _weeks_payload(weekly_summary: List[Dict[str, Any]], phases: List[str]) -> L
                 "bike": round(float(w.get("bike") or 0), 0),
                 "run": round(float(w.get("run") or 0), 0),
                 "swim": round(float(w.get("swim") or 0), 0),
+                # Issue #205 M6: explicit race-effort forecast for the week —
+                # shown separately, never folded into weekly_tss or buckets.
+                "race_forecast_tss": (
+                    round(float(w.get("race_forecast_tss")), 1)
+                    if w.get("race_forecast_tss") is not None
+                    else None
+                ),
                 "adjustment_note": str(w.get("adjustment_note") or "—"),
             }
         )
@@ -636,8 +659,33 @@ _TSB_TONE_TO_FORECAST_MESSAGE = {
 }
 
 
-def _forecast(banister, metrics, daily_plan, start_week: date) -> Dict[str, Any]:
+def _forecast(
+    banister,
+    metrics,
+    daily_plan,
+    start_week: date,
+    race_forecast_loads=None,
+) -> Dict[str, Any]:
     daily_seq = flatten_daily_total(daily_plan)  # list[(datetime, total)]
+    # Issue #205 M6: the load model anticipates the race effort. The forecast
+    # TSS joins the simulation input only — the plan's daily totals, sessions,
+    # and delivery stay untouched (the race day remains protected and empty).
+    race_by_date: Dict[str, float] = {}
+    for row in list(race_forecast_loads or []):
+        day = str(row.get("date") or "")[:10]
+        if day:
+            race_by_date[day] = race_by_date.get(day, 0.0) + float(row.get("tss") or 0.0)
+    if race_by_date:
+        daily_seq = [
+            (
+                dt,
+                float(total or 0.0)
+                + race_by_date.get(
+                    (dt.date() if hasattr(dt, "date") else dt).isoformat(), 0.0
+                ),
+            )
+            for dt, total in daily_seq
+        ]
     start_dt = datetime.combine(start_week, datetime.min.time())
     dates, ctl, atl, tsb = banister.simulate_variable_load(metrics, daily_seq, start_date=start_dt)
 
@@ -1135,7 +1183,13 @@ def apply_adjustment(
 
     metrics, banister, _df = _current_metrics(db)
     start_week = _start_week()
-    forecast = _forecast(banister, metrics, new_goal_plan.get("daily_plan", []), start_week)
+    forecast = _forecast(
+        banister,
+        metrics,
+        new_goal_plan.get("daily_plan", []),
+        start_week,
+        race_forecast_loads=new_goal_plan.get("race_forecast_loads"),
+    )
     weeks_payload = _weeks_payload(
         list(new_goal_plan.get("weekly_summary", []) or []),
         list(new_goal_plan.get("phases", []) or []),

@@ -74,6 +74,52 @@ def _fingerprint(payload: Mapping[str, Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def _session_material_payload(date_text: str, session: Mapping[str, Any]) -> dict[str, Any]:
+    """Identity material for one session inside a day (Issue #205).
+
+    Derived from the session's content only — date, discipline, role, focus,
+    load, and prescription — never from its position in the ``sessions`` array,
+    so reordering the array cannot change identities.
+    """
+    return {
+        "rule_version": SESSION_ID_RULE_VERSION,
+        "date": date_text,
+        "sport": str(session.get("sport") or "").strip().lower(),
+        "session_role": str(session.get("session_role") or "").strip().lower(),
+        "session_focus": str(session.get("session_focus") or "").strip(),
+        "total_tss": _number(session.get("total_tss")),
+        "duration_minutes": int(round(_number(session.get("duration_minutes")))),
+        "template_key": str(session.get("template_key") or "").strip(),
+        "prescription": _prescription_payload(session),
+    }
+
+
+def _session_sort_key(session: Mapping[str, Any]) -> tuple[str, str, float, str, str]:
+    return (
+        str(session.get("sport") or ""),
+        str(session.get("session_role") or ""),
+        _number(session.get("total_tss")),
+        str(session.get("session_focus") or ""),
+        str(session.get("template_key") or ""),
+    )
+
+
+# Day-level keys that describe the calendar slot rather than the executable
+# session, and so are not copied into a session when migrating a legacy template.
+_DAY_ONLY_TEMPLATE_KEYS = frozenset({"date", "week_index", "day_index", "phase", "sessions"})
+
+
+def _session_from_legacy_template(template: Mapping[str, Any], total_tss: float) -> dict[str, Any]:
+    """Wrap a pre-Issue-#205 single day template as one executable session."""
+    session = {
+        key: deepcopy(value)
+        for key, value in template.items()
+        if key not in _DAY_ONLY_TEMPLATE_KEYS
+    }
+    session.setdefault("total_tss", round(float(total_tss or 0.0), 1))
+    return session
+
+
 def ensure_session_identities(
     goal_plan: Mapping[str, Any],
     previous_goal_plan: Mapping[str, Any] | None = None,
@@ -101,6 +147,15 @@ def ensure_session_identities(
         total = _number(item[1])
         sport = str(template.get("sport") or "").strip().lower()
         role = str(template.get("session_role") or "").strip().lower()
+        # Issue #205 milestone 2: migrate legacy checkpoints on read. A template
+        # saved before this change has no `sessions`; wrap its single session so
+        # every downstream consumer sees the nested shape uniformly. A rest or
+        # race day carries no deliverable session.
+        if "sessions" not in template:
+            if total > 0 and sport not in {"", "off", "rest", "race"} and role != "off":
+                template["sessions"] = [_session_from_legacy_template(template, total)]
+            else:
+                template["sessions"] = []
         is_race = role == "race" or bool(template.get("is_race_event"))
         if (total <= 0 and not is_race) or (sport in {"", "off", "rest"} and not is_race) or role == "off":
             template.pop("session_id", None)
@@ -151,6 +206,58 @@ def ensure_session_identities(
                 leg["leg_id"] = f"{session_id}:{resolved_index}"
                 legs.append(leg)
             template["legs"] = legs
+
+        # Issue #205 milestone 2: the day's identity is a projection of its
+        # primary session. Propagate the stamped id/fingerprint/lineage into
+        # sessions[0] so every session carries a stable session_id and position
+        # is never identity. Multi-session days (milestone 3) fingerprint each
+        # secondary session on its own material.
+        sessions = list(template.get("sessions") or [])
+        if len(sessions) == 1:
+            # A single-session day is the legacy-equivalent shape: the session
+            # IS the day, so it inherits the day identity byte-for-byte. This
+            # keeps every pre-#205 checkpoint's delivery external_id unchanged.
+            primary = dict(sessions[0] or {})
+            primary["session_id"] = template["session_id"]
+            primary["session_material_fingerprint"] = template["session_material_fingerprint"]
+            primary["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
+            if template.get("replaces_session_id"):
+                primary["replaces_session_id"] = template["replaces_session_id"]
+            else:
+                primary.pop("replaces_session_id", None)
+            if str(template.get("kind") or "") == "composite":
+                primary["legs"] = template["legs"]
+            sessions[0] = primary
+            template["sessions"] = sessions
+        elif len(sessions) > 1:
+            # Issue #205 M3: on a multi-session day EVERY session id derives
+            # from that session's own content — never from the day fingerprint
+            # (which includes sibling load, so inheriting it would churn an
+            # untouched session's identity when a sibling is edited) and never
+            # from array position. Identical same-day sessions are separated by
+            # an occurrence ordinal assigned in canonical content order, so
+            # reordering the array cannot change the id set.
+            occurrence_counts: dict[str, int] = {}
+            ordered = sorted(
+                range(len(sessions)),
+                key=lambda position: _session_sort_key(sessions[position] or {}),
+            )
+            for position in ordered:
+                session = dict(sessions[position] or {})
+                payload = _session_material_payload(material["date"], session)
+                base_fingerprint = _fingerprint(payload)
+                ordinal = occurrence_counts.get(base_fingerprint, 0)
+                occurrence_counts[base_fingerprint] = ordinal + 1
+                session_fingerprint = (
+                    _fingerprint({**payload, "occurrence": ordinal})
+                    if ordinal
+                    else base_fingerprint
+                )
+                session["session_id"] = f"ats_{session_fingerprint[:24]}"
+                session["session_material_fingerprint"] = session_fingerprint
+                session["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
+                sessions[position] = session
+            template["sessions"] = sessions
 
     result["session_templates"] = templates
     result["session_identity_rule_version"] = SESSION_ID_RULE_VERSION
