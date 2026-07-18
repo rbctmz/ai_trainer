@@ -42,3 +42,18 @@ def test_dashboard_summary_module_is_headless() -> None:
     imports = _import_roots(REPO_ROOT / "models" / "dashboard_summary.py")
 
     assert imports.isdisjoint({"api", "streamlit", "ui"})
+
+
+def test_services_modules_do_not_depend_on_api() -> None:
+    """Issue #194: dependencies must flow api -> services/models/data, never
+    the reverse. `_import_roots` walks the whole AST (`ast.walk`), so it also
+    catches local/function-body imports, not just module-level ones — that is
+    how `services/recovery_analytics.py` hid its `api.planning_service`
+    import before the Issue #194 fix."""
+    offenders = [
+        path.relative_to(REPO_ROOT).as_posix()
+        for path in sorted((REPO_ROOT / "services").rglob("*.py"))
+        if "api" in _import_roots(path)
+    ]
+
+    assert offenders == []
