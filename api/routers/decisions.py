@@ -130,6 +130,7 @@ def _format_time(value: Any) -> str:
 @router.post("/proposals/{proposal_id}/approve")
 def approve_proposal(
     proposal_id: int,
+    variant_kind: str | None = None,
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
     proposal = _pending_proposal_or_error(db, proposal_id)
@@ -142,7 +143,7 @@ def approve_proposal(
         if proposal is None:
             raise HTTPException(status_code=409, detail="proposal is already being applied")
     try:
-        result = _apply_proposal(db, proposal)
+        result = _apply_proposal(db, proposal, variant_kind=variant_kind)
     except planning_service.StalePlanningCheckpointError as exc:
         db.update_coach_proposal_status(proposal_id, "failed", error=str(exc))
         raise HTTPException(status_code=409, detail=str(exc))
@@ -153,7 +154,7 @@ def approve_proposal(
         db.update_coach_proposal_status(proposal_id, "failed", error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
 
-    if proposal.get("action") == "recovery_replan":
+    if proposal.get("action") == "recovery_replan" and result.get("selected_kind") == "downgrade_today":
         result = {
             **result,
             "delivery": safe_deliver_active_plan(
@@ -207,15 +208,27 @@ def rollback_proposal(
         db.transition_coach_proposal_status(proposal_id, "rolling_back", "approved")
         raise HTTPException(status_code=422, detail=str(exc))
 
-    affected_dates = list((proposal.get("result") or {}).get("affected_dates") or [])
-    rollback = {
-        **rollback,
-        "affected_dates": affected_dates,
-        "delivery": safe_deliver_active_plan(
+    prior_result = proposal.get("result") or {}
+    affected_dates = list(prior_result.get("affected_dates") or [])
+    selected_kind = str(prior_result.get("selected_kind") or "downgrade_today")
+    if selected_kind == "downgrade_today":
+        delivery = safe_deliver_active_plan(
             db,
             dates=affected_dates,
             source="recovery_rollback",
-        ),
+        )
+    else:
+        # Issue #209/M4: zero provider calls anywhere on the transfer path.
+        delivery = {
+            "status": "skipped",
+            "retryable": False,
+            "failed_count": 0,
+            "dates": affected_dates,
+        }
+    rollback = {
+        **rollback,
+        "affected_dates": affected_dates,
+        "delivery": delivery,
     }
     result = {
         **(proposal.get("result") or {}),
@@ -256,7 +269,76 @@ def _approved_recovery_proposal_or_error(
     return proposal
 
 
-def _apply_proposal(db: Database, proposal: dict[str, Any]) -> dict[str, Any]:
+# Issue #209 M4: the three decision-contract variant kinds a `recovery_replan`
+# proposal's preview may offer (`preview["variants"][*]["kind"]`).
+_RECOVERY_VARIANT_KINDS = {"keep", "downgrade_today", "transfer_1_3d"}
+
+
+def _resolve_recovery_variant_kind(
+    preview: dict[str, Any],
+    variant_kind: str | None,
+) -> str:
+    """Fail-closed resolution of the confirmed variant, from the proposal's
+    OWN persisted preview only — never an arbitrary client payload.
+
+    Omitted/explicit `None` preserves the legacy downgrade-only contract
+    byte-for-byte. Any other value must be one of the proposal's own saved
+    `preview["variants"][*]["kind"]` entries; an unknown kind or one that is
+    currently unavailable (e.g. `transfer_1_3d` with no safe date) fails
+    closed before any mutation.
+    """
+    if variant_kind is None:
+        return "downgrade_today"
+    if variant_kind not in _RECOVERY_VARIANT_KINDS:
+        raise ValueError(f"unknown recovery variant kind: {variant_kind}")
+    available_kinds = {str(v.get("kind")) for v in (preview or {}).get("variants") or []}
+    if variant_kind not in available_kinds:
+        raise ValueError(f"recovery variant '{variant_kind}' is not available for this proposal")
+    return variant_kind
+
+
+def _apply_recovery_replan_proposal(
+    db: Database,
+    proposal: dict[str, Any],
+    params: dict[str, Any],
+    variant_kind: str | None,
+) -> dict[str, Any]:
+    preview = proposal.get("preview") or {}
+    resolved_kind = _resolve_recovery_variant_kind(
+        preview if isinstance(preview, dict) else {}, variant_kind
+    )
+
+    if resolved_kind == "keep":
+        # Audited no-op: the conflict is accepted as-is, no checkpoint, no
+        # provider call.
+        return {"selected_kind": "keep", "plan_id": None, "affected_dates": []}
+
+    if resolved_kind == "downgrade_today":
+        result = planning_service.apply_recovery_replan(db, params, persist=True)
+        return {**result, "selected_kind": "downgrade_today"}
+
+    transfer_preview = next(
+        (v for v in preview.get("variants") or [] if v.get("kind") == "transfer_1_3d"),
+        None,
+    )
+    if transfer_preview is None:
+        raise ValueError("recovery transfer variant is not available for this proposal")
+    result = planning_service.apply_recovery_replan_transfer(
+        db,
+        base_checkpoint_id=int(params.get("base_checkpoint_id")),
+        session_id=str(transfer_preview.get("replaced_session_id") or ""),
+        target_date=str(transfer_preview.get("target_date") or ""),
+        persist=True,
+    )
+    return {**result, "selected_kind": "transfer_1_3d"}
+
+
+def _apply_proposal(
+    db: Database,
+    proposal: dict[str, Any],
+    *,
+    variant_kind: str | None = None,
+) -> dict[str, Any]:
     action = proposal.get("action")
     params = proposal.get("params") or {}
     if not isinstance(params, dict):
@@ -295,11 +377,7 @@ def _apply_proposal(db: Database, proposal: dict[str, Any]) -> dict[str, Any]:
         )
 
     if action == "recovery_replan":
-        return planning_service.apply_recovery_replan(
-            db,
-            params,
-            persist=True,
-        )
+        return _apply_recovery_replan_proposal(db, proposal, params, variant_kind)
 
     raise ValueError(f"unsupported proposal action: {action}")
 
