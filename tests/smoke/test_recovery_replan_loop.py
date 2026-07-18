@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
+import json
 import sqlite3
 from threading import Barrier
 
@@ -1286,3 +1287,192 @@ def test_approve_recovery_transfer_variant_serializes_concurrent_double_confirm(
     assert len(failures) == 1
     assert failures[0].status_code == 409
     assert len(db.get_recent_planning_checkpoints(limit=10)) == 2  # base + exactly one applied
+
+
+# ---------------------------------------------------------------------------
+# M4 RED round 2 — two more executable gaps flagged by the checker before
+# GREEN (https://github.com/rbctmz/ai_trainer/pull/210, M4 RED-checkpoint
+# round-2 comment):
+#
+# 1. Explicit dispatch of ALL three variant kinds, not just `transfer_1_3d`.
+#    The five existing M4 RED tests only ever select `transfer_1_3d` or omit
+#    `variant_kind`/pass `None`; an implementation that special-cases
+#    `transfer_1_3d` and otherwise always falls through to the legacy
+#    downgrade path — even for an explicit `variant_kind="keep"` — would
+#    incorrectly pass all five. `keep` must audit the conflict as accepted
+#    WITHOUT mutating the plan or calling the provider; `downgrade_today`
+#    must explicitly walk the SAME one-checkpoint downgrade path that the
+#    omitted-argument/legacy `None` form already takes, without breaking
+#    the existing delivery contract.
+#
+# 2. Structured-content preservation proven by a DIRECT content assertion.
+#    The happy-path M4 test only spies on `apply_near_term_day_edits` (never
+#    called) and compares TSS/ids. That spy cannot catch an implementation
+#    that routes through `apply_session_transfer` for its return SHAPE but
+#    then re-derives/discards the moved session's own structured fields
+#    (`materialized_steps`, `definition_snapshot`, `parameter_snapshot`,
+#    `catalog_version`, ...) before persisting. This test carries those
+#    sentinel fields on the source fixture and asserts the confirmed target
+#    session preserves them byte-for-byte, except the identity/lineage/
+#    date-derived fields the transfer is EXPECTED to change.
+
+
+@pytest.mark.parametrize(
+    ("variant_kind", "expected_checkpoint_delta", "expected_checkpoint_source"),
+    [
+        ("keep", 0, None),
+        ("downgrade_today", 1, "recovery_replan"),
+    ],
+)
+def test_approve_recovery_proposal_dispatches_keep_and_downgrade_today_explicitly(
+    tmp_path,
+    monkeypatch,
+    variant_kind,
+    expected_checkpoint_delta,
+    expected_checkpoint_source,
+) -> None:
+    """Explicit `variant_kind` dispatch must actually branch per kind.
+    `keep` is approved/audited but never mutates the plan or calls the
+    provider; `downgrade_today` explicitly takes the SAME one-checkpoint
+    downgrade path as the legacy `None` form (existing delivery contract
+    intact). Paired so an implementation that only special-cases
+    `transfer_1_3d` and defaults everything else to the legacy downgrade —
+    including `keep` — cannot pass both cases."""
+    from api import recovery_replan_loop as loop_module
+    from api.routers import decisions as decisions_router
+    from api.routers.decisions import approve_proposal
+
+    today = date(2026, 7, 10)
+    report = _conflict_report(today, days_until=4)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+
+    delivery_calls = []
+
+    def fake_delivery(_db, *, dates, source, **_kwargs):
+        delivery_calls.append({"dates": list(dates), "source": source})
+        return {
+            "status": "failed",
+            "retryable": True,
+            "error": "provider unavailable",
+            "dates": list(dates),
+        }
+
+    monkeypatch.setattr(decisions_router, "safe_deliver_active_plan", fake_delivery, raising=False)
+
+    db = Database(str(tmp_path / f"transfer-explicit-dispatch-{variant_kind}.db"))
+    base = _save_plan(db, _goal_plan(today, conflict_days_until=4))
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    before_checkpoint_count = len(db.get_recent_planning_checkpoints(limit=10))
+
+    approved = approve_proposal(proposal["id"], db=db, variant_kind=variant_kind)
+
+    assert approved["proposal"]["status"] == "approved"
+    after_checkpoint_count = len(db.get_recent_planning_checkpoints(limit=10))
+    assert after_checkpoint_count - before_checkpoint_count == expected_checkpoint_delta
+
+    if variant_kind == "keep":
+        assert db.get_latest_planning_checkpoint()["id"] == base["id"]
+        assert delivery_calls == []
+    else:
+        applied = db.get_latest_planning_checkpoint()
+        assert applied["checkpoint_source"] == expected_checkpoint_source
+        assert applied["checkpoint_parent_id"] == base["id"]
+        assert delivery_calls == [
+            {
+                "dates": [(today + timedelta(days=4)).isoformat()],
+                "source": "recovery_approve",
+            }
+        ]
+
+
+def test_approve_recovery_transfer_variant_preserves_structured_content_byte_for_byte(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A direct content assertion on top of the existing TSS/id/spy-only
+    happy-path test: the confirmed target session must preserve the source
+    session's structured catalog/prescription fields
+    (`materialized_steps`/`definition_snapshot`/`parameter_snapshot`/
+    `catalog_version`/`selector_rule_version`/`materializer_rule_version`)
+    byte-for-byte, except the identity/lineage/date-derived fields the
+    transfer is expected to change."""
+    from api import recovery_replan_loop as loop_module
+    from api.routers.decisions import approve_proposal
+
+    today = date(2026, 7, 13)  # Monday
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+
+    goal_plan = _transfer_ready_goal_plan(today, days_until=1)
+    conflict_date = today + timedelta(days=1)
+    target_index = next(
+        index
+        for index, row in enumerate(goal_plan["daily_plan"])
+        if row[0].date() == conflict_date
+    )
+    sentinel_steps = [
+        {
+            "index": 0, "name": "Warm-up", "intensity": "easy", "duration_seconds": 600,
+            "tss": 12.0, "target": {"type": "power", "unit": "watts", "low": 90, "high": 110},
+        },
+        {
+            "index": 1, "name": "Work", "intensity": "work", "duration_seconds": 1800,
+            "tss": 36.0, "target": {"type": "power", "unit": "watts", "low": 150, "high": 165},
+        },
+        {
+            "index": 2, "name": "Cool-down", "intensity": "easy", "duration_seconds": 600,
+            "tss": 12.0, "target": {"type": "power", "unit": "watts", "low": 80, "high": 100},
+        },
+    ]
+    source_session = {
+        "sport": "bike",
+        "sport_label": "вело",
+        "session_role": "quality",
+        "session_focus": "Качество • вело",
+        "duration_minutes": 60,
+        "total_tss": 60.0,
+        "template_key": "build:quality:bike",
+        "export_name": "Quality bike",
+        "catalog_version": "catalog-v7",
+        "selector_rule_version": "selector-v3",
+        "materializer_rule_version": "materializer-v2",
+        "definition_snapshot": {"id": "ftp_threshold_3x10", "family": "threshold"},
+        "parameter_snapshot": {"ftp_watts": 250, "intervals": 3},
+        "materialized_steps": sentinel_steps,
+    }
+    goal_plan["session_templates"][target_index]["sessions"] = [dict(source_session)]
+
+    db = Database(str(tmp_path / "transfer-structured-content.db"))
+    _save_plan(db, goal_plan)
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    transfer = _transfer_preview(proposal)
+    target_date = transfer["target_date"]
+
+    approve_proposal(proposal["id"], db=db, variant_kind="transfer_1_3d")
+
+    applied = db.get_latest_planning_checkpoint()
+    target_template = next(
+        row
+        for row in applied["goal_plan_snapshot"]["session_templates"]
+        if row["date"] == target_date
+    )
+    target_session = next(
+        s
+        for s in target_template.get("sessions", [])
+        if s.get("replaces_session_id")
+    )
+
+    identity_and_lineage_fields = {
+        "session_id",
+        "session_material_fingerprint",
+        "session_identity_rule_version",
+        "replaces_session_id",
+        "transfer_group_id",
+    }
+    for key, value in source_session.items():
+        if key in identity_and_lineage_fields:
+            continue
+        assert target_session.get(key) == value, key
+    assert json.dumps(target_session["materialized_steps"], sort_keys=True) == json.dumps(
+        sentinel_steps, sort_keys=True
+    )
