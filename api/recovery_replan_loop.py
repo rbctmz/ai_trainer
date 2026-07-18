@@ -160,6 +160,7 @@ def _typed_variants(
 def _proposal_payload(
     variant: dict[str, Any],
     *,
+    report: dict[str, Any],
     base_checkpoint_id: int,
     transfer_variant: dict[str, Any] | None,
     transfer_candidates: list[dict[str, Any]],
@@ -182,9 +183,40 @@ def _proposal_payload(
         "selected_conflict": dict(variant["selected_conflict"]),
         "as_of": variant.get("as_of"),
     }
+    variants = _typed_variants(variant, transfer_variant)
+    recommended_kind = next(
+        entry["kind"] for entry in variants if entry.get("recommended")
+    )
+    selected_conflict = dict(variant["selected_conflict"])
+    conflict_session = dict(selected_conflict.get("session") or {})
+    by_variant: dict[str, dict[str, Any]] = {}
+    for entry in variants:
+        kind = str(entry["kind"])
+        if kind == "keep":
+            by_variant[kind] = {
+                "weekly_tss_delta": 0,
+                "weekly_duration_delta_minutes": 0,
+                "mutates_plan": False,
+            }
+        elif kind == "transfer_1_3d":
+            by_variant[kind] = {
+                "weekly_tss_delta": 0,
+                "weekly_duration_delta_minutes": entry.get(
+                    "weekly_duration_delta_minutes", 0
+                ),
+                "mutates_plan": True,
+            }
+        else:
+            by_variant[kind] = {
+                "weekly_tss_delta": variant["draft_summary"].get("total_delta_tss"),
+                "weekly_duration_delta_minutes": None,
+                "mutates_plan": True,
+            }
+
+    recommended_protection = by_variant[recommended_kind]
     preview = {
         "reason": variant.get("reason"),
-        "severity": variant["selected_conflict"].get("severity"),
+        "severity": selected_conflict.get("severity"),
         "current_session": dict(variant["current_session"]),
         "recommended_session": dict(variant["recommended_session"]),
         "total_delta_tss": variant["draft_summary"].get("total_delta_tss"),
@@ -192,8 +224,35 @@ def _proposal_payload(
         "options": list(variant["options"]),
         "evidence": list(variant.get("evidence") or []),
         "lookahead_policy": variant.get("lookahead_policy"),
-        "variants": _typed_variants(variant, transfer_variant),
+        "variants": variants,
         "transfer_candidates": list(transfer_candidates),
+        "why_intervene": {
+            "reason": variant.get("reason"),
+            "severity": selected_conflict.get("severity"),
+            "readiness": dict(report.get("readiness") or {}),
+            "conflict": {
+                "date": str(selected_conflict.get("date") or "")[:10],
+                "role": conflict_session.get("role") or selected_conflict.get("role"),
+                "sport_label": conflict_session.get("sport_label")
+                or selected_conflict.get("sport_label"),
+                "tss": conflict_session.get("tss") or selected_conflict.get("tss"),
+            },
+            "evidence": list(variant.get("evidence") or []),
+        },
+        "what_changes": {
+            "variants": variants,
+            "recommended_kind": recommended_kind,
+            "current_session": dict(variant["current_session"]),
+            "recommended_session": dict(variant["recommended_session"]),
+        },
+        "what_is_protected": {
+            "candidates": list(transfer_candidates),
+            "weekly_tss_delta": recommended_protection["weekly_tss_delta"],
+            "weekly_duration_delta_minutes": recommended_protection[
+                "weekly_duration_delta_minutes"
+            ],
+            "by_variant": by_variant,
+        },
     }
     return params, preview
 
@@ -262,6 +321,7 @@ def run_recovery_replan_loop(
                     transfer_candidates = []
             params, preview = _proposal_payload(
                 variant,
+                report=report,
                 base_checkpoint_id=int(checkpoint_id),
                 transfer_variant=transfer_variant,
                 transfer_candidates=transfer_candidates,

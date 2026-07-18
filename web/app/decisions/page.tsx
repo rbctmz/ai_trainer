@@ -7,6 +7,8 @@ import type { CoachDecisionsResponse, CoachProposal, RecoveryDecision } from "@/
 import { DecisionEntry } from "@/components/ui/DecisionEntry";
 import { ProposalCard } from "@/components/ui/ProposalCard";
 
+const MUTATING_RECOVERY_VARIANTS = new Set(["downgrade_today", "transfer_1_3d"]);
+
 export default function DecisionsPage() {
   const { data, error, isLoading, mutate } = useSWR<CoachDecisionsResponse>(
     "/api/decisions?days=30",
@@ -173,6 +175,26 @@ function ProposalEntry({
   const recommended = proposal.preview?.recommended_session as
     | Record<string, unknown>
     | undefined;
+  const recoveryResult = proposal.result ?? {};
+  const selectedRecoveryKind = String(recoveryResult.selected_kind ?? "downgrade_today");
+  const oldSessionId = String(recoveryResult.old_session_id ?? "");
+  const newSessionId = String(recoveryResult.new_session_id ?? "");
+  const affectedDates = Array.isArray(recoveryResult.affected_dates)
+    ? recoveryResult.affected_dates.map(String)
+    : [];
+  const recoverySummary =
+    selectedRecoveryKind === "keep"
+      ? "План оставлен без изменений"
+      : selectedRecoveryKind === "transfer_1_3d"
+        ? [
+            affectedDates.join(" → "),
+            oldSessionId && newSessionId ? `${oldSessionId} → ${newSessionId}` : "",
+          ].filter(Boolean).join(" · ")
+        : `${String(recommended?.name ?? "Снижение нагрузки")} · ${String(recommended?.tss ?? "—")} TSS`;
+  const canRollbackRecovery =
+    proposal.action === "recovery_replan"
+    && proposal.status === "approved"
+    && MUTATING_RECOVERY_VARIANTS.has(selectedRecoveryKind);
   const summary =
     proposal.action === "build_plan"
       ? [
@@ -182,7 +204,7 @@ function ProposalEntry({
           .filter(Boolean)
           .join(" • ")
       : proposal.action === "recovery_replan"
-        ? `${String(recommended?.name ?? "Снижение нагрузки")} · ${String(recommended?.tss ?? "—")} TSS`
+        ? recoverySummary
         : String(proposal.preview.adjustment_label ?? proposal.preview.adjustment_status ?? "");
 
   async function handleRollback() {
@@ -210,7 +232,7 @@ function ProposalEntry({
       <div className="mt-1 text-xs text-ink-faint">
         {proposal.time || proposal.date}
       </div>
-      {proposal.action === "recovery_replan" && proposal.status === "approved" ? (
+      {canRollbackRecovery ? (
         <button
           type="button"
           onClick={handleRollback}
