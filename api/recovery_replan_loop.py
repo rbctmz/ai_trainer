@@ -1,7 +1,7 @@
 """Headless orchestration for the auditable Recovery Replan loop."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from hashlib import sha256
 import json
 from typing import Any
@@ -16,6 +16,36 @@ from models.recovery_transfer import build_transfer_variant, rank_transfer_candi
 # Maps a v1 `options[]` entry's `key` onto its typed `variants[]` `kind`
 # (Issue #209 M3: `variants = [keep, downgrade_today, transfer_1_3d?]`).
 _VARIANT_KIND_BY_OPTION_KEY = {"keep": "keep", "recommended": "downgrade_today"}
+
+# Issue #209 M3 checker round 4 ("actual-hard-activity-tss-v1", see
+# docs/recovery_transfer_execplan.md Decision Log): an already-executed
+# activity that never went through the plan still counts as hard load for
+# `recovery_spacing` purposes once its logged TSS reaches the same floor
+# this feature already treats as the practical minimum for a quality/long
+# occasion. This reads only already-persisted local `activities` rows
+# (`Database.get_activities_between`) — no provider/live sync call.
+ACTUAL_HARD_ACTIVITY_TSS_POLICY = 60.0
+
+# `rank_transfer_candidates`'s `_actual_hard_near` checks ±1 day around each
+# D+1..D+3 candidate, so an executed activity can influence eligibility from
+# the source date itself out to source_date + 4.
+_ACTUAL_HARD_ACTIVITY_WINDOW_BEFORE_DAYS = 1
+_ACTUAL_HARD_ACTIVITY_WINDOW_AFTER_DAYS = 4
+
+
+def _actual_hard_activity_dates(db: Database, *, source_date: date) -> list[str]:
+    """Local evidence only: ISO dates of already-logged activities whose TSS
+    meets `ACTUAL_HARD_ACTIVITY_TSS_POLICY`, within the window the ranker's
+    ±1 day adjacency check can actually see around `source_date`."""
+    window_start = source_date - timedelta(days=_ACTUAL_HARD_ACTIVITY_WINDOW_BEFORE_DAYS)
+    window_end = source_date + timedelta(days=_ACTUAL_HARD_ACTIVITY_WINDOW_AFTER_DAYS)
+    dates: set[str] = set()
+    for activity in db.get_activities_between(window_start.isoformat(), window_end.isoformat()):
+        if float(activity.get("tss") or 0.0) >= ACTUAL_HARD_ACTIVITY_TSS_POLICY:
+            activity_date = str(activity.get("date") or "")[:10]
+            if activity_date:
+                dates.add(activity_date)
+    return sorted(dates)
 
 
 def _outcome(report: dict[str, Any]) -> str:
@@ -74,24 +104,33 @@ def _resolve_transfer_session_id(
     """Finds the `session_id` the readiness conflict is actually referring to.
 
     The readiness report never carries a `session_id` (Issue #209 M3): it
-    only claims a date and a role. The active plan may have moved on since
-    the report was built (a prior downgrade already applied), so the match
-    is fail-closed on role — a mismatch means the transfer variant is
-    omitted while `keep`/`downgrade_today` (which use the report's claimed
-    role directly, per v1) stay unaffected.
+    only claims a date, a role, and a sport label. The active plan may have
+    moved on since the report was built (a prior downgrade/sport swap
+    already applied), or the claimed date may now carry more than one
+    same-role session (a legitimate twin day). The match is fail-closed on
+    the exact (role, sport_label) pair AND on uniqueness — zero or 2+
+    candidate sessions omit the transfer variant, never guess the first
+    one. `keep`/`downgrade_today` (which use the report's claimed session
+    directly, per v1) stay unaffected either way.
     """
     conflict_date = str(conflict.get("date") or "")[:10]
-    claimed_role = str((conflict.get("session") or {}).get("role") or "").strip().lower()
+    claimed = conflict.get("session") or {}
+    claimed_role = str(claimed.get("role") or "").strip().lower()
+    claimed_sport_label = str(claimed.get("sport_label") or "").strip().lower()
     for template in list(goal_plan.get("session_templates") or []):
         if not isinstance(template, dict) or str(template.get("date") or "")[:10] != conflict_date:
             continue
-        for session in list(template.get("sessions") or []):
-            if not isinstance(session, dict):
-                continue
-            if str(session.get("session_role") or "").strip().lower() == claimed_role:
-                session_id = str(session.get("session_id") or "").strip()
-                return session_id or None
-        return None
+        matches = [
+            session
+            for session in list(template.get("sessions") or [])
+            if isinstance(session, dict)
+            and str(session.get("session_role") or "").strip().lower() == claimed_role
+            and str(session.get("sport_label") or "").strip().lower() == claimed_sport_label
+        ]
+        if len(matches) != 1:
+            return None
+        session_id = str(matches[0].get("session_id") or "").strip()
+        return session_id or None
     return None
 
 
@@ -196,12 +235,24 @@ def run_recovery_replan_loop(
             )
             if resolved_session_id:
                 transfer_conflict = {**variant["selected_conflict"], "session_id": resolved_session_id}
+                conflict_source_date = date.fromisoformat(
+                    str(variant["selected_conflict"].get("date") or "")[:10]
+                )
+                actual_hard_dates = _actual_hard_activity_dates(
+                    db, source_date=conflict_source_date
+                )
                 try:
                     transfer_candidates = rank_transfer_candidates(
-                        goal_plan, transfer_conflict, today=today
+                        goal_plan,
+                        transfer_conflict,
+                        today=today,
+                        actual_hard_dates=actual_hard_dates,
                     )
                     transfer_variant = build_transfer_variant(
-                        goal_plan, transfer_conflict, today=today
+                        goal_plan,
+                        transfer_conflict,
+                        today=today,
+                        actual_hard_dates=actual_hard_dates,
                     )
                 except ValueError:
                     # Fail-closed: a stale readiness snapshot racing a plan
