@@ -855,3 +855,169 @@ def test_loop_upgrades_legacy_pending_proposal_preview_with_variants_on_reuse(
     assert second["proposal"]["id"] == seeded["id"]
     assert "variants" in second["proposal"]["preview"]
     assert "transfer_1_3d" in _variant_kinds(second["proposal"])
+
+
+# ---------------------------------------------------------------------------
+# M3 checker round — RED-only checkpoint for two blockers pinned on top of
+# the accepted M3 GREEN (e4fd032):
+# https://github.com/rbctmz/ai_trainer/pull/210#issuecomment-5010705155
+#
+# 1. `actual_hard_dates` never reaches the production loop's calls to
+#    `rank_transfer_candidates`/`build_transfer_variant` — the pure ranker
+#    already honours it (models/recovery_transfer.py,
+#    test_unplanned_actual_hard_load_blocks_adjacent_candidate), but
+#    `api/recovery_replan_loop.py` always calls both with the default
+#    `actual_hard_dates=None`, so a real already-executed hard activity next
+#    to a D+1..D+3 candidate is silently ignored end to end.
+#
+# 2. `_resolve_transfer_session_id` matches the readiness conflict's claimed
+#    `(date, role)` against the active plan by role ONLY — it ignores sport,
+#    and picks the FIRST same-role session unconditionally. A sport-only
+#    drift (the plan's quality slot on that date changed discipline) or a
+#    day carrying two same-role sessions (ambiguous — the conflict has no
+#    `session_id` to disambiguate with) both currently resolve to whatever
+#    session happens to be first, instead of failing closed the way the
+#    existing role-drift gate already does for a full role mismatch.
+
+
+def test_loop_passes_executed_hard_activity_dates_into_transfer_ranking(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A hard unplanned ride already logged on the SOURCE conflict date must
+    still block an adjacent D+1..D+3 candidate via `recovery_spacing`,
+    exactly as the pure ranker's own unit test proves
+    (test_unplanned_actual_hard_load_blocks_adjacent_candidate). The
+    production loop must read this already-persisted local evidence
+    (`db.save_activities`, no provider) and pass the same `actual_hard_dates`
+    into both `rank_transfer_candidates` and `build_transfer_variant`."""
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)  # Monday
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    db = Database(str(tmp_path / "transfer-actual-hard-load.db"))
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+    conflict_date = today + timedelta(days=1)  # 2026-07-14, Tuesday — source date
+    db.save_activities(
+        [
+            {
+                "activity_id": "unplanned-hard-ride",
+                "date": conflict_date.isoformat(),
+                "sport": "cycling",
+                "duration_minutes": 150,
+                "distance_km": 60.0,
+                "tss": 95.0,
+            }
+        ]
+    )
+
+    first = run_recovery_replan_loop(db, today=today)
+
+    assert first["outcome"] == "conflict"
+    blocked_date = (conflict_date + timedelta(days=1)).isoformat()  # 2026-07-15
+    safe_date = (conflict_date + timedelta(days=2)).isoformat()  # 2026-07-16
+    candidates = {
+        row["date"]: row for row in first["proposal"]["preview"]["transfer_candidates"]
+    }
+    assert candidates[blocked_date]["eligible"] is False
+    assert candidates[blocked_date]["rejected_reasons"] == ["recovery_spacing"]
+    assert candidates[safe_date]["eligible"] is True
+
+    transfer = next(
+        (v for v in first["proposal"]["preview"]["variants"] if v["kind"] == "transfer_1_3d"),
+        None,
+    )
+    assert transfer is not None, "actual hard load must not remove the transfer offer entirely"
+    assert transfer["target_date"] == safe_date
+
+
+def test_loop_fails_closed_on_transfer_when_conflict_session_sport_has_drifted(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Readiness report claims a quality BIKE session at D+1 ('Качество •
+    vело'), but the active plan's session at that date and role has since
+    become a quality RUN session (e.g. a sport swap already applied since
+    the report was built). `_resolve_transfer_session_id` matches on role
+    only, so it currently accepts this same-role-different-sport session and
+    happily builds a transfer for the wrong workout. This must fail closed
+    on `transfer_1_3d` only, exactly like the existing full role-drift gate;
+    keep/downgrade_today stay unaffected."""
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    goal_plan = _transfer_ready_goal_plan(today, days_until=1)
+    conflict_date = today + timedelta(days=1)
+    target_index = next(
+        index
+        for index, row in enumerate(goal_plan["daily_plan"])
+        if row[0].date() == conflict_date
+    )
+    dt, total, _parts = goal_plan["daily_plan"][target_index]
+    goal_plan["daily_plan"][target_index] = (dt, total, {"run": total})
+    goal_plan["session_templates"][target_index].update(
+        {
+            "sport": "run",
+            "sport_label": "бег",
+            "session_focus": "Качество • бег",
+        }
+    )
+    db = Database(str(tmp_path / "transfer-sport-drift.db"))
+    _save_plan(db, goal_plan)
+
+    first = run_recovery_replan_loop(db, today=today)
+
+    assert first["outcome"] == "conflict"
+    assert _variant_kinds(first["proposal"]) == ["keep", "downgrade_today"]
+
+
+def test_loop_fails_closed_on_transfer_when_two_identical_sessions_share_conflicting_role_and_date(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """The conflict date carries two BYTE-IDENTICAL quality-bike sessions
+    (a legitimate twin day, per the M2 twin-identity matrix). The readiness
+    report never carries a `session_id` (M3 design) — only `(date, role)` —
+    so nothing in the conflict can tell which of the two twins it actually
+    means, even once sport/name/tss are also matched. Today
+    `_resolve_transfer_session_id` grabs the FIRST same-role session
+    unconditionally and builds a transfer for it anyway: an arbitrary,
+    unauditable choice. A genuinely ambiguous same-role/same-date match must
+    fail closed on `transfer_1_3d` only; keep/downgrade_today stay
+    unaffected."""
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    goal_plan = _transfer_ready_goal_plan(today, days_until=1)
+    conflict_date = today + timedelta(days=1)
+    target_index = next(
+        index
+        for index, row in enumerate(goal_plan["daily_plan"])
+        if row[0].date() == conflict_date
+    )
+    twin_session = {
+        "sport": "bike",
+        "sport_label": "вело",
+        "session_role": "quality",
+        "session_focus": "Качество • вело",
+        "duration_minutes": 60,
+        "total_tss": 60.0,
+        "template_key": "build:quality:bike",
+        "export_name": "Quality bike",
+    }
+    goal_plan["session_templates"][target_index]["sessions"] = [
+        dict(twin_session),
+        dict(twin_session),
+    ]
+    db = Database(str(tmp_path / "transfer-ambiguous-twins.db"))
+    _save_plan(db, goal_plan)
+
+    first = run_recovery_replan_loop(db, today=today)
+
+    assert first["outcome"] == "conflict"
+    assert _variant_kinds(first["proposal"]) == ["keep", "downgrade_today"]
