@@ -617,7 +617,10 @@ def test_user_match_correction_appends_ledger_and_changes_reconciliation(
     monkeypatch.setattr(
         recovery_analytics,
         "refresh_recovery_episodes_best_effort",
-        lambda _db, *, as_of=None: refresh_calls.append(as_of) or {"created": 0},
+        lambda _db, *, as_of=None, target_session_ids=None: refresh_calls.append(
+            (as_of, target_session_ids)
+        )
+        or {"created": 0},
     )
     target = next(item for item in plan["session_templates"] if item["date"] == "2026-07-09")
     db.save_activities(
@@ -643,7 +646,7 @@ def test_user_match_correction_appends_ledger_and_changes_reconciliation(
     )
     assert saved["match_method"] == "user_confirmed"
     assert saved["revision"] == 1
-    assert refresh_calls == [date.today()]
+    assert refresh_calls == [(date.today(), [target["session_id"]])]
 
     result = ps.reconciliation_at(
         db,

@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
-from typing import Any
+from typing import Any, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from config.settings import Settings
@@ -103,12 +103,71 @@ def refresh_recovery_episodes(
     *,
     as_of: date | None = None,
     capture_mode: str = "prospective",
+    target_session_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
-    """Materialize immutable episodes from local, source-proved evidence only."""
+    """Materialize immutable episodes from local, source-proved evidence only.
+
+    With no `target_session_ids`, this is the ordinary "bounded_sync" scope:
+    a rolling lookback capped at 12 weeks ending at `as_of` (today by
+    default), the same cost every unattended post-sync refresh has always
+    had. Passing one or more `target_session_ids` switches to the
+    "targeted" scope (Issue #195): each session's own planned date is
+    resolved from the active checkpoint and a small reconciliation probe is
+    anchored on that date, so a session older than the 12-week horizon can
+    still be revalidated when new match/feedback evidence for it arrives,
+    without reconciling the athlete's entire history.
+    """
+    if target_session_ids is not None:
+        return _refresh_targeted_episodes(
+            db,
+            as_of=as_of,
+            capture_mode=capture_mode,
+            target_session_ids=target_session_ids,
+        )
+    return _refresh_bounded_sync_episodes(db, as_of=as_of, capture_mode=capture_mode)
+
+
+def _session_template_projections(
+    session_templates: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """One canonical template projection per PARENT session's own content.
+
+    A multi-session day's day-level fields (`session_templates[i]` itself)
+    are a projection of that day's PRIMARY session only
+    (`models/session_identity.py`: "the day's identity is a projection of
+    its primary session"); a secondary sibling's own `definition_snapshot`/
+    `kind`/`legs`/`template_key` live solely inside its `sessions[]` entry.
+    Keying by the day-level id alone silently drops a secondary session's
+    own prescription, so this always resolves per PARENT session via
+    `iter_parent_sessions`, merging the day's own date/phase context with
+    that session's own content (which wins on overlap).
+    """
+    from models.plan_actual_reconciliation import iter_parent_sessions
+
+    projections: dict[str, dict[str, Any]] = {}
+    for entry in iter_parent_sessions(session_templates):
+        session = entry["session"]
+        session_id = str(session.get("session_id") or "")
+        if not session_id:
+            continue
+        merged = dict(entry["template"])
+        merged.pop("sessions", None)
+        merged.update(session)
+        projections[session_id] = merged
+    return projections
+
+
+def _refresh_bounded_sync_episodes(
+    db: Database,
+    *,
+    as_of: date | None = None,
+    capture_mode: str = "prospective",
+) -> dict[str, Any]:
     resolved_as_of = as_of or datetime.now().date()
     snapshots = db.get_readiness_snapshots(capture_mode=capture_mode)
     if not snapshots:
         return {
+            "scope": "bounded_sync",
             "as_of": resolved_as_of.isoformat(),
             "capture_mode": capture_mode,
             "created": 0,
@@ -131,6 +190,7 @@ def refresh_recovery_episodes(
     )
     if not reconciliation.get("has_plan"):
         return {
+            "scope": "bounded_sync",
             "as_of": resolved_as_of.isoformat(),
             "capture_mode": capture_mode,
             "created": 0,
@@ -139,11 +199,7 @@ def refresh_recovery_episodes(
         }
     checkpoint = db.get_latest_planning_checkpoint()
     plan = ensure_session_identities(restore_goal_plan_from_checkpoint(checkpoint) or {})
-    templates = {
-        str(item.get("session_id")): dict(item)
-        for item in plan.get("session_templates", []) or []
-        if item.get("session_id")
-    }
+    templates = _session_template_projections(plan.get("session_templates", []) or [])
     start_text = earliest.isoformat()
     end_text = resolved_as_of.isoformat()
     activities = db.get_activities_between(start_text, end_text)
@@ -173,135 +229,26 @@ def refresh_recovery_episodes(
         session_date = date.fromisoformat(str(row.get("date"))[:10])
         if session_date < earliest or session_date > resolved_as_of:
             continue
-        if row.get("match_status") != "matched" or not row.get("actual_activity_ids"):
+        saved = _materialize_matched_row(
+            db,
+            row,
+            checkpoint=checkpoint,
+            templates=templates,
+            snapshots=snapshots,
+            activities=activities,
+            matches=matches,
+            feedbacks=feedbacks,
+            exclusion_by_date=exclusion_by_date,
+            capture_mode=capture_mode,
+            resolved_as_of=resolved_as_of,
+        )
+        if saved is None:
             continue
         considered += 1
-        session_id = str(row.get("session_id") or "")
-        template = templates.get(session_id, {})
-        actual_tss = float(row.get("actual_total_tss") or 0.0)
-        adherence = str(row.get("adherence") or "unknown")
-        definition = dict(template.get("definition_snapshot") or {})
-        stimulus_family = str(definition.get("step_builder_key") or "").strip() or None
-        confounding_constraints = list(exclusion_by_date.get(session_date.isoformat(), []))
-        reasons = ["explicit_health_or_travel_constraint"] if confounding_constraints else []
-        if adherence not in {"exact", "substituted"}:
-            reasons.append(adherence if adherence != "unknown" else "unknown_adherence")
-        if actual_tss <= 0:
-            reasons.append("missing_actual_load")
-        if not stimulus_family:
-            reasons.append("unversioned_stimulus")
-        if template.get("kind") == "composite":
-            expected_legs = len(template.get("legs") or [])
-            actual_sports = {str(item.get("sport") or "") for item in row.get("actual_activities") or []}
-            if expected_legs > 1 and len(actual_sports) < 2:
-                reasons.append("unresolved_brick")
-
-        pre_anchor = select_daily_anchor(
-            snapshots,
-            activities,
-            local_date=session_date,
-            athlete_timezone=str(Settings.ATHLETE_TIMEZONE),
-            capture_mode=capture_mode,
-        )
-        if pre_anchor["snapshot"] is None:
-            anchor_reason = str(pre_anchor["reason"] or "missing_pre_anchor")
-            reasons.append(
-                anchor_reason if anchor_reason == "activity_start_missing" else "missing_pre_anchor"
-            )
-
-        anchors: dict[int, dict[str, Any] | None] = {}
-        for day_number in (1, 2, 3):
-            selected = select_daily_anchor(
-                snapshots,
-                activities,
-                local_date=session_date + timedelta(days=day_number),
-                athlete_timezone=str(Settings.ATHLETE_TIMEZONE),
-                capture_mode=capture_mode,
-            )
-            anchors[day_number] = selected["snapshot"]
-
-        d3_elapsed = session_date + timedelta(days=3) <= resolved_as_of
-        if reasons:
-            status = "excluded"
-        elif not d3_elapsed:
-            status = "maturing"
-        else:
-            status = "eligible"
-
-        outcome = (
-            build_episode_outcomes(
-                pre=pre_anchor["snapshot"],
-                d1=anchors[1],
-                d2=anchors[2],
-                d3=anchors[3],
-            )
-            if pre_anchor["snapshot"] is not None
-            else {"readiness_deltas": {"d1": None, "d2": None, "d3": None}, "recovered_by_day": None, "missing_days": [1, 2, 3]}
-        )
-        feedback = feedbacks.get(session_id) or {}
-        match = matches.get(str(row.get("target_key"))) or {}
-        frozen = {
-            "target_key": f"session:{session_id}",
-            "checkpoint_id": checkpoint.get("id") if checkpoint else None,
-            "match_revision_id": match.get("id"),
-            "feedback_id": feedback.get("id"),
-            "template": template,
-            "actual_activity_ids": row.get("actual_activity_ids") or [],
-            "actual_activities": row.get("actual_activities") or [],
-            "adherence": adherence,
-            "snapshot_ids": {
-                "pre": (pre_anchor["snapshot"] or {}).get("id"),
-                "d1": (anchors[1] or {}).get("id"),
-                "d2": (anchors[2] or {}).get("id"),
-                "d3": (anchors[3] or {}).get("id"),
-            },
-            "outcome": outcome,
-            "reasons": sorted(set(reasons)),
-            "status": status,
-            "capture_mode": capture_mode,
-        }
-        iso = session_date.isocalendar()
-        saved = db.save_recovery_episode(
-            {
-                "fingerprint": _fingerprint(frozen),
-                "target_key": f"session:{session_id}",
-                "session_id": session_id,
-                "plan_checkpoint_id": checkpoint.get("id") if checkpoint else None,
-                "match_revision_id": match.get("id"),
-                "feedback_id": feedback.get("id"),
-                "session_date": session_date.isoformat(),
-                "iso_week": f"{iso.year}-W{iso.week:02d}",
-                "capture_mode": capture_mode,
-                "status": status,
-                "rule_version": RECOVERY_RESPONSE_RULE_VERSION,
-                "template_id": template.get("template_key"),
-                "stimulus_family": stimulus_family,
-                "sport": row.get("actual_sport") or row.get("sport"),
-                "role": row.get("actual_role") or row.get("role"),
-                "phase": row.get("phase"),
-                "actual_tss": actual_tss,
-                "load_bucket": actual_load_bucket(actual_tss) if actual_tss > 0 else None,
-                "adherence": adherence,
-                "rpe_band": rpe_band(feedback.get("session_rpe_1_10")),
-                "pre_snapshot_id": (pre_anchor["snapshot"] or {}).get("id"),
-                "d1_snapshot_id": (anchors[1] or {}).get("id"),
-                "d2_snapshot_id": (anchors[2] or {}).get("id"),
-                "d3_snapshot_id": (anchors[3] or {}).get("id"),
-                "exclusion_reasons": sorted(set(reasons)),
-                "planned": {"row": row, "template": template},
-                "actual": {
-                    "activity_ids": row.get("actual_activity_ids") or [],
-                    "activities": row.get("actual_activities") or [],
-                    "tss": actual_tss,
-                },
-                "feedback": feedback,
-                "outcome": outcome,
-                "confounders": {"constraints": confounding_constraints},
-            }
-        )
         created += int(bool(saved.get("created")))
     rows = db.get_recovery_episodes(latest_only=True, capture_mode=capture_mode)
     return {
+        "scope": "bounded_sync",
         "as_of": resolved_as_of.isoformat(),
         "capture_mode": capture_mode,
         "created": created,
@@ -310,12 +257,397 @@ def refresh_recovery_episodes(
     }
 
 
+def _materialize_matched_row(
+    db: Database,
+    row: dict[str, Any],
+    *,
+    checkpoint: dict[str, Any] | None,
+    templates: dict[str, dict[str, Any]],
+    snapshots: list[dict[str, Any]],
+    activities: list[dict[str, Any]],
+    matches: dict[str, dict[str, Any]],
+    feedbacks: dict[str, dict[str, Any]],
+    exclusion_by_date: dict[str, list[str]],
+    capture_mode: str,
+    resolved_as_of: date,
+) -> dict[str, Any] | None:
+    """Append one recovery-episode revision for a matched planned session.
+
+    Returns `None` (no DB write) when the row is not eligible for
+    materialization -- not user/auto-matched, or no confirmed actual
+    activities -- UNLESS a prior episode revision already exists for this
+    target, in which case that stale "eligible"/"maturing" episode is no
+    longer supported by current evidence (e.g. a confirmed match was
+    rejected) and gets superseded by one append-only invalidating revision
+    instead (`_invalidate_stale_episode`). A target that was never matched
+    still gets no episode at all -- there is nothing to invalidate. Shared
+    verbatim by both scopes so they can never produce subtly different
+    episode content for the same evidence.
+    """
+    session_date = date.fromisoformat(str(row.get("date"))[:10])
+    session_id = str(row.get("session_id") or "")
+    target_key = f"session:{session_id}"
+    match_status = str(row.get("match_status") or "unmatched")
+    match = matches.get(str(row.get("target_key"))) or {}
+    if match_status != "matched" or not row.get("actual_activity_ids"):
+        return _invalidate_stale_episode(
+            db,
+            target_key=target_key,
+            session_id=session_id,
+            session_date=session_date,
+            checkpoint=checkpoint,
+            match=match,
+            capture_mode=capture_mode,
+            match_status=match_status,
+        )
+    template = templates.get(session_id, {})
+    actual_tss = float(row.get("actual_total_tss") or 0.0)
+    adherence = str(row.get("adherence") or "unknown")
+    definition = dict(template.get("definition_snapshot") or {})
+    stimulus_family = str(definition.get("step_builder_key") or "").strip() or None
+    confounding_constraints = list(exclusion_by_date.get(session_date.isoformat(), []))
+    reasons = ["explicit_health_or_travel_constraint"] if confounding_constraints else []
+    if adherence not in {"exact", "substituted"}:
+        reasons.append(adherence if adherence != "unknown" else "unknown_adherence")
+    if actual_tss <= 0:
+        reasons.append("missing_actual_load")
+    if not stimulus_family:
+        reasons.append("unversioned_stimulus")
+    if template.get("kind") == "composite":
+        expected_legs = len(template.get("legs") or [])
+        actual_sports = {str(item.get("sport") or "") for item in row.get("actual_activities") or []}
+        if expected_legs > 1 and len(actual_sports) < 2:
+            reasons.append("unresolved_brick")
+
+    pre_anchor = select_daily_anchor(
+        snapshots,
+        activities,
+        local_date=session_date,
+        athlete_timezone=str(Settings.ATHLETE_TIMEZONE),
+        capture_mode=capture_mode,
+    )
+    if pre_anchor["snapshot"] is None:
+        anchor_reason = str(pre_anchor["reason"] or "missing_pre_anchor")
+        reasons.append(
+            anchor_reason if anchor_reason == "activity_start_missing" else "missing_pre_anchor"
+        )
+
+    anchors: dict[int, dict[str, Any] | None] = {}
+    for day_number in (1, 2, 3):
+        selected = select_daily_anchor(
+            snapshots,
+            activities,
+            local_date=session_date + timedelta(days=day_number),
+            athlete_timezone=str(Settings.ATHLETE_TIMEZONE),
+            capture_mode=capture_mode,
+        )
+        anchors[day_number] = selected["snapshot"]
+
+    d3_elapsed = session_date + timedelta(days=3) <= resolved_as_of
+    if reasons:
+        status = "excluded"
+    elif not d3_elapsed:
+        status = "maturing"
+    else:
+        status = "eligible"
+
+    outcome = (
+        build_episode_outcomes(
+            pre=pre_anchor["snapshot"],
+            d1=anchors[1],
+            d2=anchors[2],
+            d3=anchors[3],
+        )
+        if pre_anchor["snapshot"] is not None
+        else {"readiness_deltas": {"d1": None, "d2": None, "d3": None}, "recovered_by_day": None, "missing_days": [1, 2, 3]}
+    )
+    feedback = feedbacks.get(session_id) or {}
+    frozen = {
+        "target_key": target_key,
+        "checkpoint_id": checkpoint.get("id") if checkpoint else None,
+        "match_revision_id": match.get("id"),
+        "feedback_id": feedback.get("id"),
+        "template": template,
+        "actual_activity_ids": row.get("actual_activity_ids") or [],
+        "actual_activities": row.get("actual_activities") or [],
+        "adherence": adherence,
+        "snapshot_ids": {
+            "pre": (pre_anchor["snapshot"] or {}).get("id"),
+            "d1": (anchors[1] or {}).get("id"),
+            "d2": (anchors[2] or {}).get("id"),
+            "d3": (anchors[3] or {}).get("id"),
+        },
+        "outcome": outcome,
+        "reasons": sorted(set(reasons)),
+        "status": status,
+        "capture_mode": capture_mode,
+    }
+    iso = session_date.isocalendar()
+    return db.save_recovery_episode(
+        {
+            "fingerprint": _fingerprint(frozen),
+            "target_key": target_key,
+            "session_id": session_id,
+            "plan_checkpoint_id": checkpoint.get("id") if checkpoint else None,
+            "match_revision_id": match.get("id"),
+            "feedback_id": feedback.get("id"),
+            "session_date": session_date.isoformat(),
+            "iso_week": f"{iso.year}-W{iso.week:02d}",
+            "capture_mode": capture_mode,
+            "status": status,
+            "rule_version": RECOVERY_RESPONSE_RULE_VERSION,
+            "template_id": template.get("template_key"),
+            "stimulus_family": stimulus_family,
+            "sport": row.get("actual_sport") or row.get("sport"),
+            "role": row.get("actual_role") or row.get("role"),
+            "phase": row.get("phase"),
+            "actual_tss": actual_tss,
+            "load_bucket": actual_load_bucket(actual_tss) if actual_tss > 0 else None,
+            "adherence": adherence,
+            "rpe_band": rpe_band(feedback.get("session_rpe_1_10")),
+            "pre_snapshot_id": (pre_anchor["snapshot"] or {}).get("id"),
+            "d1_snapshot_id": (anchors[1] or {}).get("id"),
+            "d2_snapshot_id": (anchors[2] or {}).get("id"),
+            "d3_snapshot_id": (anchors[3] or {}).get("id"),
+            "exclusion_reasons": sorted(set(reasons)),
+            "planned": {"row": row, "template": template},
+            "actual": {
+                "activity_ids": row.get("actual_activity_ids") or [],
+                "activities": row.get("actual_activities") or [],
+                "tss": actual_tss,
+            },
+            "feedback": feedback,
+            "outcome": outcome,
+            "confounders": {"constraints": confounding_constraints},
+        }
+    )
+
+
+def _invalidate_stale_episode(
+    db: Database,
+    *,
+    target_key: str,
+    session_id: str,
+    session_date: date,
+    checkpoint: dict[str, Any] | None,
+    match: dict[str, Any],
+    capture_mode: str,
+    match_status: str,
+) -> dict[str, Any] | None:
+    """Supersede a prior episode whose match evidence no longer holds.
+
+    Only writes when a prior revision already exists for `target_key`: a
+    session that was never matched must not get a first, empty episode from
+    this path -- there is nothing stale to invalidate. When a prior episode
+    does exist (e.g. a confirmed match later rejected), append one
+    append-only "excluded" revision carrying the new `match_revision_id` and
+    a machine-readable reason, so `latest_only` reads never keep showing a
+    superseded "eligible"/"maturing" episode as current. Fingerprinted on
+    `match.get("id")`, so an unchanged rejection retried against the same
+    match revision is a no-op.
+    """
+    existing = db.get_recovery_episodes(latest_only=True, capture_mode=capture_mode)
+    if not any(row.get("target_key") == target_key for row in existing):
+        return None
+    reasons = ["match_rejected"] if match_status == "unmatched" else [f"match_status_{match_status}"]
+    frozen = {
+        "target_key": target_key,
+        "checkpoint_id": checkpoint.get("id") if checkpoint else None,
+        "match_revision_id": match.get("id"),
+        "reasons": reasons,
+        "status": "excluded",
+        "capture_mode": capture_mode,
+    }
+    iso = session_date.isocalendar()
+    return db.save_recovery_episode(
+        {
+            "fingerprint": _fingerprint(frozen),
+            "target_key": target_key,
+            "session_id": session_id,
+            "plan_checkpoint_id": checkpoint.get("id") if checkpoint else None,
+            "match_revision_id": match.get("id"),
+            "feedback_id": None,
+            "session_date": session_date.isoformat(),
+            "iso_week": f"{iso.year}-W{iso.week:02d}",
+            "capture_mode": capture_mode,
+            "status": "excluded",
+            "rule_version": RECOVERY_RESPONSE_RULE_VERSION,
+            "exclusion_reasons": reasons,
+            "planned": {},
+            "actual": {},
+            "outcome": {},
+            "confounders": {},
+        }
+    )
+
+
+def _refresh_targeted_episodes(
+    db: Database,
+    *,
+    as_of: date | None,
+    capture_mode: str,
+    target_session_ids: Sequence[str],
+) -> dict[str, Any]:
+    """Materialize exactly the requested sessions via a bounded per-session probe.
+
+    Each id resolves its own planned date from the active checkpoint, then a
+    `reconciliation_at(weeks=1, as_of=<that date>, include_provider=False)`
+    probe anchored on that date (never on `as_of`/today, never the full
+    history) is used to (re)materialize just that one session -- so a
+    session far outside the ordinary 12-week sync horizon can still be
+    repaired when new match/feedback evidence for it arrives. Unknown ids,
+    ids absent from the active checkpoint, and dates after `as_of` fail
+    closed per-target with a machine-readable reason; they never fall back
+    to a broader reconciliation.
+    """
+    from models.plan_actual_reconciliation import find_planned_session
+    from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+    from models.session_identity import ensure_session_identities
+    from services.reconciliation import reconciliation_at
+
+    resolved_as_of = as_of or datetime.now().date()
+    seen: set[str] = set()
+    ordered_ids: list[str] = []
+    for raw in target_session_ids or []:
+        session_id = str(raw or "").strip()
+        if not session_id or session_id in seen:
+            continue
+        seen.add(session_id)
+        ordered_ids.append(session_id)
+
+    checkpoint = db.get_latest_planning_checkpoint()
+    plan = ensure_session_identities(restore_goal_plan_from_checkpoint(checkpoint) or {}) if checkpoint else {}
+    session_templates = plan.get("session_templates", []) or []
+    templates = _session_template_projections(session_templates)
+
+    snapshots = db.get_readiness_snapshots(capture_mode=capture_mode)
+    try:
+        constraints = db.get_coach_constraints(active_only=False, limit=2000)
+    except Exception:
+        constraints = []
+    exclusion_by_date: dict[str, list[str]] = {}
+    for item in constraints:
+        kind = str(item.get("kind") or "").lower()
+        if kind in {"sick", "unavailable", "illness", "travel", "injury", "health"}:
+            exclusion_by_date.setdefault(str(item.get("date") or "")[:10], []).append(kind)
+
+    reconciliation_cache: dict[str, dict[str, Any]] = {}
+    activities_cache: dict[str, list[dict[str, Any]]] = {}
+    matches_cache: dict[str, dict[str, dict[str, Any]]] = {}
+
+    processed: list[dict[str, Any]] = []
+    created = 0
+    for session_id in ordered_ids:
+        # find_planned_session resolves by the PARENT session's own content-
+        # derived id inside `sessions[]`, never the day-level scalar
+        # projection -- required so a session on a multi-session day
+        # (Issue #205/#209) resolves correctly. `templates` above is keyed
+        # the same way (via _session_template_projections), so its lookup
+        # agrees with this resolution for every session on the day, not
+        # just the day's primary.
+        day_template, nested_session = find_planned_session(session_templates, session_id)
+        session_date_text = str((day_template or {}).get("date") or "")[:10]
+        session_date: date | None = None
+        if day_template is not None and nested_session is not None and session_date_text:
+            try:
+                session_date = date.fromisoformat(session_date_text)
+            except ValueError:
+                session_date = None
+        if session_date is None:
+            processed.append(
+                {
+                    "session_id": session_id,
+                    "status": "not_found",
+                    "reason": "session_not_found_in_active_checkpoint",
+                }
+            )
+            continue
+        if session_date > resolved_as_of:
+            processed.append(
+                {"session_id": session_id, "status": "not_found", "reason": "target_date_after_as_of"}
+            )
+            continue
+
+        date_key = session_date.isoformat()
+        if date_key not in reconciliation_cache:
+            reconciliation_cache[date_key] = reconciliation_at(
+                db, weeks=1, as_of=session_date, include_provider=False
+            )
+            window_end = (session_date + timedelta(days=3)).isoformat()
+            activities_cache[date_key] = db.get_activities_between(date_key, window_end)
+            matches_cache[date_key] = {
+                str(item.get("target_key")): item
+                for item in db.get_latest_plan_actual_matches(start_date=date_key, end_date=date_key)
+            }
+
+        reconciliation = reconciliation_cache[date_key]
+        row = next(
+            (
+                item
+                for item in reconciliation.get("rows") or []
+                if str(item.get("session_id") or "") == session_id
+            ),
+            None,
+        )
+        if row is None or not reconciliation.get("has_plan"):
+            processed.append(
+                {
+                    "session_id": session_id,
+                    "status": "not_found",
+                    "reason": "session_not_in_reconciliation_window",
+                }
+            )
+            continue
+
+        feedback = db.get_latest_session_feedback(session_id) or {}
+        saved = _materialize_matched_row(
+            db,
+            row,
+            checkpoint=checkpoint,
+            templates=templates,
+            snapshots=snapshots,
+            activities=activities_cache[date_key],
+            matches=matches_cache[date_key],
+            feedbacks={session_id: feedback},
+            exclusion_by_date=exclusion_by_date,
+            capture_mode=capture_mode,
+            resolved_as_of=resolved_as_of,
+        )
+        if saved is None:
+            processed.append({"session_id": session_id, "status": "not_matched"})
+            continue
+        is_created = bool(saved.get("created"))
+        created += int(is_created)
+        processed.append(
+            {
+                "session_id": session_id,
+                "status": "created" if is_created else "unchanged",
+                "episode_id": (saved.get("episode") or {}).get("id"),
+            }
+        )
+
+    rows = db.get_recovery_episodes(latest_only=True, capture_mode=capture_mode)
+    return {
+        "scope": "targeted",
+        "as_of": resolved_as_of.isoformat(),
+        "capture_mode": capture_mode,
+        "requested_session_ids": ordered_ids,
+        "processed": processed,
+        "not_found": [item["session_id"] for item in processed if item["status"] == "not_found"],
+        "created": created,
+        "episodes": len(rows),
+    }
+
+
 def refresh_recovery_episodes_best_effort(
-    db: Database, *, as_of: date | None = None
+    db: Database,
+    *,
+    as_of: date | None = None,
+    target_session_ids: Sequence[str] | None = None,
 ) -> dict[str, Any]:
     """Keep a committed source fact valid when derived analytics need repair."""
     try:
-        return refresh_recovery_episodes(db, as_of=as_of)
+        return refresh_recovery_episodes(db, as_of=as_of, target_session_ids=target_session_ids)
     except Exception as exc:
         return {"created": 0, "error": str(exc)}
 
