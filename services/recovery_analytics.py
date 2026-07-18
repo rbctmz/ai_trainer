@@ -119,11 +119,12 @@ def refresh_recovery_episodes(
     lookback_days = max(1, (resolved_as_of - earliest).days + 1)
     weeks = min(12, max(1, (lookback_days + 6) // 7))
 
-    # Local import avoids making the pure analytics module part of planning's
-    # import graph and guarantees provider access is disabled.
-    from api.planning_service import reconciliation_at
+    # Local import keeps this pure analytics module's always-loaded surface
+    # small; include_provider=False below still guarantees provider access
+    # stays disabled regardless of import timing.
     from models.planning_checkpoints import restore_goal_plan_from_checkpoint
     from models.session_identity import ensure_session_identities
+    from services.reconciliation import reconciliation_at
 
     reconciliation = reconciliation_at(
         db, weeks=weeks, as_of=resolved_as_of, include_provider=False
