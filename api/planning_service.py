@@ -35,6 +35,7 @@ from models.planning_checkpoints import (
 from models.planning_near_term import apply_near_term_day_edits
 from models.planning_summary import summarize_near_term_edit
 from models.session_identity import ensure_session_identities
+from models.session_transfer import apply_session_transfer
 from models.planning_execution import (
     build_execution_plan_adjustment,
     build_execution_reconciliation_rows,
@@ -45,6 +46,7 @@ from models.plan_actual_reconciliation import (
     apply_weekly_rebalance_preview,
     build_reconciliation,
     build_weekly_rebalance_preview,
+    find_planned_session,
 )
 from models.planning_targets import (
     DEFAULT_DEMAND_LEVEL,
@@ -1083,11 +1085,8 @@ def record_plan_actual_match(
             f"active checkpoint #{latest_id or 'none'} no longer matches match base #{base_checkpoint_id}"
         )
     goal_plan = ensure_session_identities(restore_goal_plan_from_checkpoint(latest) or {})
-    template = next(
-        (item for item in goal_plan.get("session_templates", []) or [] if item.get("session_id") == session_id),
-        None,
-    )
-    if template is None:
+    template, session = find_planned_session(goal_plan.get("session_templates", []) or [], session_id)
+    if template is None or session is None:
         raise ValueError("planned session not found")
     normalized_action = str(action or "confirm").strip().lower()
     if normalized_action not in {"confirm", "reject"}:
@@ -1135,8 +1134,8 @@ def record_plan_actual_match(
         "confidence": 1.0,
         "planned_snapshot": {
             "date": session_date,
-            "sport": template.get("sport"),
-            "role": template.get("session_role"),
+            "sport": session.get("sport"),
+            "role": session.get("session_role"),
             "session_id": session_id,
         },
         "actual_activity_ids": [str(item["activity_id"]) for item in activities],
@@ -1293,6 +1292,70 @@ def apply_recovery_replan(
             "peak_tss": int(max(weekly_tss_plan) if weekly_tss_plan else 0),
             "total_tss": int(sum(int(value or 0) for value in weekly_tss_plan)),
         },
+    }
+
+
+def apply_recovery_replan_transfer(
+    db: Database,
+    *,
+    base_checkpoint_id: int,
+    session_id: str,
+    target_date: str,
+    persist: bool = True,
+) -> Dict[str, Any]:
+    """Apply a confirmed `transfer_1_3d` variant against its exact base checkpoint.
+
+    Routes ONLY through the shared atomic primitive
+    `models/session_transfer.py::apply_session_transfer` — never the
+    near-term editor — reusing the preview's own `session_id`/`target_date`
+    so the ranker's promise and the applied result cannot diverge (Issue
+    #209 M4).
+    """
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") else None
+    if latest_id != base_checkpoint_id:
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id} no longer matches proposal base #{base_checkpoint_id}"
+        )
+
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    if not goal_plan or not goal_plan.get("daily_plan"):
+        raise ValueError("active plan cannot be restored")
+
+    wanted = str(session_id or "").strip()
+    source_date = None
+    for template in list(goal_plan.get("session_templates") or []):
+        if not isinstance(template, dict):
+            continue
+        for session in list(template.get("sessions") or []):
+            if isinstance(session, dict) and str(session.get("session_id") or "") == wanted:
+                source_date = str(template.get("date") or "")[:10]
+                break
+        if source_date is not None:
+            break
+
+    applied = apply_session_transfer(goal_plan, session_id=session_id, target_date=target_date)
+    moved_plan = with_checkpoint_provenance(
+        applied["goal_plan"],
+        source="recovery_replan_transfer",
+        parent_checkpoint_id=base_checkpoint_id,
+    )
+
+    saved = None
+    plan_id = None
+    if persist:
+        saved = db.save_planning_checkpoint(build_planning_checkpoint(moved_plan))
+        plan_id = str((saved or {}).get("id") or "")
+
+    affected_dates = sorted({d for d in (source_date, str(target_date)[:10]) if d})
+    return {
+        "plan_id": plan_id,
+        "applied_checkpoint_id": int(plan_id) if plan_id else None,
+        "rollback_checkpoint_id": base_checkpoint_id,
+        "checkpoint_source": "recovery_replan_transfer",
+        "old_session_id": applied["old_session_id"],
+        "new_session_id": applied["new_session_id"],
+        "affected_dates": affected_dates,
     }
 
 

@@ -45,11 +45,17 @@ interface ProposalApprovalResponse {
   result: BuiltPlan | AdjustResult | RebalanceConfirmResult | RecoveryReplanResult;
 }
 
+type RecoveryVariantKind = "keep" | "downgrade_today" | "transfer_1_3d";
+
 interface RecoveryReplanResult {
-  plan_id: string;
-  rollback_checkpoint_id: number;
+  selected_kind: RecoveryVariantKind;
+  plan_id?: string | null;
+  rollback_checkpoint_id?: number | null;
   near_term_edit?: { compact_label?: string };
-  totals: { peak_tss: number; total_tss: number };
+  totals?: { peak_tss: number; total_tss: number };
+  old_session_id?: string;
+  new_session_id?: string;
+  affected_dates?: string[];
 }
 
 interface ProposalRejectResponse {
@@ -78,6 +84,29 @@ function asRecordList(value: unknown): Record<string, unknown>[] {
   if (!Array.isArray(value)) return [];
   return value.filter((item): item is Record<string, unknown> => !!item && typeof item === "object");
 }
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+const RECOVERY_VARIANT_LABELS: Record<RecoveryVariantKind, string> = {
+  keep: "Оставить как есть",
+  downgrade_today: "Снизить нагрузку сегодня",
+  transfer_1_3d: "Перенести на 1–3 дня",
+};
+
+const RECOVERY_REJECTION_LABELS: Record<string, string> = {
+  unavailable: "день недоступен",
+  protected: "защищённая дата",
+  hard_collision: "уже есть тяжёлая сессия",
+  recovery_spacing: "недостаточно восстановления",
+  occasion_limit: "слишком много сессий в день",
+  day_tss_ceiling: "превышен дневной TSS",
+  day_duration_ceiling: "превышена длительность дня",
+  cross_week_boundary: "перенос через границу недели запрещён",
+};
 
 function buildPlanParams(params: Record<string, unknown>): BuildPlanParams {
   return {
@@ -128,12 +157,195 @@ function adjustConfirmedMessage(result: AdjustResult | RebalanceConfirmResult): 
   ].join(" ");
 }
 
-function recoveryConfirmedMessage(result: RecoveryReplanResult): string {
+function keepConfirmedMessage(): string {
+  return "✅ Решение сохранено: план оставлен без изменений.";
+}
+
+function transferConfirmedMessage(result: RecoveryReplanResult): string {
+  const dates = (result.affected_dates ?? []).join(" → ");
+  return [
+    "✅ Ключевая сессия перенесена.",
+    dates ? `Даты: ${dates}.` : "",
+    result.old_session_id && result.new_session_id
+      ? `Identity: ${result.old_session_id} → ${result.new_session_id}.`
+      : "",
+  ].filter(Boolean).join(" ");
+}
+
+function downgradeConfirmedMessage(result: RecoveryReplanResult): string {
   return [
     "✅ Recovery Replan применён.",
     result.near_term_edit?.compact_label ?? "Ближняя нагрузка снижена.",
-    `Откат к checkpoint #${result.rollback_checkpoint_id} доступен в истории решений.`,
-  ].join(" ");
+    result.rollback_checkpoint_id != null
+      ? `Откат к checkpoint #${result.rollback_checkpoint_id} доступен в истории решений.`
+      : "",
+  ].filter(Boolean).join(" ");
+}
+
+function recoveryConfirmedMessage(result: RecoveryReplanResult): string {
+  if (result.selected_kind === "keep") return keepConfirmedMessage();
+  if (result.selected_kind === "transfer_1_3d") return transferConfirmedMessage(result);
+  return downgradeConfirmedMessage(result);
+}
+
+function sessionLabel(session: Record<string, unknown>): string {
+  const name = asString(session.name || session.template_name || session.sport_label || "Сессия");
+  const tss = session.tss ?? session.total_tss;
+  return tss == null ? name : `${name} · ${asNumber(tss)} TSS`;
+}
+
+function daySessionsLabel(value: unknown): string {
+  const sessions = asRecordList(value);
+  if (sessions.length === 0) return "нет тренировки";
+  return sessions.map(sessionLabel).join(" + ");
+}
+
+function isRecoveryVariantKind(value: unknown): value is RecoveryVariantKind {
+  return value === "keep" || value === "downgrade_today" || value === "transfer_1_3d";
+}
+
+function confirmLabel(kind: RecoveryVariantKind): string {
+  return kind === "keep"
+    ? "Оставить план"
+    : kind === "transfer_1_3d"
+      ? "Подтвердить перенос"
+      : "Подтвердить снижение";
+}
+
+function signedDelta(value: unknown, unit: string): string {
+  if (value == null) return "не меняется по этому варианту";
+  const number = asNumber(value);
+  return `${number > 0 ? "+" : ""}${number} ${unit}`;
+}
+
+function readinessLabel(whyIntervene: Record<string, unknown>): string {
+  const readiness = asRecord(whyIntervene.readiness);
+  const score = readiness.score == null ? "—" : asString(readiness.score);
+  const status = asString(readiness.status || "unknown");
+  return `${score}/100 · ${status}`;
+}
+
+function conflictLabel(whyIntervene: Record<string, unknown>): string {
+  const conflict = asRecord(whyIntervene.conflict);
+  return [conflict.date, conflict.sport_label, conflict.role, conflict.tss != null ? `${conflict.tss} TSS` : null]
+    .filter(Boolean)
+    .map(asString)
+    .join(" · ");
+}
+
+function variantDescription(
+  variant: Record<string, unknown>,
+  currentSession: Record<string, unknown>,
+  recommendedSession: Record<string, unknown>,
+): string {
+  const kind = asString(variant.kind);
+  if (kind === "keep") return sessionLabel(asRecord(variant.session || currentSession));
+  if (kind === "downgrade_today") {
+    return sessionLabel(asRecord(variant.session || recommendedSession));
+  }
+  return `${asString(variant.source_date)} → ${asString(variant.target_date)}`;
+}
+
+function candidateLabel(candidate: Record<string, unknown>): string {
+  const reasons = Array.isArray(candidate.rejected_reasons)
+    ? candidate.rejected_reasons.map((reason) => RECOVERY_REJECTION_LABELS[asString(reason)] ?? asString(reason))
+    : [];
+  return `${asString(candidate.date)} · ${candidate.eligible ? "подходит" : reasons.join(", ")}`;
+}
+
+function mutationLabel(protection: Record<string, unknown>): string {
+  return protection.mutates_plan ? "План изменится только после подтверждения" : "План не изменяется";
+}
+
+function variantCardClass(selected: boolean): string {
+  return selected
+    ? "border-accent bg-accent/10"
+    : "border-surface-border bg-surface/70 hover:bg-surface-muted";
+}
+
+function variantRadioClass(selected: boolean): string {
+  return selected ? "border-accent bg-accent" : "border-surface-border bg-surface";
+}
+
+function safeRecoveryVariants(
+  raw: Record<string, unknown>[],
+  currentSession: Record<string, unknown>,
+  recommendedSession: Record<string, unknown>,
+): Record<string, unknown>[] {
+  const available = raw.filter((item) => isRecoveryVariantKind(item.kind));
+  if (available.length > 0) return available;
+  return [{ kind: "downgrade_today", session: recommendedSession, current_session: currentSession }];
+}
+
+function recommendedRecoveryKind(
+  whatChanges: Record<string, unknown>,
+  availableRecoveryVariants: Record<string, unknown>[],
+): RecoveryVariantKind {
+  const recommended = whatChanges.recommended_kind;
+  if (
+    isRecoveryVariantKind(recommended)
+    && availableRecoveryVariants.some((item) => item.kind === recommended)
+  ) {
+    return recommended;
+  }
+  const marked = availableRecoveryVariants.find((item) => item.recommended);
+  return isRecoveryVariantKind(marked?.kind) ? marked.kind : "downgrade_today";
+}
+
+function variantProtection(
+  whatIsProtected: Record<string, unknown>,
+  kind: RecoveryVariantKind,
+  preview: Record<string, unknown>,
+): Record<string, unknown> {
+  const byVariant = asRecord(whatIsProtected.by_variant);
+  const explicit = asRecord(byVariant[kind]);
+  if (Object.keys(explicit).length > 0) return explicit;
+  if (kind === "keep") {
+    return { weekly_tss_delta: 0, weekly_duration_delta_minutes: 0, mutates_plan: false };
+  }
+  return {
+    weekly_tss_delta: kind === "transfer_1_3d" ? 0 : preview.total_delta_tss,
+    weekly_duration_delta_minutes: kind === "transfer_1_3d" ? 0 : null,
+    mutates_plan: true,
+  };
+}
+
+function recoveryEvidenceItems(
+  whyIntervene: Record<string, unknown>,
+  preview: Record<string, unknown>,
+): string[] {
+  return asStringArray(whyIntervene.evidence) ?? asStringArray(preview.evidence) ?? [];
+}
+
+function transferDayChanges(selectedVariant: Record<string, unknown>): Record<string, unknown>[] {
+  return asRecordList(selectedVariant.day_changes);
+}
+
+function selectedRecoveryVariant(
+  availableRecoveryVariants: Record<string, unknown>[],
+  selectedVariantKind: RecoveryVariantKind,
+): Record<string, unknown> {
+  return availableRecoveryVariants.find((item) => item.kind === selectedVariantKind) ?? {};
+}
+
+function recoveryCandidates(whatIsProtected: Record<string, unknown>): Record<string, unknown>[] {
+  return asRecordList(whatIsProtected.candidates);
+}
+
+function recoveryReason(whyIntervene: Record<string, unknown>, preview: Record<string, unknown>): string {
+  return asString(whyIntervene.reason || preview.reason);
+}
+
+function recoverySeverity(whyIntervene: Record<string, unknown>, preview: Record<string, unknown>): string {
+  return asString(whyIntervene.severity || preview.severity || "не определено");
+}
+
+function recoveryProtectionSummary(selectedProtection: Record<string, unknown>): string[] {
+  return [
+    `Недельный TSS: ${signedDelta(selectedProtection.weekly_tss_delta, "TSS")}`,
+    `Длительность недели: ${signedDelta(selectedProtection.weekly_duration_delta_minutes, "мин")}`,
+    mutationLabel(selectedProtection),
+  ];
 }
 
 function StatTile({ label, value }: { label: string; value: string }) {
@@ -211,6 +423,7 @@ export function ProposalCard({
 }: ProposalCardProps) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showEvidence, setShowEvidence] = useState(false);
 
   const goal = (preview.goal as Record<string, unknown> | undefined) ?? {};
   const buildParams = action === "build_plan" ? buildPlanParams(params) : null;
@@ -224,7 +437,20 @@ export function ProposalCard({
     (preview.current_session as Record<string, unknown> | undefined) ?? {};
   const recommendedSession =
     (preview.recommended_session as Record<string, unknown> | undefined) ?? {};
-  const recoveryEvidence = asStringArray(preview.evidence) ?? [];
+  const whyIntervene = asRecord(preview.why_intervene);
+  const whatChanges = asRecord(preview.what_changes);
+  const whatIsProtected = asRecord(preview.what_is_protected);
+  const availableRecoveryVariants = safeRecoveryVariants(
+    asRecordList(whatChanges.variants ?? preview.variants),
+    currentSession,
+    recommendedSession,
+  );
+  const recommendedKind = recommendedRecoveryKind(whatChanges, availableRecoveryVariants);
+  const [selectedVariantKind, setSelectedVariantKind] = useState<RecoveryVariantKind>(recommendedKind);
+  const selectedVariant = selectedRecoveryVariant(availableRecoveryVariants, selectedVariantKind);
+  const selectedProtection = variantProtection(whatIsProtected, selectedVariantKind, preview);
+  const recoveryEvidence = recoveryEvidenceItems(whyIntervene, preview);
+  const candidates = recoveryCandidates(whatIsProtected);
 
   async function handleConfirm() {
     setLoading(true);
@@ -241,8 +467,10 @@ export function ProposalCard({
       }
 
       if (action === "recovery_replan") {
+        const params = new URLSearchParams();
+        params.set("variant_kind", selectedVariantKind);
         const response = await postJSON<ProposalApprovalResponse>(
-          `/api/decisions/proposals/${proposalId}/approve`,
+          `/api/decisions/proposals/${proposalId}/approve?${params.toString()}`,
           {},
         );
         onConfirmed(recoveryConfirmedMessage(response.result as RecoveryReplanResult));
@@ -331,38 +559,113 @@ export function ProposalCard({
         </>
       ) : action === "recovery_replan" ? (
         <>
-          <p className="mt-3 text-sm text-ink-soft">{asString(preview.reason)}</p>
-          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <div className="rounded-lg bg-surface/70 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-ink-soft">Как есть</div>
-              <div className="mt-1 text-sm font-medium text-ink">
-                {asString(currentSession.name)} · {asNumber(currentSession.tss)} TSS
-              </div>
-              <div className="mt-0.5 text-xs text-ink-soft">
-                роль {asString(currentSession.role)} · риск {asString(preview.severity)}
-              </div>
+          <section className="mt-3 rounded-lg bg-surface/60 px-3 py-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+              Почему вмешиваемся
+            </h3>
+            <p className="mt-1 text-sm text-ink">{recoveryReason(whyIntervene, preview)}</p>
+            <div className="mt-1 text-xs text-ink-soft">
+              Готовность {readinessLabel(whyIntervene)} · риск {recoverySeverity(whyIntervene, preview)}
             </div>
-            <div className="rounded-lg border border-tone-success/30 bg-tone-success/10 px-3 py-2">
-              <div className="text-[11px] uppercase tracking-wide text-tone-success">
-                Рекомендация
-              </div>
-              <div className="mt-1 text-sm font-medium text-ink">
-                {asString(recommendedSession.name)} · {asNumber(recommendedSession.tss)} TSS
-              </div>
-              <div className="mt-0.5 text-xs text-ink-soft">
-                роль {asString(recommendedSession.role)} · Δ {asNumber(recommendedSession.delta_tss)} TSS
-              </div>
+            {conflictLabel(whyIntervene) ? (
+              <div className="mt-1 text-xs text-ink-faint">{conflictLabel(whyIntervene)}</div>
+            ) : null}
+          </section>
+
+          <section className="mt-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+              Что меняется
+            </h3>
+            <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
+              {availableRecoveryVariants.map((variant) => {
+                const kind = variant.kind as RecoveryVariantKind;
+                const selected = kind === selectedVariantKind;
+                return (
+                  <button
+                    key={kind}
+                    type="button"
+                    onClick={() => setSelectedVariantKind(kind)}
+                    aria-pressed={selected}
+                    className={`rounded-lg border px-3 py-2 text-left transition ${variantCardClass(selected)}`}
+                  >
+                    <span className="flex items-center gap-2 text-sm font-medium text-ink">
+                      <span className={`h-3 w-3 rounded-full border ${variantRadioClass(selected)}`} />
+                      {RECOVERY_VARIANT_LABELS[kind]}
+                    </span>
+                    <span className="mt-1 block text-xs text-ink-soft">
+                      {variantDescription(variant, currentSession, recommendedSession)}
+                    </span>
+                    {kind === recommendedKind ? (
+                      <span className="mt-1 block text-[11px] font-medium text-tone-success">
+                        Рекомендовано
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
-          </div>
-          {recoveryEvidence.length > 0 ? (
-            <ul className="mt-3 space-y-1 text-xs text-ink-soft">
-              {recoveryEvidence.map((item) => (
+
+            {selectedVariantKind === "transfer_1_3d" ? (
+              <div className="mt-2 space-y-2">
+                {transferDayChanges(selectedVariant).map((change) => (
+                  <div key={asString(change.date)} className="rounded-lg bg-surface/70 px-3 py-2 text-xs">
+                    <div className="font-medium text-ink">{asString(change.date)}</div>
+                    <div className="mt-1 text-ink-soft">
+                      {daySessionsLabel(change.before_sessions)} → {daySessionsLabel(change.after_sessions)}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-2 rounded-lg bg-surface/70 px-3 py-2 text-sm text-ink-soft">
+                {selectedVariantKind === "keep"
+                  ? sessionLabel(asRecord(selectedVariant.session || currentSession))
+                  : `${sessionLabel(currentSession)} → ${sessionLabel(asRecord(selectedVariant.session || recommendedSession))}`}
+              </div>
+            )}
+          </section>
+
+          <section className="mt-3 rounded-lg border border-tone-success/20 bg-tone-success/5 px-3 py-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-tone-success">
+              Что защищено
+            </h3>
+            <ul className="mt-2 space-y-1 text-xs text-ink-soft">
+              {recoveryProtectionSummary(selectedProtection).map((item) => (
                 <li key={item}>• {item}</li>
               ))}
             </ul>
-          ) : null}
+            <button
+              type="button"
+              onClick={() => setShowEvidence((value) => !value)}
+              aria-expanded={showEvidence}
+              className="mt-2 text-xs font-medium text-accent hover:underline"
+            >
+              {showEvidence ? "Скрыть доказательства" : "Показать доказательства"}
+            </button>
+            {showEvidence ? (
+              <div className="mt-2 space-y-2 border-t border-surface-border pt-2 text-xs text-ink-soft">
+                {recoveryEvidence.length > 0 ? (
+                  <ul className="space-y-1">
+                    {recoveryEvidence.map((item) => (
+                      <li key={item}>• {item}</li>
+                    ))}
+                  </ul>
+                ) : null}
+                {candidates.length > 0 ? (
+                  <div>
+                    <div className="font-medium text-ink">Проверенные даты</div>
+                    <ul className="mt-1 space-y-1">
+                      {candidates.map((candidate) => (
+                        <li key={asString(candidate.date)}>• {candidateLabel(candidate)}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
+          </section>
           <p className="mt-3 text-xs text-ink-faint">
-            Снятый объём не догоняется автоматически. Исходный checkpoint сохраняется для отката.
+            Никакой вариант не применяется автоматически. Подтверждение относится только к выбранному варианту.
           </p>
         </>
       ) : (
@@ -439,7 +742,11 @@ export function ProposalCard({
           disabled={loading}
           className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
         >
-          {loading ? "Сохраняю…" : "Подтвердить"}
+          {loading
+            ? "Сохраняю…"
+            : action === "recovery_replan"
+              ? confirmLabel(selectedVariantKind)
+              : "Подтвердить"}
         </button>
         <button
           type="button"

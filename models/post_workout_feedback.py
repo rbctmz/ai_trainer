@@ -6,6 +6,7 @@ from hashlib import sha256
 import json
 from typing import Any, Mapping, Sequence
 
+from models.plan_actual_reconciliation import iter_parent_sessions
 from models.session_quality_forecast import brier_score
 
 
@@ -129,11 +130,20 @@ def build_feedback_prompts(
     """Build prompt states from an existing reconciliation snapshot only."""
     now = now_utc if now_utc.tzinfo else now_utc.replace(tzinfo=timezone.utc)
     now = now.astimezone(timezone.utc)
-    template_by_session = {
-        str(item.get("session_id")): dict(item)
-        for item in templates
-        if item.get("session_id")
+    session_by_id: dict[str, Mapping[str, Any]] = {
+        str(entry["session"].get("session_id")): entry["session"]
+        for entry in iter_parent_sessions(templates)
+        if entry["session"].get("session_id")
     }
+    for item in templates:
+        # Pre-#205 legacy templates carry no `sessions[]`; the template IS
+        # the session. Only fill gaps `iter_parent_sessions` cannot see —
+        # never let this shadow a nested session's own content.
+        if not isinstance(item, Mapping) or "sessions" in item:
+            continue
+        legacy_id = str(item.get("session_id") or "")
+        if legacy_id and legacy_id not in session_by_id:
+            session_by_id[legacy_id] = item
     forecast_dates = {str(item.get("target_date") or "")[:10] for item in forecasts}
     prompts: list[dict[str, Any]] = []
     for raw in rows:
@@ -141,7 +151,7 @@ def build_feedback_prompts(
         session_id = str(row.get("session_id") or "").strip()
         if not session_id:
             continue
-        template = template_by_session.get(session_id, {})
+        session = session_by_id.get(session_id, {})
         activities = [
             dict(item)
             for item in row.get("actual_activities") or []
@@ -207,18 +217,18 @@ def build_feedback_prompts(
         ):
             state, reason = "dismissed", str(event.get("reason") or "dismissed")
 
-        role = str(row.get("role") or template.get("session_role") or "")
+        role = str(row.get("role") or session.get("session_role") or "")
         is_primary = role in {"quality", "long"} or str(row.get("date") or "")[:10] in forecast_dates
         prompts.append(
             {
                 "prompt_fingerprint": prompt_fingerprint,
                 "session_id": session_id,
-                "parent_session_id": session_id if template.get("kind") == "composite" else None,
+                "parent_session_id": session_id if session.get("kind") == "composite" else None,
                 "date": str(row.get("date") or "")[:10],
-                "name": row.get("name") or template.get("template_name") or "Сессия",
+                "name": row.get("name") or session.get("export_name") or session.get("template_name") or "Сессия",
                 "role": role,
-                "kind": str(template.get("kind") or "single"),
-                "planned_sport": str(row.get("sport") or template.get("sport") or ""),
+                "kind": str(session.get("kind") or "single"),
+                "planned_sport": str(row.get("sport") or session.get("sport") or ""),
                 "state": state,
                 "reason": reason,
                 "is_primary": is_primary,

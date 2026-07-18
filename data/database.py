@@ -2378,6 +2378,36 @@ class Database:
         conn.close()
         return self._deserialize_coach_proposal_row(row)
 
+    def update_coach_proposal_preview(self, proposal_id, preview):
+        """Обновляет preview ещё pending-предложения (идемпотентный пересчёт
+        RecoveryReplan v2 не должен плодить строки — только освежать превью)."""
+        if not isinstance(preview, dict):
+            raise ValueError("preview must be a dict")
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE coach_proposals
+            SET preview_json = ?
+            WHERE id = ? AND status = 'pending'
+            ''',
+            (json.dumps(preview, ensure_ascii=False, default=str), int(proposal_id)),
+        )
+        cursor.execute(
+            '''
+            SELECT id, date, action, status, params_json, preview_json, result_json,
+                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                   active_key
+            FROM coach_proposals
+            WHERE id = ?
+            ''',
+            (int(proposal_id),),
+        )
+        row = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        return self._deserialize_coach_proposal_row(row)
+
     def get_coach_proposal(self, proposal_id):
         """Возвращает одно предложение коуча по id или None."""
         if proposal_id is None:

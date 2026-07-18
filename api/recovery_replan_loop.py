@@ -1,7 +1,7 @@
 """Headless orchestration for the auditable Recovery Replan loop."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from hashlib import sha256
 import json
 from typing import Any
@@ -11,6 +11,41 @@ from api.session_quality_forecast import record_shadow_session_quality_forecast
 from data.database import Database
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.recovery_replan import build_recovery_replan_variant
+from models.recovery_transfer import build_transfer_variant, rank_transfer_candidates
+
+# Maps a v1 `options[]` entry's `key` onto its typed `variants[]` `kind`
+# (Issue #209 M3: `variants = [keep, downgrade_today, transfer_1_3d?]`).
+_VARIANT_KIND_BY_OPTION_KEY = {"keep": "keep", "recommended": "downgrade_today"}
+
+# Issue #209 M3 checker round 4 ("actual-hard-activity-tss-v1", see
+# docs/recovery_transfer_execplan.md Decision Log): an already-executed
+# activity that never went through the plan still counts as hard load for
+# `recovery_spacing` purposes once its logged TSS reaches the same floor
+# this feature already treats as the practical minimum for a quality/long
+# occasion. This reads only already-persisted local `activities` rows
+# (`Database.get_activities_between`) — no provider/live sync call.
+ACTUAL_HARD_ACTIVITY_TSS_POLICY = 60.0
+
+# `rank_transfer_candidates`'s `_actual_hard_near` checks ±1 day around each
+# D+1..D+3 candidate, so an executed activity can influence eligibility from
+# the source date itself out to source_date + 4.
+_ACTUAL_HARD_ACTIVITY_WINDOW_BEFORE_DAYS = 1
+_ACTUAL_HARD_ACTIVITY_WINDOW_AFTER_DAYS = 4
+
+
+def _actual_hard_activity_dates(db: Database, *, source_date: date) -> list[str]:
+    """Local evidence only: ISO dates of already-logged activities whose TSS
+    meets `ACTUAL_HARD_ACTIVITY_TSS_POLICY`, within the window the ranker's
+    ±1 day adjacency check can actually see around `source_date`."""
+    window_start = source_date - timedelta(days=_ACTUAL_HARD_ACTIVITY_WINDOW_BEFORE_DAYS)
+    window_end = source_date + timedelta(days=_ACTUAL_HARD_ACTIVITY_WINDOW_AFTER_DAYS)
+    dates: set[str] = set()
+    for activity in db.get_activities_between(window_start.isoformat(), window_end.isoformat()):
+        if float(activity.get("tss") or 0.0) >= ACTUAL_HARD_ACTIVITY_TSS_POLICY:
+            activity_date = str(activity.get("date") or "")[:10]
+            if activity_date:
+                dates.add(activity_date)
+    return sorted(dates)
 
 
 def _outcome(report: dict[str, Any]) -> str:
@@ -62,10 +97,73 @@ def _active_proposal_key(
     return f"recovery_replan:{sha256(canonical.encode('utf-8')).hexdigest()}"
 
 
+def _resolve_transfer_session_id(
+    goal_plan: dict[str, Any],
+    conflict: dict[str, Any],
+) -> str | None:
+    """Finds the `session_id` the readiness conflict is actually referring to.
+
+    The readiness report never carries a `session_id` (Issue #209 M3): it
+    only claims a date, a role, and a sport label. The active plan may have
+    moved on since the report was built (a prior downgrade/sport swap
+    already applied), or the claimed date may now carry more than one
+    same-role session (a legitimate twin day). The match is fail-closed on
+    the exact (role, sport_label) pair AND on uniqueness — zero or 2+
+    candidate sessions omit the transfer variant, never guess the first
+    one. `keep`/`downgrade_today` (which use the report's claimed session
+    directly, per v1) stay unaffected either way.
+    """
+    conflict_date = str(conflict.get("date") or "")[:10]
+    claimed = conflict.get("session") or {}
+    claimed_role = str(claimed.get("role") or "").strip().lower()
+    claimed_sport_label = str(claimed.get("sport_label") or "").strip().lower()
+    for template in list(goal_plan.get("session_templates") or []):
+        if not isinstance(template, dict) or str(template.get("date") or "")[:10] != conflict_date:
+            continue
+        matches = [
+            session
+            for session in list(template.get("sessions") or [])
+            if isinstance(session, dict)
+            and str(session.get("session_role") or "").strip().lower() == claimed_role
+            and str(session.get("sport_label") or "").strip().lower() == claimed_sport_label
+        ]
+        if len(matches) != 1:
+            return None
+        session_id = str(matches[0].get("session_id") or "").strip()
+        return session_id or None
+    return None
+
+
+def _typed_variants(
+    variant: dict[str, Any],
+    transfer_variant: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
+    typed: list[dict[str, Any]] = []
+    for option in variant.get("options") or []:
+        kind = _VARIANT_KIND_BY_OPTION_KEY.get(str(option.get("key")))
+        if kind is None:
+            continue
+        entry = dict(option)
+        entry["kind"] = kind
+        entry.pop("recommended", None)
+        typed.append(entry)
+    if transfer_variant is not None:
+        typed.append(dict(transfer_variant))
+
+    recommended_kind = "transfer_1_3d" if transfer_variant is not None else "downgrade_today"
+    for entry in typed:
+        if entry["kind"] == recommended_kind:
+            entry["recommended"] = True
+    return typed
+
+
 def _proposal_payload(
     variant: dict[str, Any],
     *,
+    report: dict[str, Any],
     base_checkpoint_id: int,
+    transfer_variant: dict[str, Any] | None,
+    transfer_candidates: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     draft_rows = [
         {
@@ -85,9 +183,40 @@ def _proposal_payload(
         "selected_conflict": dict(variant["selected_conflict"]),
         "as_of": variant.get("as_of"),
     }
+    variants = _typed_variants(variant, transfer_variant)
+    recommended_kind = next(
+        entry["kind"] for entry in variants if entry.get("recommended")
+    )
+    selected_conflict = dict(variant["selected_conflict"])
+    conflict_session = dict(selected_conflict.get("session") or {})
+    by_variant: dict[str, dict[str, Any]] = {}
+    for entry in variants:
+        kind = str(entry["kind"])
+        if kind == "keep":
+            by_variant[kind] = {
+                "weekly_tss_delta": 0,
+                "weekly_duration_delta_minutes": 0,
+                "mutates_plan": False,
+            }
+        elif kind == "transfer_1_3d":
+            by_variant[kind] = {
+                "weekly_tss_delta": 0,
+                "weekly_duration_delta_minutes": entry.get(
+                    "weekly_duration_delta_minutes", 0
+                ),
+                "mutates_plan": True,
+            }
+        else:
+            by_variant[kind] = {
+                "weekly_tss_delta": variant["draft_summary"].get("total_delta_tss"),
+                "weekly_duration_delta_minutes": None,
+                "mutates_plan": True,
+            }
+
+    recommended_protection = by_variant[recommended_kind]
     preview = {
         "reason": variant.get("reason"),
-        "severity": variant["selected_conflict"].get("severity"),
+        "severity": selected_conflict.get("severity"),
         "current_session": dict(variant["current_session"]),
         "recommended_session": dict(variant["recommended_session"]),
         "total_delta_tss": variant["draft_summary"].get("total_delta_tss"),
@@ -95,6 +224,35 @@ def _proposal_payload(
         "options": list(variant["options"]),
         "evidence": list(variant.get("evidence") or []),
         "lookahead_policy": variant.get("lookahead_policy"),
+        "variants": variants,
+        "transfer_candidates": list(transfer_candidates),
+        "why_intervene": {
+            "reason": variant.get("reason"),
+            "severity": selected_conflict.get("severity"),
+            "readiness": dict(report.get("readiness") or {}),
+            "conflict": {
+                "date": str(selected_conflict.get("date") or "")[:10],
+                "role": conflict_session.get("role") or selected_conflict.get("role"),
+                "sport_label": conflict_session.get("sport_label")
+                or selected_conflict.get("sport_label"),
+                "tss": conflict_session.get("tss") or selected_conflict.get("tss"),
+            },
+            "evidence": list(variant.get("evidence") or []),
+        },
+        "what_changes": {
+            "variants": variants,
+            "recommended_kind": recommended_kind,
+            "current_session": dict(variant["current_session"]),
+            "recommended_session": dict(variant["recommended_session"]),
+        },
+        "what_is_protected": {
+            "candidates": list(transfer_candidates),
+            "weekly_tss_delta": recommended_protection["weekly_tss_delta"],
+            "weekly_duration_delta_minutes": recommended_protection[
+                "weekly_duration_delta_minutes"
+            ],
+            "by_variant": by_variant,
+        },
     }
     return params, preview
 
@@ -129,9 +287,44 @@ def run_recovery_replan_loop(
         if variant is None or checkpoint_id is None:
             proposal_gap = "conflict session is not addressable in the active plan"
         else:
+            transfer_variant = None
+            transfer_candidates: list[dict[str, Any]] = []
+            resolved_session_id = _resolve_transfer_session_id(
+                goal_plan, variant["selected_conflict"]
+            )
+            if resolved_session_id:
+                transfer_conflict = {**variant["selected_conflict"], "session_id": resolved_session_id}
+                conflict_source_date = date.fromisoformat(
+                    str(variant["selected_conflict"].get("date") or "")[:10]
+                )
+                actual_hard_dates = _actual_hard_activity_dates(
+                    db, source_date=conflict_source_date
+                )
+                try:
+                    transfer_candidates = rank_transfer_candidates(
+                        goal_plan,
+                        transfer_conflict,
+                        today=today,
+                        actual_hard_dates=actual_hard_dates,
+                    )
+                    transfer_variant = build_transfer_variant(
+                        goal_plan,
+                        transfer_conflict,
+                        today=today,
+                        actual_hard_dates=actual_hard_dates,
+                    )
+                except ValueError:
+                    # Fail-closed: a stale readiness snapshot racing a plan
+                    # that already moved on must never crash the loop —
+                    # keep/downgrade_today stay unaffected.
+                    transfer_variant = None
+                    transfer_candidates = []
             params, preview = _proposal_payload(
                 variant,
+                report=report,
                 base_checkpoint_id=int(checkpoint_id),
+                transfer_variant=transfer_variant,
+                transfer_candidates=transfer_candidates,
             )
             proposal = db.save_coach_proposal(
                 action="recovery_replan",
@@ -142,6 +335,8 @@ def run_recovery_replan_loop(
                 active_key=_active_proposal_key(report, variant, int(checkpoint_id)),
                 date=f"{str(report.get('as_of') or today.isoformat())[:10]}T00:00:00",
             )
+            if proposal["status"] == "pending" and proposal.get("preview") != preview:
+                proposal = db.update_coach_proposal_preview(proposal["id"], preview)
             decision = db.link_recovery_decision_proposal(decision["id"], proposal["id"])
 
     shadow_forecast = None

@@ -23,7 +23,11 @@ from typing import Any, Dict, List, Mapping, Sequence
 SCHEDULER_RULE_VERSION = "session-scheduler-v1"
 
 _SPORTS = ("bike", "run", "swim")
-_HARD_ROLES = {"long", "quality"}
+# The hard-role set is shared policy: RecoveryTransfer's collision/spacing
+# guards (Issue #209) must agree with the scheduler's own one-hard-per-day and
+# spacing rules, so both read this one definition.
+HARD_SESSION_ROLES = frozenset({"long", "quality"})
+_HARD_ROLES = HARD_SESSION_ROLES
 
 # Named feasibility policy: the honest ceiling for one calendar day's training
 # load. Basis: an amateur long ride of roughly 3.5-4 hours at endurance
@@ -34,6 +38,12 @@ _HARD_ROLES = {"long", "quality"}
 # role weights independently cap any single occasion at well under half of the
 # week (long ≈ 45% of ITS OWN discipline's budget, not of the week).
 MAX_DAY_TSS_POLICY = 220.0
+# Companion duration ceiling (Issue #209): TSS alone does not bound a day —
+# a low-intensity day can carry acceptable TSS yet unacceptable hours. The
+# same ~4-hour amateur reasoning as above, expressed in persisted minutes
+# (independent sessions sum their duration_minutes; a composite brick counts
+# the parent duration with the transition included).
+MAX_DAY_DURATION_MINUTES = 240
 _ROLE_WEIGHTS = {"long": 3.0, "quality": 2.2, "easy": 1.4, "recovery": 1.0}
 _ROLE_RANK = {"long": 0, "quality": 1, "easy": 2, "recovery": 3}
 
@@ -502,4 +512,10 @@ def schedule_week_slots(
     }
 
 
-__all__ = ["MAX_DAY_TSS_POLICY", "SCHEDULER_RULE_VERSION", "schedule_week_slots"]
+__all__ = [
+    "HARD_SESSION_ROLES",
+    "MAX_DAY_DURATION_MINUTES",
+    "MAX_DAY_TSS_POLICY",
+    "SCHEDULER_RULE_VERSION",
+    "schedule_week_slots",
+]
