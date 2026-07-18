@@ -136,6 +136,21 @@ def test_decisions_history_hides_rollback_control_for_keep_and_names_transfer_id
     assert "affected_dates" in source
 
 
+def test_decisions_history_transfer_summary_uses_human_readable_label_not_raw_session_ids() -> None:
+    """Issue #223: `ProposalEntry.recoverySummary` for a confirmed
+    `transfer_1_3d` must read on the athlete's own language — the
+    human-readable `new_session_label` the API assembles at confirm time
+    (`api/planning_service.py::apply_recovery_replan_transfer`) — not the raw
+    content-derived `ats_...` session ids. The ids stay available on
+    `proposal.result` for evidence/tooltip/rollback use (per the identity
+    contract pinned above), but the visible summary text must not
+    concatenate `oldSessionId → newSessionId` directly."""
+    source = _source("web/app/decisions/page.tsx")
+
+    assert "new_session_label" in source
+    assert '`${oldSessionId} → ${newSessionId}`' not in source
+
+
 def test_today_decisions_coach_all_render_through_the_shared_proposal_card() -> None:
     """Regression guard: no duplicated recovery-transfer business logic
     across consumers — all three pages must keep rendering the one shared
