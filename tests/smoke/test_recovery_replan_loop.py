@@ -1021,3 +1021,268 @@ def test_loop_fails_closed_on_transfer_when_two_identical_sessions_share_conflic
 
     assert first["outcome"] == "conflict"
     assert _variant_kinds(first["proposal"]) == ["keep", "downgrade_today"]
+
+
+# ---------------------------------------------------------------------------
+# M4 RED — confirm/reject/rollback three-variant decision contract
+# (Issue #209 M4 preflight, checker comment:
+# https://github.com/rbctmz/ai_trainer/pull/210#issuecomment-5010778778)
+#
+# Pins, before `api/routers/decisions.py::approve_proposal` accepts an
+# explicit `variant_kind` selection and routes `transfer_1_3d` confirmation
+# through the shared `models/session_transfer.py::apply_session_transfer`
+# primitive against the exact `base_checkpoint_id` (never the near-term
+# editor, never an arbitrary client payload — see Decision Log):
+#
+# - approve accepts exactly one of the proposal's own saved variant kinds
+#   (`keep` / `downgrade_today` / `transfer_1_3d`); an unknown or currently
+#   unavailable kind fails closed with ZERO checkpoint mutation, and an
+#   explicit `variant_kind=None` matches today's omitted-argument downgrade
+#   contract byte-for-byte (legacy back-compat);
+# - confirming `transfer_1_3d` creates exactly ONE new append-only
+#   checkpoint with `checkpoint_source == "recovery_replan_transfer"`,
+#   parented on the base, never touches the near-term editor, whose source
+#   day loses the old session id and target day carries the SAME new
+#   session id/lineage the preview promised with TSS preserved; the result
+#   payload carries the selected kind, old/new session ids, both affected
+#   dates (source AND target), and a rollback checkpoint id;
+# - a stale active checkpoint refuses the transfer confirm with 409 and
+#   appends no new checkpoint;
+# - rollback of an applied transfer appends exactly ONE new restored
+#   revision (never deletes history), the proposal becomes terminal
+#   `rolled_back`, and the restored day structure/identity matches the
+#   pre-transfer plan;
+# - `safe_deliver_active_plan` (the provider boundary) is NEVER called for a
+#   transfer confirm or a transfer rollback — Issue #209/M4 requires zero
+#   provider calls anywhere on the transfer path;
+# - a concurrent double-confirm of the SAME pending proposal is serialized
+#   by the existing pending→applying claim and produces exactly one
+#   checkpoint, never two.
+
+
+def _transfer_preview(proposal: dict) -> dict:
+    return next(v for v in proposal["preview"]["variants"] if v["kind"] == "transfer_1_3d")
+
+
+def test_approve_recovery_transfer_variant_fails_closed_on_unknown_or_unavailable_kind(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """A conflict with no safe D+1..D+3 date never offers `transfer_1_3d` in
+    its saved variants. Selecting it anyway must fail closed with ZERO
+    checkpoint mutation instead of silently falling back to another
+    variant."""
+    from api import recovery_replan_loop as loop_module
+    from api.routers.decisions import approve_proposal
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    goal_plan = _transfer_ready_goal_plan(today, days_until=1)
+    conflict_date = today + timedelta(days=1)
+    goal_plan["protected_dates"] = [
+        (conflict_date + timedelta(days=offset)).isoformat() for offset in (1, 2, 3)
+    ]
+    db = Database(str(tmp_path / "transfer-confirm-unknown-kind.db"))
+    base = _save_plan(db, goal_plan)
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    assert "transfer_1_3d" not in _variant_kinds(proposal)
+
+    with pytest.raises(HTTPException) as error:
+        approve_proposal(proposal["id"], db=db, variant_kind="transfer_1_3d")
+    assert error.value.status_code == 422
+    assert db.get_latest_planning_checkpoint()["id"] == base["id"]
+    assert db.get_coach_proposal(proposal["id"])["status"] == "failed"
+
+
+def test_approve_recovery_proposal_with_explicit_none_variant_kind_matches_legacy_downgrade(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Legacy back-compat: an explicit `variant_kind=None` must behave
+    exactly like today's omitted-argument downgrade contract (already
+    pinned by test_recovery_proposal_reject_approve_and_append_only_rollback
+    for the omitted-argument form), not like an unknown-kind rejection."""
+    from api import recovery_replan_loop as loop_module
+    from api.routers.decisions import approve_proposal
+
+    today = date(2026, 7, 10)
+    report = _conflict_report(today, days_until=4)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    db = Database(str(tmp_path / "transfer-confirm-legacy-none.db"))
+    base = _save_plan(db, _goal_plan(today, conflict_days_until=4))
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+
+    approved = approve_proposal(proposal["id"], db=db, variant_kind=None)
+
+    assert approved["proposal"]["status"] == "approved"
+    applied = db.get_latest_planning_checkpoint()
+    assert applied["checkpoint_source"] == "recovery_replan"
+    assert applied["checkpoint_parent_id"] == base["id"]
+
+
+def test_approve_recovery_transfer_variant_applies_via_shared_primitive_and_rollback_is_append_only(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Full M4 contract for the happy path: explicit `transfer_1_3d`
+    selection routes through `apply_session_transfer` against the exact
+    base checkpoint (never the near-term editor), appends exactly one
+    `recovery_replan_transfer` checkpoint with auditable lineage, never
+    calls the provider boundary, and rollback appends exactly one restored
+    revision without deleting history."""
+    from api import planning_service as planning_service_module
+    from api import recovery_replan_loop as loop_module
+    from api.routers import decisions as decisions_router
+    from api.routers.decisions import approve_proposal, rollback_proposal
+
+    today = date(2026, 7, 13)  # Monday
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+
+    delivery_calls = []
+
+    def fake_delivery(_db, *, dates, source, **_kwargs):
+        delivery_calls.append({"dates": list(dates), "source": source})
+        return {
+            "status": "failed",
+            "retryable": True,
+            "error": "must not be called on the transfer path",
+            "dates": list(dates),
+        }
+
+    monkeypatch.setattr(decisions_router, "safe_deliver_active_plan", fake_delivery, raising=False)
+
+    near_term_calls = []
+    original_apply_near_term = planning_service_module.apply_near_term_day_edits
+
+    def spy_near_term(*args, **kwargs):
+        near_term_calls.append(True)
+        return original_apply_near_term(*args, **kwargs)
+
+    monkeypatch.setattr(planning_service_module, "apply_near_term_day_edits", spy_near_term)
+
+    db = Database(str(tmp_path / "transfer-confirm-happy-path.db"))
+    base = _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    transfer = _transfer_preview(proposal)
+    source_date = transfer["source_date"]
+    target_date = transfer["target_date"]
+    old_session_id = transfer["replaced_session_id"]
+    expected_new_session_id = transfer["new_session"]["session_id"]
+    expected_new_tss = float(transfer["new_session"]["total_tss"])
+
+    approved = approve_proposal(proposal["id"], db=db, variant_kind="transfer_1_3d")
+
+    assert approved["proposal"]["status"] == "approved"
+    result = approved["result"]
+    assert result["selected_kind"] == "transfer_1_3d"
+    assert result["old_session_id"] == old_session_id
+    assert result["new_session_id"] == expected_new_session_id
+    assert sorted(result["affected_dates"]) == sorted([source_date, target_date])
+    assert result["rollback_checkpoint_id"] == base["id"]
+    assert delivery_calls == []
+    assert near_term_calls == []
+
+    applied = db.get_latest_planning_checkpoint()
+    assert applied["id"] == int(result["plan_id"])
+    assert applied["checkpoint_source"] == "recovery_replan_transfer"
+    assert applied["checkpoint_parent_id"] == base["id"]
+    assert len(db.get_recent_planning_checkpoints(limit=10)) == 2  # base + applied only
+
+    source_template = next(
+        row
+        for row in applied["goal_plan_snapshot"]["session_templates"]
+        if row["date"] == source_date
+    )
+    assert old_session_id not in {
+        s.get("session_id") for s in source_template.get("sessions", [])
+    }
+    target_template = next(
+        row
+        for row in applied["goal_plan_snapshot"]["session_templates"]
+        if row["date"] == target_date
+    )
+    target_session = next(
+        s
+        for s in target_template.get("sessions", [])
+        if s.get("session_id") == expected_new_session_id
+    )
+    assert float(target_session.get("total_tss")) == expected_new_tss
+    assert target_session.get("replaces_session_id") == old_session_id
+
+    rolled_back = rollback_proposal(proposal["id"], db=db)
+
+    assert rolled_back["proposal"]["status"] == "rolled_back"
+    assert delivery_calls == []  # still no provider call after rollback
+    restored = db.get_latest_planning_checkpoint()
+    assert restored["id"] > applied["id"]
+    assert restored["checkpoint_source"] == "restore_version"
+    assert restored["checkpoint_parent_id"] == applied["id"]
+    assert restored["checkpoint_restored_from_checkpoint_id"] == base["id"]
+    assert len(db.get_recent_planning_checkpoints(limit=10)) == 3  # base, applied, restored
+    assert db.get_planning_checkpoint(base["id"]) is not None
+    assert db.get_planning_checkpoint(applied["id"]) is not None
+    restored_source_template = next(
+        row
+        for row in restored["goal_plan_snapshot"]["session_templates"]
+        if row["date"] == source_date
+    )
+    assert old_session_id in {
+        s.get("session_id") for s in restored_source_template.get("sessions", [])
+    }
+
+
+def test_approve_recovery_transfer_variant_refuses_stale_active_plan(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import recovery_replan_loop as loop_module
+    from api.routers.decisions import approve_proposal
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    db = Database(str(tmp_path / "transfer-confirm-stale.db"))
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=2))  # active checkpoint moves on
+
+    with pytest.raises(HTTPException) as error:
+        approve_proposal(proposal["id"], db=db, variant_kind="transfer_1_3d")
+    assert error.value.status_code == 409
+    assert db.get_coach_proposal(proposal["id"])["status"] == "failed"
+    assert len(db.get_recent_planning_checkpoints(limit=10)) == 2  # no third checkpoint written
+
+
+def test_approve_recovery_transfer_variant_serializes_concurrent_double_confirm(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import recovery_replan_loop as loop_module
+    from api.routers.decisions import approve_proposal
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    db = Database(str(tmp_path / "transfer-confirm-concurrent.db"))
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    barrier = Barrier(2)
+
+    def confirm(_sequence: int):
+        barrier.wait()
+        try:
+            return approve_proposal(proposal["id"], db=db, variant_kind="transfer_1_3d")
+        except HTTPException as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        outcomes = list(executor.map(confirm, (1, 2)))
+
+    successes = [o for o in outcomes if not isinstance(o, HTTPException)]
+    failures = [o for o in outcomes if isinstance(o, HTTPException)]
+    assert len(successes) == 1
+    assert len(failures) == 1
+    assert failures[0].status_code == 409
+    assert len(db.get_recent_planning_checkpoints(limit=10)) == 2  # base + exactly one applied
