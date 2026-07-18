@@ -117,7 +117,7 @@ def refresh_recovery_episodes(
     still be revalidated when new match/feedback evidence for it arrives,
     without reconciling the athlete's entire history.
     """
-    if target_session_ids:
+    if target_session_ids is not None:
         return _refresh_targeted_episodes(
             db,
             as_of=as_of,
@@ -125,6 +125,36 @@ def refresh_recovery_episodes(
             target_session_ids=target_session_ids,
         )
     return _refresh_bounded_sync_episodes(db, as_of=as_of, capture_mode=capture_mode)
+
+
+def _session_template_projections(
+    session_templates: list[dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """One canonical template projection per PARENT session's own content.
+
+    A multi-session day's day-level fields (`session_templates[i]` itself)
+    are a projection of that day's PRIMARY session only
+    (`models/session_identity.py`: "the day's identity is a projection of
+    its primary session"); a secondary sibling's own `definition_snapshot`/
+    `kind`/`legs`/`template_key` live solely inside its `sessions[]` entry.
+    Keying by the day-level id alone silently drops a secondary session's
+    own prescription, so this always resolves per PARENT session via
+    `iter_parent_sessions`, merging the day's own date/phase context with
+    that session's own content (which wins on overlap).
+    """
+    from models.plan_actual_reconciliation import iter_parent_sessions
+
+    projections: dict[str, dict[str, Any]] = {}
+    for entry in iter_parent_sessions(session_templates):
+        session = entry["session"]
+        session_id = str(session.get("session_id") or "")
+        if not session_id:
+            continue
+        merged = dict(entry["template"])
+        merged.pop("sessions", None)
+        merged.update(session)
+        projections[session_id] = merged
+    return projections
 
 
 def _refresh_bounded_sync_episodes(
@@ -169,11 +199,7 @@ def _refresh_bounded_sync_episodes(
         }
     checkpoint = db.get_latest_planning_checkpoint()
     plan = ensure_session_identities(restore_goal_plan_from_checkpoint(checkpoint) or {})
-    templates = {
-        str(item.get("session_id")): dict(item)
-        for item in plan.get("session_templates", []) or []
-        if item.get("session_id")
-    }
+    templates = _session_template_projections(plan.get("session_templates", []) or [])
     start_text = earliest.isoformat()
     end_text = resolved_as_of.isoformat()
     activities = db.get_activities_between(start_text, end_text)
@@ -249,15 +275,31 @@ def _materialize_matched_row(
 
     Returns `None` (no DB write) when the row is not eligible for
     materialization -- not user/auto-matched, or no confirmed actual
-    activities -- which the bounded-sync loop treats as "skip" and the
-    targeted refresh reports as `status: "not_matched"`. Shared verbatim by
-    both scopes so they can never produce subtly different episode content
-    for the same evidence.
+    activities -- UNLESS a prior episode revision already exists for this
+    target, in which case that stale "eligible"/"maturing" episode is no
+    longer supported by current evidence (e.g. a confirmed match was
+    rejected) and gets superseded by one append-only invalidating revision
+    instead (`_invalidate_stale_episode`). A target that was never matched
+    still gets no episode at all -- there is nothing to invalidate. Shared
+    verbatim by both scopes so they can never produce subtly different
+    episode content for the same evidence.
     """
-    if row.get("match_status") != "matched" or not row.get("actual_activity_ids"):
-        return None
     session_date = date.fromisoformat(str(row.get("date"))[:10])
     session_id = str(row.get("session_id") or "")
+    target_key = f"session:{session_id}"
+    match_status = str(row.get("match_status") or "unmatched")
+    match = matches.get(str(row.get("target_key"))) or {}
+    if match_status != "matched" or not row.get("actual_activity_ids"):
+        return _invalidate_stale_episode(
+            db,
+            target_key=target_key,
+            session_id=session_id,
+            session_date=session_date,
+            checkpoint=checkpoint,
+            match=match,
+            capture_mode=capture_mode,
+            match_status=match_status,
+        )
     template = templates.get(session_id, {})
     actual_tss = float(row.get("actual_total_tss") or 0.0)
     adherence = str(row.get("adherence") or "unknown")
@@ -320,9 +362,8 @@ def _materialize_matched_row(
         else {"readiness_deltas": {"d1": None, "d2": None, "d3": None}, "recovered_by_day": None, "missing_days": [1, 2, 3]}
     )
     feedback = feedbacks.get(session_id) or {}
-    match = matches.get(str(row.get("target_key"))) or {}
     frozen = {
-        "target_key": f"session:{session_id}",
+        "target_key": target_key,
         "checkpoint_id": checkpoint.get("id") if checkpoint else None,
         "match_revision_id": match.get("id"),
         "feedback_id": feedback.get("id"),
@@ -345,7 +386,7 @@ def _materialize_matched_row(
     return db.save_recovery_episode(
         {
             "fingerprint": _fingerprint(frozen),
-            "target_key": f"session:{session_id}",
+            "target_key": target_key,
             "session_id": session_id,
             "plan_checkpoint_id": checkpoint.get("id") if checkpoint else None,
             "match_revision_id": match.get("id"),
@@ -378,6 +419,64 @@ def _materialize_matched_row(
             "feedback": feedback,
             "outcome": outcome,
             "confounders": {"constraints": confounding_constraints},
+        }
+    )
+
+
+def _invalidate_stale_episode(
+    db: Database,
+    *,
+    target_key: str,
+    session_id: str,
+    session_date: date,
+    checkpoint: dict[str, Any] | None,
+    match: dict[str, Any],
+    capture_mode: str,
+    match_status: str,
+) -> dict[str, Any] | None:
+    """Supersede a prior episode whose match evidence no longer holds.
+
+    Only writes when a prior revision already exists for `target_key`: a
+    session that was never matched must not get a first, empty episode from
+    this path -- there is nothing stale to invalidate. When a prior episode
+    does exist (e.g. a confirmed match later rejected), append one
+    append-only "excluded" revision carrying the new `match_revision_id` and
+    a machine-readable reason, so `latest_only` reads never keep showing a
+    superseded "eligible"/"maturing" episode as current. Fingerprinted on
+    `match.get("id")`, so an unchanged rejection retried against the same
+    match revision is a no-op.
+    """
+    existing = db.get_recovery_episodes(latest_only=True, capture_mode=capture_mode)
+    if not any(row.get("target_key") == target_key for row in existing):
+        return None
+    reasons = ["match_rejected"] if match_status == "unmatched" else [f"match_status_{match_status}"]
+    frozen = {
+        "target_key": target_key,
+        "checkpoint_id": checkpoint.get("id") if checkpoint else None,
+        "match_revision_id": match.get("id"),
+        "reasons": reasons,
+        "status": "excluded",
+        "capture_mode": capture_mode,
+    }
+    iso = session_date.isocalendar()
+    return db.save_recovery_episode(
+        {
+            "fingerprint": _fingerprint(frozen),
+            "target_key": target_key,
+            "session_id": session_id,
+            "plan_checkpoint_id": checkpoint.get("id") if checkpoint else None,
+            "match_revision_id": match.get("id"),
+            "feedback_id": None,
+            "session_date": session_date.isoformat(),
+            "iso_week": f"{iso.year}-W{iso.week:02d}",
+            "capture_mode": capture_mode,
+            "status": "excluded",
+            "rule_version": RECOVERY_RESPONSE_RULE_VERSION,
+            "exclusion_reasons": reasons,
+            "planned": {},
+            "actual": {},
+            "outcome": {},
+            "confounders": {},
         }
     )
 
@@ -419,11 +518,7 @@ def _refresh_targeted_episodes(
     checkpoint = db.get_latest_planning_checkpoint()
     plan = ensure_session_identities(restore_goal_plan_from_checkpoint(checkpoint) or {}) if checkpoint else {}
     session_templates = plan.get("session_templates", []) or []
-    templates = {
-        str(item.get("session_id")): dict(item)
-        for item in session_templates
-        if item.get("session_id")
-    }
+    templates = _session_template_projections(session_templates)
 
     snapshots = db.get_readiness_snapshots(capture_mode=capture_mode)
     try:
@@ -446,9 +541,10 @@ def _refresh_targeted_episodes(
         # find_planned_session resolves by the PARENT session's own content-
         # derived id inside `sessions[]`, never the day-level scalar
         # projection -- required so a session on a multi-session day
-        # (Issue #205/#209) resolves correctly, not just the common
-        # single-session-day case where the flat `templates` map above
-        # happens to already agree with it.
+        # (Issue #205/#209) resolves correctly. `templates` above is keyed
+        # the same way (via _session_template_projections), so its lookup
+        # agrees with this resolution for every session on the day, not
+        # just the day's primary.
         day_template, nested_session = find_planned_session(session_templates, session_id)
         session_date_text = str((day_template or {}).get("date") or "")[:10]
         session_date: date | None = None
