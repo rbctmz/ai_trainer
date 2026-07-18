@@ -1555,18 +1555,49 @@ def test_preview_exposes_three_product_blocks_with_recommended_transfer_when_saf
 
     changes = _what_changes(proposal)
     assert changes["variants"] == preview["variants"]
+    assert changes["current_session"] == preview["current_session"]
+    assert changes["recommended_session"] == preview["recommended_session"]
     assert [v["kind"] for v in changes["variants"]] == [
         "keep", "downgrade_today", "transfer_1_3d",
     ]
     assert changes["recommended_kind"] == "transfer_1_3d"
     recommended_kinds = [v["kind"] for v in changes["variants"] if v.get("recommended")]
     assert recommended_kinds == [changes["recommended_kind"]]
+    variants = {item["kind"]: item for item in changes["variants"]}
+    assert variants["keep"]["session"] == changes["current_session"]
+    assert variants["downgrade_today"]["session"] == changes["recommended_session"]
+    transfer = variants["transfer_1_3d"]
+    assert transfer["source_date"] == (today + timedelta(days=1)).isoformat()
+    assert transfer["target_date"] == (today + timedelta(days=2)).isoformat()
+    assert [row["date"] for row in transfer["day_changes"]] == [
+        transfer["source_date"], transfer["target_date"],
+    ]
+    assert all("before_sessions" in row and "after_sessions" in row for row in transfer["day_changes"])
+    target_change = next(row for row in transfer["day_changes"] if row["date"] == transfer["target_date"])
+    assert len(target_change["before_sessions"]) == 1
+    assert len(target_change["after_sessions"]) == 2
 
     protected = _what_is_protected(proposal)
     assert protected["candidates"] == preview["transfer_candidates"]
     assert len(protected["candidates"]) == 3
     assert protected["weekly_tss_delta"] == 0
     assert protected["weekly_duration_delta_minutes"] == 0
+    assert set(protected["by_variant"]) == set(variants)
+    assert protected["by_variant"]["keep"] == {
+        "weekly_tss_delta": 0,
+        "weekly_duration_delta_minutes": 0,
+        "mutates_plan": False,
+    }
+    assert protected["by_variant"]["downgrade_today"] == {
+        "weekly_tss_delta": preview["total_delta_tss"],
+        "weekly_duration_delta_minutes": None,
+        "mutates_plan": True,
+    }
+    assert protected["by_variant"]["transfer_1_3d"] == {
+        "weekly_tss_delta": 0,
+        "weekly_duration_delta_minutes": 0,
+        "mutates_plan": True,
+    }
 
 
 def test_preview_exposes_three_product_blocks_with_downgrade_recommended_and_exact_rejections_when_no_safe_date(
@@ -1603,6 +1634,11 @@ def test_preview_exposes_three_product_blocks_with_downgrade_recommended_and_exa
     assert all(row["rejected_reasons"] == ["protected"] for row in protected["candidates"])
     assert protected["weekly_tss_delta"] == preview["total_delta_tss"]
     assert protected["weekly_duration_delta_minutes"] is None
+    assert set(protected["by_variant"]) == {"keep", "downgrade_today"}
+    assert protected["by_variant"]["keep"]["mutates_plan"] is False
+    assert protected["by_variant"]["keep"]["weekly_tss_delta"] == 0
+    assert protected["by_variant"]["downgrade_today"]["mutates_plan"] is True
+    assert protected["by_variant"]["downgrade_today"]["weekly_tss_delta"] <= 0
 
 
 def test_loop_upgrades_legacy_pending_proposal_preview_with_product_blocks_on_reuse(

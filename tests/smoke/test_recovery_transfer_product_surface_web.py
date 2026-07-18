@@ -31,7 +31,10 @@ def test_proposal_card_sends_selected_variant_kind_to_approve_not_an_empty_paylo
     source = _source("web/components/ui/ProposalCard.tsx")
 
     assert "variant_kind" in source
-    assert "selectedVariantKind" in source or "selectedKind" in source
+    assert "selectedVariantKind" in source
+    assert "URLSearchParams" in source
+    assert "params.set(\"variant_kind\", selectedVariantKind)" in source
+    assert "`/api/decisions/proposals/${proposalId}/approve?${params.toString()}`" in source
 
 
 def test_proposal_card_variant_selection_defaults_to_recommended_and_is_reselectable() -> None:
@@ -41,8 +44,31 @@ def test_proposal_card_variant_selection_defaults_to_recommended_and_is_reselect
     rendered `what_changes` preview (never mutate the plan)."""
     source = _source("web/components/ui/ProposalCard.tsx")
 
-    assert "recommended_kind" in source or "recommended_variant" in source
-    assert ".variants" in source
+    assert "recommended_kind" in source
+    assert "availableRecoveryVariants" in source
+    assert "selectedVariantKind" in source
+    assert '"downgrade_today"' in source
+    assert "availableRecoveryVariants.some" in source
+
+
+def test_selected_variant_drives_both_change_and_protection_views_without_mutation() -> None:
+    source = _source("web/components/ui/ProposalCard.tsx")
+
+    assert "selectedVariant" in source
+    assert "selectedProtection" in source
+    assert "selectedVariantKind" in source
+    assert "whatChanges" in source
+    assert "whatIsProtected" in source
+
+
+def test_proposal_card_has_accessible_inspect_and_collapse_evidence_control() -> None:
+    source = _source("web/components/ui/ProposalCard.tsx")
+
+    assert "showEvidence" in source
+    assert "setShowEvidence" in source
+    assert 'aria-expanded={showEvidence}' in source
+    assert "Показать доказательства" in source
+    assert "Скрыть доказательства" in source
 
 
 def test_proposal_card_renders_three_compact_block_headings_exactly() -> None:
@@ -103,9 +129,11 @@ def test_decisions_history_hides_rollback_control_for_keep_and_names_transfer_id
     not just a generic near-term-edit label."""
     source = _source("web/app/decisions/page.tsx")
 
-    assert 'selected_kind !== "keep"' in source or 'selectedKind !== "keep"' in source
+    assert "MUTATING_RECOVERY_VARIANTS" in source
+    assert 'new Set(["downgrade_today", "transfer_1_3d"])' in source
     assert "old_session_id" in source
     assert "new_session_id" in source
+    assert "affected_dates" in source
 
 
 def test_today_decisions_coach_all_render_through_the_shared_proposal_card() -> None:
