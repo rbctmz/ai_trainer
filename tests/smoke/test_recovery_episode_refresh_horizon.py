@@ -171,6 +171,73 @@ def _build_old_matched_session(
     return checkpoint, session_id
 
 
+def _multi_session_old_plan(
+    session_date: date, *, primary_tss: float = 60.0, secondary_tss: float = 20.0
+) -> dict:
+    """Legacy-shape helper `_old_session_plan` only ever emits one session per
+    day. Checker review round 4 (PR #220): the multi-session `sessions[]`
+    shape (Issue #205) needs its own fixture because a secondary session's
+    own `definition_snapshot`/`kind`/`template_key` live ONLY inside its
+    `sessions[]` entry, never projected onto the day-level template."""
+    day_iso = session_date.isoformat()
+    primary = {
+        "sport": "bike",
+        "session_role": "quality",
+        "session_focus": "Bike quality",
+        "duration_minutes": 72,
+        "total_tss": primary_tss,
+        "template_key": "build:quality:bike",
+        "kind": "single",
+        "definition_snapshot": {
+            "step_builder_key": "bike_quality",
+            "catalog_version": "workout_catalog_v1",
+        },
+    }
+    secondary = {
+        "sport": "swim",
+        "session_role": "easy",
+        "session_focus": "Swim easy",
+        "duration_minutes": 30,
+        "total_tss": secondary_tss,
+        "template_key": "build:easy:swim",
+        "kind": "single",
+        "definition_snapshot": {
+            "step_builder_key": "swim_easy",
+            "catalog_version": "workout_catalog_v1",
+        },
+    }
+    return {
+        "goal_type": "triathlon",
+        "distance": "olympic",
+        "start_week": session_date,
+        "weekly_tss_plan": [primary_tss + secondary_tss],
+        "phases": ["Build"],
+        "daily_plan": [
+            (
+                datetime.combine(session_date, datetime.min.time()),
+                primary_tss + secondary_tss,
+                {"bike": primary_tss, "swim": secondary_tss},
+            )
+        ],
+        "session_templates": [
+            {
+                "date": day_iso,
+                "week_index": 0,
+                "day_index": 0,
+                "phase": "Build",
+                "session_role": "quality",
+                "session_focus": "Bike quality",
+                "sport": "bike",
+                "duration_minutes": 72,
+                "sessions": [dict(primary), dict(secondary)],
+            }
+        ],
+        "weekly_summary": [],
+        "constraint_summary": {},
+        "near_term_edit_version": 0,
+    }
+
+
 def _spy(monkeypatch, module, name):
     """Wrap `module.name` to record every call's args/kwargs while still
     delegating to the real implementation, so behavior is unchanged."""
@@ -705,3 +772,194 @@ def test_admin_resolve_of_old_session_creates_exactly_one_episode_revision(tmp_p
     assert len(episodes) == 1
     assert episodes[0]["session_id"] == session_id
     assert episodes[0]["revision"] == 1
+
+
+# ---------------------------------------------------------------------------
+# Gate 10 (checker review round 4, blocker #1): targeted refresh of a
+# SECONDARY session on a multi-session day must keep that session's own
+# prescription metadata -- never the day-level scalar projection, which only
+# ever reflects the day's PRIMARY session.
+# ---------------------------------------------------------------------------
+
+
+def test_targeted_refresh_of_secondary_session_on_multi_session_day_keeps_its_own_template(
+    tmp_path,
+):
+    db = Database(str(tmp_path / "multi-session.db"))
+    plan = _multi_session_old_plan(OLD_DATE)
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    sessions = checkpoint["goal_plan_snapshot"]["session_templates"][0]["sessions"]
+    primary_id = sessions[0]["session_id"]
+    secondary_id = sessions[1]["session_id"]
+    assert primary_id != secondary_id
+
+    db.save_activities(
+        [
+            {
+                "activity_id": "swim-secondary",
+                "date": OLD_DATE.isoformat(),
+                "started_at_utc": f"{OLD_DATE.isoformat()}T08:00:00Z",
+                "sport": "swim",
+                "duration_minutes": 24,
+                "tss": 20.0,
+            }
+        ]
+    )
+    db.save_plan_actual_match(
+        {
+            "fingerprint": "match-swim-secondary",
+            "target_key": f"session:{secondary_id}",
+            "session_id": secondary_id,
+            "base_checkpoint_id": checkpoint["id"],
+            "session_date": OLD_DATE.isoformat(),
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "confidence": 1.0,
+            "planned_snapshot": {"date": OLD_DATE.isoformat(), "sport": "swim", "role": "easy"},
+            "actual_activity_ids": ["swim-secondary"],
+            "actual_snapshot": {"tss": 20.0, "sport": "swim", "role": "easy"},
+            "evidence": ["User explicitly confirmed activity match"],
+            "rule_version": "plan_actual_match_v1",
+        }
+    )
+    for offset, score in ((0, 70), (1, 62), (2, 68), (3, 71)):
+        _snapshot(db, OLD_DATE + timedelta(days=offset), score)
+
+    result = refresh_recovery_episodes(db, as_of=AS_OF, target_session_ids=[secondary_id])
+
+    assert result["created"] == 1
+    episode = next(
+        row for row in db.get_recovery_episodes(latest_only=True) if row["session_id"] == secondary_id
+    )
+    assert episode["template_id"] == "build:easy:swim"
+    assert episode["stimulus_family"] == "swim_easy"
+    assert episode["exclusion_reasons"] == []
+    assert episode["status"] == "eligible"
+    assert episode["planned"]["template"]["definition_snapshot"]["step_builder_key"] == "swim_easy"
+    assert episode["planned"]["template"]["sport"] == "swim"
+
+    # The untouched primary sibling never got an episode of its own.
+    assert primary_id not in {row["session_id"] for row in db.get_recovery_episodes(latest_only=True)}
+
+
+# ---------------------------------------------------------------------------
+# Gate 11 (checker review round 4, blocker #2): rejecting a previously
+# confirmed match must invalidate the stale episode with a new append-only
+# revision -- the production reject path must not leave a superseded
+# "eligible" episode as the derived-table's latest row.
+# ---------------------------------------------------------------------------
+
+
+def test_reject_of_previously_confirmed_match_invalidates_the_stale_episode(tmp_path):
+    from api import planning_service as ps
+
+    db = Database(str(tmp_path / "reject-invalidate.db"))
+    plan = _old_session_plan(OLD_DATE, sport="bike")
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    session_id = checkpoint["goal_plan_snapshot"]["session_templates"][0]["session_id"]
+    db.save_activities(
+        [
+            {
+                "activity_id": "old-confirm",
+                "date": OLD_DATE.isoformat(),
+                "started_at_utc": f"{OLD_DATE.isoformat()}T08:00:00Z",
+                "sport": "bike",
+                "duration_minutes": 60,
+                "tss": 60.0,
+            }
+        ]
+    )
+    for offset, score in ((0, 70), (1, 62), (2, 68), (3, 71)):
+        _snapshot(db, OLD_DATE + timedelta(days=offset), score)
+
+    confirmed = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=checkpoint["id"],
+        session_id=session_id,
+        activity_ids=["old-confirm"],
+        actual_role="long",
+        action="confirm",
+    )
+    episodes = db.get_recovery_episodes(latest_only=True)
+    assert len(episodes) == 1
+    assert episodes[0]["revision"] == 1
+    assert episodes[0]["status"] == "eligible"
+    assert episodes[0]["match_revision_id"] == confirmed["id"]
+
+    rejected = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=checkpoint["id"],
+        session_id=session_id,
+        activity_ids=[],
+        actual_role=None,
+        action="reject",
+    )
+    assert rejected["match_status"] == "unmatched"
+    assert rejected["id"] != confirmed["id"]
+
+    latest = db.get_recovery_episodes(latest_only=True)
+    assert len(latest) == 1
+    assert latest[0]["revision"] == 2
+    assert latest[0]["status"] == "excluded"
+    assert latest[0]["exclusion_reasons"] == ["match_rejected"]
+    assert latest[0]["match_revision_id"] == rejected["id"]
+
+    history = db.get_recovery_episodes(latest_only=False)
+    assert len(history) == 2
+
+    # Retry with unchanged evidence is idempotent: no new revision.
+    from services.recovery_analytics import refresh_recovery_episodes_best_effort
+
+    retry = refresh_recovery_episodes_best_effort(db, as_of=AS_OF, target_session_ids=[session_id])
+    assert retry["created"] == 0
+    assert len(db.get_recovery_episodes(latest_only=False)) == 2
+
+
+def test_reject_of_never_matched_session_creates_no_episode(tmp_path):
+    """Checker guidance: a never-matched target must not get a first, empty
+    episode from the invalidation path -- only a PRIOR episode gets
+    invalidated."""
+    from api import planning_service as ps
+
+    db = Database(str(tmp_path / "reject-never-matched.db"))
+    plan = _old_session_plan(OLD_DATE, sport="bike")
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    session_id = checkpoint["goal_plan_snapshot"]["session_templates"][0]["session_id"]
+
+    rejected = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=checkpoint["id"],
+        session_id=session_id,
+        activity_ids=[],
+        actual_role=None,
+        action="reject",
+    )
+    assert rejected["match_status"] == "unmatched"
+    assert db.get_recovery_episodes(latest_only=True) == []
+    assert db.get_recovery_episodes(latest_only=False) == []
+
+
+# ---------------------------------------------------------------------------
+# Gate 12 (checker review round 4, minor #3): an explicit empty
+# `target_session_ids` list must stay in the "targeted" scope (a no-op) and
+# never silently widen to a full bounded_sync reconciliation.
+# ---------------------------------------------------------------------------
+
+
+def test_explicit_empty_target_list_stays_targeted_and_never_widens_to_bounded_sync(
+    tmp_path, monkeypatch
+):
+    from services import reconciliation as reconciliation_service
+
+    db = Database(str(tmp_path / "empty-target.db"))
+    _build_old_matched_session(db, session_date=OLD_DATE, activity_id="old-ride")
+    calls = _spy(monkeypatch, reconciliation_service, "reconciliation_at")
+
+    result = refresh_recovery_episodes(db, as_of=AS_OF, target_session_ids=[])
+
+    assert result["scope"] == "targeted"
+    assert result["requested_session_ids"] == []
+    assert result["created"] == 0
+    assert result["processed"] == []
+    assert calls == []
+    assert db.get_recovery_episodes(latest_only=True) == []
