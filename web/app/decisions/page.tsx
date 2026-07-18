@@ -179,6 +179,7 @@ function ProposalEntry({
   const selectedRecoveryKind = String(recoveryResult.selected_kind ?? "downgrade_today");
   const oldSessionId = String(recoveryResult.old_session_id ?? "");
   const newSessionId = String(recoveryResult.new_session_id ?? "");
+  const newSessionLabel = String(recoveryResult.new_session_label ?? "");
   const affectedDates = Array.isArray(recoveryResult.affected_dates)
     ? recoveryResult.affected_dates.map(String)
     : [];
@@ -186,11 +187,13 @@ function ProposalEntry({
     selectedRecoveryKind === "keep"
       ? "План оставлен без изменений"
       : selectedRecoveryKind === "transfer_1_3d"
-        ? [
-            affectedDates.join(" → "),
-            oldSessionId && newSessionId ? `${oldSessionId} → ${newSessionId}` : "",
-          ].filter(Boolean).join(" · ")
+        ? [newSessionLabel, affectedDates.join(" → ")].filter(Boolean).join(" · ")
         : `${String(recommended?.name ?? "Снижение нагрузки")} · ${String(recommended?.tss ?? "—")} TSS`;
+  // Identity handoff stays available as evidence (tooltip), never the main summary text.
+  const transferIdentityTitle =
+    selectedRecoveryKind === "transfer_1_3d" && oldSessionId && newSessionId
+      ? oldSessionId + " → " + newSessionId
+      : undefined;
   const canRollbackRecovery =
     proposal.action === "recovery_replan"
     && proposal.status === "approved"
@@ -228,7 +231,11 @@ function ProposalEntry({
           {proposal.status}
         </span>
       </div>
-      {summary ? <div className="mt-1 text-ink-soft">{summary}</div> : null}
+      {summary ? (
+        <div className="mt-1 text-ink-soft" title={transferIdentityTitle}>
+          {summary}
+        </div>
+      ) : null}
       <div className="mt-1 text-xs text-ink-faint">
         {proposal.time || proposal.date}
       </div>

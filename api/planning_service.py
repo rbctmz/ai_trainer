@@ -68,6 +68,7 @@ from models.training_planner import (
     derive_weekly_sport_buckets_from_sessions,
     expand_weekly_to_daily_triathlon,
     flatten_daily_total,
+    SESSION_ROLE_LABELS_RU,
     synchronize_microcycle_changes,
     weeks_until,
 )
@@ -1223,6 +1224,26 @@ def apply_recovery_replan(
     }
 
 
+def _recovery_transfer_session_label(session: Dict[str, Any]) -> str:
+    """Human-readable label for a transferred session (Issue #223).
+
+    Athlete-facing summaries must not read raw content-derived `ats_...`
+    session ids (`models/session_identity.py`). Prefers the session's own
+    `export_name`; falls back to its role + sport label when unset, and
+    always carries TSS so the athlete sees what actually moved.
+    """
+    role_label = SESSION_ROLE_LABELS_RU.get(str(session.get("session_role") or ""), "")
+    sport_label = str(session.get("sport_label") or "").strip()
+    name = str(session.get("export_name") or "").strip() or " • ".join(
+        part for part in (role_label, sport_label) if part
+    ) or "Сессия"
+    try:
+        tss = int(round(float(session.get("total_tss") or 0.0)))
+    except (TypeError, ValueError):
+        tss = 0
+    return f"{name} ({tss} TSS)"
+
+
 def apply_recovery_replan_transfer(
     db: Database,
     *,
@@ -1269,13 +1290,25 @@ def apply_recovery_replan_transfer(
         parent_checkpoint_id=base_checkpoint_id,
     )
 
+    new_session_label = ""
+    target_date_iso = str(target_date)[:10]
+    for template in list(applied["goal_plan"].get("session_templates") or []):
+        if not isinstance(template, dict) or str(template.get("date") or "")[:10] != target_date_iso:
+            continue
+        for session in list(template.get("sessions") or []):
+            if isinstance(session, dict) and str(session.get("session_id") or "") == applied["new_session_id"]:
+                new_session_label = _recovery_transfer_session_label(session)
+                break
+        if new_session_label:
+            break
+
     saved = None
     plan_id = None
     if persist:
         saved = db.save_planning_checkpoint(build_planning_checkpoint(moved_plan))
         plan_id = str((saved or {}).get("id") or "")
 
-    affected_dates = sorted({d for d in (source_date, str(target_date)[:10]) if d})
+    affected_dates = sorted({d for d in (source_date, target_date_iso) if d})
     return {
         "plan_id": plan_id,
         "applied_checkpoint_id": int(plan_id) if plan_id else None,
@@ -1283,6 +1316,7 @@ def apply_recovery_replan_transfer(
         "checkpoint_source": "recovery_replan_transfer",
         "old_session_id": applied["old_session_id"],
         "new_session_id": applied["new_session_id"],
+        "new_session_label": new_session_label,
         "affected_dates": affected_dates,
     }
 
