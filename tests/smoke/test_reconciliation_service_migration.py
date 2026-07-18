@@ -10,13 +10,13 @@ helpers (`_parse_as_of`, `_provider_reconciliation_evidence`) into a new
 compatibility re-export (the SAME function object, not a copy) so every
 existing caller keeps working unchanged.
 
-These tests pin: the old and new import paths return byte-equivalent
-reconciliation payloads across five scenarios (no plan; local-only with
-provider disabled; provider available; provider unavailable/data-gap;
+These tests pin: the service returns payloads byte-equivalent to frozen
+pre-refactor `main` baselines across five scenarios (no plan; local-only
+with provider disabled; provider available; provider unavailable/data-gap;
 ledger-confirmed nested multi-session identity); repeated reads never
 mutate the database; provider access stays disabled when
 `include_provider=False`; and `api.planning_service.reconciliation_at`
-remains callable.
+remains the exact same callable.
 
 Before `services/reconciliation.py` exists, this file fails to collect
 (`ModuleNotFoundError: No module named 'services.reconciliation'`) — that
@@ -26,6 +26,7 @@ provider entirely or injects a fake client.
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from datetime import timedelta
@@ -45,26 +46,44 @@ def _canonical(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
 
 
+_PRE_REFACTOR_PAYLOAD_SHA256 = {
+    # Captured from main@eeefc96 before reconciliation_at moved to services/.
+    "no_plan": "e91c4897f1de495c9564da88f8a9fdeaba02f0439e7fb5c2f7aa1148833bd9dd",
+    "local_disabled": "a7dc028bb5ea036eb9df29f7f25af6ac375cc5c4da99a1b4d80427e5b41d7449",
+    "provider_available": "e73108c14b9b7931bed05dd3998e0f9302615dbe2f42563732337841d2d182b0",
+    "provider_unavailable": "4ddcc6c4b46f1cddacf14a4212b9a8f29dc029da3165c90e02c4757b038f99a1",
+    "nested_ledger": "ed5430b52b1999f8a83f7635164d6745daa05eef561a010e8c10c4b7497e6e4e",
+}
+
+
+def _assert_pre_refactor_payload(payload: dict, scenario: str) -> None:
+    digest = hashlib.sha256(_canonical(payload).encode("utf-8")).hexdigest()
+    assert digest == _PRE_REFACTOR_PAYLOAD_SHA256[scenario]
+
+
 _MUTATION_TRACKED_TABLES = (
     "planning_checkpoints",
     "plan_actual_matches",
     "session_feedback",
+    "coach_proposals",
     "recovery_episodes",
 )
 
 
-def _table_counts(db: Database) -> dict[str, int]:
-    """Row counts for every table `reconciliation_at` must never mutate."""
+def _table_snapshots(db: Database) -> dict[str, object]:
+    """Full row snapshots for every table `reconciliation_at` must not mutate."""
     conn = sqlite3.connect(db.db_path)
     try:
-        counts: dict[str, int] = {}
+        snapshots: dict[str, object] = {}
         for table in _MUTATION_TRACKED_TABLES:
             try:
-                (count,) = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()  # noqa: S608
+                cursor = conn.execute(f'SELECT * FROM "{table}" ORDER BY rowid')  # noqa: S608
             except sqlite3.OperationalError:
-                count = -1  # table not present in this schema — excluded from comparison
-            counts[table] = int(count)
-        return counts
+                snapshots[table] = None
+                continue
+            columns = tuple(item[0] for item in cursor.description or ())
+            snapshots[table] = (columns, tuple(tuple(row) for row in cursor.fetchall()))
+        return snapshots
     finally:
         conn.close()
 
@@ -83,26 +102,23 @@ def test_api_planning_service_reexports_the_same_function_object():
 
 
 # ---------------------------------------------------------------------------
-# 2. Byte-equivalence across five scenarios.
+# 2. Byte-equivalence with pre-refactor main across five scenarios.
 # ---------------------------------------------------------------------------
 
 
 def test_byte_equivalent_when_no_plan_exists(tmp_path):
-    from api.planning_service import reconciliation_at as old_path
-    from services.reconciliation import reconciliation_at as new_path
+    from services.reconciliation import reconciliation_at
 
     db = Database(str(tmp_path / "no-plan.db"))
 
-    old_result = old_path(db, weeks=1, as_of="2026-07-18", include_provider=False)
-    new_result = new_path(db, weeks=1, as_of="2026-07-18", include_provider=False)
+    result = reconciliation_at(db, weeks=1, as_of="2026-07-18", include_provider=False)
 
-    assert old_result == {"has_plan": False, "rows": [], "unplanned_activities": []}
-    assert _canonical(old_result) == _canonical(new_result)
+    assert result == {"has_plan": False, "rows": [], "unplanned_activities": []}
+    _assert_pre_refactor_payload(result, "no_plan")
 
 
 def test_byte_equivalent_local_only_provider_disabled(tmp_path, monkeypatch):
-    from api.planning_service import reconciliation_at as old_path
-    from services.reconciliation import reconciliation_at as new_path
+    from services.reconciliation import reconciliation_at
     from services import intervals_icu
 
     def _forbidden_get_client():
@@ -112,13 +128,12 @@ def test_byte_equivalent_local_only_provider_disabled(tmp_path, monkeypatch):
 
     db, _plan = _reconciliation_db(tmp_path)
 
-    old_result = old_path(db, weeks=1, as_of="2026-07-13", include_provider=False)
-    new_result = new_path(db, weeks=1, as_of="2026-07-13", include_provider=False)
+    result = reconciliation_at(db, weeks=1, as_of="2026-07-13", include_provider=False)
 
-    assert old_result["has_plan"] is True
-    assert old_result["provider"] == {"status": "disabled"}
-    assert old_result["rows"]
-    assert _canonical(old_result) == _canonical(new_result)
+    assert result["has_plan"] is True
+    assert result["provider"] == {"status": "disabled"}
+    assert result["rows"]
+    _assert_pre_refactor_payload(result, "local_disabled")
 
 
 class _FakeProviderClient:
@@ -142,8 +157,7 @@ class _FakeProviderClient:
 
 
 def test_byte_equivalent_provider_available(tmp_path, monkeypatch):
-    from api.planning_service import reconciliation_at as old_path
-    from services.reconciliation import reconciliation_at as new_path
+    from services.reconciliation import reconciliation_at
     from services import intervals_icu
 
     fake_client = _FakeProviderClient(
@@ -161,17 +175,15 @@ def test_byte_equivalent_provider_available(tmp_path, monkeypatch):
 
     db, _plan = _reconciliation_db(tmp_path)
 
-    old_result = old_path(db, weeks=1, as_of="2026-07-13", include_provider=True)
-    new_result = new_path(db, weeks=1, as_of="2026-07-13", include_provider=True)
+    result = reconciliation_at(db, weeks=1, as_of="2026-07-13", include_provider=True)
 
-    assert old_result["provider"]["status"] == "available"
-    assert old_result["provider"]["activity_count"] == 1
-    assert _canonical(old_result) == _canonical(new_result)
+    assert result["provider"]["status"] == "available"
+    assert result["provider"]["activity_count"] == 1
+    _assert_pre_refactor_payload(result, "provider_available")
 
 
 def test_byte_equivalent_provider_unavailable_data_gap(tmp_path, monkeypatch):
-    from api.planning_service import reconciliation_at as old_path
-    from services.reconciliation import reconciliation_at as new_path
+    from services.reconciliation import reconciliation_at
     from services import intervals_icu
 
     fake_client = _FakeProviderClient(raise_error=intervals_icu.IntervalsICUError("HTTP 500"))
@@ -179,13 +191,12 @@ def test_byte_equivalent_provider_unavailable_data_gap(tmp_path, monkeypatch):
 
     db, _plan = _reconciliation_db(tmp_path)
 
-    old_result = old_path(db, weeks=1, as_of="2026-07-13", include_provider=True)
-    new_result = new_path(db, weeks=1, as_of="2026-07-13", include_provider=True)
+    result = reconciliation_at(db, weeks=1, as_of="2026-07-13", include_provider=True)
 
-    assert old_result["provider"]["status"] == "unavailable"
-    assert old_result["data_quality"]["status"] == "data_gap"
-    assert "provider_unavailable" in old_result["data_quality"]["reasons"]
-    assert _canonical(old_result) == _canonical(new_result)
+    assert result["provider"]["status"] == "unavailable"
+    assert result["data_quality"]["status"] == "data_gap"
+    assert "provider_unavailable" in result["data_quality"]["reasons"]
+    _assert_pre_refactor_payload(result, "provider_unavailable")
 
 
 def test_byte_equivalent_ledger_confirmed_nested_multi_session_identity(tmp_path):
@@ -197,10 +208,9 @@ def test_byte_equivalent_ledger_confirmed_nested_multi_session_identity(tmp_path
     independently under their own ids."""
     from api.planning_service import (
         apply_recovery_replan_transfer,
-        reconciliation_at as old_path,
         record_plan_actual_match,
     )
-    from services.reconciliation import reconciliation_at as new_path
+    from services.reconciliation import reconciliation_at
 
     plan = _week(d1=[], d2=[_session("swim", "easy", 25.0)], d3=[])
     conflict = _conflict(plan)
@@ -241,14 +251,13 @@ def test_byte_equivalent_ledger_confirmed_nested_multi_session_identity(tmp_path
     )
 
     as_of = _TODAY + timedelta(days=3)
-    old_result = old_path(db, weeks=1, as_of=as_of, include_provider=False)
-    new_result = new_path(db, weeks=1, as_of=as_of, include_provider=False)
+    result = reconciliation_at(db, weeks=1, as_of=as_of, include_provider=False)
 
-    assert not any(row["session_id"] == old_id for row in old_result["rows"])
-    new_row = next(row for row in old_result["rows"] if row["session_id"] == new_id)
+    assert not any(row["session_id"] == old_id for row in result["rows"])
+    new_row = next(row for row in result["rows"] if row["session_id"] == new_id)
     assert new_row["match_method"] == "user_confirmed"
     assert new_row["actual_activity_ids"] == ["bike-moved-actual"]
-    assert _canonical(old_result) == _canonical(new_result)
+    _assert_pre_refactor_payload(result, "nested_ledger")
     assert base["id"] == 1  # sanity: fixture actually created the base checkpoint
 
 
@@ -262,12 +271,12 @@ def test_repeated_reads_are_mutation_free(tmp_path):
     from services.reconciliation import reconciliation_at
 
     db, _plan = _reconciliation_db(tmp_path)
-    before = _table_counts(db)
+    before = _table_snapshots(db)
 
     for _ in range(3):
         reconciliation_at(db, weeks=1, as_of="2026-07-13", include_provider=False)
 
-    after = _table_counts(db)
+    after = _table_snapshots(db)
     assert after == before
 
 

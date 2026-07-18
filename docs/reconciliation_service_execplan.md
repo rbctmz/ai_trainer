@@ -19,10 +19,11 @@ You can see this working two ways. First, `python -c "from services.reconciliati
 - [x] (2026-07-18) Read `AGENTS.md`, `docs/architecture/architecture_analysis_add3.md`, `.agent/PLANS.md`, `docs/AI_Feature_Development_Workflow.md`.
 - [x] (2026-07-18) Surveyed `api/planning_service.py` (the `reconciliation_at`/`_parse_as_of`/`_provider_reconciliation_evidence` trio, plus `reconciliation`, `preview_weekly_rebalance`, `confirm_weekly_rebalance` which call into it) and every consumer of `reconciliation_at` repo-wide (`services/recovery_analytics.py`, `api/session_feedback.py`, `api/today_snapshot.py`, `api/routers/planning.py`, `models/ai_tools.py`, and the smoke tests).
 - [x] (2026-07-18) Created this ExecPlan.
-- [x] (2026-07-18) Wrote the RED contract: `tests/smoke/test_reconciliation_service_migration.py` (byte-equivalent old-path/new-path payloads across five scenarios, mutation-freedom, provider gating) and a new `test_services_modules_do_not_depend_on_api` regression guard added to `tests/smoke/test_api_architecture.py`. Committed separately before any production code changed.
+- [x] (2026-07-18) Wrote the initial RED contract: `tests/smoke/test_reconciliation_service_migration.py` (compatibility path, five reconciliation scenarios, mutation-freedom, provider gating) and a new `test_services_modules_do_not_depend_on_api` regression guard added to `tests/smoke/test_api_architecture.py`. Committed separately before any production code changed; the checker follow-up below strengthened its independent oracle.
 - [x] (2026-07-18) Implemented GREEN: created `services/reconciliation.py` (moved `reconciliation_at`, `_parse_as_of`, `_provider_reconciliation_evidence` verbatim), turned the three definitions in `api/planning_service.py` into a compatibility import, switched `services/recovery_analytics.py`'s local import to `services.reconciliation`, and updated the one white-box smoke test that monkeypatched `api.planning_service._provider_reconciliation_evidence` (`tests/smoke/test_api_planning.py::test_provider_failure_blocks_rebalance_without_hiding_local_evidence`) to patch the new home instead.
 - [x] (2026-07-18) Ran the focused reconciliation/recovery/session-feedback/Today/weekly-rebalance/RecoveryReplan tests, then the full smoke suite, then the broader non-live suite. Recorded exact pass counts below in Outcomes & Retrospective.
-- [ ] Push the branch and open a draft PR with `Closes #194`.
+- [x] (2026-07-18) Pushed the branch and opened draft PR #219 with `Closes #194`.
+- [x] (2026-07-18) Checker follow-up: replaced same-object old/new comparisons with frozen pre-refactor payload hashes for all five scenarios; expanded the mutation guard to full-row snapshots including `coach_proposals`.
 
 ## Surprises & Discoveries
 
@@ -30,6 +31,10 @@ You can see this working two ways. First, `python -c "from services.reconciliati
   Evidence: `grep -n "reconciliation_at\|planning_service" api/session_feedback.py api/today_snapshot.py` shows `from api.planning_service import reconciliation_at` at module scope in both files, called locally by name thereafter — untouched by moving the underlying implementation.
 - Observation: one existing smoke test performs white-box monkeypatching of `api.planning_service._provider_reconciliation_evidence` (`tests/smoke/test_api_planning.py::test_provider_failure_blocks_rebalance_without_hiding_local_evidence`). Because `preview_weekly_rebalance` stays in `api/planning_service.py` but the real `reconciliation_at`/`_provider_reconciliation_evidence` now live in `services/reconciliation.py`, `reconciliation_at`'s internal call to `_provider_reconciliation_evidence` resolves against `services.reconciliation`'s own module globals, not `api.planning_service`'s — so the old monkeypatch target silently stops having any effect. This one test had to be updated, as a direct, minimal consequence of the migration, not scope creep.
   Evidence: `tests/smoke/test_api_planning.py:588-591` — `monkeypatch.setattr(ps, "_provider_reconciliation_evidence", ...)`.
+- Observation: the first GREEN contract compared the API import and service import after the API name had become a direct alias. Those calls necessarily invoked the same function object, so equality was true by construction and did not preserve the pre-refactor payload as an independent oracle. The checker follow-up records SHA-256 hashes of canonical JSON payloads captured from `main@eeefc96` before the move.
+  Evidence: all five frozen hashes fail on payload drift even though `api.planning_service.reconciliation_at is services.reconciliation.reconciliation_at` remains true.
+- Observation: row counts alone do not prove read-only behavior because an accidental `UPDATE` preserves `COUNT(*)`; the initial tracked-table list also omitted `coach_proposals`, despite proposal writes being named in the acceptance criteria. The checker follow-up snapshots complete ordered rows for all five named mutation surfaces.
+  Evidence: `_table_snapshots` compares columns and every row before and after three reads for checkpoints, match ledger, feedback, proposals, and recovery episodes.
 
 ## Decision Log
 
@@ -45,10 +50,16 @@ You can see this working two ways. First, `python -c "from services.reconciliati
 - Decision: Add the "services must not import api" regression guard as a new test function in the existing `tests/smoke/test_api_architecture.py` (which already hosts the analogous "api must not import ui" guards), rather than a new file.
   Rationale: Keeps all static import-direction contracts in one place; matches the existing `_import_roots` AST-walk helper exactly (it already recurses into function bodies, so it catches local imports like the one this issue is about).
   Date/Author: 2026-07-18, Claude.
+- Decision: Use frozen SHA-256 hashes of canonical JSON payloads as the behavior-preservation oracle, while keeping the separate object-identity assertion for compatibility.
+  Rationale: comparing a function to its direct re-export proves import compatibility but cannot detect semantic drift. The frozen hashes were generated from the pre-refactor implementation on `main@eeefc96` with the same deterministic fixtures and inputs.
+  Date/Author: 2026-07-18, Codex checker follow-up.
+- Decision: mutation-freedom is checked by complete row snapshots, not table counts.
+  Rationale: this detects INSERT, DELETE, and UPDATE behavior and covers the explicitly required `coach_proposals` surface.
+  Date/Author: 2026-07-18, Codex checker follow-up.
 
 ## Outcomes & Retrospective
 
-GREEN landed as planned, with no scope surprises beyond the two documented in Surprises & Discoveries. `services/reconciliation.py` now owns `reconciliation_at`, `_parse_as_of`, and `_provider_reconciliation_evidence`, moved verbatim (no logic changes — confirmed by the RED byte-equivalence tests passing unchanged after the move). `api/planning_service.py::reconciliation_at` is a real re-export (`is` identity, not a wrapper), so `reconciliation`, `preview_weekly_rebalance`, and `confirm_weekly_rebalance` needed zero code changes. `services/recovery_analytics.py::refresh_recovery_episodes` now imports `reconciliation_at` from `services.reconciliation`, closing the only genuine `services → api` inversion in the codebase. `api/session_feedback.py`, `api/today_snapshot.py`, and the planning router were inspected and intentionally left unchanged — they already imported from `api.planning_service`, which is a same-layer (api → api) dependency, not an inversion, so touching them would only have widened the diff without fixing anything.
+GREEN landed as planned, with no scope surprises beyond the items documented in Surprises & Discoveries. `services/reconciliation.py` now owns `reconciliation_at`, `_parse_as_of`, and `_provider_reconciliation_evidence`, moved verbatim. Behavior preservation is pinned independently by frozen canonical-payload hashes captured from the pre-refactor implementation; compatibility is separately pinned by the `is`-identity assertion. `api/planning_service.py::reconciliation_at` is a real re-export, so `reconciliation`, `preview_weekly_rebalance`, and `confirm_weekly_rebalance` needed zero code changes. `services/recovery_analytics.py::refresh_recovery_episodes` now imports `reconciliation_at` from `services.reconciliation`, closing the only genuine `services → api` inversion in the codebase. `api/session_feedback.py`, `api/today_snapshot.py`, and the planning router were inspected and intentionally left unchanged — they already imported from `api.planning_service`, which is a same-layer (api → api) dependency, not an inversion, so touching them would only have widened the diff without fixing anything.
 
 Validation results (all commands run from repo root):
 
@@ -63,6 +74,12 @@ Validation results (all commands run from repo root):
 
     python -m pytest -m "not live and not debug" tests/ -q
     -> 887 passed, 5 skipped, 24 deselected (the 5 skips are pre-existing environment-gated cases — missing local HRV fixture data and the `garth` package not being installed — unrelated to this change)
+
+Checker follow-up validation (same code, local environment additionally blocks the listening-socket preflight):
+
+    focused migration/product surface -> 101 passed
+    python -m pytest tests/smoke -q -> 843 passed, 1 skipped
+    python -m pytest -m "not live and not debug" tests/ -q -> 886 passed, 6 skipped, 24 deselected
 
 No web/API contract types or `web/` files changed, so Next lint/build was not run, per the task's own validation instructions.
 
@@ -119,7 +136,7 @@ Expected GREEN output: all of the above pass; the full smoke suite is expected t
 
 ## Validation and Acceptance
 
-Behavior is unchanged and observable the same way it always was: calling `api.planning_service.reconciliation_at(db, weeks=1, as_of="2026-07-18", include_provider=False)` against a plan checkpoint returns the exact same dictionary shape and values as before this change (proved by the RED/GREEN byte-equivalence tests, which build the same inputs and compare `json.dumps(result, sort_keys=True, default=str)` for the old and new import paths across five scenarios: no plan; local-only with provider disabled; provider available; provider unavailable/data-gap; and a ledger-confirmed nested multi-session identity case reusing the fixtures from `tests/smoke/test_recovery_transfer_identity_handoff.py`).
+Behavior is unchanged and observable the same way it always was: calling `api.planning_service.reconciliation_at(db, weeks=1, as_of="2026-07-18", include_provider=False)` against a plan checkpoint returns the exact same dictionary shape and values as before this change. The migration tests canonicalize each payload with `json.dumps(..., sort_keys=True, default=str)` and compare its SHA-256 digest with a frozen value captured from pre-refactor `main@eeefc96` across five scenarios: no plan; local-only with provider disabled; provider available; provider unavailable/data-gap; and a ledger-confirmed nested multi-session identity case reusing the fixtures from `tests/smoke/test_recovery_transfer_identity_handoff.py`.
 
 The architectural acceptance is the new `test_services_modules_do_not_depend_on_api` test: run `python -m pytest tests/smoke/test_api_architecture.py -q` and see `5 passed` (the 3 existing tests plus the new one, plus any others added meanwhile) with no `services/*` file reported as importing `api`.
 
@@ -131,7 +148,7 @@ Every step is a plain file edit or an additive new file — nothing destructive,
 
 ## Artifacts and Notes
 
-(Test output and diff excerpts will be added here once RED and GREEN are both verified.)
+The behavior-preservation oracle consists of five canonical payload hashes in `tests/smoke/test_reconciliation_service_migration.py`, generated from pre-refactor `main@eeefc96` with fixed dates, temporary SQLite databases, and fake provider clients. No live provider or athlete data was accessed.
 
 ## Interfaces and Dependencies
 
