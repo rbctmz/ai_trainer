@@ -48,7 +48,25 @@ You can see this working two ways. First, `python -c "from services.reconciliati
 
 ## Outcomes & Retrospective
 
-(Filled in once GREEN lands and full validation has run.)
+GREEN landed as planned, with no scope surprises beyond the two documented in Surprises & Discoveries. `services/reconciliation.py` now owns `reconciliation_at`, `_parse_as_of`, and `_provider_reconciliation_evidence`, moved verbatim (no logic changes — confirmed by the RED byte-equivalence tests passing unchanged after the move). `api/planning_service.py::reconciliation_at` is a real re-export (`is` identity, not a wrapper), so `reconciliation`, `preview_weekly_rebalance`, and `confirm_weekly_rebalance` needed zero code changes. `services/recovery_analytics.py::refresh_recovery_episodes` now imports `reconciliation_at` from `services.reconciliation`, closing the only genuine `services → api` inversion in the codebase. `api/session_feedback.py`, `api/today_snapshot.py`, and the planning router were inspected and intentionally left unchanged — they already imported from `api.planning_service`, which is a same-layer (api → api) dependency, not an inversion, so touching them would only have widened the diff without fixing anything.
+
+Validation results (all commands run from repo root):
+
+    python -m pytest tests/smoke/test_reconciliation_service_migration.py tests/smoke/test_api_architecture.py -q
+    -> 12 passed
+
+    python -m pytest tests/smoke/test_recovery_transfer_identity_handoff.py tests/smoke/test_recovery_replan_loop.py tests/smoke/test_api_planning.py tests/smoke/test_api_today.py tests/smoke/test_plan_discipline_truth.py tests/smoke/test_post_workout_feedback.py tests/smoke/test_feedback_planning_handoff.py tests/smoke/test_recovery_response.py tests/smoke/test_recovery_episode_materializer.py -q
+    -> 154 passed
+
+    python -m pytest tests/smoke -q
+    -> 844 passed (baseline was 834 passed, 1 skipped; the 9 new tests from this issue's RED contract account for the delta, plus one previously-skipped case now passing, unrelated to this change)
+
+    python -m pytest -m "not live and not debug" tests/ -q
+    -> 887 passed, 5 skipped, 24 deselected (the 5 skips are pre-existing environment-gated cases — missing local HRV fixture data and the `garth` package not being installed — unrelated to this change)
+
+No web/API contract types or `web/` files changed, so Next lint/build was not run, per the task's own validation instructions.
+
+Gaps/lessons: the migration surfaced one piece of hidden coupling — a smoke test white-box-monkeypatching a private helper by module attribute (`tests/smoke/test_api_planning.py`) — that a purely black-box test suite would not have caught until it silently stopped exercising its intended failure path. Worth remembering for future service-layer extractions: grep test files for `monkeypatch.setattr(<module>, "_private_name"` on anything being moved, not just public functions.
 
 ## Context and Orientation
 

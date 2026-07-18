@@ -583,10 +583,15 @@ def test_reconciliation_preview_confirm_is_future_only_and_stale_safe(tmp_path):
 
 def test_provider_failure_blocks_rebalance_without_hiding_local_evidence(tmp_path, monkeypatch):
     from api import planning_service as ps
+    from services import reconciliation as reconciliation_service
 
     db, _plan = _reconciliation_db(tmp_path)
+    # Issue #194: _provider_reconciliation_evidence now lives in
+    # services/reconciliation.py — reconciliation_at (re-exported, not
+    # copied, into api.planning_service) resolves the name against that
+    # module's own globals, so the monkeypatch target must live there too.
     monkeypatch.setattr(
-        ps,
+        reconciliation_service,
         "_provider_reconciliation_evidence",
         lambda *_args, **_kwargs: ([], [], {"status": "unavailable", "error": "temporary"}),
     )
