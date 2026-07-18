@@ -1476,3 +1476,171 @@ def test_approve_recovery_transfer_variant_preserves_structured_content_byte_for
     assert json.dumps(target_session["materialized_steps"], sort_keys=True) == json.dumps(
         sentinel_steps, sort_keys=True
     )
+
+
+# ---------------------------------------------------------------------------
+# M6 RED-only preflight — product-surface API presentation contract:
+# https://github.com/rbctmz/ai_trainer/pull/210#issuecomment-5011126624
+#
+# Issue #209's Product UX asks Today/Decisions/Coach to render three compact
+# blocks ("Почему вмешиваемся" / "Что меняется" / "Что защищено") off
+# stable machine keys, additive to the existing flat preview, so web logic
+# never parses localized prose. The contract this checkpoint pins:
+#
+#   preview["why_intervene"] = {
+#       "reason": str, "severity": str | None,
+#       "readiness": {"score", "status", "confidence"},
+#       "conflict": {"date", "role", "sport_label", "tss"},
+#       "evidence": list[str],
+#   }
+#   preview["what_changes"] = {
+#       "variants": <same list preview["variants"] already carries>,
+#       "recommended_kind": <the exactly-one kind with variant["recommended"]>,
+#   }
+#   preview["what_is_protected"] = {
+#       "candidates": <same list preview["transfer_candidates"] already carries>,
+#       "weekly_tss_delta": number,
+#       "weekly_duration_delta_minutes": number | None,
+#   }
+#
+# `_proposal_payload` (api/recovery_replan_loop.py) builds none of these
+# three keys today — every access below raises `KeyError` on current head.
+
+
+def _why_intervene(proposal: dict) -> dict:
+    return proposal["preview"]["why_intervene"]
+
+
+def _what_changes(proposal: dict) -> dict:
+    return proposal["preview"]["what_changes"]
+
+
+def _what_is_protected(proposal: dict) -> dict:
+    return proposal["preview"]["what_is_protected"]
+
+
+def test_preview_exposes_three_product_blocks_with_recommended_transfer_when_safe_date_exists(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Safe-transfer fixture. The three new blocks must appear additively
+    next to the existing flat preview fields (nothing replaced/renamed), and
+    the transfer's own conservation invariants must be visible as evidence
+    without the web layer recomputing them."""
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    db = Database(str(tmp_path / "product-surface-safe.db"))
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    preview = proposal["preview"]
+
+    for legacy_key in (
+        "reason", "severity", "current_session", "recommended_session",
+        "total_delta_tss", "changed_day_count", "options", "evidence",
+        "variants", "transfer_candidates",
+    ):
+        assert legacy_key in preview, legacy_key
+
+    why = _why_intervene(proposal)
+    assert why["reason"] == preview["reason"]
+    assert why["severity"] == preview["severity"]
+    assert why["readiness"] == report["readiness"]
+    assert why["conflict"]["role"] == "quality"
+    assert why["conflict"]["date"] == (today + timedelta(days=1)).isoformat()
+    assert why["evidence"] == preview["evidence"]
+
+    changes = _what_changes(proposal)
+    assert changes["variants"] == preview["variants"]
+    assert [v["kind"] for v in changes["variants"]] == [
+        "keep", "downgrade_today", "transfer_1_3d",
+    ]
+    assert changes["recommended_kind"] == "transfer_1_3d"
+    recommended_kinds = [v["kind"] for v in changes["variants"] if v.get("recommended")]
+    assert recommended_kinds == [changes["recommended_kind"]]
+
+    protected = _what_is_protected(proposal)
+    assert protected["candidates"] == preview["transfer_candidates"]
+    assert len(protected["candidates"]) == 3
+    assert protected["weekly_tss_delta"] == 0
+    assert protected["weekly_duration_delta_minutes"] == 0
+
+
+def test_preview_exposes_three_product_blocks_with_downgrade_recommended_and_exact_rejections_when_no_safe_date(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """No-safe-transfer fixture. `transfer_1_3d` is omitted from
+    `what_changes`, `downgrade_today` is the sole recommendation, and every
+    D+1..D+3 candidate's exact rejection codes stay visible in
+    `what_is_protected` for audit even though nothing was offered."""
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    goal_plan = _transfer_ready_goal_plan(today, days_until=1)
+    conflict_date = today + timedelta(days=1)
+    goal_plan["protected_dates"] = [
+        (conflict_date + timedelta(days=offset)).isoformat() for offset in (1, 2, 3)
+    ]
+    db = Database(str(tmp_path / "product-surface-blocked.db"))
+    _save_plan(db, goal_plan)
+
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    preview = proposal["preview"]
+
+    changes = _what_changes(proposal)
+    assert [v["kind"] for v in changes["variants"]] == ["keep", "downgrade_today"]
+    assert changes["recommended_kind"] == "downgrade_today"
+
+    protected = _what_is_protected(proposal)
+    assert len(protected["candidates"]) == 3
+    assert all(row["eligible"] is False for row in protected["candidates"])
+    assert all(row["rejected_reasons"] == ["protected"] for row in protected["candidates"])
+    assert protected["weekly_tss_delta"] == preview["total_delta_tss"]
+    assert protected["weekly_duration_delta_minutes"] is None
+
+
+def test_loop_upgrades_legacy_pending_proposal_preview_with_product_blocks_on_reuse(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    """Legacy-preview fixture. A pending proposal row written before M6
+    (preview without the three product blocks — today's actual shape) must
+    be reused by `active_key`, not duplicated, and its preview upgraded in
+    place additively, mirroring the M3 `variants` back-compat upgrade."""
+    import json as _json
+
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 13)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    db_path = tmp_path / "product-surface-legacy-upgrade.db"
+    db = Database(str(db_path))
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+
+    seeded = run_recovery_replan_loop(db, today=today)["proposal"]
+    legacy_preview = {
+        key: value
+        for key, value in seeded["preview"].items()
+        if key not in ("why_intervene", "what_changes", "what_is_protected")
+    }
+    with sqlite3.connect(db_path) as conn:
+        conn.execute(
+            "UPDATE coach_proposals SET preview_json = ? WHERE id = ?",
+            (_json.dumps(legacy_preview, ensure_ascii=False), seeded["id"]),
+        )
+        conn.commit()
+    assert "why_intervene" not in db.get_coach_proposal(seeded["id"])["preview"]
+
+    second = run_recovery_replan_loop(db, today=today)
+
+    assert second["proposal"]["id"] == seeded["id"]
+    assert "why_intervene" in second["proposal"]["preview"]
+    assert "what_changes" in second["proposal"]["preview"]
+    assert "what_is_protected" in second["proposal"]["preview"]
