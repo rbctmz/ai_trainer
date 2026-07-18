@@ -46,6 +46,7 @@ from models.plan_actual_reconciliation import (
     apply_weekly_rebalance_preview,
     build_reconciliation,
     build_weekly_rebalance_preview,
+    find_planned_session,
 )
 from models.planning_targets import (
     DEFAULT_DEMAND_LEVEL,
@@ -1084,11 +1085,8 @@ def record_plan_actual_match(
             f"active checkpoint #{latest_id or 'none'} no longer matches match base #{base_checkpoint_id}"
         )
     goal_plan = ensure_session_identities(restore_goal_plan_from_checkpoint(latest) or {})
-    template = next(
-        (item for item in goal_plan.get("session_templates", []) or [] if item.get("session_id") == session_id),
-        None,
-    )
-    if template is None:
+    template, session = find_planned_session(goal_plan.get("session_templates", []) or [], session_id)
+    if template is None or session is None:
         raise ValueError("planned session not found")
     normalized_action = str(action or "confirm").strip().lower()
     if normalized_action not in {"confirm", "reject"}:
@@ -1136,8 +1134,8 @@ def record_plan_actual_match(
         "confidence": 1.0,
         "planned_snapshot": {
             "date": session_date,
-            "sport": template.get("sport"),
-            "role": template.get("session_role"),
+            "sport": session.get("sport"),
+            "role": session.get("session_role"),
             "session_id": session_id,
         },
         "actual_activity_ids": [str(item["activity_id"]) for item in activities],

@@ -87,23 +87,82 @@ def _activity_snapshot(raw: Mapping[str, Any]) -> dict[str, Any] | None:
     }
 
 
+def _session_parts(session: Mapping[str, Any]) -> dict[str, float]:
+    """Per-sport TSS breakdown of one PARENT session's own content.
+
+    A composite brick's parts come from its legs (evidence detail, never a
+    separate feedback target — see `iter_parent_sessions`); a single session
+    is one sport carrying its own total.
+    """
+    if str(session.get("kind") or "") == "composite":
+        parts: dict[str, float] = {}
+        for leg in list(session.get("legs") or []):
+            sport = normalize_sport_key((leg or {}).get("sport")) or str((leg or {}).get("sport") or "").strip().lower()
+            if not sport:
+                continue
+            parts[sport] = round(parts.get(sport, 0.0) + _float((leg or {}).get("target_tss")), 1)
+        return parts
+    sport = normalize_sport_key(session.get("sport")) or str(session.get("sport") or "").strip().lower()
+    if not sport:
+        return {}
+    return {sport: round(max(0.0, _float(session.get("total_tss"))), 1)}
+
+
+def iter_parent_sessions(
+    templates: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Ordered independent PARENT sessions across all day templates.
+
+    Issue #209 M5: reconciliation/feedback targets are `sessions[]` entries,
+    never the day-level scalar projection (which is only ever equal to an
+    individual session's own identity when the day carries exactly one
+    session) and never a composite brick's individual legs — a brick stays
+    ONE parent target, unlike `training_planner.iter_leaf_sessions`, whose
+    leg-level leaves are delivery/evidence detail, not feedback targets.
+    """
+    result: list[dict[str, Any]] = []
+    for template in templates:
+        if not isinstance(template, Mapping):
+            continue
+        date_iso = str(template.get("date") or "")[:10]
+        for session in list(template.get("sessions") or []):
+            if not isinstance(session, Mapping) or not session.get("session_id"):
+                continue
+            result.append({"date": date_iso, "session": dict(session), "template": dict(template)})
+    return result
+
+
+def find_planned_session(
+    templates: Sequence[Mapping[str, Any]],
+    session_id: str,
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Resolve one parent session's own day template and content by its
+    content-derived id — never the day-level `session_id` projection, which
+    only coincides with an individual session's id on a single-session day."""
+    target = str(session_id or "")
+    for entry in iter_parent_sessions(templates):
+        if str(entry["session"].get("session_id") or "") == target:
+            return entry["template"], entry["session"]
+    return None, None
+
+
 def _planned_snapshot(
-    daily_item: Sequence[Any],
+    date_iso: str,
+    session: Mapping[str, Any],
     template: Mapping[str, Any],
     index: int,
 ) -> dict[str, Any]:
-    dt, total, parts = daily_item
     return {
         "index": index,
-        "session_id": template.get("session_id"),
-        "date": (_date_value(dt) or date.min).isoformat(),
-        "sport": normalize_sport_key(template.get("sport")) or str(template.get("sport") or ""),
-        "role": str(template.get("session_role") or "").strip().lower(),
+        "session_id": session.get("session_id"),
+        "date": date_iso,
+        "sport": normalize_sport_key(session.get("sport")) or str(session.get("sport") or ""),
+        "role": str(session.get("session_role") or "").strip().lower(),
         "phase": str(template.get("phase") or ""),
-        "name": str(template.get("export_name") or template.get("session_focus") or "Сессия"),
-        "tss": round(max(0.0, _float(total)), 1),
-        "duration_minutes": int(round(max(0.0, _float(template.get("duration_minutes"))))),
-        "parts": {str(key): round(_float(value), 1) for key, value in dict(parts or {}).items()},
+        "name": str(session.get("export_name") or session.get("session_focus") or "Сессия"),
+        "tss": round(max(0.0, _float(session.get("total_tss"))), 1),
+        "duration_minutes": int(round(max(0.0, _float(session.get("duration_minutes"))))),
+        "parts": _session_parts(session),
     }
 
 
@@ -189,24 +248,22 @@ def build_reconciliation(
     }
     assigned_ids: set[str] = set()
     rows: list[dict[str, Any]] = []
-    daily_plan = list(resolved_plan.get("daily_plan") or [])
     templates = list(resolved_plan.get("session_templates") or [])
+    parent_sessions = iter_parent_sessions(templates)
     planned_signature_counts: dict[tuple[str, str], int] = {}
-    for index, daily_item in enumerate(daily_plan):
-        if not isinstance(daily_item, (list, tuple)) or len(daily_item) < 3:
+    for index, entry in enumerate(parent_sessions):
+        planned = _planned_snapshot(entry["date"], entry["session"], entry["template"], index)
+        if not planned["date"]:
             continue
-        template = templates[index] if index < len(templates) else {}
-        planned = _planned_snapshot(daily_item, template, index)
         planned_date = date.fromisoformat(planned["date"])
         if start <= planned_date <= end and planned["tss"] > 0 and planned.get("session_id"):
             signature = (planned["date"], planned["sport"])
             planned_signature_counts[signature] = planned_signature_counts.get(signature, 0) + 1
 
-    for index, daily_item in enumerate(daily_plan):
-        if not isinstance(daily_item, (list, tuple)) or len(daily_item) < 3:
+    for index, entry in enumerate(parent_sessions):
+        planned = _planned_snapshot(entry["date"], entry["session"], entry["template"], index)
+        if not planned["date"]:
             continue
-        template = templates[index] if index < len(templates) else {}
-        planned = _planned_snapshot(daily_item, template, index)
         planned_date = date.fromisoformat(planned["date"])
         if not (start <= planned_date <= end) or planned["tss"] <= 0 or not planned.get("session_id"):
             continue
@@ -605,4 +662,6 @@ __all__ = [
     "apply_weekly_rebalance_preview",
     "build_reconciliation",
     "build_weekly_rebalance_preview",
+    "find_planned_session",
+    "iter_parent_sessions",
 ]
