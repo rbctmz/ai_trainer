@@ -19,7 +19,18 @@ This directory contains current project docs, active/historical ExecPlans, and a
 - `docs/competitive_analysis_blocks.md`: Blocks product/MCP reference covering multi-session planning, workout catalogs, scientific knowledge provenance, athlete memory, and plan-to-actual loops.
 - `docs/code_review_recommendations.md`: living audit checklist; check dates and baseline before using line references.
 
-## Current ExecPlans
+## Recent Product Contracts
+
+These completed ExecPlans describe the current product behavior and the invariants that future work must preserve:
+
+- `docs/planner_discipline_distribution_execplan.md`: executable `sessions[]` as the plan truth, deterministic discipline scheduler, multi-session days, grouped bricks, race-load projection, and delivery identity.
+- `docs/workout_catalog_v2_execplan.md`: current structured bike/run workout DSL and materialization rules; activation and bookend follow-ups are recorded in the planner contract above.
+- `docs/race_microcycle_execplan.md`: A/B/C race microcycles, protected race/recovery dates, and structured pre-race activation.
+- `docs/recovery_transfer_execplan.md`: RecoveryReplan v2 keep/downgrade/transfer D+1…D+3 decision contract, safety guards, identity lineage, confirm, and rollback.
+- `docs/reconciliation_service_execplan.md`: canonical read-only plan/actual reconciliation service and API compatibility boundary.
+- `docs/recovery_episode_refresh_execplan.md`: bounded ordinary recovery refresh plus targeted old-session refresh after match/feedback changes.
+
+## Current UI and Hardening ExecPlans
 
 - `docs/hardening_planning_v2_execplan.md`: latest hardening, Planning V2, Coach Explainability, Garmin acceptance history.
 - `docs/stabilize_modularize_polish_execplan.md`: completed stabilization/modularization/core-flow plan.
