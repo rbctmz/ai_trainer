@@ -279,6 +279,85 @@ def test_ledger_confirmed_match_for_old_session_is_not_inherited_by_new_session_
 
 
 # ---------------------------------------------------------------------------
+# 5b. Ledger confirmation resolves the nested session on an occupied day
+# (production write path: api.planning_service.record_plan_actual_match) —
+# M5 checker round 2 (https://github.com/rbctmz/ai_trainer/pull/210#issuecomment-5010935368)
+# ---------------------------------------------------------------------------
+
+
+def test_record_plan_actual_match_persists_nested_session_ledger_row_after_transfer(tmp_path):
+    """M5 preflight round 2 #1: `record_plan_actual_match`
+    (`api/planning_service.py`) still resolves the planned session by
+    scanning only the DAY-level top-level `template.get("session_id")` —
+    the same projection the rest of this file pins as wrong for
+    reconciliation reads. Once a transfer lands the moved session on an
+    already-occupied day, that day-level id belongs to NEITHER session, so a
+    user confirming the moved session's own new id fails today with
+    `ValueError: planned session not found` instead of finding the nested
+    session, persisting `target_key=session:<new_id>`, and being consumed by
+    `reconciliation_at` as `user_confirmed` — with the replaced old id never
+    resurrected anywhere in the ledger or the resulting rows."""
+    from api.planning_service import (
+        apply_recovery_replan_transfer,
+        record_plan_actual_match,
+        reconciliation_at,
+    )
+
+    plan = _week(d1=[], d2=[_session("swim", "easy", 25.0)], d3=[])
+    conflict = _conflict(plan)
+    old_id = conflict["session_id"]
+    target_date = (_TODAY + timedelta(days=2)).isoformat()
+
+    db = Database(str(tmp_path / "m5-ledger-nested.db"))
+    base = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+
+    applied = apply_recovery_replan_transfer(
+        db,
+        base_checkpoint_id=base["id"],
+        session_id=old_id,
+        target_date=target_date,
+    )
+    new_id = applied["new_session_id"]
+    new_checkpoint_id = applied["applied_checkpoint_id"]
+
+    db.save_activities(
+        [
+            {
+                "activity_id": "bike-moved-actual",
+                "date": target_date,
+                "started_at_utc": f"{target_date}T06:00:00Z",
+                "sport": "bike",
+                "duration_minutes": 90,
+                "tss": 80.0,
+            }
+        ]
+    )
+
+    saved = record_plan_actual_match(
+        db,
+        base_checkpoint_id=new_checkpoint_id,
+        session_id=new_id,
+        activity_ids=["bike-moved-actual"],
+        actual_role="quality",
+        action="confirm",
+    )
+    assert saved["target_key"] == f"session:{new_id}"
+    assert saved["session_id"] == new_id
+
+    reconciled = reconciliation_at(
+        db,
+        weeks=1,
+        as_of=_TODAY + timedelta(days=3),
+        include_provider=False,
+    )
+    assert not any(row["session_id"] == old_id for row in reconciled["rows"])
+    target_rows = [row for row in reconciled["rows"] if row["date"] == target_date]
+    new_row = next(row for row in target_rows if row["session_id"] == new_id)
+    assert new_row["match_method"] == "user_confirmed"
+    assert new_row["actual_activity_ids"] == ["bike-moved-actual"]
+
+
+# ---------------------------------------------------------------------------
 # 6/7. Feedback handoff: prompt-layer composite metadata + submit/history
 # targeting the new parent, fail-closed on the replaced (old) id (BDD 11)
 # ---------------------------------------------------------------------------
@@ -438,15 +517,131 @@ def test_feedback_submit_and_history_target_new_session_after_transfer_and_fail_
 
 
 # ---------------------------------------------------------------------------
+# 7b. Historical feedback isolation across a transfer (regression guard) —
+# M5 checker round 2 (https://github.com/rbctmz/ai_trainer/pull/210#issuecomment-5010935368)
+# ---------------------------------------------------------------------------
+
+
+def test_historical_feedback_stays_isolated_across_transfer_identity_handoff(tmp_path):
+    """M5 preflight round 2 #2: a feedback revision recorded for the source
+    session BEFORE a transfer must remain historical under the OLD id, a new
+    feedback submission for the moved session after the transfer must attach
+    only to the NEW id, and neither revision is silently migrated or
+    superseded across identities. Kept as an explicit regression guard, not a
+    RED gate: `save_session_feedback`/`get_session_feedback_history` already
+    key every revision by whichever `session_id` the caller passes, so this
+    isolation does not depend on the day-scalar reconciliation bug the rest
+    of this file pins for MULTI-session days — it documents that the M5 fix
+    must not accidentally couple the two identities' history together. The
+    target day is deliberately left empty (single-session outcome, like the
+    existing ledger-isolation guard above) so the still-open multi-session
+    reconciliation bug this file's RED gates pin does not itself block
+    submitting the new session's feedback and mask what this test checks."""
+    from api.planning_service import apply_recovery_replan_transfer
+    from api.session_feedback import feedback_history, submit_session_feedback
+
+    plan = _week(d1=[], d2=[], d3=[])
+    conflict = _conflict(plan)
+    old_id = conflict["session_id"]
+    source_date = conflict["date"]
+    target_date = (_TODAY + timedelta(days=2)).isoformat()
+
+    db = Database(str(tmp_path / "m5-feedback-isolation.db"))
+    base = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+
+    db.save_activities(
+        [
+            {
+                "activity_id": "bike-source-actual",
+                "date": source_date,
+                "started_at_utc": f"{source_date}T06:00:00Z",
+                "sport": "bike",
+                "duration_minutes": 90,
+                "tss": 80.0,
+            }
+        ]
+    )
+    before_transfer_now = datetime.combine(
+        date.fromisoformat(source_date), datetime.min.time(), tzinfo=timezone.utc
+    ) + timedelta(hours=20)
+    old_feedback = submit_session_feedback(
+        db,
+        {
+            "session_id": old_id,
+            "completion_status": "completed",
+            "completion_pct": 100,
+            "session_rpe_1_10": 7,
+            "quality_rating_1_5": 3,
+            "client_submission_fingerprint": "fp-old-before-transfer",
+        },
+        now_utc=before_transfer_now,
+    )
+    assert old_feedback["feedback"]["session_id"] == old_id
+
+    applied = apply_recovery_replan_transfer(
+        db,
+        base_checkpoint_id=base["id"],
+        session_id=old_id,
+        target_date=target_date,
+    )
+    new_id = applied["new_session_id"]
+
+    db.save_activities(
+        [
+            {
+                "activity_id": "bike-moved-actual",
+                "date": target_date,
+                "started_at_utc": f"{target_date}T06:00:00Z",
+                "sport": "bike",
+                "duration_minutes": 90,
+                "tss": 80.0,
+            }
+        ]
+    )
+    after_transfer_now = datetime.combine(
+        date.fromisoformat(target_date), datetime.min.time(), tzinfo=timezone.utc
+    ) + timedelta(hours=20)
+    new_feedback = submit_session_feedback(
+        db,
+        {
+            "session_id": new_id,
+            "completion_status": "completed",
+            "completion_pct": 100,
+            "session_rpe_1_10": 6,
+            "quality_rating_1_5": 4,
+            "client_submission_fingerprint": "fp-new-after-transfer",
+        },
+        now_utc=after_transfer_now,
+    )
+    assert new_feedback["feedback"]["session_id"] == new_id
+
+    old_history = feedback_history(db, old_id)
+    new_history = feedback_history(db, new_id)
+
+    assert [row["session_id"] for row in old_history["history"]] == [old_id]
+    assert [row["session_id"] for row in new_history["history"]] == [new_id]
+    assert old_history["current"]["id"] == old_feedback["feedback"]["id"]
+    assert new_history["current"]["id"] == new_feedback["feedback"]["id"]
+    assert old_history["current"].get("supersedes_feedback_id") is None
+    assert new_history["current"].get("supersedes_feedback_id") is None
+
+
+# ---------------------------------------------------------------------------
 # 8. Legacy single-session-per-day compatibility (regression guard)
 # ---------------------------------------------------------------------------
 
 
 def test_legacy_single_session_per_day_reconciliation_is_unchanged():
-    """M5 preflight #8: plans where every day carries zero or one session
-    (the pre-#209 legacy shape) keep producing exactly one row per non-rest
-    day, unaffected by the parent-session-truth fix this file pins for
-    multi-session days."""
+    """M5 preflight #8: plans where every day carries zero or one session in
+    the EXPLICIT `sessions=[...]` shape (the same nested shape every other
+    test in this file uses — #205/#206's per-day model, not the pre-#205
+    raw top-level-scalar shape with no `sessions` key at all) keep producing
+    exactly one row per non-rest day, unaffected by the parent-session-truth
+    fix this file pins for multi-session days. See
+    `test_legacy_top_level_and_explicit_single_session_shape_reconcile_byte_identically`
+    below for the true pre-#205 top-level shape, pinned to full
+    byte-equivalence rather than row-count/TSS alone (M5 preflight round 2
+    #3: https://github.com/rbctmz/ai_trainer/pull/210#issuecomment-5010935368)."""
     plan = _week(d1=[_session("run", "easy", 20.0)], d2=[], d3=[_session("swim", "recovery", 15.0)])
 
     result = build_reconciliation(
@@ -459,3 +654,57 @@ def test_legacy_single_session_per_day_reconciliation_is_unchanged():
         session = template["sessions"][0]
         row = next(r for r in result["rows"] if r["session_id"] == session["session_id"])
         assert row["tss"] == float(session["total_tss"])
+
+
+def test_legacy_top_level_and_explicit_single_session_shape_reconcile_byte_identically():
+    """M5 preflight round 2 #3: legacy compatibility is pinned as full
+    reconciliation-payload byte-equivalence, not row-count/TSS alone. A true
+    pre-#205 template that carries NO `sessions` key at all — only the flat
+    top-level `sport`/`session_role`/`total_tss`/`materialized_steps` fields
+    `ensure_session_identities` migrates on read via
+    `_session_from_legacy_template` — and the semantically identical
+    explicit `sessions=[single]` shape used everywhere else in this file
+    must reconcile to the EXACT same result against identical evidence. This
+    must remain pinned through the M5 GREEN fix: a single-session day is the
+    one case where the day-level id and the session's own id are defined to
+    coincide byte-for-byte (`models/session_identity.py`), so neither shape
+    may regress relative to the other."""
+    day = _TODAY
+    session = _session("run", "easy", 20.0)
+    daily_plan = [
+        (
+            datetime.combine(day, datetime.min.time()),
+            session["total_tss"],
+            {"run": session["total_tss"], "bike": 0.0, "swim": 0.0},
+        )
+    ]
+    base_template = {
+        "date": day.isoformat(),
+        "week_index": 0,
+        "day_index": 0,
+        "phase": "Build",
+        **{key: value for key, value in session.items()},
+    }
+    legacy_plan = {
+        "daily_plan": daily_plan,
+        "session_templates": [dict(base_template)],
+    }
+    modern_template = dict(base_template)
+    modern_template["sessions"] = [dict(session)]
+    modern_plan = {
+        "daily_plan": daily_plan,
+        "session_templates": [modern_template],
+    }
+    assert "sessions" not in legacy_plan["session_templates"][0]
+
+    activities = [_activity("run-actual", day.isoformat(), "run", 21.0)]
+    legacy_result = build_reconciliation(
+        legacy_plan, activities, as_of=_TODAY, weeks=1, base_checkpoint_id=7
+    )
+    modern_result = build_reconciliation(
+        modern_plan, activities, as_of=_TODAY, weeks=1, base_checkpoint_id=7
+    )
+
+    assert legacy_result == modern_result
+    assert len(legacy_result["rows"]) == 1
+    assert legacy_result["rows"][0]["match_status"] == "matched"
