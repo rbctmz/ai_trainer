@@ -708,3 +708,42 @@ def test_legacy_top_level_and_explicit_single_session_shape_reconcile_byte_ident
     assert legacy_result == modern_result
     assert len(legacy_result["rows"]) == 1
     assert legacy_result["rows"][0]["match_status"] == "matched"
+
+
+# ---------------------------------------------------------------------------
+# 9. Human-readable transfer label at confirm time (Issue #223: the
+# decisions feed must speak the athlete's language, not raw content-derived
+# session ids)
+# ---------------------------------------------------------------------------
+
+
+def test_apply_recovery_replan_transfer_returns_human_readable_session_label(tmp_path):
+    """`apply_recovery_replan_transfer`'s result must carry a human-readable
+    label for the transferred session — sourced from the moved session's own
+    `session_role`/`sport_label`/`export_name`/`total_tss` in `new_session`'s
+    plan AT CONFIRM TIME, so the client (web/app/decisions/page.tsx) does no
+    computation of its own. The label must never leak the raw content-derived
+    `ats_...` session id (Issue #223)."""
+    from api.planning_service import apply_recovery_replan_transfer
+
+    plan = _week(d1=[], d2=[_session("swim", "easy", 25.0)], d3=[])
+    conflict = _conflict(plan)
+    old_id = conflict["session_id"]
+    target_date = (_TODAY + timedelta(days=2)).isoformat()
+
+    db = Database(str(tmp_path / "m6-transfer-label.db"))
+    base = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+
+    applied = apply_recovery_replan_transfer(
+        db,
+        base_checkpoint_id=base["id"],
+        session_id=old_id,
+        target_date=target_date,
+    )
+
+    label = applied.get("new_session_label")
+    assert label
+    assert "ats_" not in label
+    assert applied["new_session_id"] not in label
+    assert old_id not in label
+    assert "80" in label  # _week()'s default quality session carries 80 TSS
