@@ -64,13 +64,13 @@ def test_claude_action_is_pinned_and_bounded() -> None:
 
 
 def test_claude_action_has_enough_turns_for_red_green_implementation() -> None:
-    """Regression for run 29609471840: a valid M3 implementation run must
-    not stop at the old 25-turn ceiling before it can persist any changes."""
+    """Regressions for runs 29641403550 and 29641929970: valid M5
+    implementation runs must not stop at the 60-turn ceiling before push."""
     workflow = _workflow_text()
 
     match = re.search(r"--max-turns\s+(\d+)", workflow)
     assert match is not None
-    assert int(match.group(1)) == 60
+    assert int(match.group(1)) == 120
 
 
 def test_claude_action_can_edit_and_run_only_contributor_safe_pytest() -> None:
