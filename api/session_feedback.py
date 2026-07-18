@@ -7,7 +7,7 @@ from typing import Any, Mapping
 
 from api.planning_service import reconciliation_at
 from data.database import Database
-from models.plan_actual_reconciliation import MATCH_RULE_VERSION
+from models.plan_actual_reconciliation import MATCH_RULE_VERSION, find_planned_session
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.post_workout_feedback import (
     EVALUATION_RULE_VERSION,
@@ -97,12 +97,44 @@ def _feedback_evidence_for_session(
     *,
     as_of: date | str | None = None,
 ) -> dict[str, Any]:
-    """Revalidate one session from local facts without provider GET calls."""
-    resolved_as_of = as_of or datetime.now().date()
+    """Revalidate one session from local facts without provider GET calls.
+
+    The reconciliation probe is anchored on the session's OWN planned date
+    (resolved from the active checkpoint first), not on `as_of`/today, so a
+    session outside the ordinary 12-week lookback horizon can still be
+    revalidated -- e.g. for a late correction or tombstone of a session that
+    happened months ago (Issue #195). `as_of` still bounds how recent the
+    session may be: a session dated after `as_of` fails closed rather than
+    resolving, matching the same fail-closed contract
+    `services.recovery_analytics`'s targeted refresh uses for the same case.
+    """
+    resolved_as_of = (
+        as_of if isinstance(as_of, date) else date.fromisoformat(str(as_of)[:10]) if as_of else datetime.now().date()
+    )
+    checkpoint = db.get_latest_planning_checkpoint()
+    goal_plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+    # find_planned_session resolves by the PARENT session's own content-
+    # derived id inside `sessions[]`, never the day-level scalar projection
+    # -- required so a session on a multi-session day (Issue #205/#209)
+    # resolves correctly, not just the common single-session-day case.
+    day_template, template = find_planned_session(
+        goal_plan.get("session_templates") or [], session_id
+    )
+    if day_template is None or template is None:
+        raise LookupError(f"planned session {session_id} not found in active checkpoint")
+    session_date_text = str(day_template.get("date") or "")[:10]
+    try:
+        session_date = date.fromisoformat(session_date_text)
+    except ValueError as exc:
+        raise LookupError(f"planned session {session_id} has no resolvable date") from exc
+    if session_date > resolved_as_of:
+        raise LookupError(
+            f"planned session {session_id} is dated after {resolved_as_of.isoformat()}"
+        )
     payload = reconciliation_at(
         db,
-        weeks=12,
-        as_of=resolved_as_of,
+        weeks=1,
+        as_of=session_date,
         include_provider=False,
     )
     row = next(
@@ -115,19 +147,9 @@ def _feedback_evidence_for_session(
     )
     if row is None:
         raise LookupError(f"planned session {session_id} not found in local reconciliation")
-    checkpoint = db.get_latest_planning_checkpoint()
-    goal_plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
-    template = next(
-        (
-            dict(item)
-            for item in goal_plan.get("session_templates") or []
-            if str(item.get("session_id") or "") == str(session_id)
-        ),
-        {},
-    )
     ledger_rows = db.get_latest_plan_actual_matches(
-        start_date=str(row.get("date") or "")[:10],
-        end_date=str(row.get("date") or "")[:10],
+        start_date=session_date_text,
+        end_date=session_date_text,
     )
     match_revision = next(
         (
@@ -259,7 +281,9 @@ def _append_feedback(
     evaluations = _evaluate_feedback_predictions(db, feedback)
     from services.recovery_analytics import refresh_recovery_episodes_best_effort
 
-    refresh_recovery_episodes_best_effort(db, as_of=now_utc.date())
+    refresh_recovery_episodes_best_effort(
+        db, as_of=now_utc.date(), target_session_ids=[session_id]
+    )
     return {"feedback": feedback, "created": saved["created"], "evaluations": evaluations}
 
 
