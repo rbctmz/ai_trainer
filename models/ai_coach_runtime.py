@@ -100,6 +100,19 @@ def create_chat_system_prompt_with_tools(ai_tools: Any, data_context: Any = None
     return f"{base_prompt}\n\n{tools_description}".rstrip()
 
 
+def create_native_chat_system_prompt(ai_tools: Any = None) -> str:
+    """Системный промпт нативного пути (Issue #190).
+
+    Те же коучинговые правила и правила выбора инструментов, что и на
+    маркерном пути, но БЕЗ блока `[TOOL: ...]`-синтаксиса: модель с нативным
+    tools API получает схемы инструментов контрактно (описания параметров
+    едут в самих схемах ``AITools.get_tool_schemas``), и учить её текстовым
+    маркерам значит провоцировать отвечать маркерами вместо tool_calls.
+    """
+    del ai_tools  # схемы передаются провайдеру отдельно, в промпте не нужны
+    return create_chat_system_prompt_with_tools(None)
+
+
 def create_chat_synthesis_system_prompt(goal_plan: Optional[Dict] = None) -> str:
     """System prompt for the final user-facing answer after tool execution."""
     phase_ctx = _build_phase_context(goal_plan)
@@ -338,6 +351,126 @@ def build_grounding_tool_results(
         _execute_tool_to_result(ai_tools, tool_name, dict(params), tool_result_formatter)
         for tool_name, params in GROUNDING_TOOL_CALLS
     ]
+
+
+def run_native_tool_loop(
+    provider: Any,
+    ai_tools: Any,
+    user_input: str,
+    history_messages: Iterable[Dict[str, Any]],
+    tool_result_formatter: Callable[[str, Any], str],
+    *,
+    max_rounds: int = 2,
+) -> tuple[str, list[Dict[str, Any]]]:
+    """Нативный цикл инструментов (Issue #190).
+
+    Схемы из ``AITools.get_tool_schemas`` уходят провайдеру, структурные
+    tool_calls исполняются через общий ``_execute_tool_to_result``, результаты
+    возвращаются модели tool-сообщениями — до ``max_rounds`` раундов, стоп на
+    первом раунде без вызовов. Записи tool_results байт-в-байт той же формы,
+    что и у маркерного ``collect_tool_results``: synthesis, SSE-события,
+    proposals и grounding-fallback (#189) остаются общим кодом. Ноль вызовов —
+    пустой список: grounding срабатывает на существующих call sites.
+    """
+    system_prompt = create_native_chat_system_prompt(ai_tools)
+    schemas = (
+        list(ai_tools.get_tool_schemas())
+        if ai_tools is not None and hasattr(ai_tools, "get_tool_schemas")
+        else []
+    )
+
+    messages: list[Dict[str, Any]] = []
+    for message in history_messages:
+        role = str(message.get("role") or "user")
+        if role not in {"user", "assistant"}:
+            role = "user"
+        messages.append({"role": role, "content": str(message.get("content") or "")})
+    messages.append({"role": "user", "content": user_input})
+
+    final_text = ""
+    tool_results: list[Dict[str, Any]] = []
+    for _round in range(max(1, int(max_rounds))):
+        outcome = provider.generate_with_tools(messages, schemas, system_prompt=system_prompt) or {}
+        final_text = str(outcome.get("text") or "")
+        calls = [call for call in list(outcome.get("tool_calls") or []) if call]
+        if not calls:
+            break
+        messages.append(
+            {
+                "role": "assistant",
+                "content": final_text,
+                "tool_calls": [dict(call) for call in calls],
+            }
+        )
+        for call in calls:
+            tool_name = str(call.get("name") or "")
+            params = dict(call.get("arguments") or {})
+            entry = _execute_tool_to_result(ai_tools, tool_name, params, tool_result_formatter)
+            tool_results.append(entry)
+            messages.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": str(call.get("id") or ""),
+                    "name": tool_name,
+                    "content": entry["formatted_result"],
+                }
+            )
+    return final_text, tool_results
+
+
+def resolve_turn_tool_results(
+    *,
+    provider: Any,
+    ai_tools: Any,
+    user_input: str,
+    history_messages: Iterable[Dict[str, Any]],
+    tool_result_formatter: Callable[[str, Any], str],
+    response_contract: Any = None,
+) -> Dict[str, Any]:
+    """Единая точка выбора пути добычи tool_results для хода коуча.
+
+    Нативный цикл — когда провайдер и умеет нативные инструменты
+    (capability), и доступен; иначе прежний маркерный путь: первый проход +
+    regex-исполнение ``[TOOL: ...]``. Возвращает
+    ``{"native": bool, "tool_results": [...], "rendered_response": str}`` —
+    дальше обе ветки обрабатываются одинаково (grounding при пустом списке,
+    synthesis, SSE) на существующих call sites.
+    """
+    native_supported = False
+    supports = getattr(provider, "supports_native_tools", None)
+    if callable(supports) and supports():
+        available = getattr(provider, "is_available", None)
+        native_supported = available() if callable(available) else True
+
+    if native_supported:
+        final_text, tool_results = run_native_tool_loop(
+            provider,
+            ai_tools,
+            apply_response_contract_to_user_input(user_input, response_contract),
+            history_messages,
+            tool_result_formatter,
+        )
+        return {
+            "native": True,
+            "tool_results": tool_results,
+            "rendered_response": final_text,
+        }
+
+    raw = generate_ai_chat_response(
+        provider=provider,
+        ai_tools=ai_tools,
+        user_input=user_input,
+        history_messages=history_messages,
+        response_contract=response_contract,
+    )
+    rendered_response, tool_results = collect_tool_results(
+        raw, ai_tools, tool_result_formatter
+    )
+    return {
+        "native": False,
+        "tool_results": tool_results,
+        "rendered_response": rendered_response,
+    }
 
 
 def collect_tool_results(
