@@ -66,7 +66,25 @@ Milestone six is validation: full smoke, broad non-live, and — only with expli
 - [x] (2026-07-19) Milestone three: base capability/contract + `OpenAICompatibleToolsMixin` (OpenAI, DeepSeek) + Anthropic adapter (tool_use / merged tool_result translation); provider suites unchanged.
 - [x] (2026-07-19) Milestone four: `run_native_tool_loop` + `resolve_turn_tool_results` + `create_native_chat_system_prompt`; 13/13 GREEN.
 - [x] (2026-07-19) Milestone five: `api/routers/coach.py` dispatches through `resolve_turn_tool_results`; SSE `tool_call` events carry `native` (true only for genuinely native calls, false when grounding fired); M5 router gate RED→GREEN. Smoke 872 passed; broad non-live 915 passed (the one failure is the pre-existing date-dependent scheduler histogram, issue #226).
-- [ ] Milestone six: live DeepSeek probe (only with explicit authorization) + retrospective.
+- [x] (2026-07-19) Milestone six: live DeepSeek probe (explicitly authorized by Greg, run on a COPY of the production DB, analytical question only). Transcript below; retrospective recorded.
+
+### M6 live probe transcript (2026-07-19, deepseek-v4-flash, DB copy)
+
+Question: «Как моя форма сейчас и что по плану на ближайшие дни?»
+
+    provider: DeepSeek deepseek-v4-flash
+    available: True
+    supports_native_tools: True
+
+    native: True
+    tool_calls (выбор модели):
+      - get_performance_metrics {'days': 30} [ok]
+      - analyze_training_status {'days': 30} [ok]
+      - analyze_hrv_trends {'days': 30} [ok]
+      - get_active_plan {} [ok]
+      - get_upcoming_workouts {'days': 7} [ok]
+
+The model CHOSE the tools itself — exactly the baseline set the system prompt mandates for a state question, with typed integer params, via structured tool_calls (no markers, no grounding fallback needed). Synthesis cited only real numbers from the results: TSB −12.4, HRV 39/34.6 vs baseline 35, 7-day load 598, Base week 1/12, B-start 26.07, and tomorrow's actual planned sessions with their TSS. Contrast with #188, where this same provider produced zero markers and a fully fabricated briefing.
 
 - Decision (M5): the legacy Streamlit surface (`ui/pages/ai_coaching.py` → `finalize_ai_chat_response`) intentionally stays on the marker path. It is the fallback surface during the web migration; per repo rules new product behavior does not land in `ui/pages/*`, and its grounding fallback keeps protecting it. The web/API surface is the only native consumer in this slice. Date/Author: 2026-07-19 / Claude Code.
 
@@ -77,7 +95,11 @@ Milestone six is validation: full smoke, broad non-live, and — only with expli
 
 ## Outcomes & Retrospective
 
-Pending implementation.
+Delivered M1–M6 in one day on the shape planned: one schema registry feeding both paths, a two-provider OpenAI-compatible adapter plus Anthropic, a bounded native loop returning marker-shaped results, one dispatch point, and an SSE `native` flag — with the marker path and #189 grounding regression-pinned throughout. The live probe validated the core bet: the provider that fabricated #188 now selects the correct baseline toolset by itself through structured tool_calls.
+
+What worked: the "identical tool-result shape" decision meant the router diff was ~30 lines and zero synthesis/proposal/grounding code moved; stub-clients made both adapters testable without network; registering the router gate RED exposed the real invariant (synthesis legitimately uses `generate_response` — the pin is "no prompt teaches `[TOOL:`", not "never call it").
+
+Left open deliberately: Gemini/Ollama native adapters (capability flag makes this additive); legacy Streamlit stays marker-based; multi-turn native tool rounds beyond 2 if real dialogs show the model wanting more.
 
 ## Validation and Acceptance
 
