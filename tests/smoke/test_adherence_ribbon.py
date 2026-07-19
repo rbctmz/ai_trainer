@@ -130,6 +130,7 @@ def test_day_status_matrix_and_week_aggregates():
         "substituted": 1,
         "major_deviation": 1,
         "missed": 1,
+        "unknown": 0,
     }
     assert week["planned_tss"] == pytest.approx(225.0)  # 80+30+25+90
     assert week["actual_tss"] == pytest.approx(195.0)  # matched rows only
@@ -137,6 +138,29 @@ def test_day_status_matrix_and_week_aggregates():
     assert week["missed_key_sessions"] == [
         {"date": "2026-08-06", "sport": "run", "role": "long"}
     ]
+
+
+def test_matched_but_unclassified_day_is_unknown_not_unplanned():
+    """Live vocabulary: a matched row can carry adherence='unknown' (e.g.
+    actual_role is missing, classification could not run). Such a day is
+    'unknown' — hiding a real match behind 'unplanned' or 'rest' would lie;
+    but any CLASSIFIED label on the same day still outranks it."""
+    rows = [_row("2026-08-04", "run", "quality", 25.0, adherence="unknown", actual=16.0)]
+    unplanned = [{"date": "2026-08-04", "activity_id": "a2", "sport": "bike", "tss": 30.0}]
+    ribbon = _build(_snapshot(rows, unplanned))
+    day = _days_by_date(ribbon)["2026-08-04"]
+    assert day["status"] == "unknown"
+    assert day["actual_tss"] == pytest.approx(46.0)  # matched 16 + unplanned 30
+    week = ribbon["weeks"][0]
+    assert week["adherence"]["unknown"] == 1
+    assert week["matched_sessions"] == 1
+
+    mixed = [
+        _row("2026-08-04", "run", "quality", 25.0, adherence="unknown", actual=16.0),
+        _row("2026-08-04", "bike", "easy", 40.0, adherence="exact", actual=42.0),
+    ]
+    ribbon = _build(_snapshot(mixed))
+    assert _days_by_date(ribbon)["2026-08-04"]["status"] == "exact"
 
 
 def test_worst_honest_label_wins_within_a_day():
