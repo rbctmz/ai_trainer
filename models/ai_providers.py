@@ -3,6 +3,7 @@
 Поддерживает: OpenAI, Anthropic, Google Gemini, Ollama, Mock (для тестирования)
 """
 
+import json
 from abc import ABC, abstractmethod
 from typing import Any, Optional, Dict, List, Type
 import os
@@ -47,8 +48,109 @@ class AIProvider(ABC):
         """
         return []
 
+    def supports_native_tools(self) -> bool:
+        """Умеет ли провайдер нативный function calling (Issue #190).
 
-class OpenAIProvider(AIProvider):
+        Capability класса, не доступности: ключ/клиент проверяются отдельно
+        через is_available(). Провайдеры без поддержки остаются на маркерном
+        пути [TOOL: ...].
+        """
+        return False
+
+    def generate_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        system_prompt: str = "",
+    ) -> Dict[str, Any]:
+        """Нативный вызов с инструментами (Issue #190).
+
+        ``messages`` — OpenAI-стиль список ролей user/assistant/tool;
+        ``tools`` — схемы из ``AITools.get_tool_schemas``. Нормализованный
+        ответ: ``{"text": str, "tool_calls": [{"id", "name", "arguments"}]}``,
+        где ``arguments`` — уже распарсенный dict, никогда SDK-объект или
+        JSON-строка.
+        """
+        raise NotImplementedError(
+            f"{type(self).__name__} не поддерживает нативный function calling"
+        )
+
+
+def _native_tool_calls_from_openai_message(message: Any) -> List[Dict[str, Any]]:
+    """Normalize OpenAI-style ``message.tool_calls`` into the shared shape."""
+    normalized: List[Dict[str, Any]] = []
+    for call in list(getattr(message, "tool_calls", None) or []):
+        function = getattr(call, "function", None)
+        raw_arguments = getattr(function, "arguments", "") if function else ""
+        try:
+            arguments = json.loads(raw_arguments) if raw_arguments else {}
+        except (TypeError, ValueError):
+            arguments = {}
+        if not isinstance(arguments, dict):
+            arguments = {}
+        normalized.append(
+            {
+                "id": str(getattr(call, "id", "") or ""),
+                "name": str(getattr(function, "name", "") or "") if function else "",
+                "arguments": arguments,
+            }
+        )
+    return normalized
+
+
+class OpenAICompatibleToolsMixin:
+    """Общий адаптер tools API для OpenAI-совместимых клиентов (OpenAI, DeepSeek)."""
+
+    def supports_native_tools(self) -> bool:
+        return True
+
+    def generate_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        system_prompt: str = "",
+    ) -> Dict[str, Any]:
+        if not getattr(self, "client", None):
+            return {"text": f"{type(self).__name__}: клиент не настроен", "tool_calls": []}
+
+        full_messages: List[Dict[str, Any]] = []
+        if system_prompt:
+            full_messages.append({"role": "system", "content": system_prompt})
+        full_messages.extend(messages)
+
+        request: Dict[str, Any] = {
+            "model": self.model,
+            "messages": full_messages,
+            "max_tokens": self.settings.AI_RESPONSE_MAX_TOKENS,
+            "temperature": 0.7,
+        }
+        payload = [
+            {
+                "type": "function",
+                "function": {
+                    "name": schema["name"],
+                    "description": schema["description"],
+                    "parameters": schema["parameters"],
+                },
+            }
+            for schema in tools or []
+        ]
+        if payload:
+            request["tools"] = payload
+
+        try:
+            response = self.client.chat.completions.create(**request)
+        except Exception as exc:
+            return {"text": f"Ошибка {type(self).__name__}: {exc}", "tool_calls": []}
+
+        message = response.choices[0].message
+        return {
+            "text": str(getattr(message, "content", None) or ""),
+            "tool_calls": _native_tool_calls_from_openai_message(message),
+        }
+
+
+class OpenAIProvider(OpenAICompatibleToolsMixin, AIProvider):
     """Провайдер OpenAI (GPT-3.5/GPT-4)"""
     
     def __init__(
@@ -184,10 +286,110 @@ class AnthropicProvider(AIProvider):
             
             # Claude возвращает список блоков контента
             return response.content[0].text if response.content else ""
-            
+
         except Exception as e:
             return f"Ошибка Anthropic: {e}"
-    
+
+    def supports_native_tools(self) -> bool:
+        return True
+
+    @staticmethod
+    def _messages_for_tool_use(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """OpenAI-стиль истории → Anthropic messages.
+
+        assistant с tool_calls становится content-блоками tool_use;
+        подряд идущие tool-результаты сворачиваются в ОДИН user-ход с
+        tool_result-блоками (Anthropic требует их сразу после tool_use).
+        """
+        translated: List[Dict[str, Any]] = []
+        pending_results: List[Dict[str, Any]] = []
+
+        def _flush_results() -> None:
+            if pending_results:
+                translated.append({"role": "user", "content": list(pending_results)})
+                pending_results.clear()
+
+        for message in messages:
+            role = str(message.get("role") or "")
+            if role == "tool":
+                pending_results.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": str(message.get("tool_call_id") or ""),
+                        "content": str(message.get("content") or ""),
+                    }
+                )
+                continue
+            _flush_results()
+            if role == "assistant" and message.get("tool_calls"):
+                content: List[Dict[str, Any]] = []
+                text = str(message.get("content") or "")
+                if text:
+                    content.append({"type": "text", "text": text})
+                for call in message["tool_calls"]:
+                    content.append(
+                        {
+                            "type": "tool_use",
+                            "id": str(call.get("id") or ""),
+                            "name": str(call.get("name") or ""),
+                            "input": dict(call.get("arguments") or {}),
+                        }
+                    )
+                translated.append({"role": "assistant", "content": content})
+            elif role in {"user", "assistant"}:
+                translated.append({"role": role, "content": message.get("content") or ""})
+        _flush_results()
+        return translated
+
+    def generate_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        system_prompt: str = "",
+    ) -> Dict[str, Any]:
+        if not self.client:
+            return {"text": "Anthropic провайдер не настроен", "tool_calls": []}
+
+        request: Dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": self.settings.AI_RESPONSE_MAX_TOKENS,
+            "temperature": 0.7,
+            "messages": self._messages_for_tool_use(messages),
+        }
+        if system_prompt:
+            request["system"] = system_prompt
+        if tools:
+            request["tools"] = [
+                {
+                    "name": schema["name"],
+                    "description": schema["description"],
+                    "input_schema": schema["parameters"],
+                }
+                for schema in tools
+            ]
+
+        try:
+            response = self.client.messages.create(**request)
+        except Exception as exc:
+            return {"text": f"Ошибка Anthropic: {exc}", "tool_calls": []}
+
+        text_parts: List[str] = []
+        tool_calls: List[Dict[str, Any]] = []
+        for block in list(getattr(response, "content", None) or []):
+            block_type = str(getattr(block, "type", "") or "")
+            if block_type == "text":
+                text_parts.append(str(getattr(block, "text", "") or ""))
+            elif block_type == "tool_use":
+                raw_input = getattr(block, "input", None)
+                tool_calls.append(
+                    {
+                        "id": str(getattr(block, "id", "") or ""),
+                        "name": str(getattr(block, "name", "") or ""),
+                        "arguments": dict(raw_input) if isinstance(raw_input, dict) else {},
+                    }
+                )
+        return {"text": "\n".join(part for part in text_parts if part), "tool_calls": tool_calls}
+
     def is_available(self) -> bool:
         return self.client is not None and self.api_key is not None
     
@@ -233,7 +435,7 @@ class AnthropicProvider(AIProvider):
         ]
 
 
-class DeepSeekProvider(AIProvider):
+class DeepSeekProvider(OpenAICompatibleToolsMixin, AIProvider):
     """Провайдер DeepSeek через OpenAI-совместимый API."""
 
     def __init__(

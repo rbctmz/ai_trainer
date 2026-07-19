@@ -19,10 +19,9 @@ from data.database import Database
 from models.ai_coach_runtime import (
     apply_response_contract_to_final_response,
     build_grounding_tool_results,
-    collect_tool_results,
     create_chat_synthesis_system_prompt,
     build_chat_synthesis_prompt,
-    generate_ai_chat_response,
+    resolve_turn_tool_results,
     synthesize_ai_chat_response,
 )
 from models.coach_decisions import build_coach_decision
@@ -125,23 +124,24 @@ def coach_chat(
                 }
             )
         try:
-            # First pass: hidden planning/tool-selection step.
-            raw = generate_ai_chat_response(
+            # Скрытый шаг выбора инструментов: нативный tools-цикл для
+            # провайдеров с function calling, маркерный первый проход — для
+            # остальных (Issue #190). Форма tool_results одинаковая.
+            turn = resolve_turn_tool_results(
                 provider=provider,
                 ai_tools=ai_tools,
                 user_input=message,
                 history_messages=history,
+                tool_result_formatter=format_tool_result,
             )
-            _rendered_response, tool_results = collect_tool_results(
-                raw,
-                ai_tools,
-                format_tool_result,
-            )
+            _rendered_response = turn["rendered_response"]
+            tool_results = turn["tool_results"]
+            native_used = bool(turn["native"])
             grounding_used = False
             if not tool_results:
-                # Модель не выдала ни одного [TOOL: ...] — без данных её сырой
-                # ответ уходит сфабрикованным (issue #188). Собираем базовый
-                # набор реальных данных и синтезируем ответ по ним.
+                # Ни одного вызова инструментов ни на одном из путей — без
+                # данных сырой ответ уходит сфабрикованным (issue #188).
+                # Собираем базовый набор реальных данных и синтезируем по ним.
                 tool_results = build_grounding_tool_results(ai_tools, format_tool_result)
                 grounding_used = bool(tool_results)
 
@@ -153,6 +153,7 @@ def coach_chat(
                         "tool_name": item["tool_name"],
                         "status": "done",
                         "auto": grounding_used,
+                        "native": native_used and not grounding_used,
                     }
                 )
                 raw_result = item.get("raw_result") or {}
