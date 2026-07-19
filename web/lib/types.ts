@@ -1105,3 +1105,40 @@ export interface RecoveryAnalyticsResponse {
     message: string;
   };
 }
+
+export type AdherenceDayStatus =
+  | "exact"
+  | "substituted"
+  | "major_deviation"
+  | "missed"
+  | "unknown"
+  | "unplanned"
+  | "rest";
+
+export interface AdherenceDay {
+  date: string;
+  status: AdherenceDayStatus;
+  planned_tss: number;
+  actual_tss: number;
+}
+
+export interface AdherenceWeek {
+  week_start: string;
+  planned_sessions: number;
+  matched_sessions: number;
+  adherence: Record<string, number>;
+  planned_tss: number;
+  actual_tss: number;
+  unplanned_tss: number;
+  missed_key_sessions: { date: string; sport: string; role: string }[];
+}
+
+export interface AdherenceRibbonResponse {
+  has_plan: boolean;
+  weeks: AdherenceWeek[];
+  days: AdherenceDay[];
+  weeks_requested: number;
+  rule_version?: string;
+  ribbon_rule_version?: string;
+  data_quality?: Record<string, unknown>;
+}
