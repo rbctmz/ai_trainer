@@ -61,16 +61,19 @@ Milestone six is validation: full smoke, broad non-live, and — only with expli
 ## Progress
 
 - [x] (2026-07-19) Read Issue #190, `models/ai_coach_runtime.py`, `models/ai_providers.py`, `models/ai_tools.py` registry/executor, `api/routers/coach.py` SSE flow; created worktree branch `claude/issue-190-native-function-calling` from `origin/main` (5f71d13).
-- [ ] Milestone one: RED contract in `tests/smoke/test_coach_native_tools.py`.
-- [ ] Milestone two: schema registry as the single tool source.
-- [ ] Milestone three: provider contract + OpenAI-compatible and Anthropic adapters.
-- [ ] Milestone four: native loop + dispatch + grounding on both paths.
-- [ ] Milestone five: router SSE wiring.
-- [ ] Milestone six: validation, live probe (only with explicit authorization), retrospective.
+- [x] (2026-07-19) Milestone one: RED contract in `tests/smoke/test_coach_native_tools.py` — 13/13 honestly RED (missing methods/functions), draft PR #225.
+- [x] (2026-07-19) Milestone two: `get_tool_schemas()` single registry; `get_available_tools()` derives descriptions from it byte-identically.
+- [x] (2026-07-19) Milestone three: base capability/contract + `OpenAICompatibleToolsMixin` (OpenAI, DeepSeek) + Anthropic adapter (tool_use / merged tool_result translation); provider suites unchanged.
+- [x] (2026-07-19) Milestone four: `run_native_tool_loop` + `resolve_turn_tool_results` + `create_native_chat_system_prompt`; 13/13 GREEN.
+- [x] (2026-07-19) Milestone five: `api/routers/coach.py` dispatches through `resolve_turn_tool_results`; SSE `tool_call` events carry `native` (true only for genuinely native calls, false when grounding fired); M5 router gate RED→GREEN. Smoke 872 passed; broad non-live 915 passed (the one failure is the pre-existing date-dependent scheduler histogram, issue #226).
+- [ ] Milestone six: live DeepSeek probe (only with explicit authorization) + retrospective.
+
+- Decision (M5): the legacy Streamlit surface (`ui/pages/ai_coaching.py` → `finalize_ai_chat_response`) intentionally stays on the marker path. It is the fallback surface during the web migration; per repo rules new product behavior does not land in `ui/pages/*`, and its grounding fallback keeps protecting it. The web/API surface is the only native consumer in this slice. Date/Author: 2026-07-19 / Claude Code.
 
 ## Surprises & Discoveries
 
-- (none yet)
+- (2026-07-19) `tests/smoke/test_session_scheduler.py::test_reference_plan_histogram_replaces_three_session_days` fails on main independent of this work — the reference plan is built from "today" and week 3 (Base) dropped to 6 occasions on 2026-07-19; filed as issue #226 (same class as #163/#164).
+- (2026-07-19) On the native path `provider.generate_response` is still exercised — by the synthesis pass. The M5 gate therefore cannot simply forbid `generate_response`; it pins instead that no prompt reaching it contains the `[TOOL:` block (the marker first pass never runs), which is the actual invariant.
 
 ## Outcomes & Retrospective
 
