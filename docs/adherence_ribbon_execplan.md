@@ -51,14 +51,32 @@ Milestone four is validation: full smoke, broad non-live, a scripted acceptance 
 ## Progress
 
 - [x] (2026-07-19) Read Issue #228 sources: `classify_plan_adherence`, `build_reconciliation` row shape, `reconciliation_at(include_provider=False)`, current `/today` Yesterday block and `/planning` reconciliation table; created worktree branch `claude/issue-228-adherence-ribbon` from `origin/main` (fd64a23).
-- [ ] Milestone one: RED contract in `tests/smoke/test_adherence_ribbon.py`.
-- [ ] Milestone two: `models/adherence_ribbon.py` + `api/routers/adherence.py` green.
-- [ ] Milestone three: web `/adherence` + `/today` strip.
-- [ ] Milestone four: validation, transcript, retrospective.
+- [x] (2026-07-19) Milestone one: RED contract in `tests/smoke/test_adherence_ribbon.py` (6 gates), expanded twice after live-data findings (flat row shape; `unknown` status) — each expansion registered RED before its fix.
+- [x] (2026-07-19) Milestone two: `models/adherence_ribbon.py` + `api/routers/adherence.py` green; router registered in `api/main.py`.
+- [x] (2026-07-19) Milestone three: `web/lib/adherence.ts` (one status-meta source), `/adherence` page, nav «План vs факт», `/today` strip; `next lint`/`next build` green; source-contract gate pins «web не пере-выводит статусы».
+- [x] (2026-07-19) Milestone four: focused 8/8; smoke 883 passed; broad non-live 926 passed; browser acceptance on a production-DB copy with transcript above.
 
 ## Surprises & Discoveries
 
-- (none yet)
+- (2026-07-19) `build_reconciliation` rows are FLAT — planned fields (`date`/`sport`/`role`/`tss`) live at the row's top level, not under a nested `planned` dict as the M1 fixtures guessed. On live data the ribbon consumed ZERO rows (every day «unplanned», weeks 0/0) while `/today`'s Yesterday block saw the matches. Caught by browser verification against a production-DB copy — the same fixture-vs-reality defect class the #209 round-2 checker caught with `available_day_indices`. Fixtures now mirror a verified live payload.
+- (2026-07-19) The live adherence vocabulary includes `unknown` — a MATCHED row whose classification could not run (`actual_role` missing). The ribbon initially hid such a day behind «unplanned». New contract: `unknown` day status at the lowest priority (any classified label outranks it) + an `unknown` weekly bucket, so a real match is never hidden.
+- (2026-07-19) Ops note: running `npm run build` into the same `.next` a dev server is serving corrupts the dev runtime («Cannot find module './64.js'») — clear `.next` before restarting dev after a production build.
+
+### M4 live acceptance transcript (2026-07-19, production-DB copy, read-only)
+
+`GET /api/adherence?weeks=1` on the athlete's real data (as_of 2026-07-19):
+
+    days: 13.07 missed (39.3/21.0) · 14.07 missed (26.2/25.1) · 15.07 unknown
+    (23.1 planned; actual 93.7 = matched 16.4 + unplanned 77.3) · 16.07 rest ·
+    17.07 missed (14.7/0) · 18.07 major_deviation (32.0/40.9) · 19.07 missed
+    week: 8 planned / 2 matched · buckets {major_deviation: 1, missed: 6,
+    unknown: 1} · missed key: Пн 13.07 bike quality
+
+The `/adherence` page renders the week card «2/8 сессий · 20/150 TSS · вне
+плана 161 · Пропущены ключевые: Пн 13.07 (quality)» — exactly the «факт≈план
+редко» picture the WoZ retro said the athlete could not see anywhere; `/today`
+shows the 7-day strip linking to the full ribbon. No provider calls (tripwire
+enforced), no writes — the copy stayed read-only.
 
 ## Outcomes & Retrospective
 

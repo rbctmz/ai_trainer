@@ -1111,6 +1111,7 @@ export type AdherenceDayStatus =
   | "substituted"
   | "major_deviation"
   | "missed"
+  | "unknown"
   | "unplanned"
   | "rest";
 

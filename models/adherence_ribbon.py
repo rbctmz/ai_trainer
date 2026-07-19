@@ -17,7 +17,10 @@ RIBBON_RULE_VERSION = "adherence-ribbon-v1"
 
 # Худшая честная метка побеждает: лента, усредняющая major_deviation,
 # успокаивала бы вместо информирования (принцип явных срезов #205/#226).
-_DAY_STATUS_PRIORITY = ("major_deviation", "missed", "substituted", "exact")
+# `unknown` — матч есть, но классификация не смогла (нет actual_role):
+# любой КЛАССИФИЦИРОВАННЫЙ ярлык дня его перекрывает, но прятать реальный
+# матч за unplanned/rest нельзя.
+_DAY_STATUS_PRIORITY = ("major_deviation", "missed", "substituted", "exact", "unknown")
 
 
 def _parse_date(value: Any) -> Optional[date]:
@@ -61,20 +64,22 @@ def build_adherence_ribbon(
     week_monday = as_of - timedelta(days=as_of.weekday())
     start = week_monday - timedelta(days=(resolved_weeks - 1) * 7)
 
+    # build_reconciliation rows are FLAT: planned fields (date/sport/role/tss)
+    # live at the row's top level — verified against a live payload; the
+    # nested-"planned" shape was an M1 fixture guess that consumed zero rows.
     planned_by_date: Dict[str, List[Dict[str, Any]]] = {}
     for raw_row in list(reconciliation.get("rows") or []):
         if not isinstance(raw_row, Mapping):
             continue
-        planned = raw_row.get("planned") or {}
-        row_date = _parse_date(planned.get("date"))
+        row_date = _parse_date(raw_row.get("date"))
         if row_date is None or not (start <= row_date <= as_of):
             continue
         planned_by_date.setdefault(row_date.isoformat(), []).append(
             {
                 "date": row_date.isoformat(),
-                "sport": str(planned.get("sport") or ""),
-                "role": str(planned.get("role") or "").strip().lower(),
-                "planned_tss": round(_float(planned.get("tss")), 1),
+                "sport": str(raw_row.get("sport") or ""),
+                "role": str(raw_row.get("role") or "").strip().lower(),
+                "planned_tss": round(_float(raw_row.get("tss")), 1),
                 "matched": str(raw_row.get("match_status") or "") == "matched",
                 "adherence": str(raw_row.get("adherence") or "") or None,
                 "actual_tss": round(_float(raw_row.get("actual_total_tss")), 1),
@@ -133,7 +138,13 @@ def build_adherence_ribbon(
         planned_rows = [row for row in week_rows if row["planned_tss"] > 0]
         matched_rows = [row for row in planned_rows if row["matched"]]
         missed_rows = [row for row in planned_rows if not row["matched"]]
-        buckets = {"exact": 0, "substituted": 0, "major_deviation": 0, "missed": len(missed_rows)}
+        buckets = {
+            "exact": 0,
+            "substituted": 0,
+            "major_deviation": 0,
+            "missed": len(missed_rows),
+            "unknown": 0,
+        }
         for row in matched_rows:
             label = row["adherence"]
             if label in buckets:
