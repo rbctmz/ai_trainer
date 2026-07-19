@@ -21,6 +21,7 @@ load_dotenv()
 
 from api.routers import (  # noqa: E402  (after env setup)
     activities,
+    adherence,
     athlete_profile,
     coach,
     dashboard,
@@ -58,6 +59,7 @@ app.add_middleware(
 )
 
 app.include_router(dashboard.router)
+app.include_router(adherence.router)
 app.include_router(coach.router)
 app.include_router(decisions.router)
 app.include_router(hrv.router)
