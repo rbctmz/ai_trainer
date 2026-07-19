@@ -1264,6 +1264,34 @@ def apply_race_event_overlays(
             summary[sport] = round(sum(float(row[2].get(sport, 0.0) or 0.0) for row in week_rows), 1)
         summary.update(_build_week_structure_metadata(roles, focuses))
 
+    # Issue #226: гонка в конце недели уводит защищённые восстановительные дни
+    # (D+1/D+2) в СЛЕДУЮЩУЮ неделю. Такая неделя честно держит меньше сессий,
+    # но срез обязан быть ЯВНЫМ: молчаливое нарушение полосы 7–10 запрещено
+    # контрактом скедулера (#205) — неделя-приёмник получает scheduler_notes с
+    # именем старта.
+    iso_to_week = {
+        dt.date().isoformat(): index // 7 for index, (dt, _total, _parts) in enumerate(adjusted)
+    }
+    for iso in sorted(protected_dates):
+        week_index = iso_to_week.get(iso)
+        context = contexts.get(iso) or {}
+        race_iso = str(context.get("event_date") or "")
+        race_week = iso_to_week.get(race_iso)
+        if week_index is None or race_week is None or week_index == race_week:
+            continue
+        if week_index >= len(copied_summary):
+            continue
+        summary = copied_summary[week_index]
+        notes = [str(note) for note in (summary.get("scheduler_notes") or [])]
+        note = (
+            f"race-overlay: {iso} защищён восстановлением после старта "
+            f"{race_iso} ({str(context.get('priority') or '')})"
+        )
+        if note not in notes:
+            notes.append(note)
+        summary["scheduler_notes"] = notes
+        summary.setdefault("scheduler_status", "race_recovery_spillover")
+
     after_rows: Dict[str, Dict[str, Any]] = {}
     for index, (dt, total, parts) in enumerate(adjusted):
         week_meta = copied_summary[index // 7] if index // 7 < len(copied_summary) else {}

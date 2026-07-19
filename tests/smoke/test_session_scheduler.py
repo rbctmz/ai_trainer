@@ -437,8 +437,14 @@ def test_reference_plan_histogram_replaces_three_session_days(tmp_path):
         # a NORMAL week keeps the 7-10 occasion band; only taper or an
         # explicitly reduced week may drop to 5, and only with a stated reason
         phase = str(weekly[week_index].get("phase") or "")
-        reduced = bool(weekly[week_index].get("scheduler_notes"))
-        if phase in {"Base", "Build", "Peak", "Maintenance"} and not reduced:
+        notes = [str(note) for note in (weekly[week_index].get("scheduler_notes") or [])]
+        reduced = bool(notes)
+        if any("race-overlay" in note for note in notes):
+            # Issue #226: the week after an end-of-week race loses its first
+            # day(s) to protected recovery — explicitly annotated; two wiped
+            # days honestly leave as few as four occasions.
+            assert 4 <= sum(counts) <= 10, (week_index, phase, counts)
+        elif phase in {"Base", "Build", "Peak", "Maintenance"} and not reduced:
             assert 7 <= sum(counts) <= 10, (week_index, phase, counts)
         else:
             assert 5 <= sum(counts) <= 10, (week_index, phase, counts)
@@ -455,8 +461,14 @@ def test_reference_plan_histogram_replaces_three_session_days(tmp_path):
         assert minutes <= 10 * 60 + 5, (week_index, minutes)
 
 
-@pytest.mark.parametrize("race_weekday", [5, 6], ids=["saturday", "sunday"])
-def test_post_race_spillover_week_is_explicitly_reduced(tmp_path, race_weekday):
+@pytest.mark.parametrize(
+    ("race_weekday", "min_occasions"),
+    [(5, 5), (6, 4)],
+    ids=["saturday", "sunday"],
+)
+def test_post_race_spillover_week_is_explicitly_reduced(
+    tmp_path, race_weekday, min_occasions
+):
     """Issue #226: an A/B race at the END of a week pushes its protected
     recovery days (D+1/D+2) into the NEXT week. That week may honestly hold
     fewer than 7 occasions — but ONLY as an EXPLICIT reduction: its
@@ -503,8 +515,11 @@ def test_post_race_spillover_week_is_explicitly_reduced(tmp_path, race_weekday):
     assert notes, f"spillover week {spill_week} must state why it is reduced"
     assert any(b_date.isoformat() in note for note in notes), notes
 
+    # A Sunday race wipes TWO days (Mon+Tue) of the next week: five trainable
+    # days with the scheduler's own rest-day pattern honestly hold four
+    # occasions. The floor pins non-collapse, not the normal-week band.
     counts = [
         len(t.get("sessions") or [])
         for t in templates[spill_week * 7 : spill_week * 7 + 7]
     ]
-    assert 5 <= sum(counts) <= 10, (spill_week, counts)
+    assert min_occasions <= sum(counts) <= 10, (spill_week, counts)
