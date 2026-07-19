@@ -200,3 +200,34 @@ def test_api_clamps_weeks_and_never_touches_the_provider(tmp_path, monkeypatch):
     assert payload["weeks_requested"] == 8  # clamped ceiling
     payload = get_adherence(db=db, weeks=0)
     assert payload["weeks_requested"] == 1  # clamped floor
+
+
+def test_web_surfaces_consume_api_statuses_and_never_rederive():
+    """M3 source contract: /adherence page and the /today strip consume the
+    API payload (statuses arrive READY from models/adherence_ribbon.py);
+    the web never re-derives adherence itself; nav gains «План vs факт»."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    page = (root / "web" / "app" / "adherence" / "page.tsx").read_text(encoding="utf-8")
+    assert "/api/adherence?weeks=4" in page
+    assert "classify" not in page  # no client-side re-derivation
+
+    # status labels live in ONE shared module consumed by both surfaces
+    meta = (root / "web" / "lib" / "adherence.ts").read_text(encoding="utf-8")
+    for status in ("exact", "substituted", "major_deviation", "missed", "unplanned", "rest"):
+        assert status in meta, status
+    assert 'from "@/lib/adherence"' in page
+
+    strip = (root / "web" / "components" / "today" / "AdherenceStrip.tsx").read_text(
+        encoding="utf-8"
+    )
+    assert "/api/adherence?weeks=1" in strip
+    assert 'href="/adherence"' in strip
+
+    nav = (root / "web" / "components" / "Nav.tsx").read_text(encoding="utf-8")
+    assert '"/adherence"' in nav
+    assert "План vs факт" in nav
+
+    today_page = (root / "web" / "app" / "today" / "page.tsx").read_text(encoding="utf-8")
+    assert "AdherenceStrip" in today_page
