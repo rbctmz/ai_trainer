@@ -136,50 +136,304 @@ class AITools:
             "create_plan_constraint": self.create_plan_constraint,
         }
     
+    def get_tool_schemas(self) -> List[Dict[str, Any]]:
+        """JSON-схемы инструментов — единый реестр (Issue #190).
+
+        Один источник для двух потребителей: нативного tools API провайдеров
+        (OpenAI-совместимые/Anthropic адаптеры транслируют эти схемы в свой
+        формат) и маркерного пути, чьи текстовые описания в промпте выводятся
+        из ``description`` этих же схем. Параметры типизированы, чтобы вход
+        валидировался контрактно, а не regex-парсером свободного текста.
+        """
+
+        def _params(
+            properties: Optional[Dict[str, Any]] = None,
+            required: Optional[List[str]] = None,
+        ) -> Dict[str, Any]:
+            return {
+                "type": "object",
+                "properties": properties or {},
+                "required": list(required or []),
+            }
+
+        def _days(default: int) -> Dict[str, Any]:
+            return {
+                "days": {
+                    "type": "integer",
+                    "default": default,
+                    "description": "Период в днях",
+                }
+            }
+
+        return [
+            {
+                "name": "get_activities",
+                "description": "Получить список активностей за период (days=30)",
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "get_hrv_data",
+                "description": "Получить HRV данные за период (days=30)",
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "get_activity_stats",
+                "description": "Получить статистику по активностям (days=30)",
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "get_performance_metrics",
+                "description": (
+                    "Получить метрики производительности (CTL/ATL/TSB). "
+                    "days задаёт период отчёта/тренда; CTL/ATL/TSB всегда считаются на стабильном окне"
+                ),
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "get_recent_activities",
+                "description": "Получить последние N активностей (limit=10)",
+                "parameters": _params(
+                    {
+                        "limit": {
+                            "type": "integer",
+                            "default": 10,
+                            "description": "Сколько последних активностей вернуть",
+                        }
+                    }
+                ),
+            },
+            {
+                "name": "analyze_training_load",
+                "description": "Анализ тренировочной нагрузки за период (days=30)",
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "analyze_hrv_trends",
+                "description": "Анализ трендов HRV (days=30)",
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "compare_periods",
+                "description": "Сравнить два периода тренировок (period1_days=30, period2_days=30)",
+                "parameters": _params(
+                    {
+                        "period1_days": {
+                            "type": "integer",
+                            "default": 30,
+                            "description": "Длина недавнего периода в днях",
+                        },
+                        "period2_days": {
+                            "type": "integer",
+                            "default": 30,
+                            "description": "Длина предыдущего периода в днях",
+                        },
+                    }
+                ),
+            },
+            {
+                "name": "get_activity_by_sport",
+                "description": "Получить активности по виду спорта (sport='cycling', days=30)",
+                "parameters": _params(
+                    {
+                        "sport": {
+                            "type": "string",
+                            "description": "Вид спорта: cycling/running/swimming",
+                        },
+                        **_days(30),
+                    },
+                    required=["sport"],
+                ),
+            },
+            {
+                "name": "calculate_weekly_stats",
+                "description": "Рассчитать недельную статистику (weeks=4)",
+                "parameters": _params(
+                    {
+                        "weeks": {
+                            "type": "integer",
+                            "default": 4,
+                            "description": "Количество последних недель",
+                        }
+                    }
+                ),
+            },
+            {
+                "name": "find_best_performances",
+                "description": "Найти лучшие результаты по метрикам (metric='tss', limit=10)",
+                "parameters": _params(
+                    {
+                        "metric": {
+                            "type": "string",
+                            "default": "tss",
+                            "description": "Метрика ранжирования: tss/distance/duration/avg_hr",
+                        },
+                        "limit": {
+                            "type": "integer",
+                            "default": 10,
+                            "description": "Сколько результатов вернуть",
+                        },
+                    }
+                ),
+            },
+            {
+                "name": "analyze_recovery_state",
+                "description": "Проанализировать текущее состояние восстановления",
+                "parameters": _params(),
+            },
+            {
+                "name": "get_activities_by_date_range",
+                "description": (
+                    "Получить активности за конкретный период "
+                    "(start_date='2025-05-01', end_date='2025-05-31')"
+                ),
+                "parameters": _params(
+                    {
+                        "start_date": {
+                            "type": "string",
+                            "description": "Начало периода, YYYY-MM-DD",
+                        },
+                        "end_date": {
+                            "type": "string",
+                            "description": "Конец периода, YYYY-MM-DD",
+                        },
+                    },
+                    required=["start_date", "end_date"],
+                ),
+            },
+            {
+                "name": "get_sleep_data",
+                "description": "Получить данные сна за период (days=30)",
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "analyze_sleep_patterns",
+                "description": "Анализ паттернов и качества сна (days=30)",
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "get_sleep_stats",
+                "description": "Получить статистику сна (days=30)",
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "get_training_status",
+                "description": "Получить историю статуса тренированности и readiness (days=30)",
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "analyze_training_status",
+                "description": "Глубокий анализ статуса тренированности и нагрузки (days=30)",
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "get_daily_health_stats",
+                "description": (
+                    "Получить ежедневные показатели здоровья (шаги, ЧСС, калории) за период (days=30)"
+                ),
+                "parameters": _params(_days(30)),
+            },
+            {
+                "name": "get_active_plan",
+                "description": (
+                    "Получить активный тренировочный план: цель, старты с приоритетами, "
+                    "дату главного старта, фазы, недельные TSS-таргеты, итоговый TSS и пик, "
+                    "а также текущую неделю (current_week) и оставшиеся недели до старта, "
+                    "пересчитанные от сегодняшней даты"
+                ),
+                "parameters": _params(),
+            },
+            {
+                "name": "get_upcoming_workouts",
+                "description": "Получить ближайшие плановые тренировки из активного плана (days=7)",
+                "parameters": _params(_days(7)),
+            },
+            {
+                "name": "propose_plan_build",
+                "description": (
+                    "Предложить собрать новый план подготовки. Параметры: goal_type (Триатлон/Бег/Вело/Плавание), "
+                    "distance (Sprint/Olympic/Half/Full или 5K/10K/21K/42K), event_date (YYYY-MM-DD), "
+                    "available_hours (часов в неделю), available_days (необязательно, через запятую: mon,tue,...)."
+                ),
+                "parameters": _params(
+                    {
+                        "goal_type": {
+                            "type": "string",
+                            "description": "Триатлон/Бег/Вело/Плавание",
+                        },
+                        "distance": {
+                            "type": "string",
+                            "description": "Sprint/Olympic/Half/Full или 5K/10K/21K/42K",
+                        },
+                        "event_date": {
+                            "type": "string",
+                            "description": "Дата старта, YYYY-MM-DD",
+                        },
+                        "available_hours": {
+                            "type": "number",
+                            "description": "Доступно часов в неделю",
+                        },
+                        "available_days": {
+                            "type": "string",
+                            "description": "Необязательно: дни недели через запятую (mon,tue,...)",
+                        },
+                    },
+                    required=["goal_type", "distance", "event_date", "available_hours"],
+                ),
+            },
+            {
+                "name": "propose_plan_adjustment",
+                "description": (
+                    "Предложить корректировку активного плана по факту выполнения недели. "
+                    "Параметры: weeks (целое, по умолчанию 1)."
+                ),
+                "parameters": _params(
+                    {
+                        "weeks": {
+                            "type": "integer",
+                            "default": 1,
+                            "description": "Сколько последних недель учитывать",
+                        }
+                    }
+                ),
+            },
+            {
+                "name": "create_plan_constraint",
+                "description": (
+                    "Сохранить durable-ограничение на дату и сразу применить его к активному плану, "
+                    "если он есть. Используй только при явной фразе пользователя вроде 'я болею завтра', "
+                    "'не могу тренироваться 2026-07-10', 'удали тренировку в этот день'. "
+                    "Параметры: date (YYYY-MM-DD/today/tomorrow/сегодня/завтра), "
+                    "kind (sick/unavailable/forced_rest/manual_delete/disabled_plan_day или русские синонимы), "
+                    "note (необязательно)."
+                ),
+                "parameters": _params(
+                    {
+                        "date": {
+                            "type": "string",
+                            "description": "YYYY-MM-DD или today/tomorrow/сегодня/завтра",
+                        },
+                        "kind": {
+                            "type": "string",
+                            "default": "unavailable",
+                            "description": (
+                                "sick/unavailable/forced_rest/manual_delete/disabled_plan_day "
+                                "или русские синонимы"
+                            ),
+                        },
+                        "note": {
+                            "type": "string",
+                            "description": "Необязательная заметка",
+                        },
+                    },
+                    required=["date", "kind"],
+                ),
+            },
+        ]
+
     def get_available_tools(self) -> Dict[str, str]:
-        """Возвращает список доступных инструментов с описанием"""
+        """Имя → описание; выводится из единого реестра схем (Issue #190)."""
         return {
-            "get_activities": "Получить список активностей за период (days=30)",
-            "get_hrv_data": "Получить HRV данные за период (days=30)",
-            "get_activity_stats": "Получить статистику по активностям (days=30)",
-            "get_performance_metrics": (
-                "Получить метрики производительности (CTL/ATL/TSB). "
-                "days задаёт период отчёта/тренда; CTL/ATL/TSB всегда считаются на стабильном окне"
-            ),
-            "get_recent_activities": "Получить последние N активностей (limit=10)",
-            "analyze_training_load": "Анализ тренировочной нагрузки за период (days=30)",
-            "analyze_hrv_trends": "Анализ трендов HRV (days=30)",
-            "compare_periods": "Сравнить два периода тренировок (period1_days=30, period2_days=30)",
-            "get_activity_by_sport": "Получить активности по виду спорта (sport='cycling', days=30)",
-            "calculate_weekly_stats": "Рассчитать недельную статистику (weeks=4)",
-            "find_best_performances": "Найти лучшие результаты по метрикам (metric='tss', limit=10)",
-            "analyze_recovery_state": "Проанализировать текущее состояние восстановления",
-            "get_activities_by_date_range": "Получить активности за конкретный период (start_date='2025-05-01', end_date='2025-05-31')",
-            "get_sleep_data": "Получить данные сна за период (days=30)",
-            "analyze_sleep_patterns": "Анализ паттернов и качества сна (days=30)",
-            "get_sleep_stats": "Получить статистику сна (days=30)",
-            "get_training_status": "Получить историю статуса тренированности и readiness (days=30)",
-            "analyze_training_status": "Глубокий анализ статуса тренированности и нагрузки (days=30)",
-            "get_daily_health_stats": "Получить ежедневные показатели здоровья (шаги, ЧСС, калории) за период (days=30)",
-            "get_active_plan": "Получить активный тренировочный план: цель, старты с приоритетами, дату главного старта, фазы, недельные TSS-таргеты, итоговый TSS и пик, а также текущую неделю (current_week) и оставшиеся недели до старта, пересчитанные от сегодняшней даты",
-            "get_upcoming_workouts": "Получить ближайшие плановые тренировки из активного плана (days=7)",
-            "propose_plan_build": (
-                "Предложить собрать новый план подготовки. Параметры: goal_type (Триатлон/Бег/Вело/Плавание), "
-                "distance (Sprint/Olympic/Half/Full или 5K/10K/21K/42K), event_date (YYYY-MM-DD), "
-                "available_hours (часов в неделю), available_days (необязательно, через запятую: mon,tue,...)."
-            ),
-            "propose_plan_adjustment": (
-                "Предложить корректировку активного плана по факту выполнения недели. "
-                "Параметры: weeks (целое, по умолчанию 1)."
-            ),
-            "create_plan_constraint": (
-                "Сохранить durable-ограничение на дату и сразу применить его к активному плану, "
-                "если он есть. Используй только при явной фразе пользователя вроде 'я болею завтра', "
-                "'не могу тренироваться 2026-07-10', 'удали тренировку в этот день'. "
-                "Параметры: date (YYYY-MM-DD/today/tomorrow/сегодня/завтра), "
-                "kind (sick/unavailable/forced_rest/manual_delete/disabled_plan_day или русские синонимы), "
-                "note (необязательно)."
-            ),
+            schema["name"]: schema["description"] for schema in self.get_tool_schemas()
         }
     
     def execute_tool(self, tool_name: str, **kwargs) -> Dict[str, Any]:
