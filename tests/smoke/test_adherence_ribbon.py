@@ -38,14 +38,16 @@ def _row(
     adherence: str | None = None,
     actual: float = 0.0,
 ):
+    # FLAT shape, mirroring the REAL build_reconciliation row (verified against
+    # a live /api/planning/reconciliation payload): planned fields live at the
+    # top level, not under a nested "planned" dict.
     return {
-        "planned": {
-            "date": day,
-            "sport": sport,
-            "role": role,
-            "tss": float(tss),
-            "session_id": f"s_{day}_{sport}_{role}",
-        },
+        "index": 0,
+        "session_id": f"s_{day}_{sport}_{role}",
+        "date": day,
+        "sport": sport,
+        "role": role,
+        "tss": float(tss),
         "match_status": match_status,
         "adherence": adherence,
         "actual_total_tss": float(actual),
