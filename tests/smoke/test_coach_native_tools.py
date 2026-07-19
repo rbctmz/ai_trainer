@@ -433,6 +433,78 @@ def test_native_system_prompt_has_no_marker_syntax(ai_tools):
     assert "[TOOL:" in marker_prompt
 
 
+def test_coach_stream_uses_native_loop_and_flags_tool_events(tmp_path, monkeypatch):
+    """M5: the SSE endpoint dispatches through resolve_turn_tool_results — a
+    native-capable provider never sees the marker first pass, tool_call events
+    carry native: true, and the synthesis/stream flow is unchanged."""
+    import asyncio
+
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "CHATS_DIR", str(tmp_path / "chats"), raising=False)
+
+    from api.routers import coach as coach_mod
+
+    class NativeProvider(MockAIProvider):
+        def __init__(self):
+            super().__init__(delay=0)
+            self.native_calls = 0
+            self.plain_prompts: list[str] = []
+
+        def supports_native_tools(self) -> bool:
+            return True
+
+        def generate_with_tools(self, messages, tools, system_prompt=""):
+            self.native_calls += 1
+            assert any(t["name"] == "get_performance_metrics" for t in tools)
+            if self.native_calls == 1:
+                return {
+                    "text": "",
+                    "tool_calls": [
+                        {
+                            "id": "c1",
+                            "name": "get_performance_metrics",
+                            "arguments": {"days": 30},
+                        }
+                    ],
+                }
+            return {"text": "готово", "tool_calls": []}
+
+        def generate_response(self, prompt: str, context: str = "") -> str:
+            self.plain_prompts.append(prompt)
+            return "Синтез по данным."
+
+    provider = NativeProvider()
+    monkeypatch.setattr(
+        coach_mod, "resolve_provider", lambda provider_type=None: provider
+    )
+    monkeypatch.setattr(coach_mod, "supports_streaming", lambda _provider: False)
+
+    db = Database(str(tmp_path / "coach_native_stream.db"))
+    req = coach_mod.ChatRequest(message="Как моя форма?", provider="mock")
+    response = coach_mod.coach_chat(req, db)
+
+    async def _collect() -> list[dict]:
+        out = []
+        async for raw in response.body_iterator:
+            text = raw if isinstance(raw, str) else raw.decode()
+            if text.startswith("data:"):
+                out.append(json.loads(text[5:].strip()))
+        return out
+
+    events = asyncio.run(_collect())
+
+    tool_events = [event for event in events if event["type"] == "tool_call"]
+    assert [event["tool_name"] for event in tool_events] == ["get_performance_metrics"]
+    assert all(event["native"] is True for event in tool_events)
+    assert events[-1]["type"] == "done"
+    assert provider.native_calls == 2
+    # generate_response is only the synthesis pass — the marker first pass
+    # (whose prompt teaches the [TOOL: ...] syntax) must never run natively
+    assert provider.plain_prompts, "synthesis still uses generate_response"
+    assert all("[TOOL:" not in prompt for prompt in provider.plain_prompts)
+
+
 def test_dispatch_prefers_native_and_keeps_marker_fallback():
     from models.ai_coach_runtime import resolve_turn_tool_results
 
