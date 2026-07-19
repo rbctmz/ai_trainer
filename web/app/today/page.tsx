@@ -7,6 +7,7 @@ import { fetcher } from "@/lib/api";
 import type { TodayResponse, WorkoutStep } from "@/lib/types";
 import { ProposalCard } from "@/components/ui/ProposalCard";
 import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackCard";
+import { AdherenceStrip } from "@/components/today/AdherenceStrip";
 
 const STATE_META: Record<
   string,
@@ -409,6 +410,8 @@ export default function TodayPage() {
               )}
             </section>
           ) : null}
+
+          <AdherenceStrip />
 
           {feedbackPrompt ? (
             <PostWorkoutFeedbackCard

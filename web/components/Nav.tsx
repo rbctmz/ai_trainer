@@ -12,6 +12,7 @@ const links = [
   { href: "/coach", label: "Коуч" },
   { href: "/decisions", label: "Решения" },
   { href: "/planning", label: "План" },
+  { href: "/adherence", label: "План vs факт" },
   { href: "/recovery", label: "Восстановление" },
   { href: "/hrv", label: "HRV" },
   { href: "/sleep", label: "Сон" },
