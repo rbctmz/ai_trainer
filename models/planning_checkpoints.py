@@ -210,22 +210,28 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     goal_plan = ensure_session_identities(synchronize_goal_plan_events(goal_plan))
     weekly_summary_rows: List[Dict[str, Any]] = []
     for row in goal_plan.get("weekly_summary", []) or []:
-        weekly_summary_rows.append(
-            {
-                "week_start": _isoformat_date(row.get("week_start")),
-                "phase": row.get("phase"),
-                "weekly_tss": row.get("weekly_tss"),
-                "bike": row.get("bike"),
-                "run": row.get("run"),
-                "swim": row.get("swim"),
-                "day_roles": list(row.get("day_roles", []) or []),
-                "day_focuses": list(row.get("day_focuses", []) or []),
-                "capacity_tss": row.get("capacity_tss"),
-                "race_forecast_tss": row.get("race_forecast_tss"),
-                "adjustment_note": row.get("adjustment_note", "—"),
-                "structure_summary": row.get("structure_summary", ""),
-            }
-        )
+        weekly_row = {
+            "week_start": _isoformat_date(row.get("week_start")),
+            "phase": row.get("phase"),
+            "weekly_tss": row.get("weekly_tss"),
+            "bike": row.get("bike"),
+            "run": row.get("run"),
+            "swim": row.get("swim"),
+            "day_roles": list(row.get("day_roles", []) or []),
+            "day_focuses": list(row.get("day_focuses", []) or []),
+            "capacity_tss": row.get("capacity_tss"),
+            "race_forecast_tss": row.get("race_forecast_tss"),
+            "adjustment_note": row.get("adjustment_note", "—"),
+            "structure_summary": row.get("structure_summary", ""),
+        }
+        # Issue #226: явный срез недели (scheduler/race-overlay) — часть
+        # контракта честности и обязан пережить persist/restore; поля
+        # аддитивные, старые чекпойнты без них восстанавливаются как раньше.
+        if row.get("scheduler_notes"):
+            weekly_row["scheduler_notes"] = [str(note) for note in row["scheduler_notes"]]
+        if row.get("scheduler_status"):
+            weekly_row["scheduler_status"] = str(row["scheduler_status"])
+        weekly_summary_rows.append(weekly_row)
 
     constraint_summary = dict(goal_plan.get("constraint_summary", {}) or {})
     constraint_summary["notes"] = [

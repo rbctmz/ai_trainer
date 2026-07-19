@@ -437,8 +437,14 @@ def test_reference_plan_histogram_replaces_three_session_days(tmp_path):
         # a NORMAL week keeps the 7-10 occasion band; only taper or an
         # explicitly reduced week may drop to 5, and only with a stated reason
         phase = str(weekly[week_index].get("phase") or "")
-        reduced = bool(weekly[week_index].get("scheduler_notes"))
-        if phase in {"Base", "Build", "Peak", "Maintenance"} and not reduced:
+        notes = [str(note) for note in (weekly[week_index].get("scheduler_notes") or [])]
+        reduced = bool(notes)
+        if any("race-overlay" in note for note in notes):
+            # Issue #226: the week after an end-of-week race loses its first
+            # day(s) to protected recovery — explicitly annotated; two wiped
+            # days honestly leave as few as four occasions.
+            assert 4 <= sum(counts) <= 10, (week_index, phase, counts)
+        elif phase in {"Base", "Build", "Peak", "Maintenance"} and not reduced:
             assert 7 <= sum(counts) <= 10, (week_index, phase, counts)
         else:
             assert 5 <= sum(counts) <= 10, (week_index, phase, counts)
@@ -453,3 +459,67 @@ def test_reference_plan_histogram_replaces_three_session_days(tmp_path):
             for s in (t.get("sessions") or [])
         )
         assert minutes <= 10 * 60 + 5, (week_index, minutes)
+
+
+@pytest.mark.parametrize(
+    ("race_weekday", "min_occasions"),
+    [(5, 5), (6, 4)],
+    ids=["saturday", "sunday"],
+)
+def test_post_race_spillover_week_is_explicitly_reduced(
+    tmp_path, race_weekday, min_occasions
+):
+    """Issue #226: an A/B race at the END of a week pushes its protected
+    recovery days (D+1/D+2) into the NEXT week. That week may honestly hold
+    fewer than 7 occasions — but ONLY as an EXPLICIT reduction: its
+    scheduler_notes must name the race, and the annotation must survive
+    checkpoint persistence (read back through the persisted active plan).
+    The race weekday is pinned relative to today, so this holds on every
+    calendar day — the original histogram test only tripped on Sundays."""
+    from api import planning_service as ps
+
+    db = Database(str(tmp_path / f"scheduler-spill-{race_weekday}.db"))
+    today = datetime.now().date()
+    days_ahead = (race_weekday - today.weekday()) % 7
+    b_date = today + timedelta(days=days_ahead + 7)  # ≥ a week out, pinned weekday
+    a_date = today + timedelta(weeks=12)
+    ps.build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=None,
+        events=[
+            {"date": b_date.isoformat(), "priority": "B", "label": "B", "confirmed": True},
+            {"date": a_date.isoformat(), "priority": "A", "label": "A", "confirmed": True},
+        ],
+        planning_mode="event_goal",
+        available_hours=10,
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        persist=True,
+    )
+    active = ps.get_active_plan(db)
+    templates = list(active["session_templates"])
+    weekly = list(active["weekly_summary"])
+
+    race_index = next(
+        index
+        for index, template in enumerate(templates)
+        if str(template.get("session_role") or "") == "race"
+        and str(template.get("date") or "")[:10] == b_date.isoformat()
+    )
+    spill_week = race_index // 7 + 1
+    assert spill_week < len(weekly)
+
+    row = weekly[spill_week]
+    notes = [str(note) for note in (row.get("scheduler_notes") or [])]
+    assert notes, f"spillover week {spill_week} must state why it is reduced"
+    assert any(b_date.isoformat() in note for note in notes), notes
+
+    # A Sunday race wipes TWO days (Mon+Tue) of the next week: five trainable
+    # days with the scheduler's own rest-day pattern honestly hold four
+    # occasions. The floor pins non-collapse, not the normal-week band.
+    counts = [
+        len(t.get("sessions") or [])
+        for t in templates[spill_week * 7 : spill_week * 7 + 7]
+    ]
+    assert min_occasions <= sum(counts) <= 10, (spill_week, counts)
