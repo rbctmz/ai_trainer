@@ -138,7 +138,7 @@ def _episode(
         "adherence": "exact",
         "rpe_band": rpe_band,
         "outcome": {"readiness_deltas": deltas, "recovered_by_day": 2},
-        "exclusion_reasons": [] if status == "eligible" else ["major_deviation"],
+        "exclusion_reasons": [] if status in ("eligible", "maturing") else ["major_deviation"],
         "confounders": {},
     }
 
@@ -423,6 +423,28 @@ def test_backfill_and_superseded_or_excluded_rows_never_enter_primary_n() -> Non
     assert result["registry"][0]["n"] == 10
     assert result["coverage"]["excluded"] == 2
     assert result["coverage"]["backfilled_excluded"] == 1
+
+
+def test_maturing_episodes_are_reported_separately_from_terminal_exclusions() -> None:
+    """Issue #193: `maturing` (D+3 not yet elapsed) is not a terminal exclusion."""
+    from models.recovery_response import build_recovery_analytics
+
+    rows = [_episode(index, week=1 + index % 3) for index in range(10)]
+    rows.extend(
+        [
+            _episode(20, week=1, status="maturing"),
+            _episode(21, week=1, status="maturing"),
+            _episode(22, week=1, status="excluded"),
+        ]
+    )
+
+    result = build_recovery_analytics(rows)
+
+    assert result["registry"][0]["n"] == 10
+    assert result["coverage"]["maturing"] == 2
+    assert result["coverage"]["excluded"] == 1
+    assert result["coverage"]["backfilled_excluded"] == 0
+    assert "maturing" not in result["coverage"]["exclusion_counts"]
 
 
 def test_rpe_overlay_has_an_independent_gate() -> None:

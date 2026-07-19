@@ -317,10 +317,13 @@ def build_recovery_analytics(
             latest[key] = row
 
     selected: list[dict[str, Any]] = []
+    maturing: list[dict[str, Any]] = []
     excluded: list[dict[str, Any]] = []
     for row in latest.values():
         if row.get("capture_mode") == "prospective" and row.get("status") == "eligible":
             selected.append(row)
+        elif row.get("capture_mode") == "prospective" and row.get("status") in ("maturing", "open"):
+            maturing.append(row)
         else:
             excluded.append(row)
 
@@ -367,6 +370,7 @@ def build_recovery_analytics(
         "coverage": {
             "total_latest": len(latest),
             "eligible": len(selected),
+            "maturing": len(maturing),
             "excluded": len(excluded),
             "backfilled_excluded": sum(row.get("capture_mode") != "prospective" for row in excluded),
             "exclusion_counts": dict(sorted(exclusion_counts.items())),

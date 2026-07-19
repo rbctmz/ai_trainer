@@ -106,7 +106,8 @@ export default function RecoveryPage() {
             <div className="mt-3 space-y-2 text-sm text-ink-soft">
               <p>{data.guardrails.message}</p>
               <p>
-                Исключено эпизодов: {data.coverage.excluded}; backfill отдельно: {data.coverage.backfilled_excluded}.
+                Созревает: {data.coverage.maturing} · Исключено: {data.coverage.excluded}; backfill отдельно:{" "}
+                {data.coverage.backfilled_excluded}.
               </p>
               {Object.entries(data.coverage.exclusion_counts).map(([reason, count]) => (
                 <p key={reason}>• {reason}: {count}</p>

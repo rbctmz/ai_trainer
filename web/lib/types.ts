@@ -1086,6 +1086,7 @@ export interface RecoveryAnalyticsResponse {
   coverage: {
     total_latest: number;
     eligible: number;
+    maturing: number;
     excluded: number;
     backfilled_excluded: number;
     exclusion_counts: Record<string, number>;
