@@ -6,8 +6,8 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 
 | ID | Сценарий | Приоритет | Как обеспечивается | Как проверяется | Статус |
 |----|----------|-----------|--------------------|-----------------|--------|
-| ASR-PERF-1 | «Сегодня» < 2 сек с 3 годами данных | High | локальный SQLite, canonical snapshot без provider-вызовов на рендере (`include_provider=False`, #228) | ⚠️ load-теста нет (issue заведён) | 🟡 |
-| ASR-PERF-2 | Коуч: первый токен < 5 сек | High | стриминг SSE; native function calling (#190) убрал маркерный второй проход у поддерживающих провайдеров | живые диалоги; авто-гейта нет | 🟡 |
+| ASR-PERF-1 | «Сегодня» < 2 сек с 3 годами данных | High | локальный SQLite, canonical snapshot без provider-вызовов на рендере (`include_provider=False`, #228) | `test_today_snapshot_perf_gate.py` — p95 < 2с на 3 годах синтетических данных (#241) | ✅ |
+| ASR-PERF-2 | Коуч: первый токен < 5 сек | High | стриминг SSE; native function calling (#190) убрал маркерный второй проход у поддерживающих провайдеров | `first_token_ms` в SSE `done`, покрыт смоуком (#241); 5с — наблюдение, авто-гейта на порог нет (недетерминизм провайдера) | 🟡 |
 | ASR-PERF-3 | Инкрементальный Garmin-sync, дельта дня < 10 сек | Medium | инкрементальная выборка, `_OptionalSignalTracker` | smoke sync-сьюты | ✅ |
 | ASR-PERF-4 | Planning preview 16 недель < 10 сек | Medium | детерминированный scheduler без БД внутри цикла (#205) | референс-сборки в smoke (секунды) | ✅ |
 | ASR-REL-1 | Reconciliation: ни одна активность не теряется при перепланировании | High | content-derived session identity + lineage (`replaces_session_id`, #206/#209), append-only ledger | `test_recovery_transfer_identity_handoff.py`, twin-матрица identity | ✅ |
@@ -23,7 +23,8 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 
 ## Открытые долги (по 🟡)
 
-- PERF-1/PERF-2: perf-гейты (load-тест today, first-token метрика) — вынесено в issue.
+- PERF-2: first-token остаётся наблюдением, не гейтом — порог 5с не детерминирован
+  на уровне провайдера, авто-гейт на сам порог не заводится (#241).
 - SEC-1: секрет-скан в CI (gitleaks или аналог) — кандидат в hardening.
 - DEP-2: backup/restore-скрипты SQLite — кандидат в service-readiness шаг 2.
 
