@@ -66,3 +66,24 @@ Do not:
 - `./run_web.sh` should be documented as the preferred path for API/web development, while `./run.sh` and `streamlit run app.py` remain supported legacy paths.
 - New specs, ExecPlans, and PRs should describe web behavior first unless the task is explicitly legacy Streamlit maintenance.
 - When legacy Streamlit code needs changes, prefer shrinking it toward shared headless services rather than adding more product-specific logic there.
+
+## Streamlit EOL Assessment (added 2026-07-20, Issue #201)
+
+Состояние web-паритета: все ежедневные пользовательские потоки живут в web
+(/today, /dashboard, /coach, /decisions, /planning c reconciliation и
+delivery, /recovery, /adherence, /hrv, /sleep, /activities). Streamlit-only
+остались acceptance/admin-инструменты и отдельные legacy-страницы.
+
+Решение: дату EOL не назначаем — назначаем критерии и режим.
+
+1. Streamlit немедленно переходит в **maintenance-only** (это уже де-факто
+   так): багфиксы, acceptance/admin-туллинг, извлечение переиспользуемой
+   логики. Новые продуктовые фичи в `ui/pages/*` запрещены (см. Delivery
+   Rules выше).
+2. Критерии EOL (все три): (a) acceptance-runtime переведён на web или
+   явно признан dev-инструментом вне продукта; (b) два полных релизных
+   цикла подряд без единого Streamlit-фикса, вызванного пользовательским
+   сценарием; (c) в Streamlit-коде не осталось бизнес-логики, не
+   извлечённой в shared-слой.
+3. Само удаление — отдельный ADR при выполнении критериев, с планом
+   миграции `run.sh`/`run_acceptance.sh`.
