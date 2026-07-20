@@ -31,6 +31,7 @@ from api.routers import (  # noqa: E402  (after env setup)
     recovery_analytics,
     session_feedback,
     session_quality,
+    settings,
     sleep,
     system,
     today,
@@ -83,6 +84,7 @@ app.add_api_route(
 )
 app.include_router(session_feedback.router)
 app.include_router(session_quality.router)
+app.include_router(settings.router)
 app.include_router(sleep.router)
 app.include_router(system.router)
 app.include_router(today.router)

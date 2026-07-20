@@ -1013,6 +1013,11 @@ export interface SessionFeedbackHistoryResponse {
   evaluations: Array<Record<string, unknown>>;
 }
 
+export interface TodayBriefing {
+  frequency: "daily" | "conflicts_only" | string;
+  is_quiet_day: boolean;
+}
+
 export interface TodayResponse {
   snapshot_version: "today_decision_snapshot_v2" | string;
   date: string;
@@ -1023,6 +1028,7 @@ export interface TodayResponse {
   readiness_source: string;
   session: TodaySession | null;
   gate: TodayGate;
+  briefing: TodayBriefing;
   proposal: TodayProposalResolution;
   forecast: TodayForecast;
   pending_proposal: CoachProposal | null;
