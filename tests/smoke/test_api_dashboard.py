@@ -70,6 +70,32 @@ def test_app_exposes_dashboard_route():
     paths = set(main.app.openapi()["paths"].keys())
     assert "/api/dashboard/summary" in paths
     assert "/api/health" in paths
+    assert "/api/dashboard/widgets" in paths
+
+
+def test_dashboard_widgets_empty_db_envelope(tmp_path):
+    """Issue #242: /widgets had no empty-DB coverage -- every prior caller
+    seeded activities first, so a real refactor could silently 500 on a
+    fresh install."""
+    from api.deps import make_headless_state
+    from api.routers.dashboard import dashboard_widgets
+
+    empty_db = Database(str(tmp_path / "empty_widgets.db"))
+    payload = dashboard_widgets(db=empty_db, state=make_headless_state(database=empty_db))
+
+    assert payload["has_data"] is False
+    assert payload["race_projection"] is None
+    for key in ("training_score", "daily_outlook", "signals"):
+        assert key in payload, f"missing widgets key: {key}"
+    score = payload["training_score"]
+    assert {"total", "label", "fitness", "progression", "consistency", "load_mgmt"} <= set(score)
+    assert isinstance(score["total"], int) and 0 <= score["total"] <= 100
+    assert score["label"]
+    for component in ("fitness", "progression", "consistency", "load_mgmt"):
+        assert isinstance(score[component]["score"], int), component
+        assert score[component]["label"], component
+    assert payload["daily_outlook"]["tone"] in {"danger", "warning", "success", "neutral"}
+    assert payload["daily_outlook"]["text"]
 
 
 if __name__ == "__main__":  # pragma: no cover

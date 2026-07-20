@@ -39,6 +39,22 @@ def test_unknown_recovery_cohort_returns_404(tmp_path) -> None:
         raise AssertionError("unknown cohort must return 404")
 
 
+def test_invalid_capture_mode_returns_422(tmp_path) -> None:
+    """Issue #242: the router's `HTTPException(422, ...)` guard on
+    `capture_mode` was never exercised by a test."""
+    from fastapi import HTTPException
+    from api.routers.recovery_analytics import recovery_analytics_summary_view
+
+    db = Database(str(tmp_path / "api-recovery-422.db"))
+
+    try:
+        recovery_analytics_summary_view(capture_mode="retrospective", db=db)
+    except HTTPException as exc:
+        assert exc.status_code == 422
+    else:
+        raise AssertionError("non-prospective capture_mode must return 422")
+
+
 def test_recovery_routes_are_registered() -> None:
     from api.main import app
 

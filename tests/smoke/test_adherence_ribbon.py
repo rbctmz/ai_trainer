@@ -228,6 +228,28 @@ def test_api_clamps_weeks_and_never_touches_the_provider(tmp_path, monkeypatch):
     assert payload["weeks_requested"] == 1  # clamped floor
 
 
+def test_api_returns_full_ribbon_schema_with_real_plan_and_activities(tmp_path):
+    """Issue #242: the only router-level test previously used an empty DB
+    (has_plan=false short-circuits before the day/week aggregation runs).
+    With an active checkpoint the full ribbon shape must pass through the
+    router unchanged."""
+    from api.routers.adherence import get_adherence
+    from tests.smoke.test_api_planning import _reconciliation_db
+
+    db, _plan = _reconciliation_db(tmp_path)
+
+    payload = get_adherence(db=db, weeks=1)
+
+    assert payload["has_plan"] is True
+    assert payload["weeks_requested"] == 1
+    assert isinstance(payload["days"], list) and payload["days"]
+    assert isinstance(payload["weeks"], list) and payload["weeks"]
+    assert "status" in payload["days"][0]
+    assert "planned_tss" in payload["days"][0]
+    week = payload["weeks"][0]
+    assert set(week["adherence"].keys()) == {"exact", "substituted", "major_deviation", "missed", "unknown"}
+
+
 def test_web_surfaces_consume_api_statuses_and_never_rederive():
     """M3 source contract: /adherence page and the /today strip consume the
     API payload (statuses arrive READY from models/adherence_ribbon.py);

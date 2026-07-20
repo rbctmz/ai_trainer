@@ -21,6 +21,50 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
 | ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты | деплой-практика; backup-скриптов нет | 🟡 |
 
+## Контракт-тесты API-роутеров (ASR-MOD-2, issue #242)
+
+Свип по `api/routers/*` (кодовый долг из ATAM-карты, `architecture_analysis_add3.md`
+§4.1: «нет contract tests → рефакторинг ломает api молча»). Установленный
+паттерн — прямой вызов router-функций с временной SQLite `Database` (без
+`TestClient`/HTTP-слоя, без live-провайдеров), как в существующих
+`tests/smoke/test_api_*.py`. Минимум на роутер: (а) успешный ответ с ключевыми
+полями схемы, (б) пустое/degraded-состояние без 500, (в) неверный вход там, где
+у роутера есть собственная validation-ветка (`HTTPException(422, …)`, маппинг
+исключений вида `LookupError -> 404` / `ValueError -> 422`) или Pydantic-констрейнт
+на request-модели.
+
+Важно про (в): из-за прямого вызова router-функций проверяются два слоя — своя
+validation/exception-ветка роутера и констрейнты request-моделей (то, что
+FastAPI отклонит до хендлера). Настоящий HTTP-round-trip через валидацию FastAPI
+не проверяется ни для одного роутера; это требует `TestClient` и смены паттерна —
+вынесено в #246.
+
+| Роутер | Тест-файл(ы) |
+|--------|--------------|
+| `activities.py` | `test_api_operational_states.py`, `test_api_phase1.py` |
+| `adherence.py` | `test_adherence_ribbon.py` |
+| `athlete_profile.py` | `test_api_athlete_profile_contract.py` |
+| `coach.py` | `test_api_operational_states.py`, `test_api_phase1.py`, `test_coach_decisions.py`, `test_coach_native_tools.py`, `test_readiness_snapshot_contract.py`, `test_readiness_conflicts.py`, `test_coach_load_metrics_window.py` |
+| `dashboard.py` | `test_api_dashboard.py`, `test_api_operational_states.py`, `test_readiness_snapshot_contract.py`, `test_signals_engine.py`, `test_dashboard_tsb_zones.py` |
+| `decisions.py` | `test_coach_decisions.py`, `test_recovery_replan_loop.py`, `test_recovery_transfer_product_surface_web.py` |
+| `hrv.py` | `test_api_operational_states.py`, `test_api_phase1.py` |
+| `planning.py` | `test_api_planning.py`, `test_coach_constraints.py`, `test_planning_target_demand_history.py` |
+| `recovery_analytics.py` | `test_api_recovery_analytics.py` |
+| `session_feedback.py` | `test_post_workout_feedback.py`, `test_api_session_feedback_router_contract.py` |
+| `session_quality.py` | `test_session_quality_forecast.py`, `test_api_session_quality_router_contract.py` |
+| `settings.py` | `test_briefing_settings.py` |
+| `sleep.py` | `test_api_operational_states.py`, `test_api_phase3.py`, `test_sleep_metric_provenance.py` |
+| `system.py` | `test_api_operational_states.py`, `test_sync_job_api.py`, `test_api_phase3.py`, `test_session_quality_forecast.py` |
+| `today.py` | `test_api_today.py`, `test_briefing_settings.py` |
+
+Известный остаток вынесен в #246 (не блокирует этот свип): 13 эндпоинтов
+`planning.py` (`target-preview`, `demand` GET/POST, `events`, `plan`,
+`export/ics`, `export/workout/{index}`, `reconciliation`,
+`reconciliation/matches`, `rebalance/preview`, `rebalance/confirm`, `adjust`,
+`history`) покрыты только на уровне `api/planning_service` напрямую, не через
+сам роутер — риск ниже (business-логика уже пинована), но не нулевой. Туда же
+отнесён HTTP-слой валидации (`TestClient`).
+
 ## Открытые долги (по 🟡)
 
 - PERF-2: first-token остаётся наблюдением, не гейтом — порог 5с не детерминирован
