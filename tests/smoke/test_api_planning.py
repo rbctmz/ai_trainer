@@ -10,6 +10,8 @@ from time import perf_counter
 
 import pytest
 
+from tests.smoke._reference_dates import pinned_reference_events
+
 from data.database import Database
 
 
@@ -66,8 +68,7 @@ def test_later_a_anchors_plan_while_earlier_b_is_local_overlay(tmp_path):
     from api import planning_service as ps
 
     today = datetime.now().date()
-    b_date = today + timedelta(days=13)
-    a_date = today + timedelta(weeks=12)
+    b_date, a_date = pinned_reference_events(today)
     db = _seeded_db(tmp_path)
     result = ps.build_plan(
         db,
@@ -192,7 +193,7 @@ def test_b_overlay_persists_protected_days_and_resumes(tmp_path):
 
     db = _seeded_db(tmp_path)
     today = datetime.now().date()
-    b_date = today + timedelta(days=13)
+    b_date, _a_date = pinned_reference_events(today)
     ps.build_plan(
         db,
         goal_type="triathlon",
