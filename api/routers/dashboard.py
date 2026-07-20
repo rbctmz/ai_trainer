@@ -310,6 +310,25 @@ def dashboard_widgets(
         training_status=latest_training_status,
     )
     current_status = project_readiness_snapshot(current_status, readiness_snapshot)
+    signals = current_status.get("signals")
+
+    # Fresh/empty account (no activity history in 90 days) → CTL/ATL/TSB are all
+    # zero. Feeding those zeros into the score fabricates confident defaults that
+    # flatly contradict has_data: TSB +0.0 → "Стабильная нагрузка" (load 85),
+    # ramp 0 → "Стабильно" (prog 45), no plan → adherence 0.5 → "50% выполнения"
+    # (cons 50), composite total 40 "Нормально", plus a Daily Outlook asserting
+    # "восстановление в норме — ограничений нет". Withhold the derived widgets
+    # instead — mirror /summary, which returns summary: None when has_data False.
+    if empty:
+        return {
+            "has_data": False,
+            "readiness_snapshot": readiness_snapshot,
+            "training_score": None,
+            "daily_outlook": None,
+            "race_projection": None,
+            "signals": signals,
+        }
+
     goal_plan = get_dashboard_goal_plan(state)
 
     ctl = float(current_status.get("ctl") or 0)
@@ -328,8 +347,8 @@ def dashboard_widgets(
         except (TypeError, ValueError):
             pass
 
-    # Ramp rate from CTL series
-    ctl_series = _ctl_series(activities_df if not empty else None)
+    # Ramp rate from CTL series (past the empty guard, activities_df is non-empty)
+    ctl_series = _ctl_series(activities_df)
     today = datetime.now().date()
     ctl_4w = ctl_series.get(today - timedelta(days=28), ctl)
     ramp_rate = round((ctl - ctl_4w) / 4, 1)
@@ -338,14 +357,12 @@ def dashboard_widgets(
     week_start = today - timedelta(days=today.weekday())
     week_days = [week_start + timedelta(days=i) for i in range(7)]
     plan_lookup = build_plan_day_lookup(goal_plan)
-    activity_tss_by_day = build_activity_day_tss(
-        activities_df if not empty else pd.DataFrame()
-    )
+    activity_tss_by_day = build_activity_day_tss(activities_df)
     planned_week_tss = sum(float(plan_lookup.get(d, {}).get("total_tss") or 0) for d in week_days)
     actual_week_tss = sum(float(activity_tss_by_day.get(d, 0)) for d in week_days)
 
     return {
-        "has_data": not empty,
+        "has_data": True,
         "readiness_snapshot": readiness_snapshot,
         "training_score": _calculate_training_score(
             ctl, tsb, actual_week_tss, planned_week_tss, ramp_rate
@@ -354,7 +371,7 @@ def dashboard_widgets(
             goal_plan, ctl, tsb, hrv, sleep_hours, readiness
         ),
         "race_projection": _calculate_race_projection(
-            goal_plan, ctl, tsb, activities_df if not empty else None
+            goal_plan, ctl, tsb, activities_df
         ),
-        "signals": current_status.get("signals"),
+        "signals": signals,
     }

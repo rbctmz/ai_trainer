@@ -65,37 +65,70 @@ def test_dashboard_summary_contract_with_data(tmp_path):
     assert "sport_label" in summary["next_days"][0]
 
 
+def test_dashboard_widgets_empty_db_envelope(tmp_path):
+    """A fresh/empty account must not fabricate a Training Score.
+
+    With zero activities, CTL/ATL/TSB are all zero; the score's defaults
+    (TSB 0 → load 85, ramp 0 → prog 45, no plan → cons 50) would otherwise
+    render a confident total ~40 "Нормально" plus a Daily Outlook claiming
+    "восстановление в норме — ограничений нет", contradicting has_data.
+    The contract is: derived widgets are withheld (None) when has_data is False.
+    """
+    from api.routers.dashboard import dashboard_widgets
+
+    empty_db = Database(str(tmp_path / "empty.db"))
+    payload = dashboard_widgets(db=empty_db, state=_headless_state())
+
+    assert payload["has_data"] is False
+    # Keys are always present, but the activity-derived widgets are withheld.
+    assert payload["training_score"] is None
+    assert payload["daily_outlook"] is None
+    assert payload["race_projection"] is None
+
+
+def test_dashboard_widgets_contract_with_data(tmp_path):
+    """When activities exist, the Training Score is present and well-formed."""
+    from datetime import timedelta
+
+    from api.routers.dashboard import dashboard_widgets
+
+    recent = (datetime.now() - timedelta(days=3)).strftime("%Y-%m-%d")
+    db = Database(str(tmp_path / "seeded.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": "a1",
+                "date": recent,
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 30.0,
+                "tss": 55.0,
+            }
+        ]
+    )
+
+    payload = dashboard_widgets(db=db, state=_headless_state())
+
+    assert payload["has_data"] is True
+    score = payload["training_score"]
+    assert score is not None
+    assert isinstance(score["total"], int) and 0 <= score["total"] <= 100
+    assert score["label"]
+    for sub in ("fitness", "progression", "consistency", "load_mgmt"):
+        assert sub in score, f"missing training_score component: {sub}"
+        assert set(score[sub]) >= {"score", "label", "detail"}
+    outlook = payload["daily_outlook"]
+    assert outlook is not None
+    assert outlook["text"]
+    assert outlook["tone"] in {"danger", "warning", "neutral", "success"}
+
+
 def test_app_exposes_dashboard_route():
     main = importlib.import_module("api.main")
     paths = set(main.app.openapi()["paths"].keys())
     assert "/api/dashboard/summary" in paths
     assert "/api/health" in paths
     assert "/api/dashboard/widgets" in paths
-
-
-def test_dashboard_widgets_empty_db_envelope(tmp_path):
-    """Issue #242: /widgets had no empty-DB coverage -- every prior caller
-    seeded activities first, so a real refactor could silently 500 on a
-    fresh install."""
-    from api.deps import make_headless_state
-    from api.routers.dashboard import dashboard_widgets
-
-    empty_db = Database(str(tmp_path / "empty_widgets.db"))
-    payload = dashboard_widgets(db=empty_db, state=make_headless_state(database=empty_db))
-
-    assert payload["has_data"] is False
-    assert payload["race_projection"] is None
-    for key in ("training_score", "daily_outlook", "signals"):
-        assert key in payload, f"missing widgets key: {key}"
-    score = payload["training_score"]
-    assert {"total", "label", "fitness", "progression", "consistency", "load_mgmt"} <= set(score)
-    assert isinstance(score["total"], int) and 0 <= score["total"] <= 100
-    assert score["label"]
-    for component in ("fitness", "progression", "consistency", "load_mgmt"):
-        assert isinstance(score[component]["score"], int), component
-        assert score[component]["label"], component
-    assert payload["daily_outlook"]["tone"] in {"danger", "warning", "success", "neutral"}
-    assert payload["daily_outlook"]["text"]
 
 
 if __name__ == "__main__":  # pragma: no cover

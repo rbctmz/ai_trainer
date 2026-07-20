@@ -66,7 +66,9 @@ export default function DashboardPage() {
                 )}
               </div>
               <div className="flex flex-col gap-4">
-                <TrainingScore data={widgets.training_score} />
+                {widgets.training_score && (
+                  <TrainingScore data={widgets.training_score} />
+                )}
                 <AthleteProfileCard />
               </div>
             </div>

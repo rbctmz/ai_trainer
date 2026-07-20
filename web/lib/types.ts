@@ -631,8 +631,10 @@ export interface RaceProjectionData {
 export interface DashboardWidgets {
   has_data: boolean;
   readiness_snapshot?: ReadinessSnapshot;
-  training_score: TrainingScoreData;
-  daily_outlook: DailyOutlookData;
+  // Withheld (null) when has_data is false — a fresh/empty account has no
+  // CTL/ATL/TSB history, so the API refuses to fabricate a score/outlook.
+  training_score: TrainingScoreData | null;
+  daily_outlook: DailyOutlookData | null;
   race_projection: RaceProjectionData | null;
 }
 
