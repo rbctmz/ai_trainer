@@ -87,8 +87,15 @@ def test_dashboard_widgets_empty_db_envelope(tmp_path):
     assert payload["race_projection"] is None
     for key in ("training_score", "daily_outlook", "signals"):
         assert key in payload, f"missing widgets key: {key}"
-    assert payload["training_score"]["total"] >= 0
+    score = payload["training_score"]
+    assert {"total", "label", "fitness", "progression", "consistency", "load_mgmt"} <= set(score)
+    assert isinstance(score["total"], int) and 0 <= score["total"] <= 100
+    assert score["label"]
+    for component in ("fitness", "progression", "consistency", "load_mgmt"):
+        assert isinstance(score[component]["score"], int), component
+        assert score[component]["label"], component
     assert payload["daily_outlook"]["tone"] in {"danger", "warning", "success", "neutral"}
+    assert payload["daily_outlook"]["text"]
 
 
 if __name__ == "__main__":  # pragma: no cover

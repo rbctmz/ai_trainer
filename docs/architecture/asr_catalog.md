@@ -28,9 +28,16 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 паттерн — прямой вызов router-функций с временной SQLite `Database` (без
 `TestClient`/HTTP-слоя, без live-провайдеров), как в существующих
 `tests/smoke/test_api_*.py`. Минимум на роутер: (а) успешный ответ с ключевыми
-полями схемы, (б) пустое/degraded-состояние без 500, (в) 422 на неверный вход
-там, где у роутера есть собственная validation-ветка (`HTTPException(422, …)`
-или Pydantic-констрейнт на request-модели).
+полями схемы, (б) пустое/degraded-состояние без 500, (в) неверный вход там, где
+у роутера есть собственная validation-ветка (`HTTPException(422, …)`, маппинг
+исключений вида `LookupError -> 404` / `ValueError -> 422`) или Pydantic-констрейнт
+на request-модели.
+
+Важно про (в): из-за прямого вызова router-функций проверяются два слоя — своя
+validation/exception-ветка роутера и констрейнты request-моделей (то, что
+FastAPI отклонит до хендлера). Настоящий HTTP-round-trip через валидацию FastAPI
+не проверяется ни для одного роутера; это требует `TestClient` и смены паттерна —
+вынесено в #246.
 
 | Роутер | Тест-файл(ы) |
 |--------|--------------|
@@ -50,11 +57,13 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | `system.py` | `test_api_operational_states.py`, `test_sync_job_api.py`, `test_api_phase3.py`, `test_session_quality_forecast.py` |
 | `today.py` | `test_api_today.py`, `test_briefing_settings.py` |
 
-Известный остаток (follow-up, не блокирует этот свип): часть тонких GET-обёрток
-в `planning.py` (`target-preview`, `demand`, `events`, `plan`, `export/*`,
-`reconciliation`, `rebalance/*`, `adjust`, `history`) сейчас покрыта только на
-уровне `api/planning_service` напрямую, не через сам роутер — риск ниже
-(business-логика уже пинована), но не нулевой.
+Известный остаток вынесен в #246 (не блокирует этот свип): 13 эндпоинтов
+`planning.py` (`target-preview`, `demand` GET/POST, `events`, `plan`,
+`export/ics`, `export/workout/{index}`, `reconciliation`,
+`reconciliation/matches`, `rebalance/preview`, `rebalance/confirm`, `adjust`,
+`history`) покрыты только на уровне `api/planning_service` напрямую, не через
+сам роутер — риск ниже (business-логика уже пинована), но не нулевой. Туда же
+отнесён HTTP-слой валидации (`TestClient`).
 
 ## Открытые долги (по 🟡)
 

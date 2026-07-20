@@ -10,11 +10,17 @@ closes that gap. Covers:
     via `Database.save_session_feedback` -- the same low-level entrypoint
     `tests/smoke/test_post_workout_feedback.py` already relies on)
 (b) empty/degraded state without raising (no feedback recorded yet)
-(c) 422: Pydantic field-constraint validation on the request models (the
-    same convention `tests/smoke/test_briefing_settings.py` uses -- this is
-    exactly what FastAPI's own transport-layer validation would reject
-    before the handler ever runs), plus LookupError->404 mapping through the
-    router for the mutation endpoints.
+(c) invalid input, split by the layer that actually rejects it:
+    - `_raise_http` itself -- the router's own exception mapping
+      (LookupError->404, StaleFeedbackError->409, ValueError->422);
+    - LookupError->404 end-to-end through the mutation endpoints;
+    - Pydantic field constraints on the request models, i.e. what FastAPI's
+      transport layer rejects before the handler ever runs (same convention
+      as `tests/smoke/test_briefing_settings.py`).
+    Note these are model- and mapping-level, not HTTP-level: the suite calls
+    router functions directly, so a real 422 round-trip through FastAPI's
+    validation is not asserted here. Closing that needs `TestClient`, which
+    would change the established pattern -- tracked in #246.
 """
 from __future__ import annotations
 
@@ -155,6 +161,37 @@ def test_tombstone_feedback_unknown_id_maps_lookuperror_to_404(tmp_path):
     with pytest.raises(HTTPException) as exc_info:
         tombstone_feedback(999, req, db=db)
     assert exc_info.value.status_code == 404
+
+
+def test_raise_http_maps_valueerror_to_422():
+    """The router's own ValueError->422 branch: every business-rule rejection
+    in `api/session_feedback.py` (bad completion_status, feedback not due,
+    ambiguous match) reaches the client through here, and only the 404 branch
+    was exercised end-to-end."""
+    from api.routers.session_feedback import _raise_http
+
+    with pytest.raises(HTTPException) as exc_info:
+        _raise_http(ValueError("completion_status must be one of [...]"))
+    assert exc_info.value.status_code == 422
+    assert "completion_status" in exc_info.value.detail
+
+
+def test_raise_http_maps_stale_feedback_to_409():
+    from api.routers.session_feedback import _raise_http
+    from api.session_feedback import StaleFeedbackError
+
+    with pytest.raises(HTTPException) as exc_info:
+        _raise_http(StaleFeedbackError("feedback revision is no longer current"))
+    assert exc_info.value.status_code == 409
+
+
+def test_raise_http_reraises_unmapped_exception_unchanged():
+    """Guard against a future `except Exception` widening the mapping: an
+    unrelated failure must stay a 500, not become a misleading 4xx."""
+    from api.routers.session_feedback import _raise_http
+
+    with pytest.raises(RuntimeError):
+        _raise_http(RuntimeError("database is locked"))
 
 
 def test_submit_feedback_request_rejects_empty_session_id():
