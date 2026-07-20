@@ -12,6 +12,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from tests.smoke._reference_dates import pinned_reference_events
+
 from data.database import Database
 
 
@@ -395,8 +397,7 @@ def test_reference_plan_histogram_replaces_three_session_days(tmp_path):
 
     db = Database(str(tmp_path / "scheduler-reference.db"))
     today = datetime.now().date()
-    b_date = today + timedelta(days=13)
-    a_date = today + timedelta(weeks=12)
+    b_date, a_date = pinned_reference_events(today)
     ps.build_plan(
         db,
         goal_type="triathlon",

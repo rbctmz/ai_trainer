@@ -14,6 +14,8 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
+from tests.smoke._reference_dates import pinned_reference_events
+
 from data.database import Database
 from models.training_planner import apply_race_event_overlays
 
@@ -86,15 +88,16 @@ def _built_plan(db):
     from api import planning_service as ps
 
     today = datetime.now().date()
+    b_date, a_date = pinned_reference_events(today)
     return ps.build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
         event_date=None,
         events=[
-            {"date": (today + timedelta(days=13)).isoformat(), "priority": "B",
+            {"date": b_date.isoformat(), "priority": "B",
              "label": "B", "confirmed": True},
-            {"date": (today + timedelta(weeks=12)).isoformat(), "priority": "A",
+            {"date": a_date.isoformat(), "priority": "A",
              "label": "A", "confirmed": True},
         ],
         planning_mode="event_goal",

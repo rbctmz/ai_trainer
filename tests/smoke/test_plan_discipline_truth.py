@@ -14,6 +14,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from tests.smoke._reference_dates import pinned_reference_events
+
 from data.database import Database
 from api import planning_service as ps
 
@@ -66,7 +68,7 @@ def _exported_discipline_loads(template: dict, day_total: float, parts: dict):
 
 def test_weekly_discipline_summary_equals_exported_sessions(tmp_path):
     db = Database(str(tmp_path / "discipline-truth.db"))
-    event = (datetime.now().date() + timedelta(weeks=12)).isoformat()
+    event = pinned_reference_events(datetime.now().date())[1].isoformat()
 
     ps.build_plan(
         db,
@@ -140,7 +142,7 @@ def test_each_training_day_has_sessions_with_projected_stable_ids(tmp_path):
     the day id (projection), each session has a unique stable session_id, and
     rest/race days carry no deliverable session."""
     db = Database(str(tmp_path / "session-ids.db"))
-    event = (datetime.now().date() + timedelta(weeks=12)).isoformat()
+    event = pinned_reference_events(datetime.now().date())[1].isoformat()
     ps.build_plan(
         db,
         goal_type="triathlon",
