@@ -129,6 +129,27 @@ def test_coach_chat_streams_with_mock(tmp_path, monkeypatch):
     assert roles == ["user", "assistant"]
 
 
+def test_coach_chat_done_event_reports_first_token_ms(tmp_path, monkeypatch):
+    """ASR-PERF-2 observation (Issue #241): first_token_ms must be present on
+    the SSE `done` event so first-token latency can be watched over time.
+    The 5s budget stays an observation, not a gate — provider latency isn't
+    deterministic even across live runs of the same provider."""
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "CHATS_DIR", str(tmp_path / "chats"), raising=False)
+
+    from api.routers import coach as coach_mod
+
+    req = coach_mod.ChatRequest(message="Что с восстановлением?", provider="mock")
+    resp = coach_mod.coach_chat(req, Database(str(tmp_path / "c.db")))
+    events = _events(resp)
+
+    done_event = events[-1]
+    assert done_event["type"] == "done"
+    assert isinstance(done_event["first_token_ms"], (int, float))
+    assert done_event["first_token_ms"] >= 0
+
+
 def test_coach_chat_synthesizes_final_answer_after_tools(tmp_path, monkeypatch):
     from config.settings import Settings
 
