@@ -1,0 +1,81 @@
+name: Claude auto draft PR
+
+# Issue #222 p.5: claude-code-action cannot create pull requests by design —
+# it pushes a branch and only prepares a prefilled "Create PR" link (see the
+# action's capabilities doc). This companion opens the draft PR automatically
+# for ACTION-created branches, so the cycle "issue → @claude → draft PR"
+# needs no manual step. Locally named branches (claude/issue-N-slug) do not
+# match the timestamp fingerprint and stay untouched — humans/local agents
+# keep writing their own PR bodies.
+
+on:
+  push:
+    branches:
+      - "claude/issue-*"
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Open a draft PR for an action-created branch
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const branch = context.ref.replace("refs/heads/", "");
+            // Action branches carry a timestamp: claude/issue-N-YYYYMMDD-HHMM
+            const match = branch.match(/^claude\/issue-(\d+)-\d{8}-\d{4}$/);
+            if (!match) {
+              core.info(`branch ${branch} is not an action branch — skipping`);
+              return;
+            }
+            const issueNumber = Number(match[1]);
+
+            const existing = await github.rest.pulls.list({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: `${context.repo.owner}:${branch}`,
+              state: "open",
+            });
+            if (existing.data.length > 0) {
+              core.info(`open PR already exists for ${branch} — skipping`);
+              return;
+            }
+
+            const commits = await github.rest.repos.listCommits({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha: branch,
+              per_page: 1,
+            });
+            const subject =
+              commits.data[0]?.commit?.message?.split("\n")[0] ||
+              `Claude Action: issue #${issueNumber}`;
+
+            const body = [
+              "Draft PR открыт автоматически для ветки Claude GitHub Action " +
+                "(#222 п.5: сам action создавать PR не умеет).",
+              "",
+              `Closes #${issueNumber}.`,
+              "",
+              "Чеклист до ревью:",
+              "- [ ] CI зелёный (contributor-safe pytest + web build)",
+              "- [ ] Итоговый комментарий Action в issue сверен с диффом",
+              "",
+              "🤖 Generated with [Claude Code](https://claude.com/claude-code)",
+            ].join("\n");
+
+            const created = await github.rest.pulls.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head: branch,
+              base: context.payload.repository.default_branch,
+              draft: true,
+              title: subject,
+              body,
+            });
+            core.info(`draft PR #${created.data.number} opened for ${branch}`);

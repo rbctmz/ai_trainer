@@ -155,3 +155,90 @@ def test_claude_runs_on_resolved_pr_branch_after_trusted_dependency_install() ->
     )
     claude_index = workflow.index("name: Run Claude Code")
     assert install_index < executable_checkout_index < claude_index
+
+
+# --- Issue #222: hardening round 2 -----------------------------------------
+
+NOTIFY = Path(".github/workflows/claude-failure-notify.yml")
+AUTO_PR = Path(".github/workflows/claude-auto-draft-pr.yml")
+AGENTS = Path("AGENTS.md")
+
+
+def test_failed_claude_runs_are_reported_with_a_classified_cause() -> None:
+    """#222 p.1: a failed run must leave a thread comment naming the cause
+    (turn budget / quota / error) — the 2026-07-18 failures were silent for
+    hours. The notifier is a separate workflow so the interactive job token
+    stays read-only."""
+    assert NOTIFY.exists(), "claude-failure-notify.yml must exist"
+    text = NOTIFY.read_text(encoding="utf-8")
+    assert "workflow_run:" in text
+    assert "Claude Code" in text
+    assert "completed" in text
+    assert "'failure'" in text
+    assert "actions: read" in text
+    assert "issues: write" in text
+    assert "pull-requests: write" in text
+    lowered = text.lower()
+    assert "turn" in lowered  # turn-budget classification marker
+    assert "usage limit" in lowered or "quota" in lowered
+
+    workflow = _workflow_text()
+    assert "issues: write" not in workflow
+    assert "pull-requests: write" not in workflow
+
+
+def test_action_branches_get_a_draft_pr_automatically() -> None:
+    """#222 p.5: the action cannot create PRs by design (it only prepares a
+    prefilled link), so a companion workflow opens the draft PR for pushed
+    action branches (claude/issue-N-YYYYMMDD-HHMM) with Closes #N — no manual
+    step between 'Action finished' and 'PR awaits review'. Locally named
+    branches (claude/issue-N-slug) must NOT match."""
+    assert AUTO_PR.exists(), "claude-auto-draft-pr.yml must exist"
+    text = AUTO_PR.read_text(encoding="utf-8")
+    assert "push:" in text
+    assert "claude/issue-*" in text
+    assert "pull-requests: write" in text
+    assert "draft: true" in text
+    assert "\\d{8}-\\d{4}" in text  # action-branch fingerprint, not local slugs
+    assert "Closes #" in text
+
+
+def test_prompt_encodes_slice_commit_discipline_and_agents_norm() -> None:
+    """#222 p.2: budget policy over budget inflation — every finished slice is
+    pushed immediately, exhaustion stops at a clean boundary; AGENTS.md fixes
+    the one-milestone-per-mention norm."""
+    workflow = _workflow_text()
+    assert "Commit and push every completed RED or GREEN slice immediately" in workflow
+    assert "stop at a clean boundary" in workflow
+
+    agents = AGENTS.read_text(encoding="utf-8")
+    assert "one milestone per @claude mention" in agents.lower()
+
+
+def test_web_toolchain_is_available_and_scoped() -> None:
+    """#222 p.3: web-touching slices must be verifiable inside the run —
+    node is set up, web deps installed, and ONLY the two verification npm
+    commands are allowed."""
+    workflow = _workflow_text()
+    assert "actions/setup-node@" in workflow
+    assert "npm --prefix web ci" in workflow
+    assert "Bash(npm --prefix web run lint:*)" in workflow
+    assert "Bash(npm --prefix web run build:*)" in workflow
+    assert "Bash(npm:*)" not in workflow
+    assert "Bash(npx:*)" not in workflow
+
+    node_index = workflow.index("actions/setup-node@")
+    claude_index = workflow.index("name: Run Claude Code")
+    assert node_index < claude_index
+
+
+def test_dependencies_are_refreshed_from_the_executable_branch() -> None:
+    """#222 p.4: a PR that changes requirements*.txt must run against ITS
+    dependency set — after the same-repo-guarded checkout the requirements
+    are re-installed (pip cache makes the unchanged case cheap). The trusted
+    default-branch install order stays pinned by the earlier test."""
+    workflow = _workflow_text()
+    refresh_index = workflow.index("name: Refresh dependencies from the executable branch")
+    checkout_index = workflow.index("name: Check out executable issue or PR branch")
+    claude_index = workflow.index("name: Run Claude Code")
+    assert checkout_index < refresh_index < claude_index

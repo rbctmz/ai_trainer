@@ -1,0 +1,95 @@
+name: Claude failure notify
+
+# Issue #222 p.1: a failed Claude Code run must not stay silent — the
+# 2026-07-18 budget/quota failures went unnoticed for hours. This runs as a
+# SEPARATE workflow so the interactive claude.yml job token stays read-only;
+# only this narrow notifier holds write scopes.
+
+on:
+  workflow_run:
+    workflows: ["Claude Code"]
+    types: [completed]
+
+permissions:
+  actions: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  notify:
+    if: github.event.workflow_run.conclusion == 'failure'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Classify the failure and comment on the source thread
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+
+            // 1. Classify the cause from the failed job's log:
+            //    turn-budget exhaustion / usage limit (quota) / plain error.
+            let cause = "error";
+            let failedJob = null;
+            try {
+              const jobs = await github.rest.actions.listJobsForWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                run_id: run.id,
+              });
+              failedJob = jobs.data.jobs.find((job) => job.conclusion === "failure") || null;
+              if (failedJob) {
+                const log = await github.rest.actions.downloadJobLogsForWorkflowRun({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  job_id: failedJob.id,
+                });
+                const text = String(log.data || "");
+                if (/max[- ]?turns|turn (limit|budget)|reached .{0,20}turns/i.test(text)) {
+                  cause = "turn budget exhausted";
+                } else if (/usage limit|quota|rate.?limit/i.test(text)) {
+                  cause = "usage limit (quota) exhausted";
+                }
+              }
+            } catch (error) {
+              core.warning(`log classification failed: ${error.message}`);
+            }
+
+            // 2. Find the triggering issue/PR: the action's progress comment
+            //    embeds the run URL, and issue search covers comment bodies.
+            let target = null;
+            try {
+              const query = `repo:${context.repo.owner}/${context.repo.repo} ${run.id} in:comments`;
+              const found = await github.rest.search.issuesAndPullRequests({ q: query, per_page: 1 });
+              target = found.data.items[0] || null;
+            } catch (error) {
+              core.warning(`thread search failed: ${error.message}`);
+            }
+
+            const body = [
+              `**Claude Action run failed** — причина: \`${cause}\`.`,
+              "",
+              `Run: ${run.html_url}`,
+              failedJob ? `Job: ${failedJob.html_url}` : "",
+              `Head: \`${run.head_branch}\` @ ${String(run.head_sha || "").slice(0, 7)}`,
+              "",
+              "Последний запушенный RED/GREEN-слайс ветки сохранён; повторное " +
+                "@claude-упоминание продолжит с него (норма из AGENTS.md).",
+            ].filter(Boolean).join("\n");
+
+            if (target) {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: target.number,
+                body,
+              });
+            } else {
+              // Fallback: never lose the signal even if search lags.
+              await github.rest.issues.create({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                title: `Claude Action run ${run.id} failed (${cause})`,
+                body,
+              });
+            }

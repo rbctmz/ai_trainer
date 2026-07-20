@@ -34,3 +34,10 @@ Use `docs/AI_Feature_Development_Workflow.md` as the canonical workflow for non-
 
 # ExecPlans
 When writing complex features or significant refactors, use an ExecPlan (as described in `.agent/PLANS.md`) from design to implementation.
+
+## Claude GitHub Action Norms
+The interactive `@claude` workflow (`.github/workflows/claude.yml`) runs in a bounded sandbox (turn budget, 30-minute timeout, shared Claude usage quota). Norms that keep restarts cheap:
+- **One milestone per @claude mention.** Milestone-sized, self-contained tasks (a RED→GREEN pair or one review round) reliably finish in a single run; larger asks exhaust the budget mid-flight. Split multi-milestone tracks into one mention per milestone.
+- **Commit and push every completed RED/GREEN slice immediately.** A restart after budget or quota exhaustion then costs at most one slice, never a milestone. Near exhaustion, stop at a clean boundary (a pushed RED gate or a pushed GREEN fix) and update the progress checklist.
+- **Web changes are verified inside the run** (`npm --prefix web run lint`, `npm --prefix web run build`) before pushing; CI is the second line, not the first.
+- **Draft PRs open automatically** for action branches (`claude/issue-N-YYYYMMDD-HHMM`) via `claude-auto-draft-pr.yml`; failures are reported back to the thread with a classified cause via `claude-failure-notify.yml`. If Claude quota is exhausted mid-track, another agent (Codex or local Claude Code) picks up from the last pushed slice.
