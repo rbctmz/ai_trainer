@@ -560,12 +560,20 @@ class AITools:
         metrics_df = self.db.get_activities(metrics_window_days)
 
         if metrics_df.empty:
-            return {"message": "Нет данных для расчета метрик производительности"}
-        
-        signals = assemble_signals(activities_df=metrics_df)
+            return {
+                "message": "Нет данных для расчета метрик производительности",
+                "data_through": None,
+                "computed_for": date.today().isoformat(),
+            }
+
+        # Issue #231: anchor CTL/ATL/TSB to today so a rest morning shows the
+        # fresh "today" TSB (matching the canonical readiness sidebar), not a
+        # value frozen at the last activity date (second instance of #139).
+        today = date.today()
+        signals = assemble_signals(activities_df=metrics_df, as_of=today)
         load = signals["load"]
         tss_data = []
-        
+
         trend_df = report_df if not report_df.empty else metrics_df
         for _, row in trend_df.iterrows():
             tss_val = row.get("tss", 0)
@@ -576,15 +584,20 @@ class AITools:
         ctl = float(load["ctl"])
         atl = float(load["atl"])
         tsb = float(load["tsb"])
-        as_of_date = _latest_date_iso(metrics_df)
-        
+        data_through = _latest_date_iso(metrics_df)
+        computed_for = today.isoformat()
+
         return {
             "ctl": ctl,
             "atl": atl,
             "tsb": tsb,
             "report_period_days": report_days,
             "metrics_window_days": metrics_window_days,
-            "as_of_date": as_of_date,
+            # data_through = last activity date; computed_for = today (the
+            # anchor). The model must never read data_through as "today" (#231).
+            "data_through": data_through,
+            "computed_for": computed_for,
+            "as_of_date": computed_for,
             "form_state": self._interpret_tsb(tsb),
             "fitness_trend": self._calculate_fitness_trend(tss_data),
             "fatigue_level": self._interpret_atl(atl),
