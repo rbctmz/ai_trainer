@@ -13,6 +13,8 @@ from datetime import datetime, timedelta
 
 import pytest
 
+from tests.smoke._reference_dates import pinned_reference_events
+
 from data.database import Database
 
 
@@ -150,15 +152,16 @@ def test_reference_plan_has_no_unstructured_sessions(tmp_path):
 
     db = Database(str(tmp_path / "m4-audit.db"))
     today = datetime.now().date()
+    b_date, a_date = pinned_reference_events(today)
     ps.build_plan(
         db,
         goal_type="triathlon",
         distance="olympic",
         event_date=None,
         events=[
-            {"date": (today + timedelta(days=13)).isoformat(), "priority": "B",
+            {"date": b_date.isoformat(), "priority": "B",
              "label": "B", "confirmed": True},
-            {"date": (today + timedelta(weeks=12)).isoformat(), "priority": "A",
+            {"date": a_date.isoformat(), "priority": "A",
              "label": "A", "confirmed": True},
         ],
         planning_mode="event_goal",
