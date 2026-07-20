@@ -10,7 +10,7 @@ Create or activate the virtualenv via `source ai_trainer_env/bin/activate` (macO
 New product-facing behavior should go through shared Python logic plus explicit API contracts in `api/`, then be consumed from `web/`. Streamlit changes are acceptable for bug fixes, acceptance/admin tooling, compatibility bridges, or extracting reusable logic out of legacy UI code. Do not ship new product features only in `ui/pages/*` unless the task is explicitly legacy-only, and do not duplicate business logic between Streamlit and API/web paths.
 
 ## Architecture Context (ADD 3.0)
-Before starting significant architecture or planning work, read `docs/architecture/architecture_analysis_add3.md`. It documents:
+Before starting significant architecture or planning work, read `docs/architecture/asr_catalog.md` (the living single source of truth for quality attributes and the ADR registry) and `docs/architecture/architecture_analysis_add3.md`. They document:
 - Explicit Quality Attribute Scenarios (ASR) for performance, reliability, modifiability, security, deployability
 - Architectural tactics already used and gaps to fill
 - Risk/tradeoff heatmap (ATAM-style) — know what you might break
