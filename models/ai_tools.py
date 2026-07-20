@@ -21,6 +21,7 @@ from models.planning_checkpoints import (
 )
 from models.coach_constraints import apply_constraints_to_goal_plan
 from models.readiness import LOAD_METRICS_WINDOW_DAYS as COACH_LOAD_METRICS_WINDOW_DAYS
+from models.readiness import compute_readiness_today
 from models.signals_engine import assemble_signals
 from utils.product_semantics import (
     TODAY_PARTIAL_NOTE_RU,
@@ -134,6 +135,8 @@ class AITools:
             "propose_plan_build": self.propose_plan_build,
             "propose_plan_adjustment": self.propose_plan_adjustment,
             "create_plan_constraint": self.create_plan_constraint,
+            "get_readiness_today": self.get_readiness_today,
+            "get_pending_proposals": self.get_pending_proposals,
         }
     
     def get_tool_schemas(self) -> List[Dict[str, Any]]:
@@ -428,6 +431,25 @@ class AITools:
                     required=["date", "kind"],
                 ),
             },
+            {
+                "name": "get_readiness_today",
+                "description": (
+                    "Получить КАНОНИЧЕСКИЙ снимок готовности на сегодня (тот же, что "
+                    "в сайдбаре «Сигналы»): fusion HRV/RHR/сна/Garmin readiness/TSB "
+                    "с evidence, драйверами и confidence, привязанный к текущей дате. "
+                    "Вызывай ОБЯЗАТЕЛЬНО перед любой рекомендацией «на сегодня/завтра»."
+                ),
+                "parameters": _params(),
+            },
+            {
+                "name": "get_pending_proposals",
+                "description": (
+                    "Получить активные (pending) предложения агентного контура "
+                    "(recovery replan, корректировки плана) со статусом, датами и сутью. "
+                    "Если предложение висит — не противоречь ему, сошлись на него."
+                ),
+                "parameters": _params(),
+            },
         ]
 
     def get_available_tools(self) -> Dict[str, str]:
@@ -605,6 +627,63 @@ class AITools:
             "signal_source": signals["source"],
         }
     
+    def get_readiness_today(self) -> Dict[str, Any]:
+        """Канонический снимок готовности на сегодня (Issue #231).
+
+        Тот же `compute_readiness_today`, что питает сайдбар «Сигналы» и гейт
+        конфликтов — чтобы чат не расходился с контуром по readiness/TSB.
+        """
+        today = date.today()
+        try:
+            sleep_df = self.db.get_sleep_data(36500)
+            hrv_df = self.db.get_hrv_data(36500)
+            health_df = self.db.get_daily_health(36500)
+            training_df = self.db.get_training_status_history(36500)
+            activities_df = self.db.get_activities(COACH_LOAD_METRICS_WINDOW_DAYS)
+        except Exception as exc:
+            return {"success": False, "error": f"Нет данных готовности: {exc}"}
+
+        snapshot = compute_readiness_today(
+            sleep_df, hrv_df, health_df, training_df, activities_df, today=today
+        )
+        if not snapshot:
+            return {
+                "success": True,
+                "computed_for": today.isoformat(),
+                "message": "Недостаточно данных для расчёта готовности",
+            }
+        return {"success": True, "computed_for": today.isoformat(), "readiness": snapshot}
+
+    def get_pending_proposals(self) -> Dict[str, Any]:
+        """Активные предложения контура (pending) — recovery replan и правки плана.
+
+        Issue #231: чат обязан видеть висящее предложение, чтобы не советовать
+        выполнять день, который контур уже предлагает разгрузить.
+        """
+        try:
+            rows = self.db.get_coach_proposals(days=14, status="pending") or []
+        except Exception as exc:
+            return {"success": False, "error": f"Не удалось прочитать предложения: {exc}"}
+
+        proposals = []
+        for row in rows:
+            item = dict(row) if isinstance(row, dict) else {}
+            proposals.append(
+                {
+                    "id": item.get("id"),
+                    "date": str(item.get("date") or "")[:10],
+                    "action": item.get("action"),
+                    "status": item.get("status"),
+                    "preview": item.get("preview") or item.get("preview_json"),
+                }
+            )
+        return {
+            "success": True,
+            "computed_for": date.today().isoformat(),
+            "count": len(proposals),
+            "pending_proposals": proposals,
+        }
+
     def get_recent_activities(self, limit: int = 10) -> Dict[str, Any]:
         """Получить последние N активностей"""
         df = self.db.get_activities(30)  # Берем за 30 дней
