@@ -37,7 +37,7 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 validation/exception-ветка роутера и констрейнты request-моделей (то, что
 FastAPI отклонит до хендлера). Настоящий HTTP-round-trip через валидацию FastAPI
 не проверяется ни для одного роутера; это требует `TestClient` и смены паттерна —
-вынесено в #246.
+вынесено в #248.
 
 | Роутер | Тест-файл(ы) |
 |--------|--------------|
@@ -48,7 +48,7 @@ FastAPI отклонит до хендлера). Настоящий HTTP-round-t
 | `dashboard.py` | `test_api_dashboard.py`, `test_api_operational_states.py`, `test_readiness_snapshot_contract.py`, `test_signals_engine.py`, `test_dashboard_tsb_zones.py` |
 | `decisions.py` | `test_coach_decisions.py`, `test_recovery_replan_loop.py`, `test_recovery_transfer_product_surface_web.py` |
 | `hrv.py` | `test_api_operational_states.py`, `test_api_phase1.py` |
-| `planning.py` | `test_api_planning.py`, `test_coach_constraints.py`, `test_planning_target_demand_history.py` |
+| `planning.py` | `test_api_planning.py`, `test_coach_constraints.py`, `test_planning_target_demand_history.py`, `test_api_planning_router_contract.py` |
 | `recovery_analytics.py` | `test_api_recovery_analytics.py` |
 | `session_feedback.py` | `test_post_workout_feedback.py`, `test_api_session_feedback_router_contract.py` |
 | `session_quality.py` | `test_session_quality_forecast.py`, `test_api_session_quality_router_contract.py` |
@@ -57,13 +57,18 @@ FastAPI отклонит до хендлера). Настоящий HTTP-round-t
 | `system.py` | `test_api_operational_states.py`, `test_sync_job_api.py`, `test_api_phase3.py`, `test_session_quality_forecast.py` |
 | `today.py` | `test_api_today.py`, `test_briefing_settings.py` |
 
-Известный остаток вынесен в #246 (не блокирует этот свип): 13 эндпоинтов
-`planning.py` (`target-preview`, `demand` GET/POST, `events`, `plan`,
-`export/ics`, `export/workout/{index}`, `reconciliation`,
-`reconciliation/matches`, `rebalance/preview`, `rebalance/confirm`, `adjust`,
-`history`) покрыты только на уровне `api/planning_service` напрямую, не через
-сам роутер — риск ниже (business-логика уже пинована), но не нулевой. Туда же
-отнесён HTTP-слой валидации (`TestClient`).
+Остаток #246 закрыт: 13 ранее непокрытых эндпоинтов `planning.py`
+(`target-preview`, `demand` GET/POST, `events`, `plan`, `export/ics`,
+`export/workout/{index}`, `reconciliation`, `reconciliation/matches`,
+`rebalance/preview`, `rebalance/confirm`, `adjust`, `history`) теперь
+исполняются на уровне роутера в `test_api_planning_router_contract.py`
+(direct-call: happy-path со схемой, degraded без 500, маппинг исключений
+`ValueError → 422` / `StalePlanningCheckpointError → 409` / `IntervalsICUError →
+503`, `Response`-контракт export-роутов).
+
+Кросс-каттинг HTTP-слой валидации FastAPI (`Query`-констрейнты + полный
+round-trip через `TestClient`) не покрывается direct-call паттерном ни для
+одного роутера и вынесен в #248.
 
 ## Открытые долги (по 🟡)
 
