@@ -934,6 +934,17 @@ RACE_FORECAST_TSS_POLICY = {"A": 190.0, "B": 110.0}
 # 60+ TSS "short sharpening" that no catalog structure can materialize.
 _ACTIVATION_TSS_CEILING = {"bike": 45.0, "run": 35.0}
 
+# Issue #237 — the same honesty rule for race-week RECOVERY prescriptions:
+# the generic pre-race cap (e.g. A−7 ×0.65) still leaves 60+ TSS of a heavy
+# base day wearing a «recovery» label, and the catalog's recovery variants
+# cannot materialize that (the derived duration blows past their ranges →
+# legacy_role_fallback). Ceilings sit inside the catalog recovery bounds
+# INCLUDING the derived duration: swim ≈40 TSS ≈ 70 мин техники (variant max
+# 75 мин / 65 TSS), bike 30 ≈ 40 мин spin (max 45 мин / 45 TSS), run 35 ≈
+# 40 мин (max 60 мин / 55 TSS). Overlays only ever reduce, so the cap is
+# safe under the #202 contract.
+_RECOVERY_TSS_CEILING = {"swim": 40.0, "bike": 30.0, "run": 35.0}
+
 
 def compute_event_aware_phase_schedule(
     weeks_total: int,
@@ -1237,6 +1248,12 @@ def apply_race_event_overlays(
             # safe under the #202 contract.
             if role == "activation":
                 ceiling = _ACTIVATION_TSS_CEILING.get(prescribed_sport)
+                if ceiling:
+                    capped = min(capped, ceiling)
+            elif role == "recovery":
+                # Issue #237: a «recovery» label must match a recovery-sized
+                # day the catalog can actually structure.
+                ceiling = _RECOVERY_TSS_CEILING.get(prescribed_sport)
                 if ceiling:
                     capped = min(capped, ceiling)
             adjusted_parts[prescribed_sport] = round(capped, 1)
