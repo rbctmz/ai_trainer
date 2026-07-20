@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 from typing import Any, Mapping
 
+from api.briefing_settings import get_briefing_frequency, is_quiet_day
 from api.operational_state import build_operational_state
 from api.planning_service import reconciliation_at
 from api.readiness_snapshot import build_readiness_snapshot
@@ -76,6 +77,10 @@ def build_today_decision_snapshot(
         and (proposal.get("proposal") or {}).get("status") in _ACTIVE_PROPOSAL_STATUSES
         else None
     )
+    briefing = {
+        "frequency": get_briefing_frequency(db),
+        "is_quiet_day": is_quiet_day(gate, active_proposal),
+    }
     return {
         "snapshot_version": TODAY_SNAPSHOT_VERSION,
         "date": as_of,
@@ -86,6 +91,7 @@ def build_today_decision_snapshot(
         "readiness_source": "canonical_snapshot",
         "session": session,
         "gate": gate,
+        "briefing": briefing,
         "proposal": proposal,
         "forecast": forecast,
         "pending_proposal": active_proposal,
