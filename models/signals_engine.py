@@ -7,6 +7,7 @@ signal semantics.
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Any
 
 import pandas as pd
@@ -48,8 +49,20 @@ def _latest_row(frame: pd.DataFrame | None) -> dict[str, Any]:
     return df.iloc[0].to_dict()
 
 
-def training_load_metrics(activities_df: pd.DataFrame | None) -> dict[str, Any]:
-    """Return current CTL/ATL/TSB by wrapping the canonical Banister model."""
+def training_load_metrics(
+    activities_df: pd.DataFrame | None,
+    *,
+    as_of: date | None = None,
+) -> dict[str, Any]:
+    """Return current CTL/ATL/TSB by wrapping the canonical Banister model.
+
+    Issue #231: with ``as_of`` set, rest days after the last activity are
+    zero-filled through the anchor before the EWMA, so CTL/ATL/TSB are a
+    "today" signal — matching the canonical readiness snapshot
+    (``models/readiness._tsb_metrics``). Without it the model freezes at the
+    last workout date (second instance of #139). ``as_of`` defaults to None to
+    keep every existing caller's behavior unchanged.
+    """
     df = _frame_or_empty(activities_df)
     if df.empty:
         return {
@@ -60,6 +73,19 @@ def training_load_metrics(activities_df: pd.DataFrame | None) -> dict[str, Any]:
             "fatigue": 0.0,
             "form": "Недостаточно данных",
         }
+
+    if as_of is not None:
+        frame = df[["date", "tss"]].copy()
+        frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+        frame["tss"] = pd.to_numeric(frame["tss"], errors="coerce").fillna(0.0)
+        frame = frame.dropna(subset=["date"])
+        anchor_ts = pd.Timestamp(as_of)
+        frame = frame[frame["date"] <= anchor_ts]
+        if not frame.empty:
+            daily = frame.groupby(frame["date"].dt.normalize())["tss"].sum().sort_index()
+            date_range = pd.date_range(start=daily.index.min(), end=anchor_ts, freq="D")
+            daily = daily.reindex(date_range, fill_value=0.0)
+            return BanisterModel().get_current_metrics(daily.tolist(), daily.index.tolist())
 
     tss_data: list[float] = []
     dates: list[Any] = []
@@ -369,9 +395,14 @@ def assemble_signals(
     sleep_df: pd.DataFrame | None = None,
     training_status: Any = None,
     health_df: pd.DataFrame | None = None,
+    as_of: date | None = None,
 ) -> dict[str, Any]:
-    """Assemble normalized load/recovery/readiness signals."""
-    metrics = training_load_metrics(activities_df)
+    """Assemble normalized load/recovery/readiness signals.
+
+    Issue #231: pass ``as_of`` to anchor CTL/ATL/TSB to today (rest days decay
+    after the last workout) instead of freezing at the last activity date.
+    """
+    metrics = training_load_metrics(activities_df, as_of=as_of)
     load = _load_signal(metrics)
     hrv = _hrv_signal(hrv_df)
     sleep = _sleep_signal(sleep_df)

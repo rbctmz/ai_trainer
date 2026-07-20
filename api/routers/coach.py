@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import time
 import uuid
 from typing import Any, Iterator, Optional
 
@@ -93,6 +94,10 @@ def coach_chat(
 
     def stream() -> Iterator[str]:
         message_id = str(uuid.uuid4())[:8]
+        # ASR-PERF-2 (Issue #241): time-to-first-token, observation not a
+        # gate — provider latency isn't deterministic even across live runs.
+        stream_started_at = time.monotonic()
+        first_token_ms: Optional[float] = None
         yield _sse(
             {
                 "type": "meta",
@@ -190,6 +195,8 @@ def coach_chat(
                     system_prompt=synthesis_system_prompt,
                 ):
                     streamed_final += delta
+                    if first_token_ms is None:
+                        first_token_ms = (time.monotonic() - stream_started_at) * 1000
                     yield _sse({"type": "token", "content": delta})
 
                 final = (
@@ -215,6 +222,8 @@ def coach_chat(
                     final = _rendered_response
                 final = apply_response_contract_to_final_response(final, None)
                 for chunk in _chunk(final):
+                    if first_token_ms is None:
+                        first_token_ms = (time.monotonic() - stream_started_at) * 1000
                     yield _sse({"type": "token", "content": chunk})
 
             _save_decision(
@@ -226,7 +235,14 @@ def coach_chat(
             )
             chat_manager.add_message(chat_id, "assistant", final)
 
-            yield _sse({"type": "done", "message_id": message_id, "chat_id": chat_id})
+            yield _sse(
+                {
+                    "type": "done",
+                    "message_id": message_id,
+                    "chat_id": chat_id,
+                    "first_token_ms": first_token_ms,
+                }
+            )
         except Exception as exc:  # surface errors to the client instead of hanging
             error_message = str(exc)
             yield _sse(
