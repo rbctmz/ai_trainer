@@ -107,6 +107,30 @@ jobs:
           ref: ${{ steps.executable-context.outputs.checkout-ref }}
           fetch-depth: 0
 
+      # Issue #222 p.4: a PR that changes requirements*.txt must run against
+      # ITS dependency set. The trusted default-branch install above stays
+      # first (pinned by contract); this refresh is a cheap cached no-op when
+      # requirements are unchanged, and the executable context is already
+      # same-repository-guarded.
+      - name: Refresh dependencies from the executable branch
+        if: steps.executable-context.outputs.result == 'true'
+        run: |
+          python -m pip install -r requirements.txt
+          python -m pip install -r requirements-dev.txt
+
+      # Issue #222 p.3: web-touching slices must be verifiable inside the run.
+      - name: Set up Node for web verification
+        if: steps.executable-context.outputs.result == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+
+      - name: Install web dependencies
+        if: steps.executable-context.outputs.result == 'true'
+        run: npm --prefix web ci
+
       - name: Run Claude Code
         if: steps.executable-context.outputs.result == 'true'
         uses: anthropics/claude-code-action@700e7f8316990de46bed556429765647af760efc # v1
@@ -118,5 +142,5 @@ jobs:
           track_progress: true
           claude_args: |
             --max-turns 120
-            --allowedTools "Edit,Write,Bash(python -m pytest:*),Bash(python3 -m pytest:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git rev-parse:*)"
-            --append-system-prompt "Follow AGENTS.md and the linked issue/PR contract. Treat the checker findings above the mention as task context. Modify only files required by the request. Commit the confirmed RED gate before implementation. Commit the GREEN fix separately. Never merge, force-push, access live athlete/provider data, or expose application secrets. Run contributor-safe tests before committing."
+            --allowedTools "Edit,Write,Bash(python -m pytest:*),Bash(python3 -m pytest:*),Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git rev-parse:*),Bash(npm --prefix web run lint:*),Bash(npm --prefix web run build:*)"
+            --append-system-prompt "Follow AGENTS.md and the linked issue/PR contract. Treat the checker findings above the mention as task context. Modify only files required by the request. Commit the confirmed RED gate before implementation. Commit the GREEN fix separately. Commit and push every completed RED or GREEN slice immediately — never hold finished work uncommitted. When the turn budget nears exhaustion, stop at a clean boundary (a pushed RED gate or a pushed GREEN fix) and update the progress checklist instead of starting a new slice. When your change touches web/**, run 'npm --prefix web run lint' and 'npm --prefix web run build' before pushing. Never merge, force-push, access live athlete/provider data, or expose application secrets. Run contributor-safe tests before committing."
