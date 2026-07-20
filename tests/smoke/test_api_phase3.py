@@ -80,5 +80,37 @@ def test_get_database_demo_routing(monkeypatch, tmp_path):
     assert real.db_path != demo.db_path
 
 
+def test_demo_seed_and_clear_via_router(monkeypatch, tmp_path):
+    """Issue #242: POST /api/demo/seed and /api/demo/clear were only
+    covered indirectly (via `services.demo_mode.activate_demo_mode` called
+    directly in `test_demo_seed_isolated` above) -- the router's own
+    functions, response shape, and 500-wrapping were never called."""
+    import api.deps as deps
+    from api.routers import system as system_mod
+
+    monkeypatch.setattr(deps, "DEMO_DB_PATH", str(tmp_path / "demo_router.db"))
+    deps._db_for_path.cache_clear()
+
+    seeded = system_mod.demo_seed()
+    assert seeded["seeded"] is True
+    assert seeded["counts"]["activities"] > 0
+    assert len(deps.demo_database().get_activities(60)) > 0
+
+    cleared = system_mod.demo_clear()
+    assert cleared["cleared"] is True
+    assert len(deps.demo_database().get_activities(60)) == 0
+
+
+def test_demo_clear_without_prior_seed_is_idempotent_no_500(monkeypatch, tmp_path):
+    import api.deps as deps
+    from api.routers import system as system_mod
+
+    monkeypatch.setattr(deps, "DEMO_DB_PATH", str(tmp_path / "demo_never_seeded.db"))
+    deps._db_for_path.cache_clear()
+
+    result = system_mod.demo_clear()
+    assert result["cleared"] is True
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))

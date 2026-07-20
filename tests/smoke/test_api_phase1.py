@@ -169,5 +169,19 @@ def test_coach_chat_synthesizes_final_answer_after_tools(tmp_path, monkeypatch):
     assert len(provider.calls) == 2
 
 
+def test_coach_chat_rejects_empty_message_with_422(tmp_path):
+    """Issue #242: the router's own `HTTPException(422, "message is empty")`
+    guard was never exercised -- every existing test sends a non-empty
+    message."""
+    from fastapi import HTTPException
+
+    from api.routers import coach as coach_mod
+
+    req = coach_mod.ChatRequest(message="   ")
+    with pytest.raises(HTTPException) as exc_info:
+        coach_mod.coach_chat(req, Database(str(tmp_path / "empty_msg.db")))
+    assert exc_info.value.status_code == 422
+
+
 if __name__ == "__main__":  # pragma: no cover
     raise SystemExit(pytest.main([__file__, "-q"]))
