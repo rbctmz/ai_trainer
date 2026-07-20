@@ -187,7 +187,12 @@ def test_raise_http_maps_stale_feedback_to_409():
 
 def test_raise_http_reraises_unmapped_exception_unchanged():
     """Guard against a future `except Exception` widening the mapping: an
-    unrelated failure must stay a 500, not become a misleading 4xx."""
+    unrelated failure must stay a 500, not become a misleading 4xx.
+
+    Sharper than it looks next to the 409 test above: `StaleFeedbackError`
+    subclasses `RuntimeError`, so this pair pins that the mapping keys off the
+    narrow subclass -- broadening it to the base would turn every unrelated
+    RuntimeError into a 409."""
     from api.routers.session_feedback import _raise_http
 
     with pytest.raises(RuntimeError):
