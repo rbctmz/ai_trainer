@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
-import { fetcher } from "@/lib/api";
+import { fetcher, putJSON } from "@/lib/api";
 import type { TodayResponse, WorkoutStep } from "@/lib/types";
 import { ProposalCard } from "@/components/ui/ProposalCard";
 import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackCard";
@@ -48,6 +48,8 @@ export default function TodayPage() {
     fetcher,
   );
   const [notice, setNotice] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [frequencySaving, setFrequencySaving] = useState(false);
 
   const state = data?.state ?? "silence";
   const meta = STATE_META[state] ?? STATE_META.silence;
@@ -63,6 +65,30 @@ export default function TodayPage() {
   const pendingMatch = data?.feedback?.prompts.find(
     (prompt) => prompt.state === "pending_match",
   );
+
+  const frequency = data?.briefing?.frequency ?? "daily";
+  // Only a `silence` day may collapse — is_quiet_day can also be true for a
+  // no_plan/data_gap day (gate silence/no-data + no proposal + no conflict),
+  // but those still have their own thing to say and must stay full-screen.
+  const isCompact =
+    frequency === "conflicts_only" &&
+    Boolean(data?.briefing?.is_quiet_day) &&
+    state === "silence" &&
+    !expanded;
+
+  async function toggleBriefingFrequency() {
+    const next = frequency === "conflicts_only" ? "daily" : "conflicts_only";
+    setFrequencySaving(true);
+    try {
+      await putJSON("/api/settings/briefing", { frequency: next });
+      setExpanded(false);
+      await mutate();
+    } catch {
+      setNotice("Не удалось сохранить настройку частоты брифинга.");
+    } finally {
+      setFrequencySaving(false);
+    }
+  }
 
   return (
     <main className="mx-auto max-w-2xl space-y-5">
@@ -80,17 +106,49 @@ export default function TodayPage() {
 
       {data ? (
         <>
-          <header>
-            <p className="text-sm text-ink-faint">{formatHumanDate(data.date)}</p>
-            <div className="mt-1 flex items-center gap-2">
-              <span className={`text-xl font-bold ${meta.tone}`}>{meta.icon}</span>
-              <h1 className="text-2xl font-bold text-ink">{meta.title}</h1>
+          <header className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-sm text-ink-faint">{formatHumanDate(data.date)}</p>
+              {!isCompact ? (
+                <>
+                  <div className="mt-1 flex items-center gap-2">
+                    <span className={`text-xl font-bold ${meta.tone}`}>{meta.icon}</span>
+                    <h1 className="text-2xl font-bold text-ink">{meta.title}</h1>
+                  </div>
+                  {data.reason ? (
+                    <p className="mt-1 text-sm text-ink-soft">{data.reason}</p>
+                  ) : null}
+                </>
+              ) : null}
             </div>
-            {data.reason ? (
-              <p className="mt-1 text-sm text-ink-soft">{data.reason}</p>
-            ) : null}
+            <button
+              type="button"
+              onClick={() => void toggleBriefingFrequency()}
+              disabled={frequencySaving}
+              title="Частота утреннего брифинга"
+              className="shrink-0 whitespace-nowrap rounded-lg border border-surface-border px-2.5 py-1.5 text-xs font-medium text-ink-faint transition hover:bg-surface-muted disabled:opacity-60"
+            >
+              {frequency === "conflicts_only" ? "Только конфликты" : "Каждое утро"}
+            </button>
           </header>
 
+          {isCompact ? (
+            <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+              <p className="text-sm text-ink">
+                План в силе
+                {session ? ` · ${session.name}` : ""}
+                {readiness ? ` · Readiness ${Math.round(readiness.score)}` : ""}
+              </p>
+              <button
+                type="button"
+                onClick={() => setExpanded(true)}
+                className="mt-2 text-sm font-medium text-accent"
+              >
+                Развернуть брифинг
+              </button>
+            </section>
+          ) : (
+            <>
           {state === "no_plan" ? (
             <div className="rounded-card border border-surface-border bg-surface p-6 text-center shadow-card">
               <p className="text-sm text-ink-soft">
@@ -439,6 +497,8 @@ export default function TodayPage() {
               </Link>
             </section>
           ) : null}
+            </>
+          )}
         </>
       ) : null}
     </main>
