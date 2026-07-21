@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import useSWR, { useSWRConfig } from "swr";
 import { fetcher, isDemo, postJSON, setDemo } from "@/lib/api";
 import { DashboardResponse, DashboardWidgets, SyncJobResponse } from "@/lib/types";
@@ -30,7 +31,7 @@ export default function DashboardPage() {
   return (
     <main className="space-y-5">
       <header className="flex items-center justify-between gap-3">
-        <h1 className="text-2xl font-bold text-ink">Дашборд</h1>
+        <h1 className="text-2xl font-bold text-ink">Обзор</h1>
         <div className="flex items-center gap-3">
           {data?.summary ? (
             <span className="text-sm text-ink-faint">{data.summary.today.date}</span>
@@ -38,6 +39,8 @@ export default function DashboardPage() {
           <SyncButton onDone={() => mutate()} />
         </div>
       </header>
+
+      <SectionLinks />
 
       {isLoading ? <SkeletonState /> : null}
 
@@ -86,6 +89,33 @@ export default function DashboardPage() {
         </>
       ) : null}
     </main>
+  );
+}
+
+// Secondary detail surfaces, demoted from the top nav into «Обзор» (#253).
+// The raw-data drilldowns (Активности/Сон/HRV) are no longer peer primary
+// destinations; they live here as sections reachable from the overview.
+function SectionLinks() {
+  const sections = [
+    { href: "/activities", label: "Активности" },
+    { href: "/sleep", label: "Сон" },
+    { href: "/hrv", label: "HRV" },
+  ];
+  return (
+    <nav aria-label="Разделы обзора" className="flex flex-wrap items-center gap-2">
+      <span className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+        Разделы
+      </span>
+      {sections.map((s) => (
+        <Link
+          key={s.href}
+          href={s.href}
+          className="rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-ink-soft transition hover:bg-surface-muted"
+        >
+          {s.label}
+        </Link>
+      ))}
+    </nav>
   );
 }
 
