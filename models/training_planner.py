@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timedelta, date
 from math import ceil
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -23,6 +24,77 @@ SPORT_LABELS_RU = {
     "brick": "вело → бег",
     "off": "отдых",
 }
+
+# Issue #232: a day template's top-level scalars mirror its primary session
+# ``sessions[0]`` (the #205/#206 "one template per day" contract). These are the
+# primary session's own catalog/presentation keys; they are projected wholesale.
+# The five identity scalars (session_role/sport/sport_label/session_focus/
+# duration_minutes) are projected explicitly with fallbacks. total_tss, sessions,
+# allocated_parts, brick_status and the day/lineage/identity keys are day-owned
+# and never mirrored from a session. Keep this list complete — the builder-parity
+# test in tests/smoke/test_session_day_projection.py fails if the builder puts a
+# primary key on the top level that is missing here.
+_SESSION_META_MIRROR_KEYS = (
+    "kind",
+    "template_key",
+    "template_version",
+    "template_name",
+    "export_name",
+    "description",
+    "stimulus",
+    "fatigue_cost",
+    "expected_recovery_hours",
+    "catalog_version",
+    "selector_rule_version",
+    "materializer_rule_version",
+    "materialization_status",
+    "definition_snapshot",
+    "parameter_snapshot",
+    "materialized_steps",
+    "target_provenance",
+    "structure_status",
+    "structure_evidence",
+    "selection_evidence",
+    "prescription_fingerprint",
+    "legs",
+    "transition_minutes",
+)
+
+
+def project_day_scalars(template: Dict[str, Any]) -> None:
+    """Refresh a day template's top-level scalars as a COMPLETE projection of its
+    primary session ``sessions[0]`` (Issue #205/#206 "one template per day";
+    Issue #232 fix for name/fatigue/recovery drifting behind focus/steps).
+
+    Mutates ``template`` in place. Day-owned keys (``date``, ``phase``, week/day
+    index, ``allocated_parts``, ``brick_status``, ``constraint``, lineage and
+    identity, ``sessions``, ``total_tss``) are never touched. A day with no
+    sessions is reduced to off scalars and carries no catalog metadata, matching
+    a constraint-off day.
+    """
+    sessions = list(template.get("sessions") or [])
+    if sessions:
+        primary = dict(sessions[0] or {})
+        template["session_role"] = str(primary.get("session_role") or "easy")
+        template["sport"] = str(primary.get("sport") or "off")
+        template["sport_label"] = str(
+            primary.get("sport_label") or SPORT_LABELS_RU.get(template["sport"], template["sport"])
+        )
+        template["session_focus"] = str(primary.get("session_focus") or "—")
+        template["duration_minutes"] = int(round(float(primary.get("duration_minutes") or 0)))
+        for key in _SESSION_META_MIRROR_KEYS:
+            if key in primary:
+                template[key] = deepcopy(primary[key])
+            else:
+                template.pop(key, None)
+    else:
+        template["session_role"] = "off"
+        template["sport"] = "off"
+        template["sport_label"] = SPORT_LABELS_RU.get("off", "off")
+        template["session_focus"] = "—"
+        template["duration_minutes"] = 0
+        for key in _SESSION_META_MIRROR_KEYS:
+            template.pop(key, None)
 
 
 def _round_to_5(value: float) -> int:
