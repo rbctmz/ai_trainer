@@ -6,17 +6,16 @@ import { useEffect, useState } from "react";
 import { isDemo, setDemo } from "@/lib/api";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
 
+// 4 primary destinations only. Secondary surfaces are reachable elsewhere:
+// HRV / Сон / Активности as detail sections inside «Обзор» (dashboard);
+// «План vs факт» folded into «План» (#255); «Решения»/«Восстановление» are
+// research/shadow surfaces gated behind a dev flag (#254). Keeping the top nav
+// to 4 items removes the sideways-scrolling overflow that clipped the bar.
 const links = [
   { href: "/today", label: "Сегодня" },
-  { href: "/dashboard", label: "Дашборд" },
-  { href: "/coach", label: "Коуч" },
-  { href: "/decisions", label: "Решения" },
+  { href: "/dashboard", label: "Обзор" },
   { href: "/planning", label: "План" },
-  { href: "/adherence", label: "План vs факт" },
-  { href: "/recovery", label: "Восстановление" },
-  { href: "/hrv", label: "HRV" },
-  { href: "/sleep", label: "Сон" },
-  { href: "/activities", label: "Активности" },
+  { href: "/coach", label: "Коуч" },
 ];
 
 export function Nav() {
