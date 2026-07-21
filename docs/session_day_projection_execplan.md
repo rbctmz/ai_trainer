@@ -17,11 +17,11 @@ Today they do not. On 2026-07-20 a swim day shows, on the Today card, the title 
 ## Progress
 
 - [x] (2026-07-21) Root-cause investigation complete: the primary→top-level projection contract is implemented in four places; only the initial builder is complete. See `Context and Orientation`.
-- [ ] M1 — Introduce a single canonical projector `project_day_scalars(template)` in `models/training_planner.py` with a direct unit test.
-- [ ] M2 — Call the projector from the three drifted mutation sites; add a regression test reproducing #232 (transfer → no metadata drift) and a day-field-survival test.
-- [ ] M3 — Add a builder-parity test proving the projector's output equals the initial builder's projection for representative single and composite sessions (the anti-drift guard).
-- [ ] M4 — Full smoke green; update `docs/architecture/asr_catalog.md` if a projection contract row is warranted; open PR.
-- [ ] (Optional) M5 — Refactor the initial builder to call the shared projector, retiring the last duplicated projection. Guarded by the M3 parity test. Skip if risk appetite is low.
+- [x] (2026-07-21) M1 — `project_day_scalars(template)` + `_SESSION_META_MIRROR_KEYS` added to `models/training_planner.py`.
+- [x] (2026-07-21) M2 — Projector wired into all three mutation sites: `models/session_transfer.py::_rebuild_day_projection` (and dead `_DAY_MIRROR_KEYS` removed), `models/planning_near_term.py` both sites. Regression + day-survival tests added in `tests/smoke/test_session_day_projection.py` (regression RED before, GREEN after).
+- [x] (2026-07-21) M3 — Builder-parity test added; guards the allow-list against drift. All three tests pass; full `tests/smoke` green at 974 passed.
+- [x] (2026-07-21) M4 — Full smoke green. No `asr_catalog.md` row warranted: that catalog tracks API-router contract tests, and this is an internal plan-construction invariant, documented by this ExecPlan and the new test. PR to follow.
+- [ ] (Optional) M5 — DEFERRED. Refactor the initial builder to call the shared projector, retiring the last duplicated projection. Not done: the builder's `**projected` is a denylist that propagates *every* primary key, so switching it to the allow-list projector could silently stop propagating a future out-of-allow-list key. The M3 parity test already keeps the two in lock-step (it fails if the builder projects a catalog key the projector omits), so no drift hole remains. Promote only with explicit appetite for touching the load-bearing builder.
 
 
 ## Surprises & Discoveries
@@ -31,6 +31,14 @@ Today they do not. On 2026-07-20 a swim day shows, on the Today card, the title 
 
 - Observation: the mismatch cannot arise from a fresh build — only from a post-build mutation — because the initial builder projects *all* primary keys via `**projected`.
   Evidence: `models/training_planner.py:2163-2216`.
+
+- Observation: `brick_status`/`brick_status_reason`/`mutation_evidence`/`allocated_parts` are DAY-level (spread from `day_meta`), not carried on the primary session dict. They were dropped from the projector's allow-list so a brick day's `project_day_scalars` does not clobber builder-set day metadata. The parity test only iterates keys present on the primary, so it naturally does not demand them.
+  Evidence: `models/training_planner.py:2211-2212` sets `allocated_parts`/`**day_meta` on the template, never on the session; `_finalize` (2027-2038) returns no such keys.
+
+- Observation: the near-term "edit day from parts" path rebuilds sessions as manual scalar shells with no catalog metadata (`_sessions_from_parts`, `models/planning_near_term.py:347-382` — only sport/role/focus/duration/tss/template_key/export_name). Running the projector there therefore *clears* the previous catalog session's `template_name`/`fatigue_cost`/`materialized_steps` rather than copying them, which is the correct #232 outcome (consumers fall back to the manual `session_focus`/`export_name`). No existing near-term test asserted the stale-retaining behavior; all 13 still pass.
+
+- Observation: the builder-parity test first failed on `session_id` — the built template's `session_id` comes from `ensure_session_identities`, not from the primary projection. Identity/lineage keys were added to the test's day-owned exclusion set; the projector correctly leaves identity to `ensure_session_identities`.
+  Evidence: RED `AssertionError: ('2026-07-20', 'session_id') assert None == 'ats_…'` before the exclusion fix.
 
 
 ## Decision Log
@@ -47,10 +55,20 @@ Today they do not. On 2026-07-20 a swim day shows, on the Today card, the title 
   Rationale: the builder is load-bearing (identity, external ids, invariants). Switching it from its `**projected` denylist to the allowlist projector could stop propagating an out-of-allowlist key — a behavior change. The bug is fully fixed at M2 without touching it.
   Date/Author: 2026-07-21, Claude (issue #232).
 
+- Decision: The allow-list holds only keys that live on the primary *session* (23 catalog/presentation keys). `brick_status`/`brick_status_reason`/`mutation_evidence`/`allocated_parts` are day-level and were left out so the projector never removes builder-set day metadata.
+  Rationale: the projector's job is "top level mirrors sessions[0]"; day-level metadata is not the primary's to carry. Including them would make a brick day's projection erase its own `brick_status`.
+  Date/Author: 2026-07-21, Claude (issue #232).
+
+- Decision: The projector runs in the near-term "edit from parts" path only inside the `if rebuilt:` branch (where sessions were actually rebuilt), never on the composite/off branches that leave `sessions` unset.
+  Rationale: calling it with no sessions would reduce a composite day to an off day at the top level. Scoping the call to real rebuilds keeps composite/off behavior unchanged while fixing the manual-edit drift.
+  Date/Author: 2026-07-21, Claude (issue #232).
+
 
 ## Outcomes & Retrospective
 
-To be completed at milestone boundaries. Compare against Purpose: a transferred/edited day shows one consistent name/focus/fatigue/recovery across Today, plan, Recovery Replan, coach and delivery.
+(2026-07-21, M1–M4 complete.) A single canonical `project_day_scalars` now backs every post-build day mutation. The transfer/recovery-replan path and both near-term editor paths project the primary session in full, so a moved-onto day mirrors its new primary and a day emptied by the move sheds its catalog identity. The regression test `test_transfer_reprojects_full_primary_metadata_without_drift` was RED before the change (an emptied bike-recovery day kept `template_name='Recovery Spin'`) and is GREEN after; the builder-parity test guards the allow-list against future drift. Full `tests/smoke` is green at 974 passed (up from 971). Against the Purpose: the Today card, plan view, Recovery Replan journal, coach context and Intervals delivery now read one consistent name/focus/fatigue/recovery for a transferred or edited session, because they all read a top level that is a complete projection of `sessions[0]`.
+
+Remaining: M5 (fold the initial builder onto the shared projector) is deferred by decision — the parity test already prevents drift, so the two-implementation state is safe. The two cosmetic `/decisions` tails noted in issue #232 (journal timestamps showing "00:00"; a trirepeated `low_readiness_easy_session` conflict row) are out of scope for this projection fix and, if wanted, belong in a separate change.
 
 
 ## Context and Orientation
@@ -91,10 +109,11 @@ Add ONE canonical projector and route the three drifted mutation sites through i
 Define, near the top of `models/training_planner.py`, a module constant and a function:
 
     # Top-level day scalars that mirror the primary session sessions[0].
-    # These are the catalog/presentation keys; the five identity scalars
-    # (session_role, sport, sport_label, session_focus, duration_minutes) are
-    # projected explicitly with fallbacks, and total_tss/allocated_parts/sessions
-    # plus lineage/identity keys are day-owned and never mirrored.
+    # These are the primary session's own catalog/presentation keys; the five
+    # identity scalars (session_role, sport, sport_label, session_focus,
+    # duration_minutes) are projected explicitly with fallbacks. total_tss,
+    # sessions, allocated_parts, brick_status and the day/lineage/identity keys
+    # are day-owned (not carried on a session) and never mirrored here.
     _SESSION_META_MIRROR_KEYS = (
         "kind", "template_key", "template_version", "template_name",
         "export_name", "description", "stimulus", "fatigue_cost",
@@ -103,8 +122,7 @@ Define, near the top of `models/training_planner.py`, a module constant and a fu
         "definition_snapshot", "parameter_snapshot", "materialized_steps",
         "target_provenance", "structure_status", "structure_evidence",
         "selection_evidence", "prescription_fingerprint", "legs",
-        "transition_minutes", "brick_status", "brick_status_reason",
-        "mutation_evidence",
+        "transition_minutes",
     )
 
     def project_day_scalars(template: MutableMapping[str, Any]) -> None:
