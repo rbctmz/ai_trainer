@@ -26,7 +26,7 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 - **TSB / CTL / ATL** — стандартные метрики тренировочной нагрузки (баланс формы, длительная и краткосрочная нагрузка). Для этого плана важно лишь, что они выводятся плиткой на многих экранах.
 - **shadow / research-поверхность** — экран или блок, помеченный как «наблюдение, не влияет на решения»; это инструмент для накопления научных данных, а не функция для пользователя.
 - **reconciliation / «план vs факт» / adherence** — сопоставление запланированных сессий с фактически выполненными активностями.
-- **демо-режим** — режим, в котором чтение/запись идут в отдельную изолированную SQLite-базу (`ai_trainer_demo.db`), чтобы реальная база владельца (`ai_trainer.db`) не пострадала. Включается тумблером в навбаре или query-параметром `?demo=1`.
+- **демо-режим** — режим, в котором чтение/запись идут в отдельную изолированную SQLite-базу (`ai_trainer_demo.db`), чтобы реальная база владельца (`ai_trainer.db`) не пострадала. Включается тумблером «Демо» в навбаре, который через `web/lib/api.ts::setDemo` пишет флаг в `localStorage`; после этого фронт сам дописывает `?demo=1` к API-запросам. Просто `?demo=1` в адресной строке страницы демо НЕ включает.
 
 Работа разбита на четыре независимо проверяемых среза, каждый со своей GitHub issue: **#253** (навбар 10→4), **#254** (флаг для shadow-поверхностей), **#255** (слить adherence в «План»), **#256** (оживить демо-данные).
 
@@ -37,7 +37,7 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 - [ ] M1 (#253): навбар схлопнут в 4 primary; HRV/Сон/Активности вложены в «Обзор»; лого-навбар единообразен, без горизонтального скролла.
 - [ ] M2 (#254): введён фронт-флаг `NEXT_PUBLIC_SHOW_DEV_TOOLS`; при выкл — «Восстановление», «Решения» и shadow-прогноз на «Сегодня» не видны, их маршруты редиректят на `/today`.
 - [ ] M3 (#255): поверхность «план vs факт» перенесена вкладкой в «План»; `/adherence` убран из навбара, но остаётся доступен по прямой ссылке.
-- [ ] M4 (#256): демо-датасет обогащён так, что все 4 primary-поверхности населены в `?demo=1`.
+- [ ] M4 (#256): демо-датасет обогащён так, что все 4 primary-поверхности населены в демо-режиме (тумблер «Демо» в навбаре).
 
 Отметки времени в этой секции нужны, чтобы видеть темп.
 
@@ -61,7 +61,7 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 - Observation: в `web/` НЕТ механизма фичефлагов, доходящих до фронтенда — ни `NEXT_PUBLIC_*`, ни чтения серверного конфига. `SHOW_DEVELOPMENT_TOOLS` существует только как backend-переменная окружения. Значит, срезу #254 надо ЗАВЕСТИ флаг-путь до клиента.
   Evidence: `grep -rniE "NEXT_PUBLIC|SHOW_DEVELOPMENT|feature.?flag" web/` — пусто.
 
-- Observation: точки входа демо уже существуют — `POST /api/system/demo/seed` (`api/routers/system.py::demo_seed`) вызывает `services/demo_mode.py::activate_demo_mode(state)`; есть и `POST /api/system/demo/clear`. Значит, срез #256 — это ОБОГАЩЕНИЕ сидера, а не постройка плумбинга.
+- Observation: точки входа демо уже существуют — `POST /api/demo/seed` (`api/routers/system.py::demo_seed`, роутер смонтирован с префиксом `/api`) вызывает `services/demo_mode.py::activate_demo_mode(state)`; есть и `POST /api/demo/clear`. Значит, срез #256 — это ОБОГАЩЕНИЕ сидера, а не постройка плумбинга.
   Evidence: `grep -nE "@router|def " api/routers/system.py` показывает `/demo/seed` и `/demo/clear`.
 
 - Observation: навбар непоследователен между маршрутами — на `/recovery` бренд-лого «🏃 AI Trainer» отсутствует, из-за чего навбар «прыгает» по ширине и на этой странице неожиданно помещается целиком.
@@ -109,7 +109,7 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 
 Навигация задаётся в `web/components/Nav.tsx` — там массив `links` из 10 объектов `{ href, label }`, отрисованный в одну строку. Именно этот массив и его контейнер правит срез #253.
 
-Слой API — `api/` (FastAPI). Веб ходит в него через rewrites (`web/next.config.mjs`), проксируя `/api/*` на бэкенд. Демо-режим резолвится в `api/deps.py::get_database` по query-параметру `?demo=1`, который направляет чтение/запись в отдельную базу `ai_trainer_demo.db` (см. `api/deps.py` и `services/acceptance_mode.py`). Эндпоинты демо — `POST /api/system/demo/seed` и `POST /api/system/demo/clear` в `api/routers/system.py`; сам сидинг — `services/demo_mode.py::activate_demo_mode(state)`.
+Слой API — `api/` (FastAPI). Веб ходит в него через rewrites (`web/next.config.mjs`), проксируя `/api/*` на бэкенд. На БЭКЕНДЕ демо-режим резолвится в `api/deps.py::get_database` по query-параметру `?demo=1`, который направляет чтение/запись в отдельную базу `ai_trainer_demo.db` (см. `api/deps.py` и `services/acceptance_mode.py`). Но САМ ВЕБ не включается URL-параметром: демо активируется тумблером «Демо» в навбаре, который через `web/lib/api.ts::setDemo` пишет флаг в `localStorage`, после чего `web/lib/api.ts::withDemo` дописывает `?demo=1` ко всем API-запросам. Эндпоинты демо — `POST /api/demo/seed` и `POST /api/demo/clear` (роутер `api/routers/system.py` смонтирован с префиксом `/api`, НЕ `/api/system`); сам сидинг — `services/demo_mode.py::activate_demo_mode(state)`.
 
 Единый источник меток «план vs факт» на фронте уже есть — `web/lib/adherence.ts`; его надо переиспользовать, а не плодить второй (важно для #255).
 
@@ -125,7 +125,7 @@ Milestone M2 — флаг для shadow-поверхностей (issue #254). �
 
 Milestone M3 — слить adherence в «План» (issue #255). Перенести содержимое `web/app/adherence/page.tsx` во вкладку внутри `web/app/planning/page.tsx` (рядом с build/adjust/export) либо объединить с уже существующей вкладкой «Скорректировать», если контент совпадает по смыслу reconciliation. Переиспользовать `web/lib/adherence.ts` для меток. Убрать `/adherence` из навбара (это часть M1), но оставить сам маршрут рабочим. Компактные полосы «план vs факт» на `/today` оставить как есть.
 
-Milestone M4 — оживить демо-данные (issue #256). Обогатить `services/demo_mode.py::activate_demo_mode(state)` так, чтобы детерминированный демо-датасет покрывал дневную петлю по всем 4 primary-поверхностям: активный план с сессией дня, активности, сон и HRV за ~10 дней, строки reconciliation (план-факт), населённые сигналы для коуча (Mock AI). Данные должны быть «здоровыми» (никаких «эпизодов 0» и пустых лент) и не требовать сети/реальных ключей. Проверять через `POST /api/system/demo/clear` затем `POST /api/system/demo/seed`, далее `?demo=1` в вебе.
+Milestone M4 — оживить демо-данные (issue #256). Обогатить `services/demo_mode.py::activate_demo_mode(state)` так, чтобы детерминированный демо-датасет покрывал дневную петлю по всем 4 primary-поверхностям: активный план с сессией дня, активности, сон и HRV за ~10 дней, строки reconciliation (план-факт), населённые сигналы для коуча (Mock AI). Данные должны быть «здоровыми» (никаких «эпизодов 0» и пустых лент) и не требовать сети/реальных ключей. Проверять через `POST /api/demo/clear` затем `POST /api/demo/seed`, далее включить тумблер «Демо» в навбаре и пройти поверхности.
 
 ## Concrete Steps
 
@@ -147,10 +147,10 @@ Milestone M4 — оживить демо-данные (issue #256). Обогат
 
 Проверить демо после M4:
 
-    curl -s -X POST "http://localhost:8000/api/system/demo/clear"
-    curl -s -X POST "http://localhost:8000/api/system/demo/seed"
+    curl -s -X POST "http://localhost:8000/api/demo/clear"
+    curl -s -X POST "http://localhost:8000/api/demo/seed"
 
-Затем в браузере включить тумблер «Демо» в навбаре (или добавить `?demo=1`) и пройти «Сегодня», «Обзор», «План», «Коуч» — все населены.
+Затем в браузере нажать тумблер «Демо» в навбаре (он пишет флаг в `localStorage` через `web/lib/api.ts::setDemo`; добавление `?demo=1` в адресную строку демо на фронте НЕ включает) и пройти «Сегодня», «Обзор», «План», «Коуч» — все населены.
 
 Прогнать смоук после каждого среза:
 
@@ -169,7 +169,7 @@ M2 (#254): при незаданном `NEXT_PUBLIC_SHOW_DEV_TOOLS` тестер
 
 M3 (#255): «План vs факт» отсутствует как отдельный пункт навбара; полная лента план-факт открывается вкладкой из «План»; полосы на «Сегодня» продолжают работать; метки согласованы через общий `web/lib/adherence.ts` (нет расхождений между «Сегодня» и «План»). Смоук зелёный.
 
-M4 (#256): после `demo/clear` + `demo/seed` открытие `?demo=1` показывает населённый связный продукт по всем 4 primary-поверхностям; реальная `ai_trainer.db` не изменена. Смоук зелёный; браузерная проверка `?demo=1`.
+M4 (#256): после `POST /api/demo/clear` + `POST /api/demo/seed` включение тумблера «Демо» в навбаре показывает населённый связный продукт по всем 4 primary-поверхностям; реальная `ai_trainer.db` не изменена. Смоук зелёный; браузерная проверка через тумблер «Демо».
 
 ## Idempotence and Recovery
 
@@ -210,7 +210,7 @@ M4 (#256): после `demo/clear` + `demo/seed` открытие `?demo=1` по
 
 Импортировать `showDevTools` в `web/app/today/page.tsx` (гейт shadow-модуля) и в серверных компонентах `web/app/recovery/page.tsx`, `web/app/decisions/page.tsx` (редирект на `/today`, когда `false`).
 
-Демо-сидер (M4): сигнатура `services/demo_mode.py::activate_demo_mode(state: StateManager) -> dict[str, int]` сохраняется; расширяется только объём и связность засеваемых данных. Точки входа `POST /api/system/demo/seed` и `POST /api/system/demo/clear` (`api/routers/system.py`) не меняются.
+Демо-сидер (M4): сигнатура `services/demo_mode.py::activate_demo_mode(state: StateManager) -> dict[str, int]` сохраняется; расширяется только объём и связность засеваемых данных. Точки входа `POST /api/demo/seed` и `POST /api/demo/clear` (`api/routers/system.py`, префикс `/api`) не меняются.
 
 Метки-слой (M3): переиспользовать `web/lib/adherence.ts` (единый источник статусов «план vs факт»), не создавать второй.
 
