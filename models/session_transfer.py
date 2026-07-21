@@ -21,9 +21,6 @@ _SPORT_PARTS = ("run", "bike", "swim")
 # sessions[0], поэтому лид дня обязан быть самой жёсткой сессией, а не
 # случайным первым соседом). Stable-сортировка сохраняет порядок равных.
 _ROLE_PRIORITY = {"long": 0, "quality": 1, "activation": 2, "easy": 3, "recovery": 4}
-# Зеркальные ключи дня: проекция первичной сессии на верхний уровень шаблона
-# (позиционный контракт «один шаблон на день» из #205/#206).
-_DAY_MIRROR_KEYS = ("kind", "legs", "transition_minutes", "materialized_steps")
 
 
 def _session_total_tss(session: Mapping[str, Any]) -> float:
@@ -55,7 +52,13 @@ def session_duration_minutes(session: Mapping[str, Any]) -> int:
 
 
 def _rebuild_day_projection(template: Dict[str, Any]) -> Tuple[float, Dict[str, float]]:
-    """Пересобирает скаляры дня из sessions[] и возвращает (total, parts)."""
+    """Пересобирает скаляры дня из sessions[] и возвращает (total, parts).
+
+    Верхний уровень — ПОЛНАЯ проекция sessions[0] через общий
+    `project_day_scalars` (#232): имя, фокус, усталость, восстановление и шаги
+    не расходятся после переноса. total/parts считаются здесь из sessions[]."""
+    from models.training_planner import project_day_scalars
+
     sessions = list(template.get("sessions") or [])
     parts = {sport: 0.0 for sport in _SPORT_PARTS}
     total = 0.0
@@ -64,26 +67,7 @@ def _rebuild_day_projection(template: Dict[str, Any]) -> Tuple[float, Dict[str, 
         for sport, value in _session_parts(session).items():
             parts[sport] = round(parts[sport] + value, 1)
 
-    primary = dict(sessions[0]) if sessions else {}
-    if sessions:
-        template["session_role"] = str(primary.get("session_role") or "easy")
-        template["sport"] = str(primary.get("sport") or "off")
-        template["sport_label"] = str(primary.get("sport_label") or template["sport"])
-        template["session_focus"] = str(primary.get("session_focus") or "—")
-        template["duration_minutes"] = session_duration_minutes(primary)
-        for key in _DAY_MIRROR_KEYS:
-            if key in primary:
-                template[key] = deepcopy(primary[key])
-            else:
-                template.pop(key, None)
-    else:
-        template["session_role"] = "off"
-        template["sport"] = "off"
-        template["sport_label"] = "off"
-        template["session_focus"] = "—"
-        template["duration_minutes"] = 0
-        for key in _DAY_MIRROR_KEYS:
-            template.pop(key, None)
+    project_day_scalars(template)
     return total, parts
 
 

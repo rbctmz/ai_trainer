@@ -16,6 +16,7 @@ from models.training_planner import (
     SESSION_ROLE_LABELS_RU,
     SPORT_LABELS_RU,
     WEEKDAY_LABELS_RU,
+    project_day_scalars,
     _build_day_focus_label,
     _build_session_description,
     _build_session_export_name,
@@ -413,6 +414,9 @@ def _rebuild_sessions_after_day_edit(
         rebuilt = _sessions_from_parts(new_parts, role, phase, goal_type, distance)
         if rebuilt:
             next_template["sessions"] = rebuilt
+            # #232: top-level scalars follow the rebuilt primary — the day never
+            # keeps the previous catalog session's name/fatigue/recovery/steps.
+            project_day_scalars(next_template)
     return next_template
 
 
@@ -1208,16 +1212,9 @@ def apply_near_term_day_edits(
             daily_plan[day_index] = (dt, new_day_total, new_day_parts)
             next_template = dict(current_template)
             next_template["sessions"] = day_sessions
-            primary = day_sessions[0] if day_sessions else {}
-            next_template.update(
-                {
-                    "session_role": str(primary.get("session_role") or "off"),
-                    "session_focus": str(primary.get("session_focus") or "—"),
-                    "sport": str(primary.get("sport") or "off"),
-                    "sport_label": str(primary.get("sport_label") or SPORT_LABELS_RU.get("off", "off")),
-                    "duration_minutes": int(primary.get("duration_minutes") or 0),
-                }
-            )
+            # #232: full projection of the edited primary — name/fatigue/recovery
+            # and steps stay consistent with session_focus, never stale.
+            project_day_scalars(next_template)
             session_templates[day_index] = next_template
             continue
 
