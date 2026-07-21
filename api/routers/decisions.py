@@ -38,7 +38,7 @@ def list_decisions(
         if not day:
             continue
         item = dict(row)
-        item["time"] = _format_time(item.get("date"))
+        item["time"] = _display_time(item)
         item["count"] = 1
         item["first_time"] = item["time"]
         if day not in by_date:
@@ -64,7 +64,7 @@ def list_decisions(
         if not day:
             continue
         item = dict(row)
-        item["time"] = _format_time(item.get("date"))
+        item["time"] = _display_time(item)
         if day not in proposals_by_date:
             proposals_by_date[day] = []
             proposal_grouped.append({"date": day, "proposals": proposals_by_date[day]})
@@ -83,7 +83,10 @@ def list_decisions(
         if not day:
             continue
         item = dict(row)
-        item["time"] = _format_time(item.get("date"))
+        item["time"] = _display_time(item)
+        item["conflict_rules"] = _dedupe_conflict_rules(
+            (item.get("report") or {}).get("conflicts")
+        )
         if day not in recovery_by_date:
             recovery_by_date[day] = []
             recovery_grouped.append(
@@ -125,6 +128,49 @@ def _format_time(value: Any) -> str:
     if " " in text:
         return text.split(" ", 1)[1][:5]
     return ""
+
+
+def _display_time(row: dict[str, Any]) -> str:
+    """Clock time to show for one audit row.
+
+    Recovery decisions and recovery/plan-loop proposals persist `date` as a
+    pure business date (`<as_of>T00:00:00`), so their real creation clock lives
+    in `created_at`. Coach decisions (and coach-created proposals) carry their
+    real time-of-day in `date` itself. Prefer `date`'s time, and fall back to
+    `created_at` only when `date` has no meaningful time (`00:00` or absent) —
+    both columns already store the same UTC-based clock, so the fallback stays
+    consistent with the times this surface has always shown.
+    """
+    from_date = _format_time(row.get("date"))
+    if from_date and from_date != "00:00":
+        return from_date
+    return _format_time(row.get("created_at")) or from_date
+
+
+def _dedupe_conflict_rules(conflicts: Any) -> list[dict[str, str]]:
+    """Collapse a readiness report's conflicts to one row per unique
+    (severity, rule) pair, preserving first-seen order.
+
+    `detect_readiness_conflicts` emits one conflict per upcoming session, so a
+    single readiness state colliding with the same session role across several
+    days yields several conflicts that share `severity`/`kind` and differ only
+    by date. The audit trail keeps every conflict; this is the display
+    projection the /decisions recovery card renders — it shows `severity·kind`
+    only, so identical rule rows must not repeat.
+    """
+    rules: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for conflict in conflicts or []:
+        if not isinstance(conflict, dict):
+            continue
+        severity = str(conflict.get("severity") or "")
+        kind = str(conflict.get("kind") or "readiness conflict")
+        key = (severity, kind)
+        if key in seen:
+            continue
+        seen.add(key)
+        rules.append({"severity": severity, "kind": kind})
+    return rules
 
 
 @router.post("/proposals/{proposal_id}/approve")

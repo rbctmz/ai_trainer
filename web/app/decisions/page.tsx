@@ -3,7 +3,12 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { ApiError, fetcher, postJSON } from "@/lib/api";
-import type { CoachDecisionsResponse, CoachProposal, RecoveryDecision } from "@/lib/types";
+import type {
+  CoachDecisionsResponse,
+  CoachProposal,
+  RecoveryConflictRule,
+  RecoveryDecision,
+} from "@/lib/types";
 import { DecisionEntry } from "@/components/ui/DecisionEntry";
 import { ProposalCard } from "@/components/ui/ProposalCard";
 
@@ -254,14 +259,30 @@ function ProposalEntry({
   );
 }
 
+// Fallback for API payloads that predate `conflict_rules`: derive the same
+// deduped severity·rule projection the API now ships, so a rule that recurs
+// across several days never renders as repeated identical lines.
+function deriveConflictRules(rawConflicts: unknown): RecoveryConflictRule[] {
+  if (!Array.isArray(rawConflicts)) return [];
+  const seen = new Set<string>();
+  const rules: RecoveryConflictRule[] = [];
+  for (const item of rawConflicts) {
+    if (!item || typeof item !== "object") continue;
+    const conflict = item as Record<string, unknown>;
+    const severity = String(conflict.severity ?? "");
+    const kind = String(conflict.kind ?? "readiness conflict");
+    const key = `${severity} ${kind}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    rules.push({ severity, kind });
+  }
+  return rules;
+}
+
 function RecoveryDecisionEntry({ decision }: { decision: RecoveryDecision }) {
   const report = decision.report ?? {};
   const readiness = (report.readiness as Record<string, unknown> | undefined) ?? {};
-  const conflicts = Array.isArray(report.conflicts)
-    ? report.conflicts.filter(
-        (item): item is Record<string, unknown> => !!item && typeof item === "object",
-      )
-    : [];
+  const conflictRules = decision.conflict_rules ?? deriveConflictRules(report.conflicts);
   const outcomeLabel =
     decision.outcome === "conflict"
       ? "Конфликт"
@@ -285,11 +306,11 @@ function RecoveryDecisionEntry({ decision }: { decision: RecoveryDecision }) {
       <div className="mt-1 text-xs text-ink-faint">
         Readiness {String(readiness.score ?? "—")} · {String(readiness.status ?? "unknown")} · confidence {String(readiness.confidence ?? "—")}
       </div>
-      {conflicts.length > 0 ? (
+      {conflictRules.length > 0 ? (
         <div className="mt-2 text-xs text-ink-soft">
-          {conflicts.map((conflict, index) => (
+          {conflictRules.map((rule, index) => (
             <div key={`${decision.id}-${index}`}>
-              {String(conflict.severity ?? "")} · {String(conflict.kind ?? "readiness conflict")}
+              {rule.severity} · {rule.kind || "readiness conflict"}
             </div>
           ))}
         </div>
