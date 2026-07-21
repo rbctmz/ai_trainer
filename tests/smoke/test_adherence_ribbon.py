@@ -251,23 +251,30 @@ def test_api_returns_full_ribbon_schema_with_real_plan_and_activities(tmp_path):
 
 
 def test_web_surfaces_consume_api_statuses_and_never_rederive():
-    """M3 source contract: /adherence page and the /today strip consume the
-    API payload (statuses arrive READY from models/adherence_ribbon.py);
-    the web never re-derives adherence itself; adherence stays reachable from
-    the /today strip (top nav collapsed to 4 primary in #253; «План vs факт»
-    folds into «План» in #255)."""
+    """M3 source contract: the «План vs факт» ribbon and the /today strip consume
+    the API payload (statuses arrive READY from models/adherence_ribbon.py); the
+    web never re-derives adherence itself. The ribbon is ONE shared component
+    (web/components/AdherenceRibbon.tsx) rendered both by the /adherence route
+    (deep-link, out of top nav since #253) and the «План vs факт» tab inside
+    /planning (folded in #255)."""
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
-    page = (root / "web" / "app" / "adherence" / "page.tsx").read_text(encoding="utf-8")
-    assert "/api/adherence?weeks=4" in page
-    assert "classify" not in page  # no client-side re-derivation
+    ribbon = (root / "web" / "components" / "AdherenceRibbon.tsx").read_text(encoding="utf-8")
+    assert "/api/adherence?weeks=4" in ribbon
+    assert "classify" not in ribbon  # no client-side re-derivation
 
     # status labels live in ONE shared module consumed by both surfaces
     meta = (root / "web" / "lib" / "adherence.ts").read_text(encoding="utf-8")
     for status in ("exact", "substituted", "major_deviation", "missed", "unplanned", "rest"):
         assert status in meta, status
-    assert 'from "@/lib/adherence"' in page
+    assert 'from "@/lib/adherence"' in ribbon
+
+    # the shared ribbon is consumed by BOTH the /adherence route and the /planning tab
+    adherence_page = (root / "web" / "app" / "adherence" / "page.tsx").read_text(encoding="utf-8")
+    assert "<AdherenceRibbon" in adherence_page
+    planning_page = (root / "web" / "app" / "planning" / "page.tsx").read_text(encoding="utf-8")
+    assert "<AdherenceRibbon" in planning_page
 
     strip = (root / "web" / "components" / "today" / "AdherenceStrip.tsx").read_text(
         encoding="utf-8"
