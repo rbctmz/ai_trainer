@@ -3,7 +3,6 @@
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { STATUS_META, adherenceDayLabel } from "@/lib/adherence";
-import Link from "next/link";
 import type {
   AdherenceDay,
   AdherenceDayStatus,
@@ -122,8 +121,7 @@ function WeekCard({ week }: { week: AdherenceWeek }) {
 function DayCell({ day }: { day: AdherenceDay }) {
   const meta = STATUS_META[day.status] ?? STATUS_META.rest;
   return (
-    <Link
-      href={`/planning?focus=${day.date}`}
+    <div
       className={`rounded-lg p-2 text-center ${meta.chip}`}
       title={`${meta.label} · план ${Math.round(day.planned_tss)} TSS · факт ${Math.round(day.actual_tss)} TSS`}
     >
@@ -131,6 +129,6 @@ function DayCell({ day }: { day: AdherenceDay }) {
       <div className="mt-0.5 text-[11px]">
         {Math.round(day.actual_tss)}/{Math.round(day.planned_tss)}
       </div>
-    </Link>
+    </div>
   );
 }
