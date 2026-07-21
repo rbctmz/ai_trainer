@@ -212,12 +212,14 @@ export default function TodayPage() {
                 >
                   Проверить план
                 </Link>
-                <Link
-                  href="/decisions"
-                  className="rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-ink"
-                >
-                  Открыть журнал
-                </Link>
+                {showDevTools ? (
+                  <Link
+                    href="/decisions"
+                    className="rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-ink"
+                  >
+                    Открыть журнал
+                  </Link>
+                ) : null}
               </div>
             </section>
           ) : null}
