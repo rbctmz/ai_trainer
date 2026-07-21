@@ -223,6 +223,11 @@ export interface CoachProposal {
   source_key?: string | null;
 }
 
+export interface RecoveryConflictRule {
+  severity: string;
+  kind: string;
+}
+
 export interface RecoveryDecision {
   id: number;
   fingerprint: string;
@@ -231,6 +236,9 @@ export interface RecoveryDecision {
   outcome: "silence" | "data_gap" | "conflict" | string;
   reason: string;
   report: Record<string, unknown>;
+  /** Deduped display projection of `report.conflicts` (one row per unique
+   *  severity·rule), built by the API so the card never repeats a rule. */
+  conflict_rules?: RecoveryConflictRule[];
   plan_checkpoint_id?: number | null;
   proposal_id?: number | null;
   created_at?: string | null;

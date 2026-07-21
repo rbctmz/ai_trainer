@@ -199,6 +199,90 @@ def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path
     assert payload["pending_proposal_days"][0]["proposals"][0]["status"] == "pending"
 
 
+def test_display_time_prefers_business_time_and_falls_back_to_created_at():
+    from api.routers.decisions import _display_time
+
+    # Coach rows carry the real time-of-day in `date` -> keep it.
+    assert (
+        _display_time({"date": "2026-07-02T12:00:00", "created_at": "2026-07-02 09:00:00"})
+        == "12:00"
+    )
+    # Recovery/loop rows persist `<as_of>T00:00:00` -> use the creation clock.
+    assert (
+        _display_time({"date": "2026-07-20T00:00:00", "created_at": "2026-07-20 08:19:56"})
+        == "08:19"
+    )
+    # A bare date with no time component also falls back to created_at.
+    assert (
+        _display_time({"date": "2026-07-20", "created_at": "2026-07-20 08:19:56"}) == "08:19"
+    )
+    # Nothing to show anywhere stays empty (renders as "--:--" in the UI).
+    assert _display_time({"date": "", "created_at": ""}) == ""
+    # 00:00 business date with no created_at keeps the honest 00:00.
+    assert _display_time({"date": "2026-07-20T00:00:00"}) == "00:00"
+
+
+def test_decisions_api_shows_recovery_creation_time_not_business_midnight(tmp_path):
+    from api.routers.decisions import _format_time, list_decisions
+
+    db = Database(str(tmp_path / "recovery_time.db"))
+    saved = db.save_recovery_decision(
+        fingerprint="recovery-time-fp",
+        outcome="silence",
+        reason="План и состояние согласны.",
+        report={"conflicts": [], "silence": True, "data_gap": False},
+        plan_checkpoint_id=1,
+        date="2026-07-20T00:00:00",  # business date the loop always writes
+    )
+    created_at = saved["decision"]["created_at"]
+
+    payload = list_decisions(days=36500, db=db)
+    recovery = payload["recovery_days"][0]["recovery_decisions"][0]
+
+    # The stored business date carries no clock (00:00); the displayed time must
+    # come from created_at instead of the hard-coded midnight.
+    assert _format_time("2026-07-20T00:00:00") == "00:00"
+    assert recovery["time"] == _format_time(created_at)
+
+
+def test_decisions_api_dedupes_recovery_conflict_rules(tmp_path):
+    from api.routers.decisions import list_decisions
+
+    db = Database(str(tmp_path / "recovery_conflicts.db"))
+    report = {
+        "as_of": "2026-07-20",
+        "readiness": {"score": 38, "status": "low", "confidence": 0.8},
+        "conflicts": [
+            {"date": "2026-07-20", "severity": "medium", "kind": "low_readiness_easy_session"},
+            {"date": "2026-07-21", "severity": "medium", "kind": "low_readiness_easy_session"},
+            {"date": "2026-07-22", "severity": "medium", "kind": "low_readiness_easy_session"},
+            {"date": "2026-07-23", "severity": "high", "kind": "low_readiness_quality_session"},
+        ],
+        "silence": False,
+        "data_gap": False,
+        "reason": "Готовность low расходится с планом.",
+    }
+    db.save_recovery_decision(
+        fingerprint="recovery-conflicts-fp",
+        outcome="conflict",
+        reason=report["reason"],
+        report=report,
+        plan_checkpoint_id=1,
+        date="2026-07-20T00:00:00",
+    )
+
+    payload = list_decisions(days=36500, db=db)
+    recovery = payload["recovery_days"][0]["recovery_decisions"][0]
+
+    # One row per unique severity·rule, first-seen order preserved.
+    assert recovery["conflict_rules"] == [
+        {"severity": "medium", "kind": "low_readiness_easy_session"},
+        {"severity": "high", "kind": "low_readiness_quality_session"},
+    ]
+    # The audited report keeps every distinct-date conflict untouched.
+    assert len(recovery["report"]["conflicts"]) == 4
+
+
 def test_approve_build_plan_proposal_persists_checkpoint(tmp_path):
     from api.routers.decisions import approve_proposal
     from api.planning_service import get_active_plan
