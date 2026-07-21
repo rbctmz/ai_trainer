@@ -253,7 +253,9 @@ def test_api_returns_full_ribbon_schema_with_real_plan_and_activities(tmp_path):
 def test_web_surfaces_consume_api_statuses_and_never_rederive():
     """M3 source contract: /adherence page and the /today strip consume the
     API payload (statuses arrive READY from models/adherence_ribbon.py);
-    the web never re-derives adherence itself; nav gains «План vs факт»."""
+    the web never re-derives adherence itself; adherence stays reachable from
+    the /today strip (top nav collapsed to 4 primary in #253; «План vs факт»
+    folds into «План» in #255)."""
     from pathlib import Path
 
     root = Path(__file__).resolve().parents[2]
@@ -273,9 +275,8 @@ def test_web_surfaces_consume_api_statuses_and_never_rederive():
     assert "/api/adherence?weeks=1" in strip
     assert 'href="/adherence"' in strip
 
-    nav = (root / "web" / "components" / "Nav.tsx").read_text(encoding="utf-8")
-    assert '"/adherence"' in nav
-    assert "План vs факт" in nav
+    # Top nav collapsed to 4 primary in #253: adherence is no longer a nav item
+    # (reachability is via the /today AdherenceStrip above, asserted just prior).
 
     today_page = (root / "web" / "app" / "today" / "page.tsx").read_text(encoding="utf-8")
     assert "AdherenceStrip" in today_page
