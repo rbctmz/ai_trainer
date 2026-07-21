@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import useSWR from "swr";
 import { fetcher, putJSON } from "@/lib/api";
+import { showDevTools } from "@/lib/flags";
 import type { TodayResponse, WorkoutStep } from "@/lib/types";
 import { ProposalCard } from "@/components/ui/ProposalCard";
 import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackCard";
@@ -369,7 +370,7 @@ export default function TodayPage() {
             </details>
           ) : null}
 
-          {forecast ? (
+          {showDevTools && forecast ? (
             <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
               <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>

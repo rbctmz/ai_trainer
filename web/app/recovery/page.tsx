@@ -3,6 +3,8 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
+import { redirect } from "next/navigation";
+import { showDevTools } from "@/lib/flags";
 import type {
   RecoveryAnalyticsResponse,
   RecoveryCohort,
@@ -29,6 +31,11 @@ const MATURITY: Record<RecoveryMaturity, { label: string; note: string }> = {
 };
 
 export default function RecoveryPage() {
+  // Research/shadow surface (issue #254): hidden from beta testers unless the
+  // dev flag is on. redirect() is not a return, so the hooks below stay
+  // unconditional (showDevTools is a build-time constant).
+  if (!showDevTools) redirect("/today");
+
   const { data, error, isLoading } = useSWR<RecoveryAnalyticsResponse>(
     "/api/recovery-analytics",
     fetcher,
