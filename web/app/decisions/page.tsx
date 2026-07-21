@@ -3,6 +3,8 @@
 import { useState } from "react";
 import useSWR from "swr";
 import { ApiError, fetcher, postJSON } from "@/lib/api";
+import { redirect } from "next/navigation";
+import { showDevTools } from "@/lib/flags";
 import type {
   CoachDecisionsResponse,
   CoachProposal,
@@ -15,6 +17,11 @@ import { ProposalCard } from "@/components/ui/ProposalCard";
 const MUTATING_RECOVERY_VARIANTS = new Set(["downgrade_today", "transfer_1_3d"]);
 
 export default function DecisionsPage() {
+  // Agent audit log (issue #254): hidden from beta testers unless the dev flag
+  // is on. redirect() is not a return, so the hooks below stay unconditional
+  // (showDevTools is a build-time constant).
+  if (!showDevTools) redirect("/today");
+
   const { data, error, isLoading, mutate } = useSWR<CoachDecisionsResponse>(
     "/api/decisions?days=30",
     fetcher,
