@@ -36,8 +36,8 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 Важно про (в): из-за прямого вызова router-функций проверяются два слоя — своя
 validation/exception-ветка роутера и констрейнты request-моделей (то, что
 FastAPI отклонит до хендлера). Настоящий HTTP-round-trip через валидацию FastAPI
-не проверяется ни для одного роутера; это требует `TestClient` и смены паттерна —
-вынесено в #248.
+(path/query `Query`-констрейнты) требует `TestClient` и смены паттерна; он закрыт
+для `planning.py` в #248 отдельным файлом — см. ниже.
 
 | Роутер | Тест-файл(ы) |
 |--------|--------------|
@@ -48,7 +48,7 @@ FastAPI отклонит до хендлера). Настоящий HTTP-round-t
 | `dashboard.py` | `test_api_dashboard.py`, `test_api_operational_states.py`, `test_readiness_snapshot_contract.py`, `test_signals_engine.py`, `test_dashboard_tsb_zones.py` |
 | `decisions.py` | `test_coach_decisions.py`, `test_recovery_replan_loop.py`, `test_recovery_transfer_product_surface_web.py` |
 | `hrv.py` | `test_api_operational_states.py`, `test_api_phase1.py` |
-| `planning.py` | `test_api_planning.py`, `test_coach_constraints.py`, `test_planning_target_demand_history.py`, `test_api_planning_router_contract.py` |
+| `planning.py` | `test_api_planning.py`, `test_coach_constraints.py`, `test_planning_target_demand_history.py`, `test_api_planning_router_contract.py`, `test_api_planning_router_http_contract.py` |
 | `recovery_analytics.py` | `test_api_recovery_analytics.py` |
 | `session_feedback.py` | `test_post_workout_feedback.py`, `test_api_session_feedback_router_contract.py` |
 | `session_quality.py` | `test_session_quality_forecast.py`, `test_api_session_quality_router_contract.py` |
@@ -66,9 +66,17 @@ FastAPI отклонит до хендлера). Настоящий HTTP-round-t
 `ValueError → 422` / `StalePlanningCheckpointError → 409` / `IntervalsICUError →
 503`, `Response`-контракт export-роутов).
 
-Кросс-каттинг HTTP-слой валидации FastAPI (`Query`-констрейнты + полный
-round-trip через `TestClient`) не покрывается direct-call паттерном ни для
-одного роутера и вынесен в #248.
+Остаток #248 закрыт: HTTP-слой валидации FastAPI (path/query `Query`-констрейнты
++ round-trip через реальный `Depends`) для `planning.py` теперь пинается в
+`test_api_planning_router_http_contract.py` (`TestClient`, `get_database`
+переопределён на временную БД): по каждому констрейнту — нарушение границы → 422
+и включительная граница → не-422 (404 на пустой БД либо 200 через sentinel для
+`/events`, что заодно пинует реальный DI + сериализацию dict). `planning.py` —
+ЕДИНСТВЕННЫЙ роутер с path/query `Query`-констрейнтами (`events.days` `ge/le`,
+`export/workout.fmt` `pattern`, `export/workout.leg` `ge/le`); у остальных
+роутеров валидируется только тело запроса через Pydantic `Field(...)`, а оно уже
+пинается при конструировании модели в direct-call свите (#242/#246). Поэтому
+HTTP-слой свёлся к одному роутеру, а не к свипу по `api/routers/*`.
 
 ## Открытые долги (по 🟡)
 
