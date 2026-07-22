@@ -6,176 +6,174 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 
 ## Purpose / Big Picture
 
-После завершения UI-консолидации (ExecPlan `docs/ui_consolidation_beta_execplan.md`) интерфейс готов к бете. Но остаётся настоящий продуктовый барьер: **сейчас AI Trainer может запустить на своих данных только владелец с аккаунтом Garmin.** Весь синк данных (`services/sync.py::sync_garmin_data`) требует авторизации в Garmin Connect; без неё локальная база пуста, и продукт нечего показать.
+После завершения UI-консолидации (`docs/ui_consolidation_beta_execplan.md`) интерфейс готов к бете. Остаётся настоящий продуктовый барьер: **сейчас AI Trainer может запустить на своих данных только владелец с аккаунтом Garmin.** Весь синк (`services/sync.py::sync_garmin_data`) требует Garmin-авторизации; без неё локальная база пуста.
 
-Цель этого плана — сделать так, чтобы **технический атлет-тестер с аккаунтом Intervals.icu (и любым устройством — Garmin/Wahoo/Polar/Coros/Suunto) мог: склонировать репозиторий, задать свой Intervals-токен, синхронизироваться и увидеть СВОЙ план — без Garmin.** Intervals.icu становится первичным источником данных, Garmin — вторичным/опциональным.
+Цель — чтобы **технический атлет с аккаунтом Intervals.icu (любое устройство) мог: склонировать репозиторий, задать свой Intervals-токен, синхронизировать активности и — задав цель/часы/дни — построить и увидеть СВОЙ план, без Garmin.** Intervals.icu — первичный источник, Garmin — вторичный/опциональный.
 
-Почему Intervals как первичный источник (решение владельца, зафиксировано в UI-ExecPlan и [[project-service-readiness]]): Intervals.icu агрегирует активности и wellness с многих марок устройств, работает по API-ключу (никакого хрупкого логина/пароля, как у неофициального `garminconnect`), и это обходит худший SaaS-блокер. Для беты это разница между «запустить может один человек» и «запустить может любой технический атлет».
+Центральный инженерный вопрос этого плана — **НЕ получение данных из API** (Intervals REST это умеет: activities, wellness, календарь, external IDs). Центральный вопрос — **честная граница `provider data → canonical activity → planning`**: как провайдерская активность становится нашей канонической активностью с честной идентичностью, провенансом и TSS-политикой, не ломая существующие инварианты проекта и не смешиваясь с данными другого источника. Именно этот слой контракта — суть работы; выкачка из API вторична.
 
-Наблюдаемый результат, которого мы добиваемся (сценарий приёмки): человек, у которого НЕТ Garmin-доступа, но есть Intervals.icu API-ключ, выполняет короткую последовательность (склонировал → вписал токен → поднял стек → нажал синк) и на `/planning` видит построенный по СВОИМ активностям план, а на `/today` — сессию дня. Реальные данные владельца при этом не затронуты (изоляция локальной БД).
+Наблюдаемый результат (сценарий приёмки), поправленный против первой редакции плана: «нажал синк → увидел план» — НЕВЕРНО в один шаг. Синк даёт активности и CTL/ATL; план требует явного онбординга (цель, дистанция, часы, доступные дни; для event-goal — подтверждённая A-гонка). Поэтому честный сценарий — двухступенчатый: (1) с одним Intervals-токеном синк наполняет канонические активности и появляются CTL/ATL; (2) тестер проходит онбординг параметров планирования и строит первый план, который видит на `/planning` и `/today`.
 
-Термины в простом языке:
+Термины простым языком:
 
-- **источник данных (data source)** — откуда приходят активности и wellness-метрики (HRV/сон/пульс покоя). Сейчас первичный источник — Garmin; цель — сделать первичным Intervals.icu.
-- **Intervals.icu** — сторонний веб-сервис, куда атлеты синкают тренировки с разных устройств; отдаёт данные по REST API с токеном. У нас уже есть частичная интеграция в `services/intervals_icu.py`.
-- **wellness** — суточные метрики восстановления (HRV/RMSSD, сон, пульс покоя), которые Intervals отдаёт по эндпоинту `/api/v1/athlete/{id}/wellness`.
-- **CTL/ATL/TSB** — стандартные метрики нагрузки; строятся из тренировочной нагрузки активностей (Intervals отдаёт `icu_training_load` на каждую активность — это готовый TSS-эквивалент).
-- **handoff** — передача продукта тестеру: инструкция + безопасная первичная настройка, чтобы «другой человек запустил у себя».
+- **источник данных** — откуда приходят активности и wellness (HRV/сон/пульс покоя). Сейчас первичный — Garmin; цель — Intervals.icu.
+- **каноническая активность** — наша внутренняя запись активности в таблице `activities`, с нашим TSS (`tss` + `tss_method`), отдельной провайдерской нагрузкой (`source_tss`) и — после этого плана — провенансом (`source`, `provider_activity_id`, `external_id`).
+- **provider_tss / source_tss** — нативная нагрузка провайдера (Garmin `trainingLoad`, Intervals `icu_training_load`). Проект СПЕЦИАЛЬНО хранит её отдельно и НИКОГДА не подмешивает в `tss` (`docs/activity_tss_methodology.md:58`).
+- **cursor (курсор синка)** — по какую дату уже синхронизирован конкретный домен данных (активности отдельно от wellness), чтобы инкрементальный синк не переспрашивал всё заново.
+- **wellness** — суточные HRV/сон/пульс покоя (Intervals: `/api/v1/athlete/{id}/wellness`).
 
 ## Progress
 
-- [x] (2026-07-22) Разведка текущего состояния: синк Garmin-gated, Intervals читает профиль/события/частично активности, wellness не читается; деплой шага 1 (Docker/Caddy/.env) готов (см. `Surprises & Discoveries`).
-- [x] (2026-07-22) Заведён ExecPlan (этот файл). Issues по срезам НЕ заводились — по указанию владельца «сначала только ExecPlan»; заводятся после ревью и выбора scope M1.
-- [ ] РЕШЕНИЕ ВЛАДЕЛЬЦА (открыто): scope M1 — вертикальный спайн (активности→план) с wellness в M4, ЛИБО полный первый проход (активности+wellness в M1). См. `Decision Log`.
-- [ ] M1: Garmin-free синк активностей из Intervals → CTL/ATL → план виден тестеру.
-- [ ] M2: онбординг «подключить Intervals» (source-agnostic) + изоляция БД/секретов + безопасный first-run.
-- [ ] M3: проверяемый сценарий handoff (приёмка + тест) + quickstart-инструкция для первого тестера.
-- [ ] M4 (follow-up / scope-fork): импорт wellness (HRV/сон/пульс покоя) из Intervals → readiness на `/today` и дашборд у тестера.
-- [ ] M5 (follow-up): демоушен Garmin в UI/метках (source-agnostic provenance).
-
-Отметки времени нужны, чтобы видеть темп.
+- [x] (2026-07-22) Разведка + ревью (владелец, «Request changes» на первую редакцию). Подтверждены 5 блокеров против кода: TSS-контракт, идентичность активности, «синк ≠ план», Garmin-специфичный sync-контур, wellness-mapping. См. `Surprises & Discoveries`.
+- [x] (2026-07-22) План переструктурирован под M0–M5 (контракт данных вынесен в M0 перед адаптером). Issues НЕ заведены — по указанию «сначала только ExecPlan»; заводятся после принятия этой редакции.
+- [ ] РЕШЕНИЕ ВЛАДЕЛЬЦА (принято на ревью): вертикальный M1 (активности→нагрузка→план) вместо полного прохода; wellness — отдельным срезом (M4). Открытым остаётся объём M0-ADR (см. `Decision Log`).
+- [ ] M0: контракт приёма активности — identity/provenance, TSS-политика, cursor-семантика, дедуп/приоритет источников (ADR + миграция схемы).
+- [ ] M1: Intervals-адаптер → канонические активности → SQLite, без Garmin; идемпотентность и coexistence (Garmin↔Intervals) доказаны тестами. Заканчивается на «активности и CTL/ATL появились».
+- [ ] M2: онбординг параметров планирования → первый план (честный «увидел свой план»).
+- [ ] M3: source-agnostic UI (кнопка/статус синка) + Docker quickstart + проверяемый сценарий handoff.
+- [ ] M4: wellness mapping-spec + импорт (HRV/сон/пульс покоя) → readiness у тестера.
+- [ ] M5: демоушен Garmin в UI + миграция существующей (владельца) БД под новый провенанс.
 
 ## Surprises & Discoveries
 
-- Observation: весь синк завязан на Garmin-авторизацию. `services/sync.py::sync_garmin_data` первой строкой делает `if not garmin_service.is_authenticated(state): raise ValueError("Не подключен к Garmin Connect")`. Значит тестер без Garmin не синкнется вообще — это и есть барьер №1.
-  Evidence: `services/sync.py:238`.
+- Observation: TSS хранится с провенансом УЖЕ. Схема `activities` содержит `source_tss REAL` и `tss_method TEXT`; провайдерская нагрузка «хранится для сравнения, никогда не подмешивается в `tss`». Более того, в 2026-07-09 проект СОЗНАТЕЛЬНО отклонил идею брать `icu_training_load` как приоритетный TSS, оставив локальный оффлайн-каскад.
+  Evidence: `data/database.py:230,238`; `docs/activity_tss_methodology.md:58,82`. Значит план обязан НЕ объявлять `icu_training_load` каноническим TSS.
 
-- Observation: Intervals уже частично интегрирован, но ВТОРИЧНО. `services/intervals_icu.py` умеет: `sync_athlete_profile` (FTP/LTHR/вес), `list_race_events` (события для планирования), `push_planned_events` (доставка плана в календарь), и `list_activities` — но «только поля для джойна к локальным активностям», не полный импорт.
-  Evidence: `services/intervals_icu.py:166` docstring «Read only the provider fields required to join local completed activities».
+- Observation: `icu_training_load` — не гарантированно единообразная величина: Intervals допускает ручную/пользовательскую правку и computed-поля. То есть это провайдерская оценка, а не канон.
+  Evidence: ревью владельца (Intervals forum: activity fields / computed fields).
 
-- Observation: активности Intervals УЖЕ несут `icu_training_load` (готовый TSS-эквивалент) и `moving_time`. То есть для CTL/ATL и построения плана достаточно расширить набор читаемых полей — считать нагрузку заново не нужно.
-  Evidence: `services/intervals_icu.py:174-183` — поля включают `icu_training_load`, `moving_time`, `type`, `start_date_local`.
+- Observation: у активности нет провенанса. `activities.activity_id TEXT PRIMARY KEY` — единственный глобальный ключ; нет колонок `source`/`provider_activity_id`/`external_id`. Upsert «по Intervals id» не доказывает идемпотентность при Garmin→Intervals переключении, одной тренировке в двух источниках, отсутствии `external_id` или коллизии ID разных провайдеров.
+  Evidence: `data/database.py:211`.
 
-- Observation: wellness (HRV/сон/пульс покоя) из Intervals НЕ читается. Эндпоинт `/api/v1/athlete/{id}/wellness` не используется. Значит readiness/HRV/сон у тестера без Garmin будут пусты, пока не добавим импорт wellness (M4).
-  Evidence: `grep wellness services/intervals_icu.py` — пусто.
+- Observation: «синк → план» неверно в один шаг. `build_plan(db, *, goal_type, distance, event_date, available_hours, available_days, ...)` требует явных параметров; event-goal требует подтверждённой A-гонки. `/api/sync` только синхронизирует данные.
+  Evidence: `api/planning_service.py:291` (сигнатура), `:343` (A-событие).
 
-- Observation: `sync_athlete_profile` из Intervals УЖЕ вызывается внутри Garmin-синка (`services/sync.py:251`) — то есть профиль тестера подтянется, как только появится любой путь синка.
-  Evidence: `services/sync.py:251`.
+- Observation: sync-окно считается по «самой старой из per-table latest dates» — при activity-only Intervals-синке пустые wellness-таблицы держат границу в прошлом и окно каждый раз раздувается до full.
+  Evidence: `services/sync.py:101` (`resolve_sync_window`).
 
-- Observation: инфраструктура handoff (шаг 1) готова — `docker-compose.yml`, `Dockerfile.api`, `web/Dockerfile`, `deploy/Caddyfile`, `.env.example`, `run_web.sh` на месте; `.env.example` уже содержит `INTERVALS_ICU_API_KEY`/`INTERVALS_ICU_ATHLETE_ID`. Разрыв не в инфре, а в Garmin-free пути синка + онбординге + инструкции.
-  Evidence: файлы существуют; `.env.example:37-39`.
+- Observation: sync-контур Garmin-специфичен по сообщениям/результату/имени job — нельзя просто параметризовать `source`.
+  Evidence: `api/sync_jobs.py:28`; `services/sync.py` (5-шаговые Garmin-сообщения).
+
+- Observation: инфраструктура handoff (шаг 1) готова (`docker-compose.yml`, `Dockerfile.api`, `web/Dockerfile`, `deploy/Caddyfile`, `.env.example` с `INTERVALS_ICU_*`); `sync_athlete_profile` из Intervals уже вызывается в Garmin-синке (`services/sync.py:251`).
 
 ## Decision Log
 
-- Decision: Intervals.icu — первичный источник данных для беты; Garmin — вторичный/опциональный.
-  Rationale: Intervals покрывает много марок устройств по API-ключу, без хрупкого логина `garminconnect`; это разница между «запустит один владелец» и «запустит любой технический атлет». Согласовано владельцем (см. UI-ExecPlan, [[project-service-readiness]]).
-  Date/Author: 2026-07-22 / владелец + Claude Code.
+- Decision: направление — Intervals.icu первичный источник, Garmin вторичный. Вертикальный M1 (активности→нагрузка→план), wellness — отдельный M4.
+  Rationale: снимает Garmin-зависимость беты; вертикаль быстрее проверяема; wellness обогащает, но не блокирует «запустил и увидел план». Принято владельцем на ревью 2026-07-22.
 
-- Decision (ОТКРЫТО — решается владельцем на ревью этого плана): scope первого milestone.
-  Вариант A (РЕКОМЕНДУЮ) — **вертикальный спайн**: M1 = только активности из Intervals → CTL/ATL → план виден; wellness (HRV/сон/readiness) — отдельный M4. Кратчайший путь к наблюдаемому «другой атлет запустил и увидел план». `/today` покажет сессию дня и план, но карточки readiness/HRV/сон будут «нет данных», пока не сделан M4 — это честное «частично», а не сломанное.
-  Вариант B — **полный первый проход**: M1 включает и wellness, чтобы readiness/дашборд жили у тестера сразу. Больше работы до первой передачи.
-  Rationale за A: продукт-барьер — «увидел свой план», а он строится из активностей+профиля; wellness обогащает, но не блокирует «запустил». Меньший срез быстрее проверяем и передаваем.
-  Date/Author: 2026-07-22 / Claude Code (рекомендация; финал — за владельцем).
+- Decision: **TSS-политика.** `icu_training_load` сохраняется как `source_tss` (провайдерская нагрузка, НИКОГДА не в `tss`). Локальный `tss` считается существующим каскадом (`utils/metrics`/резолвер) из доступных Intervals-агрегатов (напр. `icu_weighted_avg_watts` как NP, средний HR — для power/hr-каскада). Если данных для локального расчёта недостаточно — ЯВНЫЙ fallback `tss_method="intervals_icu"` (использующий `source_tss`), не маскируя под локальный TSS.
+  Rationale: сохраняет инвариант `docs/activity_tss_methodology.md` (провайдер отдельно, `tss` детерминирован и оффлайн) и решение 2026-07-09; `source_tss`/`tss_method` уже есть в схеме — механизм переиспользуется, не изобретается.
+  Date/Author: 2026-07-22 / Claude Code (по ревью владельца).
 
-- Decision: не гейтить синк на Garmin. Ввести Garmin-free путь (`sync_intervals_data`) ЛИБО сделать источник выбираемым, не ломая существующий `sync_garmin_data` (он остаётся для владельца).
-  Rationale: аддитивно и обратимо; владелец с Garmin продолжает работать как раньше, тестер получает новый путь. Параллельная реализация снижает риск (PLANS.md: additive changes + parallel paths во время миграции).
+- Decision: **идентичность и провенанс активности.** Добавить в `activities` колонки `source` (`garmin`|`intervals`|…), `provider_activity_id`, `external_id`. Дедуп: одна физическая тренировка в двух источниках связывается по `external_id` (Intervals `external_id` ↔ Garmin `activity_id`), не дублируется; приоритет источника при конфликте — конфигурируемый (для беты: единственный сконфигурированный источник). Coexistence, не overwrite: миграция Garmin→Intervals не затирает историю.
+  Rationale: без провенанса идемпотентность и сосуществование недоказуемы (блокер ревью №2). Это фундамент, поэтому — M0 перед адаптером.
   Date/Author: 2026-07-22 / Claude Code.
 
-- Decision: секреты (Intervals-токен) — только в `.env`/локальном рантайме тестера; БД тестера — локальный файл (`DATABASE_PATH`), изолированный от чего-либо чужого.
-  Rationale: single-tenant локальный запуск совпадает с текущей архитектурой; auth/мультитенант (шаг 2 SaaS) не нужны для технической беты. Никаких токенов в трекаемых файлах.
+- Decision: **cursor-семантика.** Курсоры синка — per-domain (активности отдельно от wellness), а не общий «oldest across tables». `source` — в состоянии и результате job. Первый bootstrap — минимум 90 дней; далее инкрементально по доменному курсору.
+  Rationale: чинит раздувание окна при activity-only синке (блокер №4); отделяет домены, синкаемые в разных срезах (активности в M1, wellness в M4).
+  Date/Author: 2026-07-22 / Claude Code.
+
+- Decision: **«синк ≠ план».** Онбординг параметров планирования (цель/дистанция/часы/дни; обработка A-гонки) — часть вертикального среза (M2), а НЕ побочный эффект синка. M1 заканчивается на «активности и CTL/ATL появились».
+  Rationale: `build_plan` требует явных входов (блокер №3); честный сценарий двухступенчатый.
+  Date/Author: 2026-07-22 / Claude Code.
+
+- Decision: **wellness — отдельная mapping-spec (M4), не механическое копирование.** До реализации определить: какую HRV-метрику берём (RMSSD?), единицы, поля сна, timezone, определение readiness, provenance. Intervals отдаёт и готовые CTL/ATL — но использовать ли их вместо наших это отдельный архитектурный выбор (по умолчанию — НЕТ, свои).
+  Rationale: блокер №5; те же грабли провенанса, что и с TSS.
+  Date/Author: 2026-07-22 / Claude Code.
+
+- Decision (ОТКРЫТО — уточнить на ревью этой редакции): объём M0-ADR — отдельный ADR-документ (`docs/architecture/adr_00XX_*`) + миграция, или контракт прямо в этом ExecPlan + миграция. Рекомендую отдельный ADR (провенанс/TSS/identity — долгоживущее архитектурное решение, переживёт этот план).
   Date/Author: 2026-07-22 / Claude Code.
 
 ## Outcomes & Retrospective
 
-Заполняется при закрытии milestone'ов. На момент авторинга: выполнена разведка и написан план; scope M1 ждёт решения владельца; реализация M1–M5 предстоит.
+Заполняется при закрытии milestone'ов. На момент авторинга (редакция 2 по ревью): контракт данных вынесен в M0, сценарий исправлен на двухступенчатый; реализация M0–M5 предстоит.
 
 ## Context and Orientation
 
-Реальное состояние (проверено чтением кода 2026-07-22; читатель может ничего не знать о репозитории).
+Состояние (проверено чтением кода 2026-07-22; читатель может не знать репозиторий).
 
-Синк данных живёт в `services/sync.py`. Единственная точка входа — `sync_garmin_data(state, days=None, on_progress=None)` (строка 228). Она: (1) требует Garmin-авторизации (`garmin_service.is_authenticated(state)`, иначе `raise ValueError`); (2) обновляет athlete-профиль из Intervals (`intervals_icu_service.sync_athlete_profile(database)`, строка 251) — это уже работает и не зависит от Garmin; (3) тянет активности из Garmin (`garmin_service.get_activities_with_error`, строка 269); (4) далее в 5 шагов собирает HRV/сон/health из Garmin. Триггерится синк из веба кнопкой «Синк» → `POST /api/sync` (`api/routers/system.py`, функция `sync`).
+Синк — `services/sync.py`, единственная точка входа `sync_garmin_data(state, days, on_progress)` (строка 228): требует Garmin-авторизации (строка 238, иначе `raise ValueError`); обновляет athlete-профиль из Intervals (`sync_athlete_profile`, строка 251 — не зависит от Garmin); тянет активности из Garmin, затем HRV/сон/health в 5 шагов. Окно синка — `resolve_sync_window` (строка ~101), «от самой старой из per-table latest dates». Джоб-модель синка — `api/sync_jobs.py` (Garmin-специфична). Веб триггерит `POST /api/sync` (`api/routers/system.py`).
 
-Интеграция Intervals живёт в `services/intervals_icu.py`. Класс `IntervalsICUClient` (строка 119) с токен-аутентификацией (`INTERVALS_ICU_API_KEY`, `INTERVALS_ICU_ATHLETE_ID`). Методы: `get_athlete_profile`, `list_race_events`, `list_activities` (строка 166 — сейчас читает только `id, external_id, paired_event_id, start_date_local, type, name, icu_training_load, moving_time`), `list_workout_events`, `push_planned_events`. Модульные функции: `is_configured()`, `connection_info()`, `test_connection()`, `sync_athlete_profile(database)`, `normalize_athlete_profile()`. Важно: активности Intervals уже отдают `icu_training_load` — это TSS-эквивалент, которого достаточно для CTL/ATL и построения плана.
+Интеграция Intervals — `services/intervals_icu.py`, класс `IntervalsICUClient` (токен `INTERVALS_ICU_API_KEY`/`INTERVALS_ICU_ATHLETE_ID`): `get_athlete_profile`, `list_race_events`, `list_activities` (строка 166 — сейчас только поля для джойна: `id, external_id, paired_event_id, start_date_local, type, name, icu_training_load, moving_time`), `list_workout_events`, `push_planned_events`. Модуль: `is_configured()`, `connection_info()`, `test_connection()`, `sync_athlete_profile(database)`.
 
-Локальное хранилище — `data/database.py` (`Database`), SQLite. Активности сохраняются через `save_activities(...)`; athlete-профиль — `save_athlete_profile(...)`. Метрики нагрузки (CTL/ATL/TSB) считаются из активностей моделью Banister (`models/banister.py`), план строится `api/planning_service.py::build_plan(db, ..., persist=True)` и читается `get_active_plan(db)`.
+Хранилище — `data/database.py` (`Database`, SQLite). Таблица `activities` (CREATE на строке 210): `activity_id TEXT PRIMARY KEY`, поля метрик, `source_tss REAL` (строка 230), `tss_method TEXT` (строка 238) — провенанс TSS уже есть, провенанса ИСТОЧНИКА (source/provider id/external id) нет. `save_activities(...)` — upsert. TSS считается резолвером/каскадом (`docs/activity_tss_methodology.md`, `utils/metrics.py`), провайдерская нагрузка отделена (`source_tss`). CTL/ATL — Banister (`models/banister.py`). План — `api/planning_service.py::build_plan(...persist=True)` / `get_active_plan(db)`.
 
-Деплой шага 1 (self-hosted Docker, ExecPlan `docs/self_hosted_deployment_execplan.md`): `docker-compose.yml`, `Dockerfile.api`, `web/Dockerfile`, `deploy/Caddyfile`. Локальный запуск без Docker — `./run_web.sh` (FastAPI :8000 + Next :3000). Переменные окружения — `.env` (шаблон `.env.example`): `INTERVALS_ICU_API_KEY`, `INTERVALS_ICU_ATHLETE_ID`, `INTERVALS_ICU_BASE_URL`, `DATABASE_PATH`, а также (для владельца) `GARMIN_EMAIL`/`GARMIN_PASSWORD`.
+Деплой шага 1 — `docs/self_hosted_deployment_execplan.md`: `docker-compose.yml`, `Dockerfile.api`, `web/Dockerfile`, `deploy/Caddyfile`. Локально — `./run_web.sh` (:8000 API + :3000 web). Секреты — `.env` (шаблон `.env.example`).
 
 ## Plan of Work
 
-Работа — независимо проверяемые milestone. M1–M3 составляют минимальный handoff (вариант A); M4 добавляет wellness (или вливается в M1 по варианту B); M5 — косметика источника.
+Шесть независимо проверяемых milestone. M0 закладывает контракт; M1–M2 — вертикаль «данные → план»; M3 — handoff; M4 wellness; M5 демоушен+миграция.
 
-Milestone M1 — Garmin-free синк активностей из Intervals. Расширить `IntervalsICUClient.list_activities` (или добавить `list_activities_full`) так, чтобы читать полный набор полей активности, нужный для сохранения локально (дата, тип/спорт, длительность из `moving_time`, `icu_training_load` как TSS, дистанция, средний пульс/мощность если есть). Добавить в `services/sync.py` путь `sync_intervals_data(state, days=None, on_progress=None)`, который НЕ требует Garmin: тянет профиль (уже есть `sync_athlete_profile`) + активности из Intervals и сохраняет их через `database.save_activities(...)` тем же контрактом, что Garmin-путь. Пробросить источник в `POST /api/sync` (`api/routers/system.py`) — параметром `source=intervals|garmin` либо автовыбором «если Garmin не сконфигурирован, а Intervals сконфигурирован → Intervals». Не трогать `sync_garmin_data` (остаётся для владельца). Результат: с одним Intervals-токеном (без Garmin) синк наполняет активности, `build_plan` строит план, `/planning` и `/today` показывают его.
+Milestone M0 — контракт приёма активности (ADR + миграция схемы). Зафиксировать письменно и в схеме: (identity/provenance) добавить в `activities` `source`, `provider_activity_id`, `external_id`; правило дедупликации (одна тренировка в двух источниках связывается по `external_id`, не дублируется) и приоритет источников. (TSS-политика) `icu_training_load` → `source_tss`; локальный `tss` каскадом из Intervals-агрегатов; недостаточно данных → явный `tss_method="intervals_icu"`, не маскируя. (cursor) per-domain курсоры; `source` в job-состоянии/результате; bootstrap ≥90 дней. Миграция — аддитивная и идемпотентная (ALTER/ensure-column как уже делается для новых колонок). Результат: ADR-документ + мигрированная схема + определение «каноническая активность» (какие поля, откуда, с каким провенансом). Приёмка: миграция прогоняется повторно без вреда; юнит-тесты маппинга «Intervals-строка → каноническая активность» (включая случай без `external_id` и с недостаточными для локального TSS данными).
 
-Milestone M2 — онбординг и изоляция. Сделать кнопку синка и статус подключения source-agnostic: сейчас кнопка подписана «Синхронизировать с Garmin Connect» (`web/app/dashboard/page.tsx`), а онбординг предлагает только Garmin/демо. Показать статус Intervals (`connection_info()`/`test_connection()`), дать понятный first-run «подключите Intervals: токен + athlete_id → синк». Убедиться, что токен читается только из `.env`/рантайма, а БД тестера — локальный файл (`DATABASE_PATH`), изолированный; демо-режим (готов) остаётся безопасной песочницей до первого реального синка.
+Milestone M1 — Intervals-адаптер → канонические активности → SQLite, без Garmin. Расширить чтение активностей Intervals до полей, нужных для канона (дата, спорт, длительность, дистанция, HR/мощность-агрегаты, `icu_training_load`→`source_tss`, `external_id`). Реализовать маппинг по контракту M0. Добавить `sync_intervals_data(state, days, on_progress)` — НЕ требует Garmin; тянет профиль + активности, сохраняет канонические записи с провенансом; per-domain курсор. Пробросить источник в `POST /api/sync` и job-модель (`source` в состоянии/результате; не ломать `sync_garmin_data`). Доказать ТЕСТАМИ: идемпотентность (повторный синк не плодит дубли), coexistence (та же тренировка из Garmin и Intervals дедупится по `external_id`; отсутствие `external_id` не роняет; коллизия id разных провайдеров разведена `source`). Результат: с одним Intervals-токеном (без Garmin) синк наполняет канонические активности; появляются CTL/ATL. НЕ обещает план.
 
-Milestone M3 — проверяемый сценарий и инструкция. Оформить приёмку «клонировал → вписал токен в .env → поднял (`./run_web.sh` или `docker compose up`) → нажал синк → увидел план». Где возможно — автотест (напр. smoke, дергающий `sync_intervals_data` на замоканном Intervals-ответе и проверяющий, что активности сохранились и план строится). Написать короткий `docs/` quickstart для первого технического тестера (шаги, где взять Intervals API-ключ и athlete_id, что нажать, что должен увидеть).
+Milestone M2 — онбординг параметров планирования → первый план. Дать тестеру явный поток: выбрать режим/цель/дистанцию/часы/доступные дни (для event-goal — обработать отсутствие подтверждённой A-гонки: подсказать/предложить develop-режим). После этого `build_plan(persist=True)` строит план по Intervals-активностям, тестер видит его на `/planning` и сессию дня на `/today`. Это и есть честный «увидел свой план». Результат: приёмка «токен → синк → онбординг → план виден» проходит на изолированной БД.
 
-Milestone M4 — wellness из Intervals (follow-up или часть M1 по варианту B). Добавить чтение `/api/v1/athlete/{id}/wellness` в `IntervalsICUClient` и сохранение HRV/сна/пульса покоя в локальную БД тем же контрактом, что Garmin-wellness. Тогда `/today` readiness и дашборд-карточки (Сон/HRV) оживают у тестера.
+Milestone M3 — source-agnostic UI + handoff. Кнопку/статус синка сделать не-Garmin-специфичными (сейчас «Синхронизировать с Garmin Connect»); показать статус Intervals (`connection_info`/`test_connection`); безопасный first-run. Проверяемый сценарий «клонировал → вписал токен в .env → поднял (`./run_web.sh` или `docker compose up`) → синк → онбординг → план»; где возможно — автотест. Короткий `docs/` quickstart для первого технического тестера (где взять токен/athlete_id, что нажать, что увидеть).
 
-Milestone M5 — демоушен Garmin в UI (follow-up). Метки провенанса («оценка · Garmin») и тексты сделать source-agnostic; Garmin — как опциональный вторичный источник в онбординге.
+Milestone M4 — wellness из Intervals (mapping-spec + импорт). Сначала spec: HRV-метрика/единицы, поля сна, timezone, readiness-определение, provenance; решить, берём ли готовые CTL/ATL Intervals (по умолчанию — нет). Затем чтение `/api/v1/athlete/{id}/wellness` и сохранение HRV/сна/пульса покоя тем же провенанс-контрактом. Отдельный доменный курсор. Результат: `/today` readiness и карточки Сон/HRV населены у тестера.
+
+Milestone M5 — демоушен Garmin + миграция. Метки провенанса и тексты — source-agnostic; Garmin — опциональный вторичный источник. Мигрировать существующую (владельца) БД под новые колонки провенанса (backfill `source='garmin'` для исторических активностей). Результат: единый провенанс на обоих источниках; владелец не теряет историю.
 
 ## Concrete Steps
 
-Все команды — из корня репозитория. Локальный запуск: `./run_web.sh` (FastAPI :8000 + Next :3000). Смоук: `source ai_trainer_env/bin/activate && python -m pytest -m "not live and not debug" tests/` (базовая линия на момент авторинга — 1039 passed).
+Из корня репозитория. Локально: `./run_web.sh` (:8000 + :3000). Смоук: `source ai_trainer_env/bin/activate && python -m pytest -m "not live and not debug" tests/` (база на момент авторинга — 1039 passed).
 
-Ручная проверка сценария handoff (после M1–M3), эмулируя тестера без Garmin: в `.env` задать только `INTERVALS_ICU_API_KEY` и `INTERVALS_ICU_ATHLETE_ID` (Garmin-переменные пусты), поднять `./run_web.sh`, в вебе нажать синк (source=intervals), затем открыть `/planning` — ожидается построенный план по своим активностям; `/today` — сессия дня.
-
-Точные команды и транскрипты добавляются по мере реализации каждого milestone.
+Эмуляция тестера без Garmin (после M1–M3): в `.env` задать только `INTERVALS_ICU_API_KEY` + `INTERVALS_ICU_ATHLETE_ID` (Garmin пусто, отдельный `DATABASE_PATH` во временный файл), поднять `./run_web.sh`, синк (source=intervals) → на `/planning` онбординг → план. Точные команды/транскрипты добавляются по мере реализации.
 
 ## Validation and Acceptance
 
-Приёмка — как наблюдаемое поведение.
+M0: миграция идемпотентна (двойной прогон безвреден); юнит-тесты маппинга «провайдер-строка → каноническая активность» зелёные, включая без-`external_id` и intervals_icu-fallback TSS. ADR закоммичен.
 
-M1: при заданном только Intervals-токене (Garmin не сконфигурирован) `POST /api/sync` (source=intervals) наполняет `activities`; после этого `build_plan`/`get_active_plan` дают активный план; `/planning` и `/today` показывают его. Смоук зелёный; браузерная проверка на изолированной БД.
+M1: при только-Intervals конфиге `POST /api/sync` наполняет `activities` с провенансом; повторный синк не плодит дублей (тест); та же тренировка из двух источников не задваивается (тест); CTL/ATL считаются. `tss` НЕ равен слепо `icu_training_load` (тест: `source_tss` = провайдер, `tss` = каскад/явный fallback). Смоук зелёный.
 
-M2: в вебе видно подключение Intervals и source-agnostic синк; first-run понятен без Garmin; токен не в трекаемых файлах; демо-режим не затрагивает реальную БД.
+M2: с наполненными активностями тестер проходит онбординг и `get_active_plan` даёт план; `/planning` и `/today` показывают его. Событийная цель без A-гонки не роняет поток (graceful).
 
-M3: свежая копия репозитория + только Intervals-токен → по quickstart-инструкции тестер за N шагов видит свой план. Автотест (если добавлен) падает до реализации и проходит после.
+M3: свежая копия + только Intervals-токен → по quickstart тестер видит план за N шагов; автотест (если есть) красный до и зелёный после.
 
-M4: с wellness `/today` readiness и карточки Сон/HRV населены у тестера из Intervals-данных.
+M4: `/today` readiness и Сон/HRV населены из Intervals-wellness по mapping-spec.
+
+M5: историческая Garmin-база помечена `source='garmin'`, ничего не потеряно; UI не Garmin-специфичен.
 
 ## Idempotence and Recovery
 
-Синк идемпотентен по построению (upsert активностей по id, как в Garmin-пути). Новый путь `sync_intervals_data` — аддитивный; `sync_garmin_data` не трогается, откат = не вызывать новый путь. Секреты только в `.env` (не в git). БД — локальный файл; для тестов/приёмки использовать временный `DATABASE_PATH`, чтобы не трогать рабочую базу. Ветки/worktree — по правилу репо (issue → ветка → PR).
+Миграции схемы — аддитивные/ensure-column, повторяемые. `sync_intervals_data` — аддитивный путь; `sync_garmin_data` не трогается (откат = не вызывать новый путь). Идемпотентность синка доказывается тестами (M1), не декларируется. Секреты — только `.env`. Тесты/приёмка — временный `DATABASE_PATH`. Ветки/worktree — по правилу репо.
 
 ## Artifacts and Notes
 
-Карта «что есть / чего нет» для Intervals как источника (из разведки 2026-07-22):
+Пять блокеров ревью → куда легли (карта):
 
-    Профиль (FTP/LTHR/вес)   ЕСТЬ   sync_athlete_profile (вызывается уже в Garmin-синке)
-    События гонок            ЕСТЬ   list_race_events (планирование)
-    Доставка плана           ЕСТЬ   push_planned_events (в календарь Intervals)
-    Активности (джойн)       ЧАСТИЧНО list_activities — только поля для матчинга
-    Активности (полный импорт) НЕТ  → M1 (расширить поля + сохранить локально)
-    Garmin-free путь синка   НЕТ    → M1 (sync_intervals_data)
-    Wellness (HRV/сон/RHR)   НЕТ    → M4 (эндпоинт /wellness)
-    Онбординг без Garmin     НЕТ    → M2
-    Quickstart тестера       НЕТ    → M3
+    1 TSS-контракт (icu_training_load ≠ tss)      → M0 (source_tss + каскад + явный intervals_icu fallback)
+    2 идентичность активности (нет провенанса)     → M0 (source, provider_activity_id, external_id, дедуп, приоритет)
+    3 «синк → план» неверно                        → M2 (онбординг параметров как часть вертикали)
+    4 sync-контур Garmin-специфичен, окно раздувается → M0/M1 (per-domain курсоры, source в job, bootstrap ≥90д)
+    5 wellness «тем же контрактом» без spec          → M4 (mapping-spec до импорта)
+
+Карта Intervals как источника (разведка 2026-07-22):
+
+    Профиль (FTP/LTHR)        ЕСТЬ     sync_athlete_profile (уже в Garmin-синке)
+    События гонок             ЕСТЬ     list_race_events
+    Доставка плана            ЕСТЬ     push_planned_events
+    Активности (джойн)        ЧАСТИЧНО  list_activities — поля для матчинга
+    Активности (канон+провенанс) НЕТ   → M0 контракт + M1 адаптер
+    Garmin-free путь синка    НЕТ      → M1 (sync_intervals_data)
+    Wellness (HRV/сон/RHR)    НЕТ      → M4 (spec + /wellness)
 
 ## Interfaces and Dependencies
 
-В `services/intervals_icu.py`, расширить чтение активностей (M1). Либо доработать `list_activities`, либо добавить:
+Схема (M0), `data/database.py` — добавить в `activities`: `source TEXT`, `provider_activity_id TEXT`, `external_id TEXT` (аддитивной ensure-column миграцией, как уже делается). `activity_id` остаётся PK; уникальность/дедуп — по (`source`, `provider_activity_id`) и связка по `external_id`.
 
-    def list_activities_full(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
-        # тот же GET /api/v1/athlete/{id}/activities, но полный набор полей:
-        # date (start_date_local), sport (type), duration (moving_time),
-        # tss (icu_training_load), distance, avg_hr, avg_power, ...
-        ...
+Маппинг (M0), новый модуль (напр. `services/activity_ingest.py` или в `data/`): `to_canonical_activity(provider_row, source) -> dict` — единая точка «провайдер-строка → каноническая активность», с TSS-политикой (см. Decision Log). Тестируется изолированно.
 
-В `services/sync.py`, добавить Garmin-free путь (M1):
+Intervals-чтение (M1), `services/intervals_icu.py`: расширить `list_activities` (или `list_activities_full`) до полей канона; для wellness (M4) — `list_wellness(oldest, newest)` (`GET /api/v1/athlete/{id}/wellness`).
 
-    def sync_intervals_data(
-        state: StateManager,
-        days: int | None = None,
-        on_progress: SyncProgressCallback | None = None,
-    ) -> SyncResult:
-        # НЕ требует Garmin. Тянет sync_athlete_profile + активности из Intervals,
-        # сохраняет через database.save_activities(...) тем же контрактом.
-        ...
+Синк (M1), `services/sync.py`: `sync_intervals_data(state, days=None, on_progress=None) -> SyncResult` — не гейтить на Garmin; per-domain курсор; сохранять через `save_activities` в каноническом контракте. `api/sync_jobs.py`: `source` в состоянии/результате job. `POST /api/sync` (`api/routers/system.py`): выбор источника (`source` param или автовыбор по конфигурации), без изменения `sync_garmin_data`.
 
-В `api/routers/system.py`, `POST /api/sync` — пробросить источник (M1): параметр `source: "intervals" | "garmin"` или автовыбор по конфигурации. Не менять существующий `sync_garmin_data`.
+Планирование (M2) — переиспользуется существующий `api/planning_service.py::build_plan`; новый — только UI/поток онбординга параметров.
 
-В `services/intervals_icu.py`, wellness (M4):
-
-    def list_wellness(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
-        # GET /api/v1/athlete/{id}/wellness — HRV/сон/пульс покоя, сохранить
-        # тем же контрактом, что Garmin-wellness (save_hrv_data/sync_sleep_data/
-        # sync_daily_health).
-        ...
-
-Зависимости: используем стандартный Intervals REST (токен `INTERVALS_ICU_API_KEY`, `INTERVALS_ICU_ATHLETE_ID`), уже поднятый в `IntervalsICUClient`. Никаких новых внешних библиотек. Deploy — существующий Docker/Caddy шага 1.
+Зависимости: стандартный Intervals REST (токен уже в `IntervalsICUClient`), никаких новых библиотек; деплой — существующий Docker/Caddy.
 
 ---
 
-Изменение (2026-07-22): документ создан по итогам разведки data-слоя после закрытия UI-консолидации. Причина — следующий продуктовый барьер не UI, а «другой атлет запускает AI Trainer на своих данных»: синк сейчас Garmin-gated, Intervals вторичен. План строит Garmin-free путь из Intervals (первичный источник) + онбординг + handoff-инструкцию. Scope первого milestone (вертикальный спайн vs полный проход с wellness) оставлен как открытое решение владельца в `Decision Log` — по указанию «сначала только ExecPlan». Issues по срезам заводятся после ревью.
+Изменение (2026-07-22, редакция 2): переписано по ревью владельца («Request changes»). Введён M0 (контракт identity/provenance/TSS/cursor) ПЕРЕД адаптером; исправлен сценарий на двухступенчатый (синк ≠ план, онбординг параметров в M2); TSS-политика приведена в соответствие с `docs/activity_tss_methodology.md` (провайдер в `source_tss`, локальный каскад, явный `intervals_icu` fallback); добавлены дедуп/провенанс и per-domain курсоры; wellness требует mapping-spec (M4); добавлен M5 (демоушен Garmin + миграция БД). Центр тяжести смещён с «выкачки из API» на честную границу `provider data → canonical activity → planning`. Открыто: формат M0 (отдельный ADR vs контракт в этом плане). Issues — после принятия этой редакции.
