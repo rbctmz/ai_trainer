@@ -55,7 +55,7 @@ TSS (Training Stress Score) для каждой активности счита�
 
 ## Что сохраняется, но не участвует в расчёте
 
-- `source_tss` / `garmin_training_load` — нативный Garmin `activityTrainingLoad`/`trainingLoad`/`trainingStressScore`/`activityTrainingStressScore` (первое ненулевое значение по этому приоритету). Хранится для сравнения, никогда не подмешивается в `tss`.
+- `source_tss` / `garmin_training_load` — нативный Garmin `activityTrainingLoad`/`trainingLoad`/`trainingStressScore`/`activityTrainingStressScore` (первое ненулевое значение по этому приоритету). Хранится для сравнения, никогда не подмешивается в `tss`. С ADR-0008 `source_tss` дополнительно трактуется как legacy-проекция нагрузки **первичного** источника (см. «Provider-fallback как исключение» ниже); Garmin `trainingLoad`/`garmin_training_load` при этом по-прежнему НИКОГДА не становится каноническим `tss`.
 - `MetricsCalculator.training_stress_score()` в `utils/metrics.py` — отдельная реализация классического power-only TSS Коггана (+ NP через rolling⁴). Инстанцируется в `models/ai_data_context.py`, но её методы нигде не вызываются — мёртвый код, не влияет на реальный расчёт.
 
 ## Сравнение с внешними источниками (пример 2026-07-08)
@@ -81,8 +81,37 @@ TSS (Training Stress Score) для каждой активности счита�
 
 Рассматривали замену локального каскада на приоритетное использование `icu_training_load` из Intervals.icu API (аналогично тому, как уже подтягиваются FTP/LTHR). Решили **оставить текущий локальный каскад как есть**: он полностью оффлайн и детерминирован, не зависит от сети/лимитов Intervals.icu на каждый sync, а расхождение с Intervals.icu небольшое и объяснимое (см. выше) — не похоже на баг. Возвращаться к вопросу, если расхождение станет мешать работе над клином «недовосстановление + перепланирование» (readiness/replanning agent contour), либо если появится более показательный откалиброванный пример через IntervalCoach.
 
+## Provider-fallback как исключение (ADR-0008, 2026-07-22)
+
+Решение 2026-07-09 (локальный каскад offline/детерминирован) остаётся в силе для
+Garmin-primary пути. Трек Intervals-primary (`docs/intervals_primary_handoff_execplan.md`,
+ADR `docs/architecture/adr_0008_intervals_activity_ingestion.md`, #269) вводит одно
+**точечное исключение — ТОЛЬКО для Intervals**:
+
+- **Local-first, fallback только при отсутствии локального результата.** Если
+  локальный `tss`/`tss_method` уже вычислен (адаптер Intervals в M1 прогоняет каскад
+  с FTP/LTHR) — он приоритетен и не подменяется провайдерским. Reconciliation-поля
+  Intervals.icu (`list_activities`: `icu_training_load`, `moving_time`, `type`, …) НЕ
+  несут потоков мощности/ЧСС — локальный каскад по ним пересчитать нельзя, поэтому
+  для «голой» reconciliation-строки `icu_training_load` становится каноническим `tss`,
+  но ЯВНО маркируется `tss_method="intervals_icu_provider_fallback"` (провайдерский
+  fallback, не локальный расчёт). Local-first-контракт закреплён тестом
+  `test_normalize_intervals_local_first_tss_not_bypassed`.
+- Нативная нагрузка каждого источника хранится ПО СВЯЗИ в
+  `activity_provider_links.provider_tss` (Garmin-link и Intervals-link — раздельно).
+  `activities.source_tss` — legacy-проекция нагрузки первичного источника
+  (`PRIMARY_ACTIVITY_SOURCE`); канонический носитель нагрузки — `tss`+`tss_method`
+  либо per-link `provider_tss`.
+- Garmin `trainingLoad` (Firstbeat/EPOC) — по-прежнему НЕ TSS и НИКОГДА не
+  канонический `tss`: для Garmin остаётся локальный каскад/heuristic, provider-fallback
+  к Garmin-нагрузке не применяется.
+- Выбор авторитетного источника канонических полей и `source_tss` — детерминированный
+  и order-independent (`Garmin→Intervals ≡ Intervals→Garmin`), см. ADR-0008 п.4 и
+  `tests/smoke/test_activity_ingest.py`.
+
 ## Связанные документы
 
+- `docs/intervals_primary_handoff_execplan.md` / `docs/architecture/adr_0008_intervals_activity_ingestion.md` — provider-link модель приёма активностей из нескольких источников; provider-fallback Intervals как явное исключение (#269).
 - `docs/activity_tss_semantics_execplan.md` — отделение Garmin `trainingLoad` от `tss` (issue #32/#33 и далее).
 - `docs/activity_tss_reconciliation_execplan.md` — введение source-backed резолвера вместо наивной кросс-спортовой формулы.
 - `docs/activity_tss_calibration_execplan.md` — калибровка формул по видам спорта против IntervalCoach.

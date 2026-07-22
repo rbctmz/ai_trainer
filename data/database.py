@@ -633,6 +633,39 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # ADR-0008 (#269): multi-source activity ingestion. One canonical activity
+        # (activity_id) may carry provider links from BOTH Garmin and Intervals;
+        # provider_tss lives per-link (native loads differ per source); match_status
+        # is the data home for fail-closed "flag for review". Additive, non-destructive.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS activity_provider_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                canonical_activity_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                provider_activity_id TEXT NOT NULL,
+                external_provider TEXT,
+                external_id TEXT,
+                provider_tss REAL,
+                provider_payload TEXT,
+                match_status TEXT NOT NULL DEFAULT 'unmatched',
+                imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(provider, provider_activity_id),
+                CHECK (match_status IN ('matched', 'ambiguous', 'unmatched')),
+                CHECK (
+                    (external_id IS NULL AND external_provider IS NULL)
+                    OR (external_id IS NOT NULL AND external_provider IS NOT NULL)
+                )
+            )
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_activity_provider_links_canonical
+            ON activity_provider_links(canonical_activity_id)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_activity_provider_links_external
+            ON activity_provider_links(external_provider, external_id)
+            WHERE external_id IS NOT NULL
+        ''')
         self._ensure_activity_columns(conn)
         self._repair_legacy_activity_tss(conn)
         self._ensure_sleep_columns(conn)
@@ -2953,10 +2986,283 @@ class Database:
         
         return {
             'new': new_count,
-            'updated': updated_count, 
+            'updated': updated_count,
             'skipped': skipped_count
         }
-    
+
+    def _resolve_garmin_coordinate(self, cursor, garmin_id):
+        """Assign ``canonical_activity_id`` + ``match_status`` for every link that
+        shares the Garmin coordinate ``(garmin, garmin_id)``, order-independently.
+
+        A Garmin coordinate is the only mergeable namespace in the beta: the Garmin
+        self-link (``provider_activity_id == garmin_id``) plus any Intervals links
+        that reference it. Rules (ADR-0008 п.2):
+        - exactly one Intervals claimant + a Garmin link → unique match → both on
+          ``garmin_id``, ``matched``;
+        - exactly one Intervals claimant, no Garmin link → standalone, ``unmatched``
+          (pending the Garmin activity);
+        - two+ Intervals claimants → ambiguous: NONE merges — every one goes to its
+          own ``intervals_<id>`` canonical and is flagged ``ambiguous`` (so no
+          arbitrary first-arrival winner).
+
+        Returns the set of canonical ids touched (old + new), for reprojection.
+        """
+        # The Garmin activity is identified by its provider_activity_id (the Garmin id
+        # IS the coordinate), NOT by a self-referential external_id — so a BACKFILLED
+        # Garmin self-link (external_id NULL, ADR-0008 п.7) is still found and merges
+        # with its Intervals copy. Intervals copies reference it via the external
+        # coordinate (garmin, id). An OR returns each row once, so no dedup is needed.
+        cursor.execute(
+            "SELECT id, provider, provider_activity_id, canonical_activity_id "
+            "FROM activity_provider_links "
+            "WHERE (provider='garmin' AND provider_activity_id=?) "
+            "   OR (external_provider='garmin' AND external_id=?)",
+            (garmin_id, garmin_id),
+        )
+        links = cursor.fetchall()
+        touched = {row[3] for row in links}  # current canonicals, before reassignment
+        garmin_links = [row for row in links if row[1] == 'garmin']
+        intervals_links = [row for row in links if row[1] == 'intervals']
+
+        def assign(link_id, canonical, status):
+            cursor.execute(
+                'UPDATE activity_provider_links SET canonical_activity_id=?, match_status=? WHERE id=?',
+                (canonical, status, link_id),
+            )
+            touched.add(canonical)
+
+        if len(intervals_links) >= 2:
+            for row in intervals_links:
+                assign(row[0], f"intervals_{row[2]}", 'ambiguous')
+            for row in garmin_links:
+                assign(row[0], garmin_id, 'unmatched')
+        elif len(intervals_links) == 1:
+            interval = intervals_links[0]
+            if garmin_links:
+                assign(interval[0], garmin_id, 'matched')
+                for row in garmin_links:
+                    assign(row[0], garmin_id, 'matched')
+            else:
+                assign(interval[0], f"intervals_{interval[2]}", 'unmatched')
+        else:
+            for row in garmin_links:
+                assign(row[0], garmin_id, 'unmatched')
+
+        return touched
+
+    def _project_canonical(self, cursor, canonical_id, primary_source):
+        """Rebuild the ``activities`` row for ``canonical_id`` from the payloads of
+        its provider-links (ADR-0008 п.4). The primary source's payload wins; absent
+        it, the alphabetically-first provider's payload (deterministic). A canonical
+        with no links is deleted; one whose links carry no payload is left untouched.
+        This is what makes merges, demotions and identity changes lossless and
+        order-independent — canonical fields are always a pure function of the links.
+        """
+        cursor.execute(
+            'SELECT provider, provider_payload FROM activity_provider_links '
+            'WHERE canonical_activity_id=?',
+            (canonical_id,),
+        )
+        rows = cursor.fetchall()
+        if not rows:
+            cursor.execute('DELETE FROM activities WHERE activity_id=?', (canonical_id,))
+            return
+        payloads = {}
+        for provider, payload_json in rows:
+            if payload_json:
+                try:
+                    payloads[provider] = json.loads(payload_json)
+                except (TypeError, ValueError):
+                    continue
+        if not payloads:
+            return  # e.g. legacy links without a snapshot — keep the existing row
+        chosen = payloads.get(primary_source) or payloads[min(payloads)]
+        row = {**chosen, 'activity_id': canonical_id}
+        columns = self._ACTIVITY_COLUMN_ORDER
+        # Create-or-update rather than INSERT OR REPLACE: REPLACE deletes+reinserts
+        # and re-stamps the `created_at` default, so a repeat projection of identical
+        # data would churn created_at. An UPDATE of the projected columns leaves
+        # created_at untouched (idempotent).
+        cursor.execute('SELECT 1 FROM activities WHERE activity_id=?', (canonical_id,))
+        if cursor.fetchone() is None:
+            values = tuple(self.clean_value(row.get(column)) for column in columns)
+            cursor.execute(
+                f"INSERT INTO activities ({', '.join(columns)}) "
+                f"VALUES ({', '.join('?' for _ in columns)})",
+                values,
+            )
+        else:
+            update_columns = [column for column in columns if column != 'activity_id']
+            set_sql = ', '.join(f"{column}=?" for column in update_columns)
+            values = [self.clean_value(row.get(column)) for column in update_columns]
+            values.append(canonical_id)
+            cursor.execute(f"UPDATE activities SET {set_sql} WHERE activity_id=?", tuple(values))
+
+    def write_provider_activity(self, canonical, link, *, primary_source):
+        """ADR-0008 (#269): atomically write ONE provider activity — provider-link
+        (with its field snapshot) + a re-projected canonical row — in a SINGLE
+        transaction. Does NOT advance any sync cursor: cursor advance is a
+        batch-level step (see ``services.activity_ingest.ingest_provider_batch``),
+        never inside a per-activity transaction.
+
+        The link stores the source's normalized fields (``provider_payload``); the
+        canonical ``activities`` row is then a deterministic PROJECTION of the links
+        (:meth:`_project_canonical`). Canonical assignment for a Garmin coordinate is
+        resolved order-independently by :meth:`_resolve_garmin_coordinate`. Together
+        these make every event — first ingest, cross-provider merge, ambiguous
+        duplicate, external-identity change — lossless and independent of arrival
+        order, and guarantee no link is ever left without its canonical.
+
+        ``link`` carries ``provider``, ``provider_activity_id``,
+        ``external_provider``, ``external_id``, ``provider_tss`` and a
+        ``standalone_canonical_id``. ``primary_source`` decides which provider's
+        payload is authoritative for the canonical row; the data layer stays
+        config-agnostic and receives the resolved value.
+        """
+        provider = link.get('provider')
+        provider_activity_id = self.clean_value(link.get('provider_activity_id'))
+        if not provider or not provider_activity_id:
+            raise ValueError(
+                "write_provider_activity: link requires provider and provider_activity_id"
+            )
+        standalone_id = (
+            self.clean_value(link.get('standalone_canonical_id'))
+            or self.clean_value(canonical.get('activity_id'))
+        )
+        if not standalone_id:
+            raise ValueError("write_provider_activity: a canonical/standalone id is required")
+        external_provider = self.clean_value(link.get('external_provider'))
+        external_id = self.clean_value(link.get('external_id'))
+        provider_tss = self.clean_value(link.get('provider_tss'))
+        payload_json = json.dumps(canonical, default=str)
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+
+            # Existing link → re-ingest idempotency + external-identity-change detection.
+            cursor.execute(
+                'SELECT id, canonical_activity_id, external_provider, external_id '
+                'FROM activity_provider_links WHERE provider=? AND provider_activity_id=?',
+                (provider, provider_activity_id),
+            )
+            existing_link = cursor.fetchone()
+            affected = set()
+            old_garmin_coord = None
+            if existing_link:
+                affected.add(existing_link[1])
+                if existing_link[2] == 'garmin':
+                    old_garmin_coord = existing_link[3]
+                cursor.execute(
+                    '''UPDATE activity_provider_links
+                       SET canonical_activity_id=?, external_provider=?, external_id=?,
+                           provider_tss=?, provider_payload=?, match_status='unmatched'
+                       WHERE id=?''',
+                    (standalone_id, external_provider, external_id, provider_tss,
+                     payload_json, existing_link[0]),
+                )
+            else:
+                cursor.execute(
+                    '''INSERT INTO activity_provider_links
+                         (canonical_activity_id, provider, provider_activity_id,
+                          external_provider, external_id, provider_tss, provider_payload,
+                          match_status)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, 'unmatched')''',
+                    (standalone_id, provider, provider_activity_id,
+                     external_provider, external_id, provider_tss, payload_json),
+                )
+            affected.add(standalone_id)
+
+            # Resolve canonical assignment for the affected Garmin coordinate(s): the
+            # new one, and the old one too if the coordinate changed.
+            new_garmin_coord = external_id if external_provider == 'garmin' else None
+            if new_garmin_coord:
+                affected |= self._resolve_garmin_coordinate(cursor, new_garmin_coord)
+            if old_garmin_coord and old_garmin_coord != new_garmin_coord:
+                affected |= self._resolve_garmin_coordinate(cursor, old_garmin_coord)
+
+            # Re-project every touched canonical from its links (lossless & ordered).
+            for canonical_id in affected:
+                self._project_canonical(cursor, canonical_id, primary_source)
+
+            cursor.execute(
+                'SELECT canonical_activity_id, match_status FROM activity_provider_links '
+                'WHERE provider=? AND provider_activity_id=?',
+                (provider, provider_activity_id),
+            )
+            final = cursor.fetchone()
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return {
+            'canonical_activity_id': final[0],
+            'provider': provider,
+            'match_status': final[1],
+            'ambiguous': final[1] == 'ambiguous',
+        }
+
+    def backfill_activity_provider_links(self, classify):
+        """ADR-0008 п.7 (#269): offline, idempotent backfill — one provider-link per
+        existing canonical activity, classified by ``classify(activity_id)`` (the
+        service owns the policy; the data layer stays policy-free). Never touches
+        the network; ``external_id`` stays NULL (a later ingest attaches the
+        cross-provider link when Intervals data arrives). ``provider_tss`` ← current
+        ``source_tss``. Re-running inserts nothing new and mutates no classification.
+        """
+        columns = self._ACTIVITY_COLUMN_ORDER
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(f"SELECT {', '.join(columns)} FROM activities")
+            activity_rows = cursor.fetchall()
+            # An activity already COVERED by any provider-link (its id is some link's
+            # canonical_activity_id) must be skipped — including projection-created
+            # canonicals like `intervals_<id>`, which would otherwise be misclassified
+            # as `legacy_unknown` and get a spurious second link. Backfill is only for
+            # legacy activities that predate the provider-link model.
+            cursor.execute('SELECT canonical_activity_id FROM activity_provider_links')
+            covered = {row[0] for row in cursor.fetchall()}
+
+            counts = {'garmin': 0, 'demo': 0, 'legacy_unknown': 0, 'skipped_existing': 0}
+            for values in activity_rows:
+                record = dict(zip(columns, values))
+                activity_id = record.get('activity_id')
+                if not activity_id:
+                    continue
+                if activity_id in covered:
+                    counts['skipped_existing'] += 1
+                    continue
+                provider = classify(activity_id)
+                # Snapshot the existing canonical fields onto the link so the link is
+                # self-describing (projection stays lossless if the row is later
+                # re-derived from the link set).
+                payload_json = json.dumps(record, default=str)
+                cursor.execute(
+                    '''INSERT INTO activity_provider_links
+                         (canonical_activity_id, provider, provider_activity_id,
+                          external_provider, external_id, provider_tss, provider_payload,
+                          match_status)
+                       VALUES (?, ?, ?, NULL, NULL, ?, ?, 'unmatched')''',
+                    (activity_id, provider, activity_id,
+                     self.clean_value(record.get('source_tss')), payload_json),
+                )
+                covered.add(activity_id)
+                counts[provider] = counts.get(provider, 0) + 1
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return counts
+
     def sync_hrv_data(self, hrv_data):
         """Умная синхронизация HRV данных без дублей"""
         if not hrv_data:
@@ -3067,6 +3373,9 @@ class Database:
             'readiness_snapshots',
             'recovery_episodes',
             'athlete_profile',
+            # ADR-0008 (#269): provider-links must be cleared with activities, else
+            # a reset leaves orphan links that double-count load on the next sync.
+            'activity_provider_links',
         ):
             try:
                 cursor.execute(f'DELETE FROM {table}')

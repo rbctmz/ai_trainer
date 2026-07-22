@@ -21,6 +21,37 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
 | ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты | деплой-практика; backup-скриптов нет | 🟡 |
 
+## Intervals-primary ingest (ADR-0008; ASR-REL-3, ASR-MOD-3, ASR-PERF-3; #269)
+
+Трек «другой атлет на своих данных через Intervals.icu» (ExecPlan
+`docs/intervals_primary_handoff_execplan.md`, ADR
+`docs/architecture/adr_0008_intervals_activity_ingestion.md`) вводит provider-link
+модель приёма активностей из нескольких источников. Задетые ASR:
+
+- **ASR-REL-3** (обрыв sync не портит частичные данные): `ingest_provider_activity`
+  пишет canonical + provider-link + `source_tss`-проекцию в ОДНОЙ
+  SQLite-транзакции — сбой не оставляет ни полу-записи, ни orphan-link. Курсор
+  двигается ОТДЕЛЬНО, лишь после успешного batch/window (`ingest_provider_batch`),
+  не в per-activity транзакции — сбой в середине batch'а не оставляет данные за
+  курсором, повтор идемпотентен. Проверка (M0): schema RED→GREEN + ingest-атомарность
+  (no-orphan) + batch-failure (cursor).
+- **ASR-MOD-3** (смена схемы обратно-совместима): миграция `activity_provider_links`
+  аддитивна и идемпотентна; `canonical_activity_id` = существующий `activity_id`,
+  потребители не ломаются. Проверка: `test_activity_provider_links_schema.py`
+  (RED→GREEN, M0).
+- **ASR-PERF-3** (инкрементальный sync): per-provider/per-domain курсоры не
+  раздувают окно при activity-only Intervals-синке.
+
+Статус: M0 (#269) — схема + CHECK-констрейнты + `PRIMARY_ACTIVITY_SOURCE` (fail-fast),
+common-ingest (`services/activity_ingest.py`: `normalize_provider_activity`,
+per-activity атомарный `ingest_provider_activity`, batch-level `ingest_provider_batch`
+с cursor-after-batch, офлайн `backfill_provider_links`). Каноническая = детерминированная
+ПРОЕКЦИЯ набора связей (per-link `provider_payload`), поэтому слияние/ambiguous/смена
+identity — без потерь и order-independent; `source` → garmin только по точному whitelist.
+Обязательные матрицы (`test_activity_ingest.py`, 33 tests): order-independence,
+backfill-стабильность, batch-cursor на сбое, ingest no-orphan, ambiguous order-independent,
+identity-change reproject, атомарный rollback. Подключение реальных источников — M1.
+
 ## Контракт-тесты API-роутеров (ASR-MOD-2, issue #242)
 
 Свип по `api/routers/*` (кодовый долг из ATAM-карты, `architecture_analysis_add3.md`

@@ -174,7 +174,14 @@ class IntervalsICUClient:
         fields = (
             "id",
             "external_id",
+            # `source` attributes external_id to a provider namespace (GARMIN_CONNECT,
+            # STRAVA, …). Without it, an external_id cannot be assumed to be a Garmin
+            # id (ADR-0008 п.2 fail-closed matching).
+            "source",
             "paired_event_id",
+            # start_date is UTC; start_date_local is the athlete's local wall clock.
+            # Keep them distinct so ingest never records local time as UTC.
+            "start_date",
             "start_date_local",
             "type",
             "name",
