@@ -103,6 +103,15 @@ def _activity_ids(path: str) -> set:
     return ids
 
 
+def _created_at(path: str, activity_id: str):
+    conn = sqlite3.connect(path)
+    row = conn.execute(
+        "SELECT created_at FROM activities WHERE activity_id=?", (activity_id,)
+    ).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
 # --- 1. normalize shapes -------------------------------------------------------
 
 def test_normalize_garmin_self_anchors_in_garmin_namespace():
@@ -404,6 +413,42 @@ def test_backfilled_garmin_activity_merges_with_intervals_copy(tmp_path):
     assert links["garmin"]["match_status"] == "matched"
     assert links["intervals"]["match_status"] == "matched"
     assert _orphan_count(path) == 0
+
+
+def test_backfill_after_intervals_ingest_adds_no_spurious_link(tmp_path):
+    # RED→GREEN idempotency: a projection-created canonical (`intervals_<id>`) is
+    # already covered by its Intervals link, so backfill must NOT misclassify it as
+    # `legacy_unknown` and attach a spurious second link.
+    path = str(tmp_path / "backfill_after_ingest.db")
+    db = Database(path)
+    ingest_provider_activity(
+        db, normalize_provider_activity(_intervals_row(external_id=None), "intervals"),
+        primary_source="garmin",
+    )
+    links_before = _snapshot(path)["links"]
+
+    counts = backfill_provider_links(db)
+    assert counts["legacy_unknown"] == 0
+    assert _snapshot(path)["links"] == links_before  # no new link invented
+    assert {link["provider"] for link in _snapshot(path)["links"]} == {"intervals"}
+
+
+def test_repeat_identical_ingest_preserves_created_at(tmp_path):
+    # RED→GREEN idempotency: re-projecting identical data must not churn
+    # activities.created_at. A pinned sentinel makes the assertion clock-independent —
+    # INSERT OR REPLACE would reset it, a plain UPDATE leaves it.
+    path = str(tmp_path / "created_at.db")
+    db = Database(path)
+    candidate = normalize_provider_activity(_garmin_row("555111"), "garmin")
+    ingest_provider_activity(db, candidate, primary_source="garmin")
+
+    conn = sqlite3.connect(path)
+    conn.execute("UPDATE activities SET created_at='2020-01-01 00:00:00' WHERE activity_id='555111'")
+    conn.commit()
+    conn.close()
+
+    ingest_provider_activity(db, candidate, primary_source="garmin")  # identical repeat
+    assert _created_at(path, "555111") == "2020-01-01 00:00:00"
 
 
 def test_clear_all_data_clears_provider_links(tmp_path):

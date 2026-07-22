@@ -3079,12 +3079,24 @@ class Database:
         chosen = payloads.get(primary_source) or payloads[min(payloads)]
         row = {**chosen, 'activity_id': canonical_id}
         columns = self._ACTIVITY_COLUMN_ORDER
-        values = tuple(self.clean_value(row.get(column)) for column in columns)
-        cursor.execute(
-            f"INSERT OR REPLACE INTO activities ({', '.join(columns)}) "
-            f"VALUES ({', '.join('?' for _ in columns)})",
-            values,
-        )
+        # Create-or-update rather than INSERT OR REPLACE: REPLACE deletes+reinserts
+        # and re-stamps the `created_at` default, so a repeat projection of identical
+        # data would churn created_at. An UPDATE of the projected columns leaves
+        # created_at untouched (idempotent).
+        cursor.execute('SELECT 1 FROM activities WHERE activity_id=?', (canonical_id,))
+        if cursor.fetchone() is None:
+            values = tuple(self.clean_value(row.get(column)) for column in columns)
+            cursor.execute(
+                f"INSERT INTO activities ({', '.join(columns)}) "
+                f"VALUES ({', '.join('?' for _ in columns)})",
+                values,
+            )
+        else:
+            update_columns = [column for column in columns if column != 'activity_id']
+            set_sql = ', '.join(f"{column}=?" for column in update_columns)
+            values = [self.clean_value(row.get(column)) for column in update_columns]
+            values.append(canonical_id)
+            cursor.execute(f"UPDATE activities SET {set_sql} WHERE activity_id=?", tuple(values))
 
     def write_provider_activity(self, canonical, link, *, primary_source):
         """ADR-0008 (#269): atomically write ONE provider activity — provider-link
@@ -3208,8 +3220,13 @@ class Database:
             cursor = conn.cursor()
             cursor.execute(f"SELECT {', '.join(columns)} FROM activities")
             activity_rows = cursor.fetchall()
-            cursor.execute('SELECT provider, provider_activity_id FROM activity_provider_links')
-            existing = {(row[0], row[1]) for row in cursor.fetchall()}
+            # An activity already COVERED by any provider-link (its id is some link's
+            # canonical_activity_id) must be skipped — including projection-created
+            # canonicals like `intervals_<id>`, which would otherwise be misclassified
+            # as `legacy_unknown` and get a spurious second link. Backfill is only for
+            # legacy activities that predate the provider-link model.
+            cursor.execute('SELECT canonical_activity_id FROM activity_provider_links')
+            covered = {row[0] for row in cursor.fetchall()}
 
             counts = {'garmin': 0, 'demo': 0, 'legacy_unknown': 0, 'skipped_existing': 0}
             for values in activity_rows:
@@ -3217,10 +3234,10 @@ class Database:
                 activity_id = record.get('activity_id')
                 if not activity_id:
                     continue
-                provider = classify(activity_id)
-                if (provider, activity_id) in existing:
+                if activity_id in covered:
                     counts['skipped_existing'] += 1
                     continue
+                provider = classify(activity_id)
                 # Snapshot the existing canonical fields onto the link so the link is
                 # self-describing (projection stays lossless if the row is later
                 # re-derived from the link set).
@@ -3234,7 +3251,7 @@ class Database:
                     (activity_id, provider, activity_id,
                      self.clean_value(record.get('source_tss')), payload_json),
                 )
-                existing.add((provider, activity_id))
+                covered.add(activity_id)
                 counts[provider] = counts.get(provider, 0) + 1
 
             conn.commit()
