@@ -119,6 +119,7 @@ def demo_seed() -> Dict[str, Any]:
     state = _state_with_db(demo_database())
     try:
         counts = demo_service.activate_demo_mode(state)
+        counts["plan_days"] = _seed_demo_plan(state.database)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Demo seed failed: {exc}")
     return {"seeded": True, "counts": counts}
@@ -132,3 +133,37 @@ def demo_clear() -> Dict[str, Any]:
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Demo clear failed: {exc}")
     return {"cleared": True}
+
+
+def _seed_demo_plan(db) -> int:
+    """Give the demo dataset an active plan so /today shows a session card and
+    the /planning adjust/adherence tabs and the coach have plan context (#256).
+
+    Deliberately lives in the api layer, NOT services/demo_mode: build_plan is an
+    api-level orchestration and services must not import api
+    (test_api_architecture::test_services_modules_do_not_depend_on_api, #194).
+    Returns the number of planned days (0 if no plan was produced).
+    """
+    from datetime import datetime, timedelta
+
+    from api import planning_service
+
+    # Deterministic athlete profile so the plan builder has FTP/LTHR regardless
+    # of the runner's .env.
+    db.save_athlete_profile(
+        {"ftp": 240, "weight_kg": 72.0, "lthr": 160, "source": "demo"}
+    )
+    event_date = (datetime.now().date() + timedelta(weeks=9)).strftime("%Y-%m-%d")
+    planning_service.build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=event_date,
+        available_hours=10.0,
+        available_days=["mon", "tue", "wed", "thu", "sat", "sun"],
+        persist=True,
+    )
+    active = planning_service.get_active_plan(db)
+    if not active or not active.get("daily_plan"):
+        return 0
+    return len(planning_service.plan_days(active))
