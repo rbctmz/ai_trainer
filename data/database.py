@@ -3066,6 +3066,7 @@ class Database:
             'session_quality_evaluations',
             'readiness_snapshots',
             'recovery_episodes',
+            'athlete_profile',
         ):
             try:
                 cursor.execute(f'DELETE FROM {table}')
