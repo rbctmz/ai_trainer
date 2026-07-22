@@ -131,22 +131,25 @@ def _normalize_garmin(row: dict[str, Any]) -> ProviderActivity:
     )
 
 
-def _intervals_source_namespace(raw_source: Any) -> str | None:
-    """Map Intervals.icu ``source`` to a provider namespace (ADR-0008 п.2).
+# Only these exact Intervals.icu `source` tokens mean "came from Garmin". An exact
+# whitelist (not a substring test) is deliberate: "NOT_GARMIN" contains "garmin" but
+# must NOT be attributed to Garmin.
+_GARMIN_SOURCE_TOKENS = {"garmin", "garmin_connect", "garminconnect"}
 
-    Only a source that clearly indicates Garmin yields the ``garmin`` namespace —
-    so an ``external_id`` is treated as a Garmin id ONLY when Intervals says the
-    activity actually came from Garmin. Any other known source keeps its own
-    namespace (a Strava id can never false-match a Garmin id). An absent/unknown
-    source yields ``None`` (fail closed: no cross-provider coordinate at all).
+
+def _intervals_source_namespace(raw_source: Any) -> str | None:
+    """Map Intervals.icu ``source`` to a cross-provider namespace (ADR-0008 п.2).
+
+    Fail closed: ``external_id`` is attributed to the ``garmin`` namespace ONLY when
+    ``source`` is an exact known-Garmin token. Every other value — a different
+    provider, an unrecognised token, or nothing — yields ``None`` (no cross-provider
+    coordinate; the activity stays standalone) rather than being trusted as a
+    Garmin id.
     """
     text = str(raw_source or "").strip().lower()
-    if not text:
-        return None
-    if "garmin" in text:
+    if text in _GARMIN_SOURCE_TOKENS:
         return GARMIN_NAMESPACE
-    # Keep the real source as its own namespace so cross-provider ids never collide.
-    return text
+    return None
 
 
 def _normalize_intervals(row: dict[str, Any]) -> ProviderActivity:

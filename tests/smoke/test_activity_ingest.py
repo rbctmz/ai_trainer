@@ -149,22 +149,25 @@ def test_normalize_intervals_local_first_tss_not_bypassed():
     assert bare.canonical["tss_method"] == "intervals_icu_provider_fallback"
 
 
-def test_normalize_intervals_non_garmin_source_keeps_its_own_namespace():
-    # blocker #1: a Strava external_id must NOT be treated as a Garmin id.
+@pytest.mark.parametrize("source", ["STRAVA", "NOT_GARMIN", "garmin_lite", "", None])
+def test_normalize_intervals_only_exact_garmin_source_is_attributed(source):
+    # blockers #1/#3: only an exact known-Garmin token attributes external_id to
+    # Garmin. A different provider, a look-alike ("NOT_GARMIN" contains "garmin"),
+    # or nothing → no coordinate, standalone (never a false Garmin merge).
     candidate = normalize_provider_activity(
-        _intervals_row(external_id="555111", source="STRAVA"), "intervals"
-    )
-    assert candidate.external_provider == "strava"
-    assert candidate.canonical_activity_id == "intervals_i_777"  # standalone, not 555111
-
-
-def test_normalize_intervals_unknown_source_is_fail_closed_standalone():
-    # blocker #1: without a source we cannot attribute external_id → no coordinate.
-    candidate = normalize_provider_activity(
-        _intervals_row(external_id="555111", source=None), "intervals"
+        _intervals_row(external_id="555111", source=source), "intervals"
     )
     assert candidate.external_provider is None and candidate.external_id is None
     assert candidate.canonical_activity_id == "intervals_i_777"
+
+
+@pytest.mark.parametrize("source", ["GARMIN_CONNECT", "GARMIN", "garmin_connect"])
+def test_normalize_intervals_known_garmin_tokens_are_attributed(source):
+    candidate = normalize_provider_activity(
+        _intervals_row(external_id="555111", source=source), "intervals"
+    )
+    assert (candidate.external_provider, candidate.external_id) == ("garmin", "555111")
+    assert candidate.canonical_activity_id == "555111"
 
 
 def test_normalize_intervals_without_external_id_is_standalone():
@@ -265,69 +268,108 @@ def test_non_garmin_intervals_does_not_merge_with_same_garmin_id(tmp_path):
     links = {link["provider"]: link for link in snap["links"]}
     assert links["garmin"]["match_status"] == "unmatched"
     assert links["intervals"]["canonical_activity_id"] == "intervals_i_777"
-    assert links["intervals"]["external_provider"] == "strava"
+    assert links["intervals"]["external_provider"] is None  # not attributed to Garmin
     assert _orphan_count(path) == 0
 
 
-def test_ambiguous_second_claimant_is_flagged_not_merged(tmp_path):
-    # blocker #2: two Intervals activities claiming the same Garmin id → the second
-    # is flagged 'ambiguous' and kept standalone, never silently merged.
-    path = str(tmp_path / "ambiguous.db")
+def _ingest_two_intervals_claimants(path, order):
     db = Database(path)
-    first = normalize_provider_activity(
-        _intervals_row(intervals_id="i_A", external_id="555111"), "intervals"
-    )
-    second = normalize_provider_activity(
-        _intervals_row(intervals_id="i_B", external_id="555111"), "intervals"
-    )
-    ingest_provider_activity(db, first, primary_source="garmin")
-    ingest_provider_activity(db, second, primary_source="garmin")
+    a = normalize_provider_activity(_intervals_row(intervals_id="i_A", external_id="555111"), "intervals")
+    b = normalize_provider_activity(_intervals_row(intervals_id="i_B", external_id="555111"), "intervals")
+    for candidate in order:
+        ingest_provider_activity(db, {"i_A": a, "i_B": b}[candidate], primary_source="garmin")
+    return _snapshot(path)
 
-    by_pid = {link["provider_activity_id"]: link for link in _snapshot(path)["links"]}
-    assert by_pid["i_A"]["canonical_activity_id"] == "555111"
+
+def test_ambiguous_both_claimants_flagged_order_independent(tmp_path):
+    # blocker #1: two Intervals activities claiming the same Garmin id → NEITHER is
+    # confidently matched. Both are flagged 'ambiguous' on their own canonical, and
+    # the result does not depend on arrival order (no arbitrary first-arrival winner).
+    forward = _ingest_two_intervals_claimants(str(tmp_path / "amb_fwd.db"), ["i_A", "i_B"])
+    reverse = _ingest_two_intervals_claimants(str(tmp_path / "amb_rev.db"), ["i_B", "i_A"])
+    assert forward == reverse
+
+    by_pid = {link["provider_activity_id"]: link for link in forward["links"]}
+    assert by_pid["i_A"]["canonical_activity_id"] == "intervals_i_A"
     assert by_pid["i_B"]["canonical_activity_id"] == "intervals_i_B"
+    assert by_pid["i_A"]["match_status"] == "ambiguous"
     assert by_pid["i_B"]["match_status"] == "ambiguous"
+    # No claimant silently owns the contested Garmin canonical.
+    assert {a["activity_id"] for a in forward["activities"]} == {"intervals_i_A", "intervals_i_B"}
+    assert _orphan_count(str(tmp_path / "amb_fwd.db")) == 0
+
+
+def test_ambiguous_with_real_garmin_leaves_garmin_unmatched(tmp_path):
+    # A real Garmin activity plus two Intervals claimants: the Garmin canonical keeps
+    # only its own link (unmatched); both Intervals claimants are ambiguous/standalone.
+    path = str(tmp_path / "amb_garmin.db")
+    db = Database(path)
+    ingest_provider_activity(db, normalize_provider_activity(_garmin_row("555111"), "garmin"), primary_source="garmin")
+    for pid in ("i_A", "i_B"):
+        ingest_provider_activity(
+            db, normalize_provider_activity(_intervals_row(intervals_id=pid, external_id="555111"), "intervals"),
+            primary_source="garmin",
+        )
+    links = {link["provider_activity_id"]: link for link in _snapshot(path)["links"]}
+    assert links["555111"]["provider"] == "garmin"
+    assert links["555111"]["match_status"] == "unmatched"
+    assert links["i_A"]["match_status"] == "ambiguous"
+    assert links["i_B"]["match_status"] == "ambiguous"
     assert _orphan_count(path) == 0
 
 
-def test_external_identity_change_does_not_double_count(tmp_path):
-    # blocker #3: re-pairing an Intervals-only activity must drop its stale canonical.
-    path = str(tmp_path / "identity.db")
+def test_external_identity_change_reprojects_old_canonical(tmp_path):
+    # blocker #2: when the AUTHORITATIVE source leaves a surviving canonical, its
+    # fields are re-derived from the remaining link — the departed source's TSS and
+    # fields must not linger.
+    path = str(tmp_path / "reproject.db")
     db = Database(path)
+    # primary=intervals → the shared canonical G1 shows INTERVALS' fields.
+    ingest_provider_activity(
+        db, normalize_provider_activity(_garmin_row("G1"), "garmin"), primary_source="intervals"
+    )
+    ingest_provider_activity(
+        db, normalize_provider_activity(_intervals_row(external_id="G1"), "intervals"),
+        primary_source="intervals",
+    )
+    g1 = next(a for a in _snapshot(path)["activities"] if a["activity_id"] == "G1")
+    assert g1["tss"] == 90.0  # intervals provider load (authoritative)
+
+    # Intervals re-pairs away to G2 (no Garmin G2). G1 keeps only its Garmin link.
+    ingest_provider_activity(
+        db, normalize_provider_activity(_intervals_row(external_id="G2"), "intervals"),
+        primary_source="intervals",
+    )
+    g1 = next(a for a in _snapshot(path)["activities"] if a["activity_id"] == "G1")
+    assert g1["tss"] == 86.0  # re-derived from the remaining Garmin link
+    assert g1["tss_method"] == "power_np"  # departed Intervals fields gone
+    assert _orphan_count(path) == 0
+
+
+def test_external_identity_change_remerge_does_not_double_count(tmp_path):
+    # A merged Intervals copy re-pairs to a DIFFERENT real Garmin activity: its load
+    # follows to the new canonical and is not left behind on the old one.
+    path = str(tmp_path / "remerge.db")
+    db = Database(path)
+    for gid in ("G1", "G2"):
+        ingest_provider_activity(
+            db, normalize_provider_activity(_garmin_row(gid), "garmin"), primary_source="garmin"
+        )
     ingest_provider_activity(
         db, normalize_provider_activity(_intervals_row(external_id="G1"), "intervals"),
         primary_source="garmin",
     )
-    assert _activity_ids(path) == {"G1"}
     ingest_provider_activity(
         db, normalize_provider_activity(_intervals_row(external_id="G2"), "intervals"),
         primary_source="garmin",
     )
-    assert _activity_ids(path) == {"G2"}  # G1 gone → load not doubled
-    assert len(_snapshot(path)["links"]) == 1
-    assert _orphan_count(path) == 0
-
-
-def test_external_identity_change_keeps_canonical_with_other_links(tmp_path):
-    # blocker #3 (converse): a canonical that still has a Garmin link is retained.
-    path = str(tmp_path / "identity2.db")
-    db = Database(path)
-    ingest_provider_activity(
-        db, normalize_provider_activity(_garmin_row("G1"), "garmin"), primary_source="garmin"
-    )
-    ingest_provider_activity(
-        db, normalize_provider_activity(_intervals_row(external_id="G1"), "intervals"),
-        primary_source="garmin",
-    )
-    ingest_provider_activity(
-        db, normalize_provider_activity(_intervals_row(external_id="G2"), "intervals"),
-        primary_source="garmin",
-    )
-    assert _activity_ids(path) == {"G1", "G2"}
-    links = {link["provider"]: link for link in _snapshot(path)["links"]}
-    assert links["garmin"]["canonical_activity_id"] == "G1"
-    assert links["garmin"]["match_status"] == "unmatched"  # Intervals partner left
-    assert links["intervals"]["canonical_activity_id"] == "G2"
+    snap = _snapshot(path)
+    assert {a["activity_id"] for a in snap["activities"]} == {"G1", "G2"}
+    canonicals = {(l["provider"], l["canonical_activity_id"]): l for l in snap["links"]}
+    assert ("intervals", "G2") in canonicals  # moved to G2
+    assert ("intervals", "G1") not in canonicals  # not left on G1
+    assert canonicals[("garmin", "G1")]["match_status"] == "unmatched"
+    assert canonicals[("garmin", "G2")]["match_status"] == "matched"
     assert _orphan_count(path) == 0
 
 

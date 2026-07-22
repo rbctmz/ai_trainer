@@ -45,9 +45,12 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 Статус: M0 (#269) — схема + CHECK-констрейнты + `PRIMARY_ACTIVITY_SOURCE` (fail-fast),
 common-ingest (`services/activity_ingest.py`: `normalize_provider_activity`,
 per-activity атомарный `ingest_provider_activity`, batch-level `ingest_provider_batch`
-с cursor-after-batch, офлайн `backfill_provider_links`) и обязательные матрицы готовы
-(`test_activity_ingest.py`: order-independence, backfill-стабильность, batch-cursor
-на сбое, ingest no-orphan). Подключение реальных источников через ingest — M1.
+с cursor-after-batch, офлайн `backfill_provider_links`). Каноническая = детерминированная
+ПРОЕКЦИЯ набора связей (per-link `provider_payload`), поэтому слияние/ambiguous/смена
+identity — без потерь и order-independent; `source` → garmin только по точному whitelist.
+Обязательные матрицы (`test_activity_ingest.py`, 33 tests): order-independence,
+backfill-стабильность, batch-cursor на сбое, ingest no-orphan, ambiguous order-independent,
+identity-change reproject, атомарный rollback. Подключение реальных источников — M1.
 
 ## Контракт-тесты API-роутеров (ASR-MOD-2, issue #242)
 

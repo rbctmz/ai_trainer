@@ -56,7 +56,7 @@ def test_reinit_idempotent_and_columns(tmp_path):
     conn.close()
     assert {
         "canonical_activity_id", "provider", "provider_activity_id",
-        "external_provider", "external_id", "provider_tss",
+        "external_provider", "external_id", "provider_tss", "provider_payload",
         "match_status", "imported_at",
     } <= cols
 
