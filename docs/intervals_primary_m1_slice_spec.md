@@ -152,6 +152,15 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
 (`services/sync.py`) остаётся как есть, чтобы не менять внешнее поведение Garmin.
 Курсор-таблица — для Intervals (и будущих провайдеров). См. Decision D3.
 
+**Reset обязан чистить `sync_cursors`** (уточнение ревью #7; та же ловушка, что M0 закрыл
+для provider-links). `Database.clear_all_data()` удаляет `activities` и
+`activity_provider_links` — M1 добавляет туда же `sync_cursors`. Иначе полный reset снёс
+бы активности, но ОСТАВИЛ высокую границу курсора: следующий Intervals-синк стартовал бы
+после устаревшей даты и НИКОГДА не восстановил бы вычищенную историю. После reset курсор
+отсутствует → Intervals-синк уходит в **90-дневный bootstrap** (`[now−90д, now]`). Garmin
+восстанавливается сам (его окно — от `get_latest_data_dates`, а активности очищены).
+Гейт — `M1-T8` (§7).
+
 ## 5. API-контракт запуска Intervals + конкурентная семантика (уточнение ревью #3)
 
 Текущее (Garmin): `POST /api/sync` (`SyncRequest{days}`) и `GET /api/sync` (статус),
@@ -235,6 +244,11 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
 - **M1-T7 конкурентный sync:** при running-job'е второй `POST /api/sync` (другой `source`)
   возвращает `reused=true`, не стартует второй job и не меняет `source` текущего;
   неизвестный `source` → `422`.
+- **M1-T8 reset чистит курсоры → bootstrap:** засеять `activities` + `sync_cursors`
+  (Intervals-граница у `now`) → `clear_all_data()` → `sync_cursors` пуст → следующий
+  Intervals-синк берёт **90-дневное bootstrap-окно** (`[now−90д, now]`), а не старую
+  границу → вычищенная история восстанавливается. Рядом с существующим
+  `test_clear_all_data_clears_provider_links` (M0).
 
 ## 8. ASR / risk traceability (ADD 3.0)
 
@@ -284,8 +298,10 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
 1. D1: `canonical_created` в возврат ingest + переписать `_sync_activities` через ingest.
    Гейты до продолжения: **M1-T3** (success, идентичен кроме `source`), **M1-T3b**
    (failure-path, 3 активности — продолжение после ошибки), **M1-T3c** (count-матрица D1).
-2. `sync_cursors` (миграция аддитивно) + чтение окна `[cursor−overlap, now]` + продвижение
-   по чистому чанку (§4). Гейт **M1-T5** (граница окна, пустое окно двигает, ошибка не двигает).
+2. `sync_cursors` (миграция аддитивно) + чтение окна `[cursor−overlap, now]` + монотонное
+   продвижение по чистому чанку (§4) + `clear_all_data()` чистит `sync_cursors`. Гейты
+   **M1-T5** (граница окна, пустое окно двигает, ошибка не двигает) и **M1-T8** (reset →
+   90д bootstrap).
 3. `sync_intervals_data` (адаптер, D2 provider-fallback) + `ingest_provider_batch`; **M1-T4**.
 4. Coexistence/регресс **M1-T1/T2**; fail-closed **M1-T6**.
 5. `source` в `SyncJobManager`/`api/sync_jobs.py` + `POST/GET /api/sync` (§5); **M1-T7**
