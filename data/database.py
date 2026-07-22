@@ -648,7 +648,12 @@ class Database:
                 provider_tss REAL,
                 match_status TEXT NOT NULL DEFAULT 'unmatched',
                 imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                UNIQUE(provider, provider_activity_id)
+                UNIQUE(provider, provider_activity_id),
+                CHECK (match_status IN ('matched', 'ambiguous', 'unmatched')),
+                CHECK (
+                    (external_id IS NULL AND external_provider IS NULL)
+                    OR (external_id IS NOT NULL AND external_provider IS NOT NULL)
+                )
             )
         ''')
         conn.execute('''

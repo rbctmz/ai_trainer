@@ -9,6 +9,20 @@ def _env_flag(name: str, default: str = "0") -> bool:
     raw_value = os.getenv(name, default)
     return str(raw_value or "").strip().lower() in {"1", "true", "yes", "on"}
 
+
+def _primary_activity_source() -> str:
+    """ADR-0008: which provider is authoritative for canonical fields and the
+    legacy `source_tss` projection. Default 'garmin' (backward compatibility);
+    the Intervals quickstart sets PRIMARY_ACTIVITY_SOURCE=intervals. An unknown
+    value is a configuration error → fail-fast (never silently guess)."""
+    value = (os.getenv("PRIMARY_ACTIVITY_SOURCE", "garmin") or "garmin").strip().lower()
+    if value not in {"garmin", "intervals"}:
+        raise ValueError(
+            "PRIMARY_ACTIVITY_SOURCE must be 'garmin' or 'intervals', "
+            f"got {value!r}"
+        )
+    return value
+
 class Settings:
     """Настройки приложения"""
     
@@ -45,7 +59,13 @@ class Settings:
     INTERVALS_ICU_API_KEY = os.getenv("INTERVALS_ICU_API_KEY")
     INTERVALS_ICU_ATHLETE_ID = os.getenv("INTERVALS_ICU_ATHLETE_ID", "0")
     INTERVALS_ICU_BASE_URL = os.getenv("INTERVALS_ICU_BASE_URL", "https://intervals.icu")
-    
+
+    # Первичный источник активностей (ADR-0008): чей provider-link определяет
+    # канонические поля и legacy-проекцию source_tss при двух источниках. Дефолт
+    # 'garmin' (обратная совместимость); Intervals quickstart задаёт 'intervals';
+    # неизвестное значение → fail-fast.
+    PRIMARY_ACTIVITY_SOURCE = _primary_activity_source()
+
     # База данных
     DATABASE_PATH = os.getenv("DATABASE_PATH", "ai_trainer.db")
     CHATS_DIR = os.getenv("CHATS_DIR", "chats")
