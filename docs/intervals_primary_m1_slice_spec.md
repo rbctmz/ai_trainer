@@ -1,6 +1,6 @@
 # M1 Slice-Spec: common ingest для обоих источников + Intervals-адаптер (#270)
 
-- Status: На ревью (код НЕ пишется до принятия)
+- Status: Принято (ред. 3) — код M1 идёт строго по §11; ветка `claude/issue-270-*`
 - Related: `docs/intervals_primary_handoff_execplan.md` (Milestone M1), ADR-0008
   (`docs/architecture/adr_0008_intervals_activity_ingestion.md`), M0 (#269, merged)
 - Архитектура: без изменений (M0 established provider-link + проекционную модель).
@@ -58,11 +58,16 @@ candidate, primary_source=Settings.PRIMARY_ACTIVITY_SOURCE)` и АГРЕГИРУ
 
 **Совместимость Garmin делится на два пути (уточнение ревью #4):**
 
-- **Success-path — байт-в-байт.** Когда все активности окна приняты без ошибок:
-  `GarminSyncResult` (counts/warnings/mode/messages) и `build_sync_status_payload`
-  совпадают с до-рефакторной версией. Гейт `M1-T3` (снапшот до/после на идентичном
-  fake-клиенте). Т.к. при нуле ошибок warnings пуст, а `new/updated/skipped` берутся из
-  `canonical_created` 1:1 со старым `sync_activities` — снимок идентичен.
+- **Success-path — идентичен, КРОМЕ единственного нового поля `source`** (уточнение
+  ревью #2). Когда все активности окна приняты без ошибок: `GarminSyncResult`
+  (counts/warnings/mode/messages) и `build_sync_status_payload` совпадают с
+  до-рефакторной версией ЗА ИСКЛЮЧЕНИЕМ одного аддитивного ключа `source` (='garmin'),
+  который M1 вводит осознанно (§5). `GarminSyncResult` получает поле `source: str =
+  'garmin'`, payload — ключ `source`; больше ничего не меняется. Гейт `M1-T3`: снапшот
+  до/после на идентичном fake-клиенте, сравнение со списком разрешённых новых ключей =
+  `{'source'}` (не буквальное равенство), плюс `assert source == 'garmin'`. Т.к. при нуле
+  ошибок warnings пуст, а `new/updated/skipped` берутся из `canonical_created` 1:1 со
+  старым `sync_activities` — всё прочее совпадает.
 - **Failure-path — НАМЕРЕННО изменён.** Старый `database.sync_activities` = один bulk-commit
   (all-or-nothing для батча активностей). Новый путь — per-activity атомарный ingest, и
   это сознательное улучшение: ошибка на ОДНОЙ активности не откатывает весь батч и не
@@ -127,8 +132,12 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
 **Продвижение курсора — только по чисто завершённому чанку; ошибка провайдера НЕ
 двигает курсор** (уточнение ревью #2):
 - Чанк «чист», если провайдерский fetch прошёл БЕЗ ошибок И все кандидаты чанка приняты
-  ingest'ом. Тогда `advance_cursor` (из `ingest_provider_batch`, M0) пишет `end` этого
-  чанка.
+  ingest'ом. Тогда `advance_cursor` (из `ingest_provider_batch`, M0) двигает границу.
+- **Продвижение МОНОТОННО — historical reload не откатывает курсор** (уточнение ревью #1):
+  `cursor_value = max(текущий_cursor_value, end_чанка)`. Явный ре-синк старого окна
+  (`days=N` больше дельты, bootstrap-перезалив истории) обрабатывает старые чанки, но
+  НИКОГДА не опускает high-water границу ниже уже достигнутой. Курсор — истинный
+  high-water mark, а не «последнее обработанное окно».
 - Любая провайдерская ошибка (429/сеть/частичная страница) на чанке → продвижение
   ОСТАНАВЛИВАЕТСЯ на `end` последнего ЧИСТОГО чанка; курсор = граница непрерывного
   успешно-обработанного префикса. Данные за ошибкой НЕ пропускаются — добираются
@@ -188,12 +197,20 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
 - **M1-T2 регресс (ExecPlan):** НОВАЯ Garmin-активность синкается ПОСЛЕ M0 через
   переписанный persistence → получает garmin-link; затем Intervals-копия
   присоединяется к той же канонической (две `matched`).
-- **M1-T3 byte-identical Garmin (SUCCESS-path):** `sync_garmin_data` на идентичном
-  fake-клиенте БЕЗ ошибок до/после рефактора → совпадают `GarminSyncResult`
-  (counts/warnings/messages/mode) и `build_sync_status_payload`.
-- **M1-T3b Garmin failure-path (намеренно изменён):** инъекция сбоя на 2-й активности →
-  1-я принята с link (нет activity без link), сбойная отсутствует целиком, warning есть,
-  синк не падает; повтор идемпотентен (без дублей). Тестируется ОТДЕЛЬНО от T3.
+- **M1-T3 Garmin SUCCESS-path (идентичен кроме `source`):** `sync_garmin_data` на
+  идентичном fake-клиенте БЕЗ ошибок до/после рефактора → `GarminSyncResult` и
+  `build_sync_status_payload` совпадают ЗА ИСКЛЮЧЕНИЕМ единственного нового ключа
+  `source` (разрешённый набор новых ключей = `{'source'}`), плюс `source == 'garmin'`.
+- **M1-T3b Garmin failure-path (намеренно изменён; продолжение после ошибки):** батч из
+  ТРЁХ активностей `[A, B(сбой), C]` — B падает В СЕРЕДИНЕ. Ожидаем: A принята с link;
+  B отсутствует ЦЕЛИКОМ (нет activity без link, M0-атомарность); **C всё равно принята
+  (доказывает continue-after-error, а не только «до сбоя»)**; B → warning, синк не падает;
+  повтор идемпотентен (без дублей). Отдельно от T3.
+- **M1-T3c count-матрица D1:** доказать маппинг `canonical_created → new/updated/skipped`
+  1:1 со старым `sync_activities`. Матрица: (а) первый синк из 2 новых + 1 без
+  `activity_id` → `{new:2, updated:0, skipped:1}`; (б) повтор тех же 2 → `{new:0,
+  updated:2, skipped:0}`; (в) смешанный (1 новая + 1 существующая) → `{new:1, updated:1}`.
+  Счётчики совпадают с до-рефакторным `database.sync_activities` на тех же входах.
 - **M1-T4 Intervals-only vertical:** без Garmin-кред `sync_intervals_data` наполняет
   `activities`; CTL/ATL считаются (не пусто) по Intervals-нагрузке.
 - **M1-T5 курсор = граница окна + ошибка не двигает:** (а) повторный синк того же окна →
@@ -252,7 +269,8 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
 ## 11. Порядок работ (после принятия спеки)
 
 1. D1: `canonical_created` в возврат ingest + переписать `_sync_activities` через ingest.
-   Гейты до продолжения: **M1-T3** (success byte-identical) И **M1-T3b** (failure-path).
+   Гейты до продолжения: **M1-T3** (success, идентичен кроме `source`), **M1-T3b**
+   (failure-path, 3 активности — продолжение после ошибки), **M1-T3c** (count-матрица D1).
 2. `sync_cursors` (миграция аддитивно) + чтение окна `[cursor−overlap, now]` + продвижение
    по чистому чанку (§4). Гейт **M1-T5** (граница окна, пустое окно двигает, ошибка не двигает).
 3. `sync_intervals_data` (адаптер, D2 provider-fallback) + `ingest_provider_batch`; **M1-T4**.
