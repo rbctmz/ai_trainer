@@ -59,6 +59,10 @@ class ProviderActivity:
     external_id: str | None
     provider_tss: float | None
     canonical: dict[str, Any]
+    # Canonical id to use when this activity does NOT join a cross-provider anchor
+    # (no external match, or a fail-closed 'ambiguous' outcome). Keeps a contested
+    # activity on its own canonical instead of hijacking a shared one.
+    standalone_canonical_id: str = ""
 
     def link(self) -> dict[str, Any]:
         return {
@@ -67,6 +71,7 @@ class ProviderActivity:
             "external_provider": self.external_provider,
             "external_id": self.external_id,
             "provider_tss": self.provider_tss,
+            "standalone_canonical_id": self.standalone_canonical_id or self.canonical_activity_id,
         }
 
 
@@ -122,7 +127,26 @@ def _normalize_garmin(row: dict[str, Any]) -> ProviderActivity:
         external_id=activity_id,
         provider_tss=source_tss,
         canonical=canonical,
+        standalone_canonical_id=activity_id,
     )
+
+
+def _intervals_source_namespace(raw_source: Any) -> str | None:
+    """Map Intervals.icu ``source`` to a provider namespace (ADR-0008 п.2).
+
+    Only a source that clearly indicates Garmin yields the ``garmin`` namespace —
+    so an ``external_id`` is treated as a Garmin id ONLY when Intervals says the
+    activity actually came from Garmin. Any other known source keeps its own
+    namespace (a Strava id can never false-match a Garmin id). An absent/unknown
+    source yields ``None`` (fail closed: no cross-provider coordinate at all).
+    """
+    text = str(raw_source or "").strip().lower()
+    if not text:
+        return None
+    if "garmin" in text:
+        return GARMIN_NAMESPACE
+    # Keep the real source as its own namespace so cross-provider ids never collide.
+    return text
 
 
 def _normalize_intervals(row: dict[str, Any]) -> ProviderActivity:
@@ -130,35 +154,61 @@ def _normalize_intervals(row: dict[str, Any]) -> ProviderActivity:
     if not intervals_id:
         raise ValueError("normalize_provider_activity(intervals): id is required")
 
+    standalone_canonical_id = f"intervals_{intervals_id}"
+
+    # Fail-closed cross-provider identity (blocker #1): only attribute external_id
+    # to Garmin when Intervals' own `source` says the activity came from Garmin.
     raw_external = row.get("external_id")
     external_id = str(raw_external).strip() if raw_external not in (None, "") else None
-    external_provider = GARMIN_NAMESPACE if external_id else None
-    # Garmin-sourced Intervals activity → same canonical id as Garmin would use;
-    # a genuinely Intervals-only activity gets its own namespaced canonical id.
-    canonical_activity_id = external_id if external_id else f"intervals_{intervals_id}"
+    source_namespace = _intervals_source_namespace(row.get("source"))
+    if external_id and source_namespace:
+        external_provider = source_namespace
+    else:
+        external_provider, external_id = None, None
+
+    # Only a Garmin-attributed external id anchors on the shared canonical (= the
+    # Garmin activity id Garmin itself would use). Everything else stays standalone.
+    if external_provider == GARMIN_NAMESPACE:
+        canonical_activity_id = external_id
+    else:
+        canonical_activity_id = standalone_canonical_id
 
     provider_tss = _to_float(row.get("icu_training_load"))
     raw_type = str(row.get("type") or "").strip()
     sport = _INTERVALS_SPORT.get(raw_type.lower(), raw_type.lower() or None)
     start_local = str(row.get("start_date_local") or "")
     date = start_local[:10] if start_local else None
+    # Record UTC only from the real UTC field (blocker #5): never store local wall
+    # clock in a *_utc column.
+    start_utc = str(row.get("start_date") or "").strip() or None
     moving_time = _to_float(row.get("moving_time"))
     duration_minutes = round(moving_time / 60.0, 3) if moving_time else None
+
+    # Local-first TSS (blocker #6): honour a locally-resolved tss/tss_method if the
+    # caller (the M1 Intervals adapter runs the local cascade with FTP/LTHR) already
+    # computed one; only fall back to the provider load when no local result exists,
+    # and then mark it EXPLICITLY (ADR-0008 п.3). Bare reconciliation rows carry no
+    # power/HR streams, so they take the fallback — but the cascade is not bypassed
+    # when a local value is present.
+    local_tss = _to_float(row.get("tss"))
+    local_method = row.get("tss_method")
+    if local_tss is not None and local_method:
+        canonical_tss, canonical_method = local_tss, str(local_method)
+    elif provider_tss is not None:
+        canonical_tss, canonical_method = provider_tss, "intervals_icu_provider_fallback"
+    else:
+        canonical_tss, canonical_method = None, None
 
     canonical = {
         "activity_id": canonical_activity_id,
         "date": date,
-        "started_at_utc": start_local or None,
+        "started_at_utc": start_utc,
         "sport": sport,
         "duration_minutes": duration_minutes,
         "activity_name": row.get("name"),
-        # Intervals reconciliation fields carry no power/HR streams, so a local TSS
-        # cannot be recomputed here → the provider load is used as the canonical
-        # TSS, EXPLICITLY marked as a provider fallback (ADR-0008 п.3). This is
-        # only ever written to the canonical row when Intervals is authoritative.
         "source_tss": provider_tss,
-        "tss": provider_tss,
-        "tss_method": "intervals_icu_provider_fallback" if provider_tss is not None else None,
+        "tss": canonical_tss,
+        "tss_method": canonical_method,
     }
 
     return ProviderActivity(
@@ -169,6 +219,7 @@ def _normalize_intervals(row: dict[str, Any]) -> ProviderActivity:
         external_id=external_id,
         provider_tss=provider_tss,
         canonical=canonical,
+        standalone_canonical_id=standalone_canonical_id,
     )
 
 

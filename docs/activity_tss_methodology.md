@@ -88,12 +88,15 @@ Garmin-primary пути. Трек Intervals-primary (`docs/intervals_primary_han
 ADR `docs/architecture/adr_0008_intervals_activity_ingestion.md`, #269) вводит одно
 **точечное исключение — ТОЛЬКО для Intervals**:
 
-- Reconciliation-поля Intervals.icu (`list_activities`: `icu_training_load`,
-  `moving_time`, `type`, …) НЕ несут потоков мощности/ЧСС — локальный каскад по ним
-  пересчитать нельзя. Поэтому при первичном Intervals-источнике `icu_training_load`
-  МОЖЕТ стать каноническим `tss`, но ЯВНО маркируется
-  `tss_method="intervals_icu_provider_fallback"` — это провайдерский fallback, а не
-  локальный расчёт.
+- **Local-first, fallback только при отсутствии локального результата.** Если
+  локальный `tss`/`tss_method` уже вычислен (адаптер Intervals в M1 прогоняет каскад
+  с FTP/LTHR) — он приоритетен и не подменяется провайдерским. Reconciliation-поля
+  Intervals.icu (`list_activities`: `icu_training_load`, `moving_time`, `type`, …) НЕ
+  несут потоков мощности/ЧСС — локальный каскад по ним пересчитать нельзя, поэтому
+  для «голой» reconciliation-строки `icu_training_load` становится каноническим `tss`,
+  но ЯВНО маркируется `tss_method="intervals_icu_provider_fallback"` (провайдерский
+  fallback, не локальный расчёт). Local-first-контракт закреплён тестом
+  `test_normalize_intervals_local_first_tss_not_bypassed`.
 - Нативная нагрузка каждого источника хранится ПО СВЯЗИ в
   `activity_provider_links.provider_tss` (Garmin-link и Intervals-link — раздельно).
   `activities.source_tss` — legacy-проекция нагрузки первичного источника

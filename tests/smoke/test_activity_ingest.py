@@ -42,16 +42,25 @@ def _garmin_row(activity_id: str = "555111") -> dict:
     }
 
 
-def _intervals_row(intervals_id: str = "i_777", external_id: str | None = "555111") -> dict:
-    return {
+def _intervals_row(
+    intervals_id: str = "i_777",
+    external_id: str | None = "555111",
+    source: str | None = "GARMIN_CONNECT",
+    **overrides,
+) -> dict:
+    row = {
         "id": intervals_id,
         "external_id": external_id,
-        "start_date_local": "2026-07-10T06:30:00",
+        "source": source,
+        "start_date": "2026-07-10T04:30:00Z",  # UTC
+        "start_date_local": "2026-07-10T06:30:00",  # local wall clock
         "type": "Ride",
         "name": "Morning Ride",
         "icu_training_load": 90,
         "moving_time": 5700,  # 95 min
     }
+    row.update(overrides)
+    return row
 
 
 def _snapshot(path: str) -> dict:
@@ -117,6 +126,45 @@ def test_normalize_intervals_references_garmin_source_and_marks_fallback():
     assert candidate.canonical["duration_minutes"] == 95.0
     # No local streams → provider load used as canonical tss, EXPLICITLY marked.
     assert candidate.canonical["tss_method"] == "intervals_icu_provider_fallback"
+
+
+def test_normalize_intervals_records_utc_not_local_time():
+    # blocker #5: local wall clock must not be stored in a *_utc column.
+    candidate = normalize_provider_activity(_intervals_row(), "intervals")
+    assert candidate.canonical["started_at_utc"] == "2026-07-10T04:30:00Z"
+    assert candidate.canonical["date"] == "2026-07-10"  # local date is fine
+    # Missing UTC field → None, never the local timestamp.
+    no_utc = normalize_provider_activity(_intervals_row(start_date=None), "intervals")
+    assert no_utc.canonical["started_at_utc"] is None
+
+
+def test_normalize_intervals_local_first_tss_not_bypassed():
+    # blocker #6: a locally-resolved tss is honoured; only a bare row falls back.
+    local = normalize_provider_activity(
+        _intervals_row(tss=71.5, tss_method="power_tss_bike"), "intervals"
+    )
+    assert local.canonical["tss"] == 71.5
+    assert local.canonical["tss_method"] == "power_tss_bike"
+    bare = normalize_provider_activity(_intervals_row(), "intervals")
+    assert bare.canonical["tss_method"] == "intervals_icu_provider_fallback"
+
+
+def test_normalize_intervals_non_garmin_source_keeps_its_own_namespace():
+    # blocker #1: a Strava external_id must NOT be treated as a Garmin id.
+    candidate = normalize_provider_activity(
+        _intervals_row(external_id="555111", source="STRAVA"), "intervals"
+    )
+    assert candidate.external_provider == "strava"
+    assert candidate.canonical_activity_id == "intervals_i_777"  # standalone, not 555111
+
+
+def test_normalize_intervals_unknown_source_is_fail_closed_standalone():
+    # blocker #1: without a source we cannot attribute external_id → no coordinate.
+    candidate = normalize_provider_activity(
+        _intervals_row(external_id="555111", source=None), "intervals"
+    )
+    assert candidate.external_provider is None and candidate.external_id is None
+    assert candidate.canonical_activity_id == "intervals_i_777"
 
 
 def test_normalize_intervals_without_external_id_is_standalone():
@@ -196,6 +244,127 @@ def test_public_ingest_never_orphans_link(tmp_path):
     ).fetchone()
     conn.close()
     assert has_canonical is not None
+
+
+# --- fail-closed matching + load integrity (blockers #1–#4) -------------------
+
+def test_non_garmin_intervals_does_not_merge_with_same_garmin_id(tmp_path):
+    # blocker #1: a Strava external_id equal to a Garmin id must not false-merge.
+    path = str(tmp_path / "nomerge.db")
+    db = Database(path)
+    ingest_provider_activity(
+        db, normalize_provider_activity(_garmin_row("555111"), "garmin"), primary_source="garmin"
+    )
+    strava = normalize_provider_activity(
+        _intervals_row(external_id="555111", source="STRAVA"), "intervals"
+    )
+    ingest_provider_activity(db, strava, primary_source="garmin")
+
+    snap = _snapshot(path)
+    assert {a["activity_id"] for a in snap["activities"]} == {"555111", "intervals_i_777"}
+    links = {link["provider"]: link for link in snap["links"]}
+    assert links["garmin"]["match_status"] == "unmatched"
+    assert links["intervals"]["canonical_activity_id"] == "intervals_i_777"
+    assert links["intervals"]["external_provider"] == "strava"
+    assert _orphan_count(path) == 0
+
+
+def test_ambiguous_second_claimant_is_flagged_not_merged(tmp_path):
+    # blocker #2: two Intervals activities claiming the same Garmin id → the second
+    # is flagged 'ambiguous' and kept standalone, never silently merged.
+    path = str(tmp_path / "ambiguous.db")
+    db = Database(path)
+    first = normalize_provider_activity(
+        _intervals_row(intervals_id="i_A", external_id="555111"), "intervals"
+    )
+    second = normalize_provider_activity(
+        _intervals_row(intervals_id="i_B", external_id="555111"), "intervals"
+    )
+    ingest_provider_activity(db, first, primary_source="garmin")
+    ingest_provider_activity(db, second, primary_source="garmin")
+
+    by_pid = {link["provider_activity_id"]: link for link in _snapshot(path)["links"]}
+    assert by_pid["i_A"]["canonical_activity_id"] == "555111"
+    assert by_pid["i_B"]["canonical_activity_id"] == "intervals_i_B"
+    assert by_pid["i_B"]["match_status"] == "ambiguous"
+    assert _orphan_count(path) == 0
+
+
+def test_external_identity_change_does_not_double_count(tmp_path):
+    # blocker #3: re-pairing an Intervals-only activity must drop its stale canonical.
+    path = str(tmp_path / "identity.db")
+    db = Database(path)
+    ingest_provider_activity(
+        db, normalize_provider_activity(_intervals_row(external_id="G1"), "intervals"),
+        primary_source="garmin",
+    )
+    assert _activity_ids(path) == {"G1"}
+    ingest_provider_activity(
+        db, normalize_provider_activity(_intervals_row(external_id="G2"), "intervals"),
+        primary_source="garmin",
+    )
+    assert _activity_ids(path) == {"G2"}  # G1 gone → load not doubled
+    assert len(_snapshot(path)["links"]) == 1
+    assert _orphan_count(path) == 0
+
+
+def test_external_identity_change_keeps_canonical_with_other_links(tmp_path):
+    # blocker #3 (converse): a canonical that still has a Garmin link is retained.
+    path = str(tmp_path / "identity2.db")
+    db = Database(path)
+    ingest_provider_activity(
+        db, normalize_provider_activity(_garmin_row("G1"), "garmin"), primary_source="garmin"
+    )
+    ingest_provider_activity(
+        db, normalize_provider_activity(_intervals_row(external_id="G1"), "intervals"),
+        primary_source="garmin",
+    )
+    ingest_provider_activity(
+        db, normalize_provider_activity(_intervals_row(external_id="G2"), "intervals"),
+        primary_source="garmin",
+    )
+    assert _activity_ids(path) == {"G1", "G2"}
+    links = {link["provider"]: link for link in _snapshot(path)["links"]}
+    assert links["garmin"]["canonical_activity_id"] == "G1"
+    assert links["garmin"]["match_status"] == "unmatched"  # Intervals partner left
+    assert links["intervals"]["canonical_activity_id"] == "G2"
+    assert _orphan_count(path) == 0
+
+
+def test_clear_all_data_clears_provider_links(tmp_path):
+    # blocker #4: reset must not leave orphan links that double-count on next sync.
+    path = str(tmp_path / "reset.db")
+    db = Database(path)
+    ingest_provider_activity(
+        db, normalize_provider_activity(_garmin_row("555111"), "garmin"), primary_source="garmin"
+    )
+    assert len(_snapshot(path)["links"]) == 1
+    db.clear_all_data()
+    snap = _snapshot(path)
+    assert snap["activities"] == [] and snap["links"] == []
+
+
+def test_write_provider_activity_rolls_back_atomically(tmp_path):
+    """Permanent guard: a failing canonical write leaves 0 activities / 0 links —
+    the link is never committed without its canonical (ADR-0008 п.5)."""
+    path = str(tmp_path / "rollback.db")
+    db = Database(path)
+    candidate = normalize_provider_activity(_garmin_row("555111"), "garmin")
+
+    # Make `activities` unreachable so the canonical write fails AFTER the link insert.
+    raw = sqlite3.connect(path)
+    raw.execute("ALTER TABLE activities RENAME TO activities_hidden")
+    raw.commit()
+    raw.close()
+
+    with pytest.raises(sqlite3.OperationalError):
+        ingest_provider_activity(db, candidate, primary_source="garmin")
+
+    raw = sqlite3.connect(path)
+    assert raw.execute("SELECT COUNT(*) FROM activity_provider_links").fetchone()[0] == 0
+    raw.execute("ALTER TABLE activities_hidden RENAME TO activities")
+    assert raw.execute("SELECT COUNT(*) FROM activities").fetchone()[0] == 0
+    raw.close()
 
 
 # --- 4. batch-cursor guardrail (REQUIRED matrix) ------------------------------

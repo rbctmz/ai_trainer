@@ -172,7 +172,9 @@ def test_list_execution_evidence_is_bounded_get_and_keeps_match_fields(monkeypat
                 {
                     "id": "i123",
                     "external_id": "garmin-123",
+                    "source": "GARMIN_CONNECT",
                     "paired_event_id": "e456",
+                    "start_date": "2026-07-12T06:00:00Z",
                     "start_date_local": "2026-07-12T08:00:00",
                     "type": "Ride",
                     "name": "Morning Ride",
@@ -219,7 +221,9 @@ def test_list_execution_evidence_is_bounded_get_and_keeps_match_fields(monkeypat
         {
             "id": "i123",
             "external_id": "garmin-123",
+            "source": "GARMIN_CONNECT",
             "paired_event_id": "e456",
+            "start_date": "2026-07-12T06:00:00Z",
             "start_date_local": "2026-07-12T08:00:00",
             "type": "Ride",
             "name": "Morning Ride",

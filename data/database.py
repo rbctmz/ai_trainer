@@ -2989,6 +2989,21 @@ class Database:
             'skipped': skipped_count
         }
 
+    @staticmethod
+    def _recompute_link_match_status(cursor, canonical_id):
+        """Set 'matched'/'unmatched' for a canonical's links by distinct-provider
+        count. Never overrides an 'ambiguous' link (a fail-closed flag-for-review)."""
+        cursor.execute(
+            'SELECT COUNT(DISTINCT provider) FROM activity_provider_links WHERE canonical_activity_id=?',
+            (canonical_id,),
+        )
+        status = 'matched' if cursor.fetchone()[0] >= 2 else 'unmatched'
+        cursor.execute(
+            "UPDATE activity_provider_links SET match_status=? "
+            "WHERE canonical_activity_id=? AND match_status != 'ambiguous'",
+            (status, canonical_id),
+        )
+
     def write_provider_activity(self, canonical, link, *, primary_source):
         """ADR-0008 (#269): atomically write ONE provider activity — canonical row +
         provider-link + `source_tss` projection — in a SINGLE transaction. Does NOT
@@ -2999,15 +3014,25 @@ class Database:
         invariant that raw SQL alone does not enforce).
 
         Idempotent by ``UNIQUE(provider, provider_activity_id)`` (link) and by
-        ``activity_id`` (canonical). ``canonical`` is a dict of activity-column
-        values incl. ``activity_id``; ``link`` carries ``provider``,
+        ``activity_id`` (canonical). ``link`` carries ``provider``,
         ``provider_activity_id``, ``external_provider``, ``external_id``,
-        ``provider_tss``. ``primary_source`` decides which provider's fields are
-        authoritative for the canonical row (ADR-0008 п.4); the data layer stays
-        config-agnostic and receives the resolved value.
+        ``provider_tss`` and a ``standalone_canonical_id`` used when the activity
+        does not join a cross-provider anchor. ``primary_source`` decides which
+        provider's fields are authoritative for the canonical row (ADR-0008 п.4);
+        the data layer stays config-agnostic and receives the resolved value.
+
+        Two fail-closed rules protect load integrity:
+        - **Ambiguous coordinate** (ADR-0008 п.2): if the same
+          ``(external_provider, external_id)`` is already claimed by a *different*
+          activity of the *same* provider, this one is NOT merged — it is kept on
+          its ``standalone_canonical_id`` and flagged ``match_status='ambiguous'``.
+        - **External-identity change**: when a link moves to a new canonical, an
+          old canonical left with no links is deleted (it was provider-derived and
+          would otherwise double-count its load); one that still has links is
+          re-scored.
         """
-        canonical_id = self.clean_value(canonical.get('activity_id'))
-        if not canonical_id:
+        requested_canonical_id = self.clean_value(canonical.get('activity_id'))
+        if not requested_canonical_id:
             raise ValueError("write_provider_activity: canonical activity_id is required")
         provider = link.get('provider')
         provider_activity_id = self.clean_value(link.get('provider_activity_id'))
@@ -3018,38 +3043,63 @@ class Database:
         external_provider = self.clean_value(link.get('external_provider'))
         external_id = self.clean_value(link.get('external_id'))
         provider_tss = self.clean_value(link.get('provider_tss'))
+        standalone_id = self.clean_value(link.get('standalone_canonical_id')) or requested_canonical_id
 
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
 
-            # 1) Upsert the provider-link (manual upsert preserves id/imported_at on
-            #    re-ingest and stays independent of the SQLite UPSERT version).
+            # Existing link (if any) drives re-ingest idempotency AND external-identity
+            # change detection.
             cursor.execute(
-                'SELECT id FROM activity_provider_links WHERE provider=? AND provider_activity_id=?',
+                'SELECT id, canonical_activity_id FROM activity_provider_links '
+                'WHERE provider=? AND provider_activity_id=?',
                 (provider, provider_activity_id),
             )
             existing_link = cursor.fetchone()
+            old_canonical_id = existing_link[1] if existing_link else None
+
+            # Fail-closed ambiguity: the same external coordinate already claimed by a
+            # DIFFERENT activity of the SAME provider → cannot tell the true match.
+            ambiguous = False
+            if external_provider is not None and external_id is not None:
+                cursor.execute(
+                    'SELECT provider FROM activity_provider_links '
+                    'WHERE external_provider=? AND external_id=? '
+                    'AND NOT (provider=? AND provider_activity_id=?)',
+                    (external_provider, external_id, provider, provider_activity_id),
+                )
+                ambiguous = provider in {row[0] for row in cursor.fetchall()}
+
+            canonical_id = standalone_id if ambiguous else requested_canonical_id
+            link_status = 'ambiguous' if ambiguous else 'unmatched'
+
+            # 1) Upsert the provider-link (manual upsert preserves id/imported_at and
+            #    stays independent of the SQLite UPSERT version). The freshly-computed
+            #    link_status is always written, so a resolved conflict clears a stale
+            #    'ambiguous'.
             if existing_link:
                 cursor.execute(
                     '''UPDATE activity_provider_links
-                       SET canonical_activity_id=?, external_provider=?, external_id=?, provider_tss=?
+                       SET canonical_activity_id=?, external_provider=?, external_id=?,
+                           provider_tss=?, match_status=?
                        WHERE id=?''',
-                    (canonical_id, external_provider, external_id, provider_tss, existing_link[0]),
+                    (canonical_id, external_provider, external_id, provider_tss,
+                     link_status, existing_link[0]),
                 )
             else:
                 cursor.execute(
                     '''INSERT INTO activity_provider_links
                          (canonical_activity_id, provider, provider_activity_id,
                           external_provider, external_id, provider_tss, match_status)
-                       VALUES (?, ?, ?, ?, ?, ?, 'unmatched')''',
+                       VALUES (?, ?, ?, ?, ?, ?, ?)''',
                     (canonical_id, provider, provider_activity_id,
-                     external_provider, external_id, provider_tss),
+                     external_provider, external_id, provider_tss, link_status),
                 )
 
             # 2) Authority for canonical fields (ADR-0008 п.4): the primary source's
-            #    link wins; a secondary only fills the canonical while no primary
-            #    link exists yet. Result depends on the SET of links, not order.
+            #    link wins; a secondary only fills the canonical while no primary link
+            #    exists yet. Result depends on the SET of links, not order.
             cursor.execute(
                 'SELECT DISTINCT provider FROM activity_provider_links WHERE canonical_activity_id=?',
                 (canonical_id,),
@@ -3058,11 +3108,12 @@ class Database:
             primary_present = primary_source in providers
             is_authoritative = (provider == primary_source) or (not primary_present)
 
+            canonical_row = {**canonical, 'activity_id': canonical_id}
             cursor.execute('SELECT 1 FROM activities WHERE activity_id=?', (canonical_id,))
             canonical_created = cursor.fetchone() is None
             if canonical_created:
                 columns = self._ACTIVITY_COLUMN_ORDER
-                values = tuple(self.clean_value(canonical.get(column)) for column in columns)
+                values = tuple(self.clean_value(canonical_row.get(column)) for column in columns)
                 cursor.execute(
                     f"INSERT INTO activities ({', '.join(columns)}) "
                     f"VALUES ({', '.join('?' for _ in columns)})",
@@ -3071,18 +3122,26 @@ class Database:
             elif is_authoritative:
                 update_columns = [c for c in self._ACTIVITY_COLUMN_ORDER if c != 'activity_id']
                 set_sql = ', '.join(f"{column}=?" for column in update_columns)
-                values = [self.clean_value(canonical.get(column)) for column in update_columns]
+                values = [self.clean_value(canonical_row.get(column)) for column in update_columns]
                 values.append(canonical_id)
                 cursor.execute(f"UPDATE activities SET {set_sql} WHERE activity_id=?", tuple(values))
 
-            # 3) Recompute match_status for every link of this canonical: a
-            #    cross-provider partner (≥2 distinct providers) → 'matched', else
-            #    'unmatched'. Deterministic and order-independent.
-            match_status = 'matched' if len(providers) >= 2 else 'unmatched'
-            cursor.execute(
-                'UPDATE activity_provider_links SET match_status=? WHERE canonical_activity_id=?',
-                (match_status, canonical_id),
-            )
+            # 3) Score this canonical's links (ambiguous links are preserved).
+            self._recompute_link_match_status(cursor, canonical_id)
+            match_status = 'ambiguous' if ambiguous else ('matched' if len(providers) >= 2 else 'unmatched')
+
+            # 4) External-identity change: the link moved off old_canonical_id. If that
+            #    canonical is now link-less it was provider-derived and stranded →
+            #    delete it (else its load double-counts); otherwise re-score it.
+            if old_canonical_id and old_canonical_id != canonical_id:
+                cursor.execute(
+                    'SELECT COUNT(*) FROM activity_provider_links WHERE canonical_activity_id=?',
+                    (old_canonical_id,),
+                )
+                if cursor.fetchone()[0] == 0:
+                    cursor.execute('DELETE FROM activities WHERE activity_id=?', (old_canonical_id,))
+                else:
+                    self._recompute_link_match_status(cursor, old_canonical_id)
 
             conn.commit()
         except Exception:
@@ -3097,6 +3156,7 @@ class Database:
             'match_status': match_status,
             'canonical_created': canonical_created,
             'authoritative': is_authoritative,
+            'ambiguous': ambiguous,
         }
 
     def backfill_activity_provider_links(self, classify):
@@ -3252,6 +3312,9 @@ class Database:
             'readiness_snapshots',
             'recovery_episodes',
             'athlete_profile',
+            # ADR-0008 (#269): provider-links must be cleared with activities, else
+            # a reset leaves orphan links that double-count load on the next sync.
+            'activity_provider_links',
         ):
             try:
                 cursor.execute(f'DELETE FROM {table}')
