@@ -56,13 +56,30 @@ candidate, primary_source=Settings.PRIMARY_ACTIVITY_SOURCE)` и АГРЕГИРУ
 проекция создаёт строку `activities` (new) либо обновляет (updated) — 1:1 со старым
 `database.sync_activities`.
 
-**Гарантия:** RED-матрица «byte-identical» (§7 M1-T3) снимает `GarminSyncResult` +
-`build_sync_status_payload` до и после рефактора на идентичных fake-данных Garmin —
-должны совпасть полностью.
+**Совместимость Garmin делится на два пути (уточнение ревью #4):**
+
+- **Success-path — байт-в-байт.** Когда все активности окна приняты без ошибок:
+  `GarminSyncResult` (counts/warnings/mode/messages) и `build_sync_status_payload`
+  совпадают с до-рефакторной версией. Гейт `M1-T3` (снапшот до/после на идентичном
+  fake-клиенте). Т.к. при нуле ошибок warnings пуст, а `new/updated/skipped` берутся из
+  `canonical_created` 1:1 со старым `sync_activities` — снимок идентичен.
+- **Failure-path — НАМЕРЕННО изменён.** Старый `database.sync_activities` = один bulk-commit
+  (all-or-nothing для батча активностей). Новый путь — per-activity атомарный ingest, и
+  это сознательное улучшение: ошибка на ОДНОЙ активности не откатывает весь батч и не
+  теряет остальные. Интендед-поведение M1:
+  - каждая активность пишется атомарно (canonical+link — одна транзакция, M0 no-orphan):
+    сбойная активность откатывается ЦЕЛИКОМ (нет activity без link), уже принятые —
+    остаются;
+  - per-activity ошибка → в `warnings` (модель Garmin-синка уже так делает для HRV/сна),
+    синк продолжает следующую активность, а не падает целиком;
+  - повтор идемпотентен (M0: UNIQUE + upsert → без дублей).
+  Гейт `M1-T3b` (§7): инъекция сбоя на 2-й активности → 1-я принята с link, сбойная
+  отсутствует целиком, warning есть, повтор добивает без дублей. Этот путь НЕ обязан
+  совпадать со старым и тестируется ОТДЕЛЬНО от `M1-T3`.
 
 **`database.sync_activities`** после рефактора не используется Garmin-путём. Решение:
 оставить как deprecated-shim (демо/легаси-тесты) ИЛИ удалить с правкой вызовов —
-см. Decision D4.
+см. Decision D4 (принято: shim в M1).
 
 ## 3. Intervals-адаптер `sync_intervals_data`
 
@@ -81,36 +98,78 @@ def sync_intervals_data(state, days=None, on_progress=None) -> IntervalsSyncResu
 - Результат: структурный, UI-agnostic (`new/updated/skipped`, warnings, `source='intervals'`).
 - Внешние сбои Intervals → warnings, не exceptions (как в Garmin-пути).
 
-## 4. Курсор — персистентный, per-provider / per-domain
+## 4. Курсор — граница успешно обработанного ОКНА (не дата активности)
 
 Новая аддитивная таблица (ASR-MOD-3):
 ```
 CREATE TABLE IF NOT EXISTS sync_cursors (
     provider TEXT NOT NULL,           -- 'garmin' | 'intervals'
     domain   TEXT NOT NULL,           -- 'activities' (wellness — M4)
-    cursor_value TEXT,                -- ISO-дата последнего успешно принятого окна
+    cursor_value TEXT,                -- ISO-дата ГРАНИЦЫ успешно обработанного окна
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (provider, domain)
 )
 ```
-- Чтение окна: `cursor_value` есть → инкремент от него; нет → bootstrap now−90д.
-- Продвижение: ТОЛЬКО после успешного batch — через `advance_cursor` из
-  `ingest_provider_batch` (M0). Значение = max(дата активностей окна).
-- Сбой в середине окна → курсор прежний; повтор идемпотентен (M0: UNIQUE + upsert).
-- **Garmin в M1 курсорную таблицу НЕ принимает**: `resolve_sync_window`
-  (`services/sync.py`) остаётся как есть, чтобы не менять внешнее поведение Garmin.
-  Курсор-таблица — для Intervals (и будущих провайдеров). См. Decision D3.
 
-## 5. Job / API wiring
+**Семантика курсора — это high-water граница обработанного ВРЕМЕННО́ГО окна, а НЕ дата
+последней активности** (уточнение ревью #1):
+- `cursor_value` = верхняя граница (`end`) окна, которое было УСПЕШНО обработано целиком,
+  зажатая по `now`. Пустое, но успешно обработанное окно всё равно продвигает границу
+  (иначе бесконечный ре-синк пустого хвоста); наличие/отсутствие активностей на границу
+  не влияет.
+- Чтение окна: `cursor_value` есть → `[cursor_value − overlap_day, now]`; нет → bootstrap
+  `[now − 90д, now]`. `overlap_day` (граничный день пересинкивается намеренно) ловит
+  поздно загруженные/отредактированные активности; идемпотентный upsert (M0) поглощает
+  перекрытие без дублей.
+- Разбиение: окно режется на чанки ≤ `MAX_RECONCILIATION_WINDOW_DAYS`
+  (`services/intervals_icu.py`), обрабатываются ХРОНОЛОГИЧЕСКИ (старые→новые).
 
-`api/sync_jobs.py::SyncJobManager` сейчас Garmin-специфичен (сообщения «Синхронизация
-Garmin…», имя треда `garmin-sync-…`). M1:
-- `source` в снапшоте job (`'garmin'|'intervals'`) и в `result`; дефолтные сообщения
-  не зашивают провайдера жёстко.
-- Точка входа Intervals-синка не гейтит на Garmin. Решение по форме (обобщить
-  `SyncJobManager(source=…)` vs отдельный менеджер) — Decision D5.
-- Существующие Garmin-эндпоинты/снапшоты — без изменения контракта (добавление
-  `source` аддитивно; проверяется контракт-тестами `test_sync_job_api`).
+**Продвижение курсора — только по чисто завершённому чанку; ошибка провайдера НЕ
+двигает курсор** (уточнение ревью #2):
+- Чанк «чист», если провайдерский fetch прошёл БЕЗ ошибок И все кандидаты чанка приняты
+  ingest'ом. Тогда `advance_cursor` (из `ingest_provider_batch`, M0) пишет `end` этого
+  чанка.
+- Любая провайдерская ошибка (429/сеть/частичная страница) на чанке → продвижение
+  ОСТАНАВЛИВАЕТСЯ на `end` последнего ЧИСТОГО чанка; курсор = граница непрерывного
+  успешно-обработанного префикса. Данные за ошибкой НЕ пропускаются — добираются
+  следующим запуском. Ошибки уходят в warnings (как в Garmin-пути), не в exception.
+- Сбой ingest внутри чанка (не провайдерский) → M0-гарантия: курсор не двинут, повтор
+  идемпотентен.
+
+**Garmin в M1 курсорную таблицу НЕ принимает**: `resolve_sync_window`
+(`services/sync.py`) остаётся как есть, чтобы не менять внешнее поведение Garmin.
+Курсор-таблица — для Intervals (и будущих провайдеров). См. Decision D3.
+
+## 5. API-контракт запуска Intervals + конкурентная семантика (уточнение ревью #3)
+
+Текущее (Garmin): `POST /api/sync` (`SyncRequest{days}`) и `GET /api/sync` (статус),
+через единый single-flight `sync_job_manager.start_or_get` (`api/routers/system.py:50`,
+`api/sync_jobs.py`).
+
+**API-контракт M1:**
+- `POST /api/sync` — `SyncRequest` расширяется полем `source: 'garmin' | 'intervals'`
+  (**дефолт `garmin`** — обратная совместимость; отсутствие поля = как сейчас).
+  `source='intervals'` строит `run_sync`, зовущий `sync_intervals_data` (без Garmin-auth,
+  гейт — `INTERVALS_ICU_API_KEY`); `source='garmin'` — без изменений.
+- Неизвестный `source` → `422` (fail-fast, не угадывать) — симметрично
+  `PRIMARY_ACTIVITY_SOURCE`.
+- `GET /api/sync` — снапшот получает поле **`source`** (какой провайдер синкается/синкался);
+  аддитивно, существующие поля не меняются.
+- `result` job'а несёт `source` (для UI M3 и диагностики).
+
+**Конкурентная семантика — single-flight по ВСЕМ провайдерам (SQLite = один писатель):**
+- Менеджер запускает не более ОДНОГО sync-job'а одновременно, независимо от `source`.
+  Запрос второго синка (любого источника), пока идёт первый → возвращается снапшот
+  ТЕКУЩЕГО job'а (`reused=true`, с его `source` и `sync_state='running'`), НОВЫЙ job НЕ
+  стартует. Это исключает гонку двух писателей по `activities`/`sync_cursors` и совпадает
+  с нынешним поведением `start_or_get`.
+- Форма реализации: обобщить `SyncJobManager` — `start_or_get(..., source)`, снимая
+  Garmin-хардкод в сообщениях/имени треда; `source` кладётся в снапшот. Отдельный
+  per-provider менеджер (параллельные синки) в M1 НЕ вводим (риск SQLite-lock,
+  преждевременно). Пере-оценить, если понадобится параллелизм (тогда — отдельный ADR).
+- Контракт-тест `test_sync_job_api`: (а) `GET /api/sync` содержит `source`; (б) при
+  running-job'е второй `POST` (другой `source`) возвращает `reused=true` и НЕ меняет
+  `source` текущего; (в) неизвестный `source` → `422`.
 
 ## 6. Общий common-ingest — оба источника, один funnel
 
@@ -129,17 +188,24 @@ Garmin…», имя треда `garmin-sync-…`). M1:
 - **M1-T2 регресс (ExecPlan):** НОВАЯ Garmin-активность синкается ПОСЛЕ M0 через
   переписанный persistence → получает garmin-link; затем Intervals-копия
   присоединяется к той же канонической (две `matched`).
-- **M1-T3 byte-identical Garmin:** `sync_garmin_data` на идентичном fake-клиенте до/после
-  рефактора → совпадают `GarminSyncResult` (counts/warnings/messages/mode) и
-  `build_sync_status_payload`.
+- **M1-T3 byte-identical Garmin (SUCCESS-path):** `sync_garmin_data` на идентичном
+  fake-клиенте БЕЗ ошибок до/после рефактора → совпадают `GarminSyncResult`
+  (counts/warnings/messages/mode) и `build_sync_status_payload`.
+- **M1-T3b Garmin failure-path (намеренно изменён):** инъекция сбоя на 2-й активности →
+  1-я принята с link (нет activity без link), сбойная отсутствует целиком, warning есть,
+  синк не падает; повтор идемпотентен (без дублей). Тестируется ОТДЕЛЬНО от T3.
 - **M1-T4 Intervals-only vertical:** без Garmin-кред `sync_intervals_data` наполняет
   `activities`; CTL/ATL считаются (не пусто) по Intervals-нагрузке.
-- **M1-T5 идемпотентность + курсор:** повторный Intervals-синк того же окна → без
-  дублей; курсор стабилен на no-op; сбой в середине окна → курсор прежний, повтор
-  добивает без дублей.
+- **M1-T5 курсор = граница окна + ошибка не двигает:** (а) повторный синк того же окна →
+  без дублей, курсор стабилен; (б) УСПЕШНО обработанное ПУСТОЕ окно всё равно двигает
+  границу (не дата активности); (в) провайдерская ошибка на чанке → курсор на `end`
+  последнего чистого чанка, данные за ошибкой добираются повтором без дублей.
 - **M1-T6 fail-closed end-to-end:** Intervals-активность с не-Garmin/пустым `source`
   не склеивается с Garmin-историей (standalone), даже если `external_id` численно
   совпадает с Garmin-id.
+- **M1-T7 конкурентный sync:** при running-job'е второй `POST /api/sync` (другой `source`)
+  возвращает `reused=true`, не стартует второй job и не меняет `source` текущего;
+  неизвестный `source` → `422`.
 
 ## 8. ASR / risk traceability (ADD 3.0)
 
@@ -150,29 +216,31 @@ Garmin…», имя треда `garmin-sync-…`). M1:
 - **ASR-MOD-1/2** (новый источник/компонент без регресса): Intervals входит через тот же
   funnel; Garmin внешне неизменен.
 
-## 9. Открытые решения для ревью (Decisions)
+## 9. Решения (Decisions)
 
-- **D1 — форма ingest-возврата.** Вернуть `canonical_created` в результат
+- **D1 [ПРИНЯТО] — форма ingest-возврата.** Вернуть `canonical_created` в результат
   `write_provider_activity` (аддитивно), чтобы `_sync_activities` собрал те же
-  `new/updated/skipped`. Альтернатива — отдельный счётчик в ingest_batch. Предлагаю D1a
-  (canonical_created), минимально и 1:1 со старой семантикой.
-- **D2 — TSS для Intervals в M1: provider-fallback, не local recompute.**
+  `new/updated/skipped` 1:1 со старой семантикой.
+- **D2 [ПРИНЯТО] — TSS для Intervals в M1: provider-fallback, не local recompute.**
   `list_activities` не несёт потоков мощности/ЧСС → локальный каскад невозможен без
-  доп. запросов. Предлагаю: M1 использует `icu_training_load` (провайдерский Coggan-TSS,
-  близкий к нашему локальному по `activity_tss_methodology.md`), ЯВНО маркированный
-  `intervals_icu_provider_fallback`; этого достаточно для CTL/ATL. Локальный пересчёт по
-  потокам — отдельный поздний срез. (Local-first-контракт M0 сохранён: если поле `tss`
-  уже посчитано — оно приоритетно.)
-- **D3 — Garmin не переходит на курсор-таблицу в M1.** `resolve_sync_window` остаётся,
-  чтобы не рисковать байт-идентичностью Garmin. Курсор-таблица — Intervals + будущее.
-- **D4 — `database.sync_activities`.** Оставить deprecated-shim (демо/тесты) vs удалить
-  с правкой вызовов. Предлагаю оставить shim в M1 (меньше поверхности риска), удалить в
-  отдельном clean-up.
-- **D5 — форма Intervals-job.** Обобщить `SyncJobManager` параметром `source` vs
-  отдельный менеджер. Предлагаю обобщение (один снапшот-контракт, добавляем `source`).
-- **D6 — демо-активности и links.** Демо-сид (`services/demo_mode.py`, `demo_activity_*`)
-  после сидирования прогонять `backfill_provider_links` (классификация `demo`), чтобы
-  демо-поверхность жила в той же модели. Мелкое, но зафиксировать.
+  доп. запросов. M1 использует `icu_training_load` (провайдерский Coggan-TSS, близкий к
+  нашему локальному по `activity_tss_methodology.md`), ЯВНО маркированный
+  `intervals_icu_provider_fallback`; достаточно для CTL/ATL. Локальный пересчёт по
+  потокам — отдельный поздний срез. Local-first-контракт M0 сохранён (готовый `tss`
+  приоритетен).
+- **D3 [ПРИНЯТО] — Garmin не переходит на курсор-таблицу в M1.** `resolve_sync_window`
+  остаётся, чтобы не рисковать байт-идентичностью Garmin. Курсор-таблица — Intervals +
+  будущее.
+- **D4 [ПРИНЯТО] — `database.sync_activities`.** Оставить deprecated-shim (демо/тесты)
+  в M1; удаление — отдельный clean-up.
+- **D5 [СПЕЦИФИЦИРОВАНО, ждёт подтверждения] — форма Intervals-job + конкурентность.**
+  Зафиксировано в §5: обобщить `SyncJobManager(start_or_get(..., source))`, single-flight
+  по всем провайдерам (SQLite = один писатель), второй параллельный запрос →
+  `reused=true` без старта; `POST /api/sync {source}` (дефолт garmin), неизвестный →
+  `422`; `GET /api/sync` и `result` получают `source` аддитивно. Тест — `M1-T7`.
+- **D6 [ПРИНЯТО] — демо-активности и links.** Демо-сид (`services/demo_mode.py`,
+  `demo_activity_*`) после сидирования прогоняет `backfill_provider_links`
+  (классификация `demo`), чтобы демо-поверхность жила в той же модели.
 
 ## 10. Риски и rollback
 
@@ -183,10 +251,13 @@ Garmin…», имя треда `garmin-sync-…`). M1:
 
 ## 11. Порядок работ (после принятия спеки)
 
-1. D1: `canonical_created` в возврат ingest + переписать `_sync_activities` через ingest;
-   M1-T3 byte-identical зелёный (гейт до продолжения).
-2. `sync_cursors` (миграция аддитивно) + чтение/продвижение окна Intervals.
-3. `sync_intervals_data` (адаптер) + `ingest_provider_batch`; M1-T4/T5.
-4. Coexistence/регресс M1-T1/T2; fail-closed M1-T6.
-5. `source` в `api/sync_jobs.py`; контракт-тесты.
-6. Обновить ExecPlan Progress; PR из ветки `claude/issue-270-*` (закроет #270).
+1. D1: `canonical_created` в возврат ingest + переписать `_sync_activities` через ingest.
+   Гейты до продолжения: **M1-T3** (success byte-identical) И **M1-T3b** (failure-path).
+2. `sync_cursors` (миграция аддитивно) + чтение окна `[cursor−overlap, now]` + продвижение
+   по чистому чанку (§4). Гейт **M1-T5** (граница окна, пустое окно двигает, ошибка не двигает).
+3. `sync_intervals_data` (адаптер, D2 provider-fallback) + `ingest_provider_batch`; **M1-T4**.
+4. Coexistence/регресс **M1-T1/T2**; fail-closed **M1-T6**.
+5. `source` в `SyncJobManager`/`api/sync_jobs.py` + `POST/GET /api/sync` (§5); **M1-T7**
+   (конкурентность/`422`).
+6. D6 (демо-сид → backfill). Обновить ExecPlan Progress; PR из ветки `claude/issue-270-*`
+   (закроет #270).
