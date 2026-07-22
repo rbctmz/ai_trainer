@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
+import { AdherenceRibbon } from "@/components/AdherenceRibbon";
 import {
   BuiltPlan,
   ForecastPoint,
@@ -59,11 +60,12 @@ const DAYS = [
   { value: "sun", label: "Вс" },
 ];
 
-const TABS = ["build", "adjust", "export"] as const;
+const TABS = ["build", "adjust", "adherence", "export"] as const;
 type Tab = (typeof TABS)[number];
 const TAB_LABELS: Record<Tab, string> = {
   build: "Собрать план",
   adjust: "Скорректировать",
+  adherence: "План vs факт",
   export: "Экспорт",
 };
 
@@ -164,6 +166,7 @@ export default function PlanningPage() {
           targetSessionId={targetSessionId}
         />
       ) : null}
+      {tab === "adherence" ? <AdherenceRibbon /> : null}
       {tab === "export" ? <ExportMode /> : null}
       <AdjustmentHistory />
     </main>
