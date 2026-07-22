@@ -18,19 +18,20 @@
 
 4. **Первичный источник + детерминированное слияние (order-independent).** Настройка `PRIMARY_ACTIVITY_SOURCE` (`config/settings.py`, env): значения `garmin`|`intervals`; **дефолт `garmin`** (обратная совместимость); Intervals-quickstart ЯВНО задаёт `PRIMARY_ACTIVITY_SOURCE=intervals`; **неизвестное значение → fail-fast** (`config.settings._primary_activity_source` бросает `ValueError`, не угадывает). Канонические поля (спорт/длительность/дистанция/…) и `activities.source_tss` (legacy-проекция) при каждом ingest берутся из link ПРИОРИТЕТНОГО присутствующего источника: primary, если его link есть; иначе — присутствующий secondary. Результат зависит от НАБОРА связей, не от порядка их прихода. Обязательный тест: `Garmin → Intervals` ≡ `Intervals → Garmin` (совпадают canonical row, `tss`, `source_tss`, обе link). Канонический `tss`+`tss_method` первичны; `source_tss` — только совместимость.
 
-5. **Ingest = нормализация + атомарная запись.** Разделены: `normalize_provider_activity(provider_row, source) -> candidate` (чистое преобразование, без БД) и `ingest_provider_activity(db, candidate) -> result`, которая в ОДНОЙ SQLite-транзакции upsert'ит canonical activity + provider-link + пересчёт `source_tss`-проекции (п.4) + продвижение курсора. И Intervals-адаптер, и внутренний persistence Garmin (`services/sync.py`) пишут через `ingest_provider_activity` — нет полу-записанных состояний между `activities` и link. Внешнее поведение `sync_garmin_data` (сообщения/результат/окно) байт-в-байт неизменно.
+5. **Ingest = нормализация + атомарная запись; курсор — НЕ здесь.** Разделены: `normalize_provider_activity(provider_row, source) -> candidate` (чистое преобразование, без БД) и `ingest_provider_activity(db, candidate) -> result`, которая в ОДНОЙ SQLite-транзакции upsert'ит canonical activity + provider-link + пересчёт `source_tss`-проекции (п.4). Курсор в этой транзакции НЕ продвигается (см. п.8): продвижение курсора внутри транзакции отдельной активности при сбое на N-й активности после уже-продвинутого курсора первой оставило бы данные за курсором необработанными. И Intervals-адаптер, и внутренний persistence Garmin (`services/sync.py`) пишут через `ingest_provider_activity` — нет полу-записанных состояний между `activities` и link. Инвариант no-orphan (link без canonical) закрепляется тестом публичного ingest, хотя прямой SQL его допускает (п.1). Внешнее поведение `sync_garmin_data` (сообщения/результат/окно) байт-в-байт неизменно.
 
 6. **Два настроенных источника.** Приоритет — `PRIMARY_ACTIVITY_SOURCE`; дедуп — по (`external_provider`,`external_id`); coexistence, не overwrite. Слияние канонических полей — детерминированно (п.4).
 
 7. **Backfill — офлайн и детерминированно, с классификацией.** Миграция/backfill НЕ обращаются к Intervals (никакого поиска `external_id` по сети) — работают офлайн. Классификация существующих строк по форме `activity_id`: `demo_activity_*` → `provider='demo'` (без внешнего link); уверенно Garmin (числовой Garmin-id) → `provider='garmin'`; иначе → `provider='legacy_unknown'` (НЕ притворяться Garmin). `external_id` при backfill — null (свяжется позже ingest'ом M1, когда придут Intervals-данные). `provider_tss` ← текущий `source_tss`. Обязательный тест: повторный backfill стабилен по матрице `garmin/demo/legacy_unknown` (идемпотентность классификации).
 
-8. **Курсоры** — per-provider и per-domain (активности отдельно от wellness); `source` — в состоянии/результате job (`api/sync_jobs.py`); bootstrap ≥90 дней; курсор продвигается внутри транзакции ingest (п.5).
+8. **Курсоры — продвижение только после успешного batch/window.** per-provider и per-domain (активности отдельно от wellness); `source` — в состоянии/результате job (`api/sync_jobs.py`); bootstrap ≥90 дней. Курсор продвигается ТОЛЬКО после того, как ВЕСЬ batch/window успешно проингещен — через `ingest_provider_batch(db, candidates, advance_cursor=…)` либо orchestration-транзакцию, — и НИКОГДА не внутри транзакции отдельной активности (п.5). Сбой на второй активности batch'а оставляет курсор прежним; повтор идемпотентно переобрабатывает обе (UNIQUE(provider, provider_activity_id) + upsert → без дублей); курсор двигается лишь при полном успехе. Персистентность курсора (таблица/строка состояния) заводится в M1 при подключении реального синка; в M0 контракт «advance-after-batch» фиксируется через инъецируемый `advance_cursor` и failure-injection тест.
 
 9. **Rollback ≠ удаление link-таблицы.** После M1 удаление таблицы = потеря провенанса. Правильный rollback: отключить новый read/write path (вернуть прямой persistence), аддитивные данные (link-таблица, колонки) СОХРАНИТЬ. Физическое удаление — отдельная осознанная миграция только после backup.
 
 ## Consequences
 
-- ✅ Ingest атомарен (canonical + link + `source_tss`-проекция + cursor в одной транзакции) — нет частично-записанных активностей при сбое.
+- ✅ Ingest атомарен per-activity (canonical + link + `source_tss`-проекция в одной транзакции) — нет частично-записанных активностей и нет orphan-link'ов при сбое.
+- ✅ Курсор продвигается только после успешного batch/window (не в per-activity транзакции): сбой в середине batch'а не оставляет данные за курсором; повтор идемпотентен (без дублей).
 - ✅ Результат order-independent: `Garmin→Intervals ≡ Intervals→Garmin` (обязательный тест), повторный синк разных источников не меняет canonical.
 - ✅ Backfill офлайн/детерминирован, честно классифицирует `garmin/demo/legacy_unknown`, не выдаёт наследие за Garmin; повторный прогон стабилен (матрица-тест).
 - ✅ «Пометка для ревью» имеет представление в данных (`match_status`); rollback не теряет провенанс (аддитивные данные сохраняются).
@@ -41,7 +42,7 @@
 
 M0 задевает три ASR (`docs/architecture/asr_catalog.md`):
 
-- **ASR-REL-3** (обрыв sync не портит частичные данные) — `ingest_provider_activity` атомарен (одна SQLite-транзакция: canonical + link + `source_tss`-проекция + cursor); сбой не оставляет полу-записи. Проверка — schema/ingest тесты.
+- **ASR-REL-3** (обрыв sync не портит частичные данные) — `ingest_provider_activity` атомарен per-activity (одна SQLite-транзакция: canonical + link + `source_tss`-проекция); курсор двигается лишь после успешного batch'а (`ingest_provider_batch`), а не в per-activity транзакции, поэтому сбой не оставляет ни полу-записи, ни данных за курсором. Проверка — schema/ingest/batch-failure тесты.
 - **ASR-MOD-3** (смена схемы обратно-совместима) — миграция `activity_provider_links` аддитивна и идемпотентна; потребители `activity_id` не ломаются. Проверка — schema RED→GREEN тест.
 - **ASR-PERF-3** (инкрементальный sync) — per-provider/per-domain курсоры не раздувают окно при activity-only синке.
 
@@ -49,3 +50,5 @@ M0 задевает три ASR (`docs/architecture/asr_catalog.md`):
 
 - Порядок источников: `Garmin → Intervals` == `Intervals → Garmin` (canonical row, `tss`, `source_tss`, обе link совпадают).
 - Классификация backfill при повторе: `garmin` / `demo` / `legacy_unknown` стабильны и не мутируют.
+- Batch-курсор при сбое (guardrail п.5/п.8): batch из двух активностей, вторая падает → курсор ПРЕЖНИЙ; повтор обрабатывает обе без дублей; курсор продвигается ТОЛЬКО после полного успеха.
+- No-orphan на уровне ingest: публичный `ingest_provider_activity` НИКОГДА не оставляет link без canonical (canonical + link — одна транзакция), хотя прямой SQL orphan допускает (п.1).

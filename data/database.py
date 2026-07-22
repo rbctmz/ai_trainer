@@ -2985,10 +2985,163 @@ class Database:
         
         return {
             'new': new_count,
-            'updated': updated_count, 
+            'updated': updated_count,
             'skipped': skipped_count
         }
-    
+
+    def write_provider_activity(self, canonical, link, *, primary_source):
+        """ADR-0008 (#269): atomically write ONE provider activity — canonical row +
+        provider-link + `source_tss` projection — in a SINGLE transaction. Does NOT
+        advance any sync cursor: cursor advance is a batch-level step (see
+        ``services.activity_ingest.ingest_provider_batch``), never inside a
+        per-activity transaction. Because canonical and link are written together,
+        a public ingest never leaves a link without its canonical (the no-orphan
+        invariant that raw SQL alone does not enforce).
+
+        Idempotent by ``UNIQUE(provider, provider_activity_id)`` (link) and by
+        ``activity_id`` (canonical). ``canonical`` is a dict of activity-column
+        values incl. ``activity_id``; ``link`` carries ``provider``,
+        ``provider_activity_id``, ``external_provider``, ``external_id``,
+        ``provider_tss``. ``primary_source`` decides which provider's fields are
+        authoritative for the canonical row (ADR-0008 п.4); the data layer stays
+        config-agnostic and receives the resolved value.
+        """
+        canonical_id = self.clean_value(canonical.get('activity_id'))
+        if not canonical_id:
+            raise ValueError("write_provider_activity: canonical activity_id is required")
+        provider = link.get('provider')
+        provider_activity_id = self.clean_value(link.get('provider_activity_id'))
+        if not provider or not provider_activity_id:
+            raise ValueError(
+                "write_provider_activity: link requires provider and provider_activity_id"
+            )
+        external_provider = self.clean_value(link.get('external_provider'))
+        external_id = self.clean_value(link.get('external_id'))
+        provider_tss = self.clean_value(link.get('provider_tss'))
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+
+            # 1) Upsert the provider-link (manual upsert preserves id/imported_at on
+            #    re-ingest and stays independent of the SQLite UPSERT version).
+            cursor.execute(
+                'SELECT id FROM activity_provider_links WHERE provider=? AND provider_activity_id=?',
+                (provider, provider_activity_id),
+            )
+            existing_link = cursor.fetchone()
+            if existing_link:
+                cursor.execute(
+                    '''UPDATE activity_provider_links
+                       SET canonical_activity_id=?, external_provider=?, external_id=?, provider_tss=?
+                       WHERE id=?''',
+                    (canonical_id, external_provider, external_id, provider_tss, existing_link[0]),
+                )
+            else:
+                cursor.execute(
+                    '''INSERT INTO activity_provider_links
+                         (canonical_activity_id, provider, provider_activity_id,
+                          external_provider, external_id, provider_tss, match_status)
+                       VALUES (?, ?, ?, ?, ?, ?, 'unmatched')''',
+                    (canonical_id, provider, provider_activity_id,
+                     external_provider, external_id, provider_tss),
+                )
+
+            # 2) Authority for canonical fields (ADR-0008 п.4): the primary source's
+            #    link wins; a secondary only fills the canonical while no primary
+            #    link exists yet. Result depends on the SET of links, not order.
+            cursor.execute(
+                'SELECT DISTINCT provider FROM activity_provider_links WHERE canonical_activity_id=?',
+                (canonical_id,),
+            )
+            providers = {row[0] for row in cursor.fetchall()}
+            primary_present = primary_source in providers
+            is_authoritative = (provider == primary_source) or (not primary_present)
+
+            cursor.execute('SELECT 1 FROM activities WHERE activity_id=?', (canonical_id,))
+            canonical_created = cursor.fetchone() is None
+            if canonical_created:
+                columns = self._ACTIVITY_COLUMN_ORDER
+                values = tuple(self.clean_value(canonical.get(column)) for column in columns)
+                cursor.execute(
+                    f"INSERT INTO activities ({', '.join(columns)}) "
+                    f"VALUES ({', '.join('?' for _ in columns)})",
+                    values,
+                )
+            elif is_authoritative:
+                update_columns = [c for c in self._ACTIVITY_COLUMN_ORDER if c != 'activity_id']
+                set_sql = ', '.join(f"{column}=?" for column in update_columns)
+                values = [self.clean_value(canonical.get(column)) for column in update_columns]
+                values.append(canonical_id)
+                cursor.execute(f"UPDATE activities SET {set_sql} WHERE activity_id=?", tuple(values))
+
+            # 3) Recompute match_status for every link of this canonical: a
+            #    cross-provider partner (≥2 distinct providers) → 'matched', else
+            #    'unmatched'. Deterministic and order-independent.
+            match_status = 'matched' if len(providers) >= 2 else 'unmatched'
+            cursor.execute(
+                'UPDATE activity_provider_links SET match_status=? WHERE canonical_activity_id=?',
+                (match_status, canonical_id),
+            )
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return {
+            'canonical_activity_id': canonical_id,
+            'provider': provider,
+            'match_status': match_status,
+            'canonical_created': canonical_created,
+            'authoritative': is_authoritative,
+        }
+
+    def backfill_activity_provider_links(self, classify):
+        """ADR-0008 п.7 (#269): offline, idempotent backfill — one provider-link per
+        existing canonical activity, classified by ``classify(activity_id)`` (the
+        service owns the policy; the data layer stays policy-free). Never touches
+        the network; ``external_id`` stays NULL (a later ingest attaches the
+        cross-provider link when Intervals data arrives). ``provider_tss`` ← current
+        ``source_tss``. Re-running inserts nothing new and mutates no classification.
+        """
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute('SELECT activity_id, source_tss FROM activities')
+            activity_rows = cursor.fetchall()
+            cursor.execute('SELECT provider, provider_activity_id FROM activity_provider_links')
+            existing = {(row[0], row[1]) for row in cursor.fetchall()}
+
+            counts = {'garmin': 0, 'demo': 0, 'legacy_unknown': 0, 'skipped_existing': 0}
+            for activity_id, source_tss in activity_rows:
+                if not activity_id:
+                    continue
+                provider = classify(activity_id)
+                if (provider, activity_id) in existing:
+                    counts['skipped_existing'] += 1
+                    continue
+                cursor.execute(
+                    '''INSERT INTO activity_provider_links
+                         (canonical_activity_id, provider, provider_activity_id,
+                          external_provider, external_id, provider_tss, match_status)
+                       VALUES (?, ?, ?, NULL, NULL, ?, 'unmatched')''',
+                    (activity_id, provider, activity_id, self.clean_value(source_tss)),
+                )
+                existing.add((provider, activity_id))
+                counts[provider] = counts.get(provider, 0) + 1
+
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        return counts
+
     def sync_hrv_data(self, hrv_data):
         """Умная синхронизация HRV данных без дублей"""
         if not hrv_data:

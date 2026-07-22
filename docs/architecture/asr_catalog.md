@@ -29,9 +29,12 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 модель приёма активностей из нескольких источников. Задетые ASR:
 
 - **ASR-REL-3** (обрыв sync не портит частичные данные): `ingest_provider_activity`
-  пишет canonical + provider-link + `source_tss`-проекцию + cursor в ОДНОЙ
-  SQLite-транзакции — сбой не оставляет полу-записи. Проверка (M0/M1): schema
-  RED→GREEN + ingest-атомарность.
+  пишет canonical + provider-link + `source_tss`-проекцию в ОДНОЙ
+  SQLite-транзакции — сбой не оставляет ни полу-записи, ни orphan-link. Курсор
+  двигается ОТДЕЛЬНО, лишь после успешного batch/window (`ingest_provider_batch`),
+  не в per-activity транзакции — сбой в середине batch'а не оставляет данные за
+  курсором, повтор идемпотентен. Проверка (M0): schema RED→GREEN + ingest-атомарность
+  (no-orphan) + batch-failure (cursor).
 - **ASR-MOD-3** (смена схемы обратно-совместима): миграция `activity_provider_links`
   аддитивна и идемпотентна; `canonical_activity_id` = существующий `activity_id`,
   потребители не ломаются. Проверка: `test_activity_provider_links_schema.py`
@@ -39,8 +42,12 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 - **ASR-PERF-3** (инкрементальный sync): per-provider/per-domain курсоры не
   раздувают окно при activity-only Intervals-синке.
 
-Статус: M0 в работе (#269) — схема + CHECK-констрейнты + `PRIMARY_ACTIVITY_SOURCE`
-(fail-fast) готовы; ingest/backfill/тесты далее.
+Статус: M0 (#269) — схема + CHECK-констрейнты + `PRIMARY_ACTIVITY_SOURCE` (fail-fast),
+common-ingest (`services/activity_ingest.py`: `normalize_provider_activity`,
+per-activity атомарный `ingest_provider_activity`, batch-level `ingest_provider_batch`
+с cursor-after-batch, офлайн `backfill_provider_links`) и обязательные матрицы готовы
+(`test_activity_ingest.py`: order-independence, backfill-стабильность, batch-cursor
+на сбое, ingest no-orphan). Подключение реальных источников через ingest — M1.
 
 ## Контракт-тесты API-роутеров (ASR-MOD-2, issue #242)
 
