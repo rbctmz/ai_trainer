@@ -3007,10 +3007,17 @@ class Database:
 
         Returns the set of canonical ids touched (old + new), for reprojection.
         """
+        # The Garmin activity is identified by its provider_activity_id (the Garmin id
+        # IS the coordinate), NOT by a self-referential external_id — so a BACKFILLED
+        # Garmin self-link (external_id NULL, ADR-0008 п.7) is still found and merges
+        # with its Intervals copy. Intervals copies reference it via the external
+        # coordinate (garmin, id). An OR returns each row once, so no dedup is needed.
         cursor.execute(
             "SELECT id, provider, provider_activity_id, canonical_activity_id "
-            "FROM activity_provider_links WHERE external_provider='garmin' AND external_id=?",
-            (garmin_id,),
+            "FROM activity_provider_links "
+            "WHERE (provider='garmin' AND provider_activity_id=?) "
+            "   OR (external_provider='garmin' AND external_id=?)",
+            (garmin_id, garmin_id),
         )
         links = cursor.fetchall()
         touched = {row[3] for row in links}  # current canonicals, before reassignment

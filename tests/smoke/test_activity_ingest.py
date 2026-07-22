@@ -373,6 +373,39 @@ def test_external_identity_change_remerge_does_not_double_count(tmp_path):
     assert _orphan_count(path) == 0
 
 
+def test_backfilled_garmin_activity_merges_with_intervals_copy(tmp_path):
+    # Regression gate: an existing (pre-provider-link) Garmin activity → backfill →
+    # Intervals copy referencing it → ONE canonical with TWO matched links. The
+    # backfilled Garmin link has external_id=NULL, so the resolver must recognise the
+    # Garmin activity by its provider_activity_id (else: two activities, doubled load).
+    path = str(tmp_path / "backfill_merge.db")
+    db = Database(path)
+    db.save_activities([
+        {"activity_id": "555111", "date": "2026-07-10", "sport": "cycling",
+         "source_tss": 86.0, "tss": 86.0, "tss_method": "power_np"},
+    ])
+    backfill_provider_links(db)
+    # Sanity: the backfilled Garmin link indeed has no external identity.
+    assert _snapshot(path)["links"][0]["external_id"] is None
+
+    ingest_provider_activity(
+        db, normalize_provider_activity(_intervals_row(external_id="555111"), "intervals"),
+        primary_source="garmin",
+    )
+
+    snap = _snapshot(path)
+    assert {a["activity_id"] for a in snap["activities"]} == {"555111"}  # one canonical, no double
+    canonical = snap["activities"][0]
+    assert canonical["tss"] == 86.0  # Garmin history preserved via backfill snapshot
+    links = {link["provider"]: link for link in snap["links"]}
+    assert set(links) == {"garmin", "intervals"}
+    assert links["garmin"]["canonical_activity_id"] == "555111"
+    assert links["intervals"]["canonical_activity_id"] == "555111"
+    assert links["garmin"]["match_status"] == "matched"
+    assert links["intervals"]["match_status"] == "matched"
+    assert _orphan_count(path) == 0
+
+
 def test_clear_all_data_clears_provider_links(tmp_path):
     # blocker #4: reset must not leave orphan links that double-count on next sync.
     path = str(tmp_path / "reset.db")
