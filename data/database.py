@@ -633,6 +633,33 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+        # ADR-0008 (#269): multi-source activity ingestion. One canonical activity
+        # (activity_id) may carry provider links from BOTH Garmin and Intervals;
+        # provider_tss lives per-link (native loads differ per source); match_status
+        # is the data home for fail-closed "flag for review". Additive, non-destructive.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS activity_provider_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                canonical_activity_id TEXT NOT NULL,
+                provider TEXT NOT NULL,
+                provider_activity_id TEXT NOT NULL,
+                external_provider TEXT,
+                external_id TEXT,
+                provider_tss REAL,
+                match_status TEXT NOT NULL DEFAULT 'unmatched',
+                imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE(provider, provider_activity_id)
+            )
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_activity_provider_links_canonical
+            ON activity_provider_links(canonical_activity_id)
+        ''')
+        conn.execute('''
+            CREATE INDEX IF NOT EXISTS idx_activity_provider_links_external
+            ON activity_provider_links(external_provider, external_id)
+            WHERE external_id IS NOT NULL
+        ''')
         self._ensure_activity_columns(conn)
         self._repair_legacy_activity_tss(conn)
         self._ensure_sleep_columns(conn)
