@@ -28,8 +28,10 @@
 - Пересчёт локального TSS по потокам Intervals — см. Decision D2 (осознанно отложено).
 
 **Definition of Done:** только-Intervals синк (без Garmin-кред) наполняет `activities`
-provider-link'ами; CTL/ATL считаются по этим активностям; `sync_garmin_data` — байт-в-байт
-как до M1; coexistence и идемпотентность — зелёными тестами.
+provider-link'ами; CTL/ATL считаются по этим активностям; `sync_garmin_data` на
+success-path **идентичен как до M1, КРОМЕ единственного нового поля `source`** (§2, гейт
+M1-T3), failure-path — намеренно изменён (§2, M1-T3b); coexistence и идемпотентность —
+зелёными тестами.
 
 ## 2. Точки касания live-Garmin (критический риск)
 
@@ -42,7 +44,8 @@ return database.sync_activities(resolved)   # -> {'new','updated','skipped'}
 ```
 Возврат `{new,updated,skipped}` попадает в `GarminSyncResult.activity_result` и дальше
 рулит `_build_success_messages`, `build_sync_status_payload`, `sync_state`. **Внешнее
-поведение обязано остаться байт-в-байт** (ADR-0008 п.5).
+поведение success-path обязано остаться идентичным, кроме единственного нового поля
+`source`** (ADR-0008 п.5; детали — ниже).
 
 **Контракт рефактора (M1):** `_sync_activities` для каждой resolved-активности зовёт
 `normalize_provider_activity(activity_dict, "garmin")` → `ingest_provider_activity(db,
@@ -206,11 +209,20 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
   B отсутствует ЦЕЛИКОМ (нет activity без link, M0-атомарность); **C всё равно принята
   (доказывает continue-after-error, а не только «до сбоя»)**; B → warning, синк не падает;
   повтор идемпотентен (без дублей). Отдельно от T3.
-- **M1-T3c count-матрица D1:** доказать маппинг `canonical_created → new/updated/skipped`
-  1:1 со старым `sync_activities`. Матрица: (а) первый синк из 2 новых + 1 без
-  `activity_id` → `{new:2, updated:0, skipped:1}`; (б) повтор тех же 2 → `{new:0,
-  updated:2, skipped:0}`; (в) смешанный (1 новая + 1 существующая) → `{new:1, updated:1}`.
-  Счётчики совпадают с до-рефакторным `database.sync_activities` на тех же входах.
+- **M1-T3c count-матрица D1:** доказать, что `canonical_created` считается по
+  СУЩЕСТВОВАНИЮ строки `activities` (а не связи), и маппинг `→ new/updated/skipped` 1:1 со
+  старым `sync_activities`. Матрица:
+  - (а) первый синк 2 новых + 1 без `activity_id` → `{new:2, updated:0, skipped:1}`;
+  - (б) повтор тех же 2 → `{new:0, updated:2, skipped:0}`;
+  - (в) смешанный (1 новая + 1 существующая) → `{new:1, updated:1}`;
+  - (г) **существующий canonical БЕЗ link** (легаси-строка `activities` до backfill) →
+    Garmin-ingest → `updated` (`canonical_created=False`, т.к. строка есть), НЕ `new` —
+    доказывает, что счёт по строке, а не по наличию link;
+  - (д) **Intervals-first → Garmin:** сначала Intervals-копия создала `intervals_<id>`,
+    затем Garmin-активность G → `new` (создаётся НОВЫЙ canonical `G`, intervals-standalone
+    поглощается/удаляется), НЕ `updated` и без задвоения — счёт идёт по разрешённому
+    Garmin-canonical, coexistence-очистка не искажает счётчики.
+  Все случаи совпадают с до-рефакторным `database.sync_activities` на тех же входах.
 - **M1-T4 Intervals-only vertical:** без Garmin-кред `sync_intervals_data` наполняет
   `activities`; CTL/ATL считаются (не пусто) по Intervals-нагрузке.
 - **M1-T5 курсор = граница окна + ошибка не двигает:** (а) повторный синк того же окна →
@@ -246,7 +258,7 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
   потокам — отдельный поздний срез. Local-first-контракт M0 сохранён (готовый `tss`
   приоритетен).
 - **D3 [ПРИНЯТО] — Garmin не переходит на курсор-таблицу в M1.** `resolve_sync_window`
-  остаётся, чтобы не рисковать байт-идентичностью Garmin. Курсор-таблица — Intervals +
+  остаётся, чтобы не рисковать success-path-совместимостью Garmin. Курсор-таблица — Intervals +
   будущее.
 - **D4 [ПРИНЯТО] — `database.sync_activities`.** Оставить deprecated-shim (демо/тесты)
   в M1; удаление — отдельный clean-up.
@@ -261,8 +273,9 @@ CREATE TABLE IF NOT EXISTS sync_cursors (
 
 ## 10. Риски и rollback
 
-- Главный риск — регресс внешнего поведения Garmin. Митигируется M1-T3 (byte-identical
-  снапшот) до включения нового пути.
+- Главный риск — регресс внешнего поведения Garmin. Митигируется гейтом M1-T3
+  (success-path идентичен кроме единственного поля `source`) до включения нового пути;
+  failure-path — намеренно изменён и покрыт отдельно (M1-T3b).
 - Rollback (ADR-0008 п.9): вернуть Garmin-persistence на прямой путь, аддитивные данные
   (link-таблица, `sync_cursors`) сохранить. Физического удаления не требуется.
 
