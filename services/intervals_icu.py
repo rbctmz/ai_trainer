@@ -166,12 +166,17 @@ class IntervalsICUClient:
     def list_activities(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
         """Read only the provider fields required to join local completed activities.
 
-        Fail-closed (M1 §11 step 3 refinement 3): a non-list payload, a
-        non-mapping element, or an element without an ``id`` RAISES rather than
-        being silently coerced to ``[]`` / dropped. Silently dropping would let a
-        malformed response become a "clean empty" chunk that advances the cursor
-        past the lost data. The windowed-sync adapter catches the resulting
+        Fail-closed (M1 §11 step 3 refinement 3 + review P1.2): a non-list payload,
+        a non-mapping element, or an element with an INVALID ``id`` RAISES rather
+        than being silently coerced to ``[]`` / dropped. Silently dropping would
+        let a malformed response become a "clean empty" chunk that advances the
+        cursor past the lost data. The windowed-sync adapter catches the resulting
         ``IntervalsICUError`` and marks the chunk dirty (no cursor advance).
+
+        ``id`` must be a non-bool scalar (``str`` or ``int``) whose ``str().strip()``
+        is non-empty (review P1.2): a complex id like ``[1]`` used to pass, normalize
+        to ``intervals_[1]`` and persist, advancing the cursor. ``bool`` is excluded
+        explicitly because it is an ``int`` subclass.
         """
         self._validate_reconciliation_window(oldest, newest)
         payload = self._request_json(
@@ -203,11 +208,12 @@ class IntervalsICUClient:
         )
         rows: List[Dict[str, Any]] = []
         for row in payload:
-            if not isinstance(row, Mapping) or row.get("id") is None:
+            if not isinstance(row, Mapping):
                 raise IntervalsICUError(
-                    "Intervals.icu activities: response contained an entry without "
-                    "a valid mapping/id — refusing to advance past potentially lost data"
+                    "Intervals.icu activities: response contained a non-mapping entry "
+                    "— refusing to advance past potentially lost data"
                 )
+            _validate_activity_id(row.get("id"))
             rows.append({field: row.get(field) for field in fields})
         return rows
 
@@ -344,6 +350,23 @@ class IntervalsICUClient:
             return json.loads(raw)
         except json.JSONDecodeError as exc:
             raise IntervalsICUError("Intervals.icu вернул ответ, который не удалось разобрать как JSON.") from exc
+
+
+def _validate_activity_id(raw_id: Any) -> None:
+    """Strict provider-activity id gate (review P1.2).
+
+    ``id`` must be a NON-bool scalar (``str`` or ``int``) whose ``str().strip()``
+    is non-empty. ``bool`` is rejected explicitly (it is an ``int`` subclass); a
+    complex type (list/dict) or a None/empty/whitespace value is rejected too.
+    Without this a payload like ``{"id": [1]}`` passed ``is not None``, normalized
+    to ``intervals_[1]`` and persisted, advancing the cursor past garbage data.
+    """
+    if isinstance(raw_id, bool) or not isinstance(raw_id, (str, int)):
+        raise IntervalsICUError(
+            f"Intervals.icu activities: id must be a scalar str/int, got {raw_id!r}"
+        )
+    if not str(raw_id).strip():
+        raise IntervalsICUError("Intervals.icu activities: id must be non-empty")
 
 
 def _decode_http_error(exc: urlerror.HTTPError) -> str:

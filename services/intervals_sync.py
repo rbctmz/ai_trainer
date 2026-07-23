@@ -51,11 +51,18 @@ from services.intervals_icu import (
     IntervalsICUError,
     get_client,
 )
+from services.sync import SyncProgressUpdate
 from services.sync_cursor import (
     ChunkFetch,
     WindowedSyncResult,
     run_windowed_sync,
 )
+
+# Progress callback contract: ONE SyncProgressUpdate object, matching
+# SyncJobManager._run_job's ``on_progress(update: SyncProgressUpdate)`` so the
+# adapter drops into the existing sync-job runner in step 5 (§5) without a shape
+# mismatch (review P1.1).
+SyncProgressCallback = Callable[[SyncProgressUpdate], None]
 
 # Intervals.icu caps a reconciliation window at 90 days, so each chunk fed to
 # list_activities must be at most that wide (services/intervals_icu).
@@ -101,15 +108,15 @@ def _validate_days(days: Any) -> int | None:
 def _build_fetch_chunk(
     client: IntervalsICUClient,
     seen: set[str],
-    warnings: list[str],
 ) -> Callable[[datetime, datetime], ChunkFetch]:
     """Build the provider-specific ``fetch_chunk`` for the windowed runner.
 
     Every provider failure (429/network/malformed via ``list_activities``) and
-    every normalization failure become a DIRTY chunk (warning recorded, cursor
-    unmoved), never an exception — matching the Garmin path. The ``seen`` set
-    dedups a ``provider_activity_id`` returned by two adjacent chunks within one
-    run, so it is ingested exactly once (chunk-boundary protection).
+    every normalization failure become a DIRTY chunk (warning recorded on the
+    ChunkFetch, cursor unmoved), never an exception — matching the Garmin path.
+    The ``seen`` set dedups a ``provider_activity_id`` returned by two adjacent
+    chunks within one run, so it is ingested exactly once (chunk-boundary
+    protection). (The unused ``warnings`` parameter was removed in review cleanup.)
     """
 
     def fetch_chunk(chunk_start: datetime, chunk_end: datetime) -> ChunkFetch:
@@ -141,7 +148,7 @@ def sync_intervals_data(
     *,
     days: int | None = None,
     now: datetime | None = None,
-    on_progress: Callable[[int, str], None] | None = None,
+    on_progress: SyncProgressCallback | None = None,
     client: IntervalsICUClient | None = None,
     chunk_days: int = CHUNK_DAYS,
 ) -> IntervalsSyncResult:
@@ -158,8 +165,10 @@ def sync_intervals_data(
             ``[now − days, now]`` (``bootstrapped=False``); the high-water cursor
             never moves backward. ``None`` uses the cursor-derived window.
         now: injectable anchor (tests); defaults to ``datetime.now()``.
-        on_progress: optional ``(percent, message)`` callback (no-op surface for
-            the future API/UI; this slice does not wire it to a UI).
+        on_progress: optional callback taking ONE ``SyncProgressUpdate`` — the
+            same single-arg object contract ``SyncJobManager._run_job`` uses
+            (review P1.1) — so the adapter drops into the existing sync-job
+            runner unchanged in step 5 (§5). This slice does not wire it to a UI.
         client: optional ``IntervalsICUClient`` (tests inject a fake). Defaults
             to ``get_client()`` from settings.
         chunk_days: max width of a single fetch chunk (capped at the
@@ -181,11 +190,16 @@ def sync_intervals_data(
         )
 
     if on_progress is not None:
-        on_progress(10, "📡 Загрузка активностей Intervals.icu...")
+        on_progress(
+            SyncProgressUpdate(
+                percent=10,
+                message="📡 Загрузка активностей Intervals.icu...",
+                step_text="Шаг 1/2: Получение активностей...",
+            )
+        )
 
     seen: set[str] = set()
-    warnings: list[str] = []
-    fetch_chunk = _build_fetch_chunk(client, seen, warnings)
+    fetch_chunk = _build_fetch_chunk(client, seen)
 
     wsr: WindowedSyncResult = run_windowed_sync(
         database,
@@ -199,7 +213,13 @@ def sync_intervals_data(
     )
 
     if on_progress is not None:
-        on_progress(100, "✅ Готово" if not wsr.halted else "⚠️ Синк остановлен")
+        on_progress(
+            SyncProgressUpdate(
+                percent=100,
+                message="✅ Готово" if not wsr.halted else "⚠️ Синк остановлен",
+                step_text="Шаг 2/2: Завершение...",
+            )
+        )
 
     return IntervalsSyncResult(
         new=wsr.new,

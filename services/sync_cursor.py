@@ -151,12 +151,23 @@ def run_windowed_sync(
     cursor-derived ``[cursor − overlap, now]`` — and marks it ``bootstrapped=False``
     (this is an explicit reload, not a fallback). The cursor stays MONOTONIC regardless:
     ``set_sync_cursor`` never lowers an existing high-water boundary, so a historical
-    replay of an older window processes it but cannot pull the boundary backward.
+    replay of an older window processes it but cannot pull the boundary backward. The
+    "positive int" contract is enforced AT THIS BOUNDARY (review P1.3), not only in an
+    adapter wrapper: a non-positive/float/bool/str value used to yield a FALSE success
+    (``end < start`` → 0 chunks → ``halted=False``, no fetch) and now raises before any
+    work, mirroring how :func:`resolve_window_from_cursor` fails closed on a bad cursor.
     """
     now = now or datetime.now()
     if window_days is not None:
+        # Enforce the contract at the runner boundary (review P1.3): a bool is an int
+        # subclass and is rejected explicitly; a non-int or non-positive int would
+        # otherwise compute end<start → 0 chunks → a silent no-op "success".
+        if isinstance(window_days, bool) or not isinstance(window_days, int) or window_days <= 0:
+            raise ValueError(
+                f"run_windowed_sync: window_days must be a positive int, got {window_days!r}"
+            )
         # Explicit reload: exact [now-N, now], not a bootstrap/fallback.
-        start = now - timedelta(days=int(window_days))
+        start = now - timedelta(days=window_days)
         end = now
         bootstrapped = False
     else:

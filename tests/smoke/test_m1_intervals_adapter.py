@@ -38,6 +38,8 @@ from services.intervals_icu import (
     IntervalsICUError,
 )
 from services.intervals_sync import IntervalsSyncResult, sync_intervals_data
+from services.sync import SyncProgressUpdate
+from services.sync_cursor import ChunkFetch, run_windowed_sync
 
 pytestmark = pytest.mark.smoke
 
@@ -380,3 +382,141 @@ def test_historical_days_must_be_positive_int(tmp_path):
     for bad in (0, -5, 2.5, "ten"):
         with pytest.raises(ValueError):
             sync_intervals_data(db, client=client, now=NOW, days=bad)  # type: ignore[arg-type]
+
+
+# =============================================================================
+# P1 review fixes (#281)
+# =============================================================================
+
+# --- P1.1: progress callback emits one SyncProgressUpdate (SyncJobManager) ----
+
+
+def test_progress_callback_emits_single_sync_progress_update(tmp_path):
+    """P1.1: the adapter must emit ONE object compatible with the existing
+    SyncJobManager contract, which calls ``run_sync(on_progress)`` where
+    ``on_progress(update: SyncProgressUpdate)`` takes a SINGLE argument and reads
+    ``update.percent``/``message``/``step_text``/``stats_message``. The old
+    ``Callable[[int, str], None]`` + ``on_progress(10, msg)`` shape raised
+    TypeError against that contract before any fetch ran."""
+    db = Database(str(tmp_path / "progress.db"))
+
+    def responder(method, path, params):
+        return [_row("i_A")]
+
+    received: list[SyncProgressUpdate] = []
+
+    def on_progress(update: SyncProgressUpdate) -> None:
+        received.append(update)
+
+    sync_intervals_data(db, client=FakeIntervalsClient(responder), now=NOW, on_progress=on_progress)
+
+    # at least the open (10) and close (100) events
+    assert len(received) >= 2
+    percents = [u.percent for u in received]
+    assert 10 in percents and 100 in percents
+    # each event is a SyncProgressUpdate with the documented fields
+    for u in received:
+        assert isinstance(u, SyncProgressUpdate)
+        assert isinstance(u.percent, int)
+        assert isinstance(u.message, str)
+    assert received[0].percent == 10
+    assert received[-1].percent == 100
+
+
+# --- P1.2: strict provider activity id validation ----------------------------
+
+
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        None,
+        "",
+        "   ",
+        ["1"],
+        {"id": "1"},
+        True,
+        False,
+    ],
+    ids=["none", "empty", "whitespace", "list", "mapping", "bool_true", "bool_false"],
+)
+def test_list_activities_rejects_non_scalar_or_empty_id(bad_id):
+    """P1.2: ``id`` must be a non-bool scalar str/int whose str().strip() is
+    non-empty. A complex id like ``[1]`` used to pass list_activities, normalize
+    to ``intervals_[1]`` and persist, advancing the cursor. Now it raises so the
+    chunk stays dirty (no cursor advance past lost/garbage data)."""
+    client = FakeIntervalsClient(lambda method, path, params: [{"id": bad_id}])
+    with pytest.raises(IntervalsICUError):
+        client.list_activities(date(2026, 7, 1), date(2026, 7, 23))
+
+
+@pytest.mark.parametrize("good_id", ["i_777", 555111, "  555  "], ids=["str", "int", "padded_str"])
+def test_list_activities_accepts_scalar_str_int_id(good_id):
+    """A scalar str/int id (padded or not) is accepted by list_activities."""
+    client = FakeIntervalsClient(lambda method, path, params: [{"id": good_id}])
+    rows = client.list_activities(date(2026, 7, 1), date(2026, 7, 23))
+    assert len(rows) == 1
+
+
+def test_complex_id_keeps_chunk_dirty_and_cursor_unmoved(tmp_path):
+    """End-to-end: a payload with ``id=[1]`` marks the chunk dirty via
+    list_activities' raise, the cursor does not advance, and no canonical row is
+    persisted (no ``intervals_[1]``)."""
+    db = Database(str(tmp_path / "complex.db"))
+    client = FakeIntervalsClient(lambda method, path, params: [{"id": [1]}])
+    result = sync_intervals_data(db, client=client, now=NOW)
+
+    assert result.halted is True
+    assert result.warnings
+    assert db.get_sync_cursor("intervals", "activities") is None
+    assert _ids(db) == set()
+    assert "intervals_[1]" not in _ids(db)
+
+
+# --- P1.3: window_days validated at the generic runner boundary --------------
+
+
+def _no_fetch(chunk_start, chunk_end):
+    raise AssertionError("fetch_chunk must not be called on an invalid window_days")
+
+
+@pytest.mark.parametrize("bad", [0, -5, 2.5, "ten", True, False], ids=["zero", "negative", "float", "string", "bool_true", "bool_false"])
+def test_run_windowed_sync_rejects_invalid_window_days_at_boundary(tmp_path, bad):
+    """P1.3: ``window_days`` is validated INSIDE the generic runner (its contract
+    says positive int), not only in the adapter wrapper. ``window_days=-5`` used
+    to return a FALSE success (start>end → 0 chunks → halted=False, no fetch).
+    Now it raises ValueError before any fetch."""
+    db = Database(str(tmp_path / "runner-bad.db"))
+    with pytest.raises(ValueError):
+        run_windowed_sync(
+            db,
+            "intervals",
+            "activities",
+            fetch_chunk=_no_fetch,
+            now=NOW,
+            window_days=bad,  # type: ignore[arg-type]
+        )
+
+
+def test_run_windowed_sync_positive_window_days_gives_exact_window(tmp_path):
+    """A positive int window_days yields the exact [now-N, now] historical window
+    with bootstrapped=False and a single fetch."""
+    db = Database(str(tmp_path / "runner-ok.db"))
+    fetched: list = []
+
+    def fetch(chunk_start, chunk_end):
+        fetched.append((chunk_start, chunk_end))
+        return ChunkFetch(candidates=[], dirty=False)
+
+    result = run_windowed_sync(
+        db,
+        "intervals",
+        "activities",
+        fetch_chunk=fetch,
+        now=NOW,
+        window_days=120,
+    )
+    assert result.bootstrapped is False
+    assert result.window_start == (NOW - timedelta(days=120)).strftime("%Y-%m-%d")
+    assert result.window_end == NOW.strftime("%Y-%m-%d")
+    assert len(fetched) == 2  # 120 days / 90-day chunks
+    assert result.halted is False
