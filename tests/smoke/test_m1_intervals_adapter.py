@@ -520,3 +520,127 @@ def test_run_windowed_sync_positive_window_days_gives_exact_window(tmp_path):
     assert result.window_end == NOW.strftime("%Y-%m-%d")
     assert len(fetched) == 2  # 120 days / 90-day chunks
     assert result.halted is False
+
+
+# --- P1.4: historical override must validate the saved cursor first -----------
+# Codex review: window_days bypassed resolve_window_from_cursor, so a future or
+# corrupt persisted cursor was never parsed/checked. A future cursor let the
+# historical run fetch from the provider, "succeed", and leave the cursor at the
+# future date — so later incremental syncs stayed broken. The override drives the
+# START date, but the persisted cursor must still be validated first (symmetry
+# with the normal path's fail-closed on future/corrupt cursors).
+
+
+def test_historical_override_rejects_future_cursor_before_fetch(tmp_path):
+    """A future cursor must fail closed BEFORE any provider fetch, even when the
+    start date comes from ``window_days`` rather than the cursor. Repro: cursor
+    2026-07-30 (after NOW 2026-07-23) used to let the sync fetch, succeed, and
+    leave the cursor in the future."""
+    db = Database(str(tmp_path / "hist-future.db"))
+    db.set_sync_cursor("intervals", "activities", "2026-07-30")  # valid date, ahead of now
+
+    fetch_calls: list = []
+
+    def fetch(chunk_start, chunk_end):
+        fetch_calls.append((chunk_start, chunk_end))
+        return ChunkFetch(candidates=[], dirty=False)
+
+    with pytest.raises(ValueError, match="ahead of now"):
+        run_windowed_sync(
+            db,
+            "intervals",
+            "activities",
+            fetch_chunk=fetch,
+            now=NOW,
+            window_days=120,
+        )
+
+    assert fetch_calls == []  # no provider contact on a bad cursor
+    # cursor untouched (still the future value, not silently advanced/lowered)
+    assert db.get_sync_cursor("intervals", "activities") == "2026-07-30"
+
+
+def test_historical_override_rejects_corrupt_cursor_before_fetch(tmp_path):
+    """A corrupt persisted cursor is caught on the read path even under the
+    override, mirroring the non-historical corrupt-cursor gate."""
+    db = Database(str(tmp_path / "hist-corrupt.db"))
+    conn = sqlite3.connect(db.db_path)
+    conn.execute(
+        "INSERT INTO sync_cursors (provider, domain, cursor_value) VALUES (?, ?, ?)",
+        ("intervals", "activities", "garbage"),
+    )
+    conn.commit()
+    conn.close()
+
+    fetch_calls: list = []
+
+    def fetch(chunk_start, chunk_end):
+        fetch_calls.append(1)
+        return ChunkFetch(candidates=[], dirty=False)
+
+    with pytest.raises(ValueError):
+        run_windowed_sync(
+            db,
+            "intervals",
+            "activities",
+            fetch_chunk=fetch,
+            now=NOW,
+            window_days=120,
+        )
+
+    assert fetch_calls == []
+    # cursor untouched
+    conn = sqlite3.connect(db.db_path)
+    val = conn.execute(
+        "SELECT cursor_value FROM sync_cursors WHERE provider='intervals' AND domain='activities'"
+    ).fetchone()[0]
+    conn.close()
+    assert val == "garbage"
+
+
+def test_adapter_historical_override_rejects_future_cursor_end_to_end(tmp_path):
+    """End-to-end through the adapter: a future cursor under days=N fails fast
+    (no fetch, cursor unchanged) rather than leaving the cursor in the future."""
+    db = Database(str(tmp_path / "adapter-future.db"))
+    db.set_sync_cursor("intervals", "activities", "2026-07-30")
+
+    responder_calls: list = []
+
+    def responder(method, path, params):
+        responder_calls.append(params)
+        return []
+
+    client = FakeIntervalsClient(responder)
+    with pytest.raises(ValueError, match="ahead of now"):
+        sync_intervals_data(db, client=client, now=NOW, days=120)
+
+    assert responder_calls == []  # provider never contacted
+    assert db.get_sync_cursor("intervals", "activities") == "2026-07-30"
+
+
+def test_historical_override_valid_cursor_still_works(tmp_path):
+    """Regression: a VALID past cursor under window_days does NOT raise — the
+    override processes its exact window (the cursor only happens not to drive the
+    start date). This guards against over-eager rejection."""
+    db = Database(str(tmp_path / "hist-valid.db"))
+    db.set_sync_cursor("intervals", "activities", "2026-07-15")  # valid, before now
+
+    fetched: list = []
+
+    def fetch(chunk_start, chunk_end):
+        fetched.append((chunk_start, chunk_end))
+        return ChunkFetch(candidates=[], dirty=False)
+
+    result = run_windowed_sync(
+        db,
+        "intervals",
+        "activities",
+        fetch_chunk=fetch,
+        now=NOW,
+        window_days=120,
+    )
+    assert result.halted is False
+    assert len(fetched) == 2  # 120-day override processed
+    assert result.window_start == (NOW - timedelta(days=120)).strftime("%Y-%m-%d")
+    # monotonic cursor advances to now (>= the prior 2026-07-15)
+    assert db.get_sync_cursor("intervals", "activities") == NOW.strftime("%Y-%m-%d")

@@ -166,6 +166,21 @@ def run_windowed_sync(
             raise ValueError(
                 f"run_windowed_sync: window_days must be a positive int, got {window_days!r}"
             )
+        # The override drives the START date, but the persisted cursor must still be
+        # validated first (Codex review P2 / P1.4): without this a future or corrupt
+        # cursor was never parsed/checked, so a historical run fetched from the
+        # provider, "succeeded", and left the cursor at the future date — leaving
+        # later incremental syncs broken. Symmetry with resolve_window_from_cursor's
+        # fail-closed on future/corrupt cursors. An ABSENT cursor is fine (a fresh
+        # store can still do an explicit reload).
+        cursor_value = db.get_sync_cursor(provider, domain)
+        if cursor_value:
+            anchor = parse_cursor_date(cursor_value)  # corrupt → invariant error
+            if anchor > now.date():
+                raise ValueError(
+                    f"sync cursor {anchor.isoformat()} is ahead of now {now.date().isoformat()} "
+                    "— refusing to sync (corrupt cursor or clock rewind); reset to re-bootstrap"
+                )
         # Explicit reload: exact [now-N, now], not a bootstrap/fallback.
         start = now - timedelta(days=window_days)
         end = now
