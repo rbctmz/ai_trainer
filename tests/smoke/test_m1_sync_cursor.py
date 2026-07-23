@@ -14,11 +14,11 @@ cursors → bootstrap) lives beside the M0 reset gate in test_activity_ingest.py
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 import pytest
 
-from data.database import Database
+from data.database import Database, parse_cursor_date
 from services.activity_ingest import normalize_provider_activity
 from services.sync_cursor import (
     ChunkFetch,
@@ -238,19 +238,69 @@ def test_run_windowed_sync_does_not_mask_ingest_errors(tmp_path, monkeypatch):
 
 # --- P1: cursor is a validated ISO date; future/corrupt fails closed -----------
 
-def test_set_sync_cursor_rejects_non_iso_date(tmp_path):
-    """The cursor is an ISO high-water DATE, never a free string: a non-date is refused
-    at the write boundary. Otherwise the lexicographic-max monotonicity could pin a
-    garbage value (``max('garbage', '2026-07-23') == 'garbage'``) and re-bootstrap 90
-    days forever."""
+# Strict YYYY-MM-DD contract — VERSION-INDEPENDENT (review P1 round 2). The same shapes
+# must be accepted/rejected identically at the parser, the DB-write boundary and the
+# resolver. date.fromisoformat alone is not enough: on Python 3.11 it accepts basic-ISO
+# `20260723` and ISO-week `2026-W30-4` that 3.10 rejects, and `.strip()` used to allow
+# surrounding whitespace — so a strict shape guard is required.
+_STRICT_ACCEPT = ["2026-07-23", "2026-01-01", "2000-12-31", "1999-12-09"]
+_STRICT_REJECT = [
+    "20260723",             # basic ISO, no dashes — 3.11 date.fromisoformat accepts it
+    "2026-W30-4",           # ISO week date — 3.11 date.fromisoformat accepts it
+    " 2026-07-23",          # leading whitespace
+    "2026-07-23 ",          # trailing whitespace
+    "2026-7-3",             # not zero-padded
+    "2026/07/23",           # wrong separator
+    "2026-13-45",           # not a real calendar date
+    "2026-07-23T00:00:00",  # datetime string
+    "garbage",
+    "",
+]
+
+
+@pytest.mark.parametrize("value", _STRICT_ACCEPT)
+def test_parse_cursor_date_accepts_strict_iso(value):
+    assert parse_cursor_date(value).isoformat() == value
+
+
+def test_parse_cursor_date_accepts_date_and_datetime_objects():
+    assert parse_cursor_date(date(2026, 7, 23)).isoformat() == "2026-07-23"
+    assert parse_cursor_date(datetime(2026, 7, 23, 10, 30)).isoformat() == "2026-07-23"
+
+
+@pytest.mark.parametrize("value", _STRICT_REJECT)
+def test_parse_cursor_date_rejects_non_strict(value):
+    with pytest.raises(ValueError):
+        parse_cursor_date(value)
+
+
+@pytest.mark.parametrize("value", _STRICT_REJECT)
+def test_set_sync_cursor_rejects_non_strict_at_write_boundary(tmp_path, value):
     db = Database(str(tmp_path / "reject.db"))
-    for bad in ("garbage", "2026-13-45", "2026/07/23", ""):
-        with pytest.raises(ValueError):
-            db.set_sync_cursor("intervals", "activities", bad)
+    with pytest.raises(ValueError):
+        db.set_sync_cursor("intervals", "activities", value)
     assert db.get_sync_cursor("intervals", "activities") is None  # nothing stored
 
-    # a valid date is stored NORMALIZED to YYYY-MM-DD
+
+@pytest.mark.parametrize("value", [v for v in _STRICT_REJECT if v != ""])
+def test_resolve_window_rejects_non_strict_at_resolver_boundary(value):
+    with pytest.raises(ValueError):
+        resolve_window_from_cursor(value, now=NOW, overlap_days=1, bootstrap_days=90)
+
+
+def test_resolve_window_treats_empty_cursor_as_absent():
+    # An empty string is "no cursor" (get_sync_cursor already maps '' → None), so the
+    # resolver bootstraps rather than raising — distinct from a malformed non-empty value.
+    _start, _end, bootstrapped = resolve_window_from_cursor(
+        "", now=NOW, overlap_days=1, bootstrap_days=90
+    )
+    assert bootstrapped is True
+
+
+def test_set_sync_cursor_normalizes_accepted_values(tmp_path):
+    db = Database(str(tmp_path / "accept.db"))
     assert db.set_sync_cursor("intervals", "activities", "2026-07-05") == "2026-07-05"
+    assert db.set_sync_cursor("intervals", "wellness", date(2026, 8, 1)) == "2026-08-01"
 
 
 def test_resolve_window_rejects_future_cursor():
@@ -258,13 +308,6 @@ def test_resolve_window_rejects_future_cursor():
     false clean no-op (end < start → 0 chunks): fail closed with a diagnostic."""
     with pytest.raises(ValueError, match="ahead of now"):
         resolve_window_from_cursor("2099-01-01", now=NOW, overlap_days=1, bootstrap_days=90)
-
-
-def test_resolve_window_rejects_corrupt_cursor():
-    """A present-but-invalid persisted cursor is an invariant violation, not a silent
-    bootstrap (which would mask corruption and, with monotonic max, loop forever)."""
-    with pytest.raises(ValueError):
-        resolve_window_from_cursor("garbage", now=NOW, overlap_days=1, bootstrap_days=90)
 
 
 def test_m1_future_cursor_fails_closed_in_runner(tmp_path):

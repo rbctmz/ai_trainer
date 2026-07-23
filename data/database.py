@@ -1,18 +1,30 @@
 import json
+import re
 import sqlite3
 import pandas as pd
 from datetime import date, datetime, timedelta
 from config.settings import Settings
 
 
-def _parse_cursor_date(value):
-    """Parse a sync-cursor value as a strict calendar date (#270 review P1).
+# A version-INDEPENDENT strict `YYYY-MM-DD` shape guard. `date.fromisoformat` alone is
+# NOT strict: Python 3.11 accepts basic-ISO `20260723` and ISO-week `2026-W30-4` that
+# 3.10 rejects, so the local/CI contract would diverge (#270 review P1 round 2). Match
+# the RAW value (no strip) so surrounding whitespace is rejected too; `fromisoformat`
+# then does calendar validation (e.g. rejecting `2026-13-45`).
+_CURSOR_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
-    The cursor is an ISO high-water DATE, never a free string. Validating it at every
-    read/write boundary keeps the monotonic ``max`` meaningful: an arbitrary string like
-    ``'garbage'`` compares lexicographically ABOVE any real date (``max('garbage',
-    '2026-07-23') == 'garbage'``), which would pin the cursor and re-bootstrap 90 days
-    forever. Accepts ``date``/``datetime``/ISO ``str``; raises ``ValueError`` otherwise.
+
+def parse_cursor_date(value):
+    """Parse a sync-cursor value as a strict `YYYY-MM-DD` calendar date (#270 review P1).
+
+    THE single canonical cursor-value parser — ``services.sync_cursor`` imports this one
+    (service → data is the allowed direction) so the DB-write and resolver boundaries can
+    never diverge. The cursor is an ISO high-water DATE, never a free string: validating
+    it keeps the monotonic ``max`` meaningful (an arbitrary string like ``'garbage'``
+    sorts lexicographically ABOVE any real date, which would pin the cursor and
+    re-bootstrap 90 days forever). Accepts ``date``/``datetime`` objects and an exact
+    ``YYYY-MM-DD`` string (normalized); raises ``ValueError`` for anything else —
+    whitespace, basic/week ISO forms, datetime strings, or non-dates.
     """
     if isinstance(value, datetime):
         return value.date()
@@ -20,11 +32,16 @@ def _parse_cursor_date(value):
         return value
     if value is None:
         raise ValueError("sync cursor value is required (got None)")
+    if not isinstance(value, str) or not _CURSOR_DATE_RE.fullmatch(value):
+        raise ValueError(
+            f"invalid sync cursor {value!r}: expected a strict ISO date 'YYYY-MM-DD' "
+            "(no whitespace, no basic/week ISO forms)"
+        )
     try:
-        return date.fromisoformat(str(value).strip())
+        return date.fromisoformat(value)
     except ValueError as exc:
         raise ValueError(
-            f"invalid sync cursor {value!r}: expected an ISO date (YYYY-MM-DD)"
+            f"invalid sync cursor {value!r}: not a real calendar date"
         ) from exc
 
 
@@ -2991,7 +3008,7 @@ class Database:
         pin a garbage value and re-bootstrap forever). Monotonicity compares parsed
         dates, so a corrupt PERSISTED value is likewise surfaced, not silently maxed.
         Returns the stored (possibly unchanged) ISO-date string."""
-        new_date = _parse_cursor_date(cursor_value)
+        new_date = parse_cursor_date(cursor_value)
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
@@ -3008,8 +3025,9 @@ class Database:
                     (provider, domain, effective.isoformat()),
                 )
             else:
-                effective = max(_parse_cursor_date(row[0]), new_date)
-                if effective != _parse_cursor_date(row[0]):
+                existing_date = parse_cursor_date(row[0])
+                effective = max(existing_date, new_date)
+                if effective != existing_date:
                     cursor.execute(
                         'UPDATE sync_cursors SET cursor_value=?, updated_at=CURRENT_TIMESTAMP '
                         'WHERE provider=? AND domain=?',

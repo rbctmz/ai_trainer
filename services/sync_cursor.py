@@ -16,32 +16,14 @@ which is idempotent (M0 ``UNIQUE`` + upsert).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from typing import Any, Callable
 
+from data.database import parse_cursor_date
 from services.activity_ingest import ProviderActivity, ingest_provider_batch
 
 
 DATE_FMT = "%Y-%m-%d"
-
-
-def _parse_cursor_date(value) -> date:
-    """Strict calendar-date parse for a persisted cursor (#270 review P1). The cursor is
-    an ISO high-water DATE, never a free string; a non-date value raises ``ValueError``.
-    Mirrors ``data.database._parse_cursor_date`` — duplicated deliberately so the service
-    layer never imports a private data-layer helper."""
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    if value is None:
-        raise ValueError("sync cursor value is required (got None)")
-    try:
-        return date.fromisoformat(str(value).strip())
-    except ValueError as exc:
-        raise ValueError(
-            f"invalid sync cursor {value!r}: expected an ISO date (YYYY-MM-DD)"
-        ) from exc
 
 
 @dataclass(frozen=True)
@@ -100,7 +82,7 @@ def resolve_window_from_cursor(
     """
     if not cursor_value:
         return now - timedelta(days=max(1, bootstrap_days)), now, True
-    anchor = _parse_cursor_date(cursor_value)  # invalid persisted cursor → invariant error
+    anchor = parse_cursor_date(cursor_value)  # invalid persisted cursor → invariant error
     if anchor > now.date():
         raise ValueError(
             f"sync cursor {anchor.isoformat()} is ahead of now {now.date().isoformat()} "
