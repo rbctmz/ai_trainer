@@ -16,13 +16,32 @@ which is idempotent (M0 ``UNIQUE`` + upsert).
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, Callable
 
 from services.activity_ingest import ProviderActivity, ingest_provider_batch
 
 
 DATE_FMT = "%Y-%m-%d"
+
+
+def _parse_cursor_date(value) -> date:
+    """Strict calendar-date parse for a persisted cursor (#270 review P1). The cursor is
+    an ISO high-water DATE, never a free string; a non-date value raises ``ValueError``.
+    Mirrors ``data.database._parse_cursor_date`` — duplicated deliberately so the service
+    layer never imports a private data-layer helper."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value is None:
+        raise ValueError("sync cursor value is required (got None)")
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError as exc:
+        raise ValueError(
+            f"invalid sync cursor {value!r}: expected an ISO date (YYYY-MM-DD)"
+        ) from exc
 
 
 @dataclass(frozen=True)
@@ -69,17 +88,26 @@ def resolve_window_from_cursor(
 
     Cursor present → ``[cursor − overlap_days, now]``: the boundary day is re-synced on
     purpose to catch late-uploaded / edited activities, and the idempotent upsert (M0)
-    absorbs the overlap without duplicates. Cursor absent (fresh, or just reset) →
+    absorbs the overlap without duplicates. Cursor ABSENT (fresh, or just reset) →
     bootstrap ``[now − bootstrap_days, now]``. Returns ``(start, end, bootstrapped)``.
+
+    Fail-closed on a bad cursor (review P1): a present-but-invalid persisted cursor is an
+    invariant violation and RAISES — never a silent bootstrap, which would both mask the
+    corruption and, with the monotonic ``max``, re-bootstrap 90 days forever. A cursor
+    AHEAD of ``now`` (clock rewind / corruption) likewise RAISES with a diagnostic rather
+    than returning a false clean no-op (its window would be ``end < start`` → zero chunks,
+    a "successful" sync that reads nothing). Only an ABSENT cursor bootstraps.
     """
-    if cursor_value:
-        try:
-            anchor = datetime.strptime(str(cursor_value)[:10], DATE_FMT)
-        except ValueError:
-            anchor = None
-        if anchor is not None:
-            return anchor - timedelta(days=max(0, overlap_days)), now, False
-    return now - timedelta(days=max(1, bootstrap_days)), now, True
+    if not cursor_value:
+        return now - timedelta(days=max(1, bootstrap_days)), now, True
+    anchor = _parse_cursor_date(cursor_value)  # invalid persisted cursor → invariant error
+    if anchor > now.date():
+        raise ValueError(
+            f"sync cursor {anchor.isoformat()} is ahead of now {now.date().isoformat()} "
+            "— refusing to sync (corrupt cursor or clock rewind); reset to re-bootstrap"
+        )
+    start = datetime(anchor.year, anchor.month, anchor.day) - timedelta(days=max(0, overlap_days))
+    return start, now, False
 
 
 def iter_chunks(start: datetime, end: datetime, chunk_days: int) -> list[tuple[datetime, datetime]]:

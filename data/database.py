@@ -1,8 +1,32 @@
 import json
 import sqlite3
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from config.settings import Settings
+
+
+def _parse_cursor_date(value):
+    """Parse a sync-cursor value as a strict calendar date (#270 review P1).
+
+    The cursor is an ISO high-water DATE, never a free string. Validating it at every
+    read/write boundary keeps the monotonic ``max`` meaningful: an arbitrary string like
+    ``'garbage'`` compares lexicographically ABOVE any real date (``max('garbage',
+    '2026-07-23') == 'garbage'``), which would pin the cursor and re-bootstrap 90 days
+    forever. Accepts ``date``/``datetime``/ISO ``str``; raises ``ValueError`` otherwise.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value is None:
+        raise ValueError("sync cursor value is required (got None)")
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError as exc:
+        raise ValueError(
+            f"invalid sync cursor {value!r}: expected an ISO date (YYYY-MM-DD)"
+        ) from exc
+
 
 class Database:
     _ACTIVITY_COLUMN_ORDER = [
@@ -2959,10 +2983,15 @@ class Database:
     def set_sync_cursor(self, provider, domain, cursor_value):
         """M1 (#270): upsert the sync cursor MONOTONICALLY — never lower an existing
         high-water boundary. A historical reload (explicit ``days=N``, bootstrap replay)
-        processes old windows but must not pull the cursor backward (§4). ISO-date
-        strings compare chronologically, so the effective value is the lexicographic
-        max. Returns the stored (possibly unchanged) cursor value."""
-        new_value = self.clean_value(cursor_value)
+        processes old windows but must not pull the cursor backward (§4).
+
+        Only a valid calendar date is accepted (via :func:`_parse_cursor_date`), stored
+        NORMALIZED as ``YYYY-MM-DD``; a non-date value raises ``ValueError`` at this
+        boundary rather than being persisted (review P1 — else lexicographic max could
+        pin a garbage value and re-bootstrap forever). Monotonicity compares parsed
+        dates, so a corrupt PERSISTED value is likewise surfaced, not silently maxed.
+        Returns the stored (possibly unchanged) ISO-date string."""
+        new_date = _parse_cursor_date(cursor_value)
         conn = sqlite3.connect(self.db_path)
         try:
             cursor = conn.cursor()
@@ -2971,25 +3000,25 @@ class Database:
                 (provider, domain),
             )
             row = cursor.fetchone()
-            existing = row[0] if row else None
-            candidates = [value for value in (existing, new_value) if value is not None]
-            effective = max(candidates) if candidates else None
             if row is None:
+                effective = new_date
                 cursor.execute(
                     'INSERT INTO sync_cursors (provider, domain, cursor_value, updated_at) '
                     'VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
-                    (provider, domain, effective),
+                    (provider, domain, effective.isoformat()),
                 )
-            elif effective != existing:
-                cursor.execute(
-                    'UPDATE sync_cursors SET cursor_value=?, updated_at=CURRENT_TIMESTAMP '
-                    'WHERE provider=? AND domain=?',
-                    (effective, provider, domain),
-                )
+            else:
+                effective = max(_parse_cursor_date(row[0]), new_date)
+                if effective != _parse_cursor_date(row[0]):
+                    cursor.execute(
+                        'UPDATE sync_cursors SET cursor_value=?, updated_at=CURRENT_TIMESTAMP '
+                        'WHERE provider=? AND domain=?',
+                        (effective.isoformat(), provider, domain),
+                    )
             conn.commit()
         finally:
             conn.close()
-        return effective
+        return effective.isoformat()
 
     def sync_activities(self, activities):
         """Умная синхронизация активностей без дублей"""

@@ -234,3 +234,119 @@ def test_run_windowed_sync_does_not_mask_ingest_errors(tmp_path, monkeypatch):
         )
 
     assert db.get_sync_cursor("intervals", "activities") is None  # cursor unmoved
+
+
+# --- P1: cursor is a validated ISO date; future/corrupt fails closed -----------
+
+def test_set_sync_cursor_rejects_non_iso_date(tmp_path):
+    """The cursor is an ISO high-water DATE, never a free string: a non-date is refused
+    at the write boundary. Otherwise the lexicographic-max monotonicity could pin a
+    garbage value (``max('garbage', '2026-07-23') == 'garbage'``) and re-bootstrap 90
+    days forever."""
+    db = Database(str(tmp_path / "reject.db"))
+    for bad in ("garbage", "2026-13-45", "2026/07/23", ""):
+        with pytest.raises(ValueError):
+            db.set_sync_cursor("intervals", "activities", bad)
+    assert db.get_sync_cursor("intervals", "activities") is None  # nothing stored
+
+    # a valid date is stored NORMALIZED to YYYY-MM-DD
+    assert db.set_sync_cursor("intervals", "activities", "2026-07-05") == "2026-07-05"
+
+
+def test_resolve_window_rejects_future_cursor():
+    """A cursor ahead of ``now`` (clock rewind / corruption) must NOT resolve to a
+    false clean no-op (end < start → 0 chunks): fail closed with a diagnostic."""
+    with pytest.raises(ValueError, match="ahead of now"):
+        resolve_window_from_cursor("2099-01-01", now=NOW, overlap_days=1, bootstrap_days=90)
+
+
+def test_resolve_window_rejects_corrupt_cursor():
+    """A present-but-invalid persisted cursor is an invariant violation, not a silent
+    bootstrap (which would mask corruption and, with monotonic max, loop forever)."""
+    with pytest.raises(ValueError):
+        resolve_window_from_cursor("garbage", now=NOW, overlap_days=1, bootstrap_days=90)
+
+
+def test_m1_future_cursor_fails_closed_in_runner(tmp_path):
+    """Repro from review: cursor 2099-01-01 with now=2026-07-23 used to give fetch=0,
+    chunks=0, halted=False — a sync that 'succeeds' while reading nothing. Now the runner
+    raises before any fetch and the cursor is left untouched."""
+    db = Database(str(tmp_path / "future.db"))
+    db.set_sync_cursor("intervals", "activities", "2099-01-01")  # valid date, in the future
+    fetch_calls: list = []
+
+    def fetch(chunk_start, chunk_end):
+        fetch_calls.append((chunk_start, chunk_end))
+        return ChunkFetch(candidates=[], dirty=False)
+
+    with pytest.raises(ValueError, match="ahead of now"):
+        run_windowed_sync(
+            db, "intervals", "activities", fetch_chunk=fetch, now=NOW,
+            overlap_days=1, bootstrap_days=90, chunk_days=90,
+        )
+
+    assert fetch_calls == []  # no false-success sync
+    assert db.get_sync_cursor("intervals", "activities") == "2099-01-01"  # untouched
+
+
+def test_m1_corrupt_persisted_cursor_fails_closed_in_runner(tmp_path):
+    """A corrupt cursor that somehow bypassed the write guard is caught on the read path:
+    the runner raises rather than silently bootstrapping (and re-bootstrapping forever)."""
+    db = Database(str(tmp_path / "corrupt.db"))
+    conn = sqlite3.connect(db.db_path)
+    conn.execute(
+        "INSERT INTO sync_cursors (provider, domain, cursor_value) VALUES (?, ?, ?)",
+        ("intervals", "activities", "garbage"),
+    )
+    conn.commit()
+    conn.close()
+
+    fetch_calls: list = []
+
+    def fetch(chunk_start, chunk_end):
+        fetch_calls.append(1)
+        return ChunkFetch(candidates=[], dirty=False)
+
+    with pytest.raises(ValueError):
+        run_windowed_sync(
+            db, "intervals", "activities", fetch_chunk=fetch, now=NOW, chunk_days=90,
+        )
+    assert fetch_calls == []
+
+
+# --- P2: cursor-write failure propagates; data safe; idempotent retry ----------
+
+def test_m1_cursor_write_error_propagates_and_leaves_data_recoverable(tmp_path, monkeypatch):
+    """Review constraint 3 (now gated): the batch commits the activity, then
+    set_sync_cursor fails → the exception surfaces (not masked), the activity/link stay
+    committed, the cursor never appears, and a retry is idempotent (no duplicates)."""
+    db = Database(str(tmp_path / "cursor-write.db"))
+
+    def failing_set(provider, domain, cursor_value):
+        raise RuntimeError("cursor write failed")
+
+    monkeypatch.setattr(db, "set_sync_cursor", failing_set)
+
+    def fetch(chunk_start, chunk_end):
+        return ChunkFetch(candidates=[_garmin_candidate("111")], dirty=False)
+
+    with pytest.raises(RuntimeError, match="cursor write failed"):
+        run_windowed_sync(
+            db, "intervals", "activities", fetch_chunk=fetch, now=NOW, chunk_days=90,
+            primary_source="garmin",
+        )
+
+    # activity committed before the (failed) cursor write; cursor never appeared
+    assert _activity_ids(db) == {"111"}
+    assert _orphan_count(db) == 0
+    monkeypatch.undo()  # restore the real set_sync_cursor
+    assert db.get_sync_cursor("intervals", "activities") is None
+
+    # retry now succeeds, idempotently (no duplicate activity), cursor lands
+    retry = run_windowed_sync(
+        db, "intervals", "activities", fetch_chunk=fetch, now=NOW, chunk_days=90,
+        primary_source="garmin",
+    )
+    assert retry.halted is False
+    assert _activity_ids(db) == {"111"}  # no duplicate
+    assert db.get_sync_cursor("intervals", "activities") == NOW.strftime("%Y-%m-%d")
