@@ -1,4 +1,13 @@
-"""In-process Garmin sync job lifecycle for the FastAPI web API."""
+"""In-process sync job lifecycle for the FastAPI web API.
+
+Source-aware (slice-spec §5, gate M1-T7): the manager runs ONE sync job at a time
+(single-flight across ALL providers — SQLite has a single writer), regardless of
+``source``. A second ``start_or_get`` while a job runs returns a snapshot of the
+RUNNING job with ``reused=True`` and does NOT start a second job and does NOT
+change the running job's ``source``. ``source`` ('garmin' | 'intervals') is carried
+through the snapshot and result so the UI and diagnostics know which provider
+synced; an idle snapshot carries ``source=None`` (no provider has synced yet).
+"""
 from __future__ import annotations
 
 from datetime import datetime
@@ -7,7 +16,7 @@ import uuid
 from typing import Any, Callable
 
 from api.operational_state import build_operational_state, latest_iso_from_database
-from services.sync import SyncProgressUpdate
+from services.sync_contracts import SyncProgressUpdate
 
 
 SyncRunner = Callable[[Callable[[SyncProgressUpdate], None]], dict[str, Any]]
@@ -18,7 +27,10 @@ class SyncJobManager:
 
     This intentionally avoids external queues because the current product runs
     as a local single-user FastAPI process. The lock protects shared snapshots
-    while a background thread performs the slow Garmin sync.
+    while a background thread performs the slow provider sync. The manager is
+    provider-agnostic: ``source`` labels which provider a job targets and is
+    surfaced additively (a running job of one source blocks a start of another —
+    single-flight across all providers).
     """
 
     def __init__(self) -> None:
@@ -32,9 +44,13 @@ class SyncJobManager:
         run_sync: SyncRunner,
         db: Any | None = None,
         demo: bool = False,
+        source: str = "garmin",
     ) -> dict[str, Any]:
         with self._lock:
             if self._job.get("sync_state") == "running":
+                # Single-flight across ALL providers: a second request (any source)
+                # returns the RUNNING job's snapshot with reused=True — it does NOT
+                # start a second job and does NOT change the running job's source.
                 return self._public_snapshot_locked(db=db, demo=demo, reused=True)
 
             job_id = str(uuid.uuid4())[:8]
@@ -45,9 +61,10 @@ class SyncJobManager:
                 "started_at": _now_iso(),
                 "finished_at": None,
                 "days": days,
+                "source": source,
                 "progress": {
                     "percent": 0,
-                    "message": "Синхронизация Garmin запущена",
+                    "message": _source_message(source, "запущена"),
                     "step_text": None,
                     "stats_message": None,
                 },
@@ -57,8 +74,8 @@ class SyncJobManager:
 
             thread = Thread(
                 target=self._run_job,
-                args=(job_id, run_sync),
-                name=f"garmin-sync-{job_id}",
+                args=(job_id, run_sync, source),
+                name=f"sync-{source}-{job_id}",
                 daemon=True,
             )
             thread.start()
@@ -72,7 +89,7 @@ class SyncJobManager:
         with self._lock:
             self._job = self._idle_snapshot()
 
-    def _run_job(self, job_id: str, run_sync: SyncRunner) -> None:
+    def _run_job(self, job_id: str, run_sync: SyncRunner, source: str) -> None:
         def on_progress(update: SyncProgressUpdate) -> None:
             with self._lock:
                 if self._job.get("job_id") != job_id:
@@ -117,7 +134,7 @@ class SyncJobManager:
                         "finished_at": _now_iso(),
                         "progress": {
                             "percent": 100,
-                            "message": "Синхронизация Garmin завершилась ошибкой",
+                            "message": _source_message(source, "завершилась ошибкой"),
                             "step_text": None,
                             "stats_message": message,
                         },
@@ -162,6 +179,7 @@ class SyncJobManager:
             "started_at": None,
             "finished_at": None,
             "days": None,
+            "source": None,  # no provider has synced yet (review P3: idle = None)
             "progress": None,
             "result": None,
             "error": None,
@@ -170,6 +188,23 @@ class SyncJobManager:
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+# Provider label for generic progress/failure messages. Neither message is
+# Garmin-specific anymore (review P6): the job manager is source-aware, so the
+# thread name, the start message and the failure message all carry the actual
+# provider. The label is pinned for both sources so the wording is stable.
+_SOURCE_LABELS = {
+    "garmin": "Garmin",
+    "intervals": "Intervals.icu",
+}
+
+
+def _source_message(source: str, tail: str) -> str:
+    """Generic sync message: ``"Синхронизация {label} {tail}"``. An unknown source
+    falls back to a neutral word so the message is never empty."""
+    label = _SOURCE_LABELS.get(source, "синхронизации")
+    return f"Синхронизация {label} {tail}"
 
 
 sync_job_manager = SyncJobManager()
