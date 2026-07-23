@@ -666,6 +666,20 @@ class Database:
             ON activity_provider_links(external_provider, external_id)
             WHERE external_id IS NOT NULL
         ''')
+        # M1 (#270): persistent per-provider / per-domain sync cursor. cursor_value is
+        # the ISO-date HIGH-WATER boundary of the window a provider has fully, cleanly
+        # processed (NOT the last activity's date). Advanced only after a whole
+        # successful batch, monotonically (services.sync_cursor.run_windowed_sync).
+        # Additive, non-destructive.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS sync_cursors (
+                provider TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                cursor_value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (provider, domain)
+            )
+        ''')
         self._ensure_activity_columns(conn)
         self._repair_legacy_activity_tss(conn)
         self._ensure_sleep_columns(conn)
@@ -2927,6 +2941,56 @@ class Database:
         conn.close()
         return latest
 
+    def get_sync_cursor(self, provider, domain):
+        """M1 (#270): read the persistent per-provider/per-domain sync cursor — the ISO
+        high-water boundary of the last fully-processed window — or None if unset."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT cursor_value FROM sync_cursors WHERE provider=? AND domain=?',
+                (provider, domain),
+            )
+            row = cursor.fetchone()
+        finally:
+            conn.close()
+        return row[0] if row and row[0] else None
+
+    def set_sync_cursor(self, provider, domain, cursor_value):
+        """M1 (#270): upsert the sync cursor MONOTONICALLY — never lower an existing
+        high-water boundary. A historical reload (explicit ``days=N``, bootstrap replay)
+        processes old windows but must not pull the cursor backward (§4). ISO-date
+        strings compare chronologically, so the effective value is the lexicographic
+        max. Returns the stored (possibly unchanged) cursor value."""
+        new_value = self.clean_value(cursor_value)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT cursor_value FROM sync_cursors WHERE provider=? AND domain=?',
+                (provider, domain),
+            )
+            row = cursor.fetchone()
+            existing = row[0] if row else None
+            candidates = [value for value in (existing, new_value) if value is not None]
+            effective = max(candidates) if candidates else None
+            if row is None:
+                cursor.execute(
+                    'INSERT INTO sync_cursors (provider, domain, cursor_value, updated_at) '
+                    'VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+                    (provider, domain, effective),
+                )
+            elif effective != existing:
+                cursor.execute(
+                    'UPDATE sync_cursors SET cursor_value=?, updated_at=CURRENT_TIMESTAMP '
+                    'WHERE provider=? AND domain=?',
+                    (effective, provider, domain),
+                )
+            conn.commit()
+        finally:
+            conn.close()
+        return effective
+
     def sync_activities(self, activities):
         """Умная синхронизация активностей без дублей"""
         if not activities:
@@ -3391,6 +3455,11 @@ class Database:
             # ADR-0008 (#269): provider-links must be cleared with activities, else
             # a reset leaves orphan links that double-count load on the next sync.
             'activity_provider_links',
+            # M1 (#270): sync cursors must be cleared too, else a reset wipes the
+            # activities but leaves a high-water boundary and the purged history never
+            # re-syncs (next sync starts after an already-deleted date). Cleared →
+            # next sync bootstraps the 90-day window (M1-T8).
+            'sync_cursors',
         ):
             try:
                 cursor.execute(f'DELETE FROM {table}')
