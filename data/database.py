@@ -3181,16 +3181,30 @@ class Database:
             if old_garmin_coord and old_garmin_coord != new_garmin_coord:
                 affected |= self._resolve_garmin_coordinate(cursor, old_garmin_coord)
 
-            # Re-project every touched canonical from its links (lossless & ordered).
-            for canonical_id in affected:
-                self._project_canonical(cursor, canonical_id, primary_source)
-
+            # The link's canonical assignment and match_status are final once the
+            # coordinate is resolved above — projection only rewrites `activities`,
+            # never the links — so read them BEFORE projecting.
             cursor.execute(
                 'SELECT canonical_activity_id, match_status FROM activity_provider_links '
                 'WHERE provider=? AND provider_activity_id=?',
                 (provider, provider_activity_id),
             )
             final = cursor.fetchone()
+
+            # canonical_created (M1 D1): will this activity's RESOLVED canonical row be
+            # CREATED by the projection below, or does it already exist? Measured by
+            # activities-row existence, NOT link existence — matching the legacy
+            # `sync_activities` new/updated semantics. So a Garmin activity resolved
+            # onto a pre-existing legacy row (no prior link) counts as `updated`, while
+            # a Garmin activity that supersedes a standalone `intervals_<id>` gets a
+            # brand-new canonical and counts as `new`. Re-added additively for the
+            # Garmin sync counters (ADR-0008 п.5; removed in M0 round 3).
+            cursor.execute('SELECT 1 FROM activities WHERE activity_id=?', (final[0],))
+            canonical_created = cursor.fetchone() is None
+
+            # Re-project every touched canonical from its links (lossless & ordered).
+            for canonical_id in affected:
+                self._project_canonical(cursor, canonical_id, primary_source)
 
             conn.commit()
         except Exception:
@@ -3204,6 +3218,7 @@ class Database:
             'provider': provider,
             'match_status': final[1],
             'ambiguous': final[1] == 'ambiguous',
+            'canonical_created': canonical_created,
         }
 
     def backfill_activity_provider_links(self, classify):

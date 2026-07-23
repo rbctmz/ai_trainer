@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from config.settings import Settings
+from data.database import Database
 from services import sync as sync_service
 
 
@@ -120,17 +121,38 @@ class _StubGarminClient:
 
 
 class _StubDatabase:
-    def __init__(self) -> None:
-        self.activities = None
+    """Real activity persistence + lightweight wellness capture.
+
+    After M1 D1 the Garmin sync writes activities through the provider-link ingest
+    (``write_provider_activity`` → projection), so the activity path delegates to a
+    REAL embedded ``Database`` — this is what makes these tests exercise (and prove
+    byte-identity of) the real ingest path. HRV/sleep/health/training-status are
+    still captured in-memory for the pipeline assertions. It DELIBERATELY omits
+    ``save_readiness_snapshot`` so ``sync_garmin_data`` skips the optional
+    recovery-snapshot hook and the exact warnings/details assertions stay stable.
+    """
+
+    def __init__(self, real_db: Database) -> None:
+        self._db = real_db
         self.hrv = None
         self.sleep = None
         self.health = None
         self.training_status = None
 
-    def sync_activities(self, activities):
-        self.activities = activities
-        return {"new": len(activities), "updated": 0, "skipped": 0}
+    # --- activity path → real provider-link ingest (M1 D1) ---
+    def clean_value(self, value):
+        return self._db.clean_value(value)
 
+    def write_provider_activity(self, canonical, link, *, primary_source):
+        return self._db.write_provider_activity(canonical, link, primary_source=primary_source)
+
+    def get_latest_data_dates(self):
+        return self._db.get_latest_data_dates()
+
+    def get_activities(self, days=3650):
+        return self._db.get_activities(days=days)
+
+    # --- wellness → in-memory capture (unchanged) ---
     def sync_hrv_data(self, hrv_data):
         self.hrv = hrv_data
         return {"new": len(hrv_data), "updated": 0}
@@ -154,10 +176,14 @@ class _StubDatabase:
         pass
 
 
+def _make_database(tmp_path) -> Database:
+    return Database(str(tmp_path / "garmin-sync.db"))
+
+
 class _StubState:
-    def __init__(self) -> None:
+    def __init__(self, database) -> None:
         self.garmin_client = _StubGarminClient()
-        self.database = _StubDatabase()
+        self.database = database
 
 
 class _FlakySleepClient(_StubGarminClient):
@@ -178,13 +204,14 @@ class _FlakySleepClient(_StubGarminClient):
 
 
 class _FlakySleepState(_StubState):
-    def __init__(self) -> None:
+    def __init__(self, database) -> None:
         self.garmin_client = _FlakySleepClient()
-        self.database = _StubDatabase()
+        self.database = database
 
 
-def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.MonkeyPatch):
-    state = _StubState()
+def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    db = _make_database(tmp_path)
+    state = _StubState(_StubDatabase(db))
     progress_updates: list[sync_service.SyncProgressUpdate] = []
     cache_cleared = False
 
@@ -205,6 +232,7 @@ def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.Monke
     assert any(update.stats_message == "Найдено активностей: 1" for update in progress_updates)
 
     assert result.warnings == ["partial Garmin warning"]
+    assert result.source == "garmin"
     assert result.activity_result == {"new": 1, "updated": 0, "skipped": 0}
     assert result.hrv_result["new"] >= 1
     assert result.sleep_result["new"] >= 1
@@ -212,12 +240,28 @@ def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.Monke
     assert "🎯 Статус тренированности: не найден (возможно, требуется Premium подписка Garmin)" in result.details
     assert "🆕 1 новых активностей" in result.success_messages
 
-    assert state.database.activities
-    assert state.database.activities[0]["tss"] == 74.0
-    assert state.database.activities[0]["garmin_training_load"] == 47.4
-    assert state.database.activities[0]["source_tss"] == 47.4
-    assert state.database.activities[0]["tss_method"] == "hr_tss_run"
-    assert state.database.activities[0]["started_at_utc"] == "2026-01-01T07:00:00Z"
+    # After M1 D1 the activity is persisted through the provider-link projection;
+    # the stored row must be byte-identical to what the legacy bulk write produced.
+    stored = db.get_activities(days=3650)
+    assert len(stored) == 1
+    stored_row = stored.iloc[0]
+    assert stored_row["activity_id"] == "run-1"
+    assert stored_row["tss"] == 74.0
+    assert stored_row["garmin_training_load"] == 47.4
+    assert stored_row["source_tss"] == 47.4
+    assert stored_row["tss_method"] == "hr_tss_run"
+    assert stored_row["started_at_utc"] == "2026-01-01T07:00:00Z"
+    # The activity has exactly one Garmin provider-link on its own canonical.
+    import sqlite3
+
+    conn = sqlite3.connect(db.db_path)
+    links = conn.execute(
+        "SELECT provider, provider_activity_id, canonical_activity_id "
+        "FROM activity_provider_links"
+    ).fetchall()
+    conn.close()
+    assert links == [("garmin", "run-1", "run-1")]
+
     assert state.database.hrv
     for entry in state.database.hrv.values():
         assert entry["recovery_score"] == 80
@@ -234,11 +278,11 @@ def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.Monke
     assert cache_cleared is True
 
 
-def test_sync_garmin_data_calls_athlete_profile_sync_before_resolving_activity_tss(monkeypatch: pytest.MonkeyPatch):
+def test_sync_garmin_data_calls_athlete_profile_sync_before_resolving_activity_tss(monkeypatch: pytest.MonkeyPatch, tmp_path):
     """Issue #102: sync_garmin_data must refresh the Intervals.icu athlete
     profile before it resolves any activity's TSS this run, so a freshly
     synced FTP applies immediately rather than only on the next sync."""
-    state = _StubState()
+    state = _StubState(_StubDatabase(_make_database(tmp_path)))
     monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
 
     call_order: list[str] = []
@@ -249,9 +293,9 @@ def test_sync_garmin_data_calls_athlete_profile_sync_before_resolving_activity_t
 
     original_sync_activities = sync_service._sync_activities
 
-    def wrapped_sync_activities(database, activities):
+    def wrapped_sync_activities(database, activities, **kwargs):
         call_order.append("activities")
-        return original_sync_activities(database, activities)
+        return original_sync_activities(database, activities, **kwargs)
 
     monkeypatch.setattr(sync_service.intervals_icu_service, "sync_athlete_profile", fake_sync_athlete_profile)
     monkeypatch.setattr(sync_service, "_sync_activities", wrapped_sync_activities)
@@ -261,10 +305,10 @@ def test_sync_garmin_data_calls_athlete_profile_sync_before_resolving_activity_t
     assert call_order == ["profile_sync", "activities"]
 
 
-def test_sync_garmin_data_folds_athlete_profile_failure_into_warnings(monkeypatch: pytest.MonkeyPatch):
+def test_sync_garmin_data_folds_athlete_profile_failure_into_warnings(monkeypatch: pytest.MonkeyPatch, tmp_path):
     """A real Intervals.icu failure (not just "not configured") must show up
     as a warning, not silently disappear or abort the Garmin sync."""
-    state = _StubState()
+    state = _StubState(_StubDatabase(_make_database(tmp_path)))
     monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
     monkeypatch.setattr(
         sync_service.intervals_icu_service,
@@ -349,8 +393,8 @@ def test_peak_body_battery_empty_array_returns_none():
     assert sync_service._peak_body_battery([[0, None]]) is None
 
 
-def test_sync_service_retries_transient_sleep_errors(monkeypatch: pytest.MonkeyPatch):
-    state = _FlakySleepState()
+def test_sync_service_retries_transient_sleep_errors(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    state = _FlakySleepState(_StubDatabase(_make_database(tmp_path)))
     monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
     monkeypatch.setattr(sync_service.time, "sleep", lambda _seconds: None)
 

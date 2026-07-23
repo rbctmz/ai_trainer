@@ -8,8 +8,10 @@ import time
 import uuid
 from typing import Any, Callable, Dict
 
+from config.settings import Settings
 from data.data_processor import ActivityProcessor, resolve_athlete_ftp_lthr
 from data.data_processor_phase1 import Phase1DataProcessor
+from services.activity_ingest import ingest_provider_activity, normalize_provider_activity
 from services.data_cache import clear_data_caches
 from state import StateManager
 
@@ -71,6 +73,9 @@ class GarminSyncResult:
     success_messages: list[str] = field(default_factory=list)
     mode: str = "full"
     days: int = DEFAULT_SYNC_DAYS
+    # Which provider this result came from. Additive in M1 (§5): the ONLY new field
+    # the Garmin success-path exposes vs. pre-M1 (gate M1-T3). Defaults to 'garmin'.
+    source: str = "garmin"
 
     def totals(self) -> SyncCounts:
         """Aggregate new/updated/skipped counts across every synced domain."""
@@ -222,6 +227,8 @@ def build_sync_status_payload(result: GarminSyncResult, days: int | None = None)
         "recovery_changes": recovery_changes,
         "highlights": list(result.success_messages[:4]),
         "notices": list((result.warnings + result.details)[:4]),
+        # Additive in M1 (§5): the sole new key vs. the pre-M1 payload (gate M1-T3).
+        "source": result.source,
     }
 
 
@@ -281,7 +288,7 @@ def sync_garmin_data(
         step_text="Шаг 2/5: Обработка активностей...",
         stats_message=f"Найдено активностей: {len(activities)}" if activities else None,
     )
-    result.activity_result = _sync_activities(database, activities)
+    result.activity_result = _sync_activities(database, activities, warnings=result.warnings)
 
     _emit_progress(
         on_progress,
@@ -541,28 +548,70 @@ def _extend_warnings(warnings: list[str], new_warnings: list[str]) -> None:
         _append_warning(warnings, message)
 
 
-def _sync_activities(database: Any, activities: list[dict[str, Any]]) -> SyncCounts:
+def _sync_activities(
+    database: Any,
+    activities: list[dict[str, Any]],
+    *,
+    warnings: list[str] | None = None,
+) -> SyncCounts:
+    """Persist Garmin activities through the common provider-link ingest (M1 D1).
+
+    Each processed+TSS-resolved activity flows through
+    ``normalize_provider_activity(..., "garmin") → ingest_provider_activity`` — the
+    same funnel Intervals uses — instead of the legacy bulk ``sync_activities``.
+    The returned counts stay 1:1 with the old contract: ``skipped`` = no
+    ``activity_id`` (filtered before normalize, as before); ``new`` =
+    ``canonical_created`` (the projection created the ``activities`` row);
+    ``updated`` = the canonical already existed.
+
+    Success-path behaviour is unchanged (gate M1-T3). Failure-path is
+    DELIBERATELY changed (gate M1-T3b): ingest is per-activity atomic, so a single
+    failing activity is rolled back whole (no orphan link, M0) and folded into
+    ``warnings`` while the sync CONTINUES with the rest — the old bulk write was
+    all-or-nothing. A ``warnings`` list is appended to when provided (the Garmin
+    sync passes ``result.warnings``); callers that only want the counts may omit it.
+    """
+    counts = _empty_activity_counts()
+    if warnings is None:
+        warnings = []
     if not activities:
-        return _empty_activity_counts()
+        return counts
 
     df = ActivityProcessor.process_activities(activities)
     if df.empty:
-        return _empty_activity_counts()
+        return counts
 
     ftp, lthr = resolve_athlete_ftp_lthr(database)
-    resolved_activities = []
     for _, row in df.iterrows():
         activity_dict = row.to_dict()
         activity_dict.update(
-            ActivityProcessor.resolve_tss(
-                activity_dict,
-                ftp=ftp,
-                lthr=lthr,
-            )
+            ActivityProcessor.resolve_tss(activity_dict, ftp=ftp, lthr=lthr)
         )
-        resolved_activities.append(activity_dict)
+        # Normalize values to SQLite-native scalars BEFORE they enter the link
+        # payload: the projection re-derives the canonical row from that JSON
+        # snapshot, so a pandas Timestamp/NaT must be collapsed to the same
+        # string/None the legacy `sync_activities` stored (via clean_value) — else
+        # a date like "2026-07-10 00:00:00" would replace "2026-07-10" and break
+        # date-keyed reads. clean_value is idempotent for these scalars.
+        cleaned = {key: database.clean_value(value) for key, value in activity_dict.items()}
+        activity_id = cleaned.get("activity_id")
+        if not activity_id:  # matches legacy sync_activities' skip test
+            counts["skipped"] += 1
+            continue
+        try:
+            candidate = normalize_provider_activity(cleaned, "garmin")
+            outcome = ingest_provider_activity(
+                database, candidate, primary_source=Settings.PRIMARY_ACTIVITY_SOURCE
+            )
+        except Exception as exc:  # per-activity atomic failure → warn and continue
+            _append_warning(warnings, f"⚠️ Активность {activity_id} не сохранена: {exc}")
+            continue
+        if outcome.get("canonical_created"):
+            counts["new"] += 1
+        else:
+            counts["updated"] += 1
 
-    return database.sync_activities(resolved_activities)
+    return counts
 
 
 def _peak_body_battery(battery_values: list[Any]) -> float | None:
