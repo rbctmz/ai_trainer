@@ -1,0 +1,382 @@
+"""M1 (#270) §11 step 3 — Intervals adapter ``sync_intervals_data`` (gate M1-T4).
+
+The Intervals-only vertical: without any Garmin credentials the adapter still
+populates ``activities`` (and its provider-links) through the SAME common-ingest
+funnel Garmin uses, and CTL/ATL are computed from that Intervals-only load. This
+covers slice-spec §3 + the five review refinements:
+
+- Database-first contract — the core takes a ``Database``, not a StateManager.
+- ``days=N`` is an explicit historical-window override (exact ``[now-N, now]``,
+  ``bootstrapped=False``); the high-water cursor never moves backward.
+- Fail-closed provider response: a malformed / non-list payload, a network/429
+  error and a normalization error all mark the chunk dirty (no cursor advance);
+  a missing API key fails fast BEFORE the runner runs; ``athlete_id="0"`` is valid.
+- Chunk-boundary dedup: an activity returned by two adjacent chunks is ingested
+  exactly once (``ingested == new``, ``updated == 0``).
+- Result semantics: ``new``/``updated`` from ``canonical_created``,
+  ``new + updated == ingested``, clean-response ``skipped == 0``.
+
+The fake provider is a real ``IntervalsICUClient`` subclass whose ``_request_json``
+is overridden, so the fail-closed behavior tested is the production code path
+(same parser, same exception), not a re-implementation in the test.
+"""
+from __future__ import annotations
+
+import sqlite3
+from datetime import date, datetime, timedelta
+from typing import Any
+
+import pandas as pd
+import pytest
+
+from config.settings import Settings
+from data.database import Database
+from models.signals_engine import training_load_metrics
+from services.intervals_icu import (
+    IntervalsICUClient,
+    IntervalsICUConfigurationError,
+    IntervalsICUError,
+)
+from services.intervals_sync import IntervalsSyncResult, sync_intervals_data
+
+pytestmark = pytest.mark.smoke
+
+NOW = datetime(2026, 7, 23)
+
+
+def _row(
+    intervals_id: str = "i_777",
+    *,
+    external_id: str | None = "555111",
+    source: str | None = "GARMIN_CONNECT",
+    icu_training_load: Any = 90,
+    start_date_local: str = "2026-07-10T06:30:00",
+    moving_time: Any = 5700,
+    **overrides: Any,
+) -> dict[str, Any]:
+    row = {
+        "id": intervals_id,
+        "external_id": external_id,
+        "source": source,
+        "start_date": "2026-07-10T04:30:00Z",
+        "start_date_local": start_date_local,
+        "type": "Ride",
+        "name": "Morning Ride",
+        "icu_training_load": icu_training_load,
+        "moving_time": moving_time,
+    }
+    row.update(overrides)
+    return row
+
+
+class FakeIntervalsClient(IntervalsICUClient):
+    """A real ``IntervalsICUClient`` whose network layer is replaced by a
+    programmable responder, so list_activities' parsing/exception path is the
+    production code path. ``configured=True`` unless explicitly disabled."""
+
+    def __init__(self, responder, *, configured: bool = True, athlete_id: str = "0"):
+        super().__init__(api_key="test-key" if configured else "", athlete_id=athlete_id)
+        self._responder = responder
+
+    def _request_json(self, method, path, payload=None, params=None):
+        return self._responder(method, path, params)
+
+
+def _ids(db: Database) -> set[str]:
+    conn = sqlite3.connect(db.db_path)
+    ids = {r[0] for r in conn.execute("SELECT activity_id FROM activities")}
+    conn.close()
+    return ids
+
+
+def _links(db: Database) -> list[tuple[str, str]]:
+    conn = sqlite3.connect(db.db_path)
+    rows = list(
+        conn.execute(
+            "SELECT provider, provider_activity_id FROM activity_provider_links"
+        )
+    )
+    conn.close()
+    return rows
+
+
+def _activities_df(db: Database) -> pd.DataFrame:
+    conn = sqlite3.connect(db.db_path)
+    df = pd.read_sql_query("SELECT date, tss FROM activities", conn)
+    conn.close()
+    return df
+
+
+# --- M1-T4: Intervals-only vertical ------------------------------------------
+
+
+def test_m1_t4_intervals_only_populates_activities_and_load(tmp_path):
+    """Without Garmin creds the adapter populates activities + provider-links and
+    CTL/ATL compute (non-zero) from the Intervals-only load."""
+    db = Database(str(tmp_path / "t4.db"))
+
+    def responder(method, path, params):
+        return [_row("i_A"), _row("i_B", source="STRAVA", external_id="X1")]
+
+    client = FakeIntervalsClient(responder)
+
+    result = sync_intervals_data(db, client=client, now=NOW)
+
+    assert isinstance(result, IntervalsSyncResult)
+    assert result.source == "intervals"
+    # Intervals-only: even the Garmin-attributed copy stays on its standalone
+    # intervals_<id> canonical as `unmatched` until a real Garmin activity lands
+    # (M0 coexistence — _resolve_garmin_coordinate, single claimant + no Garmin
+    # link). Both rows populate activities through the common ingest.
+    assert _ids(db) == {"intervals_i_A", "intervals_i_B"}
+    assert len(_links(db)) == 2  # two intervals links
+
+    df = _activities_df(db)
+    assert not df.empty
+    assert df["tss"].notna().any()
+    metrics = training_load_metrics(df, as_of=NOW.date())
+    assert metrics["ctl"] > 0.0
+    assert metrics["atl"] > 0.0
+
+
+def test_m1_t4_not_garmin_gated(tmp_path, monkeypatch):
+    """The adapter is gated only on the Intervals API key, never on Garmin auth."""
+    import services.garmin as garmin_service
+
+    db = Database(str(tmp_path / "notgarmin.db"))
+    monkeypatch.setattr(garmin_service, "is_authenticated", lambda state: False)
+
+    def responder(method, path, params):
+        return [_row("i_A")]
+
+    client = FakeIntervalsClient(responder)
+    result = sync_intervals_data(db, client=client, now=NOW)
+    assert result.halted is False
+    assert _ids(db) == {"intervals_i_A"}  # standalone (no Garmin activity to join)
+
+
+# --- result semantics --------------------------------------------------------
+
+
+def test_result_new_updated_from_canonical_created(tmp_path):
+    db = Database(str(tmp_path / "counts.db"))
+
+    def responder(method, path, params):
+        return [_row("i_A"), _row("i_B", source="STRAVA", external_id="X1")]
+
+    client = FakeIntervalsClient(responder)
+    first = sync_intervals_data(db, client=client, now=NOW)
+    # two brand-new canonical rows
+    assert first.new == 2
+    assert first.updated == 0
+    assert first.ingested == 2
+    assert first.new + first.updated == first.ingested
+
+    second = sync_intervals_data(db, client=client, now=NOW)
+    # both already exist -> updated, nothing new
+    assert second.new == 0
+    assert second.updated == 2
+    assert second.ingested == 2
+    assert second.new + second.updated == second.ingested
+
+
+def test_result_clean_response_skipped_is_zero(tmp_path):
+    """A clean list response has skipped == 0 (list_activities filters no-id rows
+    by failing closed, never silently dropping)."""
+    db = Database(str(tmp_path / "skip.db"))
+
+    def responder(method, path, params):
+        return [_row("i_A")]
+
+    client = FakeIntervalsClient(responder)
+    result = sync_intervals_data(db, client=client, now=NOW)
+    assert result.skipped == 0
+
+
+# --- provider-fallback TSS (D2) ----------------------------------------------
+
+
+def test_provider_fallback_tss(tmp_path):
+    """D2: a row with icu_training_load and no local streams uses the provider
+    fallback, explicitly marked."""
+    db = Database(str(tmp_path / "tss.db"))
+
+    def responder(method, path, params):
+        return [_row("i_A", icu_training_load=72, source="STRAVA", external_id="X1")]
+
+    client = FakeIntervalsClient(responder)
+    sync_intervals_data(db, client=client, now=NOW)
+
+    conn = sqlite3.connect(db.db_path)
+    row = conn.execute(
+        "SELECT tss, tss_method FROM activities WHERE activity_id=?", ("intervals_i_A",)
+    ).fetchone()
+    conn.close()
+    assert row is not None
+    assert row[0] == 72
+    assert row[1] == "intervals_icu_provider_fallback"
+
+
+# --- fail-closed provider response -------------------------------------------
+
+
+def test_list_activities_raises_on_non_list_payload(tmp_path):
+    """Fail-closed: a non-list payload (dict) is rejected at the client boundary,
+    not silently coerced to an empty list that would advance the cursor."""
+    client = FakeIntervalsClient(lambda method, path, params: {"not": "a list"})
+
+    with pytest.raises(IntervalsICUError):
+        client.list_activities(date(2026, 7, 1), date(2026, 7, 23))
+
+
+def test_429_makes_chunk_dirty_and_holds_cursor(tmp_path):
+    """A 429 on the 2nd chunk marks it dirty: cursor halts at the 1st clean
+    chunk's boundary, the error is a warning (not an exception), and a later run
+    with clean data re-fetches the rest idempotently."""
+    db = Database(str(tmp_path / "dirty429.db"))
+    calls: list[Any] = []
+    first_boundary = (NOW - timedelta(days=90) + timedelta(days=30)).strftime("%Y-%m-%d")
+
+    def responder(method, path, params):
+        calls.append(params)
+        if len(calls) == 1:
+            return [_row("i_first")]  # clean first chunk
+        raise IntervalsICUError("Intervals.icu вернул HTTP 429")
+
+    client = FakeIntervalsClient(responder)
+    result = sync_intervals_data(db, client=client, now=NOW, chunk_days=30)
+
+    assert result.halted is True
+    assert any("429" in w for w in result.warnings)
+    assert db.get_sync_cursor("intervals", "activities") == first_boundary
+    assert _ids(db) == {"intervals_i_first"}  # only the clean chunk landed
+
+    # next run all-clean completes, idempotently
+    calls.clear()
+
+    def clean(method, path, params):
+        return [_row("i_second", source="STRAVA", external_id="X2")]
+
+    retry = sync_intervals_data(
+        db, client=FakeIntervalsClient(clean), now=NOW, chunk_days=30
+    )
+    assert retry.halted is False
+    assert _ids(db) == {"intervals_i_first", "intervals_i_second"}
+    assert db.get_sync_cursor("intervals", "activities") == NOW.strftime("%Y-%m-%d")
+
+
+def test_malformed_element_in_list_makes_chunk_dirty(tmp_path):
+    """A non-mapping element, or an element without an id, must NOT be silently
+    dropped: the whole chunk is dirty and the cursor does not advance."""
+    db = Database(str(tmp_path / "malformed.db"))
+
+    def responder(method, path, params):
+        # a bare string inside the list — not a valid activity mapping
+        return ["not-a-mapping"]
+
+    client = FakeIntervalsClient(responder)
+    result = sync_intervals_data(db, client=client, now=NOW)
+    assert result.halted is True
+    assert result.warnings
+    assert db.get_sync_cursor("intervals", "activities") is None  # cursor unmoved
+    assert _ids(db) == set()
+
+
+def test_normalization_error_makes_chunk_dirty(tmp_path):
+    """A row that passes list_activities (id present) but fails normalization
+    (e.g. an empty-string id strips to nothing) marks the chunk dirty rather than
+    losing the activity — exercises the normalize-error branch of fetch_chunk."""
+    db = Database(str(tmp_path / "normerr.db"))
+
+    def responder(method, path, params):
+        bad = _row("i_A")
+        bad["id"] = ""  # non-None but empty -> normalize fails
+        return [bad]
+
+    client = FakeIntervalsClient(responder)
+    result = sync_intervals_data(db, client=client, now=NOW)
+    assert result.halted is True
+    assert result.warnings
+    assert db.get_sync_cursor("intervals", "activities") is None
+    assert _ids(db) == set()
+
+
+# --- preflight: missing API key fails fast -----------------------------------
+
+
+def test_missing_api_key_raises_configuration_error(tmp_path, monkeypatch):
+    """Preflight: a missing API key raises IntervalsICUConfigurationError BEFORE
+    any fetch or cursor work."""
+    monkeypatch.setattr(Settings, "INTERVALS_ICU_API_KEY", None)
+    db = Database(str(tmp_path / "nokey.db"))
+
+    with pytest.raises(IntervalsICUConfigurationError):
+        sync_intervals_data(db, now=NOW)
+
+    assert db.get_sync_cursor("intervals", "activities") is None
+
+
+def test_athlete_id_zero_is_valid(tmp_path):
+    """athlete_id='0' is the documented default and must not be treated as
+    misconfigured."""
+    db = Database(str(tmp_path / "zero.db"))
+
+    def responder(method, path, params):
+        return [_row("i_A")]
+
+    client = FakeIntervalsClient(lambda *a: [_row("i_A")], athlete_id="0")
+    result = sync_intervals_data(db, client=client, now=NOW)
+    assert result.halted is False
+    assert _ids(db) == {"intervals_i_A"}
+
+
+# --- chunk-boundary dedup ----------------------------------------------------
+
+
+def test_chunk_boundary_activity_dedups_to_one_ingest(tmp_path):
+    """Adjacent chunks share a boundary date; if the same activity is returned by
+    both, it is ingested exactly once (ingested == new, updated == 0)."""
+    db = Database(str(tmp_path / "dedup.db"))
+    returned = {"count": 0}
+
+    def responder(method, path, params):
+        returned["count"] += 1
+        # always return the same activity regardless of the chunk window
+        return [_row("i_A")]
+
+    client = FakeIntervalsClient(responder)
+    result = sync_intervals_data(db, client=client, now=NOW, chunk_days=30)
+
+    assert returned["count"] >= 2  # the activity showed up in 2+ chunks
+    assert result.ingested == 1
+    assert result.new == 1
+    assert result.updated == 0
+    assert _ids(db) == {"intervals_i_A"}
+
+
+# --- historical override (days=N) --------------------------------------------
+
+
+def test_historical_days_forces_exact_window(tmp_path):
+    """Explicit days=N resolves to exact [now-N, now] with bootstrapped=False,
+    and the high-water cursor never moves backward."""
+    db = Database(str(tmp_path / "hist.db"))
+    db.set_sync_cursor("intervals", "activities", "2026-07-15")
+
+    client = FakeIntervalsClient(lambda *a: [])
+    result = sync_intervals_data(db, client=client, now=NOW, days=120)
+
+    assert result.bootstrapped is False
+    assert result.window_start == (NOW - timedelta(days=120)).strftime("%Y-%m-%d")
+    assert result.window_end == NOW.strftime("%Y-%m-%d")
+    # cursor is monotonic: a 120-day historical reload ending at NOW does not
+    # pull the high-water boundary below the prior 2026-07-15 mark.
+    assert db.get_sync_cursor("intervals", "activities") == NOW.strftime("%Y-%m-%d")
+
+
+def test_historical_days_must_be_positive_int(tmp_path):
+    db = Database(str(tmp_path / "baddays.db"))
+    client = FakeIntervalsClient(lambda *a: [])
+    for bad in (0, -5, 2.5, "ten"):
+        with pytest.raises(ValueError):
+            sync_intervals_data(db, client=client, now=NOW, days=bad)  # type: ignore[arg-type]

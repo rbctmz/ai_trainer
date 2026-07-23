@@ -164,13 +164,26 @@ class IntervalsICUClient:
             )
 
     def list_activities(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
-        """Read only the provider fields required to join local completed activities."""
+        """Read only the provider fields required to join local completed activities.
+
+        Fail-closed (M1 §11 step 3 refinement 3): a non-list payload, a
+        non-mapping element, or an element without an ``id`` RAISES rather than
+        being silently coerced to ``[]`` / dropped. Silently dropping would let a
+        malformed response become a "clean empty" chunk that advances the cursor
+        past the lost data. The windowed-sync adapter catches the resulting
+        ``IntervalsICUError`` and marks the chunk dirty (no cursor advance).
+        """
         self._validate_reconciliation_window(oldest, newest)
         payload = self._request_json(
             "GET",
             f"/api/v1/athlete/{self.athlete_id}/activities",
             params={"oldest": oldest.isoformat(), "newest": newest.isoformat()},
         )
+        if not isinstance(payload, list):
+            raise IntervalsICUError(
+                "Intervals.icu activities: expected a list response, got "
+                f"{type(payload).__name__}"
+            )
         fields = (
             "id",
             "external_id",
@@ -188,11 +201,15 @@ class IntervalsICUClient:
             "icu_training_load",
             "moving_time",
         )
-        return [
-            {field: row.get(field) for field in fields}
-            for row in (payload if isinstance(payload, list) else [])
-            if isinstance(row, Mapping) and row.get("id") is not None
-        ]
+        rows: List[Dict[str, Any]] = []
+        for row in payload:
+            if not isinstance(row, Mapping) or row.get("id") is None:
+                raise IntervalsICUError(
+                    "Intervals.icu activities: response contained an entry without "
+                    "a valid mapping/id — refusing to advance past potentially lost data"
+                )
+            rows.append({field: row.get(field) for field in fields})
+        return rows
 
     def list_workout_events(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
         """Read bounded WORKOUT event identity evidence without writing the calendar."""
