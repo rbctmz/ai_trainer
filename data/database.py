@@ -1,8 +1,49 @@
 import json
+import re
 import sqlite3
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from config.settings import Settings
+
+
+# A version-INDEPENDENT strict `YYYY-MM-DD` shape guard. `date.fromisoformat` alone is
+# NOT strict: Python 3.11 accepts basic-ISO `20260723` and ISO-week `2026-W30-4` that
+# 3.10 rejects, so the local/CI contract would diverge (#270 review P1 round 2). Match
+# the RAW value (no strip) so surrounding whitespace is rejected too; `fromisoformat`
+# then does calendar validation (e.g. rejecting `2026-13-45`).
+_CURSOR_DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
+
+
+def parse_cursor_date(value):
+    """Parse a sync-cursor value as a strict `YYYY-MM-DD` calendar date (#270 review P1).
+
+    THE single canonical cursor-value parser — ``services.sync_cursor`` imports this one
+    (service → data is the allowed direction) so the DB-write and resolver boundaries can
+    never diverge. The cursor is an ISO high-water DATE, never a free string: validating
+    it keeps the monotonic ``max`` meaningful (an arbitrary string like ``'garbage'``
+    sorts lexicographically ABOVE any real date, which would pin the cursor and
+    re-bootstrap 90 days forever). Accepts ``date``/``datetime`` objects and an exact
+    ``YYYY-MM-DD`` string (normalized); raises ``ValueError`` for anything else —
+    whitespace, basic/week ISO forms, datetime strings, or non-dates.
+    """
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if value is None:
+        raise ValueError("sync cursor value is required (got None)")
+    if not isinstance(value, str) or not _CURSOR_DATE_RE.fullmatch(value):
+        raise ValueError(
+            f"invalid sync cursor {value!r}: expected a strict ISO date 'YYYY-MM-DD' "
+            "(no whitespace, no basic/week ISO forms)"
+        )
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise ValueError(
+            f"invalid sync cursor {value!r}: not a real calendar date"
+        ) from exc
+
 
 class Database:
     _ACTIVITY_COLUMN_ORDER = [
@@ -665,6 +706,20 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_activity_provider_links_external
             ON activity_provider_links(external_provider, external_id)
             WHERE external_id IS NOT NULL
+        ''')
+        # M1 (#270): persistent per-provider / per-domain sync cursor. cursor_value is
+        # the ISO-date HIGH-WATER boundary of the window a provider has fully, cleanly
+        # processed (NOT the last activity's date). Advanced only after a whole
+        # successful batch, monotonically (services.sync_cursor.run_windowed_sync).
+        # Additive, non-destructive.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS sync_cursors (
+                provider TEXT NOT NULL,
+                domain TEXT NOT NULL,
+                cursor_value TEXT,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (provider, domain)
+            )
         ''')
         self._ensure_activity_columns(conn)
         self._repair_legacy_activity_tss(conn)
@@ -2927,6 +2982,62 @@ class Database:
         conn.close()
         return latest
 
+    def get_sync_cursor(self, provider, domain):
+        """M1 (#270): read the persistent per-provider/per-domain sync cursor — the ISO
+        high-water boundary of the last fully-processed window — or None if unset."""
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT cursor_value FROM sync_cursors WHERE provider=? AND domain=?',
+                (provider, domain),
+            )
+            row = cursor.fetchone()
+        finally:
+            conn.close()
+        return row[0] if row and row[0] else None
+
+    def set_sync_cursor(self, provider, domain, cursor_value):
+        """M1 (#270): upsert the sync cursor MONOTONICALLY — never lower an existing
+        high-water boundary. A historical reload (explicit ``days=N``, bootstrap replay)
+        processes old windows but must not pull the cursor backward (§4).
+
+        Only a valid calendar date is accepted (via :func:`_parse_cursor_date`), stored
+        NORMALIZED as ``YYYY-MM-DD``; a non-date value raises ``ValueError`` at this
+        boundary rather than being persisted (review P1 — else lexicographic max could
+        pin a garbage value and re-bootstrap forever). Monotonicity compares parsed
+        dates, so a corrupt PERSISTED value is likewise surfaced, not silently maxed.
+        Returns the stored (possibly unchanged) ISO-date string."""
+        new_date = parse_cursor_date(cursor_value)
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT cursor_value FROM sync_cursors WHERE provider=? AND domain=?',
+                (provider, domain),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                effective = new_date
+                cursor.execute(
+                    'INSERT INTO sync_cursors (provider, domain, cursor_value, updated_at) '
+                    'VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+                    (provider, domain, effective.isoformat()),
+                )
+            else:
+                existing_date = parse_cursor_date(row[0])
+                effective = max(existing_date, new_date)
+                if effective != existing_date:
+                    cursor.execute(
+                        'UPDATE sync_cursors SET cursor_value=?, updated_at=CURRENT_TIMESTAMP '
+                        'WHERE provider=? AND domain=?',
+                        (effective.isoformat(), provider, domain),
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+        return effective.isoformat()
+
     def sync_activities(self, activities):
         """Умная синхронизация активностей без дублей"""
         if not activities:
@@ -3391,6 +3502,11 @@ class Database:
             # ADR-0008 (#269): provider-links must be cleared with activities, else
             # a reset leaves orphan links that double-count load on the next sync.
             'activity_provider_links',
+            # M1 (#270): sync cursors must be cleared too, else a reset wipes the
+            # activities but leaves a high-water boundary and the purged history never
+            # re-syncs (next sync starts after an already-deleted date). Cleared →
+            # next sync bootstraps the 90-day window (M1-T8).
+            'sync_cursors',
         ):
             try:
                 cursor.execute(f'DELETE FROM {table}')

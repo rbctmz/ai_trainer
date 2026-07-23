@@ -464,6 +464,37 @@ def test_clear_all_data_clears_provider_links(tmp_path):
     assert snap["activities"] == [] and snap["links"] == []
 
 
+def test_clear_all_data_clears_sync_cursors(tmp_path):
+    # M1-T8 (#270): reset must clear sync cursors too, else it wipes the activities but
+    # leaves a high-water boundary and the purged history never re-syncs (the next sync
+    # would start after an already-deleted date). After reset the cursor is gone, so the
+    # next window resolves to the 90-day bootstrap rather than the stale boundary.
+    from datetime import datetime, timedelta
+
+    from services.sync_cursor import resolve_window_from_cursor
+
+    path = str(tmp_path / "reset-cursor.db")
+    db = Database(path)
+    ingest_provider_activity(
+        db, normalize_provider_activity(_garmin_row("555111"), "garmin"), primary_source="garmin"
+    )
+    db.set_sync_cursor("intervals", "activities", "2026-07-23")
+    assert db.get_sync_cursor("intervals", "activities") == "2026-07-23"
+
+    db.clear_all_data()
+
+    assert db.get_sync_cursor("intervals", "activities") is None
+    now = datetime(2026, 7, 23)
+    start, end, bootstrapped = resolve_window_from_cursor(
+        db.get_sync_cursor("intervals", "activities"),
+        now=now,
+        overlap_days=1,
+        bootstrap_days=90,
+    )
+    assert bootstrapped is True
+    assert start == now - timedelta(days=90)
+
+
 def test_write_provider_activity_rolls_back_atomically(tmp_path):
     """Permanent guard: a failing canonical write leaves 0 activities / 0 links —
     the link is never committed without its canonical (ADR-0008 п.5)."""
