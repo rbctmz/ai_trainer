@@ -186,6 +186,30 @@ def test_m1_t3b_failure_midbatch_continues_and_leaves_no_orphan(tmp_path, monkey
     assert _orphan_count(db) == 0
 
 
+def test_m1_t3b_preclean_failure_midbatch_continues(tmp_path):
+    """A per-activity failure BEFORE persistence (resolve_tss / pre-clean) must also
+    warn-and-continue, not abort the batch. Repro: a non-scalar field trips
+    clean_value(pd.isna(list)) → ValueError while B is being cleaned; A (already
+    ingested) stays, C is still imported, B leaves no trace, exactly one warning.
+
+    Complements the injected-ingest variant above (which exercises a failure DURING
+    persistence, i.e. M0 atomic rollback/no-orphan). No monkeypatch needed."""
+    db = Database(str(tmp_path / "t3b-preclean.db"))
+    a = _garmin_activity("1001")
+    b = _garmin_activity("1002")
+    b["description"] = ["malformed", "list"]  # clean_value → pd.isna(list) → ValueError
+    c = _garmin_activity("1003")
+
+    warnings: list[str] = []
+    counts = _sync_activities(db, [a, b, c], warnings=warnings)
+
+    assert counts == {"new": 2, "updated": 0, "skipped": 0}
+    assert _activity_ids(db) == {"1001", "1003"}
+    assert _orphan_count(db) == 0
+    assert len(warnings) == 1
+    assert "1002" in warnings[0]
+
+
 # --- M1-T3c : new/updated/skipped matrix == legacy sync_activities -------------
 
 def test_m1_t3c_counts_match_legacy_sync_activities(tmp_path):
