@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 import logging
 import time
 import uuid
-from typing import Any, Callable, Dict
+from typing import Any, Dict
 
 from config.settings import Settings
 from data.data_processor import ActivityProcessor, resolve_athlete_ftp_lthr
@@ -22,7 +22,6 @@ from . import intervals_icu as intervals_icu_service
 logger = logging.getLogger(__name__)
 
 SyncCounts = Dict[str, int]
-SyncProgressCallback = Callable[["SyncProgressUpdate"], None]
 DEFAULT_SYNC_DAYS = 30
 _TRANSIENT_ERROR_MARKERS = (
     "429",
@@ -49,14 +48,10 @@ def _empty_sync_counts() -> SyncCounts:
     return {"new": 0, "updated": 0}
 
 
-@dataclass(frozen=True)
-class SyncProgressUpdate:
-    """A UI-agnostic progress event emitted during Garmin sync."""
-
-    percent: int
-    message: str
-    step_text: str | None = None
-    stats_message: str | None = None
+# Provider-neutral progress contract lives in services.sync_contracts (review P1.1
+# / §5): neither the Garmin nor the Intervals adapter owns the shared type. Re-exported
+# here so every existing ``from services.sync import SyncProgressUpdate`` keeps working.
+from services.sync_contracts import SyncProgressCallback, SyncProgressUpdate  # noqa: E402
 
 
 @dataclass

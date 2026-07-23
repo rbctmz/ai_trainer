@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Callable, Dict, Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -24,6 +24,7 @@ from api.sync_jobs import sync_job_manager
 from config.settings import Settings
 from services import demo_mode as demo_service
 from services import garmin as garmin_service
+from services import intervals_sync as intervals_sync_service
 from services import sync as sync_service
 from state import StateManager
 
@@ -37,6 +38,10 @@ def _state_with_db(db) -> StateManager:
 
 class SyncRequest(BaseModel):
     days: int | None = None
+    # Which provider to sync. Defaults to 'garmin' for backward compatibility
+    # (absent field = as before). An unknown value is rejected with 422 by the
+    # Literal (fail-fast, not guess) — symmetric with PRIMARY_ACTIVITY_SOURCE.
+    source: Literal["garmin", "intervals"] = "garmin"
 
 
 @router.get("/sync")
@@ -50,8 +55,29 @@ def sync_status(
 @router.post("/sync")
 def sync(payload: SyncRequest | None = None, days: int | None = None) -> Dict[str, Any]:
     requested_days = days if days is not None else (payload.days if payload else None)
+    source = payload.source if payload else "garmin"
     db = real_database()
 
+    run_sync = _build_run_sync(source, requested_days, db)
+
+    return sync_job_manager.start_or_get(
+        days=requested_days,
+        run_sync=run_sync,
+        db=db,
+        source=source,
+    )
+
+
+def _build_run_sync(source: str, requested_days: int | None, db) -> "Callable[[Any], Dict[str, Any]]":
+    """Pick the provider runner. Both branches flow the result payload through the
+    SAME operational-state + shadow-forecast helpers (review P5), so the snapshot
+    shape and side-effects are identical regardless of source."""
+    if source == "intervals":
+        return _run_intervals_sync(db, requested_days)
+    return _run_garmin_sync(db, requested_days)
+
+
+def _run_garmin_sync(db, requested_days: int | None):
     def run_sync(on_progress):
         if not (Settings.GARMIN_EMAIL and Settings.GARMIN_PASSWORD):
             raise RuntimeError("GARMIN_EMAIL/GARMIN_PASSWORD не заданы в .env")
@@ -81,11 +107,36 @@ def sync(payload: SyncRequest | None = None, days: int | None = None) -> Dict[st
         )
         return _attach_shadow_forecast(response, state.database)
 
-    return sync_job_manager.start_or_get(
-        days=requested_days,
-        run_sync=run_sync,
-        db=db,
-    )
+    return run_sync
+
+
+def _run_intervals_sync(db, requested_days: int | None):
+    """Intervals sync is NOT Garmin-gated (slice-spec §3): the only gate is a
+    configured INTERVALS_ICU_API_KEY, enforced by ``sync_intervals_data``'s
+    preflight (``IntervalsICUConfigurationError``). A missing key surfaces as a
+    failed job (error message), not a 4xx at request time — the endpoint is
+    reachable, the provider is just not configured."""
+    from services.intervals_icu import IntervalsICUConfigurationError
+
+    def run_sync(on_progress):
+        try:
+            result = intervals_sync_service.sync_intervals_data(
+                db,
+                days=requested_days,
+                on_progress=on_progress,
+            )
+        except IntervalsICUConfigurationError as exc:
+            raise RuntimeError(str(exc)) from exc
+        except Exception as exc:
+            raise RuntimeError(f"Sync failed: {exc}") from exc
+
+        response = _sync_payload_with_operational_state(
+            intervals_sync_service.build_intervals_sync_status_payload(result, days=requested_days),
+            db=db,
+        )
+        return _attach_shadow_forecast(response, db)
+
+    return run_sync
 
 
 def _sync_payload_with_operational_state(payload: Dict[str, Any], db, demo: bool = False) -> Dict[str, Any]:

@@ -51,18 +51,12 @@ from services.intervals_icu import (
     IntervalsICUError,
     get_client,
 )
-from services.sync import SyncProgressUpdate
+from services.sync_contracts import SyncProgressCallback, SyncProgressUpdate
 from services.sync_cursor import (
     ChunkFetch,
     WindowedSyncResult,
     run_windowed_sync,
 )
-
-# Progress callback contract: ONE SyncProgressUpdate object, matching
-# SyncJobManager._run_job's ``on_progress(update: SyncProgressUpdate)`` so the
-# adapter drops into the existing sync-job runner in step 5 (§5) without a shape
-# mismatch (review P1.1).
-SyncProgressCallback = Callable[[SyncProgressUpdate], None]
 
 # Intervals.icu caps a reconciliation window at 90 days, so each chunk fed to
 # list_activities must be at most that wide (services/intervals_icu).
@@ -235,4 +229,83 @@ def sync_intervals_data(
     )
 
 
-__all__ = ["CHUNK_DAYS", "IntervalsSyncResult", "sync_intervals_data"]
+def build_intervals_sync_status_payload(
+    result: IntervalsSyncResult,
+    days: int | None = None,
+) -> dict[str, Any]:
+    """Build a dashboard-friendly summary of an Intervals sync outcome (review §5).
+
+    Mirrors ``services.sync.build_sync_status_payload``'s SHAPE (the same keys the
+    job manager and operational-state helpers read — ``sync_state``/``severity``/
+    ``title``/``summary``/``counts``/…), but the severity CLASSIFICATION is
+    provider-specific: Intervals has no recovery domains (HRV/sleep — M4), so it
+    keys off ``halted``/warnings and new/updated activity counts only:
+
+    - ``halted`` or any warning → ``partial`` / ``warning``;
+    - new/updated activities exist → ``succeeded`` / ``success``;
+    - otherwise → ``succeeded`` / ``info``.
+
+    The Garmin builder is intentionally NOT changed (gate M1-T3). The two shapes
+    can be unified later once a second stable provider contract exists.
+    """
+    synced_at = datetime.now().isoformat(timespec="seconds")
+    activity_changes = result.new + result.updated
+
+    if result.halted or result.warnings:
+        title = "Синхронизация Intervals.icu завершена частично"
+        summary = (
+            "За запрошенный период удалось получить не все данные. "
+            "Проверьте замечания ниже, затем решите, нужен ли повторный запуск."
+        )
+        severity = "warning"
+        sync_state = "partial"
+    elif activity_changes > 0:
+        title = "Синхронизация Intervals.icu завершена"
+        summary = (
+            "Загружены свежие активности за запрошенный период. "
+            "Теперь можно перейти к интерпретации формы и ближайшей нагрузки."
+        )
+        severity = "success"
+        sync_state = "succeeded"
+    else:
+        title = "Новых данных Intervals.icu не найдено"
+        summary = (
+            "За запрошенный период новых активностей не появилось. "
+            "Можно продолжить анализ по уже сохранённым данным."
+        )
+        severity = "info"
+        sync_state = "succeeded"
+
+    return {
+        "sync_state": sync_state,
+        "severity": severity,
+        "title": title,
+        "summary": summary,
+        "synced_at": synced_at,
+        "days": days,
+        "counts": {
+            "new": result.new,
+            "updated": result.updated,
+            "skipped": result.skipped,
+        },
+        "activity_changes": activity_changes,
+        # Intervals has no recovery domains in M1 (wellness — M4).
+        "recovery_changes": 0,
+        "highlights": [],
+        "notices": list(result.warnings),
+        "source": result.source,
+        # Provider-specific context surfaced additively for the UI (M3) and diagnostics.
+        "window_start": result.window_start,
+        "window_end": result.window_end,
+        "bootstrapped": result.bootstrapped,
+        "halted": result.halted,
+        "cursor_value": result.cursor_value,
+    }
+
+
+__all__ = [
+    "CHUNK_DAYS",
+    "IntervalsSyncResult",
+    "build_intervals_sync_status_payload",
+    "sync_intervals_data",
+]
