@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Any
 
+from services.activity_ingest import backfill_provider_links
 from services.data_cache import clear_data_caches
 from state import StateManager
 
@@ -62,6 +63,10 @@ def activate_demo_mode(state: StateManager) -> dict[str, int]:
     training_status = _build_demo_training_status()
 
     database.save_activities(activities)
+    # D6 (#270 §9): демо-сид пишет активности напрямую, минуя ingest, — офлайновый
+    # backfill доводит их до той же provider-link модели (классификация `demo`),
+    # чтобы демо-поверхность не была единственной без связей.
+    backfill_provider_links(database)
     database.save_hrv_data(hrv_data)
     database.sync_sleep_data(sleep_data)
     database.sync_daily_health(health_data)
