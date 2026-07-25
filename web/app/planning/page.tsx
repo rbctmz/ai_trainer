@@ -2,7 +2,7 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
-import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
+import { ApiError, fetcher, postJSON, putJSON, withDemo } from "@/lib/api";
 import { AdherenceRibbon } from "@/components/AdherenceRibbon";
 import {
   BuiltPlan,
@@ -11,6 +11,8 @@ import {
   PlanningEventsResponse,
   PlanningDemand,
   PlanningHistory,
+  PlanningOnboarding,
+  PlanningProfile,
   PlanExport,
   PlanningStatus,
   PlanWeek,
@@ -108,10 +110,21 @@ function microcycleStateLabel(state: { role: string; sport: string; tss: number 
   return `${role} · ${sport} · ${Number(state.tss).toFixed(1)} TSS`;
 }
 
-function defaultEventDate(): string {
-  const d = new Date();
-  d.setDate(d.getDate() + 56);
-  return d.toISOString().slice(0, 10);
+const BASIS_LABEL: Record<"derived" | "fallback", string> = {
+  derived: "по вашим данным",
+  fallback: "по умолчанию",
+};
+
+function BasisChip({ basis }: { basis: "derived" | "fallback" }) {
+  return (
+    <span
+      className={`ml-2 rounded-full px-2 py-0.5 text-[10px] font-medium ${
+        basis === "derived" ? "bg-accent/10 text-accent" : "bg-surface-muted text-ink-faint"
+      }`}
+    >
+      {BASIS_LABEL[basis]}
+    </span>
+  );
 }
 
 export default function PlanningPage() {
@@ -173,6 +186,70 @@ export default function PlanningPage() {
   );
 }
 
+/* ---------------- Первый план (онбординг, #271 §7) ---------------- */
+function FirstPlanCard({
+  onboarding,
+  hours,
+  days,
+}: {
+  onboarding: PlanningOnboarding;
+  hours: number;
+  days: string[];
+}) {
+  const { suggested, event_context: context } = onboarding;
+  const dayLabels = days
+    .map((day) => DAYS.find((item) => item.value === day)?.label ?? day)
+    .join(", ");
+
+  return (
+    <section className="mb-4 rounded-card border border-accent/30 bg-accent/5 p-5">
+      <h2 className="text-sm font-semibold text-ink">Соберём первый план</h2>
+      <p className="mt-1 text-sm text-ink-soft">
+        Плана ещё нет. Поля ниже заполнены предложением: то, что удалось посчитать по вашей
+        истории, помечено «по вашим данным», остальное — значения по умолчанию, их стоит
+        проверить.
+      </p>
+
+      <dl className="mt-4 grid gap-2 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="text-xs text-ink-faint">Часов в неделю</dt>
+          <dd className="text-ink">
+            {hours}
+            <BasisChip basis={suggested.available_hours.basis} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-ink-faint">Дни тренировок</dt>
+          <dd className="text-ink">
+            {dayLabels}
+            <BasisChip basis={suggested.available_days.basis} />
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs text-ink-faint">Подход</dt>
+          <dd className="text-ink">
+            {PLANNING_MODES.find((mode) => mode.value === suggested.planning_mode.value)?.label ??
+              suggested.planning_mode.value}
+            <BasisChip basis={suggested.planning_mode.basis} />
+          </dd>
+        </div>
+      </dl>
+
+      <p className="mt-4 text-xs text-ink-faint">
+        {context.degraded_reason
+          ? `События Intervals.icu недоступны (${context.degraded_reason}) — предложен режим «Развивать форму»; дату гонки можно указать вручную.`
+          : context.has_a_race
+            ? `Найдена подтверждённая A-гонка (${context.a_races[0]?.date}) — предложен режим «К старту».`
+            : "Подтверждённых A-гонок в календаре нет — предложен режим «Развивать форму». Дата старта не подставляется."}
+      </p>
+      <p className="mt-2 text-xs text-ink-faint">
+        Проверьте параметры, нажмите «Предпросмотр плана», затем «Подтвердить и сохранить» — план
+        появится в «Сегодня», а параметры сохранятся для следующего раза.
+      </p>
+    </section>
+  );
+}
+
 /* ---------------- Build mode ---------------- */
 function BuildMode({ status }: { status?: PlanningStatus }) {
   const { mutate } = useSWRConfig();
@@ -184,16 +261,48 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
   );
   const [goalType, setGoalType] = useState("triathlon");
   const [distance, setDistance] = useState("olympic");
-  const [eventDate, setEventDate] = useState(defaultEventDate);
+  // Дата A-старта пустая до явного выбора: подставленная «сегодня + 8 недель»
+  // молча строила план с тейпером под несуществующее событие (#271 §5).
+  const [eventDate, setEventDate] = useState("");
   const [hours, setHours] = useState(10);
   const [days, setDays] = useState<string[]>(DAYS.map((d) => d.value));
   const [demand, setDemand] = useState("moderate");
   const [building, setBuilding] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [profileWarning, setProfileWarning] = useState<string | null>(null);
   const [plan, setPlan] = useState<BuiltPlan | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<RaceEvent[]>([]);
   const [lastRequest, setLastRequest] = useState<Record<string, unknown> | null>(null);
   const demandOptions = status?.demand_options?.length ? status.demand_options : DEFAULT_DEMAND_OPTIONS;
+
+  // M2 (#271): входы планирования приходят с сервера — сохранённый профиль, а до
+  // онбординга предложение, выведенное из истории атлета. Хардкод 10ч/7 дней
+  // остаётся только как значение до загрузки.
+  const { data: onboarding } = useSWR<PlanningOnboarding>("/api/onboarding/planning", fetcher, {
+    revalidateOnFocus: false,
+  });
+  const hydrated = useRef(false);
+
+  useEffect(() => {
+    if (!onboarding || hydrated.current) return;
+    hydrated.current = true; // гидратация ровно один раз — правки атлета важнее ревалидации
+    const source: Partial<PlanningProfile> = onboarding.profile ?? {
+      planning_mode: onboarding.suggested.planning_mode.value,
+      intent: onboarding.suggested.intent.value,
+      goal_type: onboarding.suggested.goal_type.value,
+      distance: onboarding.suggested.distance.value,
+      available_hours: onboarding.suggested.available_hours.value,
+      available_days: onboarding.suggested.available_days.value,
+      horizon_weeks: onboarding.suggested.horizon_weeks.value,
+    };
+    if (source.planning_mode) setPlanningMode(source.planning_mode);
+    if (source.intent) setIntent(source.intent);
+    if (source.goal_type) setGoalType(source.goal_type);
+    if (source.distance) setDistance(source.distance);
+    if (source.available_hours) setHours(source.available_hours);
+    if (source.available_days?.length) setDays(source.available_days);
+    if (source.horizon_weeks) setHorizonWeeks(source.horizon_weeks);
+  }, [onboarding]);
 
   useEffect(() => {
     if (status?.demand?.level) {
@@ -231,7 +340,11 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
     const isAlreadySelected = selectedEvents.some(
       (item) => `${item.source ?? "event"}:${item.source_id ?? item.date}:${item.priority}` === key,
     );
-    if (!isAlreadySelected && event.priority === "A" && event.confirmed !== false) {
+    if (
+      !isAlreadySelected &&
+      event.priority?.toUpperCase() === "A" &&
+      event.confirmed !== false
+    ) {
       setPlanningMode("event_goal");
     }
     setPlan(null);
@@ -242,12 +355,15 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
         : [...current, event],
     );
   }
+  const hasSelectedARace = selectedEvents.some(
+    (event) => event.priority?.toUpperCase() === "A" && event.confirmed !== false,
+  );
   function requestPayload(): Record<string, unknown> {
     const parsedManual = manualPhases.split(",").map((value) => value.trim()).filter(Boolean);
     return {
       goal_type: goalType,
       distance,
-      event_date: planningMode === "event_goal" && selectedEvents.length === 0 ? eventDate : null,
+      event_date: planningMode === "event_goal" && !hasSelectedARace ? eventDate : null,
       events: selectedEvents,
       planning_mode: planningMode,
       intent,
@@ -276,6 +392,7 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
     if (!lastRequest) return;
     setBuilding(true);
     setError(null);
+    setProfileWarning(null);
     try {
       const confirmed = await postJSON<BuiltPlan>("/api/planning/build", {
         ...lastRequest,
@@ -284,7 +401,30 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
         base_checkpoint_id: plan?.preview.base_checkpoint_id ?? 0,
       });
       setPlan(confirmed);
-      await Promise.all([mutate("/api/planning/status"), mutate("/api/planning/history?limit=8")]);
+      // Параметры, которыми план собран, становятся сохранённым профилем: следующий
+      // вход начинается с них, а не с констант (#271 §3). Неудача записи профиля не
+      // отменяет уже сохранённый план — это разные решения.
+      try {
+        await putJSON("/api/onboarding/planning", {
+          planning_mode: planningMode,
+          intent,
+          goal_type: goalType,
+          distance,
+          available_hours: hours,
+          available_days: days,
+          horizon_weeks: planningMode === "event_goal" ? 8 : horizonWeeks,
+          source: "planning_form",
+        });
+      } catch {
+        setProfileWarning(
+          "План сохранён, но параметры профиля записать не удалось. Сам план не потерян.",
+        );
+      }
+      await Promise.all([
+        mutate("/api/planning/status"),
+        mutate("/api/planning/history?limit=8"),
+        mutate("/api/onboarding/planning"),
+      ]);
     } catch (e) {
       setError(e instanceof ApiError ? e.message : "Не удалось подтвердить план");
     } finally {
@@ -292,8 +432,13 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
     }
   }
 
+  const needsEventDate = planningMode === "event_goal" && !eventDate && !hasSelectedARace;
+
   return (
     <>
+      {onboarding && !onboarding.completed ? (
+        <FirstPlanCard onboarding={onboarding} hours={hours} days={days} />
+      ) : null}
       <section className="rounded-card border border-surface-border bg-surface p-5 shadow-card">
         <Field label="Подход к планированию">
           <div className="mb-4 grid gap-2 sm:grid-cols-3">
@@ -459,15 +604,28 @@ function BuildMode({ status }: { status?: PlanningStatus }) {
         <button
           type="button"
           onClick={build}
-          disabled={building || days.length === 0}
+          disabled={building || days.length === 0 || needsEventDate}
           className="mt-5 w-full rounded-lg bg-accent px-4 py-2.5 text-sm font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40 sm:w-auto sm:px-8"
         >
           {building ? "Собираю план…" : "🧭 Предпросмотр плана"}
         </button>
 
+        {needsEventDate ? (
+          <p className="mt-3 text-xs text-ink-faint">
+            Для режима «К старту» нужна дата A-гонки — выберите событие из Intervals.icu или
+            укажите дату. Без гонки выберите «Развивать форму»: план будет построен на горизонт,
+            без тейпера под несуществующий старт.
+          </p>
+        ) : null}
+
         {error ? (
           <div className="mt-3 rounded-lg bg-tone-danger/10 px-3 py-2 text-sm text-tone-danger">
             {error}
+          </div>
+        ) : null}
+        {profileWarning ? (
+          <div className="mt-3 rounded-lg bg-tone-warning/10 px-3 py-2 text-sm text-tone-warning">
+            {profileWarning}
           </div>
         ) : null}
       </section>

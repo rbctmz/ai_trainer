@@ -15,8 +15,8 @@ import json
 
 import pytest
 
-from api import planning_profile
 from data.database import Database
+from services import planning_profile
 
 
 pytestmark = pytest.mark.smoke
@@ -102,11 +102,14 @@ def test_m2_t1_source_is_recorded(tmp_path):
         {"available_hours": 0},
         {"available_hours": -3},
         {"available_hours": "восемь"},
+        {"available_hours": True},
         {"available_hours": 999},
         {"available_days": []},
         {"available_days": ["monday"]},
         {"available_days": "mon,wed"},
         {"horizon_weeks": 0},
+        {"horizon_weeks": True},
+        {"horizon_weeks": 6.5},
         {"horizon_weeks": 200},
         {"source": "somewhere_else"},
     ],

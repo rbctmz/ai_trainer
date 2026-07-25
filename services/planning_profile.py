@@ -9,8 +9,8 @@
 
 Два правила, которые здесь важнее краткости:
 
-1. **Whitelist'ы не дублируются.** Режим/намерение читаются из
-   :mod:`api.planning_service`; цель/дистанция/дни — из его же карт. Профиль не должен
+1. **Whitelist'ы не дублируются.** Режим/намерение/цель/дистанция/дни читаются из
+   :mod:`services.planning_contracts`. Профиль не должен
    уметь сохранить то, что планировщик потом отвергнет.
 2. **Чтение fail-closed.** Битый JSON, чужая форма или значение, ставшее невалидным
    после изменения whitelist'а, читаются как «профиля нет» (``completed=false``), а не
@@ -22,10 +22,14 @@ import json
 from datetime import datetime
 from typing import Any, Dict, List, Mapping, Optional
 
-from api.planning_service import (
+from services.planning_contracts import (
     DAY_MAP,
     DISTANCE_MAP,
     GOAL_TYPE_MAP,
+    MAX_AVAILABLE_HOURS,
+    MAX_HORIZON_WEEKS,
+    MIN_AVAILABLE_HOURS,
+    MIN_HORIZON_WEEKS,
     PLANNING_INTENTS,
     PLANNING_MODES,
 )
@@ -34,13 +38,6 @@ PLANNING_PROFILE_SETTING_KEY = "planning_profile"
 
 PROFILE_SOURCES = ("onboarding", "planning_form")
 DEFAULT_PROFILE_SOURCE = "onboarding"
-
-# Границы здравого смысла. Планировщик клампит горизонт сам, но профиль не должен
-# хранить заведомую бессмыслицу: она переживёт форму и всплывёт в другом потребителе.
-MIN_AVAILABLE_HOURS = 1.0
-MAX_AVAILABLE_HOURS = 40.0
-MIN_HORIZON_WEEKS = 1
-MAX_HORIZON_WEEKS = 52
 
 _DAY_ORDER = list(DAY_MAP.keys())
 
@@ -63,6 +60,8 @@ def _choice(value: Any, allowed, field: str) -> str:
 
 
 def _hours(value: Any) -> float:
+    if isinstance(value, bool):
+        raise ValueError("available_hours must be a number")
     try:
         hours = float(value)
     except (TypeError, ValueError):
@@ -91,9 +90,13 @@ def _days(value: Any) -> List[str]:
 
 
 def _horizon(value: Any) -> int:
-    try:
+    if isinstance(value, bool):
+        raise ValueError("horizon_weeks must be an integer")
+    if isinstance(value, int):
+        weeks = value
+    elif isinstance(value, str) and value.isdigit():
         weeks = int(value)
-    except (TypeError, ValueError):
+    else:
         raise ValueError("horizon_weeks must be an integer")
     if not (MIN_HORIZON_WEEKS <= weeks <= MAX_HORIZON_WEEKS):
         raise ValueError(

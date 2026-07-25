@@ -1,6 +1,6 @@
 # M2 Slice-Spec: онбординг параметров планирования → первый план (#271)
 
-- Status: НА ПРИЁМКЕ — код M2 начинается после принятия §10
+- Status: ИСПОЛНЕНО — D1–D4 приняты владельцем, M2-T1…T8 зелёные
 - Related: `docs/intervals_primary_handoff_execplan.md` (Milestone M2), M1 (#270, merged),
   ExecPlan-предшественник по UI — `docs/ui_consolidation_beta_execplan.md`
 - Архитектура: без изменений. M1 наполнил `activities` из Intervals; M2 добавляет
@@ -96,7 +96,7 @@ planning_profile = {
 }
 ```
 
-Новый модуль `api/planning_profile.py`: `load_profile(db)`, `save_profile(db, payload)`,
+Новый модуль `services/planning_profile.py`: `load_profile(db)`, `save_profile(db, payload)`,
 `profile_status(db)`. Валидация **fail-closed и переиспользует существующие whitelist'ы**
 `build_plan` (режим/intent), а не заводит вторые: неизвестное значение → `ValueError` →
 422, битый/недописанный JSON в `user_settings` → профиль считается отсутствующим
@@ -125,12 +125,13 @@ PUT  /api/onboarding/planning   → {completed: true, profile}          # 422 н
 
 ## 5. Предложение вместо выдумывания (ядро среза)
 
-Функция `suggest_planning_defaults(db, *, today)` в `api/planning_profile.py`:
+Функция `suggest_planning_defaults(db, *, today)` в
+`services/planning_onboarding.py`:
 
 | Поле | Откуда берётся | Fallback |
 |---|---|---|
 | `available_days` | дни недели с активностями за последние 4 недели | все 7 |
-| `available_hours` | медианная недельная длительность за 4 недели, округлённая вниз до 0.5 | 10.0 |
+| `available_hours` | медианная недельная длительность за 4 недели, округлённая до 0.5 и зажатая в UI-диапазон 3–20 ч | 10.0 |
 | `goal_type`/`distance` | доминирующий спорт истории (`sport` в `activities`) | `triathlon`/`olympic` |
 | `planning_mode` | `event_goal` ⟺ найдена подтверждённая A-гонка, иначе `training_goal` | `training_goal` |
 | `intent` | `develop` | — |
@@ -183,14 +184,14 @@ PUT  /api/onboarding/planning   → {completed: true, profile}          # 422 н
 шаг назад. Пустое состояние `/planning` — уже то место, куда `/today` шлёт действием
 `open_planning`. Альтернатива вынесена в §10 D1 как решение владельца.
 
-## 8. Порядок работ (после принятия §10)
+## 8. Порядок работ
 
-1. `api/planning_profile.py` + гейты M2-T1/T2/T3 (хранение и валидация).
-2. `suggest_planning_defaults` + `resolve_event_context` + M2-T4/T5/T6.
-3. Роутер `/api/onboarding/planning` + подключение в `api/main.py`.
-4. Web: онбординг-карточка на `/planning`, предзаполнение профилем, удаление
+1. [x] `services/planning_profile.py` + гейты M2-T1/T2/T3 (хранение и валидация).
+2. [x] `suggest_planning_defaults` + `resolve_event_context` + M2-T4/T5/T6.
+3. [x] Тонкий роутер `/api/onboarding/planning` + подключение в `api/main.py`.
+4. [x] Web: онбординг-карточка на `/planning`, предзаполнение профилем, удаление
    `defaultEventDate`.
-5. Сквозной M2-T7/T8; браузерная проверка потока; ExecPlan Progress + issue #271.
+5. [x] Сквозной M2-T7/T8; браузерная проверка потока; ExecPlan Progress + issue #271.
 
 Каждый шаг — отдельный коммит, RED перед GREEN; PR из ветки `claude/issue-271-*`.
 
@@ -205,17 +206,37 @@ PUT  /api/onboarding/planning   → {completed: true, profile}          # 422 н
 - Rollback: удалить ключ `planning_profile` и вернуть онбординг-карточку под флаг —
   схема БД не менялась, `build_plan` не менялся.
 
-## 10. Решения (ждут владельца)
+## 10. Решения (приняты владельцем)
 
-- **D1 — где живёт онбординг.** Рекомендую: пустое состояние `/planning` (§7).
+- **D1 — где живёт онбординг.** Принято: пустое состояние `/planning` (§7).
   Альтернатива — отдельный роут `/onboarding` с редиректом с `/today`; дороже на пункт
   навигации, но лучше читается в M3-quickstart («открой /onboarding»).
-- **D2 — хранение профиля.** Рекомендую `user_settings.planning_profile` (JSON, §3).
+- **D2 — хранение профиля.** Принято: `user_settings.planning_profile` (JSON, §3).
   Альтернатива — отдельная таблица `planning_profile` с колонками; дороже (миграция),
   выигрыш только если профиль станет мультипользовательским (это шаг 2 SaaS-лестницы,
   не сейчас).
-- **D3 — предложенные дефолты.** Рекомендую вывод из истории с `basis` (§5).
+- **D3 — предложенные дефолты.** Принято: вывод из истории с `basis` (§5).
   Альтернатива — статические константы как сейчас; дешевле, но сохраняет ровно тот
   молчаливый дефолт, который M2 и должен убрать.
-- **D4 — автопостроение плана после синка.** Рекомендую НЕ делать (§2 non-goals),
+- **D4 — автопостроение плана после синка.** Принято: НЕ делать (§2 non-goals),
   как и сформулировано в #271.
+
+## 11. Outcomes & Retrospective
+
+M2 завершён 2026-07-25. Профиль хранится отдельно от checkpoint-плана; синк по-прежнему
+не принимает решений за атлета. Предложение формы выводится из 28-дневной истории с
+явным `basis`, часы ограничены тем же диапазоном 3–20, который может сохранить web.
+Отсутствие или недоступность A-гонки ведёт в `training_goal`; фиктивная дата удалена.
+
+Сквозной гейт на временной SQLite доказал `profile → preview → confirm →
+/api/planning/plan → /api/today`. Отдельный web-гейт фиксирует важный fail-closed угол:
+B/C-гонка или неподтверждённая A-гонка не удовлетворяет требованию event-goal. Ручная
+браузерная приёмка прошла на изолированных портах `8111/3111`; рабочие `8000/3000` и
+пользовательская БД не затрагивались.
+
+Проверки: M2/Planning — 100 passed; smoke — 1222 passed, 1 skipped; полный offline —
+1265 passed, 6 skipped, 24 deselected; web lint/build — green.
+
+Traceability: graceful data-gap для событий поддерживает ASR-REL-2; перенос логики в
+`services/` и тонкий HTTP-роутер поддерживают ASR-MOD-2. Нового ADR не требуется:
+схема не менялась, решение использует существующий `user_settings`.

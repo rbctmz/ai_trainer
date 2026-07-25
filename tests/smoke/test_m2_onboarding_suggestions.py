@@ -16,7 +16,7 @@ from datetime import date, timedelta
 
 import pytest
 
-from api import onboarding_service
+from services import planning_onboarding as onboarding_service
 from data.database import Database
 from services.intervals_icu import IntervalsICUConfigurationError, IntervalsICUError
 
@@ -93,6 +93,26 @@ def test_m2_t4_available_hours_are_derived_from_history(tmp_path, monkeypatch):
     assert suggested["available_hours"]["basis"] == "derived"
 
 
+@pytest.mark.parametrize(
+    ("minutes", "expected"),
+    [
+        (10, 3.0),   # 0.5 ч/нед по истории — ниже минимального значения формы.
+        (600, 20.0), # 30 ч/нед по истории — выше максимального значения формы.
+    ],
+)
+def test_m2_t4_available_hours_are_clamped_to_product_bounds(
+    tmp_path, monkeypatch, minutes, expected
+):
+    """Предложение обязано быть и сохраняемым, и отображаемым range-контролом."""
+    monkeypatch.setattr(onboarding_service, "discover_intervals_events", _no_events)
+    db = _db(tmp_path)
+    _seed(db, _recent_dates(["mon", "wed", "sat"], weeks=4), minutes=minutes)
+
+    suggested = onboarding_service.suggest_planning_defaults(db)
+
+    assert suggested["available_hours"] == {"value": expected, "basis": "derived"}
+
+
 def test_m2_t4_dominant_sport_drives_goal_type(tmp_path, monkeypatch):
     monkeypatch.setattr(onboarding_service, "discover_intervals_events", _no_events)
     db = _db(tmp_path)
@@ -133,7 +153,7 @@ def test_m2_t4_short_history_is_not_trusted(tmp_path, monkeypatch):
 def test_m2_t4_suggested_profile_is_valid_for_save(tmp_path, monkeypatch):
     """Предложение должно быть сразу пригодно к сохранению — иначе онбординг в один
     клик невозможен."""
-    from api import planning_profile
+    from services import planning_profile
 
     monkeypatch.setattr(onboarding_service, "discover_intervals_events", _no_events)
     db = _db(tmp_path)

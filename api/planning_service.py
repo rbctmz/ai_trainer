@@ -88,52 +88,19 @@ from services.reconciliation import (
     _provider_reconciliation_evidence,
     reconciliation_at,
 )
+from services.planning_contracts import (
+    DAY_MAP,
+    DISTANCE_MAP,
+    GOAL_TYPE_MAP,
+    PLANNING_INTENTS,
+    PLANNING_MODES,
+)
+from services.planning_events import discover_intervals_events as discover_intervals_events
 
 PLANNING_DEMAND_SETTING_KEY = "planning_demand_level"
 
-# Единственные whitelist'ы режима/намерения планирования. Их читает и build_plan, и
-# профиль онбординга (`api/planning_profile.py`) — вторая копия разъехалась бы, и
-# профиль начал бы сохранять то, что планировщик отвергает.
-PLANNING_MODES = ("event_goal", "training_goal", "manual")
-PLANNING_INTENTS = ("maintain", "develop")
-
-
 class StalePlanningCheckpointError(ValueError):
     """A stored preview no longer matches the active planning checkpoint."""
-
-# English (API) → internal Russian labels used by the planner.
-GOAL_TYPE_MAP = {
-    "triathlon": "Триатлон",
-    "tri": "Триатлон",
-    "run": "Бег",
-    "running": "Бег",
-    "bike": "Вело",
-    "cycling": "Вело",
-    "cycle": "Вело",
-}
-DISTANCE_MAP = {
-    # triathlon
-    "sprint": "Спринт",
-    "olympic": "Олимпийка",
-    "half": "Half (70.3)",
-    "70.3": "Half (70.3)",
-    "ironman": "Ironman",
-    "full": "Ironman",
-    # run
-    "5k": "5 км",
-    "10k": "10 км",
-    "half_marathon": "Полумарафон",
-    "marathon": "Марафон",
-    "ultra": "Ультра",
-    # bike
-    "40k_tt": "40 км TT",
-    "100k": "100 км",
-    "100mi": "100 миль",
-    "brevet": "200 км (бревет)",
-    "stage_race": "Этапная гонка",
-}
-DAY_MAP = {"mon": 0, "tue": 1, "wed": 2, "thu": 3, "fri": 4, "sat": 5, "sun": 6}
-
 
 def _internal_goal_type(value: str) -> str:
     return GOAL_TYPE_MAP.get((value or "").strip().lower(), value)
@@ -622,23 +589,6 @@ def _build_plan_preview(
         "weekly_tss_after": after_weekly,
         "weekly_tss_delta": sum(after_weekly) - sum(before_weekly),
         "microcycle_changes": [dict(row) for row in (after.get("microcycle_changes") or [])],
-    }
-
-
-def discover_intervals_events(*, days: int = 180, today: date | None = None) -> Dict[str, Any]:
-    """Read a bounded event preview without persisting or writing externally."""
-    from services.intervals_icu import list_race_events
-
-    resolved_days = max(1, min(365, int(days or 180)))
-    start = today or datetime.now().date()
-    end = start + timedelta(days=resolved_days)
-    events = list_race_events(start, end)
-    return {
-        "oldest": start.isoformat(),
-        "newest": end.isoformat(),
-        "count": len(events),
-        "events": events,
-        "read_only": True,
     }
 
 

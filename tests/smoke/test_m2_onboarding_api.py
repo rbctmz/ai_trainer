@@ -11,11 +11,11 @@ from datetime import date, timedelta
 import pytest
 from fastapi.testclient import TestClient
 
-from api import onboarding_service
 from api.deps import get_database
 from api.main import app
 from data.database import Database
 from services.intervals_icu import IntervalsICUError
+from services import planning_onboarding as onboarding_service
 
 
 pytestmark = pytest.mark.smoke
@@ -86,7 +86,10 @@ def test_put_persists_profile_and_get_reflects_it(client):
         {"intent": "recover"},
         {"goal_type": "curling"},
         {"available_hours": 0},
+        {"available_hours": True},
         {"available_days": []},
+        {"horizon_weeks": True},
+        {"horizon_weeks": 6.5},
         {"horizon_weeks": 500},
     ],
 )
@@ -107,7 +110,7 @@ def test_put_rejection_does_not_clobber_saved_profile(client):
 
 
 def test_corrupt_stored_profile_does_not_break_the_endpoint(client):
-    from api.planning_profile import PLANNING_PROFILE_SETTING_KEY
+    from services.planning_profile import PLANNING_PROFILE_SETTING_KEY
 
     client.db.set_user_setting(PLANNING_PROFILE_SETTING_KEY, "{not json")
 

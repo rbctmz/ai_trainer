@@ -18,12 +18,13 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Any, Dict, List, Mapping, Optional
+from typing import Any, Dict, Mapping, Optional
 
 import pandas as pd
 
-from api.planning_service import discover_intervals_events
 from services.intervals_icu import IntervalsICUError
+from services.planning_contracts import MAX_AVAILABLE_HOURS, MIN_AVAILABLE_HOURS
+from services.planning_events import discover_intervals_events
 
 # Окно, по которому считаем недельный объём и рабочие дни.
 HISTORY_WINDOW_DAYS = 28
@@ -109,7 +110,9 @@ def _suggest_hours(frame: pd.DataFrame, trusted: bool) -> Dict[str, Any]:
     hours = float(weekly.median())
     if hours <= 0:
         return _suggestion(FALLBACK_HOURS, BASIS_FALLBACK)
-    return _suggestion(round(hours * 2) / 2, BASIS_DERIVED)
+    rounded = round(hours * 2) / 2
+    clamped = max(MIN_AVAILABLE_HOURS, min(MAX_AVAILABLE_HOURS, rounded))
+    return _suggestion(clamped, BASIS_DERIVED)
 
 
 def _suggest_goal(frame: pd.DataFrame, trusted: bool) -> tuple[Dict[str, Any], Dict[str, Any]]:
