@@ -27,6 +27,7 @@ from api.routers import (  # noqa: E402  (after env setup)
     dashboard,
     decisions,
     hrv,
+    onboarding,
     planning,
     recovery_analytics,
     session_feedback,
@@ -66,6 +67,7 @@ app.include_router(decisions.router)
 app.include_router(hrv.router)
 app.include_router(activities.router)
 app.include_router(athlete_profile.router)
+app.include_router(onboarding.router)
 app.include_router(planning.router)
 # FastAPI 0.138 represents included routers lazily.  Register these two
 # contract-critical read routes directly so route introspection (and tooling)
