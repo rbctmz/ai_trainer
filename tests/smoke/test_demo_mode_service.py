@@ -17,12 +17,22 @@ class _StubDatabase:
         self.health = None
         self.training_status = None
         self.user_settings = {}
+        self.backfill_calls: list[int] = []
 
     def clear_all_data(self):
         self.clear_calls += 1
 
     def save_activities(self, activities):
         self.activities = activities
+
+    def backfill_activity_provider_links(self, classify):
+        # D6 (#270): демо-сид доводит активности до provider-link модели. Стаб
+        # фиксирует, СКОЛЬКО активностей уже лежало на момент вызова, — backfill
+        # обязан идти после save_activities, иначе связей не будет.
+        self.backfill_calls.append(len(self.activities or []))
+        return {
+            provider: 0 for provider in ("garmin", "demo", "legacy_unknown", "skipped_existing")
+        }
 
     def save_hrv_data(self, hrv_data):
         self.hrv = hrv_data
@@ -81,6 +91,7 @@ def test_activate_demo_mode_seeds_temporary_dataset(monkeypatch: pytest.MonkeyPa
     assert state.reset_calls == 1
     assert state.database.clear_calls == 1
     assert len(state.database.activities) == result["activities"] > 0
+    assert state.database.backfill_calls == [result["activities"]]
     assert len(state.database.hrv) == result["hrv_days"] > 0
     assert len(state.database.sleep) == result["sleep_days"] > 0
     assert len(state.database.health) == result["health_days"] > 0

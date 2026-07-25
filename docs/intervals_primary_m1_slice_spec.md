@@ -1,6 +1,7 @@
 # M1 Slice-Spec: common ingest для обоих источников + Intervals-адаптер (#270)
 
-- Status: Принято (ред. 3) — код M1 идёт строго по §11; ветка `claude/issue-270-*`
+- Status: Исполнено (ред. 3) — все шесть шагов §11 смержены (PR #278/#280/#281/#282/#283
+  + D6-срез); прогресс и итог — в `docs/intervals_primary_handoff_execplan.md`
 - Related: `docs/intervals_primary_handoff_execplan.md` (Milestone M1), ADR-0008
   (`docs/architecture/adr_0008_intervals_activity_ingestion.md`), M0 (#269, merged)
 - Архитектура: без изменений (M0 established provider-link + проекционную модель).
