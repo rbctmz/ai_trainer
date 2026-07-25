@@ -91,6 +91,12 @@ from services.reconciliation import (
 
 PLANNING_DEMAND_SETTING_KEY = "planning_demand_level"
 
+# Единственные whitelist'ы режима/намерения планирования. Их читает и build_plan, и
+# профиль онбординга (`api/planning_profile.py`) — вторая копия разъехалась бы, и
+# профиль начал бы сохранять то, что планировщик отвергает.
+PLANNING_MODES = ("event_goal", "training_goal", "manual")
+PLANNING_INTENTS = ("maintain", "develop")
+
 
 class StalePlanningCheckpointError(ValueError):
     """A stored preview no longer matches the active planning checkpoint."""
@@ -314,9 +320,9 @@ def build_plan(
     start_week = _start_week()
     mode = str(planning_mode or "event_goal").strip().lower()
     normalized_intent = str(intent or "develop").strip().lower()
-    if mode not in {"event_goal", "training_goal", "manual"}:
+    if mode not in PLANNING_MODES:
         raise ValueError("planning_mode must be event_goal, training_goal, or manual")
-    if normalized_intent not in {"maintain", "develop"}:
+    if normalized_intent not in PLANNING_INTENTS:
         raise ValueError("intent must be maintain or develop")
 
     latest_checkpoint = db.get_latest_planning_checkpoint()
