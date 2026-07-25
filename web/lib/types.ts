@@ -471,6 +471,51 @@ export interface PlanningEventsResponse {
   read_only: true;
 }
 
+/** M2 (#271): предложение системы с честным происхождением значения. */
+export interface Suggestion<T> {
+  value: T;
+  /** `derived` — посчитано по истории атлета; `fallback` — данных не хватило. */
+  basis: "derived" | "fallback";
+}
+
+export interface PlanningProfile {
+  planning_mode: "event_goal" | "training_goal" | "manual";
+  intent: "maintain" | "develop";
+  goal_type: string;
+  distance: string;
+  available_hours: number;
+  available_days: string[];
+  horizon_weeks: number;
+  source?: string;
+  updated_at?: string;
+}
+
+export interface PlanningSuggestion {
+  planning_mode: Suggestion<PlanningProfile["planning_mode"]>;
+  intent: Suggestion<PlanningProfile["intent"]>;
+  goal_type: Suggestion<string>;
+  distance: Suggestion<string>;
+  available_hours: Suggestion<number>;
+  available_days: Suggestion<string[]>;
+  horizon_weeks: Suggestion<number>;
+}
+
+export interface PlanningEventContext {
+  has_a_race: boolean;
+  events: RaceEvent[];
+  a_races: RaceEvent[];
+  source: string;
+  /** Заполнено, только если Intervals недоступен/не настроен. Отсутствие гонок — не деградация. */
+  degraded_reason: string | null;
+}
+
+export interface PlanningOnboarding {
+  completed: boolean;
+  profile: PlanningProfile | null;
+  suggested: PlanningSuggestion;
+  event_context: PlanningEventContext;
+}
+
 export interface RaceMicrocycleState {
   role: string;
   sport: string;

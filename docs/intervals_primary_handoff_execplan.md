@@ -25,6 +25,14 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 
 ## Progress
 
+- [x] (2026-07-25) **M2 завершён (#271).** Персистентный профиль планирования в
+  `user_settings`, предложения из истории с явным `basis`, graceful отсутствие/сбой
+  A-гонки без фиктивной даты, карточка первого плана в пустом `/planning`. Тонкий
+  `/api/onboarding/planning` делегирует в `services/`; sync план не строит. Сквозной
+  M2-T7/T8: профиль → preview → confirm → план виден в Planning и Today на временной
+  SQLite. Дополнительный fail-closed web-гейт: B/C или неподтверждённая A-гонка не
+  разблокирует event-goal. Проверки: M2/Planning 100 passed; smoke 1222 passed,
+  1 skipped; полный offline 1265 passed, 6 skipped, 24 deselected; web lint/build green.
 - [x] (2026-07-24) **M1 завершён — шаг 6 (D6) закрывает срез.** Демо-сид (`services/demo_mode.activate_demo_mode`) писал активности напрямую через `save_activities`, минуя ingest, и оставался единственной поверхностью БЕЗ provider-link'ов; теперь после сидирования идёт офлайновый `backfill_provider_links` (классификация `demo`, ADR-0008 п.7). Гейты `tests/smoke/test_m1_demo_backfill.py`: M1-T9 (ровно одна `demo`-связь на активность, ноль `garmin`/`legacy_unknown`, ноль сирот), M1-T9b (повторный сид и повторный backfill идемпотентны, поля активностей не портятся проекцией), M1-T9c (деактивация не оставляет осиротевших связей), M1-T9d (изоляция чужой БД). Стаб `_StubDatabase` в `test_demo_mode_service.py` доведён до нового контракта и фиксирует порядок «save_activities → backfill». Полный офлайн — 1199 passed, 5 skipped.
 - [x] (2026-07-23) M1 исполнен инкрементально, по срезам §11 slice-спеки (юзер мержит каждый принятый срез, ревью Codex через PR-комментарии): D1 — Garmin-персистенс через common ingest, success-path идентичен кроме единственного поля `source`, failure-path намеренно per-activity (#278); персистентные `sync_cursors` + generic windowed runner, курсор двигается только после полного чистого batch (#280); `sync_intervals_data` — Intervals-адаптер с provider-fallback `icu_training_load` (#281); coexistence/регресс M1-T1/T2 + fail-closed M1-T6 через реальные пути (#282); `source` в `SyncJobManager` и `POST/GET /api/sync` — дефолт `garmin`, неизвестный → 422, single-flight по всем провайдерам (#283).
 - [x] (2026-07-22) Разведка + три раунда ревью владельца. Учтены: TSS-контракт, identity/coexistence (provider-link), «синк ≠ план», Garmin-специфичный sync-контур, wellness-mapping, кардинальность `source_tss`, common-ingest для обоих источников.
@@ -36,7 +44,8 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 - [x] (2026-07-22) M0 исполняемый контракт. Guardrail владельца учтён: cursor вынесен из per-activity транзакции (advance-after-batch, ADR п.5/п.8). `services/activity_ingest.py` — `normalize_provider_activity`/`to_canonical_activity` (чистое), атомарный `ingest_provider_activity`, `ingest_provider_batch` (cursor-after-batch), офлайн `backfill_provider_links`, `classify_activity_id`; атомарные `Database.write_provider_activity`/`backfill_activity_provider_links` (SQL в data-слое). ADR ред. 4 (cursor-after-batch + no-orphan) и `activity_tss_methodology.md` (provider-fallback как исключение) обновлены. Матрицы зелёные (`test_activity_ingest.py`, 10 tests): order-independence `Garmin↔Intervals`, backfill-стабильность, batch-cursor на сбое, ingest no-orphan. Полный офлайн-прогон 1055 passed.
 - [x] M0: ADR + контракт — canonical id + provider-link модель (с `provider_tss` per-link), fail-closed сопоставление, TSS-исключение (+ правка методологии), `source_tss` legacy-проекция, поведение при двух источниках, backfill+rollback истории, per-provider/per-domain cursors (контракт; персистентность — M1), common-ingest контракт.
 - [x] M1 (#270, срезы PR #278/#280/#281/#282/#283 + D6): common ingest для ОБОИХ источников; Intervals-адаптер + внутренний persistence Garmin создают link; `sync_intervals_data` без Garmin; идемпотентность и coexistence доказаны тестами (вкл. регресс: новая Garmin-активность → link, затем Intervals-копия присоединяется к той же канонической). Кончается на «активности + CTL/ATL».
-- [ ] M2: онбординг параметров → первый план.
+- [x] M2 (#271): онбординг параметров → первый план; без A-гонки graceful, без
+  выдуманной даты; профиль и checkpoint разделены.
 - [ ] M3: source-agnostic UI + Docker quickstart + сценарий handoff.
 - [ ] M4: wellness mapping-spec + импорт → readiness.
 - [ ] M5: демоушен Garmin в UI (только тексты/метки).
@@ -104,6 +113,14 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 Заполняется при закрытии milestone'ов. Редакция 4: provider-link модель доведена до конца (`provider_tss` per-link, common ingest обоих источников); реализация M0–M5 предстоит.
 
 **M0 + M1 закрыты (2026-07-24).** Достигнуто: оба источника идут через один funnel `services/activity_ingest`, только-Intervals синк наполняет `activities` provider-link'ами и питает CTL/ATL без Garmin-кред; персистентный курсор двигается только после полного чистого batch; `source` доехал до job и `POST/GET /api/sync`; демо-поверхность живёт в той же link-модели (D6). Что сработало процессно: инкрементальный мерж по срезам вместо одного PR (каждый срез — свои RED-гейты и отдельный раунд ревью), а компат-контракт Garmin формулировался как «идентично КРОМЕ явного списка новых ключей», а не буквальное равенство — иначе аддитивное поле `source` было бы неотличимо от регресса. Что стоило раундов: идемпотентность при повторных проходах (created_at, ложные `legacy_unknown`-связи, курсор при частичном сбое) — каждый раз корень был в том, что каноническая строка воспринималась как хранилище, а не как проекция набора связей. Не сделано осознанно: локальный пересчёт TSS по потокам Intervals (D2), Garmin на курсор-таблицу (D3), удаление deprecated-shim `database.sync_activities` (D4) — отдельные поздние срезы. Следующее — M2 (#271): онбординг параметров → первый план.
+
+**M2 закрыт (2026-07-25).** Достигнуто: первый план требует явного подтверждения
+параметров, но не заставляет атлета заполнять всё с нуля — предложения выводятся из
+истории и маркируются `derived/fallback`. Профиль остаётся входным состоянием, а план —
+отдельным checkpoint-решением; preview/confirm-гейт сохранён. Главный найденный угол:
+«выбрано событие» не равно «есть A-гонка» — B/C или неподтверждённая A больше не
+разблокирует event-goal. Следующее — M3 (#272): source-agnostic UI, quickstart и
+сквозной handoff.
 
 ## Context and Orientation
 
