@@ -29,13 +29,22 @@ until M4, so their empty-state copy must not promise Intervals support.
 - [x] (2026-07-26 21:47Z) Added RED contract tests for provider discovery,
   source-aware dashboard copy, the Docker quickstart, and the complete hermetic
   handoff path. Evidence: 14 failed for the expected missing contracts.
-- [ ] Add the safe provider-status and Intervals connection-test API contract.
-- [ ] Replace the Garmin-hardcoded dashboard sync control with a source-aware
-  control and honest first-run guidance.
-- [ ] Add and verify the Intervals-first Docker quickstart.
-- [ ] Run focused, smoke, broad offline, web lint/build, Compose validation, and
-  browser acceptance.
-- [ ] Update the parent ExecPlan and finish this retrospective.
+- [x] (2026-07-27 13:10Z) Added the safe provider-status and explicit Intervals
+  connection-test API contract through `services/sync_providers.py`; responses
+  contain configuration flags and bounded summaries, never credentials.
+- [x] (2026-07-27 13:25Z) Replaced the Garmin-hardcoded dashboard sync control
+  with a reusable source-aware control and honest first-run guidance. The web
+  caller now always sends the selected source; the API's absent-source Garmin
+  compatibility remains unchanged.
+- [x] (2026-07-27 13:40Z) Added and Compose-validated the Intervals-first Docker
+  quickstart; `.env.example` no longer makes placeholder credentials look
+  configured.
+- [x] (2026-07-27 14:20Z) Ran focused M3 (14 passed), relevant regression
+  (115 passed), smoke (1236 passed, 1 skipped), broad offline (1279 passed,
+  6 skipped, 24 deselected), Ruff, web lint/build, Compose validation, and
+  isolated browser acceptance.
+- [x] (2026-07-27 14:35Z) Updated parent ExecPlan and ASR traceability and
+  completed this retrospective.
 
 ## Surprises & Discoveries
 
@@ -54,6 +63,18 @@ until M4, so their empty-state copy must not promise Intervals support.
   real credentials.
   Evidence: `.env.example` currently contains
   `GARMIN_EMAIL=your_garmin_email@example.com`.
+
+- Observation: the default database path cannot be created inside a sandboxed
+  Git worktree because it resolves below `.codex`; this is an execution-
+  environment restriction rather than a product failure.
+  Evidence: the first smoke run failed only while opening SQLite; the same suite
+  passed with explicit temporary `DATABASE_PATH` and `DEMO_DATABASE_PATH`.
+
+- Observation: a hermetic browser test can exercise the complete product path
+  without live credentials by replacing only the Intervals HTTP server.
+  Evidence: the isolated stack showed Intervals as configured and recommended,
+  passed the explicit connection probe, synchronized activities, previewed and
+  confirmed the first plan, then rendered that plan on `/today`.
 
 ## Decision Log
 
@@ -94,7 +115,23 @@ until M4, so their empty-state copy must not promise Intervals support.
 
 ## Outcomes & Retrospective
 
-Pending implementation.
+M3 achieved the intended handoff: the browser no longer assumes Garmin, provider
+configuration is obtained through a secret-safe backend contract, and an
+Intervals-only athlete can travel from an empty database to a visible plan. The
+existing sync API compatibility was preserved: callers that omit `source` still
+get Garmin, while the new web control always submits an explicit choice.
+
+The most useful design choice was keeping provider discovery and connection
+testing in `services/sync_providers.py`. That kept the HTTP router thin, gave the
+UI one stable contract, and made credential non-disclosure straightforward to
+test. The browser acceptance caught the real product seam—the selected provider
+must survive discovery, probe, sync, onboarding, confirm, and Today—not merely
+the existence of individual endpoints.
+
+M3 intentionally leaves Sleep and HRV Garmin-specific. Making their labels
+source-neutral before Intervals wellness mapping would be misleading; M4 owns
+that contract. The remaining deployment debt is operational backup/restore for
+the named SQLite volume (ASR-DEP-2 remains yellow), not first-run startup.
 
 ## Context and Orientation
 
@@ -120,10 +157,12 @@ will replace only the Intervals HTTP transport, then call the real sync API,
 onboarding API, planning build/confirm API, and public Planning/Today reads
 against one temporary SQLite database.
 
-Second, extend `api/routers/system.py` with the two additive provider endpoints.
-The router will use `Settings` plus `services.intervals_icu.connection_info()` and
-`test_connection()`. It will return minimal dictionaries and map provider/config
-errors to explicit HTTP responses.
+Second, add `services/sync_providers.py` as the shared provider-discovery and
+connection-probe boundary, then extend `api/routers/system.py` with two additive
+endpoints that delegate to it. The service uses `Settings` plus
+`services.intervals_icu.connection_info()` and `test_connection()`. The router
+returns minimal dictionaries and maps provider/config errors to explicit HTTP
+responses.
 
 Third, extract a reusable source-aware sync control under
 `web/components/sync/`. It will load provider discovery via SWR, select the
@@ -143,7 +182,8 @@ then run all verification contours.
 
 All commands run from the M3 worktree.
 
-    python -m pytest tests/smoke/test_m3_handoff.py \
+    python -m pytest tests/smoke/test_m3_intervals_handoff.py \
+      tests/smoke/test_m3_sync_provider_api.py \
       tests/smoke/test_m3_sync_ui_contract.py \
       tests/smoke/test_m3_quickstart.py -q
 

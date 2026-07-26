@@ -25,6 +25,15 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 
 ## Progress
 
+- [x] (2026-07-27) **M3 завершён (#272).** Dashboard получает безопасный статус
+  источников через `GET /api/sync/providers`, явно отправляет выбранный `source`
+  и показывает отдельный пользовательский probe Intervals без выдачи ключей.
+  Intervals-only handoff проверен от пустой SQLite через sync → planning
+  onboarding → preview/confirm → план в Planning и Today. Добавлен Docker
+  quickstart; `.env.example` больше не содержит правдоподобных placeholder-
+  credentials. Проверки: M3 14 passed; релевантная регрессия 115 passed; smoke
+  1236 passed, 1 skipped; полный offline 1279 passed, 6 skipped, 24 deselected;
+  web lint/build, Compose и изолированная browser-вертикаль green.
 - [x] (2026-07-25) **M2 завершён (#271).** Персистентный профиль планирования в
   `user_settings`, предложения из истории с явным `basis`, graceful отсутствие/сбой
   A-гонки без фиктивной даты, карточка первого плана в пустом `/planning`. Тонкий
@@ -46,7 +55,7 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 - [x] M1 (#270, срезы PR #278/#280/#281/#282/#283 + D6): common ingest для ОБОИХ источников; Intervals-адаптер + внутренний persistence Garmin создают link; `sync_intervals_data` без Garmin; идемпотентность и coexistence доказаны тестами (вкл. регресс: новая Garmin-активность → link, затем Intervals-копия присоединяется к той же канонической). Кончается на «активности + CTL/ATL».
 - [x] M2 (#271): онбординг параметров → первый план; без A-гонки graceful, без
   выдуманной даты; профиль и checkpoint разделены.
-- [ ] M3: source-agnostic UI + Docker quickstart + сценарий handoff.
+- [x] M3 (#272): source-agnostic UI + Docker quickstart + сценарий handoff.
 - [ ] M4: wellness mapping-spec + импорт → readiness.
 - [ ] M5: демоушен Garmin в UI (только тексты/метки).
 
@@ -121,6 +130,16 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 «выбрано событие» не равно «есть A-гонка» — B/C или неподтверждённая A больше не
 разблокирует event-goal. Следующее — M3 (#272): source-agnostic UI, quickstart и
 сквозной handoff.
+
+**M3 закрыт (2026-07-27).** Достигнуто: первый запуск больше не скрыто выбирает
+Garmin — UI получает конфигурацию источников с сервера, рекомендует доступный
+primary/fallback и всегда отправляет явный `source`. Explicit Intervals probe
+возвращает только bounded summary; ключи не попадают в API/UI. Hermetic
+browser-вертикаль доказала реальный handoff «пустая БД → Intervals sync →
+онбординг → confirm → Today». Quickstart фиксирует безопасный `.env`, named
+volume и предупреждение о `docker compose down -v`. Sleep/HRV намеренно не
+переименованы до определения wellness-контракта. Следующее — M4 (#273):
+mapping-spec и импорт wellness → readiness/Сон/HRV.
 
 ## Context and Orientation
 

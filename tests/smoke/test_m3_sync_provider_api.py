@@ -8,6 +8,7 @@ from fastapi import HTTPException
 
 from api.routers import system as system_mod
 from services.intervals_icu import IntervalsICUError
+from services import sync_providers as sync_provider_service
 
 
 pytestmark = pytest.mark.smoke
@@ -83,17 +84,20 @@ def test_m3_provider_recommendation_respects_primary_and_configuration(
 def test_m3_intervals_connection_test_returns_only_safe_summary(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(system_mod.Settings, "INTERVALS_ICU_API_KEY", "secret", raising=False)
-    monkeypatch.setattr(
-        system_mod.intervals_icu_service,
-        "test_connection",
-        lambda: {
-            "ok": True,
-            "calendar_count": 2,
-            "calendars": [{"id": 1, "name": "Private calendar"}],
-        },
-    )
+    class Client:
+        @staticmethod
+        def is_configured() -> bool:
+            return True
 
+        @staticmethod
+        def test_connection() -> dict:
+            return {
+                "ok": True,
+                "calendar_count": 2,
+                "calendars": [{"id": 1, "name": "Private calendar"}],
+            }
+
+    monkeypatch.setattr(sync_provider_service.intervals_icu, "get_client", Client)
     payload = system_mod.test_sync_provider_connection("intervals")
 
     assert payload == {"ok": True, "source": "intervals", "calendar_count": 2}
@@ -102,8 +106,12 @@ def test_m3_intervals_connection_test_returns_only_safe_summary(
 def test_m3_intervals_connection_test_fails_explicitly_without_config(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(system_mod.Settings, "INTERVALS_ICU_API_KEY", None, raising=False)
+    class Client:
+        @staticmethod
+        def is_configured() -> bool:
+            return False
 
+    monkeypatch.setattr(sync_provider_service.intervals_icu, "get_client", Client)
     with pytest.raises(HTTPException) as caught:
         system_mod.test_sync_provider_connection("intervals")
 
@@ -114,16 +122,18 @@ def test_m3_intervals_connection_test_fails_explicitly_without_config(
 def test_m3_intervals_connection_test_maps_provider_error_to_503(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(system_mod.Settings, "INTERVALS_ICU_API_KEY", "secret", raising=False)
-    monkeypatch.setattr(
-        system_mod.intervals_icu_service,
-        "test_connection",
-        lambda: (_ for _ in ()).throw(IntervalsICUError("provider unavailable")),
-    )
+    class Client:
+        @staticmethod
+        def is_configured() -> bool:
+            return True
 
+        @staticmethod
+        def test_connection() -> dict:
+            raise IntervalsICUError("provider unavailable")
+
+    monkeypatch.setattr(sync_provider_service.intervals_icu, "get_client", Client)
     with pytest.raises(HTTPException) as caught:
         system_mod.test_sync_provider_connection("intervals")
 
     assert caught.value.status_code == 503
     assert caught.value.detail == "provider unavailable"
-

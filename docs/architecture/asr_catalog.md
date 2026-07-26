@@ -52,6 +52,31 @@ identity — без потерь и order-independent; `source` → garmin то�
 backfill-стабильность, batch-cursor на сбое, ingest no-orphan, ambiguous order-independent,
 identity-change reproject, атомарный rollback. Подключение реальных источников — M1.
 
+### M3 handoff: source-agnostic UI и Docker quickstart (#272)
+
+M3 расширяет Intervals-primary трек на продуктовую и deploy-поверхность
+(`docs/intervals_primary_m3_slice_spec.md`):
+
+- **ASR-SEC-1**: `GET /api/sync/providers` возвращает только configuration flags
+  и безопасную metadata; explicit Intervals probe возвращает bounded summary
+  (`ok`, `source`, `calendar_count`). API key и ответы провайдера не попадают в
+  UI. Проверка: `test_m3_sync_provider_api.py`.
+- **ASR-DEP-1**: `docs/intervals_primary_quickstart.md` фиксирует воспроизводимый
+  Intervals-only запуск через Docker Compose; конфигурация проверяется
+  `docker compose config --quiet` и `test_m3_quickstart.py`.
+- **ASR-DEP-2**: quickstart использует существующий named SQLite volume,
+  документирует сохранение данных при обычном `down` и помечает `down -v` как
+  destructive. Backup/restore automation остаётся открытым долгом, поэтому
+  общий статус ASR остаётся 🟡.
+- **ASR-MOD-2**: reusable `web/components/sync/SyncControl.tsx` потребляет
+  явный provider API contract; dashboard не выводит источник из несвязанных
+  метрик и не дублирует Garmin-specific логику. Проверка:
+  `test_m3_sync_ui_contract.py` и browser handoff.
+
+Статус: M3 завершён; Intervals-only путь от пустой SQLite через sync и planning
+onboarding до плана в `/planning` и `/today` подтверждён hermetic API-тестом и
+изолированной browser-вертикалью. Wellness остаётся M4.
+
 ## Контракт-тесты API-роутеров (ASR-MOD-2, issue #242)
 
 Свип по `api/routers/*` (кодовый долг из ATAM-карты, `architecture_analysis_add3.md`

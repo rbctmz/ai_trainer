@@ -89,7 +89,9 @@ export default function ActivitiesPage() {
       {data && !data.has_data ? (
         <div className="rounded-card border border-surface-border bg-surface p-6 text-center shadow-card">
           <div className="text-lg font-semibold text-ink">Нет активностей</div>
-          <p className="mt-1 text-sm text-ink-soft">Синхронизируйте Garmin, чтобы увидеть тренировки.</p>
+          <p className="mt-1 text-sm text-ink-soft">
+            Синхронизируйте настроенный источник, чтобы увидеть тренировки.
+          </p>
         </div>
       ) : null}
     </main>
