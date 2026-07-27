@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
+import { dataSourceLabel } from "@/lib/sourceLabels";
 import { SleepSummary } from "@/lib/types";
 import { MiniBars } from "@/components/ui/MiniBars";
 
@@ -31,19 +32,19 @@ export default function SleepPage() {
               label="Сон"
               value={data.latest.hours != null ? `${data.latest.hours}` : "—"}
               unit="ч"
-              detail={sourceLabel(data.latest.duration_source)}
+              detail={dataSourceLabel(data.latest.duration_source)}
             />
             <Metric
               label="Оценка"
               value={data.latest.score != null ? `${data.latest.score}` : "—"}
               unit="/100"
-              detail={scoreSourceLabel(data.latest.score_source)}
+              detail={dataSourceLabel(data.latest.score_source)}
             />
             <Metric
               label="Эффективность"
               value={data.latest.efficiency != null ? `${data.latest.efficiency}` : "—"}
               unit="%"
-              detail={efficiencySourceLabel(data.latest.efficiency_source)}
+              detail={dataSourceLabel(data.latest.efficiency_source)}
             />
             <Metric
               label="Пробуждения"
@@ -123,31 +124,6 @@ function Stages({
       </div>
     </div>
   );
-}
-
-function scoreSourceLabel(source: string) {
-  if (source === "intervals") return "Intervals.icu";
-  if (source === "garmin") return "Garmin";
-  if (source === "derived") return "расчётная";
-  if (source === "demo") return "демо";
-  if (source === "mixed") return "смешанные источники";
-  return "источник не сохранён";
-}
-
-function sourceLabel(source: string) {
-  if (source === "intervals") return "Intervals.icu";
-  if (source === "garmin") return "Garmin";
-  if (source === "demo") return "демо";
-  if (source === "mixed") return "смешанные источники";
-  return "источник не сохранён";
-}
-
-function efficiencySourceLabel(source: string) {
-  if (source === "derived_awake_time") return "по времени бодрствования";
-  if (source === "derived_sleep_window") return "по окну сна";
-  if (source === "demo") return "демо";
-  if (source === "unavailable") return "нет исходных данных";
-  return "источник не сохранён";
 }
 
 function Metric({

@@ -1,6 +1,7 @@
 "use client";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
+import { dataSourceLabel } from "@/lib/sourceLabels";
 import { AthleteProfileResponse } from "@/lib/types";
 
 function formatSyncedAt(value: string | null): string | null {
@@ -58,7 +59,7 @@ export function AthleteProfileCard({ className = "" }: { className?: string }) {
             </div>
           </div>
           <div className="mt-2 text-[11px] text-ink-faint">
-            {profile?.source === "intervals_icu" ? "Синхронизировано из Intervals.icu" : profile?.source}
+            Синхронизировано: {dataSourceLabel(profile?.source)}
             {syncedAtLabel ? ` · ${syncedAtLabel}` : null}
           </div>
         </>

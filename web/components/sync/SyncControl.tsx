@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import useSWR, { useSWRConfig } from "swr";
 import { fetcher, postJSON } from "@/lib/api";
+import { syncSourceLabel } from "@/lib/sourceLabels";
 import {
   SyncJobResponse,
   SyncProvidersResponse,
@@ -102,6 +103,9 @@ export function SyncControl({ onDone, detailed = false }: SyncControlProps) {
                 >
                   {provider.configured ? "Настроен" : "Не настроен"}
                 </span>
+                <span className="mt-1 block text-[11px] text-ink-faint">
+                  {provider.description}
+                </span>
               </button>
             );
           })}
@@ -112,9 +116,10 @@ export function SyncControl({ onDone, detailed = false }: SyncControlProps) {
         ) : null}
         {data && !hasConfiguredProvider ? (
           <p className="rounded-lg border border-tone-warning/30 bg-tone-warning/10 p-3 text-left text-xs text-ink-soft">
-            Для старта без Garmin добавьте <code>INTERVALS_ICU_API_KEY</code> в{" "}
-            <code>.env</code>, задайте <code>PRIMARY_ACTIVITY_SOURCE=intervals</code> и
-            перезапустите стек.
+            Настройте источник данных в локальном <code>.env</code>. Для
+            Intervals.icu добавьте <code>INTERVALS_ICU_API_KEY</code> и задайте{" "}
+            <code>PRIMARY_ACTIVITY_SOURCE=intervals</code>. Garmin Connect можно
+            подключить дополнительно.
           </p>
         ) : null}
 
@@ -195,12 +200,8 @@ function isTerminalSyncState(state: string): boolean {
   return state === "succeeded" || state === "partial" || state === "failed";
 }
 
-function providerLabel(source: SyncSource | null): string {
-  return source === "intervals" ? "Intervals.icu" : "Garmin";
-}
-
 function formatSyncJob(job: SyncJobResponse, fallbackSource: SyncSource): string {
-  const label = providerLabel(job.source ?? fallbackSource);
+  const label = syncSourceLabel(job.source ?? fallbackSource);
   if (job.sync_state === "running") {
     const progress = job.progress;
     if (progress?.message) {

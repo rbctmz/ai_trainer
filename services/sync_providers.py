@@ -37,16 +37,18 @@ def connection_overview() -> Dict[str, Any]:
         "recommended_source": recommended,
         "providers": [
             {
-                "source": "garmin",
-                "label": "Garmin Connect",
-                "configured": garmin_configured,
-                "connection": None,
-            },
-            {
                 "source": "intervals",
                 "label": "Intervals.icu",
+                "description": "Активности и восстановление",
                 "configured": intervals_configured,
                 "connection": intervals_connection,
+            },
+            {
+                "source": "garmin",
+                "label": "Garmin Connect",
+                "description": "Дополнительный источник · необязательно",
+                "configured": garmin_configured,
+                "connection": None,
             },
         ],
     }

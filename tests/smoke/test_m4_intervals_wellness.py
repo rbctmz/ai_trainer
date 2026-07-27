@@ -533,10 +533,12 @@ def test_m4_web_surfaces_are_source_agnostic():
         root / "web/app/hrv/page.tsx",
         root / "web/components/dashboard/SleepWidget.tsx",
         root / "web/components/ui/Tooltip.tsx",
+        root / "web/lib/sourceLabels.ts",
     ]
     source = "\n".join(path.read_text(encoding="utf-8") for path in paths)
 
     assert "Синхронизируйте Garmin" not in source
-    assert 'source === "intervals"' in source
+    assert 'intervals: "Intervals.icu"' in source
+    assert 'from "@/lib/sourceLabels"' in source
     assert "Garmin рассчитывает" not in source
     assert "stages_available" in source
