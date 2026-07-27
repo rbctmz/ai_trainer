@@ -28,10 +28,13 @@ CTL/ATL не подменяют локальные расчёты.
 - [x] (2026-07-27) RED-гейты клиента, mapping, схемы, транзакции, приоритета
   источников, вертикали sync, readiness и API/UI подтверждены: первый контракт
   падает на отсутствующем production `list_wellness`.
-- [ ] GREEN: client + чистый normalizer + атомарный wellness batch и доменный
-  cursor.
-- [ ] GREEN: readiness/provenance API и source-agnostic web.
-- [ ] Полная regression, lint/build и изолированная browser-приёмка.
+- [x] (2026-07-27) GREEN: client + чистый normalizer + атомарный wellness batch
+  и доменный cursor; order-independent Garmin/Intervals projection.
+- [x] (2026-07-27) GREEN: readiness/provenance API и source-agnostic web.
+- [x] (2026-07-27) Regression: `1263 passed, 1 skipped` smoke и `1306 passed,
+  6 skipped, 24 deselected` offline; Ruff, web lint/build green. Изолированный
+  browser: Sleep 8ч/84 и HRV 44мс из Intervals без фиктивных стадий,
+  Today readiness 70/100 по трём recovery-факторам.
 - [ ] PR с `Closes #273`, зелёными checks и `status: ready to merge`.
 
 ## Surprises & Discoveries
@@ -277,4 +280,16 @@ SQLite/Pandas/FastAPI/Next.js стек.
 
 ## Outcomes & Retrospective
 
-Заполняется после реализации и browser-приёмки.
+Результат: Intervals-only теперь покрывает не только активности, но и
+канонические recovery-входы. Самым важным решением стала не таблица
+`wellness`, а per-metric provenance: оно сохраняет Garmin-only стадии сна и
+одновременно делает выбор общих HRV/сна/RHR независимым от порядка синков.
+Атомарность пришлось поднять до уровня всего provider chunk вместе с cursor —
+три отдельных legacy upsert не могли гарантировать, что high-water не уйдёт
+вперёд при частичной записи.
+
+Что не импортируется осознанно: `hrvSDNN`, `sleepQuality`, provider readiness,
+CTL и ATL. Отсутствие этих полей остаётся data gap, а не поводом синтезировать
+ложные значения. Новый код не добавил зависимостей и сохранил Garmin-регрессию.
+Оставшаяся работа трека — M5: убрать последние Garmin-primary тексты/метки и
+провести миграцию базы владельца.
