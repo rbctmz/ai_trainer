@@ -57,6 +57,7 @@ from services.sync_cursor import (
     WindowedSyncResult,
     run_windowed_sync,
 )
+from services.wellness_ingest import sync_intervals_wellness
 
 # Intervals.icu caps a reconciliation window at 90 days, so each chunk fed to
 # list_activities must be at most that wide (services/intervals_icu).
@@ -84,6 +85,12 @@ class IntervalsSyncResult:
     bootstrapped: bool = False
     halted: bool = False
     cursor_value: str | None = None
+    wellness_halted: bool = False
+    wellness_cursor_value: str | None = None
+    wellness_new: int = 0
+    wellness_updated: int = 0
+    wellness_skipped: int = 0
+    recovery_changes: int = 0
 
 
 def _validate_days(days: Any) -> int | None:
@@ -174,6 +181,7 @@ def sync_intervals_data(
         ValueError: ``days`` is not a positive int.
     """
     window_days = _validate_days(days)
+    anchor = now or datetime.now()
 
     # Preflight (refinement): resolve the client, then fail fast on a missing
     # key BEFORE any fetch or cursor work. athlete_id="0" (the default) is valid.
@@ -200,7 +208,7 @@ def sync_intervals_data(
         "intervals",
         "activities",
         fetch_chunk=fetch_chunk,
-        now=now,
+        now=anchor,
         chunk_days=chunk_days,
         primary_source=Settings.PRIMARY_ACTIVITY_SOURCE,
         window_days=window_days,
@@ -209,9 +217,30 @@ def sync_intervals_data(
     if on_progress is not None:
         on_progress(
             SyncProgressUpdate(
+                percent=60,
+                message="🌙 Загрузка восстановления Intervals.icu...",
+                step_text="Шаг 2/3: Получение wellness...",
+            )
+        )
+
+    wellness = sync_intervals_wellness(
+        database,
+        client,
+        now=anchor,
+        window_days=window_days,
+        chunk_days=chunk_days,
+    )
+
+    if on_progress is not None:
+        on_progress(
+            SyncProgressUpdate(
                 percent=100,
-                message="✅ Готово" if not wsr.halted else "⚠️ Синк остановлен",
-                step_text="Шаг 2/2: Завершение...",
+                message=(
+                    "✅ Готово"
+                    if not wsr.halted and not wellness.halted
+                    else "⚠️ Синк завершён частично"
+                ),
+                step_text="Шаг 3/3: Завершение...",
             )
         )
 
@@ -220,12 +249,18 @@ def sync_intervals_data(
         updated=wsr.updated,
         skipped=0,  # list_activities fails closed on id-less rows (no silent drops)
         ingested=wsr.ingested,
-        warnings=list(wsr.warnings),
+        warnings=[*wsr.warnings, *wellness.warnings],
         window_start=wsr.window_start,
         window_end=wsr.window_end,
         bootstrapped=wsr.bootstrapped,
         halted=wsr.halted,
         cursor_value=wsr.cursor_value,
+        wellness_halted=wellness.halted,
+        wellness_cursor_value=wellness.cursor_value,
+        wellness_new=wellness.new,
+        wellness_updated=wellness.updated,
+        wellness_skipped=wellness.skipped,
+        recovery_changes=wellness.changes,
     )
 
 
@@ -251,7 +286,7 @@ def build_intervals_sync_status_payload(
     synced_at = datetime.now().isoformat(timespec="seconds")
     activity_changes = result.new + result.updated
 
-    if result.halted or result.warnings:
+    if result.halted or result.wellness_halted or result.warnings:
         title = "Синхронизация Intervals.icu завершена частично"
         summary = (
             "За запрошенный период удалось получить не все данные. "
@@ -259,10 +294,10 @@ def build_intervals_sync_status_payload(
         )
         severity = "warning"
         sync_state = "partial"
-    elif activity_changes > 0:
+    elif activity_changes > 0 or result.recovery_changes > 0:
         title = "Синхронизация Intervals.icu завершена"
         summary = (
-            "Загружены свежие активности за запрошенный период. "
+            "Загружены свежие активности и показатели восстановления. "
             "Теперь можно перейти к интерпретации формы и ближайшей нагрузки."
         )
         severity = "success"
@@ -289,8 +324,12 @@ def build_intervals_sync_status_payload(
             "skipped": result.skipped,
         },
         "activity_changes": activity_changes,
-        # Intervals has no recovery domains in M1 (wellness — M4).
-        "recovery_changes": 0,
+        "recovery_changes": result.recovery_changes,
+        "recovery_counts": {
+            "new": result.wellness_new,
+            "updated": result.wellness_updated,
+            "skipped": result.wellness_skipped,
+        },
         "highlights": [],
         "notices": list(result.warnings),
         "source": result.source,
@@ -300,6 +339,8 @@ def build_intervals_sync_status_payload(
         "bootstrapped": result.bootstrapped,
         "halted": result.halted,
         "cursor_value": result.cursor_value,
+        "wellness_halted": result.wellness_halted,
+        "wellness_cursor_value": result.wellness_cursor_value,
     }
 
 

@@ -72,6 +72,7 @@ def sleep_summary(
             "hours": hours(row.get("total_sleep_minutes")) or 0,
             "score": _num(row.get("sleep_score")),
             "score_source": _source(row.get("sleep_score_source")),
+            "duration_source": _source(row.get("total_sleep_source")),
         }
         for _, row in df.iterrows()
     ]
@@ -88,6 +89,7 @@ def sleep_summary(
             "hours": hours(latest.get("total_sleep_minutes")),
             "score": _num(latest.get("sleep_score")),
             "score_source": _source(latest.get("sleep_score_source")),
+            "duration_source": _source(latest.get("total_sleep_source")),
             "efficiency": _num(latest.get("sleep_efficiency")),
             "efficiency_source": _source(latest.get("sleep_efficiency_source")),
             "awakenings": _num(latest.get("awakenings_count")),
@@ -97,6 +99,14 @@ def sleep_summary(
                 "light": hours(latest.get("light_sleep_minutes")),
                 "rem": hours(latest.get("rem_sleep_minutes")),
             },
+            "stages_available": any(
+                _num(latest.get(column)) is not None
+                for column in (
+                    "deep_sleep_minutes",
+                    "light_sleep_minutes",
+                    "rem_sleep_minutes",
+                )
+            ),
             "stages_list": [
                 {"key": "deep", "label": "Глубокий", "hours": hours(latest.get("deep_sleep_minutes"))},
                 {"key": "rem", "label": "REM", "hours": hours(latest.get("rem_sleep_minutes"))},
@@ -107,6 +117,7 @@ def sleep_summary(
             "hours": avg_hours,
             "score": avg_score,
             "score_source": _common_source(scored_rows.get("sleep_score_source")),
+            "duration_source": _common_source(df.get("total_sleep_source")),
             "window_days": len(df),
         },
         "trend": trend,

@@ -75,7 +75,32 @@ M3 расширяет Intervals-primary трек на продуктовую и 
 
 Статус: M3 завершён; Intervals-only путь от пустой SQLite через sync и planning
 onboarding до плана в `/planning` и `/today` подтверждён hermetic API-тестом и
-изолированной browser-вертикалью. Wellness остаётся M4.
+изолированной browser-вертикалью.
+
+### M4 wellness: metric provenance и атомарный доменный cursor (#273)
+
+M4 добавляет bounded `GET /wellness` и чистую mapping-границу
+`services/wellness_ingest.py`: `hrv` трактуется только как rMSSD (мс),
+`sleepSecs` — как минуты сна, `restingHR` — как пульс покоя. `hrvSDNN`,
+provider readiness и готовые CTL/ATL намеренно не входят в канон.
+
+- **ASR-REL-2**: отсутствующие метрики остаются data gap; этапы сна не
+  синтезируются. Readiness считается полным по каноническим sleep/HRV/RHR и не
+  требует Garmin-only `training_readiness`.
+- **ASR-REL-3**: HRV, сон, RHR и `(provider, wellness)` cursor коммитятся одной
+  SQLite-транзакцией. Malformed/provider error держит только wellness cursor,
+  не откатывая чистый activity-домен.
+- **ASR-MOD-2**: Sleep/HRV API возвращают metric-scoped provenance;
+  web-поверхности не ветвятся по Garmin как по обязательному источнику.
+- **ASR-MOD-3**: `rmssd_source`, `total_sleep_source`,
+  `resting_hr_source` добавляются migrate-on-read с
+  `legacy_unknown`, без переписывания legacy-значений.
+- **ASR-PERF-3**: отдельный per-provider/per-domain cursor ограничивает
+  повторную выборку wellness.
+
+Проверка: `test_m4_intervals_wellness.py` (mapping/fail-closed, legacy schema,
+atomic rollback, order independence, independent cursors, readiness, API/UI)
+и существующая Garmin/readiness regression.
 
 ## Контракт-тесты API-роутеров (ASR-MOD-2, issue #242)
 

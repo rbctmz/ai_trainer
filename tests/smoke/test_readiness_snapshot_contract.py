@@ -78,7 +78,6 @@ def test_readiness_snapshot_empty_db_is_unknown_and_provisional(tmp_path):
         "sleep",
         "hrv",
         "resting_hr",
-        "training_readiness",
     }
     assert snapshot["stale"] is False
     assert snapshot["factors"] == []
@@ -120,8 +119,8 @@ def test_readiness_snapshot_partial_data_lists_missing_inputs(tmp_path):
 
     assert snapshot["score"] is not None
     assert snapshot["is_provisional"] is True
-    assert snapshot["source_completeness"] == 0.5
-    assert snapshot["missing_inputs"] == ["resting_hr", "training_readiness"]
+    assert snapshot["source_completeness"] == 0.67
+    assert snapshot["missing_inputs"] == ["resting_hr"]
     assert "частичным" in snapshot["reason"]
 
 

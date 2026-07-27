@@ -23,6 +23,24 @@ def _primary_activity_source() -> str:
         )
     return value
 
+
+def _primary_wellness_source() -> str:
+    """Provider whose overlapping recovery metrics win deterministically.
+
+    By default wellness follows the canonical activity source so the Intervals
+    quickstart needs only one switch.  A dedicated variable remains available
+    for mixed-provider installations.
+    """
+    default = os.getenv("PRIMARY_ACTIVITY_SOURCE", "garmin") or "garmin"
+    value = (os.getenv("PRIMARY_WELLNESS_SOURCE", default) or default).strip().lower()
+    if value not in {"garmin", "intervals"}:
+        raise ValueError(
+            "PRIMARY_WELLNESS_SOURCE must be 'garmin' or 'intervals', "
+            f"got {value!r}"
+        )
+    return value
+
+
 class Settings:
     """Настройки приложения"""
     
@@ -65,6 +83,7 @@ class Settings:
     # 'garmin' (обратная совместимость); Intervals quickstart задаёт 'intervals';
     # неизвестное значение → fail-fast.
     PRIMARY_ACTIVITY_SOURCE = _primary_activity_source()
+    PRIMARY_WELLNESS_SOURCE = _primary_wellness_source()
 
     # База данных
     DATABASE_PATH = os.getenv("DATABASE_PATH", "ai_trainer.db")

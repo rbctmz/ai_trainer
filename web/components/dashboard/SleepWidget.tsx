@@ -44,7 +44,7 @@ export function SleepWidget({ className = "" }: { className?: string }) {
           </span>
         )}
       </div>
-      {latest?.stages && (
+      {latest?.stages_available && latest.stages && (
         <div className="mt-2 flex gap-3 text-[11px] text-ink-faint">
           {latest.stages.deep  != null && <span>Глуб {latest.stages.deep}ч</span>}
           {latest.stages.rem   != null && <span>REM {latest.stages.rem}ч</span>}
@@ -69,6 +69,7 @@ export function SleepWidget({ className = "" }: { className?: string }) {
 }
 
 function scoreSourceLabel(source?: string) {
+  if (source === "intervals") return "Intervals.icu";
   if (source === "garmin") return "Garmin";
   if (source === "derived") return "расчётная";
   if (source === "demo") return "демо";

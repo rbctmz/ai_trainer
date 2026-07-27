@@ -27,7 +27,12 @@ export default function SleepPage() {
       {data?.has_data && data.latest ? (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Metric label="Сон" value={data.latest.hours != null ? `${data.latest.hours}` : "—"} unit="ч" />
+            <Metric
+              label="Сон"
+              value={data.latest.hours != null ? `${data.latest.hours}` : "—"}
+              unit="ч"
+              detail={sourceLabel(data.latest.duration_source)}
+            />
             <Metric
               label="Оценка"
               value={data.latest.score != null ? `${data.latest.score}` : "—"}
@@ -53,7 +58,9 @@ export default function SleepPage() {
             </div>
           ) : null}
 
-          <Stages stages={data.latest.stages} total={data.latest.hours} />
+          {data.latest.stages_available ? (
+            <Stages stages={data.latest.stages} total={data.latest.hours} />
+          ) : null}
 
           <div className="rounded-card border border-surface-border bg-surface p-5 shadow-card">
             <div className="mb-3 flex items-baseline justify-between">
@@ -119,8 +126,17 @@ function Stages({
 }
 
 function scoreSourceLabel(source: string) {
+  if (source === "intervals") return "Intervals.icu";
   if (source === "garmin") return "Garmin";
   if (source === "derived") return "расчётная";
+  if (source === "demo") return "демо";
+  if (source === "mixed") return "смешанные источники";
+  return "источник не сохранён";
+}
+
+function sourceLabel(source: string) {
+  if (source === "intervals") return "Intervals.icu";
+  if (source === "garmin") return "Garmin";
   if (source === "demo") return "демо";
   if (source === "mixed") return "смешанные источники";
   return "источник не сохранён";
@@ -161,7 +177,7 @@ function NoData() {
   return (
     <div className="rounded-card border border-surface-border bg-surface p-6 text-center shadow-card">
       <div className="text-lg font-semibold text-ink">Нет данных сна</div>
-      <p className="mt-1 text-sm text-ink-soft">Синхронизируйте Garmin, чтобы увидеть анализ сна.</p>
+      <p className="mt-1 text-sm text-ink-soft">Подключите источник данных, чтобы увидеть анализ сна.</p>
     </div>
   );
 }

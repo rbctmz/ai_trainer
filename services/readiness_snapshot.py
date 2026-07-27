@@ -15,12 +15,12 @@ from models.readiness import LOAD_METRICS_WINDOW_DAYS, compute_readiness_today
 from models.recovery_response import READINESS_SNAPSHOT_RULE_VERSION
 
 
-PRIMARY_INPUTS = ("sleep", "hrv", "resting_hr", "training_readiness")
+PRIMARY_INPUTS = ("sleep", "hrv", "resting_hr")
 FACTOR_LABELS = {
     "sleep": "Сон",
     "hrv": "HRV",
     "resting_hr": "Пульс покоя",
-    "training_readiness": "Garmin readiness",
+    "training_readiness": "Готовность устройства",
     "stress": "Стресс",
     "tsb": "Баланс нагрузки (TSB)",
 }
@@ -94,7 +94,7 @@ def build_readiness_snapshot(
         len([key for key in PRIMARY_INPUTS if key in factor_keys]) / len(PRIMARY_INPUTS), 2
     )
     status = "stale" if stale else result["status"]
-    is_provisional = bool(stale or missing_inputs or "training_readiness" not in factor_keys)
+    is_provisional = bool(stale or missing_inputs)
     factors = [dict(factor) for factor in result["factors"]]
     stress_factor = _stress_reference_factor(hrv_df)
     if stress_factor is not None:
@@ -111,6 +111,11 @@ def build_readiness_snapshot(
             "daily_health": _latest_date(health_df),
             "training_status": _latest_date(training_df),
             "activities": _latest_date(activities_df),
+        },
+        "metric_sources": {
+            "sleep": _latest_metric_source(sleep_df, "sleep_score_source"),
+            "hrv": _latest_metric_source(hrv_df, "rmssd_source"),
+            "resting_hr": _latest_metric_source(health_df, "resting_hr_source"),
         },
     }
     return {
@@ -174,6 +179,27 @@ def _latest_date(frame: pd.DataFrame | None) -> str | None:
         return None
     parsed = pd.to_datetime(frame["date"], errors="coerce").dropna()
     return parsed.max().date().isoformat() if not parsed.empty else None
+
+
+def _latest_metric_source(
+    frame: pd.DataFrame | None,
+    column: str,
+) -> str | None:
+    if (
+        frame is None
+        or not isinstance(frame, pd.DataFrame)
+        or frame.empty
+        or "date" not in frame
+        or column not in frame
+    ):
+        return None
+    ordered = frame.assign(
+        _source_date=pd.to_datetime(frame["date"], errors="coerce")
+    ).sort_values("_source_date", ascending=False)
+    for value in ordered[column].tolist():
+        if value is not None and not pd.isna(value) and str(value).strip():
+            return str(value).strip()
+    return None
 
 
 def _stress_reference_factor(hrv_df: pd.DataFrame | None) -> dict[str, Any] | None:

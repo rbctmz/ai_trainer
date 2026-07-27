@@ -322,6 +322,21 @@ def sync_garmin_data(
         step_text="Шаг 5/5: Сохранение данных...",
     )
 
+    # Metric-scoped provenance keeps Garmin and Intervals coexistence
+    # deterministic.  Provider-only fields (sleep stages, stress/body battery)
+    # remain available even when Intervals is the primary wellness source.
+    for values in hrv_data.values():
+        if values.get("rmssd") is not None:
+            values["rmssd_source"] = "garmin"
+    for values in sleep_data.values():
+        if values.get("total_sleep_minutes") is not None:
+            values["total_sleep_source"] = "garmin"
+        if values.get("sleep_score") is not None:
+            values["sleep_score_source"] = values.get("sleep_score_source") or "garmin"
+    for values in daily_health_data.values():
+        if values.get("resting_hr") is not None:
+            values["resting_hr_source"] = "garmin"
+
     if hrv_data:
         result.hrv_result = database.sync_hrv_data(hrv_data)
     if sleep_data:
