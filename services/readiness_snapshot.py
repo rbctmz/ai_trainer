@@ -113,7 +113,10 @@ def build_readiness_snapshot(
             "activities": _latest_date(activities_df),
         },
         "metric_sources": {
-            "sleep": _latest_metric_source(sleep_df, "sleep_score_source"),
+            "sleep": _latest_metric_source(
+                sleep_df,
+                _sleep_source_column(result["factors"]),
+            ),
             "hrv": _latest_metric_source(hrv_df, "rmssd_source"),
             "resting_hr": _latest_metric_source(health_df, "resting_hr_source"),
         },
@@ -170,6 +173,7 @@ def _unknown_snapshot(*, reason: str, anchor: date, observed_at_utc: str) -> dic
             "as_of_date": anchor.isoformat(),
             "observed_at_utc": observed_at_utc,
             "sources": {},
+            "metric_sources": {},
         },
     }
 
@@ -200,6 +204,14 @@ def _latest_metric_source(
         if value is not None and not pd.isna(value) and str(value).strip():
             return str(value).strip()
     return None
+
+
+def _sleep_source_column(factors: list[dict[str, Any]]) -> str:
+    """Select provenance for the sleep metric the readiness model actually used."""
+    factor = next((item for item in factors if item.get("key") == "sleep"), None)
+    if factor and factor.get("source") == "total_sleep_minutes":
+        return "total_sleep_source"
+    return "sleep_score_source"
 
 
 def _stress_reference_factor(hrv_df: pd.DataFrame | None) -> dict[str, Any] | None:

@@ -467,6 +467,33 @@ def test_m4_intervals_recovery_is_complete_without_provider_readiness(tmp_path):
     assert "training_readiness" not in snapshot["missing_inputs"]
 
 
+def test_m4_duration_only_sleep_reports_the_metric_source_used(tmp_path):
+    from services.readiness_snapshot import build_readiness_snapshot
+
+    db = Database(str(tmp_path / "duration-readiness.db"))
+    payload = _normalized_payload(
+        source="intervals",
+        rmssd=44,
+        sleep_minutes=480,
+        sleep_score=84,
+        resting_hr=50,
+    )
+    payload["sleep"].pop("sleep_score")
+    payload["sleep"].pop("sleep_score_source")
+    db.sync_wellness_batch(
+        [payload],
+        provider="intervals",
+        cursor_value="2026-07-27",
+        primary_source="intervals",
+    )
+
+    snapshot = build_readiness_snapshot(db, as_of=date(2026, 7, 27))
+
+    sleep_factor = next(item for item in snapshot["factors"] if item["key"] == "sleep")
+    assert sleep_factor["source"] == "total_sleep_minutes"
+    assert snapshot["input_provenance"]["metric_sources"]["sleep"] == "intervals"
+
+
 def test_m4_sleep_and_hrv_api_expose_metric_sources(tmp_path):
     from api.routers.hrv import hrv_summary
     from api.routers.sleep import sleep_summary
