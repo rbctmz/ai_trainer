@@ -59,7 +59,9 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 - [x] M3 (#272): source-agnostic UI + Docker quickstart + сценарий handoff.
 - [x] M4 (#273): wellness mapping-spec + импорт → readiness; metric-scoped
   provenance и source-agnostic Сон/HRV.
-- [ ] M5: демоушен Garmin в UI (только тексты/метки).
+- [x] M5 (#274): Garmin демоутирован до дополнительного необязательного
+  источника в onboarding; Intervals.icu показан первым; provenance labels
+  централизованы и source-aware. Data/backfill не менялись.
 
 ## Surprises & Discoveries
 
@@ -152,6 +154,21 @@ readiness и CTL/ATL. Канонические recovery-метрики имею�
 Garmin-only фактора; Sleep/HRV API и web показывают источник и не рисуют
 отсутствующие фазы. Следующее — M5 (#274): финальный демоушен Garmin в оставшихся
 текстах/метках и миграция владельца.
+
+**M5 закрыт (2026-07-27).** Достигнуто: пустой Dashboard показывает
+Intervals.icu первым источником активностей и восстановления, а Garmin Connect —
+дополнительным и необязательным. Onboarding больше не определяет первый запуск
+через конструкцию «без Garmin». Сон, HRV, профиль и sync status используют
+единый formatter фактического source. Схема и история не менялись: provider-link
+backfill остаётся ответственностью M0, поэтому обновление безопасно для базы
+владельца. Проверки: M5 RED→GREEN 4 tests; M3–M5 targeted 44 passed; smoke 1269
+passed, 1 skipped; полный offline 1312 passed, 6 skipped, 24 deselected; web
+lint/build green; изолированная browser-приёмка empty state green.
+
+**Intervals-primary M0–M5 завершён.** Технический атлет может поднять продукт с
+Intervals.icu без Garmin, синхронизировать активности и wellness, подтвердить
+первый план и видеть source-aware readiness/Сон/HRV. Garmin сохранён как
+совместимый вторичный источник, а существующая история — через provider-links.
 
 ## Context and Orientation
 

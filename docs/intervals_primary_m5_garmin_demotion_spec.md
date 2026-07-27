@@ -21,11 +21,12 @@ React-компонентах. M5 убирает эти последние UX-с�
 
 - [x] (2026-07-27) Изучены issue #274, parent ExecPlan, ASR и фактические
   source-aware API/web контракты.
-- [ ] Добавить RED-гейты порядка источников, onboarding-текстов и единого
+- [x] (2026-07-27) Добавлены RED-гейты порядка источников, onboarding-текстов и единого
   provenance formatter.
-- [ ] Реализовать минимальные API metadata и web-тексты/метки.
-- [ ] Выполнить targeted, smoke, offline, lint/build и браузерную приёмку.
-- [ ] Обновить parent ExecPlan/ASR, выполнить self-review и открыть PR.
+- [x] (2026-07-27) Реализованы минимальные API metadata и web-тексты/метки.
+- [x] (2026-07-27) Выполнены targeted, smoke, offline, lint/build и браузерная приёмка.
+- [x] (2026-07-27) Обновлены parent ExecPlan/ASR и выполнен self-review.
+- [ ] Открыть PR, дождаться CI/review и передать владельцу на merge.
 
 ## Surprises & Discoveries
 
@@ -117,4 +118,21 @@ Dashboard Intervals.icu должен быть первой карточкой, G
 
 ## Outcomes & Retrospective
 
-Заполняется после реализации и проверки.
+M5 реализован без data-layer изменений. `GET /api/sync/providers` показывает
+Intervals.icu первым и добавляет безопасное описание роли; явный
+`recommended_source` сохраняет backward compatibility. Garmin Connect
+обозначен дополнительным необязательным источником. Recovery/profile/sync
+поверхности используют общий `web/lib/sourceLabels.ts`, поэтому фактический
+provenance отображается одинаково, а неизвестный source не протекает в UI как
+техническая строка.
+
+RED-гейт дал три ожидаемых падения и стал зелёным после реализации. Targeted
+M3–M5 suite: 44 passed. Contributor-safe smoke: 1269 passed, 1 skipped.
+Полный offline: 1312 passed, 6 skipped, 24 deselected. Next lint/build зелёные.
+Изолированная browser-приёмка на пустой SQLite подтвердила порядок карточек,
+опциональную подпись Garmin, нейтральный onboarding и отсутствие console errors.
+
+Главный процессный вывод: формулировка «миграция владельца» не должна
+автоматически становиться новой мутацией БД. Исторический backfill уже закрыт и
+протестирован M0; финальный milestone безопаснее завершить удалением
+presentation debt и прогоном существующей ingest regression.
