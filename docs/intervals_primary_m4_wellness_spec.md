@@ -31,10 +31,13 @@ CTL/ATL не подменяют локальные расчёты.
 - [x] (2026-07-27) GREEN: client + чистый normalizer + атомарный wellness batch
   и доменный cursor; order-independent Garmin/Intervals projection.
 - [x] (2026-07-27) GREEN: readiness/provenance API и source-agnostic web.
-- [x] (2026-07-27) Regression: `1263 passed, 1 skipped` smoke и `1306 passed,
+- [x] (2026-07-27) Regression: `1265 passed, 1 skipped` smoke и `1308 passed,
   6 skipped, 24 deselected` offline; Ruff, web lint/build green. Изолированный
   browser: Sleep 8ч/84 и HRV 44мс из Intervals без фиктивных стадий,
-  Today readiness 70/100 по трём recovery-факторам.
+Today readiness 70/100 по трём recovery-факторам.
+- [x] (2026-07-27) Self-review: method provenance `derived` больше не теряет
+  Garmin provider priority; duration-only sleep сообщает source реально
+  использованной метрики. Оба угла закреплены order/provenance-гейтами.
 - [ ] PR с `Closes #273`, зелёными checks и `status: ready to merge`.
 
 ## Surprises & Discoveries
