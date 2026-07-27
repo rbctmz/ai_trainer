@@ -180,6 +180,7 @@ class Database:
 
     _DAILY_HEALTH_COLUMN_TYPES = {
         'resting_hr': 'INTEGER',
+        'resting_hr_source': "TEXT DEFAULT 'legacy_unknown'",
         'steps': 'INTEGER',
         'floors_climbed': 'INTEGER',
         'calories_active': 'INTEGER',
@@ -197,8 +198,13 @@ class Database:
 
     _SLEEP_COLUMN_TYPES = {
         'awake_sleep_minutes': 'REAL',
+        'total_sleep_source': "TEXT DEFAULT 'legacy_unknown'",
         'sleep_score_source': "TEXT DEFAULT 'legacy_unknown'",
         'sleep_efficiency_source': "TEXT DEFAULT 'legacy_unknown'",
+    }
+
+    _HRV_COLUMN_TYPES = {
+        'rmssd_source': "TEXT DEFAULT 'legacy_unknown'",
     }
 
     _COACH_DECISION_COLUMN_TYPES = {
@@ -293,6 +299,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS hrv_data (
                 date DATE PRIMARY KEY,
                 rmssd REAL,
+                rmssd_source TEXT DEFAULT 'legacy_unknown',
                 stress_score REAL,
                 recovery_score REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -336,6 +343,7 @@ class Database:
                 wakeup_time TEXT,
                 sleep_efficiency REAL,
                 awake_sleep_minutes REAL,
+                total_sleep_source TEXT DEFAULT 'legacy_unknown',
                 sleep_score_source TEXT DEFAULT 'legacy_unknown',
                 sleep_efficiency_source TEXT DEFAULT 'legacy_unknown',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -347,6 +355,7 @@ class Database:
             CREATE TABLE IF NOT EXISTS daily_health (
                 date DATE PRIMARY KEY,
                 resting_hr INTEGER,
+                resting_hr_source TEXT DEFAULT 'legacy_unknown',
                 steps INTEGER,
                 floors_climbed INTEGER,
                 calories_active INTEGER,
@@ -723,6 +732,7 @@ class Database:
         ''')
         self._ensure_activity_columns(conn)
         self._repair_legacy_activity_tss(conn)
+        self._ensure_hrv_columns(conn)
         self._ensure_sleep_columns(conn)
         self._ensure_daily_health_columns(conn)
         self._ensure_training_status_columns(conn)
@@ -912,6 +922,16 @@ class Database:
         for column, column_type in self._DAILY_HEALTH_COLUMN_TYPES.items():
             if column not in existing_columns:
                 cursor.execute(f'ALTER TABLE daily_health ADD COLUMN {column} {column_type}')
+        conn.commit()
+
+    def _ensure_hrv_columns(self, conn: sqlite3.Connection) -> None:
+        """Add per-metric HRV provenance without rewriting legacy values."""
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(hrv_data)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        for column, column_type in self._HRV_COLUMN_TYPES.items():
+            if column not in existing_columns:
+                cursor.execute(f'ALTER TABLE hrv_data ADD COLUMN {column} {column_type}')
         conn.commit()
 
     def _ensure_sleep_columns(self, conn: sqlite3.Connection) -> None:
@@ -2875,7 +2895,7 @@ class Database:
         
         # Используем параметризованный запрос для надежности
         query = """
-            SELECT date, rmssd, stress_score, recovery_score
+            SELECT date, rmssd, rmssd_source, stress_score, recovery_score
             FROM hrv_data
             WHERE date >= ?
             ORDER BY date DESC
@@ -3037,6 +3057,213 @@ class Database:
         finally:
             conn.close()
         return effective.isoformat()
+
+    def sync_wellness_batch(
+        self,
+        records,
+        *,
+        provider,
+        cursor_value,
+        primary_source=None,
+    ):
+        """Atomically project one provider wellness chunk and its cursor.
+
+        Recovery provenance is metric-scoped: each overlapping metric follows
+        ``primary_source`` while provider-only fields (for example Garmin sleep
+        stages) are preserved.  The cursor is committed in the same SQLite
+        transaction, so no clean boundary can get ahead of partially written
+        recovery data.
+        """
+        provider = str(provider or "").strip().lower()
+        primary_source = str(
+            primary_source or Settings.PRIMARY_WELLNESS_SOURCE
+        ).strip().lower()
+        supported = {"garmin", "intervals"}
+        if provider not in supported or primary_source not in supported:
+            raise ValueError("wellness provider and primary_source must be garmin/intervals")
+        boundary = parse_cursor_date(cursor_value)
+        counts = {
+            "hrv_new": 0,
+            "hrv_updated": 0,
+            "sleep_new": 0,
+            "sleep_updated": 0,
+            "health_new": 0,
+            "health_updated": 0,
+            "skipped": 0,
+        }
+
+        def should_replace(current, current_source, current_provider=None):
+            if current is None:
+                return True
+            source = str(current_provider or current_source or "legacy_unknown")
+            return (
+                source == provider
+                or provider == primary_source
+                or source not in supported
+            )
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            cursor = conn.cursor()
+            for record in records or []:
+                day = parse_cursor_date(record.get("date")).isoformat()
+                touched = False
+
+                hrv = record.get("hrv") or {}
+                if hrv:
+                    row = cursor.execute(
+                        "SELECT rmssd, rmssd_source FROM hrv_data WHERE date=?",
+                        (day,),
+                    ).fetchone()
+                    incoming = self.clean_value(hrv.get("rmssd"))
+                    if row is None:
+                        cursor.execute(
+                            "INSERT INTO hrv_data(date, rmssd, rmssd_source) VALUES (?, ?, ?)",
+                            (day, incoming, provider),
+                        )
+                        counts["hrv_new"] += 1
+                    elif should_replace(row[0], row[1]):
+                        cursor.execute(
+                            "UPDATE hrv_data SET rmssd=?, rmssd_source=? WHERE date=?",
+                            (incoming, provider, day),
+                        )
+                        counts["hrv_updated"] += 1
+                    touched = True
+
+                sleep = record.get("sleep") or {}
+                if sleep:
+                    row = cursor.execute(
+                        "SELECT total_sleep_minutes, total_sleep_source, sleep_score, "
+                        "sleep_score_source FROM sleep_data WHERE date=?",
+                        (day,),
+                    ).fetchone()
+                    if row is None:
+                        columns = ["date"]
+                        values = [day]
+                        for column in (
+                            "total_sleep_minutes",
+                            "sleep_score",
+                            "deep_sleep_minutes",
+                            "light_sleep_minutes",
+                            "rem_sleep_minutes",
+                            "awakenings_count",
+                            "bedtime",
+                            "wakeup_time",
+                            "sleep_efficiency",
+                            "awake_sleep_minutes",
+                        ):
+                            if column in sleep:
+                                columns.append(column)
+                                values.append(self.clean_value(sleep.get(column)))
+                        if "total_sleep_minutes" in sleep:
+                            columns.append("total_sleep_source")
+                            values.append(provider)
+                        if "sleep_score" in sleep:
+                            columns.append("sleep_score_source")
+                            values.append(provider)
+                        placeholders = ", ".join("?" for _ in columns)
+                        cursor.execute(
+                            f"INSERT INTO sleep_data ({', '.join(columns)}) "
+                            f"VALUES ({placeholders})",
+                            values,
+                        )
+                        counts["sleep_new"] += 1
+                    else:
+                        updates = {}
+                        if (
+                            "total_sleep_minutes" in sleep
+                            and should_replace(row[0], row[1])
+                        ):
+                            updates["total_sleep_minutes"] = self.clean_value(
+                                sleep.get("total_sleep_minutes")
+                            )
+                            updates["total_sleep_source"] = provider
+                        score_provider = (
+                            row[1] if row[1] in supported else row[3]
+                        )
+                        if "sleep_score" in sleep and should_replace(
+                            row[2],
+                            row[3],
+                            score_provider,
+                        ):
+                            updates["sleep_score"] = self.clean_value(sleep.get("sleep_score"))
+                            updates["sleep_score_source"] = provider
+                        for column in (
+                            "deep_sleep_minutes",
+                            "light_sleep_minutes",
+                            "rem_sleep_minutes",
+                            "awakenings_count",
+                            "bedtime",
+                            "wakeup_time",
+                            "sleep_efficiency",
+                            "awake_sleep_minutes",
+                        ):
+                            if column in sleep and sleep.get(column) is not None:
+                                updates[column] = self.clean_value(sleep.get(column))
+                        if updates:
+                            clause = ", ".join(f"{column}=?" for column in updates)
+                            cursor.execute(
+                                f"UPDATE sleep_data SET {clause} WHERE date=?",
+                                [*updates.values(), day],
+                            )
+                            counts["sleep_updated"] += 1
+                    touched = True
+
+                health = record.get("health") or {}
+                if health:
+                    row = cursor.execute(
+                        "SELECT resting_hr, resting_hr_source FROM daily_health WHERE date=?",
+                        (day,),
+                    ).fetchone()
+                    incoming = self.clean_value(health.get("resting_hr"))
+                    if row is None:
+                        cursor.execute(
+                            "INSERT INTO daily_health(date, resting_hr, resting_hr_source) "
+                            "VALUES (?, ?, ?)",
+                            (day, incoming, provider),
+                        )
+                        counts["health_new"] += 1
+                    elif should_replace(row[0], row[1]):
+                        cursor.execute(
+                            "UPDATE daily_health SET resting_hr=?, resting_hr_source=? "
+                            "WHERE date=?",
+                            (incoming, provider, day),
+                        )
+                        counts["health_updated"] += 1
+                    touched = True
+
+                if not touched:
+                    counts["skipped"] += 1
+
+            existing = cursor.execute(
+                "SELECT cursor_value FROM sync_cursors WHERE provider=? AND domain='wellness'",
+                (provider,),
+            ).fetchone()
+            effective = boundary
+            if existing and existing[0]:
+                effective = max(parse_cursor_date(existing[0]), boundary)
+            cursor.execute(
+                """
+                INSERT INTO sync_cursors(provider, domain, cursor_value, updated_at)
+                VALUES (?, 'wellness', ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(provider, domain) DO UPDATE SET
+                    cursor_value=excluded.cursor_value,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                (provider, effective.isoformat()),
+            )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+        counts["changes"] = sum(
+            value for key, value in counts.items() if key.endswith(("_new", "_updated"))
+        )
+        counts["cursor_value"] = effective.isoformat()
+        return counts
 
     def sync_activities(self, activities):
         """Умная синхронизация активностей без дублей"""
@@ -3398,8 +3625,8 @@ class Database:
         cursor = conn.cursor()
         
         # Получаем существующие даты
-        cursor.execute('SELECT date FROM hrv_data')
-        existing_dates = {row[0] for row in cursor.fetchall()}
+        cursor.execute('SELECT date, rmssd, rmssd_source FROM hrv_data')
+        existing = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
         
         new_count = 0
         updated_count = 0
@@ -3407,30 +3634,47 @@ class Database:
         for date_str, data in hrv_data.items():
             clean_date = self.clean_value(date_str)
             
-            if clean_date in existing_dates:
-                # Обновляем существующую запись
-                cursor.execute('''
-                    UPDATE hrv_data SET rmssd=?, stress_score=?, recovery_score=?
-                    WHERE date=?
-                ''', (
-                    self.clean_value(data.get('rmssd')),
-                    self.clean_value(data.get('stress_score')),
-                    self.clean_value(data.get('recovery_score')),
-                    clean_date
-                ))
+            incoming_source = self.clean_value(
+                data.get('rmssd_source') or 'legacy_unknown'
+            )
+            if clean_date in existing:
+                current_rmssd, current_source = existing[clean_date]
+                replace_rmssd = (
+                    current_rmssd is None
+                    or current_source == incoming_source
+                    or incoming_source == Settings.PRIMARY_WELLNESS_SOURCE
+                    or current_source not in {'garmin', 'intervals'}
+                )
+                updates = {
+                    'stress_score': self.clean_value(data.get('stress_score')),
+                    'recovery_score': self.clean_value(data.get('recovery_score')),
+                }
+                if replace_rmssd and 'rmssd' in data:
+                    updates['rmssd'] = self.clean_value(data.get('rmssd'))
+                    updates['rmssd_source'] = incoming_source
+                clause = ', '.join(f"{column}=?" for column in updates)
+                cursor.execute(
+                    f'UPDATE hrv_data SET {clause} WHERE date=?',
+                    [*updates.values(), clean_date],
+                )
                 updated_count += 1
             else:
                 # Вставляем новую запись
                 cursor.execute('''
-                    INSERT INTO hrv_data (date, rmssd, stress_score, recovery_score)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO hrv_data
+                        (date, rmssd, rmssd_source, stress_score, recovery_score)
+                    VALUES (?, ?, ?, ?, ?)
                 ''', (
                     clean_date,
                     self.clean_value(data.get('rmssd')),
+                    incoming_source,
                     self.clean_value(data.get('stress_score')),
                     self.clean_value(data.get('recovery_score'))
                 ))
-                existing_dates.add(clean_date)
+                existing[clean_date] = (
+                    self.clean_value(data.get('rmssd')),
+                    incoming_source,
+                )
                 new_count += 1
         
         conn.commit()
@@ -3703,8 +3947,19 @@ class Database:
         cursor = conn.cursor()
         
         # Получаем существующие даты
-        cursor.execute('SELECT date FROM sleep_data')
-        existing_dates = {row[0] for row in cursor.fetchall()}
+        cursor.execute(
+            'SELECT date, total_sleep_minutes, total_sleep_source, sleep_score, '
+            'sleep_score_source FROM sleep_data'
+        )
+        existing = {
+            row[0]: {
+                'total_sleep_minutes': row[1],
+                'total_sleep_source': row[2],
+                'sleep_score': row[3],
+                'sleep_score_source': row[4],
+            }
+            for row in cursor.fetchall()
+        }
         
         new_count = 0
         updated_count = 0
@@ -3712,31 +3967,66 @@ class Database:
         for date_str, data in sleep_data.items():
             clean_date = self.clean_value(date_str)
             
-            if clean_date in existing_dates:
-                # Обновляем существующую запись
-                cursor.execute('''
-                    UPDATE sleep_data SET 
-                    total_sleep_minutes=?, deep_sleep_minutes=?, light_sleep_minutes=?,
-                    rem_sleep_minutes=?, awakenings_count=?, sleep_score=?,
-                    bedtime=?, wakeup_time=?, sleep_efficiency=?,
-                    awake_sleep_minutes=?, sleep_score_source=?,
-                    sleep_efficiency_source=?
-                    WHERE date=?
-                ''', (
-                    self.clean_value(data.get('total_sleep_minutes')),
-                    self.clean_value(data.get('deep_sleep_minutes')),
-                    self.clean_value(data.get('light_sleep_minutes')),
-                    self.clean_value(data.get('rem_sleep_minutes')),
-                    self.clean_value(data.get('awakenings_count')),
-                    self.clean_value(data.get('sleep_score')),
-                    self.clean_value(data.get('bedtime')),
-                    self.clean_value(data.get('wakeup_time')),
-                    self.clean_value(data.get('sleep_efficiency')),
-                    self.clean_value(data.get('awake_sleep_minutes')),
-                    self.clean_value(data.get('sleep_score_source') or 'legacy_unknown'),
-                    self.clean_value(data.get('sleep_efficiency_source') or 'legacy_unknown'),
-                    clean_date
-                ))
+            total_source = self.clean_value(
+                data.get('total_sleep_source') or 'legacy_unknown'
+            )
+            score_source = self.clean_value(
+                data.get('sleep_score_source') or 'legacy_unknown'
+            )
+            incoming_provider = (
+                total_source
+                if total_source in {'garmin', 'intervals'}
+                else score_source
+                if score_source in {'garmin', 'intervals'}
+                else 'legacy_unknown'
+            )
+            if clean_date in existing:
+                current = existing[clean_date]
+                updates = {}
+                for column in (
+                    'deep_sleep_minutes',
+                    'light_sleep_minutes',
+                    'rem_sleep_minutes',
+                    'awakenings_count',
+                    'bedtime',
+                    'wakeup_time',
+                    'sleep_efficiency',
+                    'awake_sleep_minutes',
+                    'sleep_efficiency_source',
+                ):
+                    if column in data:
+                        updates[column] = self.clean_value(data.get(column))
+                current_total_source = current['total_sleep_source']
+                if 'total_sleep_minutes' in data and (
+                    current['total_sleep_minutes'] is None
+                    or current_total_source == total_source
+                    or incoming_provider == Settings.PRIMARY_WELLNESS_SOURCE
+                    or current_total_source not in {'garmin', 'intervals'}
+                ):
+                    updates['total_sleep_minutes'] = self.clean_value(
+                        data.get('total_sleep_minutes')
+                    )
+                    updates['total_sleep_source'] = total_source
+                current_score_source = current['sleep_score_source']
+                current_score_provider = (
+                    current['total_sleep_source']
+                    if current['total_sleep_source'] in {'garmin', 'intervals'}
+                    else current_score_source
+                )
+                if 'sleep_score' in data and (
+                    current['sleep_score'] is None
+                    or current_score_source == score_source
+                    or incoming_provider == Settings.PRIMARY_WELLNESS_SOURCE
+                    or current_score_provider not in {'garmin', 'intervals'}
+                ):
+                    updates['sleep_score'] = self.clean_value(data.get('sleep_score'))
+                    updates['sleep_score_source'] = score_source
+                if updates:
+                    clause = ', '.join(f"{column}=?" for column in updates)
+                    cursor.execute(
+                        f'UPDATE sleep_data SET {clause} WHERE date=?',
+                        [*updates.values(), clean_date],
+                    )
                 updated_count += 1
             else:
                 # Вставляем новую запись
@@ -3745,8 +4035,8 @@ class Database:
                     (date, total_sleep_minutes, deep_sleep_minutes, light_sleep_minutes,
                      rem_sleep_minutes, awakenings_count, sleep_score, bedtime, 
                      wakeup_time, sleep_efficiency, awake_sleep_minutes,
-                     sleep_score_source, sleep_efficiency_source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     total_sleep_source, sleep_score_source, sleep_efficiency_source)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     clean_date,
                     self.clean_value(data.get('total_sleep_minutes')),
@@ -3759,10 +4049,18 @@ class Database:
                     self.clean_value(data.get('wakeup_time')),
                     self.clean_value(data.get('sleep_efficiency')),
                     self.clean_value(data.get('awake_sleep_minutes')),
-                    self.clean_value(data.get('sleep_score_source') or 'legacy_unknown'),
+                    total_source,
+                    score_source,
                     self.clean_value(data.get('sleep_efficiency_source') or 'legacy_unknown')
                 ))
-                existing_dates.add(clean_date)
+                existing[clean_date] = {
+                    'total_sleep_minutes': self.clean_value(
+                        data.get('total_sleep_minutes')
+                    ),
+                    'total_sleep_source': total_source,
+                    'sleep_score': self.clean_value(data.get('sleep_score')),
+                    'sleep_score_source': score_source,
+                }
                 new_count += 1
         
         conn.commit()
@@ -3785,8 +4083,11 @@ class Database:
         insert_placeholders = ', '.join('?' for _ in insert_columns)
         
         # Получаем существующие даты
-        cursor.execute('SELECT date FROM daily_health')
-        existing_dates = {row[0] for row in cursor.fetchall()}
+        cursor.execute('SELECT date, resting_hr, resting_hr_source FROM daily_health')
+        existing = {
+            row[0]: (row[1], row[2])
+            for row in cursor.fetchall()
+        }
         
         new_count = 0
         updated_count = 0
@@ -3794,10 +4095,23 @@ class Database:
         for date_str, data in health_data.items():
             clean_date = self.clean_value(date_str)
             
-            if clean_date in existing_dates:
+            if clean_date in existing:
                 # Обновляем только переданные поля: отсутствующий ключ означает
                 # «нет данных за этот проход» и не должен затирать сохранённое значение NULL-ом
                 present_columns = [column for column in columns if column in data]
+                incoming_source = self.clean_value(
+                    data.get('resting_hr_source') or 'legacy_unknown'
+                )
+                current_hr, current_source = existing[clean_date]
+                if 'resting_hr' in present_columns and not (
+                    current_hr is None
+                    or current_source == incoming_source
+                    or incoming_source == Settings.PRIMARY_WELLNESS_SOURCE
+                    or current_source not in {'garmin', 'intervals'}
+                ):
+                    present_columns.remove('resting_hr')
+                    if 'resting_hr_source' in present_columns:
+                        present_columns.remove('resting_hr_source')
                 if not present_columns:
                     continue
                 update_clause = ', '.join(f"{column}=?" for column in present_columns)
@@ -3814,7 +4128,12 @@ class Database:
                     f"INSERT INTO daily_health ({', '.join(insert_columns)}) VALUES ({insert_placeholders})",
                     [clean_date] + column_values,
                 )
-                existing_dates.add(clean_date)
+                existing[clean_date] = (
+                    self.clean_value(data.get('resting_hr')),
+                    self.clean_value(
+                        data.get('resting_hr_source') or 'legacy_unknown'
+                    ),
+                )
                 new_count += 1
         
         conn.commit()

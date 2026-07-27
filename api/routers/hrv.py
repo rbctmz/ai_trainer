@@ -19,6 +19,17 @@ from utils.product_semantics import format_date_label
 router = APIRouter(prefix="/api/hrv", tags=["hrv"])
 
 
+def _source(value: Any) -> str:
+    if value is None or pd.isna(value):
+        return "legacy_unknown"
+    return str(value).strip() or "legacy_unknown"
+
+
+def _common_source(values: pd.Series) -> str:
+    sources = {_source(value) for value in values.tolist()}
+    return next(iter(sources)) if len(sources) == 1 else "mixed"
+
+
 @router.get("/summary")
 def hrv_summary(
     days: int = 30,
@@ -58,6 +69,7 @@ def hrv_summary(
             "date": pd.to_datetime(row["date"]).strftime("%Y-%m-%d"),
             "date_label": format_date_label(row["date"]),
             "rmssd": round(float(row["rmssd"]), 1),
+            "source": _source(row.get("rmssd_source")),
         }
         for _, row in df.iterrows()
     ]
@@ -72,8 +84,15 @@ def hrv_summary(
             "rmssd": round(latest_rmssd, 1),
             "recovery_score": round(score, 0) if score is not None else None,
             "recovery_info": info,
+            "source": _source(latest_row.get("rmssd_source")),
         },
-        "baseline": {"rmssd": round(baseline, 1), "window_days": len(df)},
+        "baseline": {
+            "rmssd": round(baseline, 1),
+            "window_days": len(df),
+            "source": _common_source(df["rmssd_source"])
+            if "rmssd_source" in df
+            else "legacy_unknown",
+        },
         "trend": trend,
         "signals": signals,
         "operational_state": build_operational_state(

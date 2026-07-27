@@ -57,7 +57,8 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
 - [x] M2 (#271): онбординг параметров → первый план; без A-гонки graceful, без
   выдуманной даты; профиль и checkpoint разделены.
 - [x] M3 (#272): source-agnostic UI + Docker quickstart + сценарий handoff.
-- [ ] M4: wellness mapping-spec + импорт → readiness.
+- [x] M4 (#273): wellness mapping-spec + импорт → readiness; metric-scoped
+  provenance и source-agnostic Сон/HRV.
 - [ ] M5: демоушен Garmin в UI (только тексты/метки).
 
 ## Surprises & Discoveries
@@ -141,6 +142,16 @@ browser-вертикаль доказала реальный handoff «пуст�
 volume и предупреждение о `docker compose down -v`. Sleep/HRV намеренно не
 переименованы до определения wellness-контракта. Следующее — M4 (#273):
 mapping-spec и импорт wellness → readiness/Сон/HRV.
+
+**M4 закрыт (2026-07-27).** Достигнуто: официальный wellness-контракт
+Intervals.icu отображается в локальные rMSSD/сон/RHR без импорта provider
+readiness и CTL/ATL. Канонические recovery-метрики имеют per-metric provenance
+и детерминированный `PRIMARY_WELLNESS_SOURCE`; Garmin-only фазы сна сохраняются
+при любом порядке прихода. Wellness batch и его доменный cursor атомарны, а
+сбой wellness не блокирует чистый activity cursor. Readiness больше не требует
+Garmin-only фактора; Sleep/HRV API и web показывают источник и не рисуют
+отсутствующие фазы. Следующее — M5 (#274): финальный демоушен Garmin в оставшихся
+текстах/метках и миграция владельца.
 
 ## Context and Orientation
 

@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any
 
 import pandas as pd
@@ -303,6 +303,7 @@ def _sleep_factor(
 
         evidence_by_source = {
             "garmin": f"Сон: оценка Garmin {score_value:.0f}/100",
+            "intervals": f"Сон: оценка Intervals.icu {score_value:.0f}/100",
             "derived": f"Сон: расчётная оценка {score_value:.0f}/100",
             "demo": f"Сон: демо-оценка {score_value:.0f}/100",
         }

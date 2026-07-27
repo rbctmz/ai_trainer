@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import json
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
@@ -15,6 +16,16 @@ from models.plan_events import normalize_intervals_event
 
 DEFAULT_USER_AGENT = "AI-Trainer/1.0 (+https://github.com/rbctmz/ai_trainer)"
 MAX_RECONCILIATION_WINDOW_DAYS = 90
+WELLNESS_FIELDS = (
+    "id",
+    "updated",
+    "restingHR",
+    "hrv",
+    "hrvSDNN",
+    "sleepSecs",
+    "sleepScore",
+    "sleepQuality",
+)
 
 
 class IntervalsICUError(RuntimeError):
@@ -215,6 +226,54 @@ class IntervalsICUClient:
                 )
             _validate_activity_id(row.get("id"))
             rows.append({field: row.get(field) for field in fields})
+        return rows
+
+    def list_wellness(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
+        """Read only recovery inputs used by the canonical M4 mapping.
+
+        The provider's readiness and CTL/ATL fields are deliberately not
+        requested.  Malformed rows fail closed so the wellness cursor cannot
+        advance past data that was silently dropped.
+        """
+        self._validate_reconciliation_window(oldest, newest)
+        payload = self._request_json(
+            "GET",
+            f"/api/v1/athlete/{self.athlete_id}/wellness",
+            params={
+                "oldest": oldest.isoformat(),
+                "newest": newest.isoformat(),
+                "fields": ",".join(WELLNESS_FIELDS),
+            },
+        )
+        if not isinstance(payload, list):
+            raise IntervalsICUError(
+                "Intervals.icu wellness: expected a list response, got "
+                f"{type(payload).__name__}"
+            )
+        rows: List[Dict[str, Any]] = []
+        for row in payload:
+            if not isinstance(row, Mapping):
+                raise IntervalsICUError(
+                    "Intervals.icu wellness: response contained a non-mapping entry"
+                )
+            raw_day = row.get("id")
+            if (
+                not isinstance(raw_day, str)
+                or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", raw_day)
+            ):
+                raise IntervalsICUError(
+                    f"Intervals.icu wellness: invalid local date id {raw_day!r}"
+                )
+            try:
+                date.fromisoformat(raw_day)
+            except ValueError as exc:
+                raise IntervalsICUError(
+                    f"Intervals.icu wellness: invalid local date id {raw_day!r}"
+                ) from exc
+            # Preserve the provider row for observability/forward compatibility;
+            # the pure normalizer below is the bounded canonical projection and
+            # deliberately ignores provider readiness/CTL/ATL.
+            rows.append(dict(row))
         return rows
 
     def list_workout_events(self, oldest: date, newest: date) -> List[Dict[str, Any]]:

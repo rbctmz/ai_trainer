@@ -22,7 +22,12 @@ export default function HrvPage() {
       {data?.has_data && data.latest && data.baseline ? (
         <>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <Metric label="RMSSD сегодня" value={`${data.latest.rmssd}`} unit="мс" />
+            <Metric
+              label="RMSSD сегодня"
+              value={`${data.latest.rmssd}`}
+              unit="мс"
+              detail={sourceLabel(data.latest.source)}
+            />
             <Metric
               label="Восстановление"
               value={
@@ -32,7 +37,12 @@ export default function HrvPage() {
               }
               unit={data.latest.recovery_score != null ? "%" : ""}
             />
-            <Metric label="Базовая линия" value={`${data.baseline.rmssd}`} unit="мс" />
+            <Metric
+              label="Базовая линия"
+              value={`${data.baseline.rmssd}`}
+              unit="мс"
+              detail={sourceLabel(data.baseline.source)}
+            />
           </div>
 
           <div className="rounded-card border border-surface-border bg-surface p-5 shadow-card">
@@ -75,12 +85,31 @@ export default function HrvPage() {
   );
 }
 
-function Metric({ label, value, unit }: { label: string; value: string; unit: string }) {
+function sourceLabel(source: string) {
+  if (source === "intervals") return "Intervals.icu";
+  if (source === "garmin") return "Garmin";
+  if (source === "demo") return "демо";
+  if (source === "mixed") return "смешанные источники";
+  return "источник не сохранён";
+}
+
+function Metric({
+  label,
+  value,
+  unit,
+  detail,
+}: {
+  label: string;
+  value: string;
+  unit: string;
+  detail?: string;
+}) {
   return (
     <div className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
       <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
         {label}
       </div>
+      {detail ? <div className="mt-1 text-[11px] text-ink-faint">{detail}</div> : null}
       <div className="mt-1 text-2xl font-bold text-ink">
         {value}
         <span className="ml-1 text-sm font-normal text-ink-faint">{unit}</span>
@@ -139,7 +168,7 @@ function NoData() {
   return (
     <div className="rounded-card border border-surface-border bg-surface p-6 text-center shadow-card">
       <div className="text-lg font-semibold text-ink">Нет данных HRV</div>
-      <p className="mt-1 text-sm text-ink-soft">Синхронизируйте Garmin, чтобы увидеть тренд восстановления.</p>
+      <p className="mt-1 text-sm text-ink-soft">Подключите источник данных, чтобы увидеть тренд восстановления.</p>
     </div>
   );
 }

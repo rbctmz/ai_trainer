@@ -75,6 +75,8 @@ def test_m3_intervals_only_handoff_reaches_visible_plan(
                 for row in rows
                 if oldest <= datetime.fromisoformat(row["start_date"]).date() <= newest
             ]
+        if path.endswith("/wellness"):
+            return []
         raise AssertionError(f"unexpected Intervals request: {path}")
 
     sync_job_manager.reset_for_tests()
@@ -158,4 +160,3 @@ def test_m3_intervals_only_handoff_reaches_visible_plan(
     finally:
         app.dependency_overrides.pop(get_database, None)
         sync_job_manager.reset_for_tests()
-

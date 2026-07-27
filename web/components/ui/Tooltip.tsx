@@ -98,7 +98,7 @@ function SleepScoreContent() {
   return (
     <>
       <p className="mb-1.5 text-xs font-semibold text-ink">Оценка сна (0–100)</p>
-      <p className="mb-2 text-ink-soft">Garmin рассчитывает из общей длительности, доли глубокого и REM сна, числа пробуждений и ЧСС во сне.</p>
+      <p className="mb-2 text-ink-soft">Источник данных рассчитывает оценку по доступным показателям сна; методика зависит от подключённого провайдера.</p>
       <div className="space-y-0.5">
         {[
           ["< 60", "text-tone-danger",  "плохой сон"],

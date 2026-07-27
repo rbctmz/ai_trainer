@@ -107,9 +107,10 @@ export interface HrvSummary {
     rmssd: number;
     recovery_score: number | null;
     recovery_info: string;
+    source: string;
   } | null;
-  baseline: { rmssd: number; window_days: number } | null;
-  trend: { date: string; rmssd: number }[];
+  baseline: { rmssd: number; window_days: number; source: string } | null;
+  trend: { date: string; rmssd: number; source: string }[];
   signals: HrvSignal[];
 }
 
@@ -280,19 +281,28 @@ export interface SleepSummary {
     hours: number | null;
     score: number | null;
     score_source: string;
+    duration_source: string;
     efficiency: number | null;
     efficiency_source: string;
     awakenings: number | null;
     awake_minutes: number | null;
     stages: { deep: number | null; light: number | null; rem: number | null };
+    stages_available: boolean;
   } | null;
   averages: {
     hours: number | null;
     score: number | null;
     score_source: string;
+    duration_source: string;
     window_days: number;
   } | null;
-  trend: { date: string; hours: number; score: number | null; score_source: string }[];
+  trend: {
+    date: string;
+    hours: number;
+    score: number | null;
+    score_source: string;
+    duration_source: string;
+  }[];
 }
 
 // --- Athlete profile ---
