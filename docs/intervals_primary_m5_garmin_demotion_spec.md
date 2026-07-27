@@ -26,7 +26,8 @@ React-компонентах. M5 убирает эти последние UX-с�
 - [x] (2026-07-27) Реализованы минимальные API metadata и web-тексты/метки.
 - [x] (2026-07-27) Выполнены targeted, smoke, offline, lint/build и браузерная приёмка.
 - [x] (2026-07-27) Обновлены parent ExecPlan/ASR и выполнен self-review.
-- [ ] Открыть PR, дождаться CI/review и передать владельцу на merge.
+- [x] (2026-07-27) Открыт ready PR #288; contributor-safe CI и repository
+  ready-to-merge check зелёные, unresolved review threads отсутствуют.
 
 ## Surprises & Discoveries
 
@@ -131,6 +132,9 @@ M3–M5 suite: 44 passed. Contributor-safe smoke: 1269 passed, 1 skipped.
 Полный offline: 1312 passed, 6 skipped, 24 deselected. Next lint/build зелёные.
 Изолированная browser-приёмка на пустой SQLite подтвердила порядок карточек,
 опциональную подпись Garmin, нейтральный onboarding и отсутствие console errors.
+PR #288 открыт ready-for-review. GitHub сообщает mergeable/clean, все checks
+зелёные; автоматический Codex-review не запустился из-за отсутствующего
+GitHub↔Codex connection, inline review threads не созданы.
 
 Главный процессный вывод: формулировка «миграция владельца» не должна
 автоматически становиться новой мутацией БД. Исторический backfill уже закрыт и
