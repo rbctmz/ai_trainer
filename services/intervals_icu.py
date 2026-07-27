@@ -343,6 +343,10 @@ class IntervalsICUClient:
         except urlerror.URLError as exc:
             reason = getattr(exc, "reason", exc)
             raise IntervalsICUError(f"Не удалось подключиться к Intervals.icu: {reason}") from exc
+        except TimeoutError as exc:
+            raise IntervalsICUError(
+                f"Не удалось подключиться к Intervals.icu: {exc}"
+            ) from exc
 
         if not raw:
             return {}

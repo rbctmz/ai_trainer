@@ -221,12 +221,19 @@ function formatSyncJob(job: SyncJobResponse, fallbackSource: SyncSource): string
     const detail = result.counts
       ? ` +${result.counts.new} новых, ${result.counts.updated} обновлено`
       : "";
-    return (result.title || `Синхронизация ${label} завершена`) + detail;
+    const notices =
+      job.sync_state === "partial" ? formatSyncNotices(result.notices) : "";
+    return (result.title || `Синхронизация ${label} завершена`) + detail + notices;
   }
 
   return job.sync_state === "partial"
     ? `Синхронизация ${label} завершена частично`
     : `Синхронизация ${label} завершена`;
+}
+
+function formatSyncNotices(notices: string[] | undefined): string {
+  const actionable = (notices ?? []).filter((notice) => notice.trim()).slice(0, 2);
+  return actionable.length > 0 ? ` · ${actionable.join(" · ")}` : "";
 }
 
 function delay(ms: number): Promise<void> {

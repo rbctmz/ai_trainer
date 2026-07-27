@@ -137,3 +137,39 @@ def test_m3_intervals_connection_test_maps_provider_error_to_503(
 
     assert caught.value.status_code == 503
     assert caught.value.detail == "provider unavailable"
+
+
+def test_m3_intervals_connection_test_maps_transport_timeout_to_503(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class TimeoutResponse:
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return False
+
+        @staticmethod
+        def read() -> bytes:
+            raise TimeoutError("read timed out")
+
+    client = system_mod.intervals_icu_service.IntervalsICUClient(
+        api_key="configured",
+        athlete_id="0",
+    )
+    monkeypatch.setattr(
+        sync_provider_service.intervals_icu,
+        "get_client",
+        lambda: client,
+    )
+    monkeypatch.setattr(
+        system_mod.intervals_icu_service.urlrequest,
+        "urlopen",
+        lambda *_args, **_kwargs: TimeoutResponse(),
+    )
+
+    with pytest.raises(HTTPException) as caught:
+        system_mod.test_sync_provider_connection("intervals")
+
+    assert caught.value.status_code == 503
+    assert "read timed out" in str(caught.value.detail)

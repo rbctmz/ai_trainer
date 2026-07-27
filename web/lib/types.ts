@@ -341,6 +341,7 @@ export interface SyncResult {
   severity: "success" | "warning" | "error" | string;
   mode?: "incremental" | "full" | string;
   counts?: { new: number; updated: number; skipped: number };
+  notices?: string[];
   [key: string]: unknown;
 }
 

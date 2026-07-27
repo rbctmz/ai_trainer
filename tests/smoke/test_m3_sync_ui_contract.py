@@ -43,3 +43,11 @@ def test_m3_sync_types_carry_provider_discovery_and_job_source() -> None:
     assert "export interface SyncProvidersResponse" in source
     assert 'source: "garmin" | "intervals" | null;' in source
 
+
+def test_m3_partial_sync_surfaces_actionable_notices() -> None:
+    control = SYNC_CONTROL.read_text(encoding="utf-8")
+    types = TYPES.read_text(encoding="utf-8")
+
+    assert "notices?: string[];" in types
+    assert "result.notices" in control
+    assert "formatSyncNotices" in control

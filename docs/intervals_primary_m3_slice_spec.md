@@ -45,6 +45,10 @@ until M4, so their empty-state copy must not promise Intervals support.
   isolated browser acceptance.
 - [x] (2026-07-27 14:35Z) Updated parent ExecPlan and ASR traceability and
   completed this retrospective.
+- [x] (2026-07-27 15:05Z) Closed the post-review reliability round: partial
+  sync now surfaces bounded provider notices, and raw transport timeouts are
+  normalized to `IntervalsICUError` and mapped by the probe to HTTP 503. Both
+  defects were reproduced RED before GREEN; smoke is 1238 passed, 1 skipped.
 
 ## Surprises & Discoveries
 
@@ -75,6 +79,17 @@ until M4, so their empty-state copy must not promise Intervals support.
   Evidence: the isolated stack showed Intervals as configured and recommended,
   passed the explicit connection probe, synchronized activities, previewed and
   confirmed the first plan, then rendered that plan on `/today`.
+
+- Observation: the backend already preserved dirty-chunk causes in
+  `result.notices`, but the new compact formatter discarded them whenever a
+  result object was present.
+  Evidence: the post-review RED gate found that partial sync displayed title and
+  counts only; the formatter now shows at most two actionable notices.
+
+- Observation: `urllib` may raise a raw `TimeoutError` while reading an opened
+  response, outside the existing `URLError` mapping.
+  Evidence: a real `IntervalsICUClient` with a timeout-raising response escaped
+  the provider boundary and produced an API 500 before the post-review fix.
 
 ## Decision Log
 
@@ -132,6 +147,10 @@ M3 intentionally leaves Sleep and HRV Garmin-specific. Making their labels
 source-neutral before Intervals wellness mapping would be misleading; M4 owns
 that contract. The remaining deployment debt is operational backup/restore for
 the named SQLite volume (ASR-DEP-2 remains yellow), not first-run startup.
+
+The post-review round reinforced two product-boundary rules: partial success
+must retain the reason it is partial, and transport failures must be normalized
+at the provider client boundary rather than leak as generic API 500 responses.
 
 ## Context and Orientation
 

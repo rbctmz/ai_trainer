@@ -32,8 +32,9 @@ This document must be maintained in accordance with `.agent/PLANS.md` (the ExecP
   onboarding → preview/confirm → план в Planning и Today. Добавлен Docker
   quickstart; `.env.example` больше не содержит правдоподобных placeholder-
   credentials. Проверки: M3 14 passed; релевантная регрессия 115 passed; smoke
-  1236 passed, 1 skipped; полный offline 1279 passed, 6 skipped, 24 deselected;
-  web lint/build, Compose и изолированная browser-вертикаль green.
+  1238 passed, 1 skipped после review-round (partial notices видны; transport
+  timeout connection probe → 503); полный offline 1279 passed, 6 skipped,
+  24 deselected; web lint/build, Compose и изолированная browser-вертикаль green.
 - [x] (2026-07-25) **M2 завершён (#271).** Персистентный профиль планирования в
   `user_settings`, предложения из истории с явным `basis`, graceful отсутствие/сбой
   A-гонки без фиктивной даты, карточка первого плана в пустом `/planning`. Тонкий
