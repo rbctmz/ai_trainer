@@ -339,6 +339,58 @@ def test_m4_primary_wellness_projection_is_order_independent(tmp_path):
     assert snapshots[0]["health"] == (50, "intervals")
 
 
+def test_m4_derived_garmin_sleep_score_keeps_provider_priority(
+    tmp_path,
+    monkeypatch,
+):
+    """Method provenance (derived) must not erase the owning provider identity."""
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "PRIMARY_WELLNESS_SOURCE", "garmin")
+    intervals = _normalized_payload(
+        source="intervals",
+        rmssd=44,
+        sleep_minutes=485,
+        sleep_score=85,
+        resting_hr=50,
+    )
+    snapshots = []
+    for name, order in (
+        ("garmin-first", ("garmin", "intervals")),
+        ("intervals-first", ("intervals", "garmin")),
+    ):
+        db = Database(str(tmp_path / f"{name}.db"))
+        for source in order:
+            if source == "garmin":
+                db.sync_sleep_data(
+                    {
+                        "2026-07-27": {
+                            "total_sleep_minutes": 450,
+                            "total_sleep_source": "garmin",
+                            "sleep_score": 76,
+                            "sleep_score_source": "derived",
+                        }
+                    }
+                )
+            else:
+                db.sync_wellness_batch(
+                    [intervals],
+                    provider="intervals",
+                    cursor_value="2026-07-27",
+                    primary_source="garmin",
+                )
+        conn = sqlite3.connect(db.db_path)
+        snapshots.append(
+            conn.execute(
+                "SELECT total_sleep_minutes, total_sleep_source, sleep_score, "
+                "sleep_score_source FROM sleep_data"
+            ).fetchone()
+        )
+        conn.close()
+
+    assert snapshots == [(450, "garmin", 76.0, "derived")] * 2
+
+
 def test_m4_intervals_sync_populates_separate_wellness_cursor(tmp_path):
     from services.intervals_sync import sync_intervals_data
 
@@ -461,4 +513,3 @@ def test_m4_web_surfaces_are_source_agnostic():
     assert 'source === "intervals"' in source
     assert "Garmin рассчитывает" not in source
     assert "stages_available" in source
-

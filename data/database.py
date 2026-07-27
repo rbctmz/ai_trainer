@@ -3092,10 +3092,10 @@ class Database:
             "skipped": 0,
         }
 
-        def should_replace(current, current_source):
+        def should_replace(current, current_source, current_provider=None):
             if current is None:
                 return True
-            source = str(current_source or "legacy_unknown")
+            source = str(current_provider or current_source or "legacy_unknown")
             return (
                 source == provider
                 or provider == primary_source
@@ -3178,7 +3178,14 @@ class Database:
                                 sleep.get("total_sleep_minutes")
                             )
                             updates["total_sleep_source"] = provider
-                        if "sleep_score" in sleep and should_replace(row[2], row[3]):
+                        score_provider = (
+                            row[1] if row[1] in supported else row[3]
+                        )
+                        if "sleep_score" in sleep and should_replace(
+                            row[2],
+                            row[3],
+                            score_provider,
+                        ):
                             updates["sleep_score"] = self.clean_value(sleep.get("sleep_score"))
                             updates["sleep_score_source"] = provider
                         for column in (
@@ -4001,11 +4008,16 @@ class Database:
                     )
                     updates['total_sleep_source'] = total_source
                 current_score_source = current['sleep_score_source']
+                current_score_provider = (
+                    current['total_sleep_source']
+                    if current['total_sleep_source'] in {'garmin', 'intervals'}
+                    else current_score_source
+                )
                 if 'sleep_score' in data and (
                     current['sleep_score'] is None
                     or current_score_source == score_source
                     or incoming_provider == Settings.PRIMARY_WELLNESS_SOURCE
-                    or current_score_source not in {'garmin', 'intervals'}
+                    or current_score_provider not in {'garmin', 'intervals'}
                 ):
                     updates['sleep_score'] = self.clean_value(data.get('sleep_score'))
                     updates['sleep_score_source'] = score_source
