@@ -2,9 +2,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import useSWR, { useSWRConfig } from "swr";
+import useSWR from "swr";
 import { fetcher, isDemo, postJSON, setDemo } from "@/lib/api";
-import { DashboardResponse, DashboardWidgets, SyncJobResponse } from "@/lib/types";
+import { DashboardResponse, DashboardWidgets } from "@/lib/types";
 import { StatusRow } from "@/components/dashboard/StatusRow";
 import { TodayCard } from "@/components/dashboard/TodayCard";
 import { WeekCard } from "@/components/dashboard/WeekCard";
@@ -14,6 +14,7 @@ import { TrainingScore } from "@/components/dashboard/TrainingScore";
 import { SleepWidget } from "@/components/dashboard/SleepWidget";
 import { RaceProjection } from "@/components/dashboard/RaceProjection";
 import { AthleteProfileCard } from "@/components/dashboard/AthleteProfileCard";
+import { SyncControl } from "@/components/sync/SyncControl";
 
 export default function DashboardPage() {
   const { data, error, isLoading, mutate } = useSWR<DashboardResponse>(
@@ -36,7 +37,7 @@ export default function DashboardPage() {
           {data?.summary ? (
             <span className="text-sm text-ink-faint">{data.summary.today.date}</span>
           ) : null}
-          <SyncButton onDone={() => mutate()} />
+          <SyncControl onDone={() => mutate()} />
         </div>
       </header>
 
@@ -119,95 +120,6 @@ function SectionLinks() {
   );
 }
 
-function SyncButton({ onDone }: { onDone: () => void }) {
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const { mutate } = useSWRConfig();
-
-  async function sync() {
-    setBusy(true);
-    setMsg(null);
-    try {
-      const started = await postJSON<SyncJobResponse>("/api/sync", {});
-      setMsg(formatSyncJob(started));
-      const final = isTerminalSyncState(started.sync_state)
-        ? started
-        : await waitForSyncJob((next) => setMsg(formatSyncJob(next)));
-      setMsg(formatSyncJob(final));
-      if (final.sync_state === "failed") {
-        throw new Error(formatSyncJob(final));
-      }
-      onDone();
-      mutate(() => true); // refresh all SWR keys
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : "Ошибка синхронизации");
-    } finally {
-      setBusy(false);
-      setTimeout(() => setMsg(null), 6000);
-    }
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      {msg ? <span className="hidden text-xs text-ink-faint sm:inline">{msg}</span> : null}
-      <button
-        type="button"
-        onClick={sync}
-        disabled={busy}
-        className="rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-ink-soft transition hover:bg-surface-muted disabled:opacity-50"
-        title="Синхронизировать с Garmin Connect"
-      >
-        {busy ? "Синхронизирую…" : "🔄 Синк"}
-      </button>
-    </div>
-  );
-}
-
-async function waitForSyncJob(onUpdate: (job: SyncJobResponse) => void): Promise<SyncJobResponse> {
-  for (let attempt = 0; attempt < 240; attempt += 1) {
-    const job = await fetcher<SyncJobResponse>("/api/sync");
-    onUpdate(job);
-    if (isTerminalSyncState(job.sync_state)) return job;
-    await delay(2000);
-  }
-  throw new Error("Синхронизация всё ещё выполняется. Проверьте статус позже.");
-}
-
-function isTerminalSyncState(state: string): boolean {
-  return state === "succeeded" || state === "partial" || state === "failed";
-}
-
-function formatSyncJob(job: SyncJobResponse): string {
-  if (job.sync_state === "running") {
-    const progress = job.progress;
-    if (progress?.message) {
-      const prefix = Number.isFinite(progress.percent) ? `${progress.percent}% · ` : "";
-      return `${prefix}${progress.message}`;
-    }
-    return job.reused ? "Синхронизация уже выполняется…" : "Синхронизация Garmin запущена…";
-  }
-
-  if (job.sync_state === "failed") {
-    return job.error?.message || "Ошибка синхронизации";
-  }
-
-  const result = job.result;
-  if (result) {
-    const detail = result.counts
-      ? ` +${result.counts.new} новых, ${result.counts.updated} обновлено`
-      : "";
-    return (result.title || "Готово") + detail;
-  }
-
-  return job.sync_state === "partial"
-    ? "Синхронизация Garmin завершена частично"
-    : "Синхронизация Garmin завершена";
-}
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
 function Onboarding() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -230,11 +142,12 @@ function Onboarding() {
       <div className="text-3xl">👋</div>
       <h2 className="mt-2 text-lg font-semibold text-ink">Добро пожаловать в AI Trainer</h2>
       <p className="mx-auto mt-1 max-w-md text-sm text-ink-soft">
-        Данных пока нет. Синхронизируйтесь с Garmin, чтобы загрузить тренировки и
-        метрики, или попробуйте демо на безопасном тестовом наборе.
+        Данных пока нет. Выберите настроенный источник и загрузите активности.
+        Для старта через Intervals.icu нужен <code>INTERVALS_ICU_API_KEY</code> в{" "}
+        <code>.env</code>. Также можно попробовать безопасный демо-набор.
       </p>
-      <div className="mt-5 flex flex-wrap justify-center gap-3">
-        <SyncButton onDone={() => window.location.reload()} />
+      <SyncControl detailed onDone={() => window.location.reload()} />
+      <div className="mt-4 flex flex-wrap justify-center gap-3">
         <button
           type="button"
           onClick={tryDemo}

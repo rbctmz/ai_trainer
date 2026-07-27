@@ -310,6 +310,30 @@ export interface AthleteProfileResponse {
 }
 
 // --- Sync ---
+export type SyncSource = "garmin" | "intervals";
+
+export interface SyncProviderStatus {
+  source: SyncSource;
+  label: string;
+  configured: boolean;
+  connection: {
+    configured: boolean;
+    athlete_id?: string;
+    base_url?: string;
+  } | null;
+}
+
+export interface SyncProvidersResponse {
+  recommended_source: SyncSource;
+  providers: SyncProviderStatus[];
+}
+
+export interface SyncProviderTestResponse {
+  ok: boolean;
+  source: "intervals";
+  calendar_count: number | null;
+}
+
 export interface SyncResult {
   sync_state?: "succeeded" | "partial" | "running" | "failed" | "idle" | string;
   title: string;
@@ -317,6 +341,7 @@ export interface SyncResult {
   severity: "success" | "warning" | "error" | string;
   mode?: "incremental" | "full" | string;
   counts?: { new: number; updated: number; skipped: number };
+  notices?: string[];
   [key: string]: unknown;
 }
 
@@ -329,6 +354,7 @@ export interface SyncProgress {
 
 export interface SyncJobResponse {
   job_id: string | null;
+  source: "garmin" | "intervals" | null;
   sync_state: "idle" | "running" | "succeeded" | "partial" | "failed" | string;
   status?: string;
   started_at?: string | null;

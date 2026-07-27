@@ -1,9 +1,9 @@
-"""System endpoints: Garmin sync + demo dataset.
+"""System endpoints: provider-aware sync + demo dataset.
 
-- POST /api/sync          → authenticate via env creds and pull fresh Garmin data
-                            into the real local cache. Without parameters the sync
-                            is incremental (from the last known data); pass
-                            {"days": N} in the body (or ?days=N) for a full reload.
+- GET /api/sync/providers → report safe provider configuration metadata.
+- POST /api/sync          → pull fresh data from the selected activity provider.
+                            Without parameters the legacy default is Garmin; pass
+                            {"source": "intervals"} for an Intervals-only sync.
 - POST /api/demo/seed     → populate the ISOLATED demo database with the
                             deterministic sample dataset (never touches the real
                             ai_trainer.db).
@@ -24,8 +24,10 @@ from api.sync_jobs import sync_job_manager
 from config.settings import Settings
 from services import demo_mode as demo_service
 from services import garmin as garmin_service
+from services import intervals_icu as intervals_icu_service
 from services import intervals_sync as intervals_sync_service
 from services import sync as sync_service
+from services import sync_providers as sync_provider_service
 from state import StateManager
 
 router = APIRouter(prefix="/api", tags=["system"])
@@ -42,6 +44,32 @@ class SyncRequest(BaseModel):
     # (absent field = as before). An unknown value is rejected with 422 by the
     # Literal (fail-fast, not guess) — symmetric with PRIMARY_ACTIVITY_SOURCE.
     source: Literal["garmin", "intervals"] = "garmin"
+
+
+@router.get("/sync/providers")
+def sync_providers() -> Dict[str, Any]:
+    """Return safe provider discovery for the source-aware web sync control.
+
+    Configuration is deliberately separate from connection validity: this
+    endpoint never performs provider I/O and never returns credentials. The
+    explicit Intervals probe below is user-triggered.
+    """
+
+    return sync_provider_service.connection_overview()
+
+
+@router.post("/sync/providers/{source}/test")
+def test_sync_provider_connection(
+    source: Literal["intervals"],
+) -> Dict[str, Any]:
+    """Run the existing Intervals read-only probe and expose only its summary."""
+
+    try:
+        return sync_provider_service.test_intervals_connection()
+    except intervals_icu_service.IntervalsICUConfigurationError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except intervals_icu_service.IntervalsICUError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
 
 
 @router.get("/sync")
