@@ -2,6 +2,7 @@
 
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
+import { dataSourceLabel } from "@/lib/sourceLabels";
 import { HrvSummary } from "@/lib/types";
 
 export default function HrvPage() {
@@ -26,7 +27,7 @@ export default function HrvPage() {
               label="RMSSD сегодня"
               value={`${data.latest.rmssd}`}
               unit="мс"
-              detail={sourceLabel(data.latest.source)}
+              detail={dataSourceLabel(data.latest.source)}
             />
             <Metric
               label="Восстановление"
@@ -41,7 +42,7 @@ export default function HrvPage() {
               label="Базовая линия"
               value={`${data.baseline.rmssd}`}
               unit="мс"
-              detail={sourceLabel(data.baseline.source)}
+              detail={dataSourceLabel(data.baseline.source)}
             />
           </div>
 
@@ -83,14 +84,6 @@ export default function HrvPage() {
       ) : null}
     </main>
   );
-}
-
-function sourceLabel(source: string) {
-  if (source === "intervals") return "Intervals.icu";
-  if (source === "garmin") return "Garmin";
-  if (source === "demo") return "демо";
-  if (source === "mixed") return "смешанные источники";
-  return "источник не сохранён";
 }
 
 function Metric({

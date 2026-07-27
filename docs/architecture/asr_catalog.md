@@ -102,6 +102,23 @@ provider readiness и готовые CTL/ATL намеренно не входя�
 atomic rollback, order independence, independent cursors, readiness, API/UI)
 и существующая Garmin/readiness regression.
 
+### M5 Garmin demotion: source-aware presentation contract (#274)
+
+M5 завершает Intervals-primary трек только на presentation-границе:
+`services/sync_providers.py` выдаёт Intervals.icu первым и безопасное описание
+роли каждого источника; `web/lib/sourceLabels.ts` является единой точкой
+преобразования provenance в пользовательские подписи.
+
+- **ASR-MOD-2**: Sleep/HRV/Dashboard/Profile больше не дублируют provider
+  branches; новый canonical source label добавляется в одном formatter.
+- **ASR-MOD-3**: схема, provider-links и backfill не меняются. История владельца
+  сохраняется существующими M0/M1 ingest regression suites.
+- **ASR-REL-2**: неизвестный или legacy source деградирует в
+  «источник не сохранён», а не ломает UI и не раскрывает техническое значение.
+
+Проверка: `test_m5_garmin_demotion.py`, M3/M4 source regressions, Next lint/build
+и изолированная browser-приёмка пустого Dashboard. Статус: M5 завершён.
+
 ## Контракт-тесты API-роутеров (ASR-MOD-2, issue #242)
 
 Свип по `api/routers/*` (кодовый долг из ATAM-карты, `architecture_analysis_add3.md`

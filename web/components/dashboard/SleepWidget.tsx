@@ -1,6 +1,7 @@
 "use client";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
+import { dataSourceLabel } from "@/lib/sourceLabels";
 import { SleepSummary } from "@/lib/types";
 import { InfoTip } from "@/components/ui/Tooltip";
 import { MiniBars } from "@/components/ui/MiniBars";
@@ -39,7 +40,7 @@ export function SleepWidget({ className = "" }: { className?: string }) {
         </span>
         {score != null && (
           <span className="flex items-center gap-1 text-sm text-ink-soft mb-0.5">
-            оценка {score} · {scoreSourceLabel(latest?.score_source)}
+            оценка {score} · {dataSourceLabel(latest?.score_source)}
             <InfoTip metric="sleep_score" />
           </span>
         )}
@@ -66,12 +67,4 @@ export function SleepWidget({ className = "" }: { className?: string }) {
       )}
     </div>
   );
-}
-
-function scoreSourceLabel(source?: string) {
-  if (source === "intervals") return "Intervals.icu";
-  if (source === "garmin") return "Garmin";
-  if (source === "derived") return "расчётная";
-  if (source === "demo") return "демо";
-  return "источник не сохранён";
 }

@@ -325,6 +325,7 @@ export type SyncSource = "garmin" | "intervals";
 export interface SyncProviderStatus {
   source: SyncSource;
   label: string;
+  description: string;
   configured: boolean;
   connection: {
     configured: boolean;
