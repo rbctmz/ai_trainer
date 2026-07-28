@@ -43,7 +43,10 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
 - [x] (2026-07-28 17:08+03) Написана операционная инструкция и обновлены
   README, ADR-0002,
   ASR-каталог и реестр долга.
-- [ ] Выполнить self-review, targeted и полный contributor-safe прогон.
+- [x] (2026-07-28 17:18+03) Выполнены self-review, targeted и полные
+  contributor-safe прогоны: targeted `21 passed`, smoke
+  `1282 passed, 1 skipped`, широкий `1325 passed, 6 skipped, 24 deselected`;
+  Ruff, Python 3.10 compile и `git diff --check` зелёные.
 - [ ] Запушить ветку, открыть PR с `Closes #293` и дождаться зелёных
   merge-гейтов.
 
@@ -123,10 +126,28 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
 
 ## Outcomes & Retrospective
 
-Пока не завершено. При закрытии здесь будут записаны итоговые команды,
-количество тестов, merge evidence и оставшиеся границы. В частности,
-шифрование off-host backup и расписание retention не входят в TD-001 и не
-должны объявляться реализованными.
+TD-001 реализован без смены primary store и без third-party dependency. Один
+stdlib-only CLI создаёт validated SQLite Backup API snapshot, восстанавливает
+его через temporary file + atomic replace и сохраняет проверенный pre-restore
+rollback существующей БД. Runbook заменил небезопасный `cp` как рекомендуемый
+путь bare-metal/Compose миграции.
+
+Restore drill на чистом временном target доказывает сохранность canonical
+activity, provider-link, planning checkpoint, HRV, сна и resting HR. Отдельные
+гейты фиксируют malformed source, отсутствие operator acknowledgement,
+неизменность target при fail-before-replace, сохранность rollback и явную
+семантику редкой ошибки финализации после replace.
+
+Проверки перед публикацией:
+
+    21 passed in 1.04s
+    1282 passed, 1 skipped, 3 warnings in 178.79s
+    1325 passed, 6 skipped, 24 deselected, 3 warnings in 167.52s
+
+Оставшиеся осознанные границы: CLI не доказывает остановку writers, поэтому
+требует `--confirm-stopped`; off-host шифрование, retention/scheduling и
+автоматическая загрузка snapshots во внешнее хранилище не входят в TD-001.
+Merge evidence будет добавлено после прохождения PR-гейтов.
 
 ## Context and Orientation
 
