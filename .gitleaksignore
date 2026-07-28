@@ -1,0 +1,5 @@
+# Verified documentation/example/test shapes; no credential values are ignored.
+.env.example:generic-api-key:37
+docs/intervals_primary_quickstart.md:generic-api-key:20
+docs/self_hosted_deployment_execplan.md:curl-auth-user:331
+tests/smoke/test_garmin_auth_messages.py:generic-api-key:79
