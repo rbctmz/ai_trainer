@@ -37,7 +37,9 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
 - [x] (2026-07-28 16:38+03) Написаны RED-гейты CLI, fail-closed веток и
   полного restore drill; подтверждён RED:
   `ModuleNotFoundError: scripts.sqlite_backup_restore`.
-- [ ] Реализовать `scripts/sqlite_backup_restore.py` и перевести гейты в GREEN.
+- [x] (2026-07-28 16:49+03) Реализован stdlib-only
+  `scripts/sqlite_backup_restore.py`; 10 RED-гейтов переведены в GREEN,
+  `ruff check` проходит.
 - [ ] Написать операционную инструкцию и обновить README, ADR-0002,
   ASR-каталог и реестр долга.
 - [ ] Выполнить self-review, targeted и полный contributor-safe прогон.
@@ -57,6 +59,16 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
   читателе, а файловый lock не доказывает отсутствие будущих записей. Поэтому
   CLI требует осознанное подтверждение оператора и документация задаёт точную
   stop/start последовательность.
+
+- Observation: повторное открытие текущей БД через `Database` запускает
+  migrate-on-read repair TSS, поэтому это не является побайтово read-only
+  проверкой backup.
+  Evidence: исходная активность до повторного `Database(...)` имела
+  `tss=64, tss_method=power_np`, а migrate-on-read пересчитал её в
+  `tss=72, tss_method=heuristic_duration_bike`. Restore drill поэтому отдельно
+  сравнивает raw canonical row до открытия и затем проверяет доступность всех
+  доменов через публичные `Database` readers. Поведение TSS не меняется этим
+  треком.
 
 ## Decision Log
 
@@ -346,3 +358,8 @@ production CLI: проверка общего SQLite-файла не должн�
 Compose volume, ASR и существующих smoke-паттернов. Решения зафиксированы до
 написания RED-тестов, потому что restore является destructive operator flow и
 не должен эволюционировать из случайного implementation detail.
+
+2026-07-28: после GREEN добавлено обнаружение о migrate-on-read TSS. Acceptance
+разделён на точное raw-сравнение SQLite snapshot и последующее domain-read
+доказательство, чтобы backup/restore не маскировал и не переопределял
+существующую миграционную семантику `Database`.

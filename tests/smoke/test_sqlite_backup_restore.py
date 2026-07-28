@@ -53,6 +53,28 @@ def _read_marker(path: Path) -> str:
         conn.close()
 
 
+def _activity_snapshot(path: Path) -> tuple:
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute(
+            "SELECT activity_id, date, sport, duration_minutes, tss, tss_method "
+            "FROM activities WHERE activity_id='293001'"
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def _link_snapshot(path: Path) -> tuple:
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute(
+            "SELECT canonical_activity_id, provider, provider_activity_id, "
+            "match_status FROM activity_provider_links"
+        ).fetchone()
+    finally:
+        conn.close()
+
+
 def _seed_domain_database(path: Path) -> str:
     day = date.today().isoformat()
     db = Database(str(path))
@@ -164,6 +186,8 @@ def test_restore_drill_preserves_activity_link_plan_and_wellness(tmp_path: Path)
     backup = tmp_path / "source.backup.db"
     restored = tmp_path / "clean-volume" / "ai_trainer.db"
     day = _seed_domain_database(source)
+    expected_activity = _activity_snapshot(source)
+    expected_link = _link_snapshot(source)
 
     backup_database(source, backup, confirm_stopped=True)
     report = restore_database(
@@ -179,21 +203,18 @@ def test_restore_drill_preserves_activity_link_plan_and_wellness(tmp_path: Path)
     assert report.rollback is None
     assert report.sha256 == _sha256(restored)
     assert check_sqlite_database(restored) == "ok"
+    assert _activity_snapshot(restored) == expected_activity
 
     db = Database(str(restored))
     activities = db.get_activities_by_ids(["293001"])
     assert len(activities) == 1
-    assert activities[0]["tss"] == pytest.approx(64.0)
+    assert activities[0]["activity_id"] == "293001"
+    assert activities[0]["date"] == day
+    assert activities[0]["sport"] == "cycling"
+    assert activities[0]["duration_minutes"] == pytest.approx(72.0)
 
-    conn = sqlite3.connect(restored)
-    try:
-        link = conn.execute(
-            "SELECT canonical_activity_id, provider, provider_activity_id, "
-            "match_status FROM activity_provider_links"
-        ).fetchone()
-    finally:
-        conn.close()
-    assert link == ("293001", "garmin", "293001", "matched")
+    assert _link_snapshot(restored) == expected_link
+    assert expected_link[:3] == ("293001", "garmin", "293001")
 
     checkpoint = db.get_latest_planning_checkpoint()
     assert checkpoint["td001_marker"] == "planning-survived"
