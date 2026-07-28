@@ -34,7 +34,9 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
   baseline.
 - [x] (2026-07-28 16:30+03) Зафиксирован offline CLI/rollback/atomic replace
   контракт в этом плане.
-- [ ] Написать RED-гейты CLI, fail-closed веток и полного restore drill.
+- [x] (2026-07-28 16:38+03) Написаны RED-гейты CLI, fail-closed веток и
+  полного restore drill; подтверждён RED:
+  `ModuleNotFoundError: scripts.sqlite_backup_restore`.
 - [ ] Реализовать `scripts/sqlite_backup_restore.py` и перевести гейты в GREEN.
 - [ ] Написать операционную инструкцию и обновить README, ADR-0002,
   ASR-каталог и реестр долга.
