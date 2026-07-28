@@ -47,8 +47,9 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
   contributor-safe прогоны: targeted `21 passed`, smoke
   `1282 passed, 1 skipped`, широкий `1325 passed, 6 skipped, 24 deselected`;
   Ruff, Python 3.10 compile и `git diff --check` зелёные.
-- [ ] Запушить ветку, открыть PR с `Closes #293` и дождаться зелёных
-  merge-гейтов.
+- [x] (2026-07-28 17:40+03) Ветка запушена, открыт PR #294 с `Closes #293`;
+  GitHub checks прошли, PR переведён из draft в ready, merge state `CLEAN`,
+  unresolved review threads: 0.
 
 ## Surprises & Discoveries
 
@@ -147,7 +148,9 @@ activity, provider-link, planning checkpoint, HRV, сна и resting HR. Отд�
 Оставшиеся осознанные границы: CLI не доказывает остановку writers, поэтому
 требует `--confirm-stopped`; off-host шифрование, retention/scheduling и
 автоматическая загрузка snapshots во внешнее хранилище не входят в TD-001.
-Merge evidence будет добавлено после прохождения PR-гейтов.
+Публикация: PR #294; contributor-safe CI, issue-link и ready-to-merge checks
+зелёные, merge state `CLEAN`. Финальный merge SHA и автозакрытие #293 будут
+подтверждены после мержа владельцем.
 
 ## Context and Orientation
 
@@ -396,3 +399,7 @@ Compose volume, ASR и существующих smoke-паттернов. Реш
 разделён на точное raw-сравнение SQLite snapshot и последующее domain-read
 доказательство, чтобы backup/restore не маскировал и не переопределял
 существующую миграционную семантику `Database`.
+
+2026-07-28: после self-review добавлена явная post-replace failure semantics,
+записаны полные test counts и публикация PR #294. Это не расширяет scope:
+автоматический внешний retention/encryption остаётся отдельной работой.
