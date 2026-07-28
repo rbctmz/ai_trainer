@@ -29,7 +29,7 @@
 
 | ID | Приоритет | Область | Риск | Следующее действие |
 |----|-----------|---------|------|--------------------|
-| TD-002 | P1 | Security | Секреты проверяются только ревью | Secret scan в CI |
+| TD-002 | P1 | Security | Preventive gate реализуется в #296; historical candidate требует ротации | Довести CI #296 и incident-response |
 | TD-003 | P1 | Reliability | Нет единой SQLite concurrency policy | WAL/retry contract + race gates |
 | TD-004 | P1 | Modifiability | Две UI-поверхности продолжают расходиться | Закрыть критерии Streamlit EOL |
 | TD-005 | P2 | Data/ingest | В M1 оставлены три compatibility-среза | Разделить и закрыть D2–D4 |
@@ -44,12 +44,24 @@
 ### TD-002 — Secret scan в CI
 
 - **ASR:** ASR-SEC-1
-- **Evidence:** `.env` исключён из git и ключи не возвращаются API, но workflows
-  не запускают gitleaks, detect-secrets или эквивалент.
-- **Риск:** случайно добавленный токен обнаружится только на ревью.
+- **Owner issue / delivery:** [#295](https://github.com/rbctmz/ai_trainer/issues/295),
+  draft PR [#296](https://github.com/rbctmz/ai_trainer/pull/296).
+- **Evidence:** `.env` исключён из git и ключи не возвращаются API. PR #296
+  добавляет contributor-safe Gitleaks для event range и текущего дерева плюс
+  runtime-only synthetic detector gate. Четыре exact-fingerprint исключения
+  проверены как non-secret shapes; две archived debug-копии possible credential
+  ожидают binary-safe удаления, а сам historical candidate не allowlisted.
+- **Риск:** до мержа #296 случайно добавленный токен обнаруживается только на
+  ревью. Одноразовый full-history audit также нашёл legacy password-shaped
+  candidate без доказательств false positive; он не внесён в baseline.
 - **Граница решения:** contributor-safe scanner без передачи application
   secrets в untrusted PR; baseline допускает только проверенные false positive.
-- **Закрытие:** CI блокирует синтетический секрет и проходит на текущем дереве.
+  Исторический candidate требует maintainer-ротации и отдельного решения о
+  repository-history, а не allowlist.
+- **Закрытие TD-002:** CI блокирует runtime-only синтетический секрет, сканирует
+  полный commit range события и проходит на текущем дереве. Это закрывает
+  preventive automation, но ASR-SEC-1 остаётся 🟡 до incident-response по
+  historical candidate.
 
 ### TD-003 — Единая SQLite concurrency policy
 
