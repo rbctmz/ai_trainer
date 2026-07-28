@@ -14,14 +14,14 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-PERF-4 | Planning preview 16 недель < 10 сек | Medium | детерминированный scheduler без БД внутри цикла (#205) | референс-сборки в smoke (секунды) | ✅ |
 | ASR-REL-1 | Reconciliation: ни одна активность не теряется при перепланировании | High | content-derived session identity + lineage (`replaces_session_id`, #206/#209), append-only ledger | `test_recovery_transfer_identity_handoff.py`, twin-матрица identity | ✅ |
 | ASR-REL-2 | Отсутствие данных → data gap, не падение | High | gate-исходы silence/data_gap (#154), `has_plan=false` пробросы (#228) | smoke-гейты loop/ribbon | ✅ |
-| ASR-REL-3 | Обрыв sync не портит частичные данные | Medium | атомарный common-ingest; cursor-after-clean-batch; независимые activity/wellness cursors | M0/M1 ingest/cursor и M4 wellness rollback suites | ✅ |
+| ASR-REL-3 | Обрыв sync/maintenance не портит частичные данные | Medium | атомарный common-ingest; cursor-after-clean-batch; независимые activity/wellness cursors; SQLite restore через validated temp + atomic replace + pre-restore rollback | M0/M1 ingest/cursor, M4 wellness rollback и `test_sqlite_backup_restore.py` fail-before-replace | ✅ |
 | ASR-MOD-1 | Новый AI-провайдер без правки основного кода | High | `AIProvider` ABC + фабрика; capability-флаги (`supports_native_tools`, #190) делают расширения аддитивными | capability-матрица в `test_coach_native_tools.py` | ✅ |
 | ASR-MOD-2 | Новый компонент дашборда без регрессии | Medium | canonical snapshot проекции (#152/#153) | trust-alignment smoke | ✅ |
 | ASR-MOD-3 | Смена схемы — обратная совместимость | Medium | аддитивные поля чекпойнтов, migrate-on-read (#206), append-only журналы | legacy-byte-equivalence гейты | ✅ |
 | ASR-SEC-1 | Ключи не в логах/UI/git | High | `.env` вне git, UI скрывает поля, env-fallback | ревью; авто-скана нет ([TD-002](../technical_debt_register.md#td-002--secret-scan-в-ci)) | 🟡 |
 | ASR-SEC-2 | Basic Auth перед публичным доступом | High | Caddy + Basic Auth в self-hosted стеке | деплой-чеклист | ✅ |
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
-| ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты | деплой-практика; backup/restore automation отсутствует ([TD-001](../technical_debt_register.md#td-001--sqlite-backuprestore)) | 🟡 |
+| ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты; stopped-service Backup API snapshot, integrity check, atomic restore и pre-restore rollback (#293) | `test_sqlite_backup_restore.py`: clean-volume domain drill + rollback/failure gates | ✅ |
 
 ## Intervals-primary ingest (ADR-0008; ASR-REL-3, ASR-MOD-3, ASR-PERF-3; #269)
 
@@ -68,8 +68,9 @@ M3 расширяет Intervals-primary трек на продуктовую и 
   `docker compose config --quiet` и `test_m3_quickstart.py`.
 - **ASR-DEP-2**: quickstart использует существующий named SQLite volume,
   документирует сохранение данных при обычном `down` и помечает `down -v` как
-  destructive. Backup/restore automation остаётся открытым долгом, поэтому
-  общий статус ASR остаётся 🟡.
+  destructive. Offline backup/restore и проверяемый restore drill завершены
+  позднее в #293; актуальный runbook —
+  [`sqlite_backup_restore.md`](../sqlite_backup_restore.md).
 - **ASR-MOD-2**: reusable `web/components/sync/SyncControl.tsx` потребляет
   явный provider API contract; dashboard не выводит источник из несвязанных
   метрик и не дублирует Garmin-specific логику. Проверка:
@@ -120,6 +121,27 @@ M5 завершает Intervals-primary трек только на presentation-
 
 Проверка: `test_m5_garmin_demotion.py`, M3/M4 source regressions, Next lint/build
 и изолированная browser-приёмка пустого Dashboard. Статус: M5 завершён.
+
+## SQLite backup/restore (ADR-0002; ASR-DEP-2, ASR-REL-3; #293)
+
+TD-001 закрыт stopped-service CLI
+`scripts/sqlite_backup_restore.py`. Snapshot создаётся стандартным SQLite
+Backup API во временном файле рядом с назначением, проходит
+`PRAGMA integrity_check`, `fsync` и публикуется atomic no-clobber hard-link.
+Restore существующего target сначала создаёт отдельный validated rollback;
+stale `-wal`/`-shm`/`-journal` карантинируются до `os.replace`, возвращаются
+при ошибке публикации и удаляются после успешной замены.
+
+- **ASR-DEP-2**: `test_sqlite_backup_restore.py` восстанавливает snapshot в
+  отсутствующий файл чистого временного каталога и читает каноническую
+  активность, provider-link, planning checkpoint, HRV, сон и resting HR.
+- **ASR-REL-3**: invalid backup и injected final-replace failure не меняют
+  target; sidecars восстанавливаются, существующий target имеет проверенный
+  rollback до мутации, конкурентный artifact не перезаписывается.
+- **Operational boundary**: CLI требует `--confirm-stopped`; Docker backup
+  выводится через bind mount за пределы named volume. Команды и аварийная
+  rollback-ветка находятся в
+  [`docs/sqlite_backup_restore.md`](../sqlite_backup_restore.md).
 
 ## Контракт-тесты API-роутеров (ASR-MOD-2, issue #242)
 
@@ -185,8 +207,7 @@ HTTP-слой свёлся к одному роутеру, а не к свипу
 открытые пункты:
 
 - PERF-2 → [TD-007](../technical_debt_register.md#td-007--детерминированный-latency-гейт-коуча);
-- SEC-1 → [TD-002](../technical_debt_register.md#td-002--secret-scan-в-ci);
-- DEP-2 → [TD-001](../technical_debt_register.md#td-001--sqlite-backuprestore).
+- SEC-1 → [TD-002](../technical_debt_register.md#td-002--secret-scan-в-ci).
 
 ## Реестр ADR
 

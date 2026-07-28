@@ -1,0 +1,630 @@
+"""TD-001: contributor-safe SQLite backup/restore and restore drill.
+
+Every path belongs to ``tmp_path``.  The suite never opens the maintainer's
+``ai_trainer.db``, a Docker volume, provider credentials, or the network.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import sqlite3
+import stat
+from datetime import date
+from pathlib import Path
+
+import pytest
+
+import scripts.sqlite_backup_restore as sqlite_tool
+from data.database import Database
+from scripts.sqlite_backup_restore import (
+    SQLiteBackupRestoreError,
+    backup_database,
+    check_sqlite_database,
+    restore_database,
+)
+from services.activity_ingest import (
+    ingest_provider_activity,
+    normalize_provider_activity,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(64 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _marker_database(path: Path, marker: str) -> None:
+    conn = sqlite3.connect(path)
+    conn.execute("CREATE TABLE marker(value TEXT NOT NULL)")
+    conn.execute("INSERT INTO marker(value) VALUES (?)", (marker,))
+    conn.commit()
+    conn.close()
+
+
+def _read_marker(path: Path) -> str:
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute("SELECT value FROM marker").fetchone()[0]
+    finally:
+        conn.close()
+
+
+def _leave_committed_marker_in_wal(path: Path, value: str) -> bytes:
+    conn = sqlite3.connect(path)
+    try:
+        assert conn.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        conn.execute("PRAGMA wal_autocheckpoint=0")
+        conn.execute("UPDATE marker SET value=?", (value,))
+        conn.commit()
+        main_bytes = path.read_bytes()
+        wal_bytes = Path(f"{path}-wal").read_bytes()
+    finally:
+        conn.close()
+
+    path.write_bytes(main_bytes)
+    Path(f"{path}-wal").write_bytes(wal_bytes)
+    return wal_bytes
+
+
+def _activity_snapshot(path: Path) -> tuple:
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute(
+            "SELECT activity_id, date, sport, duration_minutes, tss, tss_method "
+            "FROM activities WHERE activity_id='293001'"
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def _link_snapshot(path: Path) -> tuple:
+    conn = sqlite3.connect(path)
+    try:
+        return conn.execute(
+            "SELECT canonical_activity_id, provider, provider_activity_id, "
+            "match_status FROM activity_provider_links"
+        ).fetchone()
+    finally:
+        conn.close()
+
+
+def _seed_domain_database(path: Path) -> str:
+    day = date.today().isoformat()
+    db = Database(str(path))
+    candidate = normalize_provider_activity(
+        {
+            "activity_id": "293001",
+            "date": day,
+            "sport": "cycling",
+            "duration_minutes": 72.0,
+            "distance_km": 31.5,
+            "source_tss": 64.0,
+            "tss": 64.0,
+            "tss_method": "power_np",
+        },
+        "garmin",
+    )
+    ingest_provider_activity(db, candidate, primary_source="garmin")
+    db.save_planning_checkpoint(
+        {
+            "goal_type": "triathlon",
+            "distance": 51.5,
+            "weeks_to_race": 8,
+            "event_date": day,
+            "daily_plan": [],
+            "td001_marker": "planning-survived",
+        }
+    )
+    db.sync_wellness_batch(
+        [
+            {
+                "date": day,
+                "hrv": {"rmssd": 43.5, "rmssd_source": "intervals"},
+                "sleep": {
+                    "total_sleep_minutes": 472,
+                    "total_sleep_source": "intervals",
+                    "sleep_score": 82,
+                    "sleep_score_source": "intervals",
+                },
+                "health": {
+                    "resting_hr": 52,
+                    "resting_hr_source": "intervals",
+                },
+            }
+        ],
+        provider="intervals",
+        cursor_value=day,
+        primary_source="intervals",
+    )
+    return day
+
+
+def test_integrity_check_accepts_sqlite_and_rejects_malformed_file(tmp_path: Path) -> None:
+    database = tmp_path / "healthy.db"
+    _marker_database(database, "healthy")
+
+    assert check_sqlite_database(database) == "ok"
+
+    malformed = tmp_path / "malformed.db"
+    malformed.write_text("not sqlite", encoding="utf-8")
+    with pytest.raises(SQLiteBackupRestoreError, match="integrity"):
+        check_sqlite_database(malformed)
+
+
+def test_backup_requires_stopped_acknowledgement(tmp_path: Path) -> None:
+    database = tmp_path / "source.db"
+    output = tmp_path / "backup.db"
+    _marker_database(database, "source")
+
+    with pytest.raises(SQLiteBackupRestoreError, match="confirm-stopped"):
+        backup_database(database, output, confirm_stopped=False)
+
+    assert not output.exists()
+
+
+def test_backup_is_valid_private_atomic_snapshot(tmp_path: Path) -> None:
+    database = tmp_path / "source.db"
+    output = tmp_path / "backup.db"
+    _marker_database(database, "source")
+
+    report = backup_database(database, output, confirm_stopped=True)
+
+    assert report.action == "backup"
+    assert report.database == str(database.resolve())
+    assert report.artifact == str(output.resolve())
+    assert report.integrity_check == "ok"
+    assert report.sha256 == _sha256(output)
+    assert _read_marker(output) == "source"
+    assert stat.S_IMODE(output.stat().st_mode) == 0o600
+    assert not list(tmp_path.glob(f".{output.name}.*.tmp"))
+
+
+def test_backup_refuses_existing_output_and_self_copy(tmp_path: Path) -> None:
+    database = tmp_path / "source.db"
+    output = tmp_path / "backup.db"
+    _marker_database(database, "source")
+    output.write_bytes(b"keep-me")
+
+    with pytest.raises(SQLiteBackupRestoreError, match="already exists"):
+        backup_database(database, output, confirm_stopped=True)
+    assert output.read_bytes() == b"keep-me"
+
+    with pytest.raises(SQLiteBackupRestoreError, match="different"):
+        backup_database(database, database, confirm_stopped=True)
+    assert _read_marker(database) == "source"
+
+
+def test_backup_atomic_publication_does_not_clobber_racing_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "source.db"
+    output = tmp_path / "backup.db"
+    _marker_database(database, "source")
+    original_copy = sqlite_tool._copy_sqlite
+
+    def copy_then_create_competing_output(source: Path, temporary: Path) -> None:
+        original_copy(source, temporary)
+        output.write_bytes(b"created-by-another-process")
+
+    monkeypatch.setattr(
+        sqlite_tool,
+        "_copy_sqlite",
+        copy_then_create_competing_output,
+    )
+
+    with pytest.raises(SQLiteBackupRestoreError, match="already exists"):
+        backup_database(database, output, confirm_stopped=True)
+
+    assert output.read_bytes() == b"created-by-another-process"
+    assert not list(tmp_path.glob(f".{output.name}.*.tmp"))
+
+
+def test_cli_destination_setup_failure_is_operator_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = tmp_path / "source.db"
+    blocked_parent = tmp_path / "not-a-directory"
+    output = blocked_parent / "backup.db"
+    _marker_database(database, "source")
+    blocked_parent.write_text("file blocks mkdir", encoding="utf-8")
+
+    assert (
+        sqlite_tool.main(
+            [
+                "backup",
+                "--database",
+                str(database),
+                "--output",
+                str(output),
+                "--confirm-stopped",
+            ]
+        )
+        == 2
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "could not prepare backup output" in captured.err
+    assert "Traceback" not in captured.err
+    assert not output.exists()
+
+
+def test_restore_drill_preserves_activity_link_plan_and_wellness(tmp_path: Path) -> None:
+    source = tmp_path / "source.db"
+    backup = tmp_path / "source.backup.db"
+    restored = tmp_path / "clean-volume" / "ai_trainer.db"
+    day = _seed_domain_database(source)
+    expected_activity = _activity_snapshot(source)
+    expected_link = _link_snapshot(source)
+
+    backup_database(source, backup, confirm_stopped=True)
+    report = restore_database(
+        backup,
+        restored,
+        confirm_stopped=True,
+    )
+
+    assert report.action == "restore"
+    assert report.database == str(restored.resolve())
+    assert report.artifact == str(backup.resolve())
+    assert report.integrity_check == "ok"
+    assert report.rollback is None
+    assert report.sha256 == _sha256(restored)
+    assert check_sqlite_database(restored) == "ok"
+    assert _activity_snapshot(restored) == expected_activity
+
+    db = Database(str(restored))
+    activities = db.get_activities_by_ids(["293001"])
+    assert len(activities) == 1
+    assert activities[0]["activity_id"] == "293001"
+    assert activities[0]["date"] == day
+    assert activities[0]["sport"] == "cycling"
+    assert activities[0]["duration_minutes"] == pytest.approx(72.0)
+
+    assert _link_snapshot(restored) == expected_link
+    assert expected_link[:3] == ("293001", "garmin", "293001")
+
+    checkpoint = db.get_latest_planning_checkpoint()
+    assert checkpoint["td001_marker"] == "planning-survived"
+
+    hrv = db.get_hrv_data(days=2)
+    sleep = db.get_sleep_data(days=2)
+    health = db.get_daily_health(days=2)
+    assert hrv.loc[hrv["date"].dt.strftime("%Y-%m-%d") == day, "rmssd"].iloc[0] == 43.5
+    assert hrv.loc[hrv["date"].dt.strftime("%Y-%m-%d") == day, "rmssd_source"].iloc[0] == "intervals"
+    assert sleep.loc[
+        sleep["date"].dt.strftime("%Y-%m-%d") == day,
+        "total_sleep_minutes",
+    ].iloc[0] == 472
+    assert health.loc[
+        health["date"].dt.strftime("%Y-%m-%d") == day,
+        "resting_hr",
+    ].iloc[0] == 52
+
+
+def test_restore_existing_target_creates_valid_rollback(tmp_path: Path) -> None:
+    source = tmp_path / "source.db"
+    backup = tmp_path / "source.backup.db"
+    target = tmp_path / "target.db"
+    rollback = tmp_path / "target.before-restore.db"
+    _marker_database(source, "replacement")
+    _marker_database(target, "original")
+    backup_database(source, backup, confirm_stopped=True)
+
+    report = restore_database(
+        backup,
+        target,
+        confirm_stopped=True,
+        rollback_output=rollback,
+    )
+
+    assert report.rollback == str(rollback.resolve())
+    assert _read_marker(target) == "replacement"
+    assert check_sqlite_database(rollback) == "ok"
+    assert _read_marker(rollback) == "original"
+    assert stat.S_IMODE(rollback.stat().st_mode) == 0o600
+
+
+def test_invalid_restore_fails_before_mutating_target(tmp_path: Path) -> None:
+    backup = tmp_path / "invalid.db"
+    target = tmp_path / "target.db"
+    rollback = tmp_path / "rollback.db"
+    backup.write_text("invalid sqlite", encoding="utf-8")
+    _marker_database(target, "original")
+    before = _sha256(target)
+
+    with pytest.raises(SQLiteBackupRestoreError, match="integrity"):
+        restore_database(
+            backup,
+            target,
+            confirm_stopped=True,
+            rollback_output=rollback,
+        )
+
+    assert _sha256(target) == before
+    assert _read_marker(target) == "original"
+    assert not rollback.exists()
+
+
+def test_restore_replace_failure_keeps_target_and_rollback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.db"
+    backup = tmp_path / "source.backup.db"
+    target = tmp_path / "target.db"
+    rollback = tmp_path / "target.before-restore.db"
+    wal = Path(f"{target}-wal")
+    shm = Path(f"{target}-shm")
+    _marker_database(source, "replacement")
+    _marker_database(target, "original")
+    backup_database(source, backup, confirm_stopped=True)
+    before = _sha256(target)
+    original_snapshot = sqlite_tool._snapshot_to_output
+
+    def snapshot_then_create_sidecars(
+        snapshot_source: Path,
+        output: Path,
+        *,
+        label: str = "backup output",
+    ) -> tuple[str, str]:
+        result = original_snapshot(snapshot_source, output, label=label)
+        if label == "rollback output":
+            wal.write_bytes(b"original-wal")
+            shm.write_bytes(b"original-shm")
+        return result
+
+    def fail_replace(_temporary: Path, _target: Path) -> None:
+        raise OSError("injected final replace failure")
+
+    monkeypatch.setattr(sqlite_tool, "_snapshot_to_output", snapshot_then_create_sidecars)
+    monkeypatch.setattr(sqlite_tool, "_replace_database", fail_replace)
+
+    with pytest.raises(SQLiteBackupRestoreError, match="replace"):
+        restore_database(
+            backup,
+            target,
+            confirm_stopped=True,
+            rollback_output=rollback,
+        )
+
+    assert _sha256(target) == before
+    assert wal.read_bytes() == b"original-wal"
+    assert shm.read_bytes() == b"original-shm"
+    assert not list(tmp_path.glob(".*.pre-restore-sidecar"))
+    assert _read_marker(target) == "original"
+    assert check_sqlite_database(rollback) == "ok"
+    assert _read_marker(rollback) == "original"
+    assert not list(tmp_path.glob(f".{target.name}.*.tmp"))
+
+
+def test_restore_finalization_failure_is_operator_safe_and_names_rollback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.db"
+    backup = tmp_path / "source.backup.db"
+    target = tmp_path / "target.db"
+    rollback = tmp_path / "target.before-restore.db"
+    _marker_database(source, "replacement")
+    _marker_database(target, "original")
+    backup_database(source, backup, confirm_stopped=True)
+
+    def fail_sidecar_cleanup(
+        _quarantined: list[tuple[Path, Path]],
+        *,
+        database: Path,
+    ) -> None:
+        assert database == target.resolve()
+        raise OSError("injected sidecar cleanup failure")
+
+    monkeypatch.setattr(
+        sqlite_tool,
+        "_delete_quarantined_sidecars",
+        fail_sidecar_cleanup,
+    )
+
+    with pytest.raises(SQLiteBackupRestoreError) as caught:
+        restore_database(
+            backup,
+            target,
+            confirm_stopped=True,
+            rollback_output=rollback,
+        )
+
+    message = str(caught.value)
+    assert "was replaced" in message
+    assert "keep the service stopped" in message
+    assert f"rollback={rollback.resolve()}" in message
+    assert _read_marker(target) == "replacement"
+    assert check_sqlite_database(rollback) == "ok"
+    assert _read_marker(rollback) == "original"
+
+
+def test_restore_quarantines_sidecars_before_replace_and_removes_them(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.db"
+    backup = tmp_path / "source.backup.db"
+    target = tmp_path / "clean-volume" / "ai_trainer.db"
+    _marker_database(source, "replacement")
+    backup_database(source, backup, confirm_stopped=True)
+    target.parent.mkdir()
+    sidecars = [Path(f"{target}{suffix}") for suffix in ("-wal", "-shm", "-journal")]
+    for sidecar in sidecars:
+        sidecar.write_bytes(b"stale")
+    original_replace = sqlite_tool._replace_database
+
+    def assert_quarantined_then_replace(temporary: Path, database: Path) -> None:
+        assert all(not sidecar.exists() for sidecar in sidecars)
+        assert len(list(target.parent.glob(".*.pre-restore-sidecar"))) == 3
+        original_replace(temporary, database)
+
+    monkeypatch.setattr(
+        sqlite_tool,
+        "_replace_database",
+        assert_quarantined_then_replace,
+    )
+
+    restore_database(backup, target, confirm_stopped=True)
+
+    assert _read_marker(target) == "replacement"
+    assert all(not sidecar.exists() for sidecar in sidecars)
+    assert not list(target.parent.glob(".*.pre-restore-sidecar"))
+
+
+def test_restore_never_exposes_new_main_beside_valid_stale_wal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.db"
+    backup = tmp_path / "source.backup.db"
+    target = tmp_path / "target.db"
+    rollback = tmp_path / "target.before-restore.db"
+    _marker_database(source, "replacement")
+    _marker_database(target, "original")
+    backup_database(source, backup, confirm_stopped=True)
+    wal_bytes = _leave_committed_marker_in_wal(target, "stale-wal")
+
+    probe = tmp_path / "probe.db"
+    probe.write_bytes(target.read_bytes())
+    Path(f"{probe}-wal").write_bytes(wal_bytes)
+    assert _read_marker(probe) == "stale-wal"
+
+    original_quarantine = sqlite_tool._quarantine_sidecars
+    original_replace = sqlite_tool._replace_database
+    observed = {"quarantined_before_replace": False}
+
+    def record_quarantine(database: Path) -> list[tuple[Path, Path]]:
+        assert Path(f"{database}-wal").exists()
+        return original_quarantine(database)
+
+    def assert_no_canonical_wal_then_replace(
+        temporary: Path,
+        database: Path,
+    ) -> None:
+        assert not Path(f"{database}-wal").exists()
+        assert list(database.parent.glob(".*.pre-restore-sidecar"))
+        observed["quarantined_before_replace"] = True
+        original_replace(temporary, database)
+
+    monkeypatch.setattr(sqlite_tool, "_quarantine_sidecars", record_quarantine)
+    monkeypatch.setattr(
+        sqlite_tool,
+        "_replace_database",
+        assert_no_canonical_wal_then_replace,
+    )
+
+    restore_database(
+        backup,
+        target,
+        confirm_stopped=True,
+        rollback_output=rollback,
+    )
+
+    assert observed["quarantined_before_replace"] is True
+    assert _read_marker(target) == "replacement"
+    assert _read_marker(rollback) == "stale-wal"
+    assert not Path(f"{target}-wal").exists()
+    assert not list(tmp_path.glob(".*.pre-restore-sidecar"))
+
+
+def test_cli_prints_json_and_missing_acknowledgement_fails(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = tmp_path / "source.db"
+    backup = tmp_path / "backup.db"
+    _marker_database(database, "source")
+
+    assert (
+        sqlite_tool.main(
+            [
+                "backup",
+                "--database",
+                str(database),
+                "--output",
+                str(backup),
+                "--confirm-stopped",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["action"] == "backup"
+    assert payload["integrity_check"] == "ok"
+
+    second = tmp_path / "second.db"
+    assert (
+        sqlite_tool.main(
+            [
+                "backup",
+                "--database",
+                str(database),
+                "--output",
+                str(second),
+            ]
+        )
+        == 2
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "confirm-stopped" in captured.err
+    assert not second.exists()
+
+
+def test_runbook_pins_offline_docker_and_rollback_contract() -> None:
+    runbook = (REPO_ROOT / "docs" / "sqlite_backup_restore.md").read_text(
+        encoding="utf-8"
+    )
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    for required in (
+        "--confirm-stopped",
+        "scripts/sqlite_backup_restore.py backup",
+        "scripts/sqlite_backup_restore.py restore",
+        'docker compose down',
+        '--volume "$PWD/backups:/backup"',
+        "--rollback-output",
+        '"integrity_check": "ok"',
+        "-wal",
+        "tests/smoke/test_sqlite_backup_restore.py",
+    ):
+        assert required in runbook
+    assert "docs/sqlite_backup_restore.md" in readme
+    assert "cp ai_trainer.db ai_trainer.db.backup" not in readme
+
+
+def test_asr_and_debt_register_record_td001_closure() -> None:
+    asr = (REPO_ROOT / "docs" / "architecture" / "asr_catalog.md").read_text(
+        encoding="utf-8"
+    )
+    register = (REPO_ROOT / "docs" / "technical_debt_register.md").read_text(
+        encoding="utf-8"
+    )
+
+    dep2_row = next(
+        line for line in asr.splitlines() if line.startswith("| ASR-DEP-2 ")
+    )
+    assert "test_sqlite_backup_restore.py" in dep2_row
+    assert dep2_row.rstrip().endswith("| ✅ |")
+
+    open_summary = register.split("## Сводка", 1)[1].split(
+        "## Подтверждённые пункты", 1
+    )[0]
+    open_details = register.split("## Подтверждённые пункты", 1)[1].split(
+        "## Не переносить автоматически", 1
+    )[0]
+    closure_journal = register.split("## Журнал закрытия", 1)[1]
+    assert "TD-001" not in open_summary
+    assert "TD-001" not in open_details
+    assert "TD-001" in closure_journal
+    assert "#293" in closure_journal

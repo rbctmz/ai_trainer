@@ -29,7 +29,6 @@
 
 | ID | Приоритет | Область | Риск | Следующее действие |
 |----|-----------|---------|------|--------------------|
-| TD-001 | P1 | Deployability | Нет проверенного восстановления SQLite | Backup/restore CLI + restore drill |
 | TD-002 | P1 | Security | Секреты проверяются только ревью | Secret scan в CI |
 | TD-003 | P1 | Reliability | Нет единой SQLite concurrency policy | WAL/retry contract + race gates |
 | TD-004 | P1 | Modifiability | Две UI-поверхности продолжают расходиться | Закрыть критерии Streamlit EOL |
@@ -41,18 +40,6 @@
 реестр описывает известный долг, а не заменяет issue/bug triage.
 
 ## Подтверждённые пункты
-
-### TD-001 — SQLite backup/restore
-
-- **ASR:** ASR-DEP-2, ASR-REL-3
-- **Evidence:** SQLite находится в named volume, но в `scripts/` нет
-  backup/restore-команд и автоматического restore drill.
-- **Риск:** ошибка оператора, повреждение volume или неудачное обновление могут
-  превратить логическую сохранность данных в невосстановимую.
-- **Граница решения:** согласованный snapshot/restore для остановленного сервиса,
-  проверка целостности и documented rollback; без перехода на Postgres.
-- **Закрытие:** временная БД восстанавливается из backup в чистый volume, smoke
-  читает канонические активности, provider-links, план и wellness.
 
 ### TD-002 — Secret scan в CI
 
@@ -142,4 +129,4 @@ backlog:
 
 | ID | Дата | Результат |
 |----|------|-----------|
-| — | — | Реестр создан; закрытые исторические находки не переименовывались в TD |
+| TD-001 | 2026-07-28 | [#293](https://github.com/rbctmz/ai_trainer/issues/293): stopped-service SQLite Backup API CLI, integrity check, atomic no-clobber backup, sidecar-safe restore, pre-restore rollback и clean-volume domain drill |

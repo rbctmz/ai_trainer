@@ -39,6 +39,8 @@ of truth; it does not turn historical plans into current instructions.
   per-sport TSS cascade and provenance policy.
 - [`intervals_primary_quickstart.md`](intervals_primary_quickstart.md):
   supported Intervals-primary bootstrap.
+- [`sqlite_backup_restore.md`](sqlite_backup_restore.md): current stopped-service
+  SQLite backup, restore, rollback, and Docker volume runbook.
 - [`ai_coaching_guide.md`](ai_coaching_guide.md): current AI provider and AI
   Coaching behavior.
 
