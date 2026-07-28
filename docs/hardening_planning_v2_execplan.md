@@ -1,5 +1,13 @@
 # Hardening, Planning V2, and Coach Explainability
 
+> **Status: Historical / completed.** This document preserves the June 2026
+> implementation and acceptance record. Its Garmin-primary provider decision
+> was superseded by
+> [`ADR-0008`](architecture/adr_0008_intervals_activity_ingestion.md) and the
+> completed
+> [`Intervals-primary M0–M5 ExecPlan`](intervals_primary_handoff_execplan.md).
+> Do not use the older provider positioning as current product guidance.
+
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to date as work proceeds.
 
 This document must be maintained in accordance with `.agent/PLANS.md`.

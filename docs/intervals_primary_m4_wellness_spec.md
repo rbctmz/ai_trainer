@@ -1,5 +1,9 @@
 # M4: Intervals.icu wellness → локальная readiness, Сон и HRV
 
+> **Статус: исполнено (2026-07-27).** Документ фиксирует действующий wellness
+> mapping/provenance-контракт; финальное позиционирование источников завершено в
+> M5.
+
 This ExecPlan is a living document. The sections `Progress`, `Surprises &
 Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to
 date as work proceeds. This document must be maintained in accordance with
