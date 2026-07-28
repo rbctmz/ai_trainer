@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
+from datetime import date
 from types import SimpleNamespace
 
 import pytest
@@ -31,7 +32,7 @@ def test_load_activities_cache_isolated_by_database_path(tmp_path, monkeypatch: 
                 tss
             ) VALUES (?, ?, ?, ?, ?, ?)
             """,
-            ("activity-1", "2026-06-27", "running", 42.0, 10.0, 75.0),
+            ("activity-1", date.today().isoformat(), "running", 42.0, 10.0, 75.0),
         )
 
     state = SimpleNamespace(database=Database(str(empty_db_path)))
