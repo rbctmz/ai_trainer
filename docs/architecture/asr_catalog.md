@@ -18,14 +18,14 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-MOD-1 | Новый AI-провайдер без правки основного кода | High | `AIProvider` ABC + фабрика; capability-флаги (`supports_native_tools`, #190) делают расширения аддитивными | capability-матрица в `test_coach_native_tools.py` | ✅ |
 | ASR-MOD-2 | Новый компонент дашборда без регрессии | Medium | canonical snapshot проекции (#152/#153) | trust-alignment smoke | ✅ |
 | ASR-MOD-3 | Смена схемы — обратная совместимость | Medium | аддитивные поля чекпойнтов, migrate-on-read (#206), append-only журналы | legacy-byte-equivalence гейты | ✅ |
-| ASR-SEC-1 | Ключи не в логах/UI/git | High | `.env` вне git, UI скрывает поля, env-fallback; contributor-safe Gitleaks блокирует event range и текущее дерево, runtime probe проверяет detector | `test_secret_scanning_ci.py`; live `Secret scan` в PR #296; historical audit требует incident-response ([TD-002](../technical_debt_register.md#td-002--secret-scan-в-ci)) | 🟡 |
+| ASR-SEC-1 | Ключи не в логах/UI/git | High | `.env` вне git, UI скрывает поля, env-fallback; contributor-safe Gitleaks блокирует event range и текущее дерево, runtime probe проверяет detector | `test_secret_scanning_ci.py`; live `Secret scan` в PR #296; revoked historical finding требует отдельной policy ([TD-008](../technical_debt_register.md#td-008--политика-для-отозванного-credential-в-git-history)) | 🟡 |
 | ASR-SEC-2 | Basic Auth перед публичным доступом | High | Caddy + Basic Auth в self-hosted стеке | деплой-чеклист | ✅ |
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
 | ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты; stopped-service Backup API snapshot, integrity check, atomic restore и pre-restore rollback (#293) | `test_sqlite_backup_restore.py`: clean-volume domain drill + rollback/failure gates | ✅ |
 
-## TD-002: contributor-safe secret scanning (ASR-SEC-1; #295)
+## TD-002: contributor-safe secret scanning (ASR-SEC-1; #295, закрыт)
 
-PR #296 добавляет отдельный least-privilege workflow: immutable SHA для
+PR #296 добавил отдельный least-privilege workflow: immutable SHA для
 `actions/checkout` и `gitleaks/gitleaks-action`, только `contents: read`, без
 `pull_request_target`, application secrets и write-разрешений. Gitleaks
 проверяет полный commit range события и текущее дерево; runtime-only synthetic
@@ -37,12 +37,12 @@ probe доказывает, что scanner действительно возвр
 credential ротирован, две текущие archived debug-копии удалены после отдельного
 binary-attributes prerequisite PR #297. Атрибуты подавляют local diff, но
 GitHub всё равно показывает удаление; оно опубликовано только после ротации.
-Четыре current-tree исключения
-ограничены точными fingerprint и проверены как пустой env assignment,
+Четыре current-tree исключения ограничены точными fingerprint и проверены как
+пустой env assignment,
 placeholder, документационный Basic Auth пример и error-kind assertion.
-Preventive CI не маскирует historical finding; решение о repository-history
-остаётся maintainer incident-response. Поэтому ASR-SEC-1
-остаётся 🟡 даже после доставки preventive gate.
+Preventive CI смержен в `557cfe9`; post-merge push в `main` прошёл в run
+`30382483216`. TD-002 закрыт, а решение по уже отозванному значению в истории
+перенесено в TD-008. Поэтому ASR-SEC-1 остаётся 🟡.
 
 ## Intervals-primary ingest (ADR-0008; ASR-REL-3, ASR-MOD-3, ASR-PERF-3; #269)
 
@@ -228,7 +228,7 @@ HTTP-слой свёлся к одному роутеру, а не к свипу
 открытые пункты:
 
 - PERF-2 → [TD-007](../technical_debt_register.md#td-007--детерминированный-latency-гейт-коуча);
-- SEC-1 → [TD-002](../technical_debt_register.md#td-002--secret-scan-в-ci).
+- SEC-1 → [TD-008](../technical_debt_register.md#td-008--политика-для-отозванного-credential-в-git-history).
 
 ## Реестр ADR
 

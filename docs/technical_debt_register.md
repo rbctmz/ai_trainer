@@ -29,40 +29,17 @@
 
 | ID | Приоритет | Область | Риск | Следующее действие |
 |----|-----------|---------|------|--------------------|
-| TD-002 | P1 | Security | Preventive gate реализуется в #296; credential ротирован, history policy открыта | Довести CI #296 |
 | TD-003 | P1 | Reliability | Нет единой SQLite concurrency policy | WAL/retry contract + race gates |
 | TD-004 | P1 | Modifiability | Две UI-поверхности продолжают расходиться | Закрыть критерии Streamlit EOL |
 | TD-005 | P2 | Data/ingest | В M1 оставлены три compatibility-среза | Разделить и закрыть D2–D4 |
 | TD-006 | P2 | Structure | Крупные модули концентрируют churn | Churn-first decomposition |
 | TD-007 | P2 | Performance | First-token измеряется, но SLA не гейтится | Детерминированный runtime gate |
+| TD-008 | P2 | Security | Отозванное значение остаётся в Git history | Решение: rewrite или accepted residual risk |
 
 На дату снимка подтверждённых `P0` нет. Это не означает отсутствие дефектов:
 реестр описывает известный долг, а не заменяет issue/bug triage.
 
 ## Подтверждённые пункты
-
-### TD-002 — Secret scan в CI
-
-- **ASR:** ASR-SEC-1
-- **Owner issue / delivery:** [#295](https://github.com/rbctmz/ai_trainer/issues/295),
-  draft PR [#296](https://github.com/rbctmz/ai_trainer/pull/296).
-- **Evidence:** `.env` исключён из git и ключи не возвращаются API. PR #296
-  добавляет contributor-safe Gitleaks для event range и текущего дерева плюс
-  runtime-only synthetic detector gate. Четыре exact-fingerprint исключения
-  проверены как non-secret shapes; две archived debug-копии possible credential
-  удалены после ротации credential (GitHub deletion patch не скрывается
-  `.gitattributes`), historical candidate не allowlisted.
-- **Риск:** до мержа #296 случайно добавленный токен обнаруживается только на
-  ревью. Одноразовый full-history audit также нашёл legacy password-shaped
-  candidate без доказательств false positive; он не внесён в baseline.
-- **Граница решения:** contributor-safe scanner без передачи application
-  secrets в untrusted PR; baseline допускает только проверенные false positive.
-  Исторический candidate требует отдельного решения о repository-history, а не
-  allowlist; credential rotation подтверждена.
-- **Закрытие TD-002:** CI блокирует runtime-only синтетический секрет, сканирует
-  полный commit range события и проходит на текущем дереве. Это закрывает
-  preventive automation, но ASR-SEC-1 остаётся 🟡 до incident-response по
-  historical candidate.
 
 ### TD-003 — Единая SQLite concurrency policy
 
@@ -127,6 +104,22 @@
 - **Закрытие:** детерминированный тест ловит регрессию внутреннего overhead и не
   зависит от внешней сети.
 
+### TD-008 — Политика для отозванного credential в Git history
+
+- **ASR:** ASR-SEC-1
+- **Evidence:** full-history audit в #296 обнаружил password-shaped candidate.
+  Credential ротирован, текущие archived-копии удалены, event-range и
+  current-tree Gitleaks проходят, но старые commits остаются доступными.
+- **Риск:** значение больше не даёт доступ, однако история репозитория хранит
+  credential-shaped material и не удовлетворяет буквальному «ключи не в git».
+- **Граница решения:** отдельный issue сначала сравнивает documented acceptance
+  отозванного значения с coordinated history rewrite. Rewrite обязан учитывать
+  branches/tags, открытые PR, clones, GitHub caches и повторный full-history
+  audit; выполнять его без плана миграции запрещено.
+- **Закрытие:** либо validated history rewrite + чистый full-history scan, либо
+  явное решение о принятом residual risk с evidence ротации и сроком повторного
+  пересмотра.
+
 ## Не переносить автоматически
 
 Следующие источники являются входом для повторной проверки, а не открытым
@@ -143,3 +136,4 @@ backlog:
 | ID | Дата | Результат |
 |----|------|-----------|
 | TD-001 | 2026-07-28 | [#293](https://github.com/rbctmz/ai_trainer/issues/293): stopped-service SQLite Backup API CLI, integrity check, atomic no-clobber backup, sidecar-safe restore, pre-restore rollback и clean-volume domain drill |
+| TD-002 | 2026-07-28 | [#295](https://github.com/rbctmz/ai_trainer/issues/295) / [#296](https://github.com/rbctmz/ai_trainer/pull/296): contributor-safe Gitleaks на event range + current tree, immutable pins, runtime synthetic gate, 4 verified exact-fingerprint false positive, ротация и удаление current-tree credential copies; residual history-risk перенесён в TD-008 |

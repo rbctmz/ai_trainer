@@ -53,6 +53,13 @@ token generated only inside the runner is detected.
 - [x] (2026-07-28 17:01Z) Final head `0779640` passed Gitleaks run
   `30380725114` (event range, current tree, runtime probe), contributor-safe
   pytest run `30380725103`, link, sync, and ready-to-merge.
+- [x] (2026-07-28 17:21Z) PR #296 merged as `557cfe9`; owner issue #295
+  auto-closed.
+- [x] (2026-07-28 17:22Z) Post-merge `main` push passed Secret scan run
+  `30382483216`.
+- [x] (2026-07-28 17:28Z) Moved completed TD-002 to the closure journal and
+  recorded the revoked historical credential policy as separate P2 debt
+  TD-008; ASR-SEC-1 remains yellow for that bounded residual risk.
 
 ## Surprises & Discoveries
 
@@ -171,19 +178,22 @@ Their safe removal used binary path attributes landed in `main` before the
 deletion diff was generated; a head-only attempt had been reverted after GitHub
 API evidence showed that it still emitted text. GitHub continued to emit text
 even with base attributes, so the maintainer rotated the Garmin credential
-before the final deletion. The history-remediation decision remains incident-response, so
-ASR-SEC-1 correctly stays yellow even when the preventive automation is ready.
+before the final deletion. PR #296 then merged as `557cfe9`, owner issue #295
+closed, and post-merge Secret scan run `30382483216` passed on `main`.
+
+TD-002 is closed: the preventive automation and current-tree remediation are
+delivered. The repository-history decision remains a bounded residual risk,
+tracked separately as TD-008. ASR-SEC-1 therefore correctly stays yellow.
 
 ## Context and Orientation
 
-`.github/workflows/ci.yml` is the existing contributor-safe pytest workflow. It
-runs for pull requests and pushes to `main`, but it does not scan repository
-content for credentials. `docs/architecture/asr_catalog.md` records ASR-SEC-1,
-the requirement that keys do not enter logs, UI, or git, as yellow because this
-automation is missing. `docs/technical_debt_register.md` names that preventive
+Before TD-002, `.github/workflows/ci.yml` was the only contributor-safe
+workflow. It ran for pull requests and pushes to `main`, but did not scan
+repository content for credentials. `docs/architecture/asr_catalog.md` recorded
+ASR-SEC-1 as yellow and `docs/technical_debt_register.md` named that preventive
 gap TD-002. The live audit performed during this work also found a possible
-historical credential. That finding is an incident-response boundary, not a
-candidate for automatic allowlisting.
+historical credential. The value has been rotated and current copies removed;
+the remaining repository-history policy is TD-008, not an allowlist candidate.
 
 This change adds a separate `.github/workflows/secret-scan.yml` instead of
 coupling a security control to the Python dependency/test job. The workflow runs
