@@ -50,9 +50,11 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
 - [x] (2026-07-28 17:40+03) Ветка запушена, открыт PR #294 с `Closes #293`;
   GitHub checks прошли, PR переведён из draft в ready, merge state `CLEAN`,
   unresolved review threads: 0.
-- [ ] Закрыть три review-блокера PR #294: sidecar quarantine до replace,
-  atomic no-clobber publication и operator-safe destination setup; повторить
-  полный прогон и merge-гейты.
+- [x] (2026-07-28 18:05+03) Закрыты три review-блокера PR #294: sidecar
+  quarantine до replace, atomic no-clobber publication и operator-safe
+  destination setup. После фиксов: targeted `24 passed`, smoke
+  `1285 passed, 1 skipped`, широкий
+  `1328 passed, 6 skipped, 24 deselected`; Ruff/Python 3.10/diff-check зелёные.
 
 ## Surprises & Discoveries
 
@@ -165,9 +167,9 @@ atomic no-clobber и явную семантику редкой ошибки ф�
 
 Проверки перед публикацией:
 
-    21 passed in 1.04s
-    1282 passed, 1 skipped, 3 warnings in 178.79s
-    1325 passed, 6 skipped, 24 deselected, 3 warnings in 167.52s
+    24 passed in 0.76s
+    1285 passed, 1 skipped, 3 warnings in 33.21s
+    1328 passed, 6 skipped, 24 deselected, 3 warnings in 46.09s
 
 Оставшиеся осознанные границы: CLI не доказывает остановку writers, поэтому
 требует `--confirm-stopped`; off-host шифрование, retention/scheduling и
