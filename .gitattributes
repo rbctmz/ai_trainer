@@ -1,2 +1,6 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Suppress credential-bearing legacy content in the follow-up deletion diff.
+archived/old_debug_scripts/debug_body_battery.py binary
+archived/old_fix_tests/test_fixed_sync.py binary
