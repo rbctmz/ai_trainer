@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import importlib
 import json
+from datetime import date, timedelta
 
 import pytest
 
@@ -90,20 +91,30 @@ def test_activities_with_data(tmp_path):
 def test_hrv_with_data_exposes_date_labels(tmp_path):
     from api.routers.hrv import hrv_summary
 
+    latest_date = date.today()
+    previous_date = latest_date - timedelta(days=1)
     db = Database(str(tmp_path / "h.db"))
     db.save_hrv_data(
         {
-            "2026-06-26": {"rmssd": 31.0, "stress_score": 22.0, "recovery_score": 70.0},
-            "2026-06-27": {"rmssd": 29.5, "stress_score": 25.0, "recovery_score": 66.0},
+            previous_date.isoformat(): {
+                "rmssd": 31.0,
+                "stress_score": 22.0,
+                "recovery_score": 70.0,
+            },
+            latest_date.isoformat(): {
+                "rmssd": 29.5,
+                "stress_score": 25.0,
+                "recovery_score": 66.0,
+            },
         }
     )
 
     payload = hrv_summary(days=30, db=db)
 
     assert payload["has_data"] is True
-    assert payload["latest"]["date"] == "2026-06-27"
-    assert payload["latest"]["date_label"] == "27.06.2026"
-    assert payload["trend"][-1]["date_label"] == "27.06.2026"
+    assert payload["latest"]["date"] == latest_date.isoformat()
+    assert payload["latest"]["date_label"] == latest_date.strftime("%d.%m.%Y")
+    assert payload["trend"][-1]["date_label"] == latest_date.strftime("%d.%m.%Y")
 
 
 def test_coach_chat_streams_with_mock(tmp_path, monkeypatch):
