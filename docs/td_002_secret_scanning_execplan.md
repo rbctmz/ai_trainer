@@ -162,6 +162,15 @@ token generated only inside the runner is detected.
   scanner configuration. The complete detector-shaped value still never enters
   the repository.
   Date/Author: 2026-07-28 / Codex.
+- Decision: close TD-002 after the preventive workflow, current-tree
+  remediation, credential rotation, and post-merge `main` scan, while
+  reclassifying the revoked historical value as separate P2 debt TD-008.
+  Rationale: TD-002's acceptance boundary was prevention of new leaks without
+  exposing application secrets to untrusted PRs, and that boundary is now
+  proven. A coordinated history rewrite has different risks and acceptance
+  criteria; keeping it inside closed TD-002 would make the debt register
+  inaccurate, while marking ASR-SEC-1 green would hide the residual finding.
+  Date/Author: 2026-07-28 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -273,8 +282,10 @@ complete synthetic token.
 Any detected real or uncertain credential must be reported without printing its
 value and must not be allowlisted. TD-002's preventive CI may be delivered
 separately, but ASR-SEC-1 cannot become green until the credential is rotated
-and the repository/history policy is explicitly handled. Any allowlist entry
-fails acceptance unless this plan records its exact false-positive evidence.
+and the repository/history policy is resolved. The credential is now rotated;
+TD-008 tracks the unresolved history policy, so ASR-SEC-1 remains yellow. Any
+allowlist entry fails acceptance unless this plan records its exact
+false-positive evidence.
 
 ## Idempotence and Recovery
 
@@ -316,3 +327,9 @@ No Python product dependency is added. The only runtime interface is:
 It exits zero only when the scanner returns the dedicated expected
 leak-detection exit code. The workflow depends on the two immutable GitHub
 Action commits and the explicitly selected Gitleaks CLI version.
+
+Revision note (2026-07-28): recorded the post-merge closure decision and its
+rationale after PR #296 closed TD-002's preventive boundary. The revoked
+credential that remains in Git history is now TD-008 rather than an open tail
+inside TD-002; this preserves ASR-SEC-1's yellow status without misreporting the
+completed CI work as unfinished.
