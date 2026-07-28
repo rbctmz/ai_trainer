@@ -118,6 +118,16 @@ def _temporary_file(destination: Path) -> Path:
     return temporary
 
 
+def _prepare_temporary_destination(destination: Path, *, label: str) -> Path:
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        return _temporary_file(destination)
+    except OSError as exc:
+        raise SQLiteBackupRestoreError(
+            f"could not prepare {label} {destination}: {exc}"
+        ) from exc
+
+
 def _copy_sqlite(source: Path, temporary: Path) -> None:
     try:
         with closing(_readonly_connection(source)) as source_conn:
@@ -148,33 +158,53 @@ def _fsync_directory(path: Path) -> None:
         os.close(descriptor)
 
 
-def _promote_artifact(temporary: Path, destination: Path) -> None:
+def _publish_new_artifact(
+    temporary: Path,
+    destination: Path,
+    *,
+    label: str,
+) -> None:
+    """Publish a new artifact atomically without ever replacing another file."""
+    _fsync_file(temporary)
+    try:
+        os.link(temporary, destination)
+    except FileExistsError as exc:
+        raise SQLiteBackupRestoreError(
+            f"{label} already exists: {destination}"
+        ) from exc
+    _fsync_directory(destination.parent)
+
+
+def _replace_artifact(temporary: Path, destination: Path) -> None:
     _fsync_file(temporary)
     os.replace(temporary, destination)
-    _fsync_directory(destination.parent)
 
 
 def _replace_database(temporary: Path, database: Path) -> None:
     """Seam kept separate so the fail-before-replace contract is testable."""
-    _promote_artifact(temporary, database)
+    _replace_artifact(temporary, database)
 
 
-def _snapshot_to_output(source: Path, output: Path) -> tuple[str, str]:
+def _snapshot_to_output(
+    source: Path,
+    output: Path,
+    *,
+    label: str = "backup output",
+) -> tuple[str, str]:
     _require_different(source, output, labels="database and backup output")
     if output.exists() or output.is_symlink():
-        raise SQLiteBackupRestoreError(f"backup output already exists: {output}")
+        raise SQLiteBackupRestoreError(f"{label} already exists: {output}")
 
     check_sqlite_database(source)
-    output.parent.mkdir(parents=True, exist_ok=True)
-    temporary = _temporary_file(output)
+    temporary = _prepare_temporary_destination(output, label=label)
     try:
         _copy_sqlite(source, temporary)
-        _promote_artifact(temporary, output)
+        _publish_new_artifact(temporary, output, label=label)
     except SQLiteBackupRestoreError:
         raise
     except OSError as exc:
         raise SQLiteBackupRestoreError(
-            f"could not publish backup {output}: {exc}"
+            f"could not publish {label} {output}: {exc}"
         ) from exc
     finally:
         temporary.unlink(missing_ok=True)
@@ -206,7 +236,74 @@ def _default_rollback_path(database: Path) -> Path:
     return database.with_name(f"{database.name}.pre-restore-{timestamp}.db")
 
 
-def _remove_stale_sidecars(database: Path) -> None:
+def _sidecar_quarantine_path(sidecar: Path) -> Path:
+    descriptor, raw_path = tempfile.mkstemp(
+        prefix=f".{sidecar.name}.",
+        suffix=".pre-restore-sidecar",
+        dir=str(sidecar.parent),
+    )
+    os.close(descriptor)
+    quarantine = Path(raw_path)
+    quarantine.unlink()
+    return quarantine
+
+
+def _quarantine_sidecars(database: Path) -> list[tuple[Path, Path]]:
+    quarantined: list[tuple[Path, Path]] = []
+    try:
+        for suffix in ("-wal", "-shm", "-journal"):
+            sidecar = Path(f"{database}{suffix}")
+            if not sidecar.exists() and not sidecar.is_symlink():
+                continue
+            quarantine = _sidecar_quarantine_path(sidecar)
+            os.replace(sidecar, quarantine)
+            quarantined.append((sidecar, quarantine))
+        _fsync_directory(database.parent)
+    except OSError as exc:
+        recovery_errors: list[str] = []
+        for sidecar, quarantine in reversed(quarantined):
+            try:
+                os.replace(quarantine, sidecar)
+            except OSError as recovery_exc:
+                recovery_errors.append(f"{sidecar}: {recovery_exc}")
+        _fsync_directory(database.parent)
+        recovery = (
+            f"; recovery failures: {'; '.join(recovery_errors)}"
+            if recovery_errors
+            else ""
+        )
+        raise SQLiteBackupRestoreError(
+            f"could not quarantine stale SQLite sidecars for {database}: {exc}{recovery}"
+        ) from exc
+    return quarantined
+
+
+def _restore_quarantined_sidecars(
+    quarantined: list[tuple[Path, Path]],
+    *,
+    database: Path,
+) -> None:
+    failures: list[str] = []
+    for sidecar, quarantine in reversed(quarantined):
+        try:
+            os.replace(quarantine, sidecar)
+        except OSError as exc:
+            failures.append(f"{sidecar}: {exc}")
+    _fsync_directory(database.parent)
+    if failures:
+        raise SQLiteBackupRestoreError(
+            "database publication failed and stale sidecar recovery was "
+            f"incomplete for {database}: {'; '.join(failures)}"
+        )
+
+
+def _delete_quarantined_sidecars(
+    quarantined: list[tuple[Path, Path]],
+    *,
+    database: Path,
+) -> None:
+    for _sidecar, quarantine in quarantined:
+        quarantine.unlink(missing_ok=True)
     for suffix in ("-wal", "-shm", "-journal"):
         Path(f"{database}{suffix}").unlink(missing_ok=True)
     _fsync_directory(database.parent)
@@ -231,9 +328,9 @@ def restore_database(
             f"database is not a regular file: {database_path}"
         )
 
-    database_path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = _temporary_file(database_path)
+    temporary = _prepare_temporary_destination(database_path, label="database")
     rollback_path: Path | None = None
+    quarantined: list[tuple[Path, Path]] = []
     try:
         _copy_sqlite(backup_path, temporary)
 
@@ -253,20 +350,32 @@ def restore_database(
                 backup_path,
                 labels="rollback output and backup",
             )
-            _snapshot_to_output(current_database, rollback_path)
+            _snapshot_to_output(
+                current_database,
+                rollback_path,
+                label="rollback output",
+            )
         elif rollback_output is not None:
             raise SQLiteBackupRestoreError(
                 "--rollback-output is only valid when the target database exists"
             )
 
+        quarantined = _quarantine_sidecars(database_path)
         try:
             _replace_database(temporary, database_path)
         except OSError as exc:
+            _restore_quarantined_sidecars(
+                quarantined,
+                database=database_path,
+            )
             raise SQLiteBackupRestoreError(
                 f"database replace failed for {database_path}: {exc}"
             ) from exc
         try:
-            _remove_stale_sidecars(database_path)
+            _delete_quarantined_sidecars(
+                quarantined,
+                database=database_path,
+            )
             integrity = check_sqlite_database(database_path)
             digest = _sha256(database_path)
         except (SQLiteBackupRestoreError, OSError) as exc:
@@ -323,7 +432,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 confirm_stopped=args.confirm_stopped,
                 rollback_output=args.rollback_output,
             )
-    except SQLiteBackupRestoreError as exc:
+    except (SQLiteBackupRestoreError, OSError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
     print(json.dumps(asdict(report), ensure_ascii=False, indent=2, sort_keys=True))

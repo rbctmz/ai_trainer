@@ -129,4 +129,4 @@ backlog:
 
 | ID | Дата | Результат |
 |----|------|-----------|
-| TD-001 | 2026-07-28 | [#293](https://github.com/rbctmz/ai_trainer/issues/293): stopped-service SQLite Backup API CLI, integrity check, atomic restore, pre-restore rollback и clean-volume domain drill |
+| TD-001 | 2026-07-28 | [#293](https://github.com/rbctmz/ai_trainer/issues/293): stopped-service SQLite Backup API CLI, integrity check, atomic no-clobber backup, sidecar-safe restore, pre-restore rollback и clean-volume domain drill |

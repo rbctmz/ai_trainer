@@ -127,15 +127,17 @@ M5 завершает Intervals-primary трек только на presentation-
 TD-001 закрыт stopped-service CLI
 `scripts/sqlite_backup_restore.py`. Snapshot создаётся стандартным SQLite
 Backup API во временном файле рядом с назначением, проходит
-`PRAGMA integrity_check`, `fsync` и публикуется через `os.replace`. Restore
-существующего target сначала создаёт отдельный validated rollback; stale
-`-wal`/`-shm`/`-journal` удаляются после замены.
+`PRAGMA integrity_check`, `fsync` и публикуется atomic no-clobber hard-link.
+Restore существующего target сначала создаёт отдельный validated rollback;
+stale `-wal`/`-shm`/`-journal` карантинируются до `os.replace`, возвращаются
+при ошибке публикации и удаляются после успешной замены.
 
 - **ASR-DEP-2**: `test_sqlite_backup_restore.py` восстанавливает snapshot в
   отсутствующий файл чистого временного каталога и читает каноническую
   активность, provider-link, planning checkpoint, HRV, сон и resting HR.
 - **ASR-REL-3**: invalid backup и injected final-replace failure не меняют
-  target; существующий target имеет проверенный rollback до мутации.
+  target; sidecars восстанавливаются, существующий target имеет проверенный
+  rollback до мутации, конкурентный artifact не перезаписывается.
 - **Operational boundary**: CLI требует `--confirm-stopped`; Docker backup
   выводится через bind mount за пределы named volume. Команды и аварийная
   rollback-ветка находятся в

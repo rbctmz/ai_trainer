@@ -16,9 +16,10 @@ SQLite остаётся primary store, пока продукт — single-athlet
 1. Один пользователь-писатель; конкурентность ограничена «sync + чтение», не «много писателей».
 2. Файл в named volume; backup/restore выполняется при остановленном сервисе
    через `scripts/sqlite_backup_restore.py`. CLI использует SQLite Backup API,
-   проверяет целостность, публикует snapshot атомарно и создаёт pre-restore
-   rollback существующего target. Обычный `cp` main-файла не является
-   контрактом: committed страницы могут находиться в `-wal`.
+   проверяет целостность, публикует новый snapshot atomic no-clobber операцией,
+   карантинирует sidecars до atomic restore и создаёт pre-restore rollback
+   существующего target. Обычный `cp` main-файла не является контрактом:
+   committed страницы могут находиться в `-wal`.
 3. Схема эволюционирует аддитивно + migrate-on-read (см. ADR-0006, #206) — без alembic.
 4. Данные не покидают машину пользователя — приватность как свойство архитектуры, не политики.
 

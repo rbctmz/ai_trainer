@@ -50,6 +50,9 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
 - [x] (2026-07-28 17:40+03) Ветка запушена, открыт PR #294 с `Closes #293`;
   GitHub checks прошли, PR переведён из draft в ready, merge state `CLEAN`,
   unresolved review threads: 0.
+- [ ] Закрыть три review-блокера PR #294: sidecar quarantine до replace,
+  atomic no-clobber publication и operator-safe destination setup; повторить
+  полный прогон и merge-гейты.
 
 ## Surprises & Discoveries
 
@@ -82,6 +85,19 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
   ошибку «database was replaced», требует оставить сервис остановленным и
   называет заранее созданный rollback; отдельный smoke-гейт фиксирует границу.
 
+- Observation: atomic main-file replace недостаточен, если рядом остаётся
+  старый valid WAL.
+  Evidence: при interruption после replace и до cleanup SQLite мог применить
+  старый WAL к восстановленной main-БД. Sidecars теперь атомарно переименуются
+  в уникальный quarantine **до** replace, возвращаются при ошибке публикации и
+  удаляются только после неё.
+
+- Observation: проверка `output.exists()` до долгого Backup API copy не даёт
+  гарантии no-clobber.
+  Evidence: review PR #294 указал TOCTOU окно. Новые backup/rollback artifacts
+  теперь публикуются через atomic `os.link` временного файла в том же
+  filesystem; конкурентный output вызывает `FileExistsError` и сохраняется.
+
 ## Decision Log
 
 - Decision: не менять ADR-0002 и не добавлять Postgres, Alembic либо новый
@@ -110,6 +126,14 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
   полуфайл. Временный файл всегда удаляется при ошибке.
   Date/Author: 2026-07-28 / Codex.
 
+- Decision: backup/rollback используют atomic hard-link publication, а restore
+  main-файла — `os.replace` после quarantine sidecars.
+  Rationale: новый artifact не должен перезаписать конкурентно созданный файл;
+  restore обязан заменить canonical path, но старые WAL/SHM/journal не должны
+  быть доступны SQLite рядом с новым main-файлом ни в одном post-replace
+  состоянии.
+  Date/Author: 2026-07-28 / Codex.
+
 - Decision: restore существующей БД fail-closed создаёт проверенный
   pre-restore snapshot до замены и не позволяет перезаписать существующий
   rollback artifact.
@@ -136,8 +160,8 @@ rollback существующей БД. Runbook заменил небезопа�
 Restore drill на чистом временном target доказывает сохранность canonical
 activity, provider-link, planning checkpoint, HRV, сна и resting HR. Отдельные
 гейты фиксируют malformed source, отсутствие operator acknowledgement,
-неизменность target при fail-before-replace, сохранность rollback и явную
-семантику редкой ошибки финализации после replace.
+неизменность target при fail-before-replace, сохранность rollback/sidecars,
+atomic no-clobber и явную семантику редкой ошибки финализации после replace.
 
 Проверки перед публикацией:
 
@@ -200,10 +224,11 @@ read-only, выполняет `PRAGMA integrity_check`, копирует её ч
 
 Restore сначала полностью материализует backup во временный файл target
 directory. Если target существует, до его замены создаётся отдельный rollback
-snapshot тем же проверенным механизмом. После атомарной замены удаляются старые
-sidecar-файлы `<database>-wal`, `<database>-shm` и `<database>-journal`, затем
-target снова проходит integrity check. Путь rollback никогда не совпадает с
-backup/target и не перезаписывается.
+snapshot тем же проверенным no-clobber механизмом. Перед атомарной заменой
+sidecar-файлы `<database>-wal`, `<database>-shm` и `<database>-journal`
+переносятся в уникальный quarantine. При ошибке replace они возвращаются; при
+успехе quarantine удаляется, затем target снова проходит integrity check. Путь
+rollback никогда не совпадает с backup/target и не перезаписывается.
 
 После GREEN добавить `docs/sqlite_backup_restore.md` с bare-metal и Compose
 runbook. Docker backup должен монтировать host-каталог `/backup`, чтобы
@@ -285,6 +310,9 @@ rollback path работает; существующий output или rollback 
 Fail-closed path считается доказанным, когда отсутствие
 `--confirm-stopped`, malformed SQLite, одинаковые source/destination и ошибка
 финального replace завершаются ненулевым результатом без изменения target.
+При replace failure исходные sidecars возвращаются. Конкурентно созданный
+backup/rollback output не перезаписывается, а destination setup failure
+возвращает operator error/code 2 без traceback.
 
 CI acceptance — contributor-safe suite зелёный, PR связан с #293, а merge gate
 показывает clean/ready-to-merge. Только после этого TD-001 считается закрытым.

@@ -55,6 +55,23 @@ def _read_marker(path: Path) -> str:
         conn.close()
 
 
+def _leave_committed_marker_in_wal(path: Path, value: str) -> bytes:
+    conn = sqlite3.connect(path)
+    try:
+        assert conn.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        conn.execute("PRAGMA wal_autocheckpoint=0")
+        conn.execute("UPDATE marker SET value=?", (value,))
+        conn.commit()
+        main_bytes = path.read_bytes()
+        wal_bytes = Path(f"{path}-wal").read_bytes()
+    finally:
+        conn.close()
+
+    path.write_bytes(main_bytes)
+    Path(f"{path}-wal").write_bytes(wal_bytes)
+    return wal_bytes
+
+
 def _activity_snapshot(path: Path) -> tuple:
     conn = sqlite3.connect(path)
     try:
@@ -183,6 +200,62 @@ def test_backup_refuses_existing_output_and_self_copy(tmp_path: Path) -> None:
     assert _read_marker(database) == "source"
 
 
+def test_backup_atomic_publication_does_not_clobber_racing_output(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    database = tmp_path / "source.db"
+    output = tmp_path / "backup.db"
+    _marker_database(database, "source")
+    original_copy = sqlite_tool._copy_sqlite
+
+    def copy_then_create_competing_output(source: Path, temporary: Path) -> None:
+        original_copy(source, temporary)
+        output.write_bytes(b"created-by-another-process")
+
+    monkeypatch.setattr(
+        sqlite_tool,
+        "_copy_sqlite",
+        copy_then_create_competing_output,
+    )
+
+    with pytest.raises(SQLiteBackupRestoreError, match="already exists"):
+        backup_database(database, output, confirm_stopped=True)
+
+    assert output.read_bytes() == b"created-by-another-process"
+    assert not list(tmp_path.glob(f".{output.name}.*.tmp"))
+
+
+def test_cli_destination_setup_failure_is_operator_error(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    database = tmp_path / "source.db"
+    blocked_parent = tmp_path / "not-a-directory"
+    output = blocked_parent / "backup.db"
+    _marker_database(database, "source")
+    blocked_parent.write_text("file blocks mkdir", encoding="utf-8")
+
+    assert (
+        sqlite_tool.main(
+            [
+                "backup",
+                "--database",
+                str(database),
+                "--output",
+                str(output),
+                "--confirm-stopped",
+            ]
+        )
+        == 2
+    )
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "could not prepare backup output" in captured.err
+    assert "Traceback" not in captured.err
+    assert not output.exists()
+
+
 def test_restore_drill_preserves_activity_link_plan_and_wellness(tmp_path: Path) -> None:
     source = tmp_path / "source.db"
     backup = tmp_path / "source.backup.db"
@@ -288,14 +361,30 @@ def test_restore_replace_failure_keeps_target_and_rollback(
     backup = tmp_path / "source.backup.db"
     target = tmp_path / "target.db"
     rollback = tmp_path / "target.before-restore.db"
+    wal = Path(f"{target}-wal")
+    shm = Path(f"{target}-shm")
     _marker_database(source, "replacement")
     _marker_database(target, "original")
     backup_database(source, backup, confirm_stopped=True)
     before = _sha256(target)
+    original_snapshot = sqlite_tool._snapshot_to_output
+
+    def snapshot_then_create_sidecars(
+        snapshot_source: Path,
+        output: Path,
+        *,
+        label: str = "backup output",
+    ) -> tuple[str, str]:
+        result = original_snapshot(snapshot_source, output, label=label)
+        if label == "rollback output":
+            wal.write_bytes(b"original-wal")
+            shm.write_bytes(b"original-shm")
+        return result
 
     def fail_replace(_temporary: Path, _target: Path) -> None:
         raise OSError("injected final replace failure")
 
+    monkeypatch.setattr(sqlite_tool, "_snapshot_to_output", snapshot_then_create_sidecars)
     monkeypatch.setattr(sqlite_tool, "_replace_database", fail_replace)
 
     with pytest.raises(SQLiteBackupRestoreError, match="replace"):
@@ -307,6 +396,9 @@ def test_restore_replace_failure_keeps_target_and_rollback(
         )
 
     assert _sha256(target) == before
+    assert wal.read_bytes() == b"original-wal"
+    assert shm.read_bytes() == b"original-shm"
+    assert not list(tmp_path.glob(".*.pre-restore-sidecar"))
     assert _read_marker(target) == "original"
     assert check_sqlite_database(rollback) == "ok"
     assert _read_marker(rollback) == "original"
@@ -325,10 +417,19 @@ def test_restore_finalization_failure_is_operator_safe_and_names_rollback(
     _marker_database(target, "original")
     backup_database(source, backup, confirm_stopped=True)
 
-    def fail_sidecar_cleanup(_database: Path) -> None:
+    def fail_sidecar_cleanup(
+        _quarantined: list[tuple[Path, Path]],
+        *,
+        database: Path,
+    ) -> None:
+        assert database == target.resolve()
         raise OSError("injected sidecar cleanup failure")
 
-    monkeypatch.setattr(sqlite_tool, "_remove_stale_sidecars", fail_sidecar_cleanup)
+    monkeypatch.setattr(
+        sqlite_tool,
+        "_delete_quarantined_sidecars",
+        fail_sidecar_cleanup,
+    )
 
     with pytest.raises(SQLiteBackupRestoreError) as caught:
         restore_database(
@@ -347,7 +448,10 @@ def test_restore_finalization_failure_is_operator_safe_and_names_rollback(
     assert _read_marker(rollback) == "original"
 
 
-def test_restore_removes_stale_sidecars(tmp_path: Path) -> None:
+def test_restore_quarantines_sidecars_before_replace_and_removes_them(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     source = tmp_path / "source.db"
     backup = tmp_path / "source.backup.db"
     target = tmp_path / "clean-volume" / "ai_trainer.db"
@@ -357,11 +461,80 @@ def test_restore_removes_stale_sidecars(tmp_path: Path) -> None:
     sidecars = [Path(f"{target}{suffix}") for suffix in ("-wal", "-shm", "-journal")]
     for sidecar in sidecars:
         sidecar.write_bytes(b"stale")
+    original_replace = sqlite_tool._replace_database
+
+    def assert_quarantined_then_replace(temporary: Path, database: Path) -> None:
+        assert all(not sidecar.exists() for sidecar in sidecars)
+        assert len(list(target.parent.glob(".*.pre-restore-sidecar"))) == 3
+        original_replace(temporary, database)
+
+    monkeypatch.setattr(
+        sqlite_tool,
+        "_replace_database",
+        assert_quarantined_then_replace,
+    )
 
     restore_database(backup, target, confirm_stopped=True)
 
     assert _read_marker(target) == "replacement"
     assert all(not sidecar.exists() for sidecar in sidecars)
+    assert not list(target.parent.glob(".*.pre-restore-sidecar"))
+
+
+def test_restore_never_exposes_new_main_beside_valid_stale_wal(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.db"
+    backup = tmp_path / "source.backup.db"
+    target = tmp_path / "target.db"
+    rollback = tmp_path / "target.before-restore.db"
+    _marker_database(source, "replacement")
+    _marker_database(target, "original")
+    backup_database(source, backup, confirm_stopped=True)
+    wal_bytes = _leave_committed_marker_in_wal(target, "stale-wal")
+
+    probe = tmp_path / "probe.db"
+    probe.write_bytes(target.read_bytes())
+    Path(f"{probe}-wal").write_bytes(wal_bytes)
+    assert _read_marker(probe) == "stale-wal"
+
+    original_quarantine = sqlite_tool._quarantine_sidecars
+    original_replace = sqlite_tool._replace_database
+    observed = {"quarantined_before_replace": False}
+
+    def record_quarantine(database: Path) -> list[tuple[Path, Path]]:
+        assert Path(f"{database}-wal").exists()
+        return original_quarantine(database)
+
+    def assert_no_canonical_wal_then_replace(
+        temporary: Path,
+        database: Path,
+    ) -> None:
+        assert not Path(f"{database}-wal").exists()
+        assert list(database.parent.glob(".*.pre-restore-sidecar"))
+        observed["quarantined_before_replace"] = True
+        original_replace(temporary, database)
+
+    monkeypatch.setattr(sqlite_tool, "_quarantine_sidecars", record_quarantine)
+    monkeypatch.setattr(
+        sqlite_tool,
+        "_replace_database",
+        assert_no_canonical_wal_then_replace,
+    )
+
+    restore_database(
+        backup,
+        target,
+        confirm_stopped=True,
+        rollback_output=rollback,
+    )
+
+    assert observed["quarantined_before_replace"] is True
+    assert _read_marker(target) == "replacement"
+    assert _read_marker(rollback) == "stale-wal"
+    assert not Path(f"{target}-wal").exists()
+    assert not list(tmp_path.glob(".*.pre-restore-sidecar"))
 
 
 def test_cli_prints_json_and_missing_acknowledgement_fails(

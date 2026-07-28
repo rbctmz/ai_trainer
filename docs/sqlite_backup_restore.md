@@ -29,8 +29,9 @@ CLI:
 - создаёт файлы с правами `0600`;
 - выводит SHA-256 для operator audit;
 - при restore существующего target сначала создаёт проверенный rollback;
-- удаляет старые `<database>-wal`, `<database>-shm` и
-  `<database>-journal` только после атомарной замены target.
+- до замены карантинирует старые `<database>-wal`, `<database>-shm` и
+  `<database>-journal`, возвращает их при fail-before-replace и удаляет
+  карантин только после атомарной замены target.
 
 Backup не шифруется. Перед переносом off-host используйте отдельное
 шифрованное хранилище и не публикуйте файл: он содержит персональные показатели
@@ -153,7 +154,7 @@ fail-closed поведение: повреждённые байты нельзя
 
 До финального atomic replace любая ошибка оставляет target неизменным, а
 временный файл удаляется. Если rollback уже был создан, он сохраняется.
-Если ошибка произошла **после** replace во время удаления sidecars или
+Если ошибка произошла **после** replace во время удаления карантина или
 финальной проверки, команда явно сообщает, что target уже заменён, возвращает
 ненулевой код и указывает `rollback=<path>` для существовавшего target.
 Не запускайте сервис: устраните причину и восстановите названный rollback
@@ -173,6 +174,13 @@ fail-closed поведение: повреждённые байты нельзя
 Исправьте причину и повторите команду с новым свободным artifact path. Не
 удаляйте исходный backup ради повторного запуска.
 
+Backup и rollback публикуются atomic no-clobber операцией: даже если другой
+процесс создаст выбранный output во время копирования, CLI не перезапишет его.
+Если выполнение было прервано после карантина sidecars и до JSON-успеха, не
+запускайте приложение. Сохраните canonical DB и файлы
+`.*.pre-restore-sidecar`, затем повторите restore либо верните quarantine к
+исходным именам `-wal`/`-shm`/`-journal` до открытия SQLite.
+
 ## Автоматическое доказательство
 
 Contributor-safe drill:
@@ -181,4 +189,7 @@ Contributor-safe drill:
 
 Он использует только временные пути и проверяет integrity, canonical activity,
 provider-link, planning checkpoint, HRV, сон, resting HR, rollback и
-fail-before-replace. Реальная БД и Docker volume не открываются.
+fail-before-replace. Отдельные гейты доказывают quarantine-before-replace,
+восстановление sidecars при ошибке публикации, atomic no-clobber и короткую
+operator error при невозможности создать destination. Реальная БД и Docker
+volume не открываются.
