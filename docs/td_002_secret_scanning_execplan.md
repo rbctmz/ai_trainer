@@ -50,7 +50,9 @@ token generated only inside the runner is detected.
   patches despite base-branch binary attributes. Because the credential was
   rotated before this push, the patches contain only a revoked value; no active
   credential was exposed by the remediation.
-- [ ] Re-run all live gates on the final head.
+- [x] (2026-07-28 17:01Z) Final head `0779640` passed Gitleaks run
+  `30380725114` (event range, current tree, runtime probe), contributor-safe
+  pytest run `30380725103`, link, sync, and ready-to-merge.
 
 ## Surprises & Discoveries
 
