@@ -50,8 +50,8 @@
   добавляет contributor-safe Gitleaks для event range и текущего дерева плюс
   runtime-only synthetic detector gate. Четыре exact-fingerprint исключения
   проверены как non-secret shapes; две archived debug-копии possible credential
-  удалены binary-safe после #297, credential ротирован, historical candidate не
-  allowlisted.
+  удалены после ротации credential (GitHub deletion patch не скрывается
+  `.gitattributes`), historical candidate не allowlisted.
 - **Риск:** до мержа #296 случайно добавленный токен обнаруживается только на
   ревью. Одноразовый full-history audit также нашёл legacy password-shaped
   candidate без доказательств false positive; он не внесён в baseline.

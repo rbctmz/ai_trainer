@@ -35,7 +35,9 @@ probe доказывает, что scanner действительно возвр
 Одноразовый full-history audit обнаружил legacy password-shaped candidate без
 доказательств false positive. Значение не выводилось и не добавлено в baseline;
 credential ротирован, две текущие archived debug-копии удалены после отдельного
-binary-attributes prerequisite PR #297. Четыре current-tree исключения
+binary-attributes prerequisite PR #297. Атрибуты подавляют local diff, но
+GitHub всё равно показывает удаление; оно опубликовано только после ротации.
+Четыре current-tree исключения
 ограничены точными fingerprint и проверены как пустой env assignment,
 placeholder, документационный Basic Auth пример и error-kind assertion.
 Preventive CI не маскирует historical finding; решение о repository-history

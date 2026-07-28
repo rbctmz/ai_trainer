@@ -46,8 +46,11 @@ token generated only inside the runner is detected.
 - [x] (2026-07-28 16:54Z) Deleted both archived copies after merging the
   prerequisite and pinned their absence plus base attributes in the focused
   contract.
-- [ ] Prove through GitHub's pull-files API that both deletions have no text
-  patch; then re-run all live gates on the final head.
+- [x] (2026-07-28 16:56Z) GitHub's pull-files API still emitted text deletion
+  patches despite base-branch binary attributes. Because the credential was
+  rotated before this push, the patches contain only a revoked value; no active
+  credential was exposed by the remediation.
+- [ ] Re-run all live gates on the final head.
 
 ## Surprises & Discoveries
 
@@ -91,6 +94,12 @@ token generated only inside the runner is detected.
   deleted files even though local `git diff` showed `Binary files differ`.
   Restoring the files removed them from aggregate `Files Changed`. The binary
   attributes must be present in the base branch before the deletion PR.
+- Observation: even base-branch `binary` attributes do not suppress GitHub's
+  Pull Files API patch for deleted `.py` files.
+  Evidence: after #297 merged, local Git rendered `Binary files differ`, but
+  GitHub still returned 70-line and 137-line deletion patches. The maintainer
+  had rotated the credential before the final deletion push, so those patches
+  no longer expose a usable credential.
 
 ## Decision Log
 
@@ -130,6 +139,14 @@ token generated only inside the runner is detected.
   credential must never receive a baseline exception or be repeated in review
   output.
   Date/Author: 2026-07-28 / Codex.
+- Decision: retain #297's local binary-diff protection, but do not claim it
+  suppresses GitHub UI/API patches. Proceed with deletion only after confirmed
+  credential rotation.
+  Rationale: GitHub's renderer is authoritative for PR exposure and ignores the
+  relevant attribute. Rotation converts the historical value from an active
+  credential into revoked incident evidence; leaving it in the current tree or
+  allowlisting it would be worse.
+  Date/Author: 2026-07-28 / Codex.
 - Decision: build an AWS Access Key ID-shaped synthetic value from source
   fragments at runtime instead of relying on the obsolete `ghp_` shape.
   Rationale: the probe must exercise a rule demonstrably present in the pinned
@@ -150,8 +167,9 @@ check. Four non-secret shapes received exact fingerprint exceptions. Two
 archived copies of an uncertain password-shaped value were not allowlisted.
 Their safe removal used binary path attributes landed in `main` before the
 deletion diff was generated; a head-only attempt had been reverted after GitHub
-API evidence showed that it still emitted text. The maintainer rotated the
-Garmin credential. The history-remediation decision remains incident-response, so
+API evidence showed that it still emitted text. GitHub continued to emit text
+even with base attributes, so the maintainer rotated the Garmin credential
+before the final deletion. The history-remediation decision remains incident-response, so
 ASR-SEC-1 correctly stays yellow even when the preventive automation is ready.
 
 ## Context and Orientation
