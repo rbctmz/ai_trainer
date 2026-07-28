@@ -34,12 +34,12 @@ probe доказывает, что scanner действительно возвр
 
 Одноразовый full-history audit обнаружил legacy password-shaped candidate без
 доказательств false positive. Значение не выводилось и не добавлено в baseline;
-две текущие archived debug-копии ожидают безопасного удаления после отдельного
-binary-attributes prerequisite PR. Четыре current-tree исключения
+credential ротирован, две текущие archived debug-копии удалены после отдельного
+binary-attributes prerequisite PR #297. Четыре current-tree исключения
 ограничены точными fingerprint и проверены как пустой env assignment,
 placeholder, документационный Basic Auth пример и error-kind assertion.
-Preventive CI не маскирует historical finding, но ротация и решение о
-repository-history остаются maintainer incident-response. Поэтому ASR-SEC-1
+Preventive CI не маскирует historical finding; решение о repository-history
+остаётся maintainer incident-response. Поэтому ASR-SEC-1
 остаётся 🟡 даже после доставки preventive gate.
 
 ## Intervals-primary ingest (ADR-0008; ASR-REL-3, ASR-MOD-3, ASR-PERF-3; #269)

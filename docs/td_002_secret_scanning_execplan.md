@@ -40,9 +40,14 @@ token generated only inside the runner is detected.
 - [x] (2026-07-28 14:55Z) Contributor-safe pytest passed in run `30370522576`;
   `git diff --check`, link, and ready-to-merge checks passed. PR #296 remains
   draft only for maintainer credential-rotation confirmation.
-- [ ] Land a prerequisite `.gitattributes` change on `main`, then delete the two
-  archived copies so GitHub renders them as binary deletions without exposing
-  their contents. Re-run all live gates on that final head.
+- [x] (2026-07-28 16:51Z) Prerequisite PR #297 merged as `0e2a67c`; binary
+  attributes now exist in the base branch. The maintainer confirmed rotation of
+  the corresponding Garmin password.
+- [x] (2026-07-28 16:54Z) Deleted both archived copies after merging the
+  prerequisite and pinned their absence plus base attributes in the focused
+  contract.
+- [ ] Prove through GitHub's pull-files API that both deletions have no text
+  patch; then re-run all live gates on the final head.
 
 ## Surprises & Discoveries
 
@@ -143,10 +148,10 @@ contributor-safe run is 1334 passed, 6 skipped, 24 deselected.
 Live scanning produced useful security evidence instead of a cosmetic green
 check. Four non-secret shapes received exact fingerprint exceptions. Two
 archived copies of an uncertain password-shaped value were not allowlisted.
-Their safe removal needs binary path attributes to exist in `main` before the
-deletion diff is generated; a head-only attempt was reverted after GitHub API
-evidence showed that it still emitted text. Credential rotation and the
-history-remediation decision remain maintainer incident-response, so
+Their safe removal used binary path attributes landed in `main` before the
+deletion diff was generated; a head-only attempt had been reverted after GitHub
+API evidence showed that it still emitted text. The maintainer rotated the
+Garmin credential. The history-remediation decision remains incident-response, so
 ASR-SEC-1 correctly stays yellow even when the preventive automation is ready.
 
 ## Context and Orientation

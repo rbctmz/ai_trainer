@@ -29,7 +29,7 @@
 
 | ID | Приоритет | Область | Риск | Следующее действие |
 |----|-----------|---------|------|--------------------|
-| TD-002 | P1 | Security | Preventive gate реализуется в #296; historical candidate требует ротации | Довести CI #296 и incident-response |
+| TD-002 | P1 | Security | Preventive gate реализуется в #296; credential ротирован, history policy открыта | Довести CI #296 |
 | TD-003 | P1 | Reliability | Нет единой SQLite concurrency policy | WAL/retry contract + race gates |
 | TD-004 | P1 | Modifiability | Две UI-поверхности продолжают расходиться | Закрыть критерии Streamlit EOL |
 | TD-005 | P2 | Data/ingest | В M1 оставлены три compatibility-среза | Разделить и закрыть D2–D4 |
@@ -50,14 +50,15 @@
   добавляет contributor-safe Gitleaks для event range и текущего дерева плюс
   runtime-only synthetic detector gate. Четыре exact-fingerprint исключения
   проверены как non-secret shapes; две archived debug-копии possible credential
-  ожидают binary-safe удаления, а сам historical candidate не allowlisted.
+  удалены binary-safe после #297, credential ротирован, historical candidate не
+  allowlisted.
 - **Риск:** до мержа #296 случайно добавленный токен обнаруживается только на
   ревью. Одноразовый full-history audit также нашёл legacy password-shaped
   candidate без доказательств false positive; он не внесён в baseline.
 - **Граница решения:** contributor-safe scanner без передачи application
   secrets в untrusted PR; baseline допускает только проверенные false positive.
-  Исторический candidate требует maintainer-ротации и отдельного решения о
-  repository-history, а не allowlist.
+  Исторический candidate требует отдельного решения о repository-history, а не
+  allowlist; credential rotation подтверждена.
 - **Закрытие TD-002:** CI блокирует runtime-only синтетический секрет, сканирует
   полный commit range события и проходит на текущем дереве. Это закрывает
   preventive automation, но ASR-SEC-1 остаётся 🟡 до incident-response по

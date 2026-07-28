@@ -11,6 +11,7 @@ from pathlib import Path
 WORKFLOW = Path(".github/workflows/secret-scan.yml")
 PROBE = Path("scripts/verify_secret_scanner.py")
 IGNORE = Path(".gitleaksignore")
+ATTRIBUTES = Path(".gitattributes")
 CHECKOUT_SHA = "de0fac2e4500dabe0009e67214ff5f5447ce83dd"
 GITLEAKS_ACTION_SHA = "e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e"
 
@@ -78,6 +79,11 @@ def test_gitleaks_exceptions_are_only_verified_non_secret_shapes() -> None:
         "tests/smoke/test_garmin_auth_messages.py:generic-api-key:79",
     }
     assert not any("archived/" in fingerprint for fingerprint in fingerprints)
+    assert not Path("archived/old_debug_scripts/debug_body_battery.py").exists()
+    assert not Path("archived/old_fix_tests/test_fixed_sync.py").exists()
+    attributes = ATTRIBUTES.read_text()
+    assert "archived/old_debug_scripts/debug_body_battery.py binary" in attributes
+    assert "archived/old_fix_tests/test_fixed_sync.py binary" in attributes
 
 
 def _write_fake_scanner(path: Path, exit_code: int) -> None:
