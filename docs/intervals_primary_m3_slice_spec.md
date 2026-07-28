@@ -1,5 +1,9 @@
 # M3: source-agnostic sync UI and Intervals-first Docker handoff
 
+> **Status: Completed milestone snapshot (2026-07-27).** The statement below
+> that Intervals wellness is out of scope describes the M3 boundary; M4 later
+> delivered that capability. Use the parent M0–M5 ExecPlan for current end-state.
+
 This ExecPlan is a living document. The sections `Progress`, `Surprises &
 Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to
 date as work proceeds. This document is maintained in accordance with

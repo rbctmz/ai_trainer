@@ -1,11 +1,12 @@
 # 🏃‍♂️ AI Trainer - Персональный тренер на базе ИИ
 
-Персональный evidence-first AI-тренер: синхронизирует данные Garmin, объединяет
-нагрузку и восстановление, строит исполняемые планы для бега, велоспорта и
-триатлона и предлагает объяснимые изменения с подтверждением и откатом.
-Структурированные тренировки можно доставлять через Intervals.icu. Приложение
-запускается локально или self-hosted; основной продуктовый стек — FastAPI +
-Next.js, Streamlit сохраняется как fallback на время миграции.
+Персональный evidence-first AI-тренер: синхронизирует активности и восстановление
+из Intervals.icu и, при необходимости, Garmin Connect, строит исполняемые планы
+для бега, велоспорта и триатлона и предлагает объяснимые изменения с
+подтверждением и откатом. Intervals.icu — рекомендуемый основной источник для
+нового запуска; Garmin Connect сохраняется как совместимый необязательный
+источник. Приложение запускается локально или self-hosted; основной продуктовый
+стек — FastAPI + Next.js, Streamlit сохраняется как fallback на время миграции.
 
 Репозиторий находится в активной миграции со Streamlit на web-стек FastAPI + Next.js. Новые продуктовые сценарии идут через `api/` + `web/`, при этом Streamlit остаётся рабочим fallback-контуром до полной parity.
 
@@ -14,10 +15,11 @@ Next.js, Streamlit сохраняется как fallback на время миг
 - Python 3.10+ (проект проверен на 3.11)
 - `pip` и модуль `venv` для управления зависимостями
 - Node.js и `npm` для web-интерфейса
-- Учётная запись Garmin Connect (нужна для реальной синхронизации данных; демо-режим работает без неё)
+- Хотя бы один источник данных: Intervals.icu рекомендуется для нового запуска,
+  Garmin Connect можно подключить дополнительно; демо-режим работает без обоих
 - API-ключ хотя бы одного AI‑провайдера из списка ниже (для реального AI; демо-режим использует Mock AI)
-- Персональный API-ключ Intervals.icu — опционально, для синхронизации профиля,
-  чтения гонок/plan-fact evidence и отправки плановых тренировок
+- Персональный API-ключ Intervals.icu — нужен для Intervals-primary сценария:
+  активности, wellness, профиль, гонки, plan-fact evidence и плановые тренировки
 
 ## 🚀 Быстрый старт
 
@@ -60,14 +62,16 @@ GOOGLE_API_KEY=your_google_key         # Gemini
 OLLAMA_HOST=http://localhost:11434     # Локальные модели
 DEFAULT_AI_PROVIDER=deepseek           # openai/anthropic/deepseek/google/ollama
 
-# Garmin Connect (опционально)
-GARMIN_EMAIL=your_email@example.com
-GARMIN_PASSWORD=your_password
-
-# Intervals.icu (опционально)
+# Intervals.icu (рекомендуемый основной источник)
 INTERVALS_ICU_API_KEY=your_intervals_icu_api_key
 INTERVALS_ICU_ATHLETE_ID=0
 INTERVALS_ICU_BASE_URL=https://intervals.icu
+PRIMARY_ACTIVITY_SOURCE=intervals
+PRIMARY_WELLNESS_SOURCE=intervals
+
+# Garmin Connect (необязательный дополнительный источник)
+GARMIN_EMAIL=your_email@example.com
+GARMIN_PASSWORD=your_password
 
 # Настройки пользователя и fallback-пороги
 USER_FTP=250                           # Функциональная мощность (Вт)
@@ -105,9 +109,10 @@ Caddy: он запрашивает логин и пароль, проксиру�
 и автоматически включает HTTPS, если задан домен. SQLite хранится в named volume
 и переживает пересборки контейнеров.
 
-Если у тестера нет Garmin и основным источником будет Intervals.icu, используйте
-пошаговый сценарий [Intervals-primary quickstart](docs/intervals_primary_quickstart.md):
-он ведёт от пустого клона и API key до синка, онбординга и первого плана.
+Для рекомендуемого нового запуска используйте пошаговый
+[Intervals-primary quickstart](docs/intervals_primary_quickstart.md): он ведёт
+от пустого клона и API key до синхронизации активностей и wellness, онбординга
+и первого плана. Garmin для этого сценария не требуется.
 
 1. Сгенерируйте bcrypt-хэш пароля (сам пароль в `.env` не хранится):
 
@@ -215,13 +220,16 @@ python scripts/doctor_env.py check --workspace
 
 ### Данные, нагрузка и восстановление
 
-- **Garmin Connect** — инкрементальная синхронизация активностей, сна, HRV,
-  пульса покоя, training readiness/status, Body Battery и доступных
+- **Intervals.icu** — основной путь нового запуска: синхронизация активностей,
+  HRV, сна и пульса покоя, чтение гонок A/B/C, provider evidence для plan-fact
+  и экспорт плановых событий. FTP, вес и LTHR пока не импортируются
+  Intervals-синком: без Garmin используются явно заданные `USER_*` значения.
+- **Garmin Connect** — необязательный дополнительный источник активностей, сна,
+  HRV, пульса покоя, training readiness/status, Body Battery и доступных
   recovery bio-signals.
-- **Intervals.icu** — опциональная синхронизация FTP/веса/LTHR, чтение гонок
-  A/B/C, provider evidence для plan-fact и экспорт плановых событий.
 - **Единый readiness fusion** — личные 28-дневные базлайны HRV/RHR, сон,
-  Garmin readiness и TSB с confidence, evidence и явными data gaps.
+  локальная readiness и TSB с confidence, evidence, provenance и явными data
+  gaps; Garmin-only сигналы используются, если источник подключён.
 - **Нагрузка и форма** — TSS/NP, CTL/ATL/TSB, канонические зоны TSB и модель
   Банистера; bike TSS учитывает normalized power и актуальный профиль атлета.
 - **Recovery observations** — append-only эпизоды связывают конкретную
@@ -332,9 +340,11 @@ ai_trainer/
 - **SQLAlchemy** - ORM для работы с базой данных
 
 ### Интеграции
-- **Garmin Connect** — основной источник активностей, здоровья и recovery-данных
-- **Intervals.icu API** — профиль атлета, A/B/C события, plan-fact evidence и
-  плановые workout events; интеграция опциональна и работает по персональному ключу
+- **Intervals.icu API** — рекомендуемый основной источник активностей и
+  wellness для нового запуска; также профиль атлета, A/B/C события, plan-fact
+  evidence и плановые workout events
+- **Garmin Connect** — совместимый необязательный источник активностей,
+  здоровья и дополнительных recovery-сигналов
 - **python-fitparse** — парсинг FIT-файлов
 - **pyhrv** — анализ вариабельности сердечного ритма
 
@@ -349,6 +359,8 @@ ai_trainer/
 
 ### ✅ Завершённые функции
 - Инкрементальная интеграция с Garmin Connect, включая recovery bio-signals
+- Полный Intervals-primary путь: активности и wellness → онбординг → первый
+  подтверждённый план → source-aware Today/Sleep/HRV
 - Web-контур FastAPI + Next.js: Today, Dashboard, Coach, Decisions, Planning,
   HRV, Sleep и Activities
 - Интерактивный дашборд тренировок
@@ -383,6 +395,7 @@ ai_trainer/
   - Образовательный контент
 
 ### 🔄 В разработке / ближайший долг
+- Единый приоритизированный реестр: [docs/technical_debt_register.md](docs/technical_debt_register.md)
 - Доведение parity между web и legacy Streamlit поверхностями
 - Декомпозиция крупных модулей Planning/Dashboard
 - История/статус доставки и post-delivery reconciliation в основном web-контуре

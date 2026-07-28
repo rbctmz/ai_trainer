@@ -1,7 +1,12 @@
 # AI Trainer — Web Migration Spec
 **Версия:** 0.1 · **Дата:** 2026-06-27  
-**Статус:** Draft  
+**Статус:** Historical baseline / superseded
 **Автор:** rbctmz
+
+> Документ сохраняет исходный снимок миграции и не является инструкцией по
+> текущему состоянию продукта. Действующая политика — в
+> [`ADR-0001`](architecture/adr_0001_web_primary_ui.md), текущие точки входа —
+> в [`docs/README.md`](README.md) и корневом [`README.md`](../README.md).
 
 ---
 
