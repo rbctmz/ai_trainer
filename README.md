@@ -221,8 +221,9 @@ python scripts/doctor_env.py check --workspace
 ### Данные, нагрузка и восстановление
 
 - **Intervals.icu** — основной путь нового запуска: синхронизация активностей,
-  HRV, сна, пульса покоя, FTP/веса/LTHR, чтение гонок A/B/C, provider evidence
-  для plan-fact и экспорт плановых событий.
+  HRV, сна и пульса покоя, чтение гонок A/B/C, provider evidence для plan-fact
+  и экспорт плановых событий. FTP, вес и LTHR пока не импортируются
+  Intervals-синком: без Garmin используются явно заданные `USER_*` значения.
 - **Garmin Connect** — необязательный дополнительный источник активностей, сна,
   HRV, пульса покоя, training readiness/status, Body Battery и доступных
   recovery bio-signals.
