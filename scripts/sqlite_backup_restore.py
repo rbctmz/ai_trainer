@@ -151,7 +151,6 @@ def _fsync_directory(path: Path) -> None:
 def _promote_artifact(temporary: Path, destination: Path) -> None:
     _fsync_file(temporary)
     os.replace(temporary, destination)
-    destination.chmod(0o600)
     _fsync_directory(destination.parent)
 
 
@@ -266,8 +265,17 @@ def restore_database(
             raise SQLiteBackupRestoreError(
                 f"database replace failed for {database_path}: {exc}"
             ) from exc
-        _remove_stale_sidecars(database_path)
-        integrity = check_sqlite_database(database_path)
+        try:
+            _remove_stale_sidecars(database_path)
+            integrity = check_sqlite_database(database_path)
+            digest = _sha256(database_path)
+        except (SQLiteBackupRestoreError, OSError) as exc:
+            rollback_hint = str(rollback_path) if rollback_path is not None else "none"
+            raise SQLiteBackupRestoreError(
+                "database was replaced but restore finalization failed for "
+                f"{database_path}: {exc}; keep the service stopped; "
+                f"rollback={rollback_hint}"
+            ) from exc
     finally:
         temporary.unlink(missing_ok=True)
 
@@ -276,7 +284,7 @@ def restore_database(
         database=str(database_path),
         artifact=str(backup_path),
         integrity_check=integrity,
-        sha256=_sha256(database_path),
+        sha256=digest,
         rollback=str(rollback_path) if rollback_path is not None else None,
     )
 

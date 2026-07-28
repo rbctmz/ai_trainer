@@ -28,6 +28,8 @@ from services.activity_ingest import (
     normalize_provider_activity,
 )
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
@@ -311,6 +313,40 @@ def test_restore_replace_failure_keeps_target_and_rollback(
     assert not list(tmp_path.glob(f".{target.name}.*.tmp"))
 
 
+def test_restore_finalization_failure_is_operator_safe_and_names_rollback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source = tmp_path / "source.db"
+    backup = tmp_path / "source.backup.db"
+    target = tmp_path / "target.db"
+    rollback = tmp_path / "target.before-restore.db"
+    _marker_database(source, "replacement")
+    _marker_database(target, "original")
+    backup_database(source, backup, confirm_stopped=True)
+
+    def fail_sidecar_cleanup(_database: Path) -> None:
+        raise OSError("injected sidecar cleanup failure")
+
+    monkeypatch.setattr(sqlite_tool, "_remove_stale_sidecars", fail_sidecar_cleanup)
+
+    with pytest.raises(SQLiteBackupRestoreError) as caught:
+        restore_database(
+            backup,
+            target,
+            confirm_stopped=True,
+            rollback_output=rollback,
+        )
+
+    message = str(caught.value)
+    assert "was replaced" in message
+    assert "keep the service stopped" in message
+    assert f"rollback={rollback.resolve()}" in message
+    assert _read_marker(target) == "replacement"
+    assert check_sqlite_database(rollback) == "ok"
+    assert _read_marker(rollback) == "original"
+
+
 def test_restore_removes_stale_sidecars(tmp_path: Path) -> None:
     source = tmp_path / "source.db"
     backup = tmp_path / "source.backup.db"
@@ -370,3 +406,52 @@ def test_cli_prints_json_and_missing_acknowledgement_fails(
     assert captured.out == ""
     assert "confirm-stopped" in captured.err
     assert not second.exists()
+
+
+def test_runbook_pins_offline_docker_and_rollback_contract() -> None:
+    runbook = (REPO_ROOT / "docs" / "sqlite_backup_restore.md").read_text(
+        encoding="utf-8"
+    )
+    readme = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+
+    for required in (
+        "--confirm-stopped",
+        "scripts/sqlite_backup_restore.py backup",
+        "scripts/sqlite_backup_restore.py restore",
+        'docker compose down',
+        '--volume "$PWD/backups:/backup"',
+        "--rollback-output",
+        '"integrity_check": "ok"',
+        "-wal",
+        "tests/smoke/test_sqlite_backup_restore.py",
+    ):
+        assert required in runbook
+    assert "docs/sqlite_backup_restore.md" in readme
+    assert "cp ai_trainer.db ai_trainer.db.backup" not in readme
+
+
+def test_asr_and_debt_register_record_td001_closure() -> None:
+    asr = (REPO_ROOT / "docs" / "architecture" / "asr_catalog.md").read_text(
+        encoding="utf-8"
+    )
+    register = (REPO_ROOT / "docs" / "technical_debt_register.md").read_text(
+        encoding="utf-8"
+    )
+
+    dep2_row = next(
+        line for line in asr.splitlines() if line.startswith("| ASR-DEP-2 ")
+    )
+    assert "test_sqlite_backup_restore.py" in dep2_row
+    assert dep2_row.rstrip().endswith("| ✅ |")
+
+    open_summary = register.split("## Сводка", 1)[1].split(
+        "## Подтверждённые пункты", 1
+    )[0]
+    open_details = register.split("## Подтверждённые пункты", 1)[1].split(
+        "## Не переносить автоматически", 1
+    )[0]
+    closure_journal = register.split("## Журнал закрытия", 1)[1]
+    assert "TD-001" not in open_summary
+    assert "TD-001" not in open_details
+    assert "TD-001" in closure_journal
+    assert "#293" in closure_journal

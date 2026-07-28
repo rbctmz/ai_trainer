@@ -142,21 +142,36 @@ docker compose ps
 `https://<DOMAIN>` на сервере и введите созданные credentials. FastAPI и Next.js
 на портах `8000`/`3000` напрямую не публикуются.
 
-Чтобы перенести существующую локальную `ai_trainer.db`, сначала остановите
-локально запущенный AI Trainer и сделайте резервную копию. Команды ниже создают
-контейнер без запуска API, копируют базу в named volume и затем запускают стек:
+Чтобы перенести существующую локальную `ai_trainer.db`, сначала остановите все
+процессы AI Trainer и создайте проверенный SQLite snapshot:
 
 ```bash
-cp ai_trainer.db ai_trainer.db.backup
-docker compose create api
-docker compose cp ai_trainer.db api:/data/ai_trainer.db
+mkdir -p backups
+python scripts/sqlite_backup_restore.py backup \
+  --database ai_trainer.db \
+  --output backups/ai_trainer-migration.db \
+  --confirm-stopped
+docker compose down
+docker compose run --rm --no-deps \
+  --volume "$PWD/backups:/backup" \
+  api python scripts/sqlite_backup_restore.py restore \
+  --database /data/ai_trainer.db \
+  --backup /backup/ai_trainer-migration.db \
+  --confirm-stopped
 docker compose up -d
 ```
 
-Повторный `docker compose cp` перезапишет базу в volume, поэтому не выполняйте
-миграцию поверх уже накопленных контейнером данных без свежей резервной копии.
-Обычный `docker compose down` сохраняет данные; опция `-v` удаляет volume вместе
-с тренировочной историей и должна использоваться только намеренно.
+Если target в volume уже существует, restore сначала создаёт проверенный
+rollback; его рекомендуется вывести в host-каталог через
+`--rollback-output /backup/<name>.db`. Обычный `docker compose down` сохраняет
+данные; опция `-v` удаляет volume вместе с тренировочной историей и должна
+использоваться только намеренно.
+
+Полные bare-metal/Docker команды, rollback и аварийная ветка для повреждённого
+target описаны в
+[`docs/sqlite_backup_restore.md`](docs/sqlite_backup_restore.md). Обычный `cp`
+одного `ai_trainer.db` не является рекомендуемым backup: committed страницы
+могут находиться в SQLite `-wal`.
 
 Полный контракт, HTTPS-режим и сценарии приёмки описаны в
 [`docs/self_hosted_deployment_execplan.md`](docs/self_hosted_deployment_execplan.md).

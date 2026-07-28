@@ -40,7 +40,8 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
 - [x] (2026-07-28 16:49+03) Реализован stdlib-only
   `scripts/sqlite_backup_restore.py`; 10 RED-гейтов переведены в GREEN,
   `ruff check` проходит.
-- [ ] Написать операционную инструкцию и обновить README, ADR-0002,
+- [x] (2026-07-28 17:08+03) Написана операционная инструкция и обновлены
+  README, ADR-0002,
   ASR-каталог и реестр долга.
 - [ ] Выполнить self-review, targeted и полный contributor-safe прогон.
 - [ ] Запушить ветку, открыть PR с `Closes #293` и дождаться зелёных
@@ -69,6 +70,13 @@ Discoveries`, `Decision Log` и `Outcomes & Retrospective` поддержива�
   сравнивает raw canonical row до открытия и затем проверяет доступность всех
   доменов через публичные `Database` readers. Поведение TSS не меняется этим
   треком.
+
+- Observation: ошибка filesystem после успешного `os.replace` отличается от
+  fail-before-replace и требует отдельной операторской семантики.
+  Evidence: удаление stale sidecars и финальный integrity check происходят
+  после атомарной публикации. CLI теперь преобразует такой `OSError` в короткую
+  ошибку «database was replaced», требует оставить сервис остановленным и
+  называет заранее созданный rollback; отдельный smoke-гейт фиксирует границу.
 
 ## Decision Log
 
@@ -272,6 +280,10 @@ target требует нового свободного rollback path. Если 
 При ошибке до `os.replace` target не меняется, временный файл удаляется.
 Rollback snapshot, уже созданный перед ошибкой replace, сохраняется как
 доказательство и безопасная обратная точка. CLI не удаляет operator backup.
+
+При ошибке финализации после `os.replace` CLI сообщает, что target уже заменён,
+и называет pre-restore rollback. Сервис остаётся остановленным; оператор
+устраняет filesystem-проблему и выполняет обычный restore из rollback.
 
 Если restore завершился успешно, старые sidecars удалены и не должны
 копироваться обратно. Запуск API разрешён только после успешного JSON-результата
