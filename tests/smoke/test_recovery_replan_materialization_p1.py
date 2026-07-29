@@ -452,6 +452,7 @@ def _broken_manual_plan() -> dict:
         ],
         "weekly_tss_plan": [40],
         "weekly_summary": [],
+        "checkpoint_source": "recovery_replan",
         "constraint_summary": {
             "near_term_edit": {
                 "origin_kind": "recovery_replan",
@@ -540,13 +541,111 @@ def test_repair_uses_recovery_lineage_only_on_explicitly_edited_dates() -> None:
     )
     plan["constraint_summary"]["near_term_edit"]["edited_dates"] = ["2026-08-01"]
 
-    repaired, changed_dates = rematerialize_non_executable_sessions(plan)
+    repaired, changed_dates = rematerialize_non_executable_sessions(
+        plan,
+        recovery_session_ids={"ats_broken_manual"},
+    )
 
     first_repaired = repaired["session_templates"][0]["sessions"][0]
     second_repaired = repaired["session_templates"][1]["sessions"][0]
     assert changed_dates == ["2026-08-01", "2026-08-02"]
     assert first_repaired["session_role"] == "recovery"
     assert second_repaired["session_role"] == "quality"
+
+
+def test_repair_derives_each_recovery_session_from_checkpoint_history(
+    tmp_path,
+) -> None:
+    from api import planning_service as ps
+    from models.planning_checkpoints import (
+        build_planning_checkpoint,
+        with_checkpoint_provenance,
+    )
+
+    db = Database(str(tmp_path / "repair-history.db"))
+    first = _broken_manual_plan()
+    quality_session = {
+        **deepcopy(first["session_templates"][0]["sessions"][0]),
+        "session_id": "ats_unrelated_quality_history",
+        "session_role": "quality",
+        "session_focus": "Quality run",
+        "sport": "run",
+        "sport_label": "бег",
+        "total_tss": 50.0,
+        "duration_minutes": 50,
+        "template_key": "manual:build:quality:run",
+    }
+    first["daily_plan"].append(
+        (
+            datetime(2026, 8, 3),
+            50.0,
+            {"bike": 0.0, "run": 50.0, "swim": 0.0},
+        )
+    )
+    first["session_templates"].append(
+        {
+            "date": "2026-08-03",
+            "phase": "Build",
+            "kind": "single",
+            **quality_session,
+            "sessions": [quality_session],
+        }
+    )
+    first = with_checkpoint_provenance(first, source="recovery_replan")
+    first_saved = db.save_planning_checkpoint(build_planning_checkpoint(first))
+
+    second = deepcopy(first)
+    second_recovery = {
+        **deepcopy(first["session_templates"][0]["sessions"][0]),
+        "session_id": "ats_second_recovery_history",
+        "sport": "bike",
+        "sport_label": "вело",
+        "total_tss": 35.0,
+        "duration_minutes": 60,
+        "template_key": "manual:base:easy:bike",
+    }
+    second["daily_plan"].insert(
+        1,
+        (
+            datetime(2026, 8, 2),
+            35.0,
+            {"bike": 35.0, "run": 0.0, "swim": 0.0},
+        ),
+    )
+    second["session_templates"].insert(
+        1,
+        {
+            "date": "2026-08-02",
+            "phase": "Base",
+            "kind": "single",
+            **second_recovery,
+            "sessions": [second_recovery],
+        },
+    )
+    second["constraint_summary"]["near_term_edit"]["edited_dates"] = ["2026-08-02"]
+    second["near_term_edit_version"] = 2
+    second = with_checkpoint_provenance(
+        second,
+        source="recovery_replan",
+        parent_checkpoint_id=first_saved["id"],
+    )
+    db.save_planning_checkpoint(build_planning_checkpoint(second))
+
+    applied = ps.repair_active_plan_materialization(db, persist=True)
+    repaired = ps.get_active_plan(db)
+    sessions_by_date = {
+        str(template["date"])[:10]: list(template.get("sessions") or [])
+        for template in repaired["session_templates"]
+    }
+
+    assert applied["changed_dates"] == [
+        "2026-08-01",
+        "2026-08-02",
+        "2026-08-03",
+    ]
+    assert sessions_by_date["2026-08-01"][0]["session_role"] == "recovery"
+    assert sessions_by_date["2026-08-02"][0]["session_role"] == "recovery"
+    assert sessions_by_date["2026-08-03"][0]["session_role"] == "quality"
 
 
 def test_repair_cli_boundary_is_dry_run_by_default(tmp_path) -> None:

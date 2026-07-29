@@ -690,6 +690,68 @@ def get_active_plan(db: Database) -> Optional[Dict[str, Any]]:
     return ensure_session_identities(plan) if plan else None
 
 
+def _recovery_replan_session_ids_from_history(
+    db: Database,
+    latest: Dict[str, Any],
+) -> set[str]:
+    """Resolve recovery lineage at leaf granularity from checkpoint ancestry."""
+    recovery_session_ids: set[str] = set()
+    visited: set[int] = set()
+    checkpoint: Dict[str, Any] | None = latest
+
+    while checkpoint:
+        try:
+            checkpoint_id = int(checkpoint.get("id"))
+        except (TypeError, ValueError):
+            break
+        if checkpoint_id in visited:
+            raise ValueError("planning checkpoint ancestry contains a cycle")
+        visited.add(checkpoint_id)
+
+        plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+        source = str(
+            checkpoint.get("checkpoint_source")
+            or plan.get("checkpoint_source")
+            or ""
+        ).strip()
+        near_term_edit = (
+            plan.get("constraint_summary", {}) or {}
+        ).get("near_term_edit", {}) or {}
+        if source == "recovery_replan":
+            edited_dates = {
+                str(value)[:10]
+                for value in list(near_term_edit.get("edited_dates") or [])
+                if str(value)[:10]
+            }
+            for template in list(plan.get("session_templates") or []):
+                day = str(template.get("date") or "")[:10]
+                if day not in edited_dates:
+                    continue
+                sessions = list(template.get("sessions") or [])
+                candidates = sessions or [template]
+                for session in candidates:
+                    if not isinstance(session, dict):
+                        continue
+                    session_id = str(session.get("session_id") or "").strip()
+                    if (
+                        session_id
+                        and str(session.get("template_key") or "").startswith("manual:")
+                        and planned_session_requires_repair(session)
+                    ):
+                        recovery_session_ids.add(session_id)
+
+        parent_id = plan.get("checkpoint_parent_id")
+        if parent_id is None:
+            parent_id = checkpoint.get("checkpoint_parent_id")
+        try:
+            parent_id = int(parent_id) if parent_id is not None else None
+        except (TypeError, ValueError):
+            raise ValueError("planning checkpoint ancestry has an invalid parent id")
+        checkpoint = db.get_planning_checkpoint(parent_id) if parent_id is not None else None
+
+    return recovery_session_ids
+
+
 def repair_active_plan_materialization(
     db: Database,
     *,
@@ -704,7 +766,11 @@ def repair_active_plan_materialization(
     if not goal_plan:
         raise ValueError("active plan cannot be restored")
 
-    repaired, changed_dates = rematerialize_non_executable_sessions(goal_plan)
+    recovery_session_ids = _recovery_replan_session_ids_from_history(db, latest)
+    repaired, changed_dates = rematerialize_non_executable_sessions(
+        goal_plan,
+        recovery_session_ids=recovery_session_ids,
+    )
     if not changed_dates:
         return {
             "plan_id": None,

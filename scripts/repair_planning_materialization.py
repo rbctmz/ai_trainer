@@ -23,18 +23,31 @@ class _ReadOnlyPlanningStore:
     def __init__(self, database_path: Path) -> None:
         self.database_path = database_path
 
-    def get_latest_planning_checkpoint(self) -> dict[str, Any] | None:
+    def _get_planning_checkpoint(
+        self,
+        checkpoint_id: int | None = None,
+    ) -> dict[str, Any] | None:
         uri = f"{self.database_path.as_uri()}?mode=ro"
         with sqlite3.connect(uri, uri=True) as conn:
-            row = conn.execute(
-                """
+            if checkpoint_id is None:
+                query = """
                 SELECT id, goal_type, distance, weeks_to_race,
                        checkpoint_data, created_at
                 FROM planning_checkpoints
                 ORDER BY id DESC
                 LIMIT 1
                 """
-            ).fetchone()
+                params: tuple[Any, ...] = ()
+            else:
+                query = """
+                SELECT id, goal_type, distance, weeks_to_race,
+                       checkpoint_data, created_at
+                FROM planning_checkpoints
+                WHERE id = ?
+                LIMIT 1
+                """
+                params = (int(checkpoint_id),)
+            row = conn.execute(query, params).fetchone()
         if not row:
             return None
         try:
@@ -54,6 +67,15 @@ class _ReadOnlyPlanningStore:
             }
         )
         return result
+
+    def get_latest_planning_checkpoint(self) -> dict[str, Any] | None:
+        return self._get_planning_checkpoint()
+
+    def get_planning_checkpoint(
+        self,
+        checkpoint_id: int,
+    ) -> dict[str, Any] | None:
+        return self._get_planning_checkpoint(checkpoint_id)
 
 
 def repair_database(
