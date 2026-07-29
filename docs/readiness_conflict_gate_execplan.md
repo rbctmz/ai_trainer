@@ -25,7 +25,7 @@ AI Trainer движется от «AI-ассистента, отвечающег
 - [x] (2026-07-29 16:25Z) GREEN: day projection агрегирует component-wise maximum по `sessions[]`, recovery maximum и источник salience; `limited × structured high-load easy` даёт medium-конфликт, а bounded lookahead ищет ближайшую значимую сессию.
 - [x] (2026-07-29 16:42Z) Follow-up #315 final verification: focused readiness 34/34, recovery regression 51/51, smoke 1341 passed / 1 skipped, broad 1387 passed / 3 skipped / 24 deselected, Ruff/compile/diff checks green.
 - [x] (2026-07-29 16:44Z) Noise audit on checkpoint #89: only 1 of 29 `easy` days crosses the new threshold — the observed Neuromuscular Sprints on 2026-08-03; latest checkpoint remains #89.
-- [ ] (2026-07-29) Publish branch and open the linked PR for #315; CI/review and human merge remain outside the implementation milestone.
+- [x] (2026-07-29 16:24Z) Published branch `codex/issue-315-fatigue-aware-readiness` and opened draft PR #316 with `Closes #315`; CI/review and human merge remain.
 
 ## Surprises & Discoveries
 
@@ -70,7 +70,7 @@ AI Trainer движется от «AI-ассистента, отвечающег
 
 (2026-07-09) Все milestone выполнены за одну сессию. Детектор чист от LLM, все пороги — именованные константы, каждый конфликт несёт evidence-числа. Живой прогон на реальной БД показал главный дизайн-инвариант в действии: готовность ready (68.8) × ближайшие easy/recovery/long сессии → `silence: true` с человекочитаемым reason — агент молчит, когда план и состояние согласны. Вне scope остались: варианты перепланирования при конфликте (Issue E), прогноз качества (Issue D), доставка конфликта в web-UI (meta уже содержит отчёт — UI может рендерить без изменений API), учёт `days_until` в severity (решение за контуром). Для WoZ-ритуала отчёт готов как источник строк decision_log: silence/data_gap/конфликт — все три исхода логируемы. Follow-up #152 позже добавил bounded lookahead до ближайшей quality-сессии и canonical readiness projection для Dashboard, не меняя severity-матрицу.
 
-(2026-07-29, follow-up #315) Gate теперь использует сохранённые catalog fatigue/recovery metadata, не меняя генератор и public role. Живой checkpoint #89 перестал давать ложное silence для Neuromuscular Sprints: при hypothetical unchanged readiness `limited` отчёт создаёт medium-конфликт с числами, а существующий Recovery Replan строит component-wise safer downgrade. Noise audit показал один promoted `easy`-день из 29, поэтому bounded policy исправляет наблюдавшийся false silence без широкого роста alert-кандидатов. Локальная реализация завершена: focused 34/34, recovery 51/51, smoke 1341/1, broad 1387/3; остаются публикация, CI/review и human merge.
+(2026-07-29, follow-up #315) Gate теперь использует сохранённые catalog fatigue/recovery metadata, не меняя генератор и public role. Живой checkpoint #89 перестал давать ложное silence для Neuromuscular Sprints: при hypothetical unchanged readiness `limited` отчёт создаёт medium-конфликт с числами, а существующий Recovery Replan строит component-wise safer downgrade. Noise audit показал один promoted `easy`-день из 29, поэтому bounded policy исправляет наблюдавшийся false silence без широкого роста alert-кандидатов. Реализация опубликована в draft PR #316: focused 34/34, recovery 51/51, smoke 1341/1, broad 1387/3; остаются CI/review и human merge.
 
 ## Context and Orientation
 
@@ -158,6 +158,7 @@ Follow-up #315 добавляет: (6) `limited × easy` остаётся silenc
     broad not-live/not-debug: 1387 passed, 3 skipped, 24 deselected
     Ruff, Python compileall, git diff --check: passed
     checkpoint #89 noise audit: 1 / 29 easy days promoted
+    draft PR: https://github.com/rbctmz/ai_trainer/pull/316 (Closes #315)
 
 ## Idempotence and Recovery
 
@@ -199,3 +200,5 @@ Follow-up #315 добавляет именованные пороги `HIGH_FATI
 Зависимости: только существующие модули (`models/readiness.py`, `api/planning_service.py`, pandas). Потребитель следующего слоя: контур RecoveryReplanLoop (Issue F) и прогноз качества сессии (Issue D) читают отчёт напрямую — форму `conflicts[*]` не менять без обновления этого плана.
 
 Revision note (2026-07-29 / Codex): документ обновлён для follow-up issue #315 после живой репродукции role-only false silence. Добавлены structured-load contract, RED→GREEN evidence, решения о совместимости, новая bounded lookahead policy, финальные test counts и noise audit.
+
+Revision note (2026-07-29 / Codex): зафиксирована публикация draft PR #316, связанного с issue #315.
