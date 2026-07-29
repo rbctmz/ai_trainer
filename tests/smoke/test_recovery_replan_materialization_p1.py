@@ -11,6 +11,7 @@ import pytest
 
 from data.database import Database
 from models.planning_near_term import build_near_term_edit_rows
+from models.recovery_replan import build_recovery_replan_variant
 from models.workout_catalog import (
     materialize_session_template,
     planned_session_requires_repair,
@@ -83,6 +84,214 @@ def _primary_for_index(plan: dict, index: int) -> dict:
     sessions = list(plan["session_templates"][index].get("sessions") or [])
     assert sessions
     return sessions[0]
+
+
+def _fatigue_profile(session: dict) -> tuple[tuple[int, int, int], int]:
+    fatigue = tuple(int(value) for value in session.get("fatigue_cost") or [])
+    assert len(fatigue) == 3
+    return fatigue, int(session["expected_recovery_hours"])
+
+
+def test_medium_recovery_downgrade_cannot_materialize_a_harder_stimulus(
+    tmp_path,
+) -> None:
+    from models.planning_near_term import (
+        apply_near_term_day_edits,
+        build_near_term_edit_draft_rows,
+    )
+    from models.training_planner import project_day_scalars
+    from models.workout_catalog import rescale_materialized_session
+
+    db = _seeded_db(tmp_path)
+    plan = _build_active_plan(db)
+    target_index = next(
+        index
+        for index, template in enumerate(plan["session_templates"][:14])
+        if any(
+            session.get("template_key") == "bike_aerobic_progression"
+            for session in template.get("sessions") or []
+        )
+    )
+    # Reproduce the live failure deterministically: both genuinely easy bike
+    # templates have recent exposure, so the generic `easy` selector used to
+    # choose the fresh neuromuscular template.
+    prior_sessions = [
+        session
+        for template in plan["session_templates"][:target_index]
+        for session in template.get("sessions") or []
+        if session.get("materialization_status") == "materialized"
+    ]
+    assert len(prior_sessions) >= 2
+    prior_sessions[0]["template_key"] = "bike_recovery_spin"
+    prior_sessions[1]["template_key"] = "bike_aerobic_endurance"
+
+    target_template = plan["session_templates"][target_index]
+    original = rescale_materialized_session(
+        _primary_for_index(plan, target_index),
+        target_tss=66.0,
+        parts={"bike": 66.0, "run": 0.0, "swim": 0.0},
+    )
+    original["total_tss"] = 66.0
+    target_template["sessions"] = [original]
+    project_day_scalars(target_template)
+    dt, _total, _parts = plan["daily_plan"][target_index]
+    plan["daily_plan"][target_index] = (
+        dt,
+        66.0,
+        {"bike": 66.0, "run": 0.0, "swim": 0.0},
+    )
+    plan["constraint_summary"]["load_state"] = "balanced"
+    target_date = str(target_template["date"])[:10]
+    today = datetime.fromisoformat(target_date).date() - timedelta(days=4)
+    report = {
+        "as_of": today.isoformat(),
+        "silence": False,
+        "data_gap": False,
+        "reason": "Limited readiness conflicts with the planned session.",
+        "conflicts": [
+            {
+                "date": target_date,
+                "days_until": 4,
+                "severity": "medium",
+                "kind": "limited_readiness_long_session",
+                "session": {
+                    "name": original["template_name"],
+                    "role": original["session_role"],
+                    "tss": original["total_tss"],
+                    "sport_label": original["sport_label"],
+                },
+                "evidence": ["readiness limited"],
+            }
+        ],
+    }
+
+    generic_draft = build_near_term_edit_draft_rows(
+        build_near_term_edit_rows(
+            plan,
+            horizon_days=target_index + 1,
+            max_horizon_days=14,
+        ),
+        goal_type=str(plan.get("goal_type") or ""),
+        distance=str(plan.get("distance") or ""),
+        overrides_by_index={
+            target_index: {
+                "session_role": "easy",
+                "sport": "bike",
+                "total_tss": 40,
+            }
+        },
+    )
+    generic_plan = apply_near_term_day_edits(
+        plan,
+        generic_draft,
+        horizon_days=target_index + 1,
+        max_horizon_days=14,
+    )
+    assert (
+        _primary_for_index(generic_plan, target_index)["template_key"]
+        == "bike_neuromuscular_sprints"
+    )
+
+    variant = build_recovery_replan_variant(plan, report, today=today)
+
+    assert variant is not None
+    updated = apply_near_term_day_edits(
+        plan,
+        variant["draft_rows"],
+        horizon_days=variant["horizon_days"],
+        post_edit_strategy=variant["post_edit_strategy"],
+        max_horizon_days=14,
+    )
+    replacement = _primary_for_index(updated, target_index)
+    original_fatigue, original_recovery = _fatigue_profile(original)
+    replacement_fatigue, replacement_recovery = _fatigue_profile(replacement)
+
+    assert all(
+        replacement_cost <= original_cost
+        for replacement_cost, original_cost in zip(
+            replacement_fatigue,
+            original_fatigue,
+        )
+    )
+    assert replacement_recovery <= original_recovery
+    assert variant["recommended_session"]["template_key"] == replacement["template_key"]
+
+
+def test_recovery_preview_drift_is_rejected_before_checkpoint_save(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import planning_service as ps
+    from models.planning_checkpoints import build_planning_checkpoint
+
+    db = _seeded_db(tmp_path)
+    plan = _build_active_plan(db)
+    target_index = next(
+        index
+        for index, template in enumerate(plan["session_templates"][:14])
+        if any(
+            session.get("template_key") == "bike_aerobic_progression"
+            for session in template.get("sessions") or []
+        )
+    )
+    target_template = plan["session_templates"][target_index]
+    original = _primary_for_index(plan, target_index)
+    target_date = str(target_template["date"])[:10]
+    today = datetime.fromisoformat(target_date).date() - timedelta(days=4)
+    report = {
+        "as_of": today.isoformat(),
+        "silence": False,
+        "data_gap": False,
+        "reason": "Limited readiness conflicts with the planned session.",
+        "conflicts": [
+            {
+                "date": target_date,
+                "days_until": 4,
+                "severity": "medium",
+                "kind": "limited_readiness_long_session",
+                "session": {
+                    "name": original["template_name"],
+                    "role": original["session_role"],
+                    "tss": original["total_tss"],
+                    "sport_label": original["sport_label"],
+                },
+                "evidence": ["readiness limited"],
+            }
+        ],
+    }
+    variant = build_recovery_replan_variant(plan, report, today=today)
+    assert variant is not None
+    assert variant.get("safety_guard")
+    base = db.save_planning_checkpoint(build_planning_checkpoint(plan))
+    real_apply = ps.apply_near_term_day_edits
+
+    def drift_after_preview(*args, **kwargs):
+        updated = real_apply(*args, **kwargs)
+        session = _primary_for_index(updated, target_index)
+        session["template_key"] = "bike_neuromuscular_sprints"
+        session["fatigue_cost"] = [1, 1, 3]
+        session["expected_recovery_hours"] = 30
+        return updated
+
+    monkeypatch.setattr(ps, "apply_near_term_day_edits", drift_after_preview)
+    with pytest.raises(
+        ValueError,
+        match="harder stimulus|materialized preview",
+    ):
+        ps.apply_recovery_replan(
+            db,
+            {
+                "base_checkpoint_id": base["id"],
+                "draft_rows": variant["draft_rows"],
+                "horizon_days": variant["horizon_days"],
+                "post_edit_strategy": variant["post_edit_strategy"],
+                "selected_conflict": variant["selected_conflict"],
+                "safety_guard": variant["safety_guard"],
+            },
+            persist=True,
+        )
+
+    assert db.get_latest_planning_checkpoint()["id"] == base["id"]
 
 
 def test_confirmed_recovery_downgrade_remains_materialized(tmp_path) -> None:
