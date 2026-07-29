@@ -33,7 +33,7 @@ def test_proposal_card_sends_selected_variant_kind_to_approve_not_an_empty_paylo
     assert "variant_kind" in source
     assert "selectedVariantKind" in source
     assert "URLSearchParams" in source
-    assert "params.set(\"variant_kind\", selectedVariantKind)" in source
+    assert "params.set(\"variant_kind\", effectiveSelectedVariantKind)" in source
     assert "`/api/decisions/proposals/${proposalId}/approve?${params.toString()}`" in source
 
 
@@ -49,6 +49,20 @@ def test_proposal_card_variant_selection_defaults_to_recommended_and_is_reselect
     assert "selectedVariantKind" in source
     assert '"downgrade_today"' in source
     assert "availableRecoveryVariants.some" in source
+
+
+def test_proposal_card_selection_is_scoped_to_the_exact_proposal_id() -> None:
+    """React may reuse the shared component when an approved recovery proposal
+    immediately yields another proposal for the new checkpoint. A selection
+    such as `transfer_1_3d` from the old proposal must not survive into a new
+    proposal that only offers `keep`/`downgrade_today`."""
+    source = _source("web/components/ui/ProposalCard.tsx")
+
+    assert "proposalId" in source
+    assert "selectedProposalId" in source
+    assert "selectedProposalId === proposalId" in source
+    assert "availableRecoveryVariants.some" in source
+    assert "setSelectedProposalId(proposalId)" in source
 
 
 def test_selected_variant_drives_both_change_and_protection_views_without_mutation() -> None:

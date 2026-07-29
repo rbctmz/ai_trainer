@@ -1065,20 +1065,33 @@ def _transfer_preview(proposal: dict) -> dict:
     return next(v for v in proposal["preview"]["variants"] if v["kind"] == "transfer_1_3d")
 
 
-def test_approve_recovery_transfer_variant_fails_closed_on_unknown_or_unavailable_kind(
+def test_approve_recovery_transfer_variant_rejects_before_claim_and_allows_safe_retry(
     tmp_path,
     monkeypatch,
 ) -> None:
     """A conflict with no safe D+1..D+3 date never offers `transfer_1_3d` in
     its saved variants. Selecting it anyway must fail closed with ZERO
-    checkpoint mutation instead of silently falling back to another
-    variant."""
+    checkpoint/provider mutation while leaving the proposal pending, so the
+    athlete can immediately retry one of that proposal's own safe variants."""
     from api import recovery_replan_loop as loop_module
+    from api.routers import decisions as decisions_router
     from api.routers.decisions import approve_proposal
 
     today = date(2026, 7, 13)
     report = _conflict_report(today, days_until=1)
     monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    delivery_calls = []
+
+    def fake_delivery(_db, *, dates, source, **_kwargs):
+        delivery_calls.append({"dates": list(dates), "source": source})
+        return {
+            "status": "skipped",
+            "retryable": False,
+            "failed_count": 0,
+            "dates": list(dates),
+        }
+
+    monkeypatch.setattr(decisions_router, "safe_deliver_active_plan", fake_delivery)
     goal_plan = _transfer_ready_goal_plan(today, days_until=1)
     conflict_date = today + timedelta(days=1)
     goal_plan["protected_dates"] = [
@@ -1093,7 +1106,34 @@ def test_approve_recovery_transfer_variant_fails_closed_on_unknown_or_unavailabl
         approve_proposal(proposal["id"], db=db, variant_kind="transfer_1_3d")
     assert error.value.status_code == 422
     assert db.get_latest_planning_checkpoint()["id"] == base["id"]
-    assert db.get_coach_proposal(proposal["id"])["status"] == "failed"
+    assert db.get_coach_proposal(proposal["id"])["status"] == "pending"
+    assert delivery_calls == []
+
+    approved = approve_proposal(
+        proposal["id"],
+        db=db,
+        variant_kind="downgrade_today",
+    )
+
+    assert approved["proposal"]["status"] == "approved"
+    assert approved["result"]["selected_kind"] == "downgrade_today"
+    applied = db.get_latest_planning_checkpoint()
+    assert applied["id"] != base["id"]
+    assert applied["checkpoint_parent_id"] == base["id"]
+    assert delivery_calls == [
+        {
+            "dates": [conflict_date.isoformat()],
+            "source": "recovery_approve",
+        }
+    ]
+
+    with pytest.raises(HTTPException) as repeated:
+        approve_proposal(
+            proposal["id"],
+            db=db,
+            variant_kind="downgrade_today",
+        )
+    assert repeated.value.status_code == 409
 
 
 def test_approve_recovery_proposal_with_explicit_none_variant_kind_matches_legacy_downgrade(
