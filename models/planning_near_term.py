@@ -383,6 +383,8 @@ def _sessions_from_parts(
         load_state=load_state,
         recent_template_keys=recent_template_keys,
     )
+    if any(planned_session_requires_repair(session) for session in sessions):
+        raise ValueError("edited session has no feasible catalog prescription")
     return sessions
 
 
@@ -1233,6 +1235,11 @@ def rematerialize_non_executable_sessions(
         str(near_term_edit.get("origin_kind") or "").strip().lower()
         == "recovery_replan"
     )
+    recovery_repair_dates = {
+        str(value)[:10]
+        for value in list(near_term_edit.get("edited_dates") or [])
+        if str(value)[:10]
+    }
     changed_dates: List[str] = []
 
     for day_index, template in enumerate(session_templates):
@@ -1242,6 +1249,15 @@ def rematerialize_non_executable_sessions(
         rebuilt_sessions: List[Dict[str, Any]] = []
         day_changed = False
         recent_template_keys = _recent_template_keys_before(session_templates, day_index)
+        if day_index < len(daily_plan):
+            raw_date = daily_plan[day_index][0]
+            day_date = (
+                raw_date.strftime("%Y-%m-%d")
+                if hasattr(raw_date, "strftime")
+                else str(raw_date)[:10]
+            )
+        else:
+            day_date = str(template.get("date") or "")[:10]
 
         for session in sessions:
             if not planned_session_requires_repair(session):
@@ -1256,7 +1272,11 @@ def rematerialize_non_executable_sessions(
             target_tss = _normalize_total_tss(session.get("total_tss"))
             template_key = str(session.get("template_key") or "")
             original_role = role
-            if recovery_repair and template_key.startswith("manual:"):
+            if (
+                recovery_repair
+                and day_date in recovery_repair_dates
+                and template_key.startswith("manual:")
+            ):
                 role = "recovery"
             if sport in {"off", "brick"} or role == "off" or target_tss <= 0:
                 raise ValueError("non-executable session cannot be repaired from its saved fields")

@@ -1255,7 +1255,41 @@ function ExportMode() {
                                   {session.duration_minutes} мин · {session.tss} TSS
                                 </span>
                               </div>
-                              {session.session_id ? (
+                              {session.session_id &&
+                              session.kind === "composite" &&
+                              session.legs.length ? (
+                                <div className="mt-2 grid gap-2">
+                                  {session.legs.map((leg) => (
+                                    <div
+                                      key={leg.leg_index}
+                                      className="rounded-md border border-surface-border bg-surface px-2 py-1.5"
+                                    >
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <span className="text-[11px] text-ink-faint">
+                                          {leg.leg_index}. {leg.template_name || leg.sport}
+                                        </span>
+                                        <span className="inline-flex gap-1">
+                                          <DownloadLink
+                                            index={d.index}
+                                            sessionId={session.session_id ?? undefined}
+                                            leg={leg.leg_index ?? undefined}
+                                            fmt="tcx"
+                                            label="TCX"
+                                          />
+                                          <DownloadLink
+                                            index={d.index}
+                                            sessionId={session.session_id ?? undefined}
+                                            leg={leg.leg_index ?? undefined}
+                                            fmt="fit_csv"
+                                            label="FIT"
+                                          />
+                                        </span>
+                                      </div>
+                                      <StepPreview steps={leg.steps} />
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : session.session_id ? (
                                 <div className="mt-2 flex gap-2">
                                   <DownloadLink
                                     index={d.index}

@@ -3,6 +3,9 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timedelta
+import json
+from pathlib import Path
+import sqlite3
 
 import pytest
 
@@ -226,6 +229,38 @@ def test_repeated_recovery_downgrades_never_accumulate_manual_stubs(tmp_path) ->
             assert not str(session.get("template_key") or "").startswith("manual:")
 
 
+def test_infeasible_near_term_edit_is_rejected_before_plan_is_saved(tmp_path) -> None:
+    from models.planning_near_term import (
+        apply_near_term_day_edits,
+        build_near_term_edit_rows,
+    )
+
+    db = _seeded_db(tmp_path)
+    plan = _build_active_plan(db)
+    row = next(
+        item
+        for item in build_near_term_edit_rows(plan, horizon_days=7)
+        if item["sessions"]
+    )
+    session = row["sessions"][0]
+    edit = {
+        "index": row["index"],
+        "session_id": session["session_id"],
+        "session_role": "activation",
+        "sport": "swim",
+        "total_tss": session["total_tss"],
+    }
+    before = deepcopy(plan)
+
+    with pytest.raises(
+        ValueError,
+        match="no feasible catalog prescription",
+    ):
+        apply_near_term_day_edits(plan, [edit], horizon_days=7)
+
+    assert plan == before
+
+
 def test_recovery_materialization_drives_export_and_delivery_duration(
     tmp_path,
     monkeypatch,
@@ -421,6 +456,7 @@ def _broken_manual_plan() -> dict:
             "near_term_edit": {
                 "origin_kind": "recovery_replan",
                 "post_edit_strategy": "protect_recovery",
+                "edited_dates": ["2026-08-01"],
             }
         },
     }
@@ -470,6 +506,49 @@ def test_repair_is_dry_run_first_append_only_and_idempotent(tmp_path) -> None:
     assert db.get_latest_planning_checkpoint()["id"] == repaired["id"]
 
 
+def test_repair_uses_recovery_lineage_only_on_explicitly_edited_dates() -> None:
+    from models.planning_near_term import rematerialize_non_executable_sessions
+
+    plan = _broken_manual_plan()
+    first = plan["session_templates"][0]
+    second_session = {
+        **deepcopy(first["sessions"][0]),
+        "session_id": "ats_unrelated_quality",
+        "session_role": "quality",
+        "session_focus": "Quality run",
+        "sport": "run",
+        "sport_label": "бег",
+        "total_tss": 50.0,
+        "duration_minutes": 50,
+        "template_key": "manual:build:quality:run",
+    }
+    plan["daily_plan"].append(
+        (
+            datetime(2026, 8, 2),
+            50.0,
+            {"bike": 0.0, "run": 50.0, "swim": 0.0},
+        )
+    )
+    plan["session_templates"].append(
+        {
+            "date": "2026-08-02",
+            "phase": "Build",
+            "kind": "single",
+            **second_session,
+            "sessions": [second_session],
+        }
+    )
+    plan["constraint_summary"]["near_term_edit"]["edited_dates"] = ["2026-08-01"]
+
+    repaired, changed_dates = rematerialize_non_executable_sessions(plan)
+
+    first_repaired = repaired["session_templates"][0]["sessions"][0]
+    second_repaired = repaired["session_templates"][1]["sessions"][0]
+    assert changed_dates == ["2026-08-01", "2026-08-02"]
+    assert first_repaired["session_role"] == "recovery"
+    assert second_repaired["session_role"] == "quality"
+
+
 def test_repair_cli_boundary_is_dry_run_by_default(tmp_path) -> None:
     from models.planning_checkpoints import build_planning_checkpoint
     from scripts.repair_planning_materialization import repair_database
@@ -491,3 +570,63 @@ def test_repair_cli_boundary_is_dry_run_by_default(tmp_path) -> None:
     assert db.get_latest_planning_checkpoint()["checkpoint_source"] == (
         "materialization_repair"
     )
+
+
+def test_repair_cli_dry_run_does_not_migrate_the_supplied_database(tmp_path) -> None:
+    from models.planning_checkpoints import build_planning_checkpoint
+    from scripts.repair_planning_materialization import repair_database
+
+    path = tmp_path / "legacy-repair-preview.db"
+    checkpoint = build_planning_checkpoint(_broken_manual_plan())
+    with sqlite3.connect(path) as conn:
+        conn.execute(
+            """
+            CREATE TABLE planning_checkpoints (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                goal_type TEXT,
+                distance TEXT,
+                weeks_to_race INTEGER,
+                checkpoint_data TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO planning_checkpoints
+                (goal_type, distance, weeks_to_race, checkpoint_data)
+            VALUES (?, ?, ?, ?)
+            """,
+            (
+                checkpoint.get("goal_type"),
+                checkpoint.get("distance"),
+                checkpoint.get("weeks_to_race"),
+                json.dumps(checkpoint, ensure_ascii=False, default=str),
+            ),
+        )
+    before = path.read_bytes()
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
+        schema_before = conn.execute(
+            "SELECT name, sql FROM sqlite_master ORDER BY name"
+        ).fetchall()
+
+    preview = repair_database(path)
+
+    assert preview["mode"] == "dry-run"
+    assert preview["changed_dates"] == ["2026-08-01"]
+    assert path.read_bytes() == before
+    with sqlite3.connect(f"file:{path}?mode=ro", uri=True) as conn:
+        assert conn.execute(
+            "SELECT name, sql FROM sqlite_master ORDER BY name"
+        ).fetchall() == schema_before
+
+
+def test_multi_session_composite_exports_each_leg_with_session_selector() -> None:
+    source = (
+        Path(__file__).resolve().parents[2] / "web/app/planning/page.tsx"
+    ).read_text(encoding="utf-8")
+
+    assert 'session.kind === "composite"' in source
+    assert "session.legs.map((leg)" in source
+    assert "sessionId={session.session_id ?? undefined}" in source
+    assert "leg={leg.leg_index ?? undefined}" in source
