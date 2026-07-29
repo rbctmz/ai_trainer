@@ -421,6 +421,12 @@ def build_plan(
         zone_snapshot={
             "ftp": athlete_profile.get("ftp"),
             "lthr": athlete_profile.get("lthr"),
+            # The profile API/storage name pins the canonical unit. The workout
+            # catalog's established input key is shorter but means the same
+            # seconds-per-kilometre value.
+            "threshold_pace": athlete_profile.get(
+                "threshold_pace_seconds_per_km"
+            ),
         },
         brick_day_indices=set(brick_allocation.get("brick_day_indices") or []),
     )

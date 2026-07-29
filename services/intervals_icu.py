@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import re
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -26,6 +27,8 @@ WELLNESS_FIELDS = (
     "sleepScore",
     "sleepQuality",
 )
+MIN_RUNNING_THRESHOLD_PACE_SECONDS_PER_KM = 120.0
+MAX_RUNNING_THRESHOLD_PACE_SECONDS_PER_KM = 900.0
 
 
 class IntervalsICUError(RuntimeError):
@@ -489,14 +492,53 @@ def _cycling_sport_settings(raw: Mapping[str, Any]) -> Mapping[str, Any]:
     return {}
 
 
+def _running_sport_settings(raw: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Return the one exact Run settings entry, or fail closed on ambiguity."""
+    matches: list[Mapping[str, Any]] = []
+    for entry in raw.get("sportSettings") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        types = entry.get("types")
+        if isinstance(types, list) and "Run" in types:
+            matches.append(entry)
+    return matches[0] if len(matches) == 1 else {}
+
+
+def _running_threshold_pace_seconds_per_km(value: Any) -> float | None:
+    """Convert Intervals.icu metres/second to bounded seconds/kilometre."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    speed_metres_per_second = float(value)
+    if not math.isfinite(speed_metres_per_second) or speed_metres_per_second <= 0:
+        return None
+    # Bound reciprocal floating-point noise before applying the inclusive
+    # validation interval (e.g. 1000 / (1000 / 120) can be 119.9999999999).
+    seconds_per_km = round(1000.0 / speed_metres_per_second, 6)
+    if not (
+        MIN_RUNNING_THRESHOLD_PACE_SECONDS_PER_KM
+        <= seconds_per_km
+        <= MAX_RUNNING_THRESHOLD_PACE_SECONDS_PER_KM
+    ):
+        return None
+    return seconds_per_km
+
+
 def normalize_athlete_profile(raw: Mapping[str, Any]) -> Dict[str, Any]:
-    """Flatten an Intervals.icu athlete-profile response into the fields this
-    app's TSS math needs. Degrades every field to None instead of raising when
-    the response is missing, reshaped, or partially populated."""
+    """Flatten Intervals profile signals into explicit local canonical units.
+
+    Missing, reshaped, ambiguous, or malformed fields degrade to ``None``
+    instead of raising.
+    """
     if not isinstance(raw, dict):
-        return {"ftp": None, "weight_kg": None, "lthr": None}
+        return {
+            "ftp": None,
+            "weight_kg": None,
+            "lthr": None,
+            "threshold_pace_seconds_per_km": None,
+        }
 
     cycling = _cycling_sport_settings(raw)
+    running = _running_sport_settings(raw)
 
     def _positive_number(value: Any) -> float | None:
         try:
@@ -513,15 +555,21 @@ def normalize_athlete_profile(raw: Mapping[str, Any]) -> Dict[str, Any]:
         # it from the cycling entry alongside ftp is equivalent to reading it
         # from any other entry.
         "lthr": _positive_number(cycling.get("lthr")),
+        "threshold_pace_seconds_per_km": (
+            _running_threshold_pace_seconds_per_km(
+                running.get("threshold_pace")
+            )
+        ),
     }
 
 
 def sync_athlete_profile(database: Any) -> Dict[str, Any]:
-    """Fetch the athlete's current FTP/weight/LTHR from Intervals.icu and
-    persist it locally. Never raises: a missing configuration or a failed
-    request is reported back as {"synced": False, "reason": ...} so a caller
-    (e.g. the main Garmin sync flow) can fold it into its warnings instead of
-    aborting on an optional signal it does not depend on."""
+    """Fetch and persist Intervals FTP/weight/LTHR/running threshold pace.
+
+    Never raises: a missing configuration or a failed request is reported back
+    as ``{"synced": False, "reason": ...}`` so a caller can fold it into its
+    warnings instead of aborting on an optional signal it does not depend on.
+    """
     client = get_client()
     if not client.is_configured():
         return {"synced": False, "reason": "not_configured", "profile": None}
@@ -532,5 +580,35 @@ def sync_athlete_profile(database: Any) -> Dict[str, Any]:
         return {"synced": False, "reason": str(exc), "profile": None}
 
     profile = normalize_athlete_profile(raw_profile)
-    database.save_athlete_profile({**profile, "source": "intervals_icu"})
-    return {"synced": True, "reason": None, "profile": profile}
+    previous = database.get_athlete_profile()
+    threshold_pace = profile.get("threshold_pace_seconds_per_km")
+    if threshold_pace is not None:
+        threshold_provenance = {
+            "threshold_pace_source": "intervals_icu",
+            # Database.save_athlete_profile stamps CURRENT_TIMESTAMP for a
+            # newly observed pace when this is omitted.
+            "threshold_pace_synced_at": None,
+        }
+    elif previous and previous.get("threshold_pace_seconds_per_km") is not None:
+        profile["threshold_pace_seconds_per_km"] = previous.get(
+            "threshold_pace_seconds_per_km"
+        )
+        threshold_provenance = {
+            "threshold_pace_source": previous.get("threshold_pace_source"),
+            "threshold_pace_synced_at": previous.get("threshold_pace_synced_at"),
+        }
+    else:
+        threshold_provenance = {
+            "threshold_pace_source": None,
+            "threshold_pace_synced_at": None,
+        }
+
+    database.save_athlete_profile(
+        {
+            **profile,
+            **threshold_provenance,
+            "source": "intervals_icu",
+        }
+    )
+    stored = database.get_athlete_profile()
+    return {"synced": True, "reason": None, "profile": stored or profile}

@@ -315,15 +315,19 @@ class Database:
             )
         ''')
 
-        # Athlete profile (FTP/вес/LTHR), синкается из intervals.icu вместо
-        # статичных env-переменных (issue #102). Append-only: каждый sync
-        # добавляет новую строку, get_athlete_profile() читает последнюю.
+        # Athlete profile (FTP/вес/LTHR/беговой threshold pace), синкается из
+        # intervals.icu вместо статичных env-переменных (issue #102).
+        # Append-only: каждый sync добавляет новую строку,
+        # get_athlete_profile() читает последнюю.
         conn.execute('''
             CREATE TABLE IF NOT EXISTS athlete_profile (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 ftp REAL,
                 weight_kg REAL,
                 lthr REAL,
+                threshold_pace_seconds_per_km REAL,
+                threshold_pace_source TEXT,
+                threshold_pace_synced_at TIMESTAMP,
                 source TEXT,
                 synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -731,6 +735,7 @@ class Database:
             )
         ''')
         self._ensure_activity_columns(conn)
+        self._ensure_athlete_profile_columns(conn)
         self._repair_legacy_activity_tss(conn)
         self._ensure_hrv_columns(conn)
         self._ensure_sleep_columns(conn)
@@ -812,6 +817,31 @@ class Database:
         for column, column_type in self._ACTIVITY_COLUMN_TYPES.items():
             if column not in existing_columns:
                 cursor.execute(f'ALTER TABLE activities ADD COLUMN {column} {column_type}')
+        conn.commit()
+
+    @staticmethod
+    def _ensure_athlete_profile_columns(conn: sqlite3.Connection) -> None:
+        """Add issue #308 pace fields to databases created before the feature."""
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(athlete_profile)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        column_types = {
+            "threshold_pace_seconds_per_km": "REAL",
+            "threshold_pace_source": "TEXT",
+            "threshold_pace_synced_at": "TIMESTAMP",
+        }
+        for column, column_type in column_types.items():
+            if column in existing_columns:
+                continue
+            try:
+                cursor.execute(
+                    f'ALTER TABLE athlete_profile ADD COLUMN {column} {column_type}'
+                )
+            except sqlite3.OperationalError as exc:
+                # Concurrent API/test initialization can race on additive
+                # migrations. Only the duplicate-column winner is harmless.
+                if "duplicate column name" not in str(exc).lower():
+                    raise
         conn.commit()
 
     @staticmethod
@@ -3800,17 +3830,39 @@ class Database:
         conn.close()
 
     def save_athlete_profile(self, profile):
-        """Сохраняет новый снэпшот athlete profile (FTP/вес/LTHR)."""
+        """Сохраняет новый append-only снэпшот athlete profile."""
         conn = sqlite3.connect(self.db_path)
+        threshold_pace = self.clean_value(
+            profile.get('threshold_pace_seconds_per_km')
+        )
         conn.execute(
             '''
-            INSERT INTO athlete_profile (ftp, weight_kg, lthr, source)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO athlete_profile (
+                ftp,
+                weight_kg,
+                lthr,
+                threshold_pace_seconds_per_km,
+                threshold_pace_source,
+                threshold_pace_synced_at,
+                source
+            )
+            VALUES (
+                ?, ?, ?, ?, ?,
+                CASE
+                    WHEN ? IS NOT NULL THEN COALESCE(?, CURRENT_TIMESTAMP)
+                    ELSE NULL
+                END,
+                ?
+            )
             ''',
             (
                 self.clean_value(profile.get('ftp')),
                 self.clean_value(profile.get('weight_kg')),
                 self.clean_value(profile.get('lthr')),
+                threshold_pace,
+                profile.get('threshold_pace_source'),
+                threshold_pace,
+                profile.get('threshold_pace_synced_at'),
                 profile.get('source'),
             ),
         )
@@ -3823,7 +3875,15 @@ class Database:
         cursor = conn.cursor()
         cursor.execute(
             '''
-            SELECT ftp, weight_kg, lthr, source, synced_at
+            SELECT
+                ftp,
+                weight_kg,
+                lthr,
+                threshold_pace_seconds_per_km,
+                threshold_pace_source,
+                threshold_pace_synced_at,
+                source,
+                synced_at
             FROM athlete_profile
             ORDER BY synced_at DESC, id DESC
             LIMIT 1
@@ -3837,8 +3897,11 @@ class Database:
             'ftp': row[0],
             'weight_kg': row[1],
             'lthr': row[2],
-            'source': row[3],
-            'synced_at': row[4],
+            'threshold_pace_seconds_per_km': row[3],
+            'threshold_pace_source': row[4],
+            'threshold_pace_synced_at': row[5],
+            'source': row[6],
+            'synced_at': row[7],
         }
 
     def get_database_stats(self):

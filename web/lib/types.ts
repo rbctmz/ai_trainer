@@ -310,6 +310,9 @@ export interface AthleteProfile {
   ftp: number | null;
   weight_kg: number | null;
   lthr: number | null;
+  threshold_pace_seconds_per_km: number | null;
+  threshold_pace_source: string | null;
+  threshold_pace_synced_at: string | null;
   source: string | null;
   synced_at: string | null;
 }
