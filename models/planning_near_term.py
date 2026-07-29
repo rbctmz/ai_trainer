@@ -1210,8 +1210,16 @@ def _apply_targeted_session_edit(
 
 def rematerialize_non_executable_sessions(
     goal_plan: Mapping[str, Any],
+    *,
+    recovery_session_ids: Sequence[str] = (),
 ) -> tuple[Dict[str, Any], List[str]]:
-    """Repair modern non-executable leaves without mutating plan history."""
+    """Repair modern non-executable leaves without mutating plan history.
+
+    ``recovery_session_ids`` is derived by the persistence-facing service from
+    append-only checkpoint ancestry. The pure model never infers lineage from
+    the latest plan-wide edit summary: consecutive replans overwrite that
+    summary while older broken leaves remain in the active snapshot.
+    """
     updated_goal_plan = deepcopy(dict(goal_plan))
     daily_plan = list(updated_goal_plan.get("daily_plan") or [])
     session_templates = [
@@ -1231,14 +1239,10 @@ def rematerialize_non_executable_sessions(
     near_term_edit = (
         updated_goal_plan.get("constraint_summary", {}) or {}
     ).get("near_term_edit", {}) or {}
-    recovery_repair = (
-        str(near_term_edit.get("origin_kind") or "").strip().lower()
-        == "recovery_replan"
-    )
-    recovery_repair_dates = {
-        str(value)[:10]
-        for value in list(near_term_edit.get("edited_dates") or [])
-        if str(value)[:10]
+    recovery_ids = {
+        str(value).strip()
+        for value in recovery_session_ids
+        if str(value).strip()
     }
     changed_dates: List[str] = []
 
@@ -1249,16 +1253,6 @@ def rematerialize_non_executable_sessions(
         rebuilt_sessions: List[Dict[str, Any]] = []
         day_changed = False
         recent_template_keys = _recent_template_keys_before(session_templates, day_index)
-        if day_index < len(daily_plan):
-            raw_date = daily_plan[day_index][0]
-            day_date = (
-                raw_date.strftime("%Y-%m-%d")
-                if hasattr(raw_date, "strftime")
-                else str(raw_date)[:10]
-            )
-        else:
-            day_date = str(template.get("date") or "")[:10]
-
         for session in sessions:
             if not planned_session_requires_repair(session):
                 rebuilt_sessions.append(session)
@@ -1272,9 +1266,9 @@ def rematerialize_non_executable_sessions(
             target_tss = _normalize_total_tss(session.get("total_tss"))
             template_key = str(session.get("template_key") or "")
             original_role = role
+            session_id = str(session.get("session_id") or "").strip()
             if (
-                recovery_repair
-                and day_date in recovery_repair_dates
+                session_id in recovery_ids
                 and template_key.startswith("manual:")
             ):
                 role = "recovery"
@@ -1295,7 +1289,11 @@ def rematerialize_non_executable_sessions(
             repaired_session = materialized[0]
             repaired_session["repair_evidence"] = {
                 "kind": "materialization_repair",
-                "source": str(near_term_edit.get("origin_kind") or "unknown"),
+                "source": (
+                    "recovery_replan_history"
+                    if session_id in recovery_ids
+                    else str(near_term_edit.get("origin_kind") or "unknown")
+                ),
                 "original_role": original_role,
                 "resolved_role": role,
             }

@@ -29,6 +29,12 @@ by creating a new append-only checkpoint.
   production-build validation.
 - [x] (2026-07-29 09:35Z) Completed final diff review, published RED commit
   `315af5f` plus GREEN commit `f13f842`, and opened PR #305 with `Closes #299`.
+- [x] (2026-07-29 10:20Z) Post-merge apply validation rejected a semantically
+  wrong repair, restored checkpoint 76 from the validated backup, and opened
+  follow-up #306.
+- [x] (2026-07-29 10:35Z) Replaced latest-summary recovery inference with
+  per-session lineage derived from checkpoint ancestry; the real 74→75→76
+  chain now repairs all four leaves as recovery prescriptions on a copy.
 
 ## Surprises & Discoveries
 
@@ -63,6 +69,13 @@ by creating a new append-only checkpoint.
   Evidence: apply on a copied checkpoint selected `bike_neuromuscular_sprints`; recovery
   lineage now resolves broken `manual:*` leaves through recovery-role definitions.
 
+- Observation: Scoping recovery repair to only the latest `edited_dates` is also
+  insufficient. Consecutive recovery replans overwrite that summary while older
+  broken leaves remain active.
+  Evidence: checkpoint 74 introduced the 2026-07-30 leaf, 75 introduced
+  2026-08-01, and 76 introduced both 2026-08-03 leaves; the latest summary names
+  only 2026-08-03.
+
 ## Decision Log
 
 - Decision: Reuse a public day-session materialization helper shared with the initial planner,
@@ -78,6 +91,12 @@ by creating a new append-only checkpoint.
 - Decision: Add an explicit leaf-session selector to export while preserving the existing
   day-index route and default-primary behavior.
   Rationale: The API remains backward compatible and multi-session days become fully usable.
+  Date/Author: 2026-07-29 / Codex.
+
+- Decision: Derive legacy recovery lineage by walking append-only checkpoint
+  parents and binding each recovery edit to the concrete persisted `session_id`.
+  Rationale: Neither a plan-wide recovery flag nor the latest edited date can
+  distinguish older recovery leaves from unrelated manual/quality sessions.
   Date/Author: 2026-07-29 / Codex.
 
 - Decision: Repair is explicit and append-only, never migrate-on-read.
@@ -229,3 +248,6 @@ active-plan defect. Updated after the six-gate RED run to record direct pre-fix 
 
 Revision note (2026-07-29): Closed implementation and validation evidence after the
 catalog-v3, API/web, fail-closed delivery, and append-only repair slices; recorded PR #305.
+
+Revision note (2026-07-29): Added issue #306 follow-up after post-merge
+validation safely rejected and rolled back a latest-summary lineage repair.
