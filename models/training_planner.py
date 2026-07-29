@@ -2053,7 +2053,7 @@ def _build_session_description(
 _SPLIT_SPORT_ORDER = ("bike", "run", "swim")
 
 
-def _split_day_sessions(
+def materialize_day_sessions(
     *,
     parts: Mapping[str, float],
     total: float,
@@ -2067,7 +2067,7 @@ def _split_day_sessions(
     load_state: str,
     recent_template_keys: List[str],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, float], Dict[str, str]]:
-    """Issue #205 M3: materialize one executable session per discipline.
+    """Materialize one executable session per discipline for a plan day.
 
     The blended day budget in ``parts`` is preserved exactly: each discipline
     with a non-zero share becomes its own session carrying that share's TSS
@@ -2203,7 +2203,7 @@ def build_daily_session_templates(
             float(total or 0.0) > 0 and dominant not in {"off", "race"} and session_role != "off"
         )
         if is_training:
-            day_sessions, allocated_parts, day_meta = _split_day_sessions(
+            day_sessions, allocated_parts, day_meta = materialize_day_sessions(
                 parts=parts,
                 total=float(total or 0.0),
                 is_brick=idx in brick_indices,

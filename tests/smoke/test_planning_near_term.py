@@ -101,7 +101,9 @@ def test_apply_near_term_day_edits_updates_daily_plan_templates_and_weekly_total
     assert second_day[2]["bike"] == 0.0
     assert updated_goal_plan["session_templates"][0]["session_role"] == "off"
     assert updated_goal_plan["session_templates"][1]["sport"] == "run"
-    assert updated_goal_plan["session_templates"][1]["session_focus"] == "Качество • бег"
+    assert updated_goal_plan["session_templates"][1]["session_focus"] == "Progression Run"
+    assert updated_goal_plan["session_templates"][1]["materialization_status"] == "materialized"
+    assert updated_goal_plan["session_templates"][1]["materialized_steps"]
     assert updated_goal_plan["weekly_tss_plan"][0] != goal_plan["weekly_tss_plan"][0]
     assert updated_goal_plan["weekly_summary"][0]["weekly_tss"] == updated_goal_plan["weekly_tss_plan"][0]
     assert "ручная правка:" in updated_goal_plan["weekly_summary"][0]["adjustment_note"]

@@ -48,6 +48,7 @@ EXPECTED_TEMPLATE_KEYS = {
     "run_tempo_threshold",
     "run_vo2_neuromuscular",
     "run_race_pace",
+    "swim_recovery_technique",
     "swim_technique_aerobic",
     "swim_endurance",
     "swim_threshold_repeats",
@@ -79,12 +80,12 @@ def _selection_context(**overrides):
 def test_catalog_is_exact_versioned_and_immutable():
     definitions = catalog_definitions()
 
-    assert CATALOG_VERSION == "workout_catalog_v2"
+    assert CATALOG_VERSION == "workout_catalog_v3"
     assert SELECTOR_RULE_VERSION == "workout_selector_v1"
     assert MATERIALIZER_RULE_VERSION == "workout_materializer_v2"
-    assert len(definitions) == 22
+    assert len(definitions) == 23
     assert {item.template_key for item in definitions} == EXPECTED_TEMPLATE_KEYS
-    assert len({(item.template_key, item.version) for item in definitions}) == 22
+    assert len({(item.template_key, item.version) for item in definitions}) == 23
     assert all(item.min_duration_minutes <= item.max_duration_minutes for item in definitions)
     assert all(item.min_tss_per_hour <= item.max_tss_per_hour for item in definitions)
     assert all(len(item.fatigue_cost) == 3 for item in definitions)

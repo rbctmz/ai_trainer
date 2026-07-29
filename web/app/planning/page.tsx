@@ -1189,7 +1189,9 @@ function ExportMode() {
                   <td className="px-3 py-2.5 text-ink-soft">{d.date.slice(5)}</td>
                   <td className="px-3 py-2.5 text-ink">
                     <div className="font-medium">
-                      {d.template_name || d.sport_label}
+                      {d.sessions?.length > 1
+                        ? `${d.sessions.length} тренировки`
+                        : d.template_name || d.sport_label}
                       {d.kind === "composite" ? " · вело → бег" : ""}
                     </div>
                     <div className="text-xs text-ink-faint">
@@ -1206,7 +1208,11 @@ function ExportMode() {
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-ink">{d.tss}</td>
                   <td className="px-3 py-2.5 text-right">
-                    {d.kind === "composite" && d.legs.length ? (
+                    {!d.executable ? (
+                      <span className="text-xs text-tone-negative">нужен ремонт</span>
+                    ) : d.sessions?.length > 1 ? (
+                      <span className="text-xs text-ink-faint">по сессиям</span>
+                    ) : d.kind === "composite" && d.legs.length ? (
                       <span className="inline-flex flex-col gap-1">
                         {d.legs.map((leg) => (
                           <span key={leg.leg_index} className="inline-flex justify-end gap-1">
@@ -1226,10 +1232,84 @@ function ExportMode() {
                     )}
                   </td>
                 </tr>
-                {d.steps.length || d.legs.length ? (
+                {d.steps.length || d.legs.length || d.sessions?.length > 1 || !d.executable ? (
                   <tr className="border-b border-surface-border last:border-0">
                     <td colSpan={4} className="px-3 pb-3 pt-0">
-                      {d.kind === "composite" ? (
+                      {!d.executable ? (
+                        <div className="rounded-lg border border-tone-negative/30 bg-tone-negative/5 p-2.5 text-xs text-tone-negative">
+                          Тренировка не имеет сохранённой структуры. Экспорт и отправка
+                          заблокированы до безопасного ремонта плана.
+                        </div>
+                      ) : d.sessions?.length > 1 ? (
+                        <div className="grid gap-2 sm:grid-cols-2">
+                          {d.sessions.map((session) => (
+                            <div
+                              key={session.session_id || `${session.sport}-${session.name}`}
+                              className="rounded-lg bg-surface-muted p-2.5"
+                            >
+                              <div className="flex flex-wrap items-center justify-between gap-2 text-xs font-medium text-ink">
+                                <span>
+                                  {session.template_name || session.sport_label || session.name}
+                                </span>
+                                <span className="font-normal text-ink-faint">
+                                  {session.duration_minutes} мин · {session.tss} TSS
+                                </span>
+                              </div>
+                              {session.session_id &&
+                              session.kind === "composite" &&
+                              session.legs.length ? (
+                                <div className="mt-2 grid gap-2">
+                                  {session.legs.map((leg) => (
+                                    <div
+                                      key={leg.leg_index}
+                                      className="rounded-md border border-surface-border bg-surface px-2 py-1.5"
+                                    >
+                                      <div className="flex flex-wrap items-center justify-between gap-2">
+                                        <span className="text-[11px] text-ink-faint">
+                                          {leg.leg_index}. {leg.template_name || leg.sport}
+                                        </span>
+                                        <span className="inline-flex gap-1">
+                                          <DownloadLink
+                                            index={d.index}
+                                            sessionId={session.session_id ?? undefined}
+                                            leg={leg.leg_index ?? undefined}
+                                            fmt="tcx"
+                                            label="TCX"
+                                          />
+                                          <DownloadLink
+                                            index={d.index}
+                                            sessionId={session.session_id ?? undefined}
+                                            leg={leg.leg_index ?? undefined}
+                                            fmt="fit_csv"
+                                            label="FIT"
+                                          />
+                                        </span>
+                                      </div>
+                                      <StepPreview steps={leg.steps} />
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : session.session_id ? (
+                                <div className="mt-2 flex gap-2">
+                                  <DownloadLink
+                                    index={d.index}
+                                    sessionId={session.session_id}
+                                    fmt="tcx"
+                                    label="TCX"
+                                  />
+                                  <DownloadLink
+                                    index={d.index}
+                                    sessionId={session.session_id}
+                                    fmt="fit_csv"
+                                    label="FIT-CSV"
+                                  />
+                                </div>
+                              ) : null}
+                              <StepPreview steps={session.steps} />
+                            </div>
+                          ))}
+                        </div>
+                      ) : d.kind === "composite" ? (
                         <div className="grid gap-2 sm:grid-cols-2">
                           {d.legs.map((leg) => (
                             <div key={leg.leg_index} className="rounded-lg bg-surface-muted p-2.5">
@@ -1263,16 +1343,21 @@ function DownloadLink({
   fmt,
   label,
   leg,
+  sessionId,
 }: {
   index: number;
   fmt: string;
   label: string;
   leg?: number;
+  sessionId?: string;
 }) {
   const legQuery = leg ? `&leg=${leg}` : "";
+  const sessionQuery = sessionId ? `&session_id=${encodeURIComponent(sessionId)}` : "";
   return (
     <a
-      href={withDemo(`/api/planning/export/workout/${index}?fmt=${fmt}${legQuery}`)}
+      href={withDemo(
+        `/api/planning/export/workout/${index}?fmt=${fmt}${legQuery}${sessionQuery}`,
+      )}
       className="rounded-md border border-surface-border px-2 py-1 text-xs text-tone-neutral transition hover:bg-surface-muted"
     >
       {label}

@@ -1,6 +1,7 @@
 """Helpers for editing the near-term daily plan without rebuilding the whole cycle."""
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime
 from math import ceil
 from typing import Any, Dict, List, Mapping, Sequence
@@ -11,11 +12,16 @@ from models.planning_summary import (
     summarize_near_term_edit,
 )
 from models.session_identity import ensure_session_identities
-from models.workout_catalog import rescale_materialized_session
+from models.workout_catalog import (
+    extract_zone_snapshot,
+    planned_session_requires_repair,
+    rescale_materialized_session,
+)
 from models.training_planner import (
     SESSION_ROLE_LABELS_RU,
     SPORT_LABELS_RU,
     WEEKDAY_LABELS_RU,
+    materialize_day_sessions,
     project_day_scalars,
     _build_day_focus_label,
     _build_session_description,
@@ -351,36 +357,52 @@ def _sessions_from_parts(
     phase: str,
     goal_type: str,
     distance: str,
+    *,
+    zone_snapshot: Mapping[str, Any],
+    load_state: str,
+    recent_template_keys: List[str],
 ) -> List[Dict[str, Any]]:
-    """Issue #205: rebuild a day's executable sessions from its edited parts.
-
-    One plain (manual) session per discipline with that discipline's TSS, largest
-    first; the primary keeps the day role, secondaries are easy. Same-discipline
-    preservation keeps the sport budget intact after an edit."""
-    ordered = sorted(
-        (
-            (sport, round(float(parts.get(sport, 0.0) or 0.0), 1))
-            for sport in ("bike", "run", "swim")
-        ),
-        key=lambda item: (-item[1], item[0]),
+    """Rebuild an edited day through the canonical workout materializer."""
+    total = round(
+        sum(float(parts.get(sport, 0.0) or 0.0) for sport in ("bike", "run", "swim")),
+        1,
     )
-    sessions: List[Dict[str, Any]] = []
-    for position, (sport, tss) in enumerate(item for item in ordered if item[1] > 0):
-        session_role = role if position == 0 else "easy"
-        focus = _build_day_focus_label(session_role, sport)
-        sessions.append(
-            {
-                "sport": sport,
-                "sport_label": SPORT_LABELS_RU.get(sport, sport),
-                "session_role": session_role,
-                "session_focus": focus,
-                "duration_minutes": _estimate_session_duration_minutes(tss, sport, session_role),
-                "total_tss": tss,
-                "template_key": f"manual:{phase.lower()}:{session_role}:{sport}",
-                "export_name": _build_session_export_name(goal_type, distance, focus),
-            }
-        )
+    if total <= 0:
+        return []
+    primary_sport = _dominant_sport(parts)
+    sessions, _allocated, _meta = materialize_day_sessions(
+        parts=parts,
+        total=total,
+        is_brick=False,
+        phase=phase,
+        session_role=role,
+        day_focus=_build_day_focus_label(role, primary_sport),
+        goal_type=goal_type,
+        distance=distance,
+        zone_snapshot=zone_snapshot,
+        load_state=load_state,
+        recent_template_keys=recent_template_keys,
+    )
+    if any(planned_session_requires_repair(session) for session in sessions):
+        raise ValueError("edited session has no feasible catalog prescription")
     return sessions
+
+
+def _recent_template_keys_before(
+    session_templates: Sequence[Mapping[str, Any]],
+    day_index: int,
+) -> List[str]:
+    keys: List[str] = []
+    for template in session_templates[:day_index]:
+        sessions = list(template.get("sessions") or [])
+        candidates = sessions or [template]
+        for session in candidates:
+            if session.get("materialization_status") != "materialized":
+                continue
+            key = str(session.get("template_key") or "").strip()
+            if key:
+                keys.append(key)
+    return keys
 
 
 def _rebuild_sessions_after_day_edit(
@@ -393,6 +415,9 @@ def _rebuild_sessions_after_day_edit(
     phase: str,
     goal_type: str,
     distance: str,
+    zone_snapshot: Mapping[str, Any],
+    load_state: str,
+    recent_template_keys: List[str],
 ) -> Dict[str, Any]:
     """Issue #205: an edited day's `sessions` must follow the edit, never stay stale.
 
@@ -411,7 +436,16 @@ def _rebuild_sessions_after_day_edit(
         next_template["replaced_session_ids"] = replaced
     is_composite = str(next_template.get("kind") or "") == "composite"
     if not is_composite and role != "off" and sport != "off":
-        rebuilt = _sessions_from_parts(new_parts, role, phase, goal_type, distance)
+        rebuilt = _sessions_from_parts(
+            new_parts,
+            role,
+            phase,
+            goal_type,
+            distance,
+            zone_snapshot=zone_snapshot,
+            load_state=load_state,
+            recent_template_keys=recent_template_keys,
+        )
         if rebuilt:
             next_template["sessions"] = rebuilt
             # #232: top-level scalars follow the rebuilt primary — the day never
@@ -427,6 +461,9 @@ def _apply_week_total_delta(
     week_delta: int,
     goal_type: str,
     distance: str,
+    *,
+    zone_snapshot: Mapping[str, Any],
+    load_state: str,
 ) -> float:
     start = week_index * 7
     end = min(start + 7, len(daily_plan))
@@ -500,41 +537,51 @@ def _apply_week_total_delta(
             "duration_minutes": duration_minutes,
             "description": description,
         }
-        if (
+        is_composite = (
             str(current_template.get("kind") or "") == "composite"
-            and target_sport == "brick"
-            and target_total_tss > 0
-        ):
+            and day_total > 0
+        )
+        if is_composite:
+            current_sessions = list(current_template.get("sessions") or [])
+            composite = (
+                dict(current_sessions[0] or {})
+                if current_sessions
+                else dict(current_template)
+            )
             rescaled = rescale_materialized_session(
-                current_template,
-                target_tss=target_total_tss,
+                composite,
+                target_tss=day_total,
                 parts=new_parts,
             )
-            next_template.update(rescaled)
-            next_template.update(
+            rescaled.update(
                 {
-                    "date": dt.strftime("%Y-%m-%d"),
-                    "week_index": day_index // 7,
-                    "day_index": day_index % 7,
-                    "phase": phase,
-                    "session_role": target_role,
+                    "session_role": role,
                     "session_focus": focus,
                     "sport": "brick",
                     "sport_label": SPORT_LABELS_RU["brick"],
-                    "export_name": export_name,
+                    "total_tss": day_total,
                     "description": description,
                 }
             )
-        next_template = _rebuild_sessions_after_day_edit(
-            next_template,
-            current_template,
-            new_parts=new_parts,
-            role=role,
-            sport=sport,
-            phase=str(current_template.get("phase", "Base") or "Base"),
-            goal_type=goal_type,
-            distance=distance,
-        )
+            next_template["sessions"] = [rescaled]
+            project_day_scalars(next_template)
+        else:
+            next_template = _rebuild_sessions_after_day_edit(
+                next_template,
+                current_template,
+                new_parts=new_parts,
+                role=role,
+                sport=sport,
+                phase=str(current_template.get("phase", "Base") or "Base"),
+                goal_type=goal_type,
+                distance=distance,
+                zone_snapshot=zone_snapshot,
+                load_state=load_state,
+                recent_template_keys=_recent_template_keys_before(
+                    session_templates,
+                    day_index,
+                ),
+            )
         session_templates[day_index] = next_template
         actual_week_total += day_total
 
@@ -1078,6 +1125,9 @@ def _apply_targeted_session_edit(
     phase: str,
     goal_type: str,
     distance: str,
+    zone_snapshot: Mapping[str, Any],
+    load_state: str,
+    recent_template_keys: List[str],
 ):
     """Issue #205: edit exactly one session inside a day, preserving the rest.
 
@@ -1109,16 +1159,42 @@ def _apply_targeted_session_edit(
         rebuilt = [dict(item) for i, item in enumerate(day_sessions) if i != position]
     else:
         focus = _build_day_focus_label(target_role, target_sport)
-        edited_session: Dict[str, Any] = {
-            "sport": target_sport,
-            "sport_label": SPORT_LABELS_RU.get(target_sport, target_sport),
-            "session_role": target_role,
-            "session_focus": focus,
-            "duration_minutes": _estimate_session_duration_minutes(target_tss, target_sport, target_role),
-            "total_tss": target_tss,
-            "template_key": f"manual:{phase.lower()}:{target_role}:{target_sport}",
-            "export_name": _build_session_export_name(goal_type, distance, focus),
-        }
+        if str(current.get("kind") or "") == "composite" and target_sport == "brick":
+            edited_session = rescale_materialized_session(
+                current,
+                target_tss=target_tss,
+                parts={
+                    str(leg.get("sport") or ""): round(
+                        float(leg.get("target_tss") or 0.0)
+                        * target_tss
+                        / max(current_tss, 0.1),
+                        1,
+                    )
+                    for leg in list(current.get("legs") or [])
+                },
+            )
+            edited_session.update(
+                {
+                    "session_role": target_role,
+                    "session_focus": focus,
+                    "total_tss": target_tss,
+                    "export_name": _build_session_export_name(goal_type, distance, focus),
+                }
+            )
+        else:
+            materialized = _sessions_from_parts(
+                {target_sport: target_tss},
+                target_role,
+                phase,
+                goal_type,
+                distance,
+                zone_snapshot=zone_snapshot,
+                load_state=load_state,
+                recent_template_keys=recent_template_keys,
+            )
+            if not materialized:
+                raise ValueError("edited session could not be materialized")
+            edited_session = materialized[0]
         if old_id:
             edited_session["replaces_session_id"] = old_id
         rebuilt = [dict(item) for item in day_sessions]
@@ -1130,6 +1206,128 @@ def _apply_targeted_session_edit(
             new_parts[sport] = round(new_parts.get(sport, 0.0) + tss, 1)
     new_total = round(sum(new_parts.values()), 1)
     return rebuilt, new_total, new_parts
+
+
+def rematerialize_non_executable_sessions(
+    goal_plan: Mapping[str, Any],
+) -> tuple[Dict[str, Any], List[str]]:
+    """Repair modern non-executable leaves without mutating plan history."""
+    updated_goal_plan = deepcopy(dict(goal_plan))
+    daily_plan = list(updated_goal_plan.get("daily_plan") or [])
+    session_templates = [
+        dict(template or {})
+        for template in list(updated_goal_plan.get("session_templates") or [])
+    ]
+    zone_snapshot = extract_zone_snapshot(session_templates)
+    load_state = str(
+        (updated_goal_plan.get("constraint_summary", {}) or {}).get(
+            "load_state",
+            "balanced",
+        )
+        or "balanced"
+    ).lower()
+    goal_type = str(updated_goal_plan.get("goal_type") or "")
+    distance = str(updated_goal_plan.get("distance") or "")
+    near_term_edit = (
+        updated_goal_plan.get("constraint_summary", {}) or {}
+    ).get("near_term_edit", {}) or {}
+    recovery_repair = (
+        str(near_term_edit.get("origin_kind") or "").strip().lower()
+        == "recovery_replan"
+    )
+    recovery_repair_dates = {
+        str(value)[:10]
+        for value in list(near_term_edit.get("edited_dates") or [])
+        if str(value)[:10]
+    }
+    changed_dates: List[str] = []
+
+    for day_index, template in enumerate(session_templates):
+        sessions = [dict(session or {}) for session in list(template.get("sessions") or [])]
+        if not sessions and planned_session_requires_repair(template):
+            sessions = [dict(template)]
+        rebuilt_sessions: List[Dict[str, Any]] = []
+        day_changed = False
+        recent_template_keys = _recent_template_keys_before(session_templates, day_index)
+        if day_index < len(daily_plan):
+            raw_date = daily_plan[day_index][0]
+            day_date = (
+                raw_date.strftime("%Y-%m-%d")
+                if hasattr(raw_date, "strftime")
+                else str(raw_date)[:10]
+            )
+        else:
+            day_date = str(template.get("date") or "")[:10]
+
+        for session in sessions:
+            if not planned_session_requires_repair(session):
+                rebuilt_sessions.append(session)
+                key = str(session.get("template_key") or "").strip()
+                if session.get("materialization_status") == "materialized" and key:
+                    recent_template_keys.append(key)
+                continue
+
+            sport = _normalize_sport(session.get("sport"))
+            role = _normalize_session_role(session.get("session_role"))
+            target_tss = _normalize_total_tss(session.get("total_tss"))
+            template_key = str(session.get("template_key") or "")
+            original_role = role
+            if (
+                recovery_repair
+                and day_date in recovery_repair_dates
+                and template_key.startswith("manual:")
+            ):
+                role = "recovery"
+            if sport in {"off", "brick"} or role == "off" or target_tss <= 0:
+                raise ValueError("non-executable session cannot be repaired from its saved fields")
+            materialized = _sessions_from_parts(
+                {sport: target_tss},
+                role,
+                str(template.get("phase", "Base") or "Base"),
+                goal_type,
+                distance,
+                zone_snapshot=zone_snapshot,
+                load_state=load_state,
+                recent_template_keys=recent_template_keys,
+            )
+            if not materialized or planned_session_requires_repair(materialized[0]):
+                raise ValueError("non-executable session has no feasible catalog prescription")
+            repaired_session = materialized[0]
+            repaired_session["repair_evidence"] = {
+                "kind": "materialization_repair",
+                "source": str(near_term_edit.get("origin_kind") or "unknown"),
+                "original_role": original_role,
+                "resolved_role": role,
+            }
+            old_id = str(session.get("session_id") or "").strip()
+            if old_id:
+                repaired_session["replaces_session_id"] = old_id
+            rebuilt_sessions.append(repaired_session)
+            day_changed = True
+
+        if not day_changed:
+            continue
+        template["sessions"] = rebuilt_sessions
+        project_day_scalars(template)
+        session_templates[day_index] = template
+        if day_index < len(daily_plan):
+            value = daily_plan[day_index][0]
+            changed_dates.append(
+                value.strftime("%Y-%m-%d") if hasattr(value, "strftime") else str(value)[:10]
+            )
+        else:
+            changed_dates.append(str(template.get("date") or "")[:10])
+
+    if not changed_dates:
+        return updated_goal_plan, []
+
+    updated_goal_plan["session_templates"] = session_templates
+    updated_goal_plan["plan_revision"] = datetime.now().isoformat()
+    repaired = ensure_session_identities(
+        updated_goal_plan,
+        previous_goal_plan=goal_plan,
+    )
+    return repaired, sorted(set(changed_dates))
 
 
 def apply_near_term_day_edits(
@@ -1158,6 +1356,7 @@ def apply_near_term_day_edits(
     current_tsb = _normalize_metric_or_none((goal_plan.get("constraint_summary", {}) or {}).get("current_tsb"))
     load_state = str((goal_plan.get("constraint_summary", {}) or {}).get("load_state", "balanced") or "balanced").lower()
     load_state_label = str((goal_plan.get("constraint_summary", {}) or {}).get("load_state_label") or "").strip()
+    zone_snapshot = extract_zone_snapshot(session_templates)
 
     original_horizon_total = round(sum(total for _dt, total, _parts in daily_plan[:resolved_horizon]), 1)
     changed_day_count = 0
@@ -1197,6 +1396,12 @@ def apply_near_term_day_edits(
                 phase=str(current_template.get("phase", "Base") or "Base"),
                 goal_type=goal_type,
                 distance=distance,
+                zone_snapshot=zone_snapshot,
+                load_state=load_state,
+                recent_template_keys=_recent_template_keys_before(
+                    session_templates,
+                    day_index,
+                ),
             )
             if edited is None:
                 continue
@@ -1336,6 +1541,12 @@ def apply_near_term_day_edits(
             phase=phase,
             goal_type=goal_type,
             distance=distance,
+            zone_snapshot=zone_snapshot,
+            load_state=load_state,
+            recent_template_keys=_recent_template_keys_before(
+                session_templates,
+                day_index,
+            ),
         )
         session_templates[day_index] = next_template
 
@@ -1422,6 +1633,8 @@ def apply_near_term_day_edits(
                 week_delta,
                 goal_type,
                 distance,
+                zone_snapshot=zone_snapshot,
+                load_state=load_state,
             )
             actual_week_delta_int = int(round(actual_week_delta))
             if actual_week_delta_int == 0:
@@ -1585,5 +1798,6 @@ __all__ = [
     "build_near_term_edit_rows",
     "build_safer_near_term_draft",
     "apply_near_term_day_edits",
+    "rematerialize_non_executable_sessions",
     "summarize_near_term_draft_rows",
 ]

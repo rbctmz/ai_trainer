@@ -10,7 +10,8 @@ ATAM-карты #201, но на уровне декларативной вали
 
 Этот файл закрывает остаток #248 тонким `TestClient`-слоем. `planning.py` —
 ЕДИНСТВЕННЫЙ роутер с path/query `Query`-констрейнтами (`events.days`,
-`export/workout.fmt`, `export/workout.leg`); остальные роутеры валидируют только
+`export/workout.fmt`, `export/workout.leg`, `export/workout.session_id`);
+остальные роутеры валидируют только
 тело запроса через Pydantic `Field(...)`, а оно уже пинается при конструировании
 модели в direct-call тестах (#242/#246). Поэтому HTTP-слой сводится к одному
 роутеру, а не к свипу.
@@ -74,7 +75,7 @@ def test_events_accepts_inclusive_days_and_serializes_body(client, monkeypatch, 
     assert resp.json() == sentinel
 
 
-# --- GET /export/workout/{index}?fmt=&leg=  (pattern + ge/le) ---------------
+# --- GET /export/workout/{index}?fmt=&leg=&session_id= ----------------------
 
 
 @pytest.mark.parametrize("fmt", ["bad", "gpx", "TCX"])
@@ -104,6 +105,22 @@ def test_export_workout_rejects_leg_outside_1_2(client, leg):
 def test_export_workout_accepts_inclusive_leg_then_404(client, leg):
     # leg на включительной границе валиден → 404 (нет активного плана), не 422.
     resp = client.get(f"{PLANNING}/export/workout/0", params={"fmt": "tcx", "leg": leg})
+    assert resp.status_code == 404
+
+
+def test_export_workout_rejects_empty_session_id(client):
+    resp = client.get(
+        f"{PLANNING}/export/workout/0",
+        params={"fmt": "tcx", "session_id": ""},
+    )
+    assert resp.status_code == 422
+
+
+def test_export_workout_accepts_nonempty_session_id_then_404(client):
+    resp = client.get(
+        f"{PLANNING}/export/workout/0",
+        params={"fmt": "tcx", "session_id": "ats_leaf"},
+    )
     assert resp.status_code == 404
 
 

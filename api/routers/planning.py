@@ -5,7 +5,7 @@
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -249,13 +249,20 @@ def planning_export_workout(
     index: int,
     fmt: str = Query("tcx", pattern="^(tcx|fit_csv|tcx_activity)$"),
     leg: Optional[int] = Query(None, ge=1, le=2),
+    session_id: Annotated[Optional[str], Query(min_length=1)] = None,
     db: Database = Depends(get_database),
 ) -> Response:
     plan = planning_service.get_active_plan(db)
     if not plan or not plan.get("daily_plan"):
         raise HTTPException(status_code=404, detail="no active plan")
     try:
-        result = planning_service.export_workout(plan, index, fmt, leg=leg)
+        result = planning_service.export_workout(
+            plan,
+            index,
+            fmt,
+            leg=leg,
+            session_id=session_id,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     return Response(

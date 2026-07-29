@@ -638,6 +638,31 @@ export interface WorkoutLeg {
   steps: WorkoutStep[];
 }
 
+export interface PlanLeafSession {
+  session_id: string | null;
+  replaces_session_id: string | null;
+  sport: string | null;
+  sport_label: string | null;
+  tss: number;
+  duration_minutes: number;
+  name: string;
+  phase: string;
+  kind: string;
+  catalog_version: string | null;
+  template_key: string | null;
+  template_version: number | null;
+  template_name: string | null;
+  stimulus: string | null;
+  fatigue_cost: number[];
+  expected_recovery_hours: number | null;
+  materialization_status: string | null;
+  target_provenance: Record<string, unknown> | null;
+  selection_evidence: Record<string, unknown> | null;
+  executable: boolean;
+  steps: WorkoutStep[];
+  legs: WorkoutLeg[];
+}
+
 export interface PlanDay {
   index: number;
   date: string;
@@ -657,8 +682,10 @@ export interface PlanDay {
   materialization_status: string | null;
   target_provenance: Record<string, unknown> | null;
   selection_evidence: Record<string, unknown> | null;
+  executable: boolean;
   steps: WorkoutStep[];
   legs: WorkoutLeg[];
+  sessions: PlanLeafSession[];
 }
 
 export interface PlanExport {
