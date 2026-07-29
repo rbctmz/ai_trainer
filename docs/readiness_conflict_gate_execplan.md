@@ -26,6 +26,9 @@ AI Trainer движется от «AI-ассистента, отвечающег
 - [x] (2026-07-29 16:42Z) Follow-up #315 final verification: focused readiness 34/34, recovery regression 51/51, smoke 1341 passed / 1 skipped, broad 1387 passed / 3 skipped / 24 deselected, Ruff/compile/diff checks green.
 - [x] (2026-07-29 16:44Z) Noise audit on checkpoint #89: only 1 of 29 `easy` days crosses the new threshold — the observed Neuromuscular Sprints on 2026-08-03; latest checkpoint remains #89.
 - [x] (2026-07-29 16:24Z) Published branch `codex/issue-315-fatigue-aware-readiness` and opened draft PR #316 with `Closes #315`; CI/review and human merge remain.
+- [x] (2026-07-29 16:31Z) Codex review found two coupled multi-session blockers: severity used the primary day role and transfer resolution could target the primary workout instead of the salient secondary child.
+- [x] (2026-07-29 16:34Z) Review RED: three regressions failed on missing salient-child identity, wrong transfer target, and unsafe fallback when that identity was stale.
+- [x] (2026-07-29 16:39Z) Review GREEN: salience follows the exact child's role and optional stable `session_id`; transfer resolution uses that identity authoritatively and fails closed on absence/drift. Focused gate/loop 71/71, transfer/materialization 55/55, full smoke 1344 passed / 1 skipped.
 
 ## Surprises & Discoveries
 
@@ -35,6 +38,8 @@ AI Trainer движется от «AI-ассистента, отвечающег
   Evidence: `models/training_planner.py::project_day_scalars`; checkpoint #89 на 2026-08-03 содержит day role `easy`, primary `Neuromuscular Sprints`, aggregate TSS 55 и structured maximum fatigue `1/1/3`.
 - Observation: существующий Recovery Replan уже умеет безопасно обработать новый тип конфликта без нового mutation path.
   Evidence: живой pure probe для 2026-08-03 построил recommendation `Recovery Spin`, fatigue снизилась `1/1/3 → 1/0/1`, recovery `30 → 12 ч`; checkpoint и provider state не менялись.
+- Observation: day-level aggregate без identity недостаточен для transfer-варианта на multi-session дне.
+  Evidence: Codex review воспроизвёл bike-primary / high-load swim-secondary: роль и sport верхнего day template указывали на bike, поэтому legacy resolver мог перенести bike и оставить источник salience на месте.
 
 ## Decision Log
 
@@ -65,12 +70,15 @@ AI Trainer движется от «AI-ассистента, отвечающег
 - Decision: legacy или malformed fatigue/recovery metadata не повышает salience.
   Rationale: отсутствие доказательства стоимости не должно создавать новый false positive; такие планы сохраняют прежнюю role-only матрицу. Это соответствует ASR-REL-2: data gap деградирует безопасно, а не выдумывается.
   Date/Author: 2026-07-29 / Codex.
+- Decision: когда structured load делает день значимым через дочернюю сессию, severity использует роль этой сессии, а `salience_source` переносит её `session_id`, если план его содержит.
+  Rationale: физиологическая цена и mutation target должны ссылаться на один исполнимый workout. Recovery transfer принимает stable identity только при точном совпадении даты, роли и sport label; устаревшая identity отключает transfer-вариант, но не угадывает primary. Legacy-отчёты без identity сохраняют прежний unique `(role, sport_label)` fallback.
+  Date/Author: 2026-07-29 / Codex.
 
 ## Outcomes & Retrospective
 
 (2026-07-09) Все milestone выполнены за одну сессию. Детектор чист от LLM, все пороги — именованные константы, каждый конфликт несёт evidence-числа. Живой прогон на реальной БД показал главный дизайн-инвариант в действии: готовность ready (68.8) × ближайшие easy/recovery/long сессии → `silence: true` с человекочитаемым reason — агент молчит, когда план и состояние согласны. Вне scope остались: варианты перепланирования при конфликте (Issue E), прогноз качества (Issue D), доставка конфликта в web-UI (meta уже содержит отчёт — UI может рендерить без изменений API), учёт `days_until` в severity (решение за контуром). Для WoZ-ритуала отчёт готов как источник строк decision_log: silence/data_gap/конфликт — все три исхода логируемы. Follow-up #152 позже добавил bounded lookahead до ближайшей quality-сессии и canonical readiness projection для Dashboard, не меняя severity-матрицу.
 
-(2026-07-29, follow-up #315) Gate теперь использует сохранённые catalog fatigue/recovery metadata, не меняя генератор и public role. Живой checkpoint #89 перестал давать ложное silence для Neuromuscular Sprints: при hypothetical unchanged readiness `limited` отчёт создаёт medium-конфликт с числами, а существующий Recovery Replan строит component-wise safer downgrade. Noise audit показал один promoted `easy`-день из 29, поэтому bounded policy исправляет наблюдавшийся false silence без широкого роста alert-кандидатов. Реализация опубликована в draft PR #316: focused 34/34, recovery 51/51, smoke 1341/1, broad 1387/3; остаются CI/review и human merge.
+(2026-07-29, follow-up #315) Gate теперь использует сохранённые catalog fatigue/recovery metadata, не меняя генератор и public role. Живой checkpoint #89 перестал давать ложное silence для Neuromuscular Sprints: при hypothetical unchanged readiness `limited` отчёт создаёт medium-конфликт с числами, а существующий Recovery Replan строит component-wise safer downgrade. Noise audit показал один promoted `easy`-день из 29, поэтому bounded policy исправляет наблюдавшийся false silence без широкого роста alert-кандидатов. Review follow-up связал severity и transfer target с одной salient child identity: secondary high-load workout больше не теряется за primary day scalar, а stale identity fail-closed отключает перенос. Реализация опубликована в PR #316; после review-fix focused gate/loop 71/71, transfer/materialization 55/55, smoke 1344/1. Остаётся повторный CI/review и human merge.
 
 ## Context and Orientation
 
@@ -202,3 +210,5 @@ Follow-up #315 добавляет именованные пороги `HIGH_FATI
 Revision note (2026-07-29 / Codex): документ обновлён для follow-up issue #315 после живой репродукции role-only false silence. Добавлены structured-load contract, RED→GREEN evidence, решения о совместимости, новая bounded lookahead policy, финальные test counts и noise audit.
 
 Revision note (2026-07-29 / Codex): зафиксирована публикация draft PR #316, связанного с issue #315.
+
+Revision note (2026-07-29 / Codex): добавлен post-review salient-child identity contract, fail-closed transfer targeting и финальная локальная верификация review-fix.

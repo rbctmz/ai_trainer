@@ -118,6 +118,7 @@ def _structured_load_metadata(template: Mapping[str, Any]) -> dict[str, Any]:
             sources.append(
                 {
                     "position": position,
+                    "session_id": str(candidate.get("session_id") or ""),
                     "name": _candidate_name(candidate),
                     "role": str(candidate.get("session_role") or ""),
                     "sport_label": str(candidate.get("sport_label") or ""),
@@ -160,6 +161,8 @@ def _structured_load_metadata(template: Mapping[str, Any]) -> dict[str, Any]:
             for key, value in source.items()
             if key not in {"position", "load_salient"}
         }
+        if not source.get("session_id"):
+            source.pop("session_id", None)
 
     return {
         "fatigue_cost": aggregate_fatigue,
@@ -167,6 +170,23 @@ def _structured_load_metadata(template: Mapping[str, Any]) -> dict[str, Any]:
         "load_salient": load_salient,
         "salience_source": source if load_salient else None,
     }
+
+
+def _salience_role(session: Mapping[str, Any]) -> str:
+    """Role of the exact child whose structured load made the day salient."""
+    source = session.get("salience_source")
+    if bool(session.get("load_salient")) and isinstance(source, Mapping):
+        source_role = str(source.get("role") or "").strip().lower()
+        if source_role in KNOWN_ROLES:
+            return source_role
+    return str(session.get("role") or "").strip().lower()
+
+
+def _salience_matrix_role(session: Mapping[str, Any]) -> str:
+    role = _salience_role(session)
+    if bool(session.get("load_salient")) and role == "easy":
+        return "quality"
+    return role
 
 
 def upcoming_plan_sessions(
@@ -243,13 +263,7 @@ def resolve_effective_horizon(
         (
             session
             for session in candidates
-            if (
-                session["role"] == "quality"
-                or (
-                    session["role"] == "easy"
-                    and bool(session.get("load_salient"))
-                )
-            )
+            if _salience_matrix_role(session) == "quality"
             and session["days_until"] >= base
         ),
         None,
@@ -321,15 +335,13 @@ def detect_readiness_conflicts(
     readiness_evidence = _readiness_evidence(readiness)
 
     for session in evaluated:
-        high_load_easy = (
-            session["role"] == "easy"
-            and bool(session.get("load_salient"))
-        )
-        matrix_role = "quality" if high_load_easy else session["role"]
+        salient_role = _salience_role(session)
+        high_load_easy = bool(session.get("load_salient")) and salient_role == "easy"
+        matrix_role = _salience_matrix_role(session)
         severity = SEVERITY_MATRIX.get((matrix_role, status))
         if severity is None:
             continue
-        kind_role = f"high_load_{session['role']}" if high_load_easy else session["role"]
+        kind_role = f"high_load_{salient_role}" if high_load_easy else matrix_role
         report["conflicts"].append(
             {
                 "date": session["date"],
