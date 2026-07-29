@@ -183,6 +183,8 @@ def _proposal_payload(
         "selected_conflict": dict(variant["selected_conflict"]),
         "as_of": variant.get("as_of"),
     }
+    if variant.get("safety_guard"):
+        params["safety_guard"] = dict(variant["safety_guard"])
     variants = _typed_variants(variant, transfer_variant)
     recommended_kind = next(
         entry["kind"] for entry in variants if entry.get("recommended")

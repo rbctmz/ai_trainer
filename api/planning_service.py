@@ -36,6 +36,7 @@ from models.planning_near_term import (
     apply_near_term_day_edits,
     rematerialize_non_executable_sessions,
 )
+from models.recovery_replan import assert_recovery_replan_safety
 from models.planning_summary import summarize_near_term_edit
 from models.session_identity import ensure_session_identities
 from models.session_transfer import apply_session_transfer
@@ -1336,6 +1337,38 @@ def apply_recovery_replan(
         horizon_days=horizon_days,
         post_edit_strategy=strategy,
         max_horizon_days=14,
+    )
+    changed_indices: list[int] = []
+    daily_plan = list(goal_plan.get("daily_plan") or [])
+    templates = list(goal_plan.get("session_templates") or [])
+    for row in draft_rows:
+        try:
+            index = int(row.get("index", -1))
+        except (TypeError, ValueError):
+            continue
+        if index < 0 or index >= len(daily_plan):
+            continue
+        current_total = round(float(daily_plan[index][1] or 0.0), 1)
+        template = dict(templates[index] or {}) if index < len(templates) else {}
+        current_role = str(
+            template.get("session_role")
+            or ("off" if current_total <= 0 else "easy")
+        ).strip().lower()
+        current_sport = str(template.get("sport") or "off").strip().lower()
+        target_total = round(float(row.get("total_tss") or 0.0), 1)
+        target_role = str(row.get("session_role") or "easy").strip().lower()
+        target_sport = str(row.get("sport") or "off").strip().lower()
+        if (
+            current_total != target_total
+            or current_role != target_role
+            or current_sport != target_sport
+        ):
+            changed_indices.append(index)
+    assert_recovery_replan_safety(
+        goal_plan,
+        updated,
+        target_indices=sorted(set(changed_indices)),
+        expected_guard=proposal_params.get("safety_guard"),
     )
     constraint_summary = dict(updated.get("constraint_summary") or {})
     near_term_edit = dict(constraint_summary.get("near_term_edit") or {})
