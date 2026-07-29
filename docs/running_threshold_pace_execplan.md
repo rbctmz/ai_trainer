@@ -36,7 +36,9 @@ an existing plan, so workouts already delivered to Intervals.icu or Garmin do no
 - [x] (2026-07-29 11:42Z) Focused vertical 63/63, regression 93/93, contributor-safe
   smoke 1330 passed/1 skipped, broad 1376 passed/3 skipped/24 deselected.
 - [x] (2026-07-29 11:43Z) Completed diff/self-review and updated ASR traceability.
-- [ ] Publish a ready pull request that closes issue #308 and confirm CI dispatch.
+- [x] (2026-07-29 11:50Z) Published ready PR #309 with `Closes #308`; implementation
+  SHA `ffb5c96` passed every required check and thread-aware review inspection found
+  zero unresolved threads. This final ExecPlan evidence update is docs-only.
 
 ## Surprises & Discoveries
 
@@ -147,7 +149,9 @@ suite reported 1376 passed, 3 skipped, and 24 deselected. Next lint and producti
 pass. A live Garmin round-trip was deliberately not executed: this repository owns the
 structured Intervals payload boundary, while the Intervals-to-Garmin forwarding step is
 external and the user has already validated that route with the prior heart-rate plan.
-The remaining step is publishing and CI on the pushed SHA.
+PR #309 is published ready-for-review and awaits the human merge decision. GitHub
+reported the implementation SHA mergeable/clean with all checks green and no unresolved
+review threads.
 
 ## Context and Orientation
 
@@ -375,3 +379,7 @@ bounds, and the non-mutation guarantee before TDD begins.
 Revision note (2026-07-29, implementation): Recorded RED evidence, implemented the
 profile-to-delivery vertical, added ASR traceability, documented the floating-point and
 repair-gate discoveries, and replaced predicted validation with exact local results.
+
+Revision note (2026-07-29, publication): Recorded ready PR #309, green implementation
+CI, and the zero-unresolved-thread audit so this plan no longer depends on conversation
+history for its final state.
