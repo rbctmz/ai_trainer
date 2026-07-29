@@ -27,8 +27,8 @@ by creating a new append-only checkpoint.
 - [x] (2026-07-29 08:40Z) Added dry-run-first, append-only repair service and CLI.
 - [x] (2026-07-29 09:15Z) Ran focused, smoke, full offline, web lint, and web
   production-build validation.
-- [ ] Complete final diff review, publish the branch, and open a PR that closes
-  issue #299.
+- [x] (2026-07-29 09:35Z) Completed final diff review, published RED commit
+  `315af5f` plus GREEN commit `f13f842`, and opened PR #305 with `Closes #299`.
 
 ## Surprises & Discoveries
 
@@ -106,7 +106,9 @@ Against a copy of the active local database, dry-run reported exactly 2026-07-30
 2026-08-01, and 2026-08-03. Apply created checkpoint 77 from parent 76; a repeated dry-run
 reported no changes. The repaired days contain Recovery Run, Recovery Spin, and Recovery
 Technique Swim prescriptions, and all four delivery events use the same persisted seconds.
-The real `ai_trainer.db` remains untouched until this PR is merged.
+The real `ai_trainer.db` remains untouched until this PR is merged. Publication is
+reviewable in PR #305; the branch intentionally excludes the developer-owned untracked
+`.zcode/` directory.
 
 ## Context and Orientation
 
@@ -224,3 +226,6 @@ valid.
 
 Revision note (2026-07-29): Initial executable specification created after reproducing the
 active-plan defect. Updated after the six-gate RED run to record direct pre-fix evidence.
+
+Revision note (2026-07-29): Closed implementation and validation evidence after the
+catalog-v3, API/web, fail-closed delivery, and append-only repair slices; recorded PR #305.
