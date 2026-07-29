@@ -25,6 +25,7 @@ CHECKPOINT_SOURCE_LABELS = {
     "coach_constraint": "Ограничение Коуча",
     "recovery_replan": "Recovery Replan",
     "weekly_rebalance": "Недельная пересборка по факту",
+    "materialization_repair": "Восстановление исполнимых тренировок",
     "restore_version": "Восстановленная версия",
     "legacy_checkpoint": "Сохранённая версия",
 }

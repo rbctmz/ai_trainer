@@ -6,6 +6,7 @@ from typing import Any, Mapping, Sequence
 
 from models.fit_export import build_steps_for_sport
 from models.session_identity import ensure_session_identities
+from models.workout_catalog import require_executable_planned_session
 
 
 AI_TRAINER_EXTERNAL_ID_PREFIX = "ai_trainer:"
@@ -179,6 +180,7 @@ def build_delivery_events(
             session_id = str(session.get("session_id") or "").strip()
             if not session_id:
                 raise ValueError(f"planned session {day} has no stable session_id")
+            require_executable_planned_session(session)
             phase = str(session.get("phase") or template.get("phase") or "")
             role = str(session.get("session_role") or "easy")
             if str(session.get("kind") or "single") == "composite":

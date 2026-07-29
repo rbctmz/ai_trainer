@@ -59,7 +59,11 @@ These completed ExecPlans describe the current product behavior and the invarian
   completed milestone evidence. Statements scoped to an intermediate milestone
   are historical after later milestones.
 - `docs/planner_discipline_distribution_execplan.md`: executable `sessions[]` as the plan truth, deterministic discipline scheduler, multi-session days, grouped bricks, race-load projection, and delivery identity.
-- `docs/workout_catalog_v2_execplan.md`: current structured bike/run workout DSL and materialization rules; activation and bookend follow-ups are recorded in the planner contract above.
+- `docs/workout_catalog_v2_execplan.md`: structured bike/run workout DSL and
+  materialization-v2 baseline.
+- `docs/recovery_replan_materialization_p1_execplan.md`: current catalog-v3
+  executable-prescription invariant for recovery/near-term mutations,
+  multi-session export, fail-closed delivery, and append-only plan repair.
 - `docs/race_microcycle_execplan.md`: A/B/C race microcycles, protected race/recovery dates, and structured pre-race activation.
 - `docs/recovery_transfer_execplan.md`: RecoveryReplan v2 keep/downgrade/transfer D+1…D+3 decision contract, safety guards, identity lineage, confirm, and rollback.
 - `docs/reconciliation_service_execplan.md`: canonical read-only plan/actual reconciliation service and API compatibility boundary.

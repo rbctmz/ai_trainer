@@ -20,11 +20,15 @@ by creating a new append-only checkpoint.
 - [x] (2026-07-29 06:30Z) Reproduced the defect against the active local checkpoint and traced it through recovery proposals 44-46.
 - [x] (2026-07-29 06:45Z) Identified the shared materializer, API projection, export fallback, and compatibility boundaries.
 - [x] (2026-07-29 07:05Z) Added six RED behavior gates for recovery rematerialization, duration parity, multi-session API/export, fail-closed modern placeholders, and append-only repair; all six fail against `main`.
-- [ ] Reuse the initial-plan materializer from near-term edit paths.
-- [ ] Extend the planning API/web contract to expose and export every leaf session.
-- [ ] Add the explicit append-only repair path for existing broken checkpoints.
-- [ ] Run focused, contributor-safe, full offline, web lint, and web build validation.
-- [ ] Complete self-review, publish the branch, and open a PR that closes issue #299.
+- [x] (2026-07-29 08:10Z) Reused the initial-plan materializer from whole-day,
+  targeted-session, and future-week near-term edit paths.
+- [x] (2026-07-29 08:25Z) Extended the planning API/web contract to expose and
+  export every leaf session and to block modern sessions without saved steps.
+- [x] (2026-07-29 08:40Z) Added dry-run-first, append-only repair service and CLI.
+- [x] (2026-07-29 09:15Z) Ran focused, smoke, full offline, web lint, and web
+  production-build validation.
+- [ ] Complete final diff review, publish the branch, and open a PR that closes
+  issue #299.
 
 ## Surprises & Discoveries
 
@@ -43,6 +47,21 @@ by creating a new append-only checkpoint.
 - Observation: The complete RED file fails in six independent ways rather than stopping at
   collection, which proves each missing behavior directly.
   Evidence: `6 failed in 1.48s` in `test_recovery_replan_materialization_p1.py`.
+
+- Observation: Preserving the exact discipline budget exposed a missing low-load swim
+  catalog envelope: a 30-minute, 9.8-TSS secondary swim had no feasible definition.
+  Evidence: the direct catalog gate returned `legacy_role_fallback`; catalog v3 now
+  materializes it as `swim_recovery_technique`.
+
+- Observation: The future-week composite branch contained dormant undefined variables and
+  would drop the brick's nested session after a weekly adjustment.
+  Evidence: the new brick-rebalance gate failed with `NameError: target_sport`; it now
+  rescales both legs and keeps their exact steps.
+
+- Observation: A repair that merely selected any feasible `easy` template converted the
+  active 2026-08-01 recovery cutback into neuromuscular sprints.
+  Evidence: apply on a copied checkpoint selected `bike_neuromuscular_sprints`; recovery
+  lineage now resolves broken `manual:*` leaves through recovery-role definitions.
 
 ## Decision Log
 
@@ -65,11 +84,29 @@ by creating a new append-only checkpoint.
   Rationale: ADR-0006 requires plan history to remain auditable and reversible.
   Date/Author: 2026-07-29 / Codex.
 
+- Decision: Bump the catalog provenance to `workout_catalog_v3` and add one bounded
+  `swim_recovery_technique` definition rather than relaxing the existing aerobic-swim
+  envelope or synthesizing steps at export time.
+  Rationale: low-load discipline truth needs a real versioned prescription.
+  Date/Author: 2026-07-29 / Codex.
+
+- Decision: Repair `manual:*` leaves under `recovery_replan` lineage with recovery-role
+  selection and explicit `repair_evidence`.
+  Rationale: operational repair must preserve safety intent, not merely produce valid bytes.
+  Date/Author: 2026-07-29 / Codex.
+
 ## Outcomes & Retrospective
 
-Work is in progress. The expected outcome is that recovery adjustments remain executable,
-the web/API/export/delivery surfaces agree on session identity and duration, and the current
-broken local plan can be repaired safely after the code is merged.
+The implementation now keeps recovery and near-term mutations executable through the same
+catalog path as initial planning. API and web expose every leaf of a multi-session day;
+export and Intervals delivery use saved prescriptions and fail closed on modern broken
+records. A dry-run-first CLI repairs broken recovery checkpoints append-only.
+
+Against a copy of the active local database, dry-run reported exactly 2026-07-30,
+2026-08-01, and 2026-08-03. Apply created checkpoint 77 from parent 76; a repeated dry-run
+reported no changes. The repaired days contain Recovery Run, Recovery Spin, and Recovery
+Technique Swim prescriptions, and all four delivery events use the same persisted seconds.
+The real `ai_trainer.db` remains untouched until this PR is merged.
 
 ## Context and Orientation
 
@@ -119,7 +156,7 @@ Work from `/Users/gregkisel/Developer/ai_trainer`.
 Run focused RED gates:
 
     ai_trainer_env/bin/python -m pytest \
-      tests/smoke/test_recovery_replan_materialization.py \
+      tests/smoke/test_recovery_replan_materialization_p1.py \
       tests/smoke/test_api_planning.py \
       tests/smoke/test_intervals_plan_delivery.py -q
 
@@ -129,6 +166,14 @@ After implementation, run:
     ai_trainer_env/bin/python -m pytest -m "not live and not debug" tests/
     npm --prefix web run lint
     npm --prefix web run build
+
+Observed verification:
+
+    focused planning/catalog/API/delivery/recovery: 160 passed
+    smoke: 1305 collected, exit 0
+    full offline: 1353 selected, exit 0
+    web lint: no warnings or errors
+    web production build: compiled and type-checked successfully
 
 Before any repair of `ai_trainer.db`, run the repair command in dry-run mode and inspect the
 reported dates. Apply only after the code PR is merged and a SQLite backup exists.

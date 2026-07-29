@@ -2,12 +2,16 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 
 import pytest
 
 from data.database import Database
 from models.planning_near_term import build_near_term_edit_rows
+from models.workout_catalog import (
+    materialize_session_template,
+    planned_session_requires_repair,
+)
 from tests.smoke.test_api_planning import _seeded_db
 
 
@@ -92,6 +96,119 @@ def test_confirmed_recovery_downgrade_remains_materialized(tmp_path) -> None:
     assert sum(int(step["duration_seconds"]) for step in session["materialized_steps"]) == (
         int(session["duration_minutes"]) * 60
     )
+
+
+def test_low_load_recovery_swim_has_a_real_catalog_prescription() -> None:
+    session = materialize_session_template(
+        phase="Base",
+        session_role="recovery",
+        sport="swim",
+        target_tss=9.8,
+        estimated_duration_minutes=30,
+        goal_type="triathlon",
+        zone_snapshot={},
+    )
+
+    assert session["materialization_status"] == "materialized"
+    assert session["template_key"] == "swim_recovery_technique"
+    assert session["materialized_steps"]
+    assert sum(
+        int(step["duration_seconds"]) for step in session["materialized_steps"]
+    ) == int(session["duration_minutes"]) * 60
+    assert sum(float(step["tss"]) for step in session["materialized_steps"]) == pytest.approx(
+        9.8,
+        abs=0.01,
+    )
+
+
+def test_race_event_without_steps_is_not_a_broken_training_session() -> None:
+    assert not planned_session_requires_repair(
+        {
+            "kind": "event",
+            "sport": "off",
+            "session_role": "race",
+            "total_tss": 0,
+            "template_key": "race_event:A",
+            "materialization_status": "race_event",
+        }
+    )
+
+
+def test_future_week_rebalance_rescales_composite_without_losing_steps() -> None:
+    from models.planning_near_term import _apply_week_total_delta
+    from models.workout_catalog import materialize_brick_session
+
+    brick = materialize_brick_session(
+        phase="Build",
+        target_tss=100.0,
+        parts={"bike": 70.0, "run": 30.0, "swim": 0.0},
+        estimated_duration_minutes=120,
+        goal_type="triathlon",
+        zone_snapshot={"ftp": 200, "threshold_pace": 300},
+    )
+    brick.update(
+        {
+            "session_id": "ats_brick",
+            "session_role": "long",
+            "session_focus": "Endurance Brick",
+            "total_tss": 100.0,
+            "export_name": "Endurance Brick",
+        }
+    )
+    start = datetime(2026, 8, 24)
+    daily_plan = [
+        (start, 100.0, {"bike": 70.0, "run": 30.0, "swim": 0.0}),
+        *[
+            (
+                start + timedelta(days=offset),
+                0.0,
+                {"bike": 0.0, "run": 0.0, "swim": 0.0},
+            )
+            for offset in range(1, 7)
+        ],
+    ]
+    session_templates = [
+        {
+            "date": start.strftime("%Y-%m-%d"),
+            "week_index": 0,
+            "day_index": 0,
+            "phase": "Build",
+            **brick,
+            "sessions": [deepcopy(brick)],
+        },
+        *[
+            {
+                "date": (start + timedelta(days=offset)).strftime("%Y-%m-%d"),
+                "week_index": 0,
+                "day_index": offset,
+                "phase": "Build",
+                "sport": "off",
+                "session_role": "off",
+                "sessions": [],
+            }
+            for offset in range(1, 7)
+        ],
+    ]
+
+    applied = _apply_week_total_delta(
+        daily_plan,
+        session_templates,
+        0,
+        10,
+        "triathlon",
+        "olympic",
+        zone_snapshot={"ftp": 200, "threshold_pace": 300},
+        load_state="balanced",
+    )
+
+    assert applied == pytest.approx(10.0)
+    scaled = session_templates[0]["sessions"][0]
+    assert scaled["materialization_status"] == "materialized"
+    assert scaled["total_tss"] == pytest.approx(110.0)
+    assert sum(float(leg["target_tss"]) for leg in scaled["legs"]) == pytest.approx(
+        110.0
+    )
+    assert all(leg["materialized_steps"] for leg in scaled["legs"])
 
 
 def test_repeated_recovery_downgrades_never_accumulate_manual_stubs(tmp_path) -> None:
@@ -260,6 +377,12 @@ def test_plan_days_exposes_every_leaf_and_each_leaf_exports_independently(
     assert captured["sport"] == "swim"
     assert captured["steps"][0]["duration_seconds"] == 1620
 
+    ps.export_workout(plan, 0, "tcx")
+    assert captured["name"] == "Bike endurance"
+    assert captured["sport"] == "bike"
+    with pytest.raises(ValueError, match="no session_id"):
+        ps.export_workout(plan, 0, "tcx", session_id="ats_missing")
+
 
 def _broken_manual_plan() -> dict:
     session = {
@@ -294,7 +417,12 @@ def _broken_manual_plan() -> dict:
         ],
         "weekly_tss_plan": [40],
         "weekly_summary": [],
-        "constraint_summary": {},
+        "constraint_summary": {
+            "near_term_edit": {
+                "origin_kind": "recovery_replan",
+                "post_edit_strategy": "protect_recovery",
+            }
+        },
     }
 
 
@@ -331,8 +459,35 @@ def test_repair_is_dry_run_first_append_only_and_idempotent(tmp_path) -> None:
     assert repaired["checkpoint_parent_id"] == base["id"]
     assert repaired["checkpoint_source"] == "materialization_repair"
     assert db.get_planning_checkpoint(base["id"]) == parent_before
+    repaired_plan = ps.get_active_plan(db)
+    repaired_session = repaired_plan["session_templates"][0]["sessions"][0]
+    assert repaired_session["session_role"] == "recovery"
+    assert repaired_session["template_key"] == "bike_recovery_spin"
 
     repeated = ps.repair_active_plan_materialization(db, persist=True)
     assert repeated["changed_dates"] == []
     assert repeated["plan_id"] is None
     assert db.get_latest_planning_checkpoint()["id"] == repaired["id"]
+
+
+def test_repair_cli_boundary_is_dry_run_by_default(tmp_path) -> None:
+    from models.planning_checkpoints import build_planning_checkpoint
+    from scripts.repair_planning_materialization import repair_database
+
+    path = tmp_path / "repair-cli.db"
+    db = Database(str(path))
+    base = db.save_planning_checkpoint(
+        build_planning_checkpoint(_broken_manual_plan())
+    )
+
+    preview = repair_database(path)
+    assert preview["mode"] == "dry-run"
+    assert preview["changed_dates"] == ["2026-08-01"]
+    assert db.get_latest_planning_checkpoint()["id"] == base["id"]
+
+    applied = repair_database(path, apply=True)
+    assert applied["mode"] == "apply"
+    assert applied["plan_id"] is not None
+    assert db.get_latest_planning_checkpoint()["checkpoint_source"] == (
+        "materialization_repair"
+    )

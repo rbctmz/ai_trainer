@@ -366,14 +366,14 @@ def schedule_week_slots(
     if available_weekly_hours and float(available_weekly_hours) > 0:
         # Canonical WEEK projection: measure exactly the way the builder will
         # persist the week — occasions aggregated into calendar days (the same
-        # parts that reach daily_plan), one `_split_day_sessions` call per day
+        # parts that reach daily_plan), one `materialize_day_sessions` call per day
         # with the day's hardest role, and ONE shared recent_template_keys
         # rotation across the whole week. Lazy import; never re-enters expand.
         def _week_minutes() -> tuple:
             """(minutes, rotation_out) — the plan-level rotation contract: the
             week is projected starting from the rotation state accumulated by
             the previous weeks, exactly as the builder will see it."""
-            from models.training_planner import _split_day_sessions
+            from models.training_planner import materialize_day_sessions
 
             rotation: List[str] = list(template_rotation or [])
             total_minutes = 0
@@ -388,7 +388,7 @@ def schedule_week_slots(
                 total = round(sum(parts.values()), 1)
                 if total <= 0:
                     continue
-                sessions, _allocated, _meta = _split_day_sessions(
+                sessions, _allocated, _meta = materialize_day_sessions(
                     parts=parts,
                     total=total,
                     is_brick=any(o["is_brick"] for o in entries),

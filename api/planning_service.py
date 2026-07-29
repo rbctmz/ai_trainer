@@ -32,7 +32,10 @@ from models.planning_checkpoints import (
     summarize_planning_checkpoint,
     with_checkpoint_provenance,
 )
-from models.planning_near_term import apply_near_term_day_edits
+from models.planning_near_term import (
+    apply_near_term_day_edits,
+    rematerialize_non_executable_sessions,
+)
 from models.planning_summary import summarize_near_term_edit
 from models.session_identity import ensure_session_identities
 from models.session_transfer import apply_session_transfer
@@ -76,7 +79,9 @@ from models.workout_catalog import (
     CATALOG_VERSION,
     MATERIALIZER_RULE_VERSION,
     SELECTOR_RULE_VERSION,
+    planned_session_requires_repair,
     prepare_weekly_brick_allocations,
+    require_executable_planned_session,
 )
 # Issue #194: reconciliation_at and its as_of/provider-evidence helpers are
 # owned by the services layer (services/reconciliation.py) — they are
@@ -685,6 +690,45 @@ def get_active_plan(db: Database) -> Optional[Dict[str, Any]]:
     return ensure_session_identities(plan) if plan else None
 
 
+def repair_active_plan_materialization(
+    db: Database,
+    *,
+    persist: bool = False,
+) -> Dict[str, Any]:
+    """Preview or append one checkpoint that repairs non-executable modern leaves."""
+    latest = db.get_latest_planning_checkpoint()
+    if not latest:
+        raise ValueError("no active plan")
+    base_checkpoint_id = int(latest["id"])
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    if not goal_plan:
+        raise ValueError("active plan cannot be restored")
+
+    repaired, changed_dates = rematerialize_non_executable_sessions(goal_plan)
+    if not changed_dates:
+        return {
+            "plan_id": None,
+            "base_checkpoint_id": base_checkpoint_id,
+            "changed_dates": [],
+            "confirmation_required": False,
+        }
+
+    repaired = with_checkpoint_provenance(
+        repaired,
+        source="materialization_repair",
+        parent_checkpoint_id=base_checkpoint_id,
+    )
+    saved = None
+    if persist:
+        saved = db.save_planning_checkpoint(build_planning_checkpoint(repaired))
+    return {
+        "plan_id": str(saved["id"]) if saved else None,
+        "base_checkpoint_id": base_checkpoint_id,
+        "changed_dates": changed_dates,
+        "confirmation_required": not persist,
+    }
+
+
 def _infer_sport(parts: Any, template: Dict[str, Any] | None) -> str:
     sport = str((template or {}).get("sport") or "").strip()
     if sport and sport != "—":
@@ -693,6 +737,70 @@ def _infer_sport(parts: Any, template: Dict[str, Any] | None) -> str:
     if parts:
         return max(parts, key=lambda k: float(parts.get(k) or 0.0), default="bike")
     return "bike"
+
+
+def _steps_payload(session: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "name": step.get("name"),
+            "intensity": step.get("intensity"),
+            "duration_seconds": step.get("duration_seconds"),
+            "target": step.get("target"),
+        }
+        for step in list(session.get("materialized_steps") or [])
+    ]
+
+
+def _legs_payload(session: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [
+        {
+            "leg_index": leg.get("leg_index"),
+            "leg_id": leg.get("leg_id"),
+            "sport": leg.get("sport"),
+            "template_name": leg.get("template_name"),
+            "duration_minutes": leg.get("duration_minutes"),
+            "target_tss": leg.get("target_tss"),
+            "target_provenance": leg.get("target_provenance"),
+            "steps": _steps_payload(dict(leg or {})),
+        }
+        for leg in list(session.get("legs") or [])
+    ]
+
+
+def _leaf_plan_payload(
+    session: Dict[str, Any],
+    *,
+    phase: str,
+) -> Dict[str, Any]:
+    return {
+        "session_id": session.get("session_id"),
+        "replaces_session_id": session.get("replaces_session_id"),
+        "sport": session.get("sport"),
+        "sport_label": session.get("sport_label"),
+        "tss": float(session.get("total_tss") or 0.0),
+        "duration_minutes": int(session.get("duration_minutes") or 0),
+        "name": str(
+            session.get("export_name")
+            or session.get("template_name")
+            or session.get("session_focus")
+            or "Сессия"
+        ),
+        "phase": phase,
+        "kind": str(session.get("kind") or "single"),
+        "catalog_version": session.get("catalog_version"),
+        "template_key": session.get("template_key"),
+        "template_version": session.get("template_version"),
+        "template_name": session.get("template_name"),
+        "stimulus": session.get("stimulus"),
+        "fatigue_cost": list(session.get("fatigue_cost") or []),
+        "expected_recovery_hours": session.get("expected_recovery_hours"),
+        "materialization_status": session.get("materialization_status"),
+        "target_provenance": session.get("target_provenance"),
+        "selection_evidence": session.get("selection_evidence"),
+        "executable": not planned_session_requires_repair(session),
+        "steps": _steps_payload(session),
+        "legs": _legs_payload(session),
+    }
 
 
 def plan_days(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -708,6 +816,13 @@ def plan_days(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
         total_tss = int(round(float(total or 0)))
         if total_tss <= 0:
             continue  # skip rest days in the export picker
+        phase = str((tpl or {}).get("phase") or "")
+        leaf_sessions = [
+            dict(session or {})
+            for session in list((tpl or {}).get("sessions") or [])
+        ]
+        if not leaf_sessions:
+            leaf_sessions = [dict(tpl or {})]
         out.append(
             {
                 "index": i,
@@ -718,7 +833,7 @@ def plan_days(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "sport_label": str((tpl or {}).get("sport_label") or _infer_sport(parts, tpl)),
                 "tss": total_tss,
                 "name": str((tpl or {}).get("export_name") or (tpl or {}).get("session_focus") or "Сессия"),
-                "phase": str((tpl or {}).get("phase") or ""),
+                "phase": phase,
                 "kind": str((tpl or {}).get("kind") or "single"),
                 "catalog_version": (tpl or {}).get("catalog_version"),
                 "template_key": (tpl or {}).get("template_key"),
@@ -730,35 +845,15 @@ def plan_days(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "materialization_status": (tpl or {}).get("materialization_status"),
                 "target_provenance": (tpl or {}).get("target_provenance"),
                 "selection_evidence": (tpl or {}).get("selection_evidence"),
-                "steps": [
-                    {
-                        "name": step.get("name"),
-                        "intensity": step.get("intensity"),
-                        "duration_seconds": step.get("duration_seconds"),
-                        "target": step.get("target"),
-                    }
-                    for step in list((tpl or {}).get("materialized_steps") or [])
-                ],
-                "legs": [
-                    {
-                        "leg_index": leg.get("leg_index"),
-                        "leg_id": leg.get("leg_id"),
-                        "sport": leg.get("sport"),
-                        "template_name": leg.get("template_name"),
-                        "duration_minutes": leg.get("duration_minutes"),
-                        "target_tss": leg.get("target_tss"),
-                        "target_provenance": leg.get("target_provenance"),
-                        "steps": [
-                            {
-                                "name": step.get("name"),
-                                "intensity": step.get("intensity"),
-                                "duration_seconds": step.get("duration_seconds"),
-                                "target": step.get("target"),
-                            }
-                            for step in list(leg.get("materialized_steps") or [])
-                        ],
-                    }
-                    for leg in list((tpl or {}).get("legs") or [])
+                "executable": not any(
+                    planned_session_requires_repair(session)
+                    for session in leaf_sessions
+                ),
+                "steps": _steps_payload(dict(tpl or {})),
+                "legs": _legs_payload(dict(tpl or {})),
+                "sessions": [
+                    _leaf_plan_payload(session, phase=phase)
+                    for session in leaf_sessions
                 ],
             }
         )
@@ -781,6 +876,7 @@ def export_workout(
     index: int,
     fmt: str,
     leg: int | None = None,
+    session_id: str | None = None,
 ) -> Dict[str, str]:
     """Return {filename, mimetype, content} for a single planned session."""
     daily_plan = list(goal_plan.get("daily_plan", []) or [])
@@ -790,15 +886,40 @@ def export_workout(
 
     dt, total, parts = daily_plan[index]
     tpl = templates[index] if index < len(templates) else {}
-    kind = str((tpl or {}).get("kind") or "single")
+    sessions = [
+        dict(session or {})
+        for session in list((tpl or {}).get("sessions") or [])
+    ]
+    selected = dict(tpl or {})
+    selected_position = 0
+    if sessions:
+        if session_id:
+            selected_position = next(
+                (
+                    position
+                    for position, session in enumerate(sessions)
+                    if str(session.get("session_id") or "") == str(session_id)
+                ),
+                -1,
+            )
+            if selected_position < 0:
+                raise ValueError(f"day has no session_id={session_id}")
+            selected = sessions[selected_position]
+        else:
+            selected = sessions[0]
+    elif session_id and str(selected.get("session_id") or "") != str(session_id):
+        raise ValueError(f"day has no session_id={session_id}")
+
+    kind = str(selected.get("kind") or "single")
     suffix = ""
     if kind == "composite":
         if leg not in {1, 2}:
             raise ValueError("composite session requires leg=1 or leg=2")
+        require_executable_planned_session(selected)
         resolved_leg = next(
             (
                 item
-                for item in list((tpl or {}).get("legs") or [])
+                for item in list(selected.get("legs") or [])
                 if int(item.get("leg_index") or 0) == leg
             ),
             None,
@@ -811,17 +932,26 @@ def export_workout(
     else:
         if leg is not None:
             raise ValueError("leg is only valid for composite sessions")
-        sport = _infer_sport(parts, tpl)
-        steps = list((tpl or {}).get("materialized_steps") or [])
+        sport = str(selected.get("sport") or "").strip() or _infer_sport(parts, tpl)
+        steps = list(selected.get("materialized_steps") or [])
         if not steps:
+            require_executable_planned_session(selected)
             steps = build_steps_for_sport(
-                float(total or 0),
+                float(
+                    selected.get("total_tss")
+                    if selected.get("total_tss") is not None
+                    else total or 0
+                ),
                 sport,
-                session_role=str((tpl or {}).get("session_role", "easy")),
-                phase=(tpl or {}).get("phase"),
+                session_role=str(selected.get("session_role", "easy")),
+                phase=selected.get("phase") or (tpl or {}).get("phase"),
             )
+        if session_id and len(sessions) > 1:
+            suffix = f"_session{selected_position + 1}_{sport}"
     name = str(
-        (tpl or {}).get("export_name")
+        selected.get("export_name")
+        or selected.get("template_name")
+        or (tpl or {}).get("export_name")
         or f"{goal_plan.get('goal_type','')} — {dt.strftime('%Y-%m-%d')}"
     )
     stamp = dt.strftime("%Y%m%d")

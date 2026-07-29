@@ -9,7 +9,7 @@ import math
 from typing import Any, Mapping, Sequence
 
 
-CATALOG_VERSION = "workout_catalog_v2"
+CATALOG_VERSION = "workout_catalog_v3"
 SELECTOR_RULE_VERSION = "workout_selector_v1"
 MATERIALIZER_RULE_VERSION = "workout_materializer_v2"
 STRUCTURE_RULE_VERSION = "workout_structure_v2"
@@ -195,6 +195,12 @@ _CATALOG = (
         "pre-race sharpening strides", _ALL_TRAINING_PHASES,
         (20, 45), (4, 35), (10, 70), (1, 1, 1), 12,
         ("threshold_pace", "lthr", "relative_rpe"), "activation", version=1,
+    ),
+    _definition(
+        "swim_recovery_technique", "Recovery Technique Swim", "swim", ("recovery", "easy"),
+        "low-load technique and circulation", _ALL_TRAINING_PHASES,
+        (15, 45), (3, 30), (8, 40), (1, 0, 0), 8, ("css", "relative_rpe"), "technique",
+        version=1,
     ),
     _definition(
         "swim_technique_aerobic", "Technique + Aerobic Swim", "swim", ("recovery", "easy", "quality"),
@@ -1367,6 +1373,42 @@ def extract_zone_snapshot(templates: Sequence[Mapping[str, Any]]) -> dict[str, f
             if value > 0:
                 zones.setdefault(kind, value)
     return zones
+
+
+def planned_session_is_executable(session: Mapping[str, Any]) -> bool:
+    """Return whether a persisted modern session owns an exact prescription."""
+    if str(session.get("kind") or "single") == "composite":
+        legs = list(session.get("legs") or [])
+        return bool(legs) and all(list((leg or {}).get("materialized_steps") or []) for leg in legs)
+    return bool(list(session.get("materialized_steps") or []))
+
+
+def planned_session_requires_repair(session: Mapping[str, Any]) -> bool:
+    """Distinguish broken modern sessions from pre-catalog legacy records."""
+    kind = str(session.get("kind") or "single").strip().lower()
+    sport = str(session.get("sport") or "").strip().lower()
+    role = str(session.get("session_role") or "").strip().lower()
+    if (
+        kind == "event"
+        or sport in {"off", "race"}
+        or role in {"off", "race"}
+    ):
+        return False
+    template_key = str(session.get("template_key") or "").strip()
+    status = str(session.get("materialization_status") or "").strip()
+    is_modern = (
+        template_key.startswith("manual:")
+        or bool(status)
+        or bool(session.get("catalog_version"))
+    )
+    return is_modern and not planned_session_is_executable(session)
+
+
+def require_executable_planned_session(session: Mapping[str, Any]) -> None:
+    """Fail closed when current planning code persisted no executable steps."""
+    if planned_session_requires_repair(session):
+        session_id = str(session.get("session_id") or "unknown")
+        raise ValueError(f"planned session {session_id} is not executable; repair the active plan")
 
 
 def _date_key(value: Any) -> str:

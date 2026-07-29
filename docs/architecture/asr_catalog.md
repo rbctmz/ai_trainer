@@ -12,7 +12,7 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-PERF-2 | Коуч: первый токен < 5 сек | High | стриминг SSE; native function calling (#190) убрал маркерный второй проход у поддерживающих провайдеров | `first_token_ms` в SSE `done`, покрыт смоуком (#241); 5с — наблюдение, авто-гейта на порог нет (недетерминизм провайдера) | 🟡 |
 | ASR-PERF-3 | Инкрементальный provider-sync, дельта дня < 10 сек | Medium | Garmin incremental window; Intervals per-provider/per-domain cursors | smoke sync/cursor-сьюты | ✅ |
 | ASR-PERF-4 | Planning preview 16 недель < 10 сек | Medium | детерминированный scheduler без БД внутри цикла (#205) | референс-сборки в smoke (секунды) | ✅ |
-| ASR-REL-1 | Reconciliation: ни одна активность не теряется при перепланировании | High | content-derived session identity + lineage (`replaces_session_id`, #206/#209), append-only ledger | `test_recovery_transfer_identity_handoff.py`, twin-матрица identity | ✅ |
+| ASR-REL-1 | Reconciliation: ни одна активность или исполнимая тренировка не теряется при перепланировании | High | content-derived session identity + lineage (`replaces_session_id`, #206/#209), append-only ledger; recovery/near-term mutations повторно материализуют точный catalog prescription, modern broken sessions fail closed | `test_recovery_transfer_identity_handoff.py`, twin-матрица identity, `test_recovery_replan_materialization_p1.py` | ✅ |
 | ASR-REL-2 | Отсутствие данных → data gap, не падение | High | gate-исходы silence/data_gap (#154), `has_plan=false` пробросы (#228) | smoke-гейты loop/ribbon | ✅ |
 | ASR-REL-3 | Обрыв sync/maintenance не портит частичные данные | Medium | атомарный common-ingest; cursor-after-clean-batch; независимые activity/wellness cursors; SQLite restore через validated temp + atomic replace + pre-restore rollback | M0/M1 ingest/cursor, M4 wellness rollback и `test_sqlite_backup_restore.py` fail-before-replace | ✅ |
 | ASR-MOD-1 | Новый AI-провайдер без правки основного кода | High | `AIProvider` ABC + фабрика; capability-флаги (`supports_native_tools`, #190) делают расширения аддитивными | capability-матрица в `test_coach_native_tools.py` | ✅ |
@@ -216,7 +216,8 @@ FastAPI отклонит до хендлера). Настоящий HTTP-round-t
 и включительная граница → не-422 (404 на пустой БД либо 200 через sentinel для
 `/events`, что заодно пинует реальный DI + сериализацию dict). `planning.py` —
 ЕДИНСТВЕННЫЙ роутер с path/query `Query`-констрейнтами (`events.days` `ge/le`,
-`export/workout.fmt` `pattern`, `export/workout.leg` `ge/le`); у остальных
+`export/workout.fmt` `pattern`, `export/workout.leg` `ge/le`,
+`export/workout.session_id` `min_length`); у остальных
 роутеров валидируется только тело запроса через Pydantic `Field(...)`, а оно уже
 пинается при конструировании модели в direct-call свите (#242/#246). Поэтому
 HTTP-слой свёлся к одному роутеру, а не к свипу по `api/routers/*`.
