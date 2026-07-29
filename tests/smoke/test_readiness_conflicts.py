@@ -212,6 +212,199 @@ def test_upcoming_plan_sessions_unknown_role_falls_back_to_easy() -> None:
     assert sessions[0]["role"] == "easy"
 
 
+def _goal_plan_with_structured_easy_session(
+    *,
+    days_until: int = 1,
+    primary_role: str = "easy",
+    fatigue_cost: list[int] | None = None,
+    expected_recovery_hours: int | None = None,
+    secondary_session: dict | None = None,
+    today: date = TODAY,
+) -> dict:
+    session_date = today + timedelta(days=days_until)
+    primary = {
+        "session_role": primary_role,
+        "session_focus": "Aerobic Endurance Ride",
+        "sport": "bike",
+        "sport_label": "вело",
+        "total_tss": 32.0,
+    }
+    if fatigue_cost is not None:
+        primary["fatigue_cost"] = list(fatigue_cost)
+    if expected_recovery_hours is not None:
+        primary["expected_recovery_hours"] = expected_recovery_hours
+    sessions = [primary]
+    if secondary_session is not None:
+        sessions.append(dict(secondary_session))
+    return {
+        "daily_plan": [
+            (
+                datetime.combine(session_date, datetime.min.time()),
+                sum(float(session.get("total_tss") or 0.0) for session in sessions),
+                {"bike": 32.0, "swim": 22.0} if secondary_session else {"bike": 32.0},
+            )
+        ],
+        "session_templates": [
+            {
+                "date": session_date.isoformat(),
+                "session_role": primary_role,
+                "session_focus": "Aerobic Endurance Ride",
+                "sport_label": "вело",
+                "phase": "Base",
+                "sessions": sessions,
+            }
+        ],
+    }
+
+
+def test_upcoming_plan_sessions_aggregates_worst_structured_load_across_day() -> None:
+    plan = _goal_plan_with_structured_easy_session(
+        fatigue_cost=[1, 1, 1],
+        expected_recovery_hours=12,
+        secondary_session={
+            "session_role": "easy",
+            "session_focus": "Neuromuscular Swim",
+            "sport": "swim",
+            "sport_label": "плавание",
+            "total_tss": 22.0,
+            "fatigue_cost": [1, 2, 3],
+            "expected_recovery_hours": 30,
+        },
+    )
+
+    session = upcoming_plan_sessions(plan, today=TODAY, horizon_days=3)[0]
+
+    assert session["fatigue_cost"] == [1, 2, 3]
+    assert session["expected_recovery_hours"] == 30
+    assert session["load_salient"] is True
+    assert session["salience_source"] == {
+        "name": "Neuromuscular Swim",
+        "role": "easy",
+        "sport_label": "плавание",
+        "fatigue_cost": [1, 2, 3],
+        "expected_recovery_hours": 30,
+    }
+
+
+def test_limited_readiness_conflicts_with_easy_high_fatigue_session() -> None:
+    plan = _goal_plan_with_structured_easy_session(
+        fatigue_cost=[1, 1, 3],
+        expected_recovery_hours=24,
+    )
+    session = upcoming_plan_sessions(plan, today=TODAY, horizon_days=3)[0]
+
+    report = detect_readiness_conflicts(
+        _readiness(50.0, "limited"),
+        [session],
+        today=TODAY,
+    )
+
+    assert report["silence"] is False
+    assert report["conflicts"][0]["severity"] == "medium"
+    assert report["conflicts"][0]["kind"] == "limited_readiness_high_load_easy_session"
+    assert report["conflicts"][0]["session"]["role"] == "easy"
+    evidence = " | ".join(report["conflicts"][0]["evidence"])
+    assert "1/1/3" in evidence
+    assert "24" in evidence
+
+
+def test_secondary_high_load_easy_session_drives_salience_and_identity() -> None:
+    plan = _goal_plan_with_structured_easy_session(
+        primary_role="activation",
+        fatigue_cost=[1, 0, 1],
+        expected_recovery_hours=8,
+        secondary_session={
+            "session_id": "ats_high_load_swim",
+            "session_role": "easy",
+            "session_focus": "Neuromuscular Swim",
+            "sport": "swim",
+            "sport_label": "плавание",
+            "total_tss": 22.0,
+            "fatigue_cost": [1, 2, 3],
+            "expected_recovery_hours": 30,
+        },
+    )
+    session = upcoming_plan_sessions(plan, today=TODAY, horizon_days=3)[0]
+
+    report = detect_readiness_conflicts(
+        _readiness(50.0, "limited"),
+        [session],
+        today=TODAY,
+    )
+
+    assert session["role"] == "activation"
+    assert session["salience_source"]["session_id"] == "ats_high_load_swim"
+    assert report["silence"] is False
+    assert report["conflicts"][0]["severity"] == "medium"
+    assert report["conflicts"][0]["kind"] == (
+        "limited_readiness_high_load_easy_session"
+    )
+    assert report["conflicts"][0]["session"]["salience_source"]["role"] == "easy"
+
+
+def test_limited_readiness_conflicts_with_easy_long_recovery_session() -> None:
+    plan = _goal_plan_with_structured_easy_session(
+        fatigue_cost=[1, 1, 2],
+        expected_recovery_hours=30,
+    )
+    session = upcoming_plan_sessions(plan, today=TODAY, horizon_days=3)[0]
+
+    report = detect_readiness_conflicts(
+        _readiness(50.0, "limited"),
+        [session],
+        today=TODAY,
+    )
+
+    assert report["silence"] is False
+    assert report["conflicts"][0]["severity"] == "medium"
+    assert report["conflicts"][0]["session"]["expected_recovery_hours"] == 30
+
+
+def test_legacy_easy_session_without_load_metadata_keeps_role_only_silence() -> None:
+    plan = _goal_plan_with_structured_easy_session()
+    session = upcoming_plan_sessions(plan, today=TODAY, horizon_days=3)[0]
+
+    report = detect_readiness_conflicts(
+        _readiness(50.0, "limited"),
+        [session],
+        today=TODAY,
+    )
+
+    assert session["fatigue_cost"] == []
+    assert session["expected_recovery_hours"] is None
+    assert session["load_salient"] is False
+    assert report["conflicts"] == []
+    assert report["silence"] is True
+
+
+@pytest.mark.parametrize(
+    ("fatigue_cost", "expected_recovery_hours"),
+    [
+        ([1, 2, 2], 29),
+        ([1, float("nan"), 3], "30"),
+    ],
+)
+def test_easy_session_without_valid_high_load_evidence_remains_silent(
+    fatigue_cost,
+    expected_recovery_hours,
+) -> None:
+    plan = _goal_plan_with_structured_easy_session(
+        fatigue_cost=fatigue_cost,
+        expected_recovery_hours=expected_recovery_hours,
+    )
+    session = upcoming_plan_sessions(plan, today=TODAY, horizon_days=3)[0]
+
+    report = detect_readiness_conflicts(
+        _readiness(50.0, "limited"),
+        [session],
+        today=TODAY,
+    )
+
+    assert session["load_salient"] is False
+    assert report["conflicts"] == []
+    assert report["silence"] is True
+
+
 def _goal_plan_with_key_session(
     days_until: int,
     role: str = "quality",
@@ -271,6 +464,24 @@ def test_effective_horizon_does_not_extend_beyond_cap_or_for_long_session() -> N
     assert beyond_cap["extended_for_quality"] is False
     assert long_only["effective_horizon_days"] == DEFAULT_HORIZON_DAYS
     assert long_only["extended_for_quality"] is False
+
+
+def test_effective_horizon_extends_to_easy_high_load_session() -> None:
+    policy = resolve_effective_horizon(
+        _goal_plan_with_structured_easy_session(
+            days_until=4,
+            fatigue_cost=[1, 1, 3],
+            expected_recovery_hours=30,
+        ),
+        today=TODAY,
+    )
+
+    assert policy["effective_horizon_days"] == 5
+    assert policy["extended_for_quality"] is False
+    assert policy["quality_session"] is None
+    assert policy["extended_for_salience"] is True
+    assert policy["salience_session"]["name"] == "Aerobic Endurance Ride"
+    assert policy["lookahead_policy"] == "base_plus_nearest_significant"
 
 
 # ---------------------------------------------------------------------------
@@ -369,10 +580,50 @@ def test_build_report_extends_to_quality_session_on_day_four(tmp_path, monkeypat
 
     assert report["horizon_days"] == 5
     assert report["base_horizon_days"] == DEFAULT_HORIZON_DAYS
-    assert report["lookahead_policy"] == "base_plus_nearest_quality"
+    assert report["lookahead_policy"] == "base_plus_nearest_significant"
     assert report["horizon_extended_for_quality"] is True
+    assert report["horizon_extended_for_salience"] is True
     assert report["sessions_evaluated"][0]["name"] == "Качество • вело"
+    assert report["salience_lookahead_session"]["name"] == "Качество • вело"
     assert report["conflicts"][0]["severity"] == "high"
+
+
+def test_build_report_extends_to_structured_high_load_easy_session(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import readiness_conflicts as api_conflicts
+    from data.database import Database
+
+    monkeypatch.setattr(
+        api_conflicts,
+        "get_active_plan",
+        lambda _db: _goal_plan_with_structured_easy_session(
+            days_until=4,
+            fatigue_cost=[1, 1, 3],
+            expected_recovery_hours=30,
+            today=datetime.now().date(),
+        ),
+    )
+    monkeypatch.setattr(
+        api_conflicts,
+        "compute_readiness_today",
+        lambda *args, **kwargs: _readiness(50.0, "limited"),
+    )
+
+    report = api_conflicts.build_readiness_conflict_report(
+        Database(str(tmp_path / "high-load-lookahead.db"))
+    )
+
+    assert report["horizon_days"] == 5
+    assert report["horizon_extended_for_quality"] is False
+    assert report["quality_lookahead_session"] is None
+    assert report["horizon_extended_for_salience"] is True
+    assert report["salience_lookahead_session"]["load_salient"] is True
+    assert report["conflicts"][0]["kind"] == (
+        "limited_readiness_high_load_easy_session"
+    )
+    assert report["conflicts"][0]["session"]["fatigue_cost"] == [1, 1, 3]
 
 
 def test_build_report_without_plan_is_silent(tmp_path) -> None:

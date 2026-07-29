@@ -4,7 +4,8 @@
 готовность — models/readiness.py с дефолтной свежестью (значения старше
 2 дней выпадают: детектор, тревожащий на несвежих данных, ложно-положителен),
 план — активный planning checkpoint. Базовый горизонт 3 дня расширяется до
-ближайшей quality-сессии в пределах 7 дней (issue #152). Отчёт едет в SSE meta коуча.
+ближайшей quality- или структурированной high-load сессии в пределах 7 дней
+(issues #152/#315). Отчёт едет в SSE meta коуча.
 """
 from __future__ import annotations
 
@@ -79,6 +80,10 @@ def build_readiness_conflict_report(
             "lookahead_policy": horizon_policy["lookahead_policy"],
             "horizon_extended_for_quality": horizon_policy["extended_for_quality"],
             "quality_lookahead_session": horizon_policy["quality_session"],
+            "horizon_extended_for_salience": horizon_policy[
+                "extended_for_salience"
+            ],
+            "salience_lookahead_session": horizon_policy["salience_session"],
         }
     )
 

@@ -8,6 +8,10 @@ An athlete should never see one readiness value in the Coach sidebar and a diffe
 
 After this change, Dashboard summary and widgets project their readiness/load values from the same canonical readiness snapshot already exposed to Coach and Planning. The salience-gate continues to inspect its base three-day window but extends through the nearest quality session when that session is within seven days. A developer can verify both outcomes with deterministic smoke tests and a live report that names the effective horizon and policy.
 
+Follow-up issue #315 (2026-07-29) generalized only the second contract: the
+bounded horizon now extends through the nearest quality or structured high-load
+`easy` session. The canonical readiness projection delivered here is unchanged.
+
 ## Progress
 
 - [x] (2026-07-10 11:22Z) Reproduced the live trust gap through the web Coach flow and direct readiness conflict report.
@@ -48,6 +52,9 @@ After this change, Dashboard summary and widgets project their readiness/load va
 - Decision: Do not change the conflict severity matrix or readiness confidence threshold.
   Rationale: The live run showed correct silence for readiness `ready`; this task fixes visibility and consistency, not intervention sensitivity.
   Date/Author: 2026-07-10 / Codex.
+- Decision: Follow-up #315 supersedes the public policy id `base_plus_nearest_quality` with `base_plus_nearest_significant`, while retaining quality-specific compatibility fields.
+  Rationale: stored workout fatigue/recovery metadata proved that a role named `easy` can still be physiologically salient. The three-day base and seven-day cap remain unchanged; details live in `docs/readiness_conflict_gate_execplan.md`.
+  Date/Author: 2026-07-29 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -158,3 +165,5 @@ Revision note (2026-07-10 / Codex): updated after the red/green TDD cycle, adjac
 Revision note (2026-07-10 / Codex): updated after full validation and self-review; added explicit milestones required by `.agent/PLANS.md` and normalized the public policy name to the implemented `base_plus_nearest_quality` value.
 
 Revision note (2026-07-10 / Codex): finalized after publishing implementation commit `faf4007` and opening draft PR #153, which closes issue #152 when merged.
+
+Revision note (2026-07-29 / Codex): added the #315 follow-up that generalizes the bounded lookahead policy without changing this plan's canonical readiness projection.

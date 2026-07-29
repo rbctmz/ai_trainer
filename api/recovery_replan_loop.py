@@ -103,28 +103,62 @@ def _resolve_transfer_session_id(
 ) -> str | None:
     """Finds the `session_id` the readiness conflict is actually referring to.
 
-    The readiness report never carries a `session_id` (Issue #209 M3): it
-    only claims a date, a role, and a sport label. The active plan may have
-    moved on since the report was built (a prior downgrade/sport swap
-    already applied), or the claimed date may now carry more than one
-    same-role session (a legitimate twin day). The match is fail-closed on
-    the exact (role, sport_label) pair AND on uniqueness — zero or 2+
-    candidate sessions omit the transfer variant, never guess the first
-    one. `keep`/`downgrade_today` (which use the report's claimed session
-    directly, per v1) stay unaffected either way.
+    Modern fatigue-aware reports carry the stable identity of the exact
+    child session that made a multi-session day salient (#315). That identity
+    is authoritative and fail-closed: if the child disappeared or its claimed
+    role/sport drifted, omit the transfer rather than fall back to the primary
+    session. Legacy reports still match the exact (role, sport_label) pair
+    with uniqueness, preserving the Issue #209 M3 contract.
     """
     conflict_date = str(conflict.get("date") or "")[:10]
     claimed = conflict.get("session") or {}
+    salience_source = claimed.get("salience_source")
+    salient_session_id = (
+        str(salience_source.get("session_id") or "").strip()
+        if isinstance(salience_source, dict)
+        else ""
+    )
     claimed_role = str(claimed.get("role") or "").strip().lower()
     claimed_sport_label = str(claimed.get("sport_label") or "").strip().lower()
     for template in list(goal_plan.get("session_templates") or []):
         if not isinstance(template, dict) or str(template.get("date") or "")[:10] != conflict_date:
             continue
-        matches = [
+        sessions = [
             session
             for session in list(template.get("sessions") or [])
             if isinstance(session, dict)
-            and str(session.get("session_role") or "").strip().lower() == claimed_role
+        ]
+        if salient_session_id:
+            matches = [
+                session
+                for session in sessions
+                if str(session.get("session_id") or "").strip()
+                == salient_session_id
+            ]
+            if len(matches) != 1:
+                return None
+            salient = matches[0]
+            source_role = str(salience_source.get("role") or "").strip().lower()
+            source_sport_label = str(
+                salience_source.get("sport_label") or ""
+            ).strip().lower()
+            if (
+                source_role
+                and str(salient.get("session_role") or "").strip().lower()
+                != source_role
+            ):
+                return None
+            if (
+                source_sport_label
+                and str(salient.get("sport_label") or "").strip().lower()
+                != source_sport_label
+            ):
+                return None
+            return salient_session_id
+        matches = [
+            session
+            for session in sessions
+            if str(session.get("session_role") or "").strip().lower() == claimed_role
             and str(session.get("sport_label") or "").strip().lower() == claimed_sport_label
         ]
         if len(matches) != 1:

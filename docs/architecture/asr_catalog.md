@@ -13,7 +13,7 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-PERF-3 | Инкрементальный provider-sync, дельта дня < 10 сек | Medium | Garmin incremental window; Intervals per-provider/per-domain cursors | smoke sync/cursor-сьюты | ✅ |
 | ASR-PERF-4 | Planning preview 16 недель < 10 сек | Medium | детерминированный scheduler без БД внутри цикла (#205) | референс-сборки в smoke (секунды) | ✅ |
 | ASR-REL-1 | Reconciliation: ни одна активность или исполнимая тренировка не теряется при перепланировании | High | content-derived session identity + lineage (`replaces_session_id`, #206/#209), append-only ledger; recovery/near-term mutations повторно материализуют точный catalog prescription; recovery downgrade проверяет component-wise fatigue/recovery и совпадение с preview-profile до checkpoint (#312); modern broken sessions fail closed | `test_recovery_transfer_identity_handoff.py`, twin-матрица identity, `test_recovery_replan_materialization_p1.py` | ✅ |
-| ASR-REL-2 | Отсутствие данных → data gap, не падение | High | gate-исходы silence/data_gap (#154), `has_plan=false` пробросы (#228) | smoke-гейты loop/ribbon | ✅ |
+| ASR-REL-2 | Отсутствие данных → data gap, не падение | High | gate-исходы silence/data_gap (#154), `has_plan=false` пробросы (#228); readiness salience учитывает persisted fatigue/recovery и legacy-safe fallback (#315) | smoke-гейты loop/ribbon + `test_readiness_conflicts.py` | ✅ |
 | ASR-REL-3 | Обрыв sync/maintenance не портит частичные данные | Medium | атомарный common-ingest; cursor-after-clean-batch; независимые activity/wellness cursors; SQLite restore через validated temp + atomic replace + pre-restore rollback | M0/M1 ingest/cursor, M4 wellness rollback и `test_sqlite_backup_restore.py` fail-before-replace | ✅ |
 | ASR-MOD-1 | Новый AI-провайдер без правки основного кода | High | `AIProvider` ABC + фабрика; capability-флаги (`supports_native_tools`, #190) делают расширения аддитивными | capability-матрица в `test_coach_native_tools.py` | ✅ |
 | ASR-MOD-2 | Новый компонент дашборда без регрессии | Medium | canonical snapshot проекции (#152/#153) | trust-alignment smoke | ✅ |
@@ -166,6 +166,25 @@ catalog-input `threshold_pace` только в момент явной сбор�
 carry-forward/no-checkpoint-mutation), `test_api_planning.py` (вертикальная
 матрица pace/LTHR/RPE), `test_intervals_plan_delivery.py` (`/km` round-trip) и
 `test_running_threshold_pace_ui.py` (проверяемое основание цели до отправки).
+
+### Fatigue-aware readiness salience (#315)
+
+Readiness-gate сохраняет публичную роль сессии, но больше не принимает
+structured `easy` за обычную лёгкую нагрузку, если materialized prescription
+имеет любой fatigue-компонент ≥3 или требует ≥30 часов восстановления.
+Day-level проекция берёт component-wise maximum и максимальное recovery по всем
+`sessions[]`, поэтому вторая тренировка дня не скрывается за primary session.
+
+- **ASR-REL-2**: legacy/malformed metadata сохраняет прежний role-only fallback
+  без false positive; валидная structured цена формирует explainable conflict.
+- **ASR-MOD-3**: форма checkpoint не меняется, читаются уже существующие
+  аддитивные поля workout catalog; публичная role не переписывается.
+- **Boundedness**: базовый горизонт остаётся 3 дня, cap — 7 дней; расширение
+  идёт только до ближайшей quality или structured high-load easy session.
+
+Проверка: `test_readiness_conflicts.py` (multi-session aggregation,
+fatigue/recovery thresholds, legacy silence, bounded lookahead/API contract) и
+Recovery Replan regression suites.
 
 ## SQLite backup/restore (ADR-0002; ASR-DEP-2, ASR-REL-3; #293)
 
