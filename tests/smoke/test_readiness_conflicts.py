@@ -218,8 +218,9 @@ def _goal_plan_with_structured_easy_session(
     fatigue_cost: list[int] | None = None,
     expected_recovery_hours: int | None = None,
     secondary_session: dict | None = None,
+    today: date = TODAY,
 ) -> dict:
-    session_date = TODAY + timedelta(days=days_until)
+    session_date = today + timedelta(days=days_until)
     primary = {
         "session_role": "easy",
         "session_focus": "Aerobic Endurance Ride",
@@ -336,6 +337,34 @@ def test_legacy_easy_session_without_load_metadata_keeps_role_only_silence() -> 
 
     assert session["fatigue_cost"] == []
     assert session["expected_recovery_hours"] is None
+    assert session["load_salient"] is False
+    assert report["conflicts"] == []
+    assert report["silence"] is True
+
+
+@pytest.mark.parametrize(
+    ("fatigue_cost", "expected_recovery_hours"),
+    [
+        ([1, 2, 2], 29),
+        ([1, float("nan"), 3], "30"),
+    ],
+)
+def test_easy_session_without_valid_high_load_evidence_remains_silent(
+    fatigue_cost,
+    expected_recovery_hours,
+) -> None:
+    plan = _goal_plan_with_structured_easy_session(
+        fatigue_cost=fatigue_cost,
+        expected_recovery_hours=expected_recovery_hours,
+    )
+    session = upcoming_plan_sessions(plan, today=TODAY, horizon_days=3)[0]
+
+    report = detect_readiness_conflicts(
+        _readiness(50.0, "limited"),
+        [session],
+        today=TODAY,
+    )
+
     assert session["load_salient"] is False
     assert report["conflicts"] == []
     assert report["silence"] is True
@@ -516,10 +545,50 @@ def test_build_report_extends_to_quality_session_on_day_four(tmp_path, monkeypat
 
     assert report["horizon_days"] == 5
     assert report["base_horizon_days"] == DEFAULT_HORIZON_DAYS
-    assert report["lookahead_policy"] == "base_plus_nearest_quality"
+    assert report["lookahead_policy"] == "base_plus_nearest_significant"
     assert report["horizon_extended_for_quality"] is True
+    assert report["horizon_extended_for_salience"] is True
     assert report["sessions_evaluated"][0]["name"] == "Качество • вело"
+    assert report["salience_lookahead_session"]["name"] == "Качество • вело"
     assert report["conflicts"][0]["severity"] == "high"
+
+
+def test_build_report_extends_to_structured_high_load_easy_session(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from api import readiness_conflicts as api_conflicts
+    from data.database import Database
+
+    monkeypatch.setattr(
+        api_conflicts,
+        "get_active_plan",
+        lambda _db: _goal_plan_with_structured_easy_session(
+            days_until=4,
+            fatigue_cost=[1, 1, 3],
+            expected_recovery_hours=30,
+            today=datetime.now().date(),
+        ),
+    )
+    monkeypatch.setattr(
+        api_conflicts,
+        "compute_readiness_today",
+        lambda *args, **kwargs: _readiness(50.0, "limited"),
+    )
+
+    report = api_conflicts.build_readiness_conflict_report(
+        Database(str(tmp_path / "high-load-lookahead.db"))
+    )
+
+    assert report["horizon_days"] == 5
+    assert report["horizon_extended_for_quality"] is False
+    assert report["quality_lookahead_session"] is None
+    assert report["horizon_extended_for_salience"] is True
+    assert report["salience_lookahead_session"]["load_salient"] is True
+    assert report["conflicts"][0]["kind"] == (
+        "limited_readiness_high_load_easy_session"
+    )
+    assert report["conflicts"][0]["session"]["fatigue_cost"] == [1, 1, 3]
 
 
 def test_build_report_without_plan_is_silent(tmp_path) -> None:
