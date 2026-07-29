@@ -10,7 +10,10 @@ from threading import Barrier
 import pytest
 from fastapi import HTTPException
 
-from api.recovery_replan_loop import run_recovery_replan_loop
+from api.recovery_replan_loop import (
+    _resolve_transfer_session_id,
+    run_recovery_replan_loop,
+)
 from data.database import Database
 from models.planning_checkpoints import build_planning_checkpoint
 from models.recovery_replan import build_recovery_replan_variant
@@ -1022,6 +1025,80 @@ def test_loop_fails_closed_on_transfer_when_two_identical_sessions_share_conflic
 
     assert first["outcome"] == "conflict"
     assert _variant_kinds(first["proposal"]) == ["keep", "downgrade_today"]
+
+
+def test_transfer_resolves_exact_salient_secondary_session_identity() -> None:
+    """A multi-session conflict must transfer the child that made the day salient."""
+    conflict_date = date(2026, 7, 14)
+    goal_plan = {
+        "session_templates": [
+            {
+                "date": conflict_date.isoformat(),
+                "sessions": [
+                    {
+                        "session_id": "ats_primary_bike",
+                        "session_role": "activation",
+                        "sport_label": "вело",
+                    },
+                    {
+                        "session_id": "ats_high_load_swim",
+                        "session_role": "easy",
+                        "sport_label": "плавание",
+                    },
+                ],
+            }
+        ]
+    }
+    conflict = {
+        "date": conflict_date.isoformat(),
+        "session": {
+            "role": "activation",
+            "sport_label": "вело",
+            "salience_source": {
+                "session_id": "ats_high_load_swim",
+                "role": "easy",
+                "sport_label": "плавание",
+            },
+        },
+    }
+
+    assert (
+        _resolve_transfer_session_id(goal_plan, conflict)
+        == "ats_high_load_swim"
+    )
+
+
+def test_transfer_fails_closed_when_salient_secondary_identity_is_stale() -> None:
+    """Never fall back to the primary session when a claimed child disappeared."""
+    conflict_date = date(2026, 7, 14)
+    goal_plan = {
+        "session_templates": [
+            {
+                "date": conflict_date.isoformat(),
+                "sessions": [
+                    {
+                        "session_id": "ats_primary_bike",
+                        "session_role": "activation",
+                        "sport_label": "вело",
+                    }
+                ],
+            }
+        ]
+    }
+    conflict = {
+        "date": conflict_date.isoformat(),
+        "session": {
+            "role": "activation",
+            "sport_label": "вело",
+            "salience_source": {
+                "session_id": "ats_missing_swim",
+                "role": "easy",
+                "sport_label": "плавание",
+            },
+        },
+    }
+
+    assert _resolve_transfer_session_id(goal_plan, conflict) is None
 
 
 # ---------------------------------------------------------------------------

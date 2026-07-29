@@ -215,6 +215,7 @@ def test_upcoming_plan_sessions_unknown_role_falls_back_to_easy() -> None:
 def _goal_plan_with_structured_easy_session(
     *,
     days_until: int = 1,
+    primary_role: str = "easy",
     fatigue_cost: list[int] | None = None,
     expected_recovery_hours: int | None = None,
     secondary_session: dict | None = None,
@@ -222,7 +223,7 @@ def _goal_plan_with_structured_easy_session(
 ) -> dict:
     session_date = today + timedelta(days=days_until)
     primary = {
-        "session_role": "easy",
+        "session_role": primary_role,
         "session_focus": "Aerobic Endurance Ride",
         "sport": "bike",
         "sport_label": "вело",
@@ -246,7 +247,7 @@ def _goal_plan_with_structured_easy_session(
         "session_templates": [
             {
                 "date": session_date.isoformat(),
-                "session_role": "easy",
+                "session_role": primary_role,
                 "session_focus": "Aerobic Endurance Ride",
                 "sport_label": "вело",
                 "phase": "Base",
@@ -305,6 +306,40 @@ def test_limited_readiness_conflicts_with_easy_high_fatigue_session() -> None:
     evidence = " | ".join(report["conflicts"][0]["evidence"])
     assert "1/1/3" in evidence
     assert "24" in evidence
+
+
+def test_secondary_high_load_easy_session_drives_salience_and_identity() -> None:
+    plan = _goal_plan_with_structured_easy_session(
+        primary_role="activation",
+        fatigue_cost=[1, 0, 1],
+        expected_recovery_hours=8,
+        secondary_session={
+            "session_id": "ats_high_load_swim",
+            "session_role": "easy",
+            "session_focus": "Neuromuscular Swim",
+            "sport": "swim",
+            "sport_label": "плавание",
+            "total_tss": 22.0,
+            "fatigue_cost": [1, 2, 3],
+            "expected_recovery_hours": 30,
+        },
+    )
+    session = upcoming_plan_sessions(plan, today=TODAY, horizon_days=3)[0]
+
+    report = detect_readiness_conflicts(
+        _readiness(50.0, "limited"),
+        [session],
+        today=TODAY,
+    )
+
+    assert session["role"] == "activation"
+    assert session["salience_source"]["session_id"] == "ats_high_load_swim"
+    assert report["silence"] is False
+    assert report["conflicts"][0]["severity"] == "medium"
+    assert report["conflicts"][0]["kind"] == (
+        "limited_readiness_high_load_easy_session"
+    )
+    assert report["conflicts"][0]["session"]["salience_source"]["role"] == "easy"
 
 
 def test_limited_readiness_conflicts_with_easy_long_recovery_session() -> None:
