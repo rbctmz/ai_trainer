@@ -204,6 +204,7 @@ data_dumps/
 sleep_data_*.csv
 
 # IDE and editor files
+.zcode/
 .vscode/
 .idea/
 *.swp
