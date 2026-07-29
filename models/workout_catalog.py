@@ -785,9 +785,17 @@ def _resolve_provenance(
                 "threshold_pace": "absolute_pace_from_threshold",
                 "css": "absolute_pace_from_css",
             }[kind]
+            source = {
+                "ftp": "athlete_profile.ftp",
+                "lthr": "athlete_profile.lthr",
+                "threshold_pace": (
+                    "athlete_profile.threshold_pace_seconds_per_km"
+                ),
+                "css": "athlete_profile.css",
+            }[kind]
             return {
                 "kind": kind,
-                "source": f"athlete_profile.{kind}",
+                "source": source,
                 "value": value,
                 "fallback": False,
                 "scale": scale,

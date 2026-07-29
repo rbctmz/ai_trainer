@@ -1203,7 +1203,10 @@ function ExportMode() {
                         {d.expected_recovery_hours
                           ? ` · восстановление ~${d.expected_recovery_hours} ч`
                           : ""}
-                      </div>
+                        </div>
+                      ) : null}
+                    {(d.sessions?.length ?? 0) <= 1 && d.kind !== "composite" ? (
+                      <TargetBasis provenance={d.target_provenance} />
                     ) : null}
                   </td>
                   <td className="px-3 py-2.5 text-right tabular-nums text-ink">{d.tss}</td>
@@ -1255,6 +1258,9 @@ function ExportMode() {
                                   {session.duration_minutes} мин · {session.tss} TSS
                                 </span>
                               </div>
+                              {session.kind !== "composite" ? (
+                                <TargetBasis provenance={session.target_provenance} />
+                              ) : null}
                               {session.session_id &&
                               session.kind === "composite" &&
                               session.legs.length ? (
@@ -1285,6 +1291,7 @@ function ExportMode() {
                                           />
                                         </span>
                                       </div>
+                                      <TargetBasis provenance={leg.target_provenance} />
                                       <StepPreview steps={leg.steps} />
                                     </div>
                                   ))}
@@ -1319,6 +1326,7 @@ function ExportMode() {
                                   {leg.duration_minutes} мин · {leg.target_tss} TSS
                                 </span>
                               </div>
+                              <TargetBasis provenance={leg.target_provenance} />
                               <StepPreview steps={leg.steps} />
                             </div>
                           ))}
@@ -1379,6 +1387,43 @@ function StepPreview({ steps }: { steps: Array<{ name: string | null; duration_s
   );
 }
 
+function formatPaceSeconds(seconds: number, unit = "seconds_per_km"): string {
+  if (!Number.isFinite(seconds) || seconds <= 0) return "—";
+  const rounded = Math.round(seconds);
+  const suffix = unit.endsWith("100m") ? "/100м" : "/км";
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}${suffix}`;
+}
+
+function targetBasisLabel(provenance: Record<string, unknown> | null): string {
+  if (!provenance) return "";
+  const kind = String(provenance.kind || "");
+  const value = Number(provenance.value);
+  if (kind === "threshold_pace" && Number.isFinite(value) && value > 0) {
+    return `по пороговому темпу ${formatPaceSeconds(value)}`;
+  }
+  if (kind === "lthr" && Number.isFinite(value) && value > 0) {
+    return `по LTHR ${Math.round(value)}`;
+  }
+  if (kind === "relative_rpe") return "по RPE";
+  if (kind === "ftp" && Number.isFinite(value) && value > 0) {
+    return `по FTP ${Math.round(value)} Вт`;
+  }
+  if (kind === "css" && Number.isFinite(value) && value > 0) {
+    return `по CSS ${formatPaceSeconds(value, "seconds_per_100m")}`;
+  }
+  return "";
+}
+
+function TargetBasis({ provenance }: { provenance: Record<string, unknown> | null }) {
+  const label = targetBasisLabel(provenance);
+  if (!label) return null;
+  return (
+    <div className="mt-1 text-[10px] font-medium text-tone-neutral">
+      Основание: {label}
+    </div>
+  );
+}
+
 function formatStepDuration(seconds: number | null): string {
   if (!seconds) return "—";
   const minutes = Math.floor(seconds / 60);
@@ -1393,6 +1438,14 @@ function formatTarget(target: Record<string, unknown> | null): string {
   const high = target.high;
   if (type === "power" && low != null && high != null) return `${low}–${high} Вт`;
   if (type === "heart_rate" && low != null && high != null) return `${low}–${high} уд/мин`;
+  if (type === "pace") {
+    const fast = Number(target.fast ?? target.low);
+    const slow = Number(target.slow ?? target.high ?? target.fast ?? target.low);
+    if (Number.isFinite(fast) && fast > 0 && Number.isFinite(slow) && slow > 0) {
+      const unit = String(target.unit || "seconds_per_km");
+      return `${formatPaceSeconds(fast, unit)}–${formatPaceSeconds(slow, unit)}`;
+    }
+  }
   if (type === "relative_rpe" && low != null && high != null) return `RPE ${low}–${high}`;
   return type;
 }

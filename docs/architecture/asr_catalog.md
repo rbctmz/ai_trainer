@@ -143,6 +143,30 @@ M5 завершает Intervals-primary трек только на presentation-
 Проверка: `test_m5_garmin_demotion.py`, M3/M4 source regressions, Next lint/build
 и изолированная browser-приёмка пустого Dashboard. Статус: M5 завершён.
 
+### Running threshold pace: единицы, provenance и safe fallback (#308)
+
+Профиль Intervals.icu теперь отделяет provider-unit от planning-unit:
+`sportSettings[Run].threshold_pace` принимается как м/с, строго валидируется и
+хранится в явном каноническом поле
+`threshold_pace_seconds_per_km`. Планировщик преобразует это поле в существующий
+catalog-input `threshold_pace` только в момент явной сборки нового плана.
+
+- **ASR-MOD-3**: три nullable поля athlete-profile добавляются migrate-on-start
+  без переписывания legacy-снимков; тест поднимает реальную старую схему и
+  проверяет повторную инициализацию.
+- **ASR-REL-1**: profile-sync не вызывает build/repair/delivery и не меняет
+  append-only planning checkpoint. Частичный ответ сохраняет последнее валидное
+  значение вместе с его исходными `source`/`synced_at`, не выдавая carry-forward
+  за свежую provider-наблюдаемость.
+- **ASR-REL-2**: строгая цепочка остаётся
+  `threshold pace → LTHR → relative RPE`; malformed, ambiguous или
+  неправдоподобный темп не ломает построение плана и не затирает валидный.
+
+Проверка: `test_athlete_profile.py` (mapping, bounds, migration,
+carry-forward/no-checkpoint-mutation), `test_api_planning.py` (вертикальная
+матрица pace/LTHR/RPE), `test_intervals_plan_delivery.py` (`/km` round-trip) и
+`test_running_threshold_pace_ui.py` (проверяемое основание цели до отправки).
+
 ## SQLite backup/restore (ADR-0002; ASR-DEP-2, ASR-REL-3; #293)
 
 TD-001 закрыт stopped-service CLI

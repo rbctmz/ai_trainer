@@ -34,6 +34,21 @@ def _seeded_db(tmp_path) -> Database:
     return db
 
 
+def _running_leaf_prescriptions(goal_plan):
+    """Yield materialized run singles and run brick legs from a stored plan."""
+    for raw_template in goal_plan.get("session_templates") or []:
+        template = dict(raw_template)
+        for raw_session in template.get("sessions") or [template]:
+            session = dict(raw_session)
+            if session.get("kind") == "composite":
+                for raw_leg in session.get("legs") or []:
+                    leg = dict(raw_leg)
+                    if leg.get("sport") == "run":
+                        yield leg
+            elif session.get("sport") == "run":
+                yield session
+
+
 def test_planning_routes_registered():
     main = importlib.import_module("api.main")
     paths = set(main.app.openapi()["paths"].keys())
@@ -186,6 +201,76 @@ def test_build_persists_catalog_prescriptions_and_one_brick_per_eligible_week(tm
     assert catalog_day["stimulus"]
     assert catalog_day["fatigue_cost"]
     assert catalog_day["steps"] or catalog_day["legs"]
+
+
+@pytest.mark.parametrize(
+    ("threshold_pace", "lthr", "expected_kind", "expected_target_type"),
+    [
+        (300.0, 165.0, "threshold_pace", "pace"),
+        (None, 165.0, "lthr", "heart_rate"),
+        (None, None, "relative_rpe", "relative_rpe"),
+    ],
+)
+def test_explicit_plan_build_prefers_running_pace_then_lthr_then_rpe(
+    tmp_path,
+    threshold_pace,
+    lthr,
+    expected_kind,
+    expected_target_type,
+):
+    from api import planning_service as ps
+
+    db = Database(str(tmp_path / f"run-target-{expected_kind}.db"))
+    db.save_athlete_profile(
+        {
+            "ftp": 200.0,
+            "weight_kg": 80.0,
+            "lthr": lthr,
+            "threshold_pace_seconds_per_km": threshold_pace,
+            "threshold_pace_source": "intervals_icu" if threshold_pace else None,
+            "source": "test",
+        }
+    )
+
+    ps.build_plan(
+        db,
+        goal_type="run",
+        distance="10k",
+        event_date=None,
+        planning_mode="training_goal",
+        intent="develop",
+        horizon_weeks=8,
+        events=[],
+        available_hours=8,
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        persist=True,
+    )
+
+    active = ps.get_active_plan(db)
+    run_prescriptions = list(_running_leaf_prescriptions(active))
+    assert run_prescriptions
+    materialized = [
+        item
+        for item in run_prescriptions
+        if item.get("materialization_status") == "materialized"
+    ]
+    assert materialized
+    assert all(item.get("materialized_steps") for item in materialized)
+    assert all(
+        item["target_provenance"]["kind"] == expected_kind
+        for item in materialized
+    )
+    if expected_kind == "threshold_pace":
+        assert all(
+            item["target_provenance"]["source"]
+            == "athlete_profile.threshold_pace_seconds_per_km"
+            for item in materialized
+        )
+    assert all(
+        step["target"]["type"] == expected_target_type
+        for item in materialized
+        for step in item.get("materialized_steps") or []
+    )
 
 
 def test_b_overlay_persists_protected_days_and_resumes(tmp_path):

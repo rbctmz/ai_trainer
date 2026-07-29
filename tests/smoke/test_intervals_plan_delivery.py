@@ -210,6 +210,66 @@ def test_legacy_run_marks_percentage_targets_as_heart_rate() -> None:
     assert not any(line.endswith(("65-80%", "75-90%", "60-70%")) for line in lines)
 
 
+def test_explicit_plan_build_round_trips_running_pace_to_intervals_description(
+    tmp_path,
+) -> None:
+    from api import planning_service as ps
+    from models.intervals_workout_delivery import build_delivery_events
+
+    db = Database(str(tmp_path / "pace-delivery.db"))
+    db.save_athlete_profile(
+        {
+            "ftp": 200.0,
+            "weight_kg": 80.0,
+            "lthr": 165.0,
+            "threshold_pace_seconds_per_km": 300.0,
+            "threshold_pace_source": "intervals_icu",
+            "source": "intervals_icu",
+        }
+    )
+    ps.build_plan(
+        db,
+        goal_type="run",
+        distance="10k",
+        event_date=None,
+        planning_mode="training_goal",
+        intent="develop",
+        horizon_weeks=8,
+        events=[],
+        available_hours=8,
+        available_days=["mon", "tue", "wed", "thu", "fri", "sat", "sun"],
+        persist=True,
+    )
+    plan = ps.get_active_plan(db)
+    from models.workout_catalog import require_executable_planned_session
+
+    selected_dates = []
+    for template in plan["session_templates"]:
+        sessions = template.get("sessions") or [template]
+        if not any(
+            session.get("sport") == "run"
+            or any(leg.get("sport") == "run" for leg in session.get("legs") or [])
+            for session in sessions
+        ):
+            continue
+        try:
+            for session in sessions:
+                require_executable_planned_session(session)
+        except ValueError:
+            continue
+        selected_dates = [str(template["date"])]
+        break
+    assert selected_dates
+
+    events = build_delivery_events(plan, selected_dates)
+    run_events = [event for event in events if event["type"] == "Run"]
+
+    assert run_events
+    assert all("/km" in event["description"] for event in run_events)
+    assert all("% LTHR" not in event["description"] for event in run_events)
+    assert all("bpm" not in event["description"] for event in run_events)
+
+
 def test_composite_brick_builds_two_ordered_leg_events() -> None:
     from models.intervals_workout_delivery import build_delivery_events
 

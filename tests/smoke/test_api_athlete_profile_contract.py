@@ -37,7 +37,15 @@ def test_athlete_profile_with_data(tmp_path):
 
     db = Database(str(tmp_path / "a.db"))
     db.save_athlete_profile(
-        {"ftp": 250.0, "weight_kg": 72.5, "lthr": 165.0, "source": "intervals_icu"}
+        {
+            "ftp": 250.0,
+            "weight_kg": 72.5,
+            "lthr": 165.0,
+            "threshold_pace_seconds_per_km": 300.0,
+            "threshold_pace_source": "intervals_icu",
+            "threshold_pace_synced_at": "2026-07-29 06:00:00",
+            "source": "intervals_icu",
+        }
     )
 
     payload = athlete_profile(demo=False, db=db)
@@ -46,6 +54,9 @@ def test_athlete_profile_with_data(tmp_path):
     assert payload["profile"]["ftp"] == 250.0
     assert payload["profile"]["weight_kg"] == 72.5
     assert payload["profile"]["lthr"] == 165.0
+    assert payload["profile"]["threshold_pace_seconds_per_km"] == 300.0
+    assert payload["profile"]["threshold_pace_source"] == "intervals_icu"
+    assert payload["profile"]["threshold_pace_synced_at"] == "2026-07-29 06:00:00"
     assert payload["profile"]["source"] == "intervals_icu"
     assert payload["profile"]["synced_at"] is not None
     assert payload["operational_state"]["status"] in {"ready", "stale"}
