@@ -181,6 +181,18 @@ def approve_proposal(
 ) -> dict[str, Any]:
     proposal = _pending_proposal_or_error(db, proposal_id)
     if proposal.get("action") == "recovery_replan":
+        proposal_preview = proposal.get("preview")
+        try:
+            _resolve_recovery_variant_kind(
+                proposal_preview if isinstance(proposal_preview, dict) else {},
+                variant_kind,
+            )
+        except ValueError as exc:
+            # Client selection errors are recoverable: validate against this
+            # proposal's own immutable preview before claiming it. The athlete
+            # can immediately choose an offered variant; no plan/provider
+            # mutation has started.
+            raise HTTPException(status_code=422, detail=str(exc))
         proposal = db.transition_coach_proposal_status(
             proposal_id,
             "pending",

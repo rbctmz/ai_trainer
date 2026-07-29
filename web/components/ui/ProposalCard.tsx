@@ -447,8 +447,21 @@ export function ProposalCard({
   );
   const recommendedKind = recommendedRecoveryKind(whatChanges, availableRecoveryVariants);
   const [selectedVariantKind, setSelectedVariantKind] = useState<RecoveryVariantKind>(recommendedKind);
-  const selectedVariant = selectedRecoveryVariant(availableRecoveryVariants, selectedVariantKind);
-  const selectedProtection = variantProtection(whatIsProtected, selectedVariantKind, preview);
+  const [selectedProposalId, setSelectedProposalId] = useState(proposalId);
+  const effectiveSelectedVariantKind =
+    selectedProposalId === proposalId &&
+    availableRecoveryVariants.some((item) => item.kind === selectedVariantKind)
+      ? selectedVariantKind
+      : recommendedKind;
+  const selectedVariant = selectedRecoveryVariant(
+    availableRecoveryVariants,
+    effectiveSelectedVariantKind,
+  );
+  const selectedProtection = variantProtection(
+    whatIsProtected,
+    effectiveSelectedVariantKind,
+    preview,
+  );
   const recoveryEvidence = recoveryEvidenceItems(whyIntervene, preview);
   const candidates = recoveryCandidates(whatIsProtected);
 
@@ -468,7 +481,7 @@ export function ProposalCard({
 
       if (action === "recovery_replan") {
         const params = new URLSearchParams();
-        params.set("variant_kind", selectedVariantKind);
+        params.set("variant_kind", effectiveSelectedVariantKind);
         const response = await postJSON<ProposalApprovalResponse>(
           `/api/decisions/proposals/${proposalId}/approve?${params.toString()}`,
           {},
@@ -579,12 +592,15 @@ export function ProposalCard({
             <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-3">
               {availableRecoveryVariants.map((variant) => {
                 const kind = variant.kind as RecoveryVariantKind;
-                const selected = kind === selectedVariantKind;
+                const selected = kind === effectiveSelectedVariantKind;
                 return (
                   <button
                     key={kind}
                     type="button"
-                    onClick={() => setSelectedVariantKind(kind)}
+                    onClick={() => {
+                      setSelectedProposalId(proposalId);
+                      setSelectedVariantKind(kind);
+                    }}
                     aria-pressed={selected}
                     className={`rounded-lg border px-3 py-2 text-left transition ${variantCardClass(selected)}`}
                   >
@@ -605,7 +621,7 @@ export function ProposalCard({
               })}
             </div>
 
-            {selectedVariantKind === "transfer_1_3d" ? (
+            {effectiveSelectedVariantKind === "transfer_1_3d" ? (
               <div className="mt-2 space-y-2">
                 {transferDayChanges(selectedVariant).map((change) => (
                   <div key={asString(change.date)} className="rounded-lg bg-surface/70 px-3 py-2 text-xs">
@@ -618,7 +634,7 @@ export function ProposalCard({
               </div>
             ) : (
               <div className="mt-2 rounded-lg bg-surface/70 px-3 py-2 text-sm text-ink-soft">
-                {selectedVariantKind === "keep"
+                {effectiveSelectedVariantKind === "keep"
                   ? sessionLabel(asRecord(selectedVariant.session || currentSession))
                   : `${sessionLabel(currentSession)} → ${sessionLabel(asRecord(selectedVariant.session || recommendedSession))}`}
               </div>
@@ -745,7 +761,7 @@ export function ProposalCard({
           {loading
             ? "Сохраняю…"
             : action === "recovery_replan"
-              ? confirmLabel(selectedVariantKind)
+              ? confirmLabel(effectiveSelectedVariantKind)
               : "Подтвердить"}
         </button>
         <button
