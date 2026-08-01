@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -109,7 +109,11 @@ def test_database_reports_latest_dates_per_table(tmp_path):
 
 def test_sync_incremental_no_duplicates(tmp_path):
     database = Database(db_path=str(tmp_path / "sync_test.db"))
-    activities = [_activity("run-1", "2026-06-29 08:00:00")]
+    # Date-safe fixtures (issue #320): stay inside the rolling 30-day window
+    # used by get_activities(days=30) instead of hardcoded dates that silently
+    # expire as the calendar advances.
+    activity_day = (date.today() - timedelta(days=5)).isoformat()
+    activities = [_activity("run-1", f"{activity_day} 08:00:00")]
 
     first = database.sync_activities(activities)
     second = database.sync_activities(activities)
@@ -120,7 +124,8 @@ def test_sync_incremental_no_duplicates(tmp_path):
     stored = database.get_activities()
     assert len(stored) == 1
 
-    hrv = {"2026-06-30": {"rmssd": 42, "stress_score": 20, "recovery_score": 70}}
+    hrv_day = (date.today() - timedelta(days=4)).isoformat()
+    hrv = {hrv_day: {"rmssd": 42, "stress_score": 20, "recovery_score": 70}}
     assert database.sync_hrv_data(hrv) == {"new": 1, "updated": 0}
     assert database.sync_hrv_data(hrv) == {"new": 0, "updated": 1}
 
