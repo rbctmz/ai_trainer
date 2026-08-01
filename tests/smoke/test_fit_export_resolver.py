@@ -105,21 +105,43 @@ def test_resolve_export_steps_bike_uses_power_targets():
     assert "target_type,4" in fit  # power (watts)
 
 
-def test_resolve_export_steps_composite_concatenates_leg_targets():
+def test_resolve_export_steps_composite_day_is_rejected():
+    """Composite/brick день неоднороден (mixed sport/targets) — UI не должен
+    собирать из него один workout. Per-leg экспорт остаётся отдельному issue
+    (API export_workout уже требует явную leg=)."""
     template = _brick_day_template(zone_snapshot={"ftp": 200.0, "threshold_pace": 340.0, "lthr": 165.0})
 
-    sport, steps = resolve_export_steps(
-        template,
-        total_tss=80.0,
-        sport="brick",
-        session_role="long",
-        phase="Build",
-    )
+    with pytest.raises(ValueError, match="composite|multi-leaf|mixed"):
+        resolve_export_steps(
+            template,
+            total_tss=80.0,
+            sport="brick",
+            session_role="long",
+            phase="Build",
+        )
 
-    assert steps, "composite day must yield concatenated leg steps"
-    target_types = {step["target"]["type"] for step in steps}
-    # обе ноги: bike → power, run → pace
-    assert target_types == {"power", "pace"}, target_types
+
+def test_resolve_export_steps_partial_leaf_fails_closed():
+    """Частично материализованный день (один leaf с шагами, соседний modern leaf
+    пуст) не должен экспортироваться молча — только исправная часть дня.
+    Частичный успешный экспорт запрещён; нужен fail-closed."""
+    template = _brick_day_template(zone_snapshot={"ftp": 200.0, "threshold_pace": 340.0, "lthr": 165.0})
+    # опустошить одну ногу, оставив другую populated (partial modern day)
+    import copy
+    partial = copy.deepcopy(template)
+    for leg in (partial["sessions"][0].get("legs") or []):
+        if leg.get("sport") == "run":
+            leg["materialized_steps"] = []
+
+    with pytest.raises(ValueError, match="partial|not executable|incomplete"):
+        resolve_export_steps(
+            partial,
+            total_tss=80.0,
+            sport="brick",
+            session_role="long",
+            phase="Build",
+        )
+
 
 
 def test_resolve_export_steps_legacy_fallback_when_no_materialized_steps():

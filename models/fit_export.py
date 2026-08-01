@@ -111,31 +111,59 @@ def resolve_export_steps(
     session_role: str = "easy",
     phase: str | None = None,
 ) -> Tuple[str, List[Dict]]:
-    """Resolve executable export steps for a day-template.
+    """Resolve executable export steps for a day-template into a single
+    homogeneous workout.
 
-    Зеркалирует api.planning_service.export_workout: материализованные шаги
-    (single leaf или конкатенация ног composite) используются, когда они есть;
-    легаси-fallback build_steps_for_sport включается только при их отсутствии
-    (договор #299 — modern executable vs legacy fallback). Возвращает (sport, steps).
+    Ограниченный контракт UI-экспорта (PR #319 review): формируется только
+    однородный исполнимый workout. Mixed-sport/multi-leaf (composite/brick) и
+    частично материализованный день отклоняются явной ошибкой — per-session /
+    per-leg экспорт остаётся отдельному issue (API export_workout уже требует
+    явную leg=). Genuine legacy (нет sessions[] / off-day) сохраняет fallback
+    build_steps_for_sport (договор #299).
 
-    Issue #317: устраняет расхождение параллельных путей экспорта — UI honour'ит
-    темп/мощность так же, как API и доставка в Intervals.
+    Возвращает (sport, steps).
     """
     template = dict(session_template or {})
-    steps: List[Dict] = []
     resolved_sport = str(sport or "")
-    for leaf in iter_leaf_sessions(template):
-        leaf_steps = list(leaf.get("materialized_steps") or [])
-        if leaf_steps:
-            steps.extend(leaf_steps)
-            if not resolved_sport:
-                resolved_sport = str(leaf.get("sport") or resolved_sport)
-    if not steps:  # pre-identity-wrapping / legacy single template
+    leaves = iter_leaf_sessions(template)
+
+    if not leaves:
+        # genuine legacy / off-day: ни одного training-leaf. Сохраняем fallback
+        # на top-level materialized_steps (pre-identity-wrapping single), затем
+        # на build_steps_for_sport (legacy role blueprint).
         top_steps = list(template.get("materialized_steps") or [])
         if top_steps:
-            steps = top_steps
-    if steps:
-        return resolved_sport, steps
+            return resolved_sport, top_steps
+        return resolved_sport, build_steps_for_sport(total_tss, sport, session_role, phase)
+
+    # Modern plan: ≥1 leaf. Частично материализованный день (не все leaves с
+    # шагами) запрещён — частичный успешный экспорт невозможен, fail-closed.
+    if not all(list(leaf.get("materialized_steps") or []) for leaf in leaves):
+        incomplete = [
+            str(leaf.get("sport") or leaf.get("name") or "leaf")
+            for leaf in leaves
+            if not list(leaf.get("materialized_steps") or [])
+        ]
+        raise ValueError(
+            "day is partially materialized and not executable; "
+            f"missing steps for: {', '.join(incomplete)}"
+        )
+
+    # Mixed-sport / multi-leaf (composite/brick или несколько сессий в дне)
+    # нельзя собрать в один однородный workout — отклоняем.
+    if len(leaves) > 1:
+        raise ValueError(
+            "multi-leaf day requires per-session/per-leg export; "
+            f"got {len(leaves)} leaves"
+        )
+
+    leaf = leaves[0]
+    leaf_steps = list(leaf.get("materialized_steps") or [])
+    if leaf_steps:
+        if not resolved_sport:
+            resolved_sport = str(leaf.get("sport") or resolved_sport)
+        return resolved_sport, leaf_steps
+
     return resolved_sport, build_steps_for_sport(total_tss, sport, session_role, phase)
 
 
