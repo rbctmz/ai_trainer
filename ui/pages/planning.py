@@ -3163,7 +3163,7 @@ def render_planning_page(state: "StateManager") -> None:
         day_idx = st.number_input("День недели (1=Пн … 7=Вс)", min_value=1, max_value=7, value=1, key="fit_day")
         if st.button("⬇️ Экспортировать выбранный день в FIT-CSV / FIT", key="export_fit_day"):
             from config.settings import Settings
-            from models.fit_export import build_steps_for_sport, generate_fit_csv, try_convert_fit_verbose
+            from models.fit_export import generate_fit_csv, resolve_export_steps, try_convert_fit_verbose
             from models.tcx_activity_export import generate_tcx_activity
             from models.tcx_export import generate_tcx_workout
 
@@ -3172,9 +3172,10 @@ def render_planning_page(state: "StateManager") -> None:
             dt, total, parts = day
             session_template = session_templates[day_index] if day_index < len(session_templates) else {}
             sport = _infer_sport_for_export(parts, session_template)
-            steps = build_steps_for_sport(
-                total,
-                sport,
+            sport, steps = resolve_export_steps(
+                session_template,
+                total_tss=total,
+                sport=sport,
                 session_role=str(session_template.get("session_role", "easy")),
                 phase=session_template.get("phase"),
             )
@@ -3237,7 +3238,7 @@ def render_planning_page(state: "StateManager") -> None:
                 import zipfile
 
                 from config.settings import Settings
-                from models.fit_export import build_steps_for_sport, generate_fit_csv, try_convert_fit_verbose
+                from models.fit_export import generate_fit_csv, resolve_export_steps, try_convert_fit_verbose
                 from models.tcx_export import generate_tcx_workout
 
                 jar = Settings.FIT_SDK_JAR
@@ -3255,9 +3256,10 @@ def render_planning_page(state: "StateManager") -> None:
                     for day_offset, (dt, total, parts) in enumerate(week_days):
                         session_template = week_templates[day_offset] if day_offset < len(week_templates) else {}
                         sport = _infer_sport_for_export(parts, session_template)
-                        steps = build_steps_for_sport(
-                            total,
-                            sport,
+                        sport, steps = resolve_export_steps(
+                            session_template,
+                            total_tss=total,
+                            sport=sport,
                             session_role=str(session_template.get("session_role", "easy")),
                             phase=session_template.get("phase"),
                         )
@@ -3291,9 +3293,10 @@ def render_planning_page(state: "StateManager") -> None:
                         for day_offset, (dt, total, parts) in enumerate(week_days):
                             session_template = week_templates[day_offset] if day_offset < len(week_templates) else {}
                             sport = _infer_sport_for_export(parts, session_template)
-                            steps = build_steps_for_sport(
-                                total,
-                                sport,
+                            sport, steps = resolve_export_steps(
+                                session_template,
+                                total_tss=total,
+                                sport=sport,
                                 session_role=str(session_template.get("session_role", "easy")),
                                 phase=session_template.get("phase"),
                             )

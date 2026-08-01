@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Dict
+from typing import Any, Dict, List, Mapping, Tuple
+
+from models.training_planner import iter_leaf_sessions
 
 
 def _estimate_step_durations(total_tss: float) -> Dict[str, float]:
@@ -99,6 +101,42 @@ def build_steps_for_sport(total_tss: float, sport: str, session_role: str = 'eas
             }
         )
     return steps
+
+
+def resolve_export_steps(
+    session_template: Mapping[str, Any] | None,
+    *,
+    total_tss: float,
+    sport: str,
+    session_role: str = "easy",
+    phase: str | None = None,
+) -> Tuple[str, List[Dict]]:
+    """Resolve executable export steps for a day-template.
+
+    Зеркалирует api.planning_service.export_workout: материализованные шаги
+    (single leaf или конкатенация ног composite) используются, когда они есть;
+    легаси-fallback build_steps_for_sport включается только при их отсутствии
+    (договор #299 — modern executable vs legacy fallback). Возвращает (sport, steps).
+
+    Issue #317: устраняет расхождение параллельных путей экспорта — UI honour'ит
+    темп/мощность так же, как API и доставка в Intervals.
+    """
+    template = dict(session_template or {})
+    steps: List[Dict] = []
+    resolved_sport = str(sport or "")
+    for leaf in iter_leaf_sessions(template):
+        leaf_steps = list(leaf.get("materialized_steps") or [])
+        if leaf_steps:
+            steps.extend(leaf_steps)
+            if not resolved_sport:
+                resolved_sport = str(leaf.get("sport") or resolved_sport)
+    if not steps:  # pre-identity-wrapping / legacy single template
+        top_steps = list(template.get("materialized_steps") or [])
+        if top_steps:
+            steps = top_steps
+    if steps:
+        return resolved_sport, steps
+    return resolved_sport, build_steps_for_sport(total_tss, sport, session_role, phase)
 
 
 def generate_fit_csv(workout_name: str, sport: str, steps: List[Dict], created: datetime | None = None) -> str:
