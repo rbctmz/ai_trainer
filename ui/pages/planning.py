@@ -3163,7 +3163,7 @@ def render_planning_page(state: "StateManager") -> None:
         day_idx = st.number_input("День недели (1=Пн … 7=Вс)", min_value=1, max_value=7, value=1, key="fit_day")
         if st.button("⬇️ Экспортировать выбранный день в FIT-CSV / FIT", key="export_fit_day"):
             from config.settings import Settings
-            from models.fit_export import build_steps_for_sport, generate_fit_csv, try_convert_fit_verbose
+            from models.fit_export import generate_fit_csv, resolve_export_steps, try_convert_fit_verbose
             from models.tcx_activity_export import generate_tcx_activity
             from models.tcx_export import generate_tcx_workout
 
@@ -3172,63 +3172,74 @@ def render_planning_page(state: "StateManager") -> None:
             dt, total, parts = day
             session_template = session_templates[day_index] if day_index < len(session_templates) else {}
             sport = _infer_sport_for_export(parts, session_template)
-            steps = build_steps_for_sport(
-                total,
-                sport,
-                session_role=str(session_template.get("session_role", "easy")),
-                phase=session_template.get("phase"),
-            )
+            try:
+                sport, steps = resolve_export_steps(
+                    session_template,
+                    total_tss=total,
+                    sport=sport,
+                    session_role=str(session_template.get("session_role", "easy")),
+                    phase=session_template.get("phase"),
+                )
+            except ValueError as exc:
+                st.warning(
+                    "Не удалось собрать тренировку: неоднородный или неполный день. "
+                    f"{exc} Используйте per-leg экспорт для бриков или восстановите план."
+                )
+                steps = []
             workout_name = str(
                 session_template.get("export_name")
                 or f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}"
             )
-            csv_text = generate_fit_csv(workout_name, sport, steps, created=dt)
-            csv_bytes = csv_text.encode("utf-8")
+            if not steps:
+                st.info("Нет шагов для экспорта. Выберите другой день или восстановите план.")
+            if steps:
+                csv_text = generate_fit_csv(workout_name, sport, steps, created=dt)
+                csv_bytes = csv_text.encode("utf-8")
 
-            colf1, colf2, colf3, colf4 = st.columns(4)
-            with colf1:
-                st.download_button(
-                    label="💾 Скачать FIT-CSV",
-                    data=csv_bytes,
-                    file_name=f"workout_{dt.strftime('%Y%m%d')}.csv",
-                    mime="text/csv",
-                )
-            with colf2:
-                jar = Settings.FIT_SDK_JAR
-                fit_bytes, out_s, err_s, rc = try_convert_fit_verbose(csv_bytes, "java", jar) if jar else (None, "", "FIT_SDK_JAR не задан", 127)
-                if fit_bytes and rc == 0:
+                colf1, colf2, colf3, colf4 = st.columns(4)
+                with colf1:
                     st.download_button(
-                        label="💾 Скачать FIT",
-                        data=fit_bytes,
-                        file_name=f"workout_{dt.strftime('%Y%m%d')}.fit",
-                        mime="application/octet-stream",
+                        label="💾 Скачать FIT-CSV",
+                        data=csv_bytes,
+                        file_name=f"workout_{dt.strftime('%Y%m%d')}.csv",
+                        mime="text/csv",
                     )
-                else:
-                    if rc != 0:
-                        st.warning("FIT не собран. Логи FitCSVTool:")
-                        if out_s:
-                            st.code(out_s)
-                        if err_s:
-                            st.code(err_s)
+                with colf2:
+                    jar = Settings.FIT_SDK_JAR
+                    fit_bytes, out_s, err_s, rc = try_convert_fit_verbose(csv_bytes, "java", jar) if jar else (None, "", "FIT_SDK_JAR не задан", 127)
+                    if fit_bytes and rc == 0:
+                        st.download_button(
+                            label="💾 Скачать FIT",
+                            data=fit_bytes,
+                            file_name=f"workout_{dt.strftime('%Y%m%d')}.fit",
+                            mime="application/octet-stream",
+                        )
                     else:
-                        st.info("Чтобы собрать .FIT внутри приложения, укажите путь к FitCSVTool.jar в переменной окружения FIT_SDK_JAR.")
-            with colf3:
-                tcx_text = generate_tcx_workout(workout_name, sport, steps, created=dt)
-                st.download_button(
-                    label="💾 Скачать TCX",
-                    data=tcx_text.encode("utf-8"),
-                    file_name=f"workout_{dt.strftime('%Y%m%d')}.tcx",
-                    mime="application/vnd.garmin.tcx+xml",
-                )
-            with colf4:
-                tcx_act = generate_tcx_activity(workout_name, sport, steps, start_time=datetime.combine(dt.date(), datetime.min.time()))
-                st.download_button(
-                    label="💾 TCX Activity (импорт)",
-                    data=tcx_act.encode("utf-8"),
-                    file_name=f"activity_{dt.strftime('%Y%m%d')}.tcx",
-                    mime="application/vnd.garmin.tcx+xml",
-                    help="Используйте этот файл на странице Импорт данных в Garmin Connect",
-                )
+                        if rc != 0:
+                            st.warning("FIT не собран. Логи FitCSVTool:")
+                            if out_s:
+                                st.code(out_s)
+                            if err_s:
+                                st.code(err_s)
+                        else:
+                            st.info("Чтобы собрать .FIT внутри приложения, укажите путь к FitCSVTool.jar в переменной окружения FIT_SDK_JAR.")
+                with colf3:
+                    tcx_text = generate_tcx_workout(workout_name, sport, steps, created=dt)
+                    st.download_button(
+                        label="💾 Скачать TCX",
+                        data=tcx_text.encode("utf-8"),
+                        file_name=f"workout_{dt.strftime('%Y%m%d')}.tcx",
+                        mime="application/vnd.garmin.tcx+xml",
+                    )
+                with colf4:
+                    tcx_act = generate_tcx_activity(workout_name, sport, steps, start_time=datetime.combine(dt.date(), datetime.min.time()))
+                    st.download_button(
+                        label="💾 TCX Activity (импорт)",
+                        data=tcx_act.encode("utf-8"),
+                        file_name=f"activity_{dt.strftime('%Y%m%d')}.tcx",
+                        mime="application/vnd.garmin.tcx+xml",
+                        help="Используйте этот файл на странице Импорт данных в Garmin Connect",
+                    )
 
         with st.expander("📦 Экспорт всей недели (ZIP)", expanded=False):
             week_idx = st.number_input("Номер недели (1=первая)", min_value=1, max_value=total_weeks, value=1, key="fit_week_idx")
@@ -3237,7 +3248,7 @@ def render_planning_page(state: "StateManager") -> None:
                 import zipfile
 
                 from config.settings import Settings
-                from models.fit_export import build_steps_for_sport, generate_fit_csv, try_convert_fit_verbose
+                from models.fit_export import generate_fit_csv, resolve_export_steps, try_convert_fit_verbose
                 from models.tcx_export import generate_tcx_workout
 
                 jar = Settings.FIT_SDK_JAR
@@ -3255,12 +3266,19 @@ def render_planning_page(state: "StateManager") -> None:
                     for day_offset, (dt, total, parts) in enumerate(week_days):
                         session_template = week_templates[day_offset] if day_offset < len(week_templates) else {}
                         sport = _infer_sport_for_export(parts, session_template)
-                        steps = build_steps_for_sport(
-                            total,
-                            sport,
-                            session_role=str(session_template.get("session_role", "easy")),
-                            phase=session_template.get("phase"),
-                        )
+                        try:
+                            sport, steps = resolve_export_steps(
+                                session_template,
+                                total_tss=total,
+                                sport=sport,
+                                session_role=str(session_template.get("session_role", "easy")),
+                                phase=session_template.get("phase"),
+                            )
+                        except ValueError as exc:
+                            st.warning(
+                                f"Пропуск {dt.strftime('%Y-%m-%d')}: неоднородный или неполный день ({exc})."
+                            )
+                            continue
                         workout_name = str(
                             session_template.get("export_name")
                             or f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}"
@@ -3291,12 +3309,20 @@ def render_planning_page(state: "StateManager") -> None:
                         for day_offset, (dt, total, parts) in enumerate(week_days):
                             session_template = week_templates[day_offset] if day_offset < len(week_templates) else {}
                             sport = _infer_sport_for_export(parts, session_template)
-                            steps = build_steps_for_sport(
-                                total,
-                                sport,
-                                session_role=str(session_template.get("session_role", "easy")),
-                                phase=session_template.get("phase"),
-                            )
+                            try:
+                                sport, steps = resolve_export_steps(
+                                    session_template,
+                                    total_tss=total,
+                                    sport=sport,
+                                    session_role=str(session_template.get("session_role", "easy")),
+                                    phase=session_template.get("phase"),
+                                )
+                            except ValueError as exc:
+                                st.warning(
+                                    f"Пропуск {dt.strftime('%Y-%m-%d')}: неоднородный или неполный день ({exc})."
+                                )
+                                failed_days += 1
+                                continue
                             workout_name = str(
                                 session_template.get("export_name")
                                 or f"{goal_type_cached} {distance_cached} — {dt.strftime('%Y-%m-%d')}"

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List, Dict
+from typing import Any, Dict, List, Mapping, Tuple
+
+from models.training_planner import iter_leaf_sessions
 
 
 def _estimate_step_durations(total_tss: float) -> Dict[str, float]:
@@ -99,6 +101,70 @@ def build_steps_for_sport(total_tss: float, sport: str, session_role: str = 'eas
             }
         )
     return steps
+
+
+def resolve_export_steps(
+    session_template: Mapping[str, Any] | None,
+    *,
+    total_tss: float,
+    sport: str,
+    session_role: str = "easy",
+    phase: str | None = None,
+) -> Tuple[str, List[Dict]]:
+    """Resolve executable export steps for a day-template into a single
+    homogeneous workout.
+
+    Ограниченный контракт UI-экспорта (PR #319 review): формируется только
+    однородный исполнимый workout. Mixed-sport/multi-leaf (composite/brick) и
+    частично материализованный день отклоняются явной ошибкой — per-session /
+    per-leg экспорт остаётся отдельному issue (API export_workout уже требует
+    явную leg=). Genuine legacy (нет sessions[] / off-day) сохраняет fallback
+    build_steps_for_sport (договор #299).
+
+    Возвращает (sport, steps).
+    """
+    template = dict(session_template or {})
+    resolved_sport = str(sport or "")
+    leaves = iter_leaf_sessions(template)
+
+    if not leaves:
+        # genuine legacy / off-day: ни одного training-leaf. Сохраняем fallback
+        # на top-level materialized_steps (pre-identity-wrapping single), затем
+        # на build_steps_for_sport (legacy role blueprint).
+        top_steps = list(template.get("materialized_steps") or [])
+        if top_steps:
+            return resolved_sport, top_steps
+        return resolved_sport, build_steps_for_sport(total_tss, sport, session_role, phase)
+
+    # Modern plan: ≥1 leaf. Частично материализованный день (не все leaves с
+    # шагами) запрещён — частичный успешный экспорт невозможен, fail-closed.
+    if not all(list(leaf.get("materialized_steps") or []) for leaf in leaves):
+        incomplete = [
+            str(leaf.get("sport") or leaf.get("name") or "leaf")
+            for leaf in leaves
+            if not list(leaf.get("materialized_steps") or [])
+        ]
+        raise ValueError(
+            "day is partially materialized and not executable; "
+            f"missing steps for: {', '.join(incomplete)}"
+        )
+
+    # Mixed-sport / multi-leaf (composite/brick или несколько сессий в дне)
+    # нельзя собрать в один однородный workout — отклоняем.
+    if len(leaves) > 1:
+        raise ValueError(
+            "multi-leaf day requires per-session/per-leg export; "
+            f"got {len(leaves)} leaves"
+        )
+
+    leaf = leaves[0]
+    leaf_steps = list(leaf.get("materialized_steps") or [])
+    if leaf_steps:
+        if not resolved_sport:
+            resolved_sport = str(leaf.get("sport") or resolved_sport)
+        return resolved_sport, leaf_steps
+
+    return resolved_sport, build_steps_for_sport(total_tss, sport, session_role, phase)
 
 
 def generate_fit_csv(workout_name: str, sport: str, steps: List[Dict], created: datetime | None = None) -> str:
