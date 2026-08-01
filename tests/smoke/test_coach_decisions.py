@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from data.database import Database
 
@@ -108,13 +108,19 @@ def test_decisions_api_groups_by_day_and_exposes_empty_state(tmp_path):
     assert empty["days"] == []
     assert empty["operational_state"]["status"] == "empty"
 
-    db.save_coach_decision("Monitor", "Недостаточно сильного сигнала для изменения нагрузки.", date="2026-07-02T09:00:00")
-    db.save_coach_decision("Push", "TSB +5.0 и readiness 82: можно выполнить качественную работу.", date="2026-07-02T12:00:00")
-    db.save_coach_decision("Recovery", "TSB -25.0: восстановительный день приоритетнее.", date="2026-07-01T08:00:00")
+    # Date-safe fixtures (issue #320): stay inside the rolling 30-day window
+    # used by get_coach_decisions(days=30) instead of hardcoded dates that
+    # silently expire as the calendar advances.
+    today = date.today()
+    recent_day = today - timedelta(days=1)
+    older_day = today - timedelta(days=2)
+    db.save_coach_decision("Monitor", "Недостаточно сильного сигнала для изменения нагрузки.", date=f"{recent_day.isoformat()}T09:00:00")
+    db.save_coach_decision("Push", "TSB +5.0 и readiness 82: можно выполнить качественную работу.", date=f"{recent_day.isoformat()}T12:00:00")
+    db.save_coach_decision("Recovery", "TSB -25.0: восстановительный день приоритетнее.", date=f"{older_day.isoformat()}T08:00:00")
 
     payload = list_decisions(db=db)
     assert payload["has_data"] is True
-    assert [day["date"] for day in payload["days"]] == ["2026-07-02", "2026-07-01"]
+    assert [day["date"] for day in payload["days"]] == [recent_day.isoformat(), older_day.isoformat()]
     assert [item["decision_type"] for item in payload["days"][0]["decisions"]] == ["Push", "Monitor"]
     assert payload["days"][0]["decisions"][0]["time"] == "12:00"
     assert payload["operational_state"]["status"] == "ready"
