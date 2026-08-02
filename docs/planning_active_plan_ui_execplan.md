@@ -12,7 +12,10 @@ When an athlete already has a saved training plan, opening `/planning` should fi
 - [x] (2026-08-02) Added failing API and source-level UI acceptance gates for the active-plan overview, then made them green.
 - [x] (2026-08-02) Implemented M1: a read-only overview projection and reader-first `/planning` information architecture.
 - [x] (2026-08-02) Reviewing agent completed focused API/UI gates, lint, production build, full smoke, and isolated active/no-plan browser acceptance at 1280px and 390px.
-- [ ] M2 (future): deepen the Weeks reader view without changing the M1 overview contract.
+- [x] (2026-08-02) M2 scope and current checkpoint/forecast contracts inspected for #302.
+- [x] (2026-08-02) Added RED contract/component gates for server-owned roadmap and form projection, then made them green.
+- [x] (2026-08-02) Implemented M2: additive active-checkpoint `roadmap` and `form_projection` fields plus Overview rendering.
+- [x] (2026-08-02) Passed focused event/rolling/data-gap API gates, the full contributor-safe smoke suite, Next lint, production build, diff whitespace validation, and independent browser review at 1280px and 390px.
 - [ ] M3 (future): improve the Execution reader view and adjustment guidance without altering checkpoint semantics.
 - [ ] M4 (future): complete parent #300 roadmap/visualisation work only after separate scope approval.
 
@@ -24,6 +27,10 @@ When an athlete already has a saved training plan, opening `/planning` should fi
   Evidence: `web/app/planning/page.tsx:760`.
 - Observation: the browser runtime did not trigger the native `<summary>` action through synthetic Enter/Space presses.
   Evidence: replacing it with a button-backed disclosure and an explicit keyboard handler made Enter open and Space close deterministically while preserving `aria-expanded` and `aria-controls`.
+- Observation: the established forecast helper consumes persisted daily-plan triples, including the metadata field, rather than date/load pairs.
+  Evidence: M2 projection passes only future persisted triples to `_forecast`, preserving the planner's existing input contract and race-load handling.
+- Observation: browser automation was unavailable to the implementing agent but available during independent review.
+  Evidence: the reviewer exercised `/planning` against an isolated database at 1280px and 390px, confirmed the roadmap and form chart, found no horizontal overflow or console errors, and made no provider writes.
 
 ## Decision Log
 
@@ -33,10 +40,15 @@ When an athlete already has a saved training plan, opening `/planning` should fi
 - Decision: use a button-backed disclosure for Adjustment History.
   Rationale: it is collapsed by default, exposes `aria-expanded`/`aria-controls`, and its keyboard activation is verifiable in the supported browser acceptance runtime.
   Date/Author: 2026-08-02 / Codex.
+- Decision: extend the existing read-only `/api/planning/overview` projection for M2 instead of changing `/api/planning/plan`.
+  Rationale: `/plan` remains export-oriented. The overview is already the active-checkpoint reader boundary and can add roadmap and form fields without breaking existing consumers or reconstructing domain values in TypeScript.
+  Date/Author: 2026-08-02 / Codex.
 
 ## Outcomes & Retrospective
 
 M1 adds `GET /api/planning/overview`, a checkpoint-only projection that distinguishes confirmed event goals from training-goal rolling horizons and reports local data gaps. `/planning` now resolves to Overview only when `has_plan=true`; no-plan still resolves to BuildMode and its FirstPlanCard. Overview, Weeks, and Execution are reader tabs. Edit plan, Adjust, and Export retain existing flows as explicit actions. Adjustment History is one collapsed, button-backed disclosure.
+
+M2 extends that same read-only projection. It returns contiguous, date-bounded phase segments and separately persisted A/B/C event markers, plus sampled actual and planner-forecast CTL/ATL/TSB series separated by a server-owned today boundary. The UI renders the roadmap proportionally and the chart with solid factual paths, dashed forecast paths, a target marker, textual legend, and an explicit local data-gap state. The browser only maps server values to coordinates; it does not calculate training metrics. Focused tests cover event, rolling-horizon, missing-history, target sampling, and source-level accessibility/legend expectations. The focused suite (35 tests), lint, build, `git diff --check`, and full smoke suite (`1365 passed, 1 skipped`) passed. Independent browser acceptance against an isolated database verified desktop and 390px mobile rendering, no horizontal overflow, and no console errors.
 
 Final evidence: 24 focused API/router/deep-link tests passed; the full contributor-safe smoke suite passed with `1360 passed, 1 skipped`; Next lint and production build passed from an isolated web copy. Browser acceptance against isolated copies of the active and empty databases verified the event overview as the 1280px default with no build form, the Weeks and Execution readers, explicit Edit, the `session_id` adjustment deep-link, no horizontal overflow at 390px, no-plan onboarding, and deterministic Enter/Space history disclosure. No provider write or planning confirmation was made.
 
@@ -48,6 +60,12 @@ An active plan is the latest persisted planning checkpoint. A reader view only f
 
 The affected quality scenarios are ASR-REL-2 (missing data is a local gap, not a page failure), ASR-MOD-2 (a reusable reader projection), ASR-MOD-3 (an additive API contract), plus ATAM R3/R4 (contract tests and web-primary scope). No Streamlit code, planning formula, identity/lineage, reconciliation calculation, delivery behavior, or checkpoint storage schema changes are in scope.
 
+### M2: Phase Roadmap and form projection
+
+Issue #302 adds reader-only context to the M1 Overview. A roadmap is a sequence of contiguous phase segments derived from the persisted `weekly_summary`; each segment has its concrete date range, proportional position in the saved plan horizon, and the server-selected current marker. Existing saved A, B, and C events are returned separately and retain their stored priority; B/C do not become an A goal. A form projection contains separate `actual_points` and `forecast_points` plus a server-owned `boundary_date` equal to today. The historical points use the existing Banister model over local activity history. The future points reuse the existing planner forecast helper over future saved daily loads. No browser calculation changes CTL, ATL, or TSB.
+
+M2 touches ASR-PERF-4 by sampling bounded historical and future series, ASR-REL-2 by returning data-gap envelopes instead of zero charts, ASR-MOD-2 and ASR-MOD-3 through one additive API field set, and ATAM R3 through direct router/service contract tests. It does not call a provider, write a checkpoint, or change scheduler/forecast mathematics.
+
 ## Plan of Work
 
 First add tests that prove the new endpoint returns an empty envelope for no checkpoint, an event-goal overview with a confirmed A event and countdown, and a training-goal overview with a rolling horizon and no invented race date. The tests also pin the route registration and the reader-first source structure that preserves the existing `session_id` adjustment deep link.
@@ -55,6 +73,8 @@ First add tests that prove the new endpoint returns an empty envelope for no che
 Add `active_plan_overview` to `api/planning_service.py`. It will restore the existing checkpoint snapshot and produce only display-ready, bounded values: goal, event or rolling timeline, current week, plan progress, and persisted execution status. Date parsing is defensive. Fields that cannot be derived are `null` or explicit `data_gap` values instead of exceptions. Expose it at `GET /api/planning/overview`.
 
 Extend `web/lib/types.ts` with the additive DTO and rework only the top-level page state. When status reports a plan, the first resolved view is Overview. The reader navigation contains Overview, Weeks, and Execution. Explicit actions open the retained form, adjustment flow, or export flow. The no-plan path keeps BuildMode and therefore the existing FirstPlanCard onboarding. Render one collapsed button-backed Adjustment History outside the selected reader/action content.
+
+For M2, add a planning-service helper used only by `active_plan_overview`. It must assemble phase ranges and event positions from the restored checkpoint, derive a sampled factual series from local activities, and call the existing `_forecast` helper for future plan dates. Its response must make boundary and data availability explicit. Extend `ActivePlanOverview` with an SVG/CSS roadmap and an SVG form chart. Both must include text equivalents and legends; no external chart package is added.
 
 ## Concrete Steps
 
@@ -85,4 +105,6 @@ The primary implementation files are `api/planning_service.py`, `api/routers/pla
 
 `GET /api/planning/overview` returns a JSON object with `has_plan`. When true it also returns `goal`, `timeline`, `current_week`, `progress`, and `execution`. `timeline.kind` is either `event` (with confirmed A-event data and remaining time) or `rolling` (with only the saved horizon); missing values use `null` and `execution.state == "data_gap"` when no persisted execution projection exists. It depends only on `Database.get_latest_planning_checkpoint`, `restore_goal_plan_from_checkpoint`, and existing checkpoint summary functions.
 
-Plan revision 2026-08-02: M1 implementation and independent acceptance are complete; M2-M4 remain separate future scope.
+After M2, the same endpoint additionally returns `roadmap` and `form_projection`. `roadmap` has a state, bounded phase segments, event markers, and a current marker. `form_projection` has a state, `boundary_date`, `actual_points`, `forecast_points`, and a ready-to-render numerical summary. A missing activity history, malformed date, or absent saved future plan returns `state: "data_gap"` with no synthetic zero path.
+
+Plan revision 2026-08-02: M1 and #302 M2 are complete locally and pass automated and independent browser acceptance.

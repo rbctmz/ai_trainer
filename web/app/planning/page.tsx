@@ -294,6 +294,10 @@ function ActivePlanOverview({ overview, error }: { overview?: PlanningOverview; 
           detail={overview.execution?.description ?? ""}
         />
       </dl>
+      <div className="mt-5 space-y-5">
+        <PhaseRoadmap roadmap={overview.roadmap} />
+        <FormProjection projection={overview.form_projection} />
+      </div>
     </section>
   );
 }
@@ -305,6 +309,153 @@ function OverviewFact({ label, value, detail }: { label: string; value: string; 
       <dd className="mt-1 text-sm font-semibold text-ink">{value}</dd>
       {detail ? <p className="mt-1 text-xs text-ink-soft">{detail}</p> : null}
     </div>
+  );
+}
+
+const PHASE_TONES: Record<string, string> = {
+  Base: "bg-sky-100 text-sky-900",
+  Build: "bg-violet-100 text-violet-900",
+  Recovery: "bg-emerald-100 text-emerald-900",
+  Peak: "bg-amber-100 text-amber-900",
+  Taper: "bg-orange-100 text-orange-900",
+  "Race Week": "bg-rose-100 text-rose-900",
+};
+
+function PhaseRoadmap({ roadmap }: { roadmap?: PlanningOverview["roadmap"] }) {
+  if (!roadmap || roadmap.state !== "available" || !roadmap.segments.length) {
+    return <LocalDataGap label={roadmap?.reason ?? "Roadmap фаз пока недоступен в сохранённом checkpoint."} />;
+  }
+  const marker = roadmap.current_marker;
+  return (
+    <section aria-labelledby="phase-roadmap-title">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id="phase-roadmap-title" className="text-sm font-semibold text-ink">Roadmap фаз</h3>
+        <span className="text-xs text-ink-faint">
+          {roadmap.horizon_start} — {roadmap.horizon_end}
+        </span>
+      </div>
+      <div
+        role="img"
+        aria-label={`Фазы плана от ${roadmap.horizon_start} до ${roadmap.horizon_end}. Текущая дата: ${marker?.date ?? "вне горизонта"}.`}
+        className="relative mt-3 pt-5"
+      >
+        <div className="flex min-h-14 overflow-hidden rounded-lg border border-surface-border">
+          {roadmap.segments.map((segment) => (
+            <div
+              key={`${segment.phase}-${segment.start_date}`}
+              style={{ flexGrow: Math.max(1, segment.duration_days), flexBasis: 0 }}
+              className={`min-w-0 border-r border-white/70 p-2 last:border-r-0 ${PHASE_TONES[segment.phase] ?? "bg-surface-muted text-ink-soft"}`}
+            >
+              <div className="truncate text-xs font-medium">{segment.phase}</div>
+              <div className="mt-1 text-[11px] opacity-80">{segment.duration_days} дн.</div>
+            </div>
+          ))}
+        </div>
+        {marker ? (
+          <span
+            aria-hidden="true"
+            style={{ left: `${marker.position_percent}%` }}
+            className="absolute bottom-0 top-0 z-10 w-px bg-ink"
+          />
+        ) : null}
+        {roadmap.events.map((event) => (
+          <span
+            key={`${event.priority}-${event.date}-${event.label}`}
+            aria-hidden="true"
+            title={`${event.priority} · ${event.label} · ${event.date}`}
+            style={{ left: `${Math.min(98, Math.max(2, event.position_percent))}%` }}
+            className="absolute top-3 z-20 -translate-x-1/2 rounded-full border border-surface bg-surface px-1.5 py-0.5 text-[10px] font-bold text-ink shadow-sm"
+          >
+            {event.priority}
+          </span>
+        ))}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-soft">
+        <span>│ Сегодня {marker?.date ?? "вне горизонта"}</span>
+        <span>A/B/C — сохранённые старты</span>
+      </div>
+      {roadmap.events.length ? (
+        <ul className="mt-2 grid gap-1 text-xs text-ink-soft sm:grid-cols-2">
+          {roadmap.events.map((event) => (
+            <li key={`${event.priority}-${event.date}-${event.label}`}>
+              <strong className="text-ink">{event.priority}</strong> · {event.date} · {event.label}
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
+function FormProjection({ projection }: { projection?: PlanningOverview["form_projection"] }) {
+  if (!projection || projection.state !== "available" || !projection.summary) {
+    return <LocalDataGap label={projection?.reason ?? "Прогноз формы пока недоступен в сохранённом checkpoint."} />;
+  }
+  const { actual_points: actual, forecast_points: forecast, boundary_date: boundary, summary } = projection;
+  const allPoints = [...actual, ...forecast];
+  if (actual.length < 1 || forecast.length < 1 || allPoints.length < 2) {
+    return <LocalDataGap label="Недостаточно точек для честного графика формы." />;
+  }
+
+  const width = 720;
+  const height = 220;
+  const padding = 28;
+  const dates = allPoints.map((point) => Date.parse(point.date));
+  const minDate = Math.min(...dates);
+  const maxDate = Math.max(...dates);
+  const dateSpan = Math.max(1, maxDate - minDate);
+  const values = allPoints.flatMap((point) => [point.ctl, point.atl, point.tsb, 0]);
+  const minValue = Math.min(...values);
+  const maxValue = Math.max(...values);
+  const valueSpan = Math.max(1, maxValue - minValue);
+  const x = (day: string) => padding + ((Date.parse(day) - minDate) / dateSpan) * (width - padding * 2);
+  const y = (value: number) => height - padding - ((value - minValue) / valueSpan) * (height - padding * 2);
+  const path = (points: ForecastPoint[], key: "ctl" | "atl" | "tsb") =>
+    points.map((point, index) => `${index === 0 ? "M" : "L"}${x(point.date)},${y(point[key])}`).join(" ");
+  const targetX = x(summary.target_date);
+  const series = [
+    { key: "ctl" as const, color: "#3B82F6", label: "CTL (форма)" },
+    { key: "atl" as const, color: "#F59E0B", label: "ATL (усталость)" },
+    { key: "tsb" as const, color: "#10B981", label: "TSB (свежесть)" },
+  ];
+  const targetDetail = summary.target_kind === "event"
+    ? `${summary.target_date} · ${summary.days_to_goal} дн. до A-цели`
+    : `${summary.target_date} · конец скользящего горизонта`;
+
+  return (
+    <section aria-labelledby="form-projection-title">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id="form-projection-title" className="text-sm font-semibold text-ink">Факт и прогноз формы</h3>
+        <span className="text-xs text-ink-faint">Цель: {targetDetail}</span>
+      </div>
+      <dl className="mt-3 grid gap-2 sm:grid-cols-4">
+        <OverviewFact label="Текущий CTL" value={`${summary.current_ctl}`} detail={`факт на ${boundary}`} />
+        <OverviewFact label="Пиковый CTL" value={`${summary.peak_projected_ctl}`} detail="в сохранённом плане" />
+        <OverviewFact label="CTL к цели" value={`${summary.projected_ctl}`} detail={summary.target_date} />
+        <OverviewFact label="TSB к цели" value={`${summary.projected_tsb}`} detail={summary.target_kind === "event" ? "к A-цели" : "к концу горизонта"} />
+      </dl>
+      <svg
+        role="img"
+        aria-label={`Факт формы до ${boundary} показан сплошной линией; прогноз после ${boundary} — пунктиром. ${targetDetail}.`}
+        viewBox={`0 0 ${width} ${height}`}
+        className="mt-4 w-full"
+      >
+        <line x1={padding} x2={width - padding} y1={y(0)} y2={y(0)} stroke="#E2E8F0" strokeWidth={1} />
+        <line x1={targetX} x2={targetX} y1={padding} y2={height - padding} stroke="#334155" strokeWidth={1} />
+        {series.map((item) => (
+          <Fragment key={`actual-${item.key}`}>
+            <path d={path(actual, item.key)} fill="none" stroke={item.color} strokeWidth={2} />
+            <path d={path(forecast, item.key)} fill="none" stroke={item.color} strokeWidth={2} strokeDasharray="6 4" />
+          </Fragment>
+        ))}
+      </svg>
+      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-soft">
+        <span>Сплошная: Факт до {boundary}</span>
+        <span>Пунктир: Прогноз после {boundary}</span>
+        <span>│ Целевая дата</span>
+        {series.map((item) => <span key={item.key}>{item.label}</span>)}
+      </div>
+    </section>
   );
 }
 

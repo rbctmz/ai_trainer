@@ -251,6 +251,295 @@ def _overview_int(value: Any) -> int:
         return 0
 
 
+def _overview_event_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return only stored A/B/C events; this reader path never discovers new ones."""
+    rows: List[Dict[str, Any]] = []
+    for item in list(goal_plan.get("events") or []):
+        if not isinstance(item, dict):
+            continue
+        event_date = _overview_date(item.get("date"))
+        priority = str(item.get("priority") or "").strip().upper()
+        if event_date is None or priority not in {"A", "B", "C"}:
+            continue
+        rows.append(
+            {
+                "date": event_date.isoformat(),
+                "priority": priority,
+                "label": str(item.get("label") or f"Старт {priority}").strip() or f"Старт {priority}",
+                "confirmed": item.get("confirmed") is not False,
+            }
+        )
+    return rows
+
+
+def _active_plan_roadmap(goal_plan: Dict[str, Any], *, today: date) -> Dict[str, Any]:
+    """Build bounded, proportional phase and event data from one checkpoint."""
+    weekly_rows = [
+        dict(row)
+        for row in list(goal_plan.get("weekly_summary") or [])
+        if isinstance(row, dict) and _overview_date(row.get("week_start")) is not None
+    ]
+    weekly_rows.sort(key=lambda row: _overview_date(row["week_start"]) or date.max)
+    if not weekly_rows:
+        return {
+            "state": "data_gap",
+            "reason": "В checkpoint нет дат фаз плана.",
+            "segments": [],
+            "events": [],
+            "current_marker": None,
+        }
+
+    week_starts = [_overview_date(row["week_start"]) for row in weekly_rows]
+    assert all(value is not None for value in week_starts)
+    starts = [value for value in week_starts if value is not None]
+    horizon_start = starts[0]
+    plan_end_raw = _goal_plan_date_bounds(goal_plan)[1]
+    horizon_end = _overview_date(plan_end_raw) or (starts[-1] + timedelta(days=6))
+    if horizon_end < horizon_start:
+        return {
+            "state": "data_gap",
+            "reason": "Границы горизонта плана некорректны.",
+            "segments": [],
+            "events": [],
+            "current_marker": None,
+        }
+
+    weekly_rows = [
+        row
+        for row in weekly_rows
+        if (_overview_date(row["week_start"]) or date.max) <= horizon_end
+    ]
+    starts = [_overview_date(row["week_start"]) for row in weekly_rows]
+    starts = [value for value in starts if value is not None]
+    if not starts:
+        return {
+            "state": "data_gap",
+            "reason": "Даты фаз не входят в горизонт сохранённого плана.",
+            "segments": [],
+            "events": [],
+            "current_marker": None,
+        }
+
+    span_days = max(1, (horizon_end - horizon_start).days)
+    segments: List[Dict[str, Any]] = []
+    group_start = 0
+    for index in range(1, len(weekly_rows) + 1):
+        previous_phase = str(weekly_rows[index - 1].get("phase") or "Не указана").strip() or "Не указана"
+        next_phase = (
+            str(weekly_rows[index].get("phase") or "Не указана").strip()
+            if index < len(weekly_rows)
+            else None
+        )
+        if index < len(weekly_rows) and next_phase == previous_phase:
+            continue
+        segment_start = starts[group_start]
+        segment_end = (starts[index] - timedelta(days=1)) if index < len(starts) else horizon_end
+        segment_end = min(segment_end, horizon_end)
+        segments.append(
+            {
+                "phase": previous_phase,
+                "start_date": segment_start.isoformat(),
+                "end_date": segment_end.isoformat(),
+                "duration_days": (segment_end - segment_start).days + 1,
+                "start_percent": round(((segment_start - horizon_start).days / span_days) * 100, 2),
+                "end_percent": round(((segment_end - horizon_start).days / span_days) * 100, 2),
+                "is_current": segment_start <= today <= segment_end,
+            }
+        )
+        group_start = index
+
+    events = []
+    for event in _overview_event_rows(goal_plan):
+        event_date = _overview_date(event["date"])
+        assert event_date is not None
+        if horizon_start <= event_date <= horizon_end:
+            events.append(
+                {
+                    **event,
+                    "position_percent": round(((event_date - horizon_start).days / span_days) * 100, 2),
+                }
+            )
+    current_marker = None
+    if horizon_start <= today <= horizon_end:
+        current_marker = {
+            "date": today.isoformat(),
+            "position_percent": round(((today - horizon_start).days / span_days) * 100, 2),
+        }
+
+    return {
+        "state": "available",
+        "reason": None,
+        "horizon_start": horizon_start.isoformat(),
+        "horizon_end": horizon_end.isoformat(),
+        "segments": segments,
+        "events": events,
+        "current_marker": current_marker,
+    }
+
+
+def _sample_form_points(
+    dates: List[Any],
+    ctl: List[float],
+    atl: List[float],
+    tsb: List[float],
+    *,
+    required_dates: set[str] | None = None,
+) -> List[Dict[str, Any]]:
+    """Bound a daily Banister series to weekly points plus explicit boundaries."""
+    required_dates = required_dates or set()
+    points: List[Dict[str, Any]] = []
+    for index, value in enumerate(dates):
+        point_date = value.date() if hasattr(value, "date") else _overview_date(value)
+        if point_date is None:
+            continue
+        iso_date = point_date.isoformat()
+        if index % 7 != 0 and index != len(dates) - 1 and iso_date not in required_dates:
+            continue
+        points.append(
+            {
+                "date": iso_date,
+                "ctl": round(float(ctl[index]), 1),
+                "atl": round(float(atl[index]), 1),
+                "tsb": round(float(tsb[index]), 1),
+            }
+        )
+    return points
+
+
+def _active_plan_form_projection(
+    db: Database,
+    goal_plan: Dict[str, Any],
+    *,
+    today: date,
+    planning_mode: str,
+    event: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    """Return actual and planned form series without provider I/O or writes."""
+    activities = db.get_activities(90)
+    if activities is None or activities.empty or not {"date", "tss"}.issubset(activities.columns):
+        return {
+            "state": "data_gap",
+            "reason": "Недостаточно локальной истории нагрузок для прогноза формы.",
+            "boundary_date": today.isoformat(),
+            "actual_points": [],
+            "forecast_points": [],
+            "summary": None,
+        }
+
+    history = activities[["date", "tss"]].copy()
+    history["date"] = pd.to_datetime(history["date"], errors="coerce")
+    history["tss"] = pd.to_numeric(history["tss"], errors="coerce").fillna(0.0)
+    history = history.dropna(subset=["date"])
+    history = history[history["date"].dt.date <= today]
+    if history.empty:
+        return {
+            "state": "data_gap",
+            "reason": "Локальная история не содержит нагрузок до сегодняшней даты.",
+            "boundary_date": today.isoformat(),
+            "actual_points": [],
+            "forecast_points": [],
+            "summary": None,
+        }
+
+    daily_history = history.groupby(history["date"].dt.normalize())["tss"].sum().sort_index()
+    daily_index = pd.date_range(start=daily_history.index.min(), end=pd.Timestamp(today), freq="D")
+    daily_history = daily_history.reindex(daily_index, fill_value=0.0)
+    banister = BanisterModel()
+    actual_dates, actual_ctl, actual_atl, actual_tsb = banister.calculate_ctl_atl_tsb(
+        daily_history.tolist(), daily_history.index.tolist()
+    )
+    if not actual_dates:
+        return {
+            "state": "data_gap",
+            "reason": "Не удалось построить фактическую траекторию формы.",
+            "boundary_date": today.isoformat(),
+            "actual_points": [],
+            "forecast_points": [],
+            "summary": None,
+        }
+
+    future_daily = []
+    for item in list(goal_plan.get("daily_plan") or []):
+        if not isinstance(item, (tuple, list)) or len(item) < 2:
+            continue
+        planned_date = _overview_date(item[0])
+        if planned_date is None or planned_date <= today:
+            continue
+        try:
+            planned_tss = float(item[1] or 0.0)
+        except (TypeError, ValueError):
+            continue
+        future_daily.append((datetime.combine(planned_date, datetime.min.time()), planned_tss, {}))
+    future_daily.sort(key=lambda item: item[0])
+    if not future_daily:
+        return {
+            "state": "data_gap",
+            "reason": "В checkpoint нет будущих дней плана для прогноза формы.",
+            "boundary_date": today.isoformat(),
+            "actual_points": [],
+            "forecast_points": [],
+            "summary": None,
+        }
+
+    event_date = _overview_date((event or {}).get("date"))
+    target_date = event_date if planning_mode == "event_goal" and event_date else future_daily[-1][0].date()
+    if target_date < future_daily[0][0].date() or target_date > future_daily[-1][0].date():
+        return {
+            "state": "data_gap",
+            "reason": "Целевая дата не входит в сохранённый будущий горизонт плана.",
+            "boundary_date": today.isoformat(),
+            "actual_points": [],
+            "forecast_points": [],
+            "summary": None,
+        }
+    current_metrics = {
+        "ctl": float(actual_ctl[-1]),
+        "atl": float(actual_atl[-1]),
+        "tsb": float(actual_tsb[-1]),
+    }
+    # `_forecast` owns the planner's existing Banister simulation. Requesting
+    # the target date only adds a sampled point; it does not alter its formula.
+    forecast = _forecast(
+        banister,
+        current_metrics,
+        future_daily,
+        future_daily[0][0].date(),
+        race_forecast_loads=goal_plan.get("race_forecast_loads"),
+        required_dates={target_date.isoformat()},
+    )
+    forecast_points = list(forecast.get("points") or [])
+    target_point = next(
+        (point for point in forecast_points if point.get("date") == target_date.isoformat()),
+        None,
+    )
+    if not forecast_points or target_point is None:
+        return {
+            "state": "data_gap",
+            "reason": "Недостаточно точек планового прогноза формы.",
+            "boundary_date": today.isoformat(),
+            "actual_points": [],
+            "forecast_points": [],
+            "summary": None,
+        }
+
+    return {
+        "state": "available",
+        "reason": None,
+        "boundary_date": today.isoformat(),
+        "actual_points": _sample_form_points(actual_dates, actual_ctl, actual_atl, actual_tsb),
+        "forecast_points": forecast_points,
+        "summary": {
+            "current_ctl": round(float(actual_ctl[-1]), 1),
+            "peak_projected_ctl": round(max(float(point["ctl"]) for point in forecast_points), 1),
+            "projected_ctl": float(target_point["ctl"]),
+            "projected_tsb": float(target_point["tsb"]),
+            "target_date": target_date.isoformat(),
+            "target_kind": "event" if planning_mode == "event_goal" and event_date else "horizon_end",
+            "days_to_goal": max(0, (target_date - today).days) if planning_mode == "event_goal" and event_date else None,
+        },
+    }
+
+
 def active_plan_overview(db: Database) -> Dict[str, Any]:
     """Project the active checkpoint into a compact, reader-facing overview.
 
@@ -366,6 +655,15 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
             "weeks_remaining": max(0, (event_date - today).days // 7) if event_date else None,
         }
 
+    roadmap = _active_plan_roadmap(goal_plan, today=today)
+    form_projection = _active_plan_form_projection(
+        db,
+        goal_plan,
+        today=today,
+        planning_mode=planning_mode,
+        event=event,
+    )
+
     return {
         "has_plan": True,
         "goal": goal,
@@ -378,6 +676,8 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
             "status_label": "План завершён" if progress_status == "completed" else "Активный план",
         },
         "execution": execution,
+        "roadmap": roadmap,
+        "form_projection": form_projection,
         "weeks": [
             {
                 "number": index + 1,
@@ -803,6 +1103,7 @@ def _forecast(
     daily_plan,
     start_week: date,
     race_forecast_loads=None,
+    required_dates: set[str] | None = None,
 ) -> Dict[str, Any]:
     daily_seq = flatten_daily_total(daily_plan)  # list[(datetime, total)]
     # Issue #205 M6: the load model anticipates the race effort. The forecast
@@ -828,13 +1129,15 @@ def _forecast(
     dates, ctl, atl, tsb = banister.simulate_variable_load(metrics, daily_seq, start_date=start_dt)
 
     points: List[Dict[str, Any]] = []
+    required_dates = required_dates or set()
     n = len(dates)
     for i in range(n):
-        # Weekly sampling + always keep the final point.
-        if i % 7 == 0 or i == n - 1:
+        point_date = (dates[i].date() if hasattr(dates[i], "date") else dates[i]).isoformat()
+        # Weekly sampling, caller-requested target dates, and the final point.
+        if i % 7 == 0 or i == n - 1 or point_date in required_dates:
             points.append(
                 {
-                    "date": (dates[i].date() if hasattr(dates[i], "date") else dates[i]).isoformat(),
+                    "date": point_date,
                     "ctl": round(float(ctl[i]), 1),
                     "atl": round(float(atl[i]), 1),
                     "tsb": round(float(tsb[i]), 1),
