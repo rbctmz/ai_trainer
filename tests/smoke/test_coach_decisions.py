@@ -168,8 +168,13 @@ def test_decisions_api_collapses_consecutive_identical_decisions(tmp_path):
 def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path):
     from api.routers.decisions import list_decisions
 
+    # Date-safe fixtures (issue #320): stay inside the rolling 30-day window
+    # used by get_coach_decisions/get_coach_proposals(days=30) instead of
+    # hardcoded dates that silently expire as the calendar advances.
+    today = date.today()
+    today_iso = today.isoformat()
     db = Database(str(tmp_path / "decision_proposals.db"))
-    db.save_coach_decision("Monitor", "Недостаточно сильного сигнала.", date="2026-07-02T09:00:00")
+    db.save_coach_decision("Monitor", "Недостаточно сильного сигнала.", date=f"{today_iso}T09:00:00")
     pending = db.save_coach_proposal(
         action="build_plan",
         params={
@@ -179,13 +184,13 @@ def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path
             "available_hours": 10,
         },
         preview={"total_weeks": 8},
-        date="2026-07-02T09:01:00",
+        date=f"{today_iso}T09:01:00",
     )
     approved = db.save_coach_proposal(
         action="adjust_plan",
         params={"rows": [], "weeks": 1},
         preview={"adjustment_status": "preview"},
-        date="2026-07-02T09:02:00",
+        date=f"{today_iso}T09:02:00",
     )
     db.update_coach_proposal_status(approved["id"], "approved", result={"plan_id": "1"})
 
@@ -194,13 +199,13 @@ def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path
     assert payload["count"] == 1
     assert len(payload["days"]) == 1
     assert payload["proposal_count"] == 2
-    assert payload["proposal_days"][0]["date"] == "2026-07-02"
+    assert payload["proposal_days"][0]["date"] == today_iso
     assert [item["id"] for item in payload["proposal_days"][0]["proposals"]] == [
         approved["id"],
         pending["id"],
     ]
     assert payload["pending_proposal_count"] == 1
-    assert payload["pending_proposal_days"][0]["date"] == "2026-07-02"
+    assert payload["pending_proposal_days"][0]["date"] == today_iso
     assert payload["pending_proposal_days"][0]["proposals"][0]["id"] == pending["id"]
     assert payload["pending_proposal_days"][0]["proposals"][0]["status"] == "pending"
 
