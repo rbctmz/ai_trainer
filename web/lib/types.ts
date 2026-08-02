@@ -451,6 +451,45 @@ export interface PlanningOverview {
     status_label: string;
   };
   execution?: { state: "available" | "data_gap" | string; label: string; description: string };
+  roadmap?: {
+    state: "available" | "data_gap" | string;
+    reason: string | null;
+    horizon_start?: string;
+    horizon_end?: string;
+    segments: Array<{
+      phase: string;
+      start_date: string;
+      end_date: string;
+      duration_days: number;
+      start_percent: number;
+      end_percent: number;
+      is_current: boolean;
+    }>;
+    events: Array<{
+      date: string;
+      priority: "A" | "B" | "C";
+      label: string;
+      confirmed: boolean;
+      position_percent: number;
+    }>;
+    current_marker: { date: string; position_percent: number } | null;
+  };
+  form_projection?: {
+    state: "available" | "data_gap" | string;
+    reason: string | null;
+    boundary_date: string;
+    actual_points: ForecastPoint[];
+    forecast_points: ForecastPoint[];
+    summary: {
+      current_ctl: number;
+      peak_projected_ctl: number;
+      projected_ctl: number;
+      projected_tsb: number;
+      target_date: string;
+      target_kind: "event" | "horizon_end" | string;
+      days_to_goal: number | null;
+    } | null;
+  };
   weeks?: Array<{ number: number; week_start: string | null; phase: string | null; weekly_tss: number }>;
 }
 
