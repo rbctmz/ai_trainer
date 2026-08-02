@@ -711,6 +711,7 @@ export interface IntervalsDeliveryResult {
   desired_count: number;
   executable_count: number;
   calendar_only_count: number;
+  target_mismatch_count: number;
   deleted_count: number;
   failed_count: number;
   retryable: boolean;

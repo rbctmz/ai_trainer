@@ -66,6 +66,54 @@ def _legacy_run_plan() -> dict:
     }
 
 
+def _pace_run_plan() -> dict:
+    return {
+        "goal_type": "run",
+        "distance": "10k",
+        "daily_plan": [
+            (datetime(2026, 7, 16), 20.0, {"bike": 0.0, "run": 20.0, "swim": 0.0}),
+        ],
+        "session_templates": [
+            {
+                "session_id": "ats_pace_run_v1",
+                "date": "2026-07-16",
+                "sport": "run",
+                "session_role": "easy",
+                "phase": "Build",
+                "export_name": "Pace run",
+                "duration_minutes": 20,
+                "kind": "single",
+                "materialized_steps": [
+                    {
+                        "name": "Warm-up",
+                        "duration_seconds": 300,
+                        "target": {
+                            "type": "pace",
+                            "unit": "seconds_per_km",
+                            "fast": 360.0,
+                            "slow": 420.0,
+                        },
+                    },
+                    {
+                        "name": "Steady",
+                        "duration_seconds": 900,
+                        "target": {
+                            "type": "pace",
+                            "unit": "seconds_per_km",
+                            "fast": 330.0,
+                            "slow": 350.0,
+                        },
+                    },
+                ],
+            },
+        ],
+        "weekly_tss_plan": [20],
+        "phases": ["Build"],
+        "weekly_summary": [],
+        "constraint_summary": {},
+    }
+
+
 def _brick_plan() -> dict:
     return {
         "goal_type": "Триатлон",
@@ -174,6 +222,31 @@ class _PartialUpsertClient(_FakeClient):
         ]
 
 
+class _PaceReadBackClient(_FakeClient):
+    def __init__(self, *, pace_steps):
+        super().__init__()
+        self.pace_steps = list(pace_steps)
+        self.stored = []
+
+    def list_workout_events(self, oldest, newest):
+        self.list_calls.append((oldest, newest))
+        return [dict(row) for row in self.stored]
+
+    def upsert_events_by_external_id(self, payloads):
+        rows = [dict(row) for row in payloads]
+        self.upsert_calls.append(rows)
+        self.stored = [
+            {
+                **row,
+                "id": index + 100,
+                "uid": f"provider-generated-{index}",
+                "workout_doc": {"steps": [dict(step) for step in self.pace_steps]},
+            }
+            for index, row in enumerate(rows)
+        ]
+        return [dict(row) for row in self.stored]
+
+
 def test_legacy_single_session_builds_owned_executable_native_payload() -> None:
     from models.intervals_workout_delivery import build_delivery_events
 
@@ -268,6 +341,166 @@ def test_explicit_plan_build_round_trips_running_pace_to_intervals_description(
     assert all("/km" in event["description"] for event in run_events)
     assert all("% LTHR" not in event["description"] for event in run_events)
     assert all("bpm" not in event["description"] for event in run_events)
+
+
+def test_delivery_fails_closed_when_provider_drops_or_changes_pace_targets(
+    tmp_path,
+) -> None:
+    from services.intervals_plan_delivery import deliver_active_plan
+
+    db = Database(str(tmp_path / "pace-mismatch.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_pace_run_plan()))
+    stale_owned = {
+        "id": 2,
+        "uid": "old-ai-slot",
+        "external_id": "ai_trainer:ats_old",
+        "category": "WORKOUT",
+        "start_date_local": "2026-07-16T07:00:00",
+    }
+    client = _PaceReadBackClient(
+        pace_steps=[
+            {"text": "Warm-up", "duration": 300},
+            {
+                "text": "Steady",
+                "duration": 900,
+                "pace": {"start": 300, "end": 320, "units": "secs/km"},
+            },
+        ]
+    )
+    client.stored = [stale_owned]
+
+    result = deliver_active_plan(
+        db,
+        dates=["2026-07-16"],
+        source="manual",
+        client=client,
+    )
+
+    assert result["status"] == "partial"
+    assert result["target_mismatch_count"] == 1
+    assert result["failed_count"] == 1
+    assert result["retryable"] is True
+    assert result["executable_count"] == 0
+    assert result["calendar_only_count"] == 0
+    assert result["deleted_count"] == 0
+    assert client.delete_calls == []
+    assert len(client.list_calls) == 2
+
+
+def test_delivery_accepts_equivalent_pace_targets_from_bounded_readback(
+    tmp_path,
+) -> None:
+    from services.intervals_plan_delivery import deliver_active_plan
+
+    db = Database(str(tmp_path / "pace-match.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_pace_run_plan()))
+    client = _PaceReadBackClient(
+        pace_steps=[
+            {
+                "text": "Warm-up",
+                "duration": 300,
+                "pace": {"start": 360, "end": 420, "units": "secs/km"},
+            },
+            {
+                "text": "Steady",
+                "duration": 900,
+                "pace": {"start": 350, "end": 330, "units": "secs/km"},
+            },
+        ]
+    )
+
+    result = deliver_active_plan(
+        db,
+        dates=["2026-07-16"],
+        source="manual",
+        client=client,
+    )
+
+    assert result["status"] == "success"
+    assert result["target_mismatch_count"] == 0
+    assert result["failed_count"] == 0
+    assert result["retryable"] is False
+    assert result["executable_count"] == 1
+    assert len(client.list_calls) == 2
+
+
+def test_transferred_pace_run_keeps_targets_through_delivery_readback(
+    tmp_path,
+) -> None:
+    from models.session_transfer import apply_session_transfer
+    from services.intervals_plan_delivery import deliver_active_plan
+
+    plan = _pace_run_plan()
+    plan["daily_plan"].append(
+        (datetime(2026, 7, 17), 0.0, {"bike": 0.0, "run": 0.0, "swim": 0.0})
+    )
+    plan["session_templates"].append(
+        {"date": "2026-07-17", "session_role": "off", "kind": "single"}
+    )
+    plan = ensure_session_identities(plan)
+    old_session_id = plan["session_templates"][0]["sessions"][0]["session_id"]
+    transferred = apply_session_transfer(
+        plan,
+        session_id=old_session_id,
+        target_date="2026-07-17",
+    )
+
+    db = Database(str(tmp_path / "pace-transfer.db"))
+    db.save_planning_checkpoint(
+        build_planning_checkpoint(transferred["goal_plan"])
+    )
+    client = _PaceReadBackClient(
+        pace_steps=[
+            {
+                "text": "Warm-up",
+                "duration": 300,
+                "pace": {"start": 420, "end": 360, "units": "secs/km"},
+            },
+            {
+                "text": "Steady",
+                "duration": 900,
+                "pace": {"start": 330, "end": 350, "units": "secs/km"},
+            },
+        ]
+    )
+
+    result = deliver_active_plan(
+        db,
+        dates=["2026-07-17"],
+        source="recovery_approve",
+        client=client,
+    )
+
+    assert result["status"] == "success"
+    assert result["target_mismatch_count"] == 0
+    assert len(client.upsert_calls) == 1
+    delivered = client.upsert_calls[0][0]
+    assert delivered["external_id"] == (
+        f"ai_trainer:{transferred['new_session_id']}"
+    )
+    assert delivered["description"].count("/km Pace") == 2
+
+
+def test_power_target_delivery_keeps_existing_single_read_contract(tmp_path) -> None:
+    from services.intervals_plan_delivery import deliver_active_plan
+
+    db = Database(str(tmp_path / "power-regression.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_brick_plan()))
+    client = _FakeClient()
+
+    result = deliver_active_plan(
+        db,
+        dates=["2026-07-18"],
+        source="manual",
+        client=client,
+    )
+
+    assert result["status"] == "success"
+    assert result["executable_count"] == 2
+    assert result["target_mismatch_count"] == 0
+    assert len(client.list_calls) == 1
+    delivered = client.upsert_calls[0]
+    assert "110-125w" in delivered[0]["description"]
 
 
 def test_composite_brick_builds_two_ordered_leg_events() -> None:

@@ -164,8 +164,31 @@ catalog-input `threshold_pace` только в момент явной сбор�
 
 Проверка: `test_athlete_profile.py` (mapping, bounds, migration,
 carry-forward/no-checkpoint-mutation), `test_api_planning.py` (вертикальная
-матрица pace/LTHR/RPE), `test_intervals_plan_delivery.py` (`/km` round-trip) и
+матрица pace/LTHR/RPE), `test_intervals_plan_delivery.py` (`/km Pace` round-trip) и
 `test_running_threshold_pace_ui.py` (проверяемое основание цели до отправки).
+
+### Intervals pace delivery fidelity (#322)
+
+Native workout parser Intervals.icu требует явный маркер `Pace` после
+абсолютного диапазона. Delivery сериализует беговой шаг как
+`5:30-5:50/km Pace`, а после bulk-upsert повторно читает то же bounded окно и
+сверяет каждый обязательный диапазон с `workout_doc.steps[].pace`
+(`start`/`end`/`units`). Наличие одних только steps больше не доказывает
+исполнение плановой цели.
+
+- **ASR-REL-1**: потерянный или искажённый pace-target даёт retryable `partial`,
+  не считается executable и блокирует stale cleanup; локальный checkpoint
+  остаётся авторитетным.
+- **ASR-MOD-3**: результат доставки расширен аддитивным
+  `target_mismatch_count`; power/HR/RPE и legacy fallback сохраняют прежнюю
+  семантику.
+- **Boundedness**: дополнительный provider GET выполняется только когда в
+  выбранном payload есть pace-target, в том же диапазоне дат.
+
+Проверка: `test_intervals_plan_delivery.py` (обычный Run, mismatch,
+эквивалентный read-back, Recovery Transfer, power-регрессия),
+`test_workout_catalog_v2.py` (provider syntax) и reversible catalog live
+acceptance с Run/pace probe.
 
 ### Fatigue-aware readiness salience (#315)
 

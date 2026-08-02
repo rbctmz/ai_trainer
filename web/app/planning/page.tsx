@@ -1165,6 +1165,12 @@ function ExportMode() {
             <div className="rounded-lg bg-tone-danger/10 p-3 text-tone-danger">
               Ошибки: <strong>{deliveryResult.failed_count}</strong>
             </div>
+            {deliveryResult.target_mismatch_count > 0 ? (
+              <p className="sm:col-span-4 text-tone-danger">
+                Intervals.icu потерял или изменил цели темпа: {deliveryResult.target_mismatch_count}.
+                Доставка не считается успешной; старые тренировки AI Trainer сохранены.
+              </p>
+            ) : null}
             {deliveryResult.error ? (
               <p className="sm:col-span-4 text-tone-danger">{deliveryResult.error}</p>
             ) : null}

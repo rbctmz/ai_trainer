@@ -30,7 +30,7 @@ an existing plan, so workouts already delivered to Intervals.icu or Garmin do no
 - [x] (2026-07-29 11:31Z) Implemented additive profile migration, strict Run mapping,
   canonical conversion, field provenance, and carry-forward.
 - [x] (2026-07-29 11:35Z) Wired explicit plan builds to the existing
-  pace/LTHR/RPE chain and added Intervals `/km` round-trip coverage.
+  pace/LTHR/RPE chain and added Intervals `/km Pace` round-trip coverage.
 - [x] (2026-07-29 11:38Z) Added profile and pre-delivery web explanations; Next lint
   and production build pass.
 - [x] (2026-07-29 11:42Z) Focused vertical 63/63, regression 93/93, contributor-safe
@@ -52,7 +52,7 @@ an existing plan, so workouts already delivered to Intervals.icu or Garmin do no
   The unreachable branch is caused by missing profile data, not missing workout logic.
   Evidence: `models/workout_catalog.py` resolves running targets in the order
   `threshold_pace`, `lthr`, `relative_rpe`; existing catalog tests already prove that a
-  seconds-per-kilometre value produces pace targets and `/km` delivery text.
+  seconds-per-kilometre value produces pace targets and `/km Pace` delivery text.
 
 - Observation: The active plan is an append-only planning checkpoint. Athlete-profile
   sync writes a separate table and does not call a plan builder.
@@ -135,7 +135,7 @@ Intervals payload maps `2.6666667 m/s` to approximately `375 seconds/km`, stores
 explicit additive schema with field-level source/time, and carries it forward without
 restamping when a later response is partial. A newly and explicitly built plan uses pace
 for every materialized run prescription; removing pace selects LTHR, and removing both
-selects RPE. The Intervals delivery description contains `/km` and excludes `% LTHR` and
+selects RPE. The Intervals delivery description contains `/km Pace` and excludes `% LTHR` and
 `bpm` on the pace path.
 
 The profile card shows threshold pace with its own provider/date. The export view shows
@@ -174,7 +174,7 @@ reads the latest profile and passes a `zone_snapshot` to
 materialized session or brick leg. No background sync path may call `build_plan`.
 
 `models/intervals_workout_delivery.py` turns stored structured steps into an
-Intervals.icu description. Pace steps already render as `/km`; LTHR fallback renders as
+Intervals.icu description. Pace steps render as `/km Pace`; LTHR fallback renders as
 `% LTHR`. `api/planning_service.py::plan_days` exposes structured targets and provenance
 to `web/app/planning/page.tsx`, whose export tab is the user's final inspection surface
 before delivery.
@@ -229,7 +229,7 @@ delivered.
 
 Finally add an Intervals delivery integration gate in
 `tests/smoke/test_intervals_plan_delivery.py` using an actually materialized pace-based
-run. Assert `/km` is present and `% LTHR` and `bpm` are absent. Re-run existing bike,
+run. Assert `/km Pace` is present and `% LTHR` and `bpm` are absent. Re-run existing bike,
 swim, Garmin success-path, and activity-ingest contours.
 
 Update `docs/architecture/asr_catalog.md` with the new source-to-plan unit/provenance
@@ -302,7 +302,7 @@ session must have:
     materialized_steps[*].target.type = "pace"
 
 The plan API and export page must display the basis as `по пороговому темпу 6:15/км`.
-The Intervals description for the same session must contain `/km` and must not contain
+The Intervals description for the same session must contain `/km Pace` and must not contain
 `% LTHR` or `bpm`. Removing pace but keeping LTHR must produce LTHR provenance and
 Intervals `% LTHR`; removing both must produce relative RPE.
 

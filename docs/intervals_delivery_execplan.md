@@ -6,7 +6,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 AI Trainer can build, explain, reconcile, and safely adjust a training plan, but the athlete still follows IntervalCoach because those workouts arrive in Intervals.icu and then on Garmin. After this change, the athlete can open the web Planning export tab and send the next one or two weeks of the active AI Trainer plan to Intervals.icu with one action. Sending the same range again updates AI Trainer's own events instead of creating duplicates and never edits IntervalCoach or manually created workouts. When a recovery proposal is approved or rolled back, the affected workout dates are delivered again automatically so the plan shown in AI Trainer and the workout on the device stay aligned.
 
-The delivered event is not merely a calendar note. AI Trainer serializes the existing catalog prescription into Intervals.icu native workout text. A successful provider response must contain parsed `workout_doc.steps`; this is the evidence that Intervals.icu recognized an executable workout that can enter its Garmin delivery path. A composite brick is sent as two ordered workout events, one for each leg. Older persisted checkpoints that predate the workout catalog use the existing `models.fit_export.build_steps_for_sport` fallback rather than being silently delivered without steps.
+The delivered event is not merely a calendar note. AI Trainer serializes the existing catalog prescription into Intervals.icu native workout text. A successful provider response must contain parsed `workout_doc.steps`; when the local prescription requires pace, bounded read-back must also contain the same `pace.start`, `pace.end`, and `pace.units`. This is the evidence that Intervals.icu recognized both the workout structure and its required target. A composite brick is sent as two ordered workout events, one for each leg. Older persisted checkpoints that predate the workout catalog use the existing `models.fit_export.build_steps_for_sport` fallback rather than being silently delivered without steps.
 
 ## Progress
 
@@ -25,6 +25,7 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - [x] (2026-07-14 15:10Z) Addressed both independent-review findings plus the cheap follow-ups: empty recovery date sets are provider-free `skipped`, template/day alignment is verified before payload creation, manual windows use `ATHLETE_TIMEZONE`, and unused creator fields were removed. A legacy pre-#168 rollback integration test proves the false failure is gone; smoke is `658 passed, 1 skipped`, broad non-live is `701 passed, 6 skipped, 24 deselected`, and Next lint/build plus compileall are clean.
 - [x] (2026-07-14 15:25Z) Ran the explicitly authorized live probe. The first attempt exposed that Intervals.icu replaces a caller-supplied `uid`; its one temporary event (`122790346`) was removed and a bounded read confirmed no residue. Changed the adapter to the documented `external_id` plus `upsert=true` contract, added RED/GREEN provider-generated-UID tests, then reran the probe: both upserts returned event `122790909`, parsed steps were present, foreign rows were unchanged, and `finally` deleted exactly one probe with no residue.
 - [x] (2026-07-14 15:31Z) Repeated post-live validation: focused delivery/recovery/API/reconciliation `68 passed`, smoke `657 passed, 1 skipped`, broad non-live `700 passed, 6 skipped, 24 deselected`, compileall and diff check clean, and Next lint plus production build pass.
+- [x] (2026-08-02) Implemented #322 locally with contract-first pace fidelity: serialize absolute run ranges as `5:30-5:50/km Pace`, perform one extra bounded read only for pace-bearing payloads, compare provider `workout_doc.steps[].pace`, and fail closed with additive `target_mismatch_count` before stale cleanup. Regression coverage includes normal Run, provider mismatch, equivalent read-back, Recovery Transfer, and unchanged power delivery.
 - [ ] Obtain repeat independent review of implementation PR #192 before merge. PR #191 contains only the already-merged ExecPlan because it was merged while implementation was still in progress.
 
 ## Surprises & Discoveries
@@ -71,6 +72,9 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
 - Observation: the documented external-id upsert contract works on the configured personal API-key account and produces executable workout evidence.
   Evidence: after switching to `POST /events/bulk?upsert=true`, two identical live submissions returned the same provider event id `122790909`, the response contained non-empty `workout_doc.steps`, all foreign rows compared equal, and cleanup deleted exactly one matching external id. The runner's final bounded read found no probe.
 
+- Observation: non-empty provider steps do not prove that a required run pace survived parsing.
+  Evidence: read-only inspection of the existing delivered plan matched AI Trainer session ids, names, dates, and durations, while its descriptions ended in `/km` and the returned `workout_doc.steps` lacked `pace`. Intervals.icu native syntax requires the explicit trailing token `Pace`, so #322 adds target-level read-back rather than trusting the step count.
+
 ## Decision Log
 
 - Decision: use `external_id` as the sole caller-owned provider identity and treat `uid` as provider-owned evidence.
@@ -81,9 +85,9 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
   Rationale: date, name, type, creator athlete, or calendar are insufficient proof of ownership. This fail-closed rule protects IntervalCoach, manual workouts, races, and the old unmanaged AI Trainer event.
   Date/Author: 2026-07-14 / Codex
 
-- Decision: perform one bounded list, one bulk upsert, and at most one bulk delete per delivery request.
-  Rationale: this reduces rate-limit usage and lets the provider implement atomic upsert by caller-owned `external_id`. Simultaneous retries of the same active checkpoint converge rather than racing two create-only calls.
-  Date/Author: 2026-07-14 / Codex
+- Decision: perform one bounded pre-list, one bulk upsert, at most one bulk delete, and one additional bounded read only when the payload requires pace.
+  Rationale: this keeps ordinary power/HR/RPE delivery at its existing request cost while providing target-level evidence for the syntax-sensitive pace path. Simultaneous retries of the same active checkpoint still converge by caller-owned `external_id`.
+  Date/Author: 2026-08-02 / Codex
 
 - Decision: keep local plan mutation authoritative when provider delivery fails.
   Rationale: recovery approval persists a new checkpoint before external I/O. Marking the proposal failed or rolling back that checkpoint because of a timeout would lie about local state and risk a second plan mutation on retry. The proposal remains terminal and returns a separate retryable delivery result.
@@ -97,9 +101,9 @@ The delivered event is not merely a calendar note. AI Trainer serializes the exi
   Rationale: a legacy proposal may have no affected-date evidence, which is not a provider failure. Manual seven/fourteen-day windows are local-calendar concepts and must not move at UTC midnight on a VPS.
   Date/Author: 2026-07-14 / Codex
 
-- Decision: require provider-parsed steps for `executable` status.
-  Rationale: HTTP success and a WORKOUT category prove only that an event exists. The user value is a workout that Intervals.icu recognizes and can forward to Garmin, so each delivered event must return non-empty `workout_doc.steps`; otherwise the response is `calendar_only` and remains visibly incomplete.
-  Date/Author: 2026-07-14 / Codex
+- Decision: require provider-parsed steps and preservation of every required pace target for `executable` status.
+  Rationale: HTTP success and a WORKOUT category prove only that an event exists, while non-empty steps can still contain an open run step after Intervals drops its pace. A missing or changed required target is retryable `partial`, increments `target_mismatch_count`, and blocks stale cleanup.
+  Date/Author: 2026-08-02 / Codex
 
 - Decision: keep the legacy Streamlit buttons functional but move all new semantics into shared Python.
   Rationale: `api/` plus `web/` is the product surface. Streamlit may continue calling compatibility helpers, but event identity, serialization, sync, and failure behavior must have one source in `services/` and `models/`.
@@ -112,6 +116,10 @@ The implementation now delivers the active plan through a bounded, owned-only In
 Validation before integrating recovery curves was green at `60 passed` for the focused delivery contour, `604 passed, 1 skipped` for contributor-safe smoke, and `647 passed, 6 skipped, 24 deselected` for the broad non-live suite. After merging current `main`, the combined #176 + #168 tree passed `102` focused integration tests, `649 passed, 1 skipped` smoke, and `692 passed, 6 skipped, 24 deselected` broad non-live tests. After the live-contract correction, the final focused contour is `68 passed`, smoke is `657 passed, 1 skipped`, and broad non-live is `700 passed, 6 skipped, 24 deselected`; Python compilation, diff check, Next lint, and Next production build pass. Browser acceptance proved two-click behavior and executable result rendering against a local provider-compatible mock without touching `ai_trainer.db`.
 
 The explicitly authorized real-provider acceptance is complete: two submissions converged on provider event `122790909`, Intervals.icu returned parsed `workout_doc.steps`, foreign events were unchanged, and the temporary row was deleted with no residue. This also corrected an important false assumption before merge: Intervals.icu owns `uid`; integrations own `external_id`. Garmin delivery remains a separate unverified observation because the reversible probe was intentionally removed immediately. The PR may claim verified Intervals.icu executable delivery, but not verified Garmin arrival.
+
+Issue #322 tightened that result contract after a real run exposed a second false assumption: provider steps can exist while a pace target is missing. Absolute run ranges now use Intervals native `Pace` syntax, and pace-bearing deliveries are successful only after a bounded read-back proves the exact normalized range and unit. A mismatch remains visible and retryable and cannot authorize deletion of an older managed workout.
+
+Post-#322 verification is green at `42 passed` for the focused pace/delivery contour, `1355 passed, 1 skipped` for contributor-safe smoke, and `1399 passed, 3 skipped, 24 deselected` for broad non-live; compileall, Next lint, Next production build, and diff check pass. The live runner now validates equivalent run pace targets from its bounded read-back and cleans both temporary probes on mismatch. Real Intervals/Garmin mutation remains intentionally pending explicit acceptance so a temporary workout is not propagated to the athlete's device unexpectedly.
 
 ## Context and Orientation
 
@@ -127,7 +135,7 @@ The web Planning export tab is `web/app/planning/page.tsx::ExportMode`. It alrea
 
 An Intervals.icu event has a provider-owned `uid` and an optional caller-owned `external_id`. AI Trainer uses the material key `ai_trainer:<session_id>` for a single session and `ai_trainer:<session_id>:leg:<n>` for a composite leg, sending it through `upsert=true`. The `ai_trainer:` prefix is also the only ownership marker that authorizes deletion. Provider UIDs are retained in read evidence but never generated or trusted as ownership proof.
 
-An executable workout is a WORKOUT event whose native Intervals.icu description has been parsed into a non-empty `workout_doc.steps` array. Native text expresses one step per line, for example `- Warmup 10m 55-70%`. AI Trainer converts exact `duration_seconds` and materialized power, heart-rate, or pace targets when they exist. For legacy steps, it estimates duration using the same fallback as FIT export and maps stable zone tokens conservatively. Unsupported relative targets remain open/RPE instructions in the text and the delivery result must report whether the provider parsed them.
+An executable workout is a WORKOUT event whose native Intervals.icu description has been parsed into a non-empty `workout_doc.steps` array and whose provider document preserves every target the local contract marks as required. Native text expresses one step per line, for example `- Warmup 10m 55-70%`; an absolute run range is `- Steady 15m 5:30-5:50/km Pace`. AI Trainer converts exact `duration_seconds` and materialized power, heart-rate, or pace targets when they exist. For legacy steps, it estimates duration using the same fallback as FIT export and maps stable zone tokens conservatively. Unsupported relative targets remain open/RPE instructions in the text and the delivery result must report whether the provider parsed them.
 
 ## Behavioral Specification
 
@@ -149,6 +157,8 @@ Given `demo=true` or missing Intervals.icu configuration, when a delivery endpoi
 
 Given a provider event response with no parsed steps, when delivery completes, then the event is reported as `calendar_only`, not `executable`. The feature cannot claim device-ready acceptance until a live event contains parsed steps and appears in Garmin.
 
+Given a local run step with an absolute pace range, when Intervals.icu returns parsed steps but omits or changes its `pace` object, then delivery is retryable `partial`, `target_mismatch_count` is incremented, the event is not executable, and stale managed events are not deleted.
+
 ## Plan of Work
 
 Milestone 1 establishes the delivery contract and provider identity. First add failing tests to `tests/smoke/test_intervals_icu_service.py` for parameterized HTTP requests, bounded event listing with provider `uid` and caller `external_id`, external-id bulk upsert, bulk delete, deterministic payload identity, and sanitized rate-limit errors. Add a new focused file `tests/smoke/test_intervals_plan_delivery.py` that specifies range selection, foreign-event preservation, removed-day cleanup, changed-session replacement, concurrency-safe retries, legacy fallback, composite identities, parsed-step status, and exact-match leg identity. Implement the pure payload and workout text rules in `models/intervals_workout_delivery.py`; keep HTTP in `services/intervals_icu.py`; compose plan plus provider state in `services/intervals_plan_delivery.py`.
@@ -157,7 +167,7 @@ Milestone 2 exposes manual delivery through FastAPI and Next.js. Extend `api/rou
 
 Milestone 3 connects the recovery lifecycle. Preserve raw `edited_dates` in `api.planning_service.apply_recovery_replan` result. In `api/routers/decisions.py`, finish the local proposal transition even if delivery fails. After apply, call the delivery service for exactly those dates and persist the sanitized delivery result inside the proposal result. On rollback, reuse the original affected dates after restoring the checkpoint and update the terminal result. Add tests proving provider failure never changes local terminal status, no delivery occurs on stale approval, and retry does not reapply planning.
 
-Milestone 4 validates executable delivery. Build native Intervals.icu workout descriptions from exact catalog steps; use `build_steps_for_sport` only when the checkpoint lacks materialized steps. For a composite template, emit one provider event per leg with ordered local times. Extend reconciliation to accept `ai_trainer:<session_id>:leg:<n>` as exact evidence. In an isolated live acceptance, deliver a narrowly bounded temporary future range, repeat it, read the same event ids back, assert non-empty `workout_doc.steps`, verify all pre-existing foreign event ids are unchanged, and clean up only the temporary `ai_trainer:` external ids. Finally verify whether the executable workout appears in Garmin; if provider parsing succeeds but Garmin sync is not configured or delayed, record that external observation honestly rather than claiming it.
+Milestone 4 validates executable delivery. Build native Intervals.icu workout descriptions from exact catalog steps; use `build_steps_for_sport` only when the checkpoint lacks materialized steps. For a composite template, emit one provider event per leg with ordered local times. Extend reconciliation to accept `ai_trainer:<session_id>:leg:<n>` as exact evidence. In an isolated live acceptance, deliver a narrowly bounded temporary future range, repeat it, read the same event ids back, assert non-empty `workout_doc.steps` and the expected provider target type/range, verify all pre-existing foreign event ids are unchanged, and clean up only the temporary `ai_trainer:` external ids. Finally verify whether the executable workout appears in Garmin; if provider parsing succeeds but Garmin sync is not configured or delayed, record that external observation honestly rather than claiming it.
 
 ## Concrete Steps
 

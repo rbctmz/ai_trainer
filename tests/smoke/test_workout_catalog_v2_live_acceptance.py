@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+import re
 
 import pytest
 
@@ -9,8 +10,9 @@ pytestmark = pytest.mark.smoke
 
 
 class _CatalogAcceptanceClient:
-    def __init__(self, *, executable: bool = True) -> None:
+    def __init__(self, *, executable: bool = True, pace_offset: int = 0) -> None:
         self.executable = executable
+        self.pace_offset = pace_offset
         self.events: dict[str, dict] = {}
         self.upsert_calls: list[list[dict]] = []
         self.delete_calls: list[list[dict]] = []
@@ -32,21 +34,40 @@ class _CatalogAcceptanceClient:
             provider_id = previous["id"] if previous else self.next_id
             if previous is None:
                 self.next_id += 1
-            step_count = sum(
-                line.startswith("- ")
+            description_steps = [
+                line
                 for line in str(row.get("description") or "").splitlines()
-            )
-            target = (
-                {"power": {"start": 150, "end": 160, "units": "W"}}
-                if row.get("type") == "Ride"
-                else {"hr": {"start": 145, "end": 160, "units": "bpm"}}
-            )
+                if line.startswith("- ")
+            ]
+            steps = []
+            for line in description_steps:
+                if row.get("type") == "Ride":
+                    steps.append(
+                        {"power": {"start": 150, "end": 160, "units": "W"}}
+                    )
+                    continue
+                match = re.search(
+                    r"(\d+):(\d{2})-(\d+):(\d{2})/km Pace$",
+                    line,
+                )
+                assert match is not None
+                start = int(match.group(1)) * 60 + int(match.group(2))
+                end = int(match.group(3)) * 60 + int(match.group(4))
+                steps.append(
+                    {
+                        "pace": {
+                            "start": start,
+                            "end": end + self.pace_offset,
+                            "units": "secs/km",
+                        }
+                    }
+                )
             stored = {
                 **row,
                 "id": provider_id,
                 "uid": f"provider-{provider_id}",
                 "workout_doc": (
-                    {"steps": [dict(target) for _ in range(step_count)]}
+                    {"steps": steps}
                     if self.executable
                     else None
                 ),
@@ -85,7 +106,7 @@ def test_v2_live_acceptance_upserts_two_typed_probes_and_cleans_them() -> None:
     assert report["status"] == "success"
     assert report["same_provider_ids"] is True
     assert report["parsed_step_counts"] == {"bike": 7, "run": 7}
-    assert report["target_types"] == {"bike": "power", "run": "heart_rate"}
+    assert report["target_types"] == {"bike": "power", "run": "pace"}
     assert report["foreign_unchanged"] is True
     assert report["cleanup_deleted"] == 2
     assert len(client.upsert_calls) == 2
@@ -112,6 +133,27 @@ def test_v2_live_acceptance_cleans_both_probes_when_parser_evidence_is_missing()
         )
 
     assert len(client.upsert_calls) == 2
+    assert len(client.delete_calls) == 1
+    assert len(client.delete_calls[0]) == 2
+    assert client.events == {}
+
+
+def test_v2_live_acceptance_rejects_changed_run_pace_and_cleans_probes() -> None:
+    from scripts.accept_workout_catalog_v2_live import (
+        LIVE_ACCEPTANCE_CONFIRMATION,
+        run_live_acceptance,
+    )
+
+    client = _CatalogAcceptanceClient(pace_offset=5)
+
+    with pytest.raises(RuntimeError, match="changed the expected run pace targets"):
+        run_live_acceptance(
+            client,
+            target_date=date(2026, 7, 30),
+            today=date(2026, 7, 15),
+            confirmation=LIVE_ACCEPTANCE_CONFIRMATION,
+        )
+
     assert len(client.delete_calls) == 1
     assert len(client.delete_calls[0]) == 2
     assert client.events == {}

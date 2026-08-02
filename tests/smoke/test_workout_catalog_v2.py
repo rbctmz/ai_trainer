@@ -345,7 +345,7 @@ def test_intervals_text_preserves_repeat_order_and_sport_target_types() -> None:
         for line, step in zip(run_text.splitlines()[1:], run["steps"])
     )
     assert all(line.endswith("w") for line in bike_text.splitlines()[1:])
-    assert all(line.endswith("/km") for line in run_text.splitlines()[1:])
+    assert all(line.endswith("/km Pace") for line in run_text.splitlines()[1:])
     assert "%" not in run_text
 
 
