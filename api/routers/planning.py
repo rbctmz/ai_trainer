@@ -87,6 +87,12 @@ def planning_status(db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.current_status(db)
 
 
+@router.get("/overview")
+def planning_overview(db: Database = Depends(get_database)) -> dict[str, Any]:
+    """Read-only active-plan projection for the Planning reader default."""
+    return planning_service.active_plan_overview(db)
+
+
 @router.get("/constraints")
 def list_constraints(days: int = 30, db: Database = Depends(get_database)) -> dict[str, Any]:
     from datetime import datetime, timedelta

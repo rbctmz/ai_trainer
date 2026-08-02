@@ -12,6 +12,7 @@ import {
   PlanningDemand,
   PlanningHistory,
   PlanningOnboarding,
+  PlanningOverview,
   PlanningProfile,
   PlanExport,
   PlanningStatus,
@@ -62,13 +63,13 @@ const DAYS = [
   { value: "sun", label: "Вс" },
 ];
 
-const TABS = ["build", "adjust", "adherence", "export"] as const;
-type Tab = (typeof TABS)[number];
-const TAB_LABELS: Record<Tab, string> = {
-  build: "Собрать план",
-  adjust: "Скорректировать",
-  adherence: "План vs факт",
-  export: "Экспорт",
+const READER_TABS = ["overview", "weeks", "execution"] as const;
+type ReaderTab = (typeof READER_TABS)[number];
+type Tab = ReaderTab | "build" | "adjust" | "export";
+const READER_TAB_LABELS: Record<ReaderTab, string> = {
+  overview: "Обзор",
+  weeks: "Недели",
+  execution: "Выполнение",
 };
 
 const DEFAULT_DEMAND_OPTIONS: PlanningDemand[] = [
@@ -129,17 +130,41 @@ function BasisChip({ basis }: { basis: "derived" | "fallback" }) {
 
 export default function PlanningPage() {
   const { data: status } = useSWR<PlanningStatus>("/api/planning/status", fetcher);
-  const [tab, setTab] = useState<Tab>("build");
+  const { data: overview, error: overviewError } = useSWR<PlanningOverview>(
+    status?.has_plan ? "/api/planning/overview" : null,
+    fetcher,
+  );
+  const [tab, setTab] = useState<Tab | null>(null);
   const [targetSessionId, setTargetSessionId] = useState<string | null>(null);
+  const resolvedDefault = useRef(false);
+  const hasAdjustmentDeepLink = useRef(false);
   const m = status?.metrics;
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     const sessionId = searchParams.get("session_id")?.trim();
     if (!sessionId) return;
+    hasAdjustmentDeepLink.current = true;
     setTargetSessionId(sessionId);
     setTab("adjust");
   }, []);
+
+  useEffect(() => {
+    if (!status || resolvedDefault.current) return;
+    resolvedDefault.current = true;
+    setTab(status.has_plan && hasAdjustmentDeepLink.current ? "adjust" : status.has_plan ? "overview" : "build");
+  }, [status]);
+
+  const hasPlan = status?.has_plan ?? false;
+
+  if (!status || !tab) {
+    return (
+      <main className="space-y-5">
+        <h1 className="text-2xl font-bold text-ink">Планирование</h1>
+        <Skeleton />
+      </main>
+    );
+  }
 
   return (
     <main className="space-y-5">
@@ -157,32 +182,180 @@ export default function PlanningPage() {
         </div>
       </section>
 
-      <div className="flex gap-1 rounded-card border border-surface-border bg-surface p-1 shadow-card">
-        {TABS.map((t) => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setTab(t)}
-            className={`flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
-              tab === t ? "bg-accent text-accent-foreground" : "text-ink-soft hover:bg-surface-muted"
-            }`}
+      {hasPlan ? (
+        <>
+          <nav
+            aria-label="Просмотр активного плана"
+            className="flex gap-1 overflow-x-auto rounded-card border border-surface-border bg-surface p-1 shadow-card"
           >
-            {TAB_LABELS[t]}
-          </button>
-        ))}
-      </div>
+            {READER_TABS.map((readerTab) => (
+              <button
+                key={readerTab}
+                type="button"
+                onClick={() => setTab(readerTab)}
+                aria-current={tab === readerTab ? "page" : undefined}
+                className={`min-w-fit flex-1 rounded-lg px-3 py-2 text-sm font-medium transition ${
+                  tab === readerTab ? "bg-accent text-accent-foreground" : "text-ink-soft hover:bg-surface-muted"
+                }`}
+              >
+                {READER_TAB_LABELS[readerTab]}
+              </button>
+            ))}
+          </nav>
+          <div className="flex flex-wrap gap-2" aria-label="Действия с планом">
+            <button
+              type="button"
+              onClick={() => setTab("build")}
+              className="rounded-lg border border-surface-border px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface-muted"
+            >
+              Изменить план
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("adjust")}
+              className="rounded-lg border border-surface-border px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface-muted"
+            >
+              Скорректировать
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("export")}
+              className="rounded-lg border border-surface-border px-3 py-2 text-sm font-medium text-ink transition hover:bg-surface-muted"
+            >
+              Экспорт
+            </button>
+          </div>
+        </>
+      ) : null}
 
-      {tab === "build" ? <BuildMode status={status} /> : null}
+      {!hasPlan || tab === "build" ? <BuildMode status={status} /> : null}
+      {hasPlan && tab === "overview" ? <ActivePlanOverview overview={overview} error={overviewError} /> : null}
+      {hasPlan && tab === "weeks" ? <PlanWeeks overview={overview} error={overviewError} /> : null}
+      {hasPlan && tab === "execution" ? <ExecutionOverview /> : null}
       {tab === "adjust" ? (
         <AdjustMode
-          hasPlan={status?.has_plan ?? false}
+          hasPlan={hasPlan}
           targetSessionId={targetSessionId}
         />
       ) : null}
-      {tab === "adherence" ? <AdherenceRibbon /> : null}
       {tab === "export" ? <ExportMode /> : null}
-      <AdjustmentHistory />
+      {hasPlan ? <AdjustmentHistory /> : null}
     </main>
+  );
+}
+
+function ActivePlanOverview({ overview, error }: { overview?: PlanningOverview; error?: Error }) {
+  if (error) return <LocalDataGap label="Обзор активного плана сейчас недоступен. Остальные действия сохранены." />;
+  if (!overview || !overview.has_plan) return <Skeleton />;
+
+  const event = overview.timeline?.kind === "event" ? overview.timeline.event : null;
+  const goalTitle = [overview.goal?.goal_type, overview.goal?.distance].filter(Boolean).join(" · ");
+  const currentWeek = overview.current_week;
+
+  return (
+    <section className="rounded-card border border-surface-border bg-surface p-5 shadow-card">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">Активный план</div>
+          <h2 className="mt-1 text-xl font-bold text-ink">{goalTitle || "Цель плана уточняется"}</h2>
+          {overview.timeline?.kind === "rolling" ? (
+            <p className="mt-2 text-sm text-ink-soft">
+              Скользящий горизонт на {overview.timeline.horizon_weeks} нед. без привязки к дате гонки.
+            </p>
+          ) : event?.date ? (
+            <p className="mt-2 text-sm text-ink-soft">
+              A-цель: {event.label} · {event.date} · осталось {overview.timeline?.days_remaining} дн.
+            </p>
+          ) : (
+            <p className="mt-2 text-sm text-ink-soft">
+              A-цель или её дата пока не подтверждены в сохранённом плане.
+            </p>
+          )}
+        </div>
+        <span className="rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+          {overview.progress?.status_label ?? "Статус уточняется"}
+        </span>
+      </div>
+
+      <dl className="mt-5 grid gap-3 sm:grid-cols-3">
+        <OverviewFact
+          label="Текущая фаза"
+          value={currentWeek?.phase ?? "Недостаточно данных"}
+          detail={currentWeek ? `Неделя ${currentWeek.number}` : ""}
+        />
+        <OverviewFact
+          label="Прогресс"
+          value={overview.progress ? `${overview.progress.completed_weeks}/${overview.progress.total_weeks} нед.` : "Недостаточно данных"}
+          detail="по сохранённому горизонту"
+        />
+        <OverviewFact
+          label="Выполнение"
+          value={overview.execution?.label ?? "Недостаточно данных"}
+          detail={overview.execution?.description ?? ""}
+        />
+      </dl>
+    </section>
+  );
+}
+
+function OverviewFact({ label, value, detail }: { label: string; value: string; detail: string }) {
+  return (
+    <div className="rounded-lg border border-surface-border bg-surface-muted/40 p-3">
+      <dt className="text-xs text-ink-faint">{label}</dt>
+      <dd className="mt-1 text-sm font-semibold text-ink">{value}</dd>
+      {detail ? <p className="mt-1 text-xs text-ink-soft">{detail}</p> : null}
+    </div>
+  );
+}
+
+function PlanWeeks({ overview, error }: { overview?: PlanningOverview; error?: Error }) {
+  if (error) return <LocalDataGap label="Недели плана сейчас недоступны. Попробуйте открыть их позже." />;
+  if (!overview || !overview.has_plan) return <Skeleton />;
+  if (!overview.weeks?.length) {
+    return <LocalDataGap label="Недели плана пока недоступны в сохранённом checkpoint." />;
+  }
+  return (
+    <section className="overflow-x-auto rounded-card border border-surface-border bg-surface shadow-card">
+      <table className="w-full min-w-[520px] text-sm">
+        <thead>
+          <tr className="border-b border-surface-border text-left text-xs uppercase tracking-wide text-ink-faint">
+            <th className="px-3 py-2.5 font-medium">Неделя</th>
+            <th className="px-3 py-2.5 font-medium">Старт</th>
+            <th className="px-3 py-2.5 font-medium">Фаза</th>
+            <th className="px-3 py-2.5 text-right font-medium">TSS</th>
+          </tr>
+        </thead>
+        <tbody>
+          {overview.weeks.map((week) => (
+            <tr key={week.number} className="border-b border-surface-border last:border-0">
+              <td className="px-3 py-2.5 text-ink">{week.number}</td>
+              <td className="px-3 py-2.5 text-ink-soft">{week.week_start ?? "—"}</td>
+              <td className="px-3 py-2.5 text-ink">{week.phase ?? "Недостаточно данных"}</td>
+              <td className="px-3 py-2.5 text-right tabular-nums text-ink">{week.weekly_tss}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function ExecutionOverview() {
+  return (
+    <section className="space-y-3">
+      <AdherenceRibbon />
+      <p className="text-xs text-ink-faint">
+        Для уточнения совпадений и безопасной пересборки используйте действие «Скорректировать».
+      </p>
+    </section>
+  );
+}
+
+function LocalDataGap({ label }: { label: string }) {
+  return (
+    <section className="rounded-card border border-surface-border bg-surface p-4 text-sm text-ink-soft shadow-card">
+      {label}
+    </section>
   );
 }
 
@@ -759,27 +932,40 @@ function WeeklyTargetPreview({ preview }: { preview?: TargetPreview | null }) {
 
 function AdjustmentHistory() {
   const { data } = useSWR<PlanningHistory>("/api/planning/history?limit=8", fetcher);
+  const [expanded, setExpanded] = useState(false);
   if (!data || !data.has_history) return null;
 
   return (
     <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
-      <div className="mb-3 flex items-baseline justify-between">
-        <span className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-          Adjustment History
-        </span>
-        <span className="text-xs text-ink-soft">{data.items.length}</span>
-      </div>
-      <div className="divide-y divide-surface-border">
-        {data.items.map((item) => (
-          <div key={`${item.checkpoint_id}-${item.date}`} className="grid gap-2 py-2.5 sm:grid-cols-[110px_130px_1fr]">
-            <div className="text-xs tabular-nums text-ink-soft">
-              {item.date_label || item.date.slice(0, 10)}
+      <button
+        type="button"
+        aria-expanded={expanded}
+        aria-controls="planning-adjustment-history"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            setExpanded((current) => !current);
+          }
+        }}
+        onClick={() => setExpanded((current) => !current)}
+        className="flex w-full items-baseline justify-between gap-3 text-left text-sm font-medium text-ink"
+      >
+        <span>История изменений</span>
+        <span className="text-xs font-normal text-ink-soft">{data.items.length}</span>
+      </button>
+      {expanded ? (
+        <div id="planning-adjustment-history" className="mt-3 divide-y divide-surface-border">
+          {data.items.map((item) => (
+            <div key={`${item.checkpoint_id}-${item.date}`} className="grid gap-2 py-2.5 sm:grid-cols-[110px_130px_1fr]">
+              <div className="text-xs tabular-nums text-ink-soft">
+                {item.date_label || item.date.slice(0, 10)}
+              </div>
+              <div className="text-xs font-medium text-ink">{item.type_label}</div>
+              <div className="text-sm text-ink-soft">{item.outcome_note}</div>
             </div>
-            <div className="text-xs font-medium text-ink">{item.type_label}</div>
-            <div className="text-sm text-ink-soft">{item.outcome_note}</div>
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
