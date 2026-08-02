@@ -287,3 +287,18 @@ def test_web_surfaces_consume_api_statuses_and_never_rederive():
 
     today_page = (root / "web" / "app" / "today" / "page.tsx").read_text(encoding="utf-8")
     assert "AdherenceStrip" in today_page
+
+
+def test_web_ribbon_keeps_rule_identifiers_out_of_primary_content():
+    """Trust copy must not expose an internal API rule/version identifier."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    ribbon = (root / "web" / "components" / "AdherenceRibbon.tsx").read_text(encoding="utf-8")
+    types = (root / "web" / "lib" / "types.ts").read_text(encoding="utf-8")
+
+    assert "ribbon_rule_version" not in ribbon
+    assert "rule_version" not in ribbon
+    # The additive API field remains available for non-UI diagnostics and
+    # backward-compatible consumers; this is solely a presentation boundary.
+    assert "ribbon_rule_version?: string" in types

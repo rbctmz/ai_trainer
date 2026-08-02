@@ -232,6 +232,164 @@ def current_status(db: Database) -> Dict[str, Any]:
     }
 
 
+def _overview_date(value: Any) -> date | None:
+    """Parse a persisted date defensively for the reader-only overview."""
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value or "")[:10])
+    except (TypeError, ValueError):
+        return None
+
+
+def _overview_int(value: Any) -> int:
+    try:
+        return int(float(value or 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def active_plan_overview(db: Database) -> Dict[str, Any]:
+    """Project the active checkpoint into a compact, reader-facing overview.
+
+    This is deliberately a checkpoint-only read. In particular it does not
+    discover events or ask an activity provider for new execution evidence.
+    """
+    checkpoint = db.get_latest_planning_checkpoint()
+    goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
+    if not checkpoint or not goal_plan:
+        return {"has_plan": False}
+
+    today = datetime.now().date()
+    planning_mode = str(goal_plan.get("planning_mode") or "").strip() or "training_goal"
+    events = [dict(item) for item in list(goal_plan.get("events") or []) if isinstance(item, dict)]
+    confirmed_a_event = next(
+        (
+            item
+            for item in events
+            if str(item.get("priority") or "").upper() == "A"
+            and item.get("confirmed") is True
+        ),
+        None,
+    )
+
+    event: Dict[str, Any] | None = None
+    if confirmed_a_event is not None:
+        event_date = _overview_date(confirmed_a_event.get("date"))
+        event = {
+            "label": str(confirmed_a_event.get("label") or "A-цель").strip() or "A-цель",
+            "priority": "A",
+            "date": event_date.isoformat() if event_date else None,
+            "confirmed": True,
+        }
+
+    weekly_rows = [
+        dict(row)
+        for row in list(goal_plan.get("weekly_summary") or [])
+        if isinstance(row, dict)
+    ]
+    current_index: int | None = None
+    parsed_week_starts = [_overview_date(row.get("week_start")) for row in weekly_rows]
+    for index, week_start in enumerate(parsed_week_starts):
+        if week_start and week_start <= today < week_start + timedelta(days=7):
+            current_index = index
+            break
+    if current_index is None:
+        future_indexes = [
+            index for index, week_start in enumerate(parsed_week_starts) if week_start and week_start > today
+        ]
+        if future_indexes:
+            current_index = future_indexes[0]
+        elif weekly_rows:
+            current_index = len(weekly_rows) - 1
+
+    current_week: Dict[str, Any] | None = None
+    if current_index is not None:
+        row = weekly_rows[current_index]
+        week_start = parsed_week_starts[current_index]
+        current_week = {
+            "number": current_index + 1,
+            "phase": str(row.get("phase") or "").strip() or None,
+            "week_start": week_start.isoformat() if week_start else None,
+            "weekly_tss": _overview_int(row.get("weekly_tss")),
+        }
+
+    completed_weeks = sum(
+        1
+        for week_start in parsed_week_starts
+        if week_start is not None and week_start + timedelta(days=7) <= today
+    )
+    total_weeks = len(weekly_rows) or _overview_int(goal_plan.get("horizon_weeks"))
+    progress_status = "completed" if total_weeks and completed_weeks >= total_weeks else "active"
+
+    checkpoint_summary = summarize_planning_checkpoint(checkpoint) or {}
+    execution_summary = checkpoint_summary.get("execution_reconciliation")
+    weekly_review = checkpoint_summary.get("execution_weekly_review")
+    if isinstance(execution_summary, dict):
+        execution = {
+            "state": "available",
+            "label": str(execution_summary.get("compact_label") or "Статус выполнения доступен"),
+            "description": str(execution_summary.get("description") or ""),
+        }
+    elif isinstance(weekly_review, dict) and weekly_review.get("headline"):
+        execution = {
+            "state": "available",
+            "label": str(weekly_review["headline"]),
+            "description": str(weekly_review.get("review_badge") or ""),
+        }
+    else:
+        execution = {
+            "state": "data_gap",
+            "label": "В последнем checkpoint нет сохранённой сводки выполнения.",
+            "description": "Актуальные локальные данные доступны во вкладке «Выполнение».",
+        }
+
+    goal = {
+        "goal_type": str(goal_plan.get("goal_type") or "").strip() or None,
+        "distance": str(goal_plan.get("distance") or "").strip() or None,
+        "planning_mode": planning_mode,
+        "event": event,
+    }
+    if planning_mode == "training_goal":
+        timeline: Dict[str, Any] = {
+            "kind": "rolling",
+            "horizon_weeks": _overview_int(goal_plan.get("horizon_weeks") or total_weeks),
+        }
+    else:
+        event_date = _overview_date((event or {}).get("date"))
+        timeline = {
+            "kind": "event",
+            "event": event,
+            "days_remaining": max(0, (event_date - today).days) if event_date else None,
+            "weeks_remaining": max(0, (event_date - today).days // 7) if event_date else None,
+        }
+
+    return {
+        "has_plan": True,
+        "goal": goal,
+        "timeline": timeline,
+        "current_week": current_week,
+        "progress": {
+            "completed_weeks": min(completed_weeks, total_weeks),
+            "total_weeks": total_weeks,
+            "status": progress_status,
+            "status_label": "План завершён" if progress_status == "completed" else "Активный план",
+        },
+        "execution": execution,
+        "weeks": [
+            {
+                "number": index + 1,
+                "week_start": week_start.isoformat() if week_start else None,
+                "phase": str(row.get("phase") or "").strip() or None,
+                "weekly_tss": _overview_int(row.get("weekly_tss")),
+            }
+            for index, (row, week_start) in enumerate(zip(weekly_rows, parsed_week_starts))
+        ],
+    }
+
+
 def target_preview(
     db: Database,
     *,

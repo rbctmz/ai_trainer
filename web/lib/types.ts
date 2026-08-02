@@ -426,6 +426,34 @@ export interface PlanningStatus {
   demand_options?: PlanningDemand[];
 }
 
+/** Read-only projection of the persisted active checkpoint for Planning M1. */
+export interface PlanningOverview {
+  has_plan: boolean;
+  goal?: {
+    goal_type: string | null;
+    distance: string | null;
+    planning_mode: string;
+    event: { label: string; priority: "A"; date: string | null; confirmed: true } | null;
+  };
+  timeline?:
+    | {
+        kind: "event";
+        event: { label: string; priority: "A"; date: string | null; confirmed: true } | null;
+        days_remaining: number | null;
+        weeks_remaining: number | null;
+      }
+    | { kind: "rolling"; horizon_weeks: number };
+  current_week?: { number: number; phase: string | null; week_start: string | null; weekly_tss: number } | null;
+  progress?: {
+    completed_weeks: number;
+    total_weeks: number;
+    status: "active" | "completed" | string;
+    status_label: string;
+  };
+  execution?: { state: "available" | "data_gap" | string; label: string; description: string };
+  weeks?: Array<{ number: number; week_start: string | null; phase: string | null; weekly_tss: number }>;
+}
+
 export interface PlanningDemand {
   level: string;
   label: string;

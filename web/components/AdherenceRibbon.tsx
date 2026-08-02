@@ -22,12 +22,7 @@ export function AdherenceRibbon() {
 
   return (
     <section>
-      <div className="flex items-baseline justify-between">
-        <h2 className="text-lg font-semibold text-ink">План vs факт</h2>
-        <span className="text-xs text-ink-faint">
-          {data?.ribbon_rule_version ?? ""}
-        </span>
-      </div>
+      <h2 className="text-lg font-semibold text-ink">План vs факт</h2>
       <p className="mt-1 text-sm text-ink-soft">
         Как исполняется активный план: недельные сводки и лента последних недель
         по дням. Подтверждение матчей и корректировка — во вкладке
