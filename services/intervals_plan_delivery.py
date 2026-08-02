@@ -11,6 +11,8 @@ from models.intervals_workout_delivery import (
     build_delivery_events,
     provider_event_is_executable,
     provider_event_is_owned,
+    provider_event_preserves_required_targets,
+    provider_event_requires_pace_targets,
 )
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from services.intervals_icu import IntervalsICUClient, get_client
@@ -69,6 +71,7 @@ def _base_result(
         "desired_count": 0,
         "executable_count": 0,
         "calendar_only_count": 0,
+        "target_mismatch_count": 0,
         "deleted_count": 0,
         "failed_count": 0,
         "retryable": False,
@@ -123,7 +126,35 @@ def deliver_active_plan(
     confirmed_external_ids = {
         str(row.get("external_id") or "") for row in confirmed
     }
-    failed_count = len(desired_external_ids - confirmed_external_ids)
+    pace_desired = {
+        str(row.get("external_id") or ""): row
+        for row in desired
+        if provider_event_requires_pace_targets(row)
+    }
+    evidence_by_external_id = {
+        str(row.get("external_id") or ""): row for row in confirmed
+    }
+    target_mismatch_ids: set[str] = set()
+    if pace_desired:
+        read_back = resolved_client.list_workout_events(oldest, newest)
+        read_back_by_external_id = {
+            str(row.get("external_id") or ""): row
+            for row in read_back
+            if str(row.get("external_id") or "") in pace_desired
+        }
+        for external_id, desired_event in pace_desired.items():
+            provider_event = read_back_by_external_id.get(external_id)
+            if provider_event is None or not provider_event_preserves_required_targets(
+                desired_event,
+                provider_event,
+            ):
+                target_mismatch_ids.add(external_id)
+                continue
+            evidence_by_external_id[external_id] = provider_event
+    failed_external_ids = (
+        desired_external_ids - confirmed_external_ids
+    ) | target_mismatch_ids
+    failed_count = len(failed_external_ids)
 
     # Cleanup is fail closed. An explicit date list may be non-contiguous, so
     # the bounded provider read can contain managed workouts that were not part
@@ -143,8 +174,14 @@ def deliver_active_plan(
         else []
     )
     deleted_count = resolved_client.delete_events(doomed) if doomed else 0
-    executable_count = sum(provider_event_is_executable(row) for row in confirmed)
-    calendar_only_count = len(confirmed) - executable_count
+    executable_count = sum(
+        provider_event_is_executable(evidence_by_external_id[external_id])
+        and external_id not in target_mismatch_ids
+        for external_id in confirmed_external_ids
+    )
+    calendar_only_count = (
+        len(confirmed_external_ids - target_mismatch_ids) - executable_count
+    )
     status = (
         "partial"
         if failed_count
@@ -159,6 +196,7 @@ def deliver_active_plan(
         "desired_count": len(desired),
         "executable_count": executable_count,
         "calendar_only_count": calendar_only_count,
+        "target_mismatch_count": len(target_mismatch_ids),
         "deleted_count": int(deleted_count or 0),
         "failed_count": failed_count,
         "retryable": bool(failed_count),

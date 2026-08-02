@@ -16,6 +16,7 @@ if __package__ in {None, ""}:  # pragma: no cover - direct script execution
 from models.intervals_workout_delivery import (  # noqa: E402
     build_intervals_workout_description,
     provider_event_is_executable,
+    provider_event_preserves_required_targets,
 )
 from models.workout_catalog import (  # noqa: E402
     catalog_definitions,
@@ -48,7 +49,7 @@ def _probe_payloads(target_date: date) -> list[dict[str, Any]]:
     run = materialize_workout(
         _definition("run_tempo_threshold"),
         {"duration_minutes": 60, "target_tss": 70.0},
-        {"lthr": 165},
+        {"threshold_pace": 300},
     )
     probes = (
         ("bike", "Ride", bike, 20, "AI Trainer v2 bike acceptance"),
@@ -141,11 +142,12 @@ def _key_paths(value: Any, prefix: str = "") -> set[str]:
 
 def _parsed_evidence(
     confirmed: Mapping[str, Mapping[str, Any]],
+    desired: Mapping[str, Mapping[str, Any]],
     target_date: date,
 ) -> tuple[dict[str, int], dict[str, str]]:
     counts: dict[str, int] = {}
     target_types: dict[str, str] = {}
-    expected = {"bike": ("power", "power"), "run": ("hr", "heart_rate")}
+    expected = {"bike": ("power", "power"), "run": ("pace", "pace")}
     for sport, (provider_key, target_type) in expected.items():
         external_id = acceptance_external_id(target_date, sport)
         event = confirmed[external_id]
@@ -160,6 +162,11 @@ def _parsed_evidence(
                 f"provider did not parse expected {sport} target type; "
                 f"sanitized key paths={sorted(_key_paths(steps))}"
             )
+        if sport == "run" and not provider_event_preserves_required_targets(
+            desired[external_id],
+            event,
+        ):
+            raise RuntimeError("provider changed the expected run pace targets")
         counts[sport] = len(steps)
         target_types[sport] = target_type
     return counts, target_types
@@ -185,6 +192,10 @@ def run_live_acceptance(
 
     payloads = _probe_payloads(target_date)
     acceptance_ids = {str(row["external_id"]) for row in payloads}
+    desired_by_external_id = {
+        str(row["external_id"]): row
+        for row in payloads
+    }
     before = client.list_workout_events(target_date, target_date)
     if any(
         str(row.get("external_id") or "") in acceptance_ids
@@ -220,12 +231,15 @@ def run_live_acceptance(
         second_ids = {key: row["id"] for key, row in second.items()}
         if first_ids != second_ids:
             raise RuntimeError("repeated upsert changed provider event identities")
-        parsed_counts, target_types = _parsed_evidence(second, target_date)
-
         after = client.list_workout_events(target_date, target_date)
         listed = _confirmed_map(after, acceptance_ids)
         if {key: row["id"] for key, row in listed.items()} != second_ids:
             raise RuntimeError("bounded provider read returned different event identities")
+        parsed_counts, target_types = _parsed_evidence(
+            listed,
+            desired_by_external_id,
+            target_date,
+        )
         foreign_unchanged = _foreign_snapshot(after, acceptance_ids) == foreign_before
         if not foreign_unchanged:
             raise RuntimeError("foreign provider events changed during acceptance")

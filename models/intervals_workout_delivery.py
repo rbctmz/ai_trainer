@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import re
 from typing import Any, Mapping, Sequence
 
 from models.fit_export import build_steps_for_sport
@@ -12,6 +13,10 @@ from models.workout_catalog import require_executable_planned_session
 AI_TRAINER_EXTERNAL_ID_PREFIX = "ai_trainer:"
 _SPORT_TYPES = {"bike": "Ride", "run": "Run", "swim": "Swim"}
 _LEG_GAP_SECONDS = 5 * 60
+_PACE_TARGET_RE = re.compile(
+    r"(?P<first>\d+:\d{2})(?P<first_unit>/(?:km|100m))?"
+    r"-(?P<second>\d+:\d{2})(?P<unit>/(?:km|100m))\s+Pace$"
+)
 
 
 def provider_event_is_owned(event: Mapping[str, Any]) -> bool:
@@ -23,6 +28,86 @@ def provider_event_is_owned(event: Mapping[str, Any]) -> bool:
 def provider_event_is_executable(event: Mapping[str, Any]) -> bool:
     workout_doc = event.get("workout_doc")
     return isinstance(workout_doc, Mapping) and bool(workout_doc.get("steps"))
+
+
+def _pace_seconds(value: str) -> float:
+    minutes, seconds = value.split(":", 1)
+    return float(minutes) * 60.0 + float(seconds)
+
+
+def _required_pace_targets(
+    desired_event: Mapping[str, Any],
+) -> list[tuple[int, float, float, str]]:
+    lines = [
+        line.strip()
+        for line in str(desired_event.get("description") or "").splitlines()
+        if line.strip().startswith("- ")
+    ]
+    required: list[tuple[int, float, float, str]] = []
+    for index, line in enumerate(lines):
+        match = _PACE_TARGET_RE.search(line)
+        if match is None:
+            continue
+        first_unit = match.group("first_unit")
+        unit = match.group("unit")
+        if first_unit is not None and first_unit != unit:
+            continue
+        required.append(
+            (
+                index,
+                _pace_seconds(match.group("first")),
+                _pace_seconds(match.group("second")),
+                "secs/km" if unit == "/km" else "secs/100m",
+            )
+        )
+    return required
+
+
+def provider_event_requires_pace_targets(event: Mapping[str, Any]) -> bool:
+    """Return whether the provider payload declares structured pace targets."""
+    return bool(_required_pace_targets(event))
+
+
+def provider_event_preserves_required_targets(
+    desired_event: Mapping[str, Any],
+    provider_event: Mapping[str, Any],
+) -> bool:
+    """Validate provider read-back against every serialized pace prescription."""
+    required = _required_pace_targets(desired_event)
+    if not required:
+        return True
+    workout_doc = provider_event.get("workout_doc")
+    if not isinstance(workout_doc, Mapping):
+        return False
+    steps = workout_doc.get("steps")
+    if not isinstance(steps, Sequence) or isinstance(steps, (str, bytes, bytearray)):
+        return False
+    description_steps = [
+        line
+        for line in str(desired_event.get("description") or "").splitlines()
+        if line.strip().startswith("- ")
+    ]
+    if len(steps) != len(description_steps):
+        return False
+    for index, expected_first, expected_second, expected_unit in required:
+        step = steps[index]
+        if not isinstance(step, Mapping):
+            return False
+        pace = step.get("pace")
+        if not isinstance(pace, Mapping):
+            return False
+        if str(pace.get("units") or "").lower() != expected_unit:
+            return False
+        raw_start = pace.get("start", pace.get("value"))
+        raw_end = pace.get("end", pace.get("value"))
+        try:
+            actual = sorted((float(raw_start), float(raw_end)))
+        except (TypeError, ValueError):
+            return False
+        expected = sorted((expected_first, expected_second))
+        if any(abs(left - right) > 1.0 for left, right in zip(actual, expected)):
+            return False
+    return True
 
 
 def _step_seconds(step: Mapping[str, Any]) -> int:
@@ -64,7 +149,12 @@ def _target_text(target: Any) -> str:
             slow = float(target.get("slow") or target.get("high") or fast)
             unit = "/100m" if str(target.get("unit") or "").endswith("100m") else "/km"
             if fast > 0:
-                return f"{_clock_text(fast)}-{_clock_text(slow)}{unit}"
+                if unit == "/100m":
+                    return (
+                        f"{_clock_text(fast)}{unit}-"
+                        f"{_clock_text(slow)}{unit} Pace"
+                    )
+                return f"{_clock_text(fast)}-{_clock_text(slow)}{unit} Pace"
         if target_type in {"relative", "relative_rpe", "rpe"}:
             low = target.get("low") or target.get("value") or 3
             high = target.get("high")
@@ -252,4 +342,6 @@ __all__ = [
     "build_intervals_workout_description",
     "provider_event_is_executable",
     "provider_event_is_owned",
+    "provider_event_preserves_required_targets",
+    "provider_event_requires_pace_targets",
 ]
