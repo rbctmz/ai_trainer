@@ -22,7 +22,16 @@ class _CatalogAcceptanceClient:
         return True
 
     def list_workout_events(self, _oldest, _newest):
-        return [dict(row) for row in self.events.values()]
+        # Match the bounded production projection: the provider read-back keeps
+        # parsed workout_doc evidence, but not the submitted description.
+        return [
+            {
+                key: value
+                for key, value in row.items()
+                if key != "description"
+            }
+            for row in self.events.values()
+        ]
 
     def upsert_events_by_external_id(self, payloads):
         rows = [dict(row) for row in payloads]

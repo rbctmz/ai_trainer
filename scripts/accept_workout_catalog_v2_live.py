@@ -142,6 +142,7 @@ def _key_paths(value: Any, prefix: str = "") -> set[str]:
 
 def _parsed_evidence(
     confirmed: Mapping[str, Mapping[str, Any]],
+    desired: Mapping[str, Mapping[str, Any]],
     target_date: date,
 ) -> tuple[dict[str, int], dict[str, str]]:
     counts: dict[str, int] = {}
@@ -162,7 +163,7 @@ def _parsed_evidence(
                 f"sanitized key paths={sorted(_key_paths(steps))}"
             )
         if sport == "run" and not provider_event_preserves_required_targets(
-            event,
+            desired[external_id],
             event,
         ):
             raise RuntimeError("provider changed the expected run pace targets")
@@ -191,6 +192,10 @@ def run_live_acceptance(
 
     payloads = _probe_payloads(target_date)
     acceptance_ids = {str(row["external_id"]) for row in payloads}
+    desired_by_external_id = {
+        str(row["external_id"]): row
+        for row in payloads
+    }
     before = client.list_workout_events(target_date, target_date)
     if any(
         str(row.get("external_id") or "") in acceptance_ids
@@ -230,7 +235,11 @@ def run_live_acceptance(
         listed = _confirmed_map(after, acceptance_ids)
         if {key: row["id"] for key, row in listed.items()} != second_ids:
             raise RuntimeError("bounded provider read returned different event identities")
-        parsed_counts, target_types = _parsed_evidence(listed, target_date)
+        parsed_counts, target_types = _parsed_evidence(
+            listed,
+            desired_by_external_id,
+            target_date,
+        )
         foreign_unchanged = _foreign_snapshot(after, acceptance_ids) == foreign_before
         if not foreign_unchanged:
             raise RuntimeError("foreign provider events changed during acceptance")
