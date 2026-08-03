@@ -196,6 +196,31 @@ carry-forward/no-checkpoint-mutation), `test_api_planning.py` (вертикал�
 матрица pace/LTHR/RPE), `test_intervals_plan_delivery.py` (`/km Pace` round-trip) и
 `test_running_threshold_pace_ui.py` (проверяемое основание цели до отправки).
 
+### Swim TSS по темпу (sTSS) и CSS-порог (#362)
+
+Плавание оценивается TrainingPeaks-style sTSS: `hours × IF³ × 100`, где
+`IF = CSS-темп / средний темп` (обе в секундах на 100 м). Порог (CSS) приходит
+из `sportSettings[Swim].threshold_pace` Intervals.icu (скорость в м/с) и
+хранится в явном каноническом поле `swim_threshold_pace_seconds_per_100m` с
+provenance `_source`/`_synced_at`. Каскад swim: `pace_tss_swim` →
+`hr_zone_tss_swim` → `hr_tss_swim` → `heuristic_duration_swim`.
+
+- **ASR-MOD-3**: три nullable swim-поля athlete-profile добавляются
+  migrate-on-start без переписывания legacy-снимков; реальная старая схема
+  поднимается в тесте повторной инициализации.
+- **ASR-REL-1**: отсутствие/невалидность CSS не ломает расчёт — каскад честно
+  остаётся на HR-ветках; частичный ответ профиля сохраняет последний валидный
+  CSS с исходными `source`/`synced_at`.
+- **ASR-REL-2**: средний темп считается локально из moving-duration и дистанции
+  (оффлайн, детерминированно); физически невозможный темп (< 30 с/100м)
+  отбрасывается, а не превращается в бессмысленную нагрузку. Статичного
+  `.env`-дефолта для CSS нет — выдуманный порог искажал бы TSS тихо.
+
+Проверка: `test_swim_pace_tss.py` (каскад и формула IF³),
+`test_athlete_profile.py` (swim mapping/bounds/migration/carry-forward),
+`test_api_athlete_profile_contract.py` (поля API) и
+`test_swim_threshold_pace_ui.py` (карточка профиля).
+
 ### Intervals pace delivery fidelity (#322)
 
 Native workout parser Intervals.icu требует явный маркер `Pace` после
