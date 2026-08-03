@@ -11,6 +11,7 @@ from pathlib import Path
 sys.path.append('.')
 
 from data.database import Database
+from tests.sync_fixtures import legacy_upsert_activities
 
 def test_unique_sync(tmp_path):
     """Тест синхронизации с контролем уникальности"""
@@ -45,7 +46,7 @@ def test_unique_sync(tmp_path):
     ]
     
     print("\n📊 Первая синхронизация (новые данные):")
-    result1 = db.sync_activities(test_activities_1)
+    result1 = legacy_upsert_activities(db, test_activities_1)
     print(f"  🆕 Новых: {result1['new']}")
     print(f"  🔄 Обновлено: {result1['updated']}")
     print(f"  ⏭️ Пропущено: {result1['skipped']}")
@@ -58,7 +59,7 @@ def test_unique_sync(tmp_path):
     
     # Вторая синхронизация - те же данные (не должны дублироваться)
     print("\n📊 Повторная синхронизация (те же данные):")
-    result2 = db.sync_activities(test_activities_1)
+    result2 = legacy_upsert_activities(db, test_activities_1)
     print(f"  🆕 Новых: {result2['new']}")
     print(f"  🔄 Обновлено: {result2['updated']}")
     print(f"  ⏭️ Пропущено: {result2['skipped']}")
@@ -89,7 +90,7 @@ def test_unique_sync(tmp_path):
     ]
     
     print("\n📊 Смешанная синхронизация (обновления + новые):")
-    result3 = db.sync_activities(test_activities_2)
+    result3 = legacy_upsert_activities(db, test_activities_2)
     print(f"  🆕 Новых: {result3['new']}")
     print(f"  🔄 Обновлено: {result3['updated']}")
     print(f"  ⏭️ Пропущено: {result3['skipped']}")

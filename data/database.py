@@ -3312,68 +3312,6 @@ class Database:
         counts["cursor_value"] = effective.isoformat()
         return counts
 
-    def sync_activities(self, activities):
-        """Умная синхронизация активностей без дублей"""
-        if not activities:
-            return {'new': 0, 'updated': 0, 'skipped': 0}
-        
-        conn = self._connect()
-        cursor = conn.cursor()
-        activity_columns = [column for column in self._ACTIVITY_COLUMN_ORDER if column != 'activity_id']
-        update_sql = ', '.join(f"{column}=?" for column in activity_columns)
-        insert_columns = ', '.join(self._ACTIVITY_COLUMN_ORDER)
-        insert_placeholders = ', '.join('?' for _ in self._ACTIVITY_COLUMN_ORDER)
-        
-        # Получаем существующие activity_id
-        cursor.execute('SELECT activity_id FROM activities')
-        existing_ids = {row[0] for row in cursor.fetchall()}
-        
-        new_count = 0
-        updated_count = 0
-        skipped_count = 0
-        
-        for activity in activities:
-            activity_id = self.clean_value(activity.get('activity_id'))
-            
-            if not activity_id:  # Пропускаем активности без ID
-                skipped_count += 1
-                continue
-            
-            # Проверяем, существует ли уже такая активность
-            if activity_id in existing_ids:
-                # Обновляем существующую запись
-                values = [self.clean_value(activity.get(column)) for column in activity_columns]
-                values.append(activity_id)
-                cursor.execute(
-                    f'''
-                    UPDATE activities SET
-                    {update_sql}
-                    WHERE activity_id=?
-                    ''',
-                    tuple(values),
-                )
-                updated_count += 1
-            else:
-                # Вставляем новую запись
-                values = tuple(self.clean_value(activity.get(column)) for column in self._ACTIVITY_COLUMN_ORDER)
-                cursor.execute(
-                    f'''
-                    INSERT INTO activities ({insert_columns})
-                    VALUES ({insert_placeholders})
-                    ''',
-                    values,
-                )
-                existing_ids.add(activity_id)  # Добавляем в кэш
-                new_count += 1
-        
-        conn.commit()
-        conn.close()
-        
-        return {
-            'new': new_count,
-            'updated': updated_count,
-            'skipped': skipped_count
-        }
 
     def _resolve_garmin_coordinate(self, cursor, garmin_id):
         """Assign ``canonical_activity_id`` + ``match_status`` for every link that

@@ -18,6 +18,7 @@ except ImportError:
     from data.garmin_client import GarminClient
 
 import pandas as pd
+from tests.sync_fixtures import legacy_upsert_activities
 from datetime import datetime, timedelta
 
 def test_database_operations():
@@ -74,7 +75,7 @@ def test_database_operations():
     }
     
     print("📊 Тестирование синхронизации активностей...")
-    sync_result = db.sync_activities(test_activities)
+    sync_result = legacy_upsert_activities(db, test_activities)
     print(f"   Результат: {sync_result}")
     assert sync_result['new'] == 2, "Должно быть добавлено 2 активности"
     
@@ -134,7 +135,7 @@ def test_sync_optimization():
     print(f"📦 Синхронизация {len(test_activities)} активностей...")
     start_time = datetime.now()
     
-    sync_result = db.sync_activities(test_activities)
+    sync_result = legacy_upsert_activities(db, test_activities)
     
     end_time = datetime.now()
     sync_duration = (end_time - start_time).total_seconds()
@@ -149,7 +150,7 @@ def test_sync_optimization():
     print("🔄 Тест повторной синхронизации...")
     start_time = datetime.now()
     
-    sync_result_2 = db.sync_activities(test_activities)
+    sync_result_2 = legacy_upsert_activities(db, test_activities)
     
     end_time = datetime.now()
     sync_duration_2 = (end_time - start_time).total_seconds()

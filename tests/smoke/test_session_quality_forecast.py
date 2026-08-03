@@ -19,6 +19,7 @@ from models.session_quality_forecast import (
     build_session_quality_forecast,
     classify_plan_adherence,
 )
+from tests.sync_fixtures import legacy_upsert_activities
 
 
 pytestmark = pytest.mark.smoke
@@ -356,7 +357,8 @@ def test_resolution_scores_latest_prestart_revision_and_freezes_actual_snapshot(
     assert by_revision[2]["actual_snapshot"]["actual_total_tss"] == 60.0
     assert by_revision[3]["unscored_reason"] == "post_start_prediction"
 
-    db.sync_activities(
+    legacy_upsert_activities(
+        db,
         [
             {
                 "activity_id": "activity-1",
