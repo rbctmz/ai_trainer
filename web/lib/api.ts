@@ -75,6 +75,24 @@ export async function putJSON<T>(path: string, body: unknown): Promise<T> {
   return (await res.json()) as T;
 }
 
+export async function deleteJSON<T>(path: string): Promise<T> {
+  const res = await fetch(withDemo(path), {
+    method: "DELETE",
+    headers: { Accept: "application/json" },
+  });
+  if (!res.ok) {
+    let detail = `Request failed: ${res.status}`;
+    try {
+      const j = await res.json();
+      if (j?.detail) detail = j.detail;
+    } catch {
+      /* ignore */
+    }
+    throw new ApiError(res.status, detail);
+  }
+  return (await res.json()) as T;
+}
+
 import type { CoachEvent } from "./types";
 
 export interface ChatPayload {

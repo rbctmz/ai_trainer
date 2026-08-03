@@ -5,11 +5,16 @@
 
 import json
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 from config.settings import Settings
+
+CHAT_ID_RE = re.compile(r"^[0-9a-zA-Z_-]{1,64}$")
+MAX_TITLE_LENGTH = 120
+MAX_PREVIEW_LENGTH = 120
 
 
 class ChatManager:
@@ -23,6 +28,30 @@ class ChatManager:
         """Создает директорию для чатов если её нет"""
         if not os.path.exists(self.chats_dir):
             os.makedirs(self.chats_dir)
+
+    def _resolve_chat_path(self, chat_id: str) -> str:
+        """Validate a chat id and return the safe resolved file path.
+
+        Rejects anything that is not a plain identifier and double-checks that
+        the resolved path stays inside the chats directory, so a crafted id
+        can never escape the storage root (M2 #266 path-traversal gate).
+        """
+        if not isinstance(chat_id, str) or not CHAT_ID_RE.match(chat_id):
+            raise ValueError("invalid chat id")
+        base = os.path.realpath(self.chats_dir)
+        path = os.path.realpath(os.path.join(base, f"{chat_id}.json"))
+        if os.path.commonpath([base, path]) != base:
+            raise ValueError("invalid chat id")
+        return path
+
+    @staticmethod
+    def _validate_title(title: str) -> str:
+        normalized = str(title or "").strip()
+        if not normalized:
+            raise ValueError("title is empty")
+        if len(normalized) > MAX_TITLE_LENGTH:
+            raise ValueError("title is too long")
+        return normalized
     
     def create_new_chat(self, title: str = None) -> str:
         """Создает новый чат и возвращает его ID"""
@@ -45,14 +74,14 @@ class ChatManager:
     def save_chat(self, chat_id: str, chat_data: Dict[str, Any]):
         """Сохраняет чат в файл"""
         chat_data["updated_at"] = datetime.now().isoformat()
-        
-        file_path = os.path.join(self.chats_dir, f"{chat_id}.json")
+
+        file_path = self._resolve_chat_path(chat_id)
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(chat_data, f, ensure_ascii=False, indent=2)
     
     def load_chat(self, chat_id: str) -> Optional[Dict[str, Any]]:
         """Загружает чат из файла"""
-        file_path = os.path.join(self.chats_dir, f"{chat_id}.json")
+        file_path = self._resolve_chat_path(chat_id)
         
         if not os.path.exists(file_path):
             return None
@@ -64,8 +93,13 @@ class ChatManager:
             print(f"Ошибка загрузки чата {chat_id}: {e}")
             return None
     
-    def get_chat_list(self) -> List[Dict[str, Any]]:
-        """Возвращает список всех чатов, отсортированный по времени обновления"""
+    def get_chat_list(self, scope: str = "all") -> List[Dict[str, Any]]:
+        """Возвращает список чатов, отсортированный по времени обновления.
+
+        ``scope`` is ``all`` (default), ``active``, or ``archive``. Legacy JSON
+        files without archive metadata are read as active; their messages are
+        never rewritten.
+        """
         chats = []
         
         for filename in os.listdir(self.chats_dir):
@@ -74,12 +108,21 @@ class ChatManager:
                 chat_data = self.load_chat(chat_id)
                 
                 if chat_data:
+                    archived = bool(chat_data.get("archived", False))
+                    if scope == "active" and archived:
+                        continue
+                    if scope == "archive" and not archived:
+                        continue
+                    messages = chat_data.get("messages", [])
+                    last_content = str(messages[-1].get("content") or "") if messages else ""
                     chats.append({
                         "id": chat_data["id"],
                         "title": chat_data["title"],
                         "created_at": chat_data["created_at"],
                         "updated_at": chat_data["updated_at"],
-                        "message_count": len(chat_data.get("messages", []))
+                        "message_count": len(messages),
+                        "archived": archived,
+                        "preview": last_content[:MAX_PREVIEW_LENGTH],
                     })
         
         # Сортируем по времени обновления (новые сначала)
@@ -88,7 +131,7 @@ class ChatManager:
     
     def delete_chat(self, chat_id: str) -> bool:
         """Удаляет чат"""
-        file_path = os.path.join(self.chats_dir, f"{chat_id}.json")
+        file_path = self._resolve_chat_path(chat_id)
         
         if os.path.exists(file_path):
             try:
@@ -111,9 +154,19 @@ class ChatManager:
     
     def update_chat_title(self, chat_id: str, new_title: str) -> bool:
         """Обновляет название чата"""
+        normalized = self._validate_title(new_title)
         chat_data = self.load_chat(chat_id)
         if chat_data:
-            chat_data["title"] = new_title
+            chat_data["title"] = normalized
+            self.save_chat(chat_id, chat_data)
+            return True
+        return False
+
+    def set_archived(self, chat_id: str, archived: bool) -> bool:
+        """Пометить чат архивным (True) или активным (False)."""
+        chat_data = self.load_chat(chat_id)
+        if chat_data:
+            chat_data["archived"] = bool(archived)
             self.save_chat(chat_id, chat_data)
             return True
         return False
@@ -171,16 +224,20 @@ class ChatManager:
         
         return ""
     
-    def search_chats(self, query: str) -> List[Dict[str, Any]]:
-        """Поиск по чатам"""
-        query = query.lower()
+    def search_chats(self, query: str, scope: str = "all") -> List[Dict[str, Any]]:
+        """Поиск по названию и сообщениям в заданном scope."""
+        query = (query or "").strip().lower()
         matching_chats = []
-        
-        for chat_info in self.get_chat_list():
+
+        for chat_info in self.get_chat_list(scope=scope):
             chat_data = self.load_chat(chat_info["id"])
             if not chat_data:
                 continue
-            
+
+            if not query:
+                matching_chats.append(chat_info)
+                continue
+
             # Поиск в названии
             if query in chat_data["title"].lower():
                 matching_chats.append(chat_info)

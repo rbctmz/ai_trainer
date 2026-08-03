@@ -154,6 +154,8 @@ export interface ChatSummary {
   title: string;
   date: string | null;
   message_count: number;
+  archived?: boolean;
+  preview?: string;
 }
 
 export interface ChatMessage {

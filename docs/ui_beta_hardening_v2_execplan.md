@@ -17,7 +17,9 @@ clickable card with keyboard support and a visible hover/focus state.
 
 - [x] (2026-08-03) Inspected #265, dashboard page/components, Nav active-state logic, and the three detail pages.
 - [x] (2026-08-03) M1 (#265) implemented: whole-card links for Сон/HRV/Активности, SectionLinks removed, `DrillDownHeader` («← Обзор») on all three detail pages, nav keeps «Обзор» active via a dashboard-child route group.
-- [ ] M2 (#266), M3 (#267), M4 (#268) — separate milestones.
+- [x] (2026-08-03) Inspected #266, `models/chat_manager.py`, `api/routers/coach.py`, and `web/app/coach/page.tsx` for the M2 lifecycle slice.
+- [x] (2026-08-03) M2 (#266) implemented: archive metadata + safe rename/search/archive/restore/delete contracts, Coach lifecycle UI (search, groups, inline rename, two-step delete, deep-link `?chat=<id>`), path-traversal guard.
+- [ ] M3 (#267), M4 (#268) — separate milestones.
 
 ## Surprises & Discoveries
 
@@ -25,6 +27,10 @@ clickable card with keyboard support and a visible hover/focus state.
   Evidence: `web/components/dashboard/WeekCard.tsx` wraps content in `next/link`.
 - Observation: `DashboardWidgets` carries no activity totals, and `/api/activities?days=30` already returns server-computed totals (count, distance, duration, TSS) — the Activities card needs one existing request, no new aggregate endpoint.
   Evidence: `web/lib/types.ts` `DashboardWidgets` (no activities) vs `ActivitiesResponse.totals`.
+- Observation: `ChatManager` already implements rename/search/delete/export, but `load_chat`/`delete_chat` join `chats_dir` with the raw chat id, so an id like `../x` would escape the directory — M2 must validate ids (path traversal gate) while staying backward compatible with legacy hex ids.
+  Evidence: `models/chat_manager.py` `load_chat`/`delete_chat`.
+- Observation: the web Coach keeps the selected chat only in a ref, so reload loses it; M2 needs a deep-linkable selection (URL) to satisfy the reload/deep-link acceptance.
+  Evidence: `web/app/coach/page.tsx` uses `chatId.current`.
 
 ## Decision Log
 
@@ -42,6 +48,15 @@ clickable card with keyboard support and a visible hover/focus state.
   Date/Author: 2026-08-03 / Codex.
 - Decision: `Nav.tsx` treats `/activities`, `/sleep`, `/hrv` as a dashboard route group so «Обзор» stays highlighted there.
   Rationale: those pages are detail sections of the dashboard; the primary four-item set is unchanged.
+  Date/Author: 2026-08-03 / Codex.
+- Decision: M2 stores archive as an additive `archived: bool` field on chat JSON; legacy files without it are read as active, and every lifecycle read stays backward compatible.
+  Rationale: archive must not rewrite messages/timestamps of existing chats (acceptance), and the model must keep reading legacy files untouched.
+  Date/Author: 2026-08-03 / Codex.
+- Decision: M2 exposes separate small contracts — scoped list (`GET /history?scope=`), `POST /chats/{id}/rename`, `POST /chats/{id}/archive`, `POST /chats/{id}/restore`, `DELETE /chats/{id}`, and `GET /search?q=` — with 404 for unknown ids, 422 for invalid names, and a strict chat-id/path guard.
+  Rationale: lifecycle actions are explicit REST mutations (never inside the SSE hot path), and each has one clear error contract.
+  Date/Author: 2026-08-03 / Codex.
+- Decision: M2 keeps the selected chat in the URL (`?chat=<id>`), restores it on reload, and shows a clear empty state for unknown ids; grouping «Сегодня/Вчера/Ранее» is computed client-side from `updated_at`.
+  Rationale: satisfies the reload/deep-link acceptance without server-side date grouping.
   Date/Author: 2026-08-03 / Codex.
 
 ## Outcomes & Retrospective
