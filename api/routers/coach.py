@@ -42,6 +42,10 @@ class ChatRequest(BaseModel):
     provider: Optional[str] = None
 
 
+class ChatRenameRequest(BaseModel):
+    title: str
+
+
 def _sse(event: dict[str, Any]) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
@@ -269,10 +273,13 @@ def coach_chat(
 
 @router.get("/history")
 def coach_history(
+    scope: str = "all",
     demo: bool = False,
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
-    chats = _chat_manager().get_chat_list()
+    if scope not in {"all", "active", "archive"}:
+        raise HTTPException(status_code=422, detail="scope must be all, active or archive")
+    chats = _chat_manager().get_chat_list(scope=scope)
     return {
         "chats": [
             {
@@ -280,6 +287,8 @@ def coach_history(
                 "title": c["title"],
                 "date": c.get("updated_at"),
                 "message_count": c.get("message_count", 0),
+                "archived": bool(c.get("archived", False)),
+                "preview": c.get("preview", ""),
             }
             for c in chats
         ],
@@ -303,6 +312,9 @@ def coach_history_detail(
     return {
         "id": chat["id"],
         "title": chat["title"],
+        "archived": bool(chat.get("archived", False)),
+        "created_at": chat.get("created_at"),
+        "updated_at": chat.get("updated_at"),
         "messages": [
             {
                 "role": m.get("role"),
@@ -316,6 +328,79 @@ def coach_history_detail(
             demo=demo,
             has_data=latest_iso_from_database(db) is not None,
         ),
+    }
+
+
+@router.post("/chats/{chat_id}/rename")
+def coach_chat_rename(chat_id: str, req: ChatRenameRequest) -> dict[str, Any]:
+    manager = _chat_manager()
+    try:
+        updated = manager.update_chat_title(chat_id, req.title)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if not updated:
+        raise HTTPException(status_code=404, detail="chat not found")
+    chat = manager.load_chat(chat_id)
+    return {"id": chat_id, "title": chat["title"] if chat else req.title}
+
+
+@router.post("/chats/{chat_id}/archive")
+def coach_chat_archive(chat_id: str) -> dict[str, Any]:
+    manager = _chat_manager()
+    try:
+        updated = manager.set_archived(chat_id, True)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="invalid chat id")
+    if not updated:
+        raise HTTPException(status_code=404, detail="chat not found")
+    return {"id": chat_id, "archived": True}
+
+
+@router.post("/chats/{chat_id}/restore")
+def coach_chat_restore(chat_id: str) -> dict[str, Any]:
+    manager = _chat_manager()
+    try:
+        updated = manager.set_archived(chat_id, False)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="invalid chat id")
+    if not updated:
+        raise HTTPException(status_code=404, detail="chat not found")
+    return {"id": chat_id, "archived": False}
+
+
+@router.delete("/chats/{chat_id}")
+def coach_chat_delete(chat_id: str) -> dict[str, Any]:
+    manager = _chat_manager()
+    try:
+        deleted = manager.delete_chat(chat_id)
+    except ValueError:
+        raise HTTPException(status_code=422, detail="invalid chat id")
+    if not deleted:
+        raise HTTPException(status_code=404, detail="chat not found")
+    return {"id": chat_id, "deleted": True}
+
+
+@router.get("/search")
+def coach_search(
+    q: str = "",
+    scope: str = "all",
+) -> dict[str, Any]:
+    if scope not in {"all", "active", "archive"}:
+        raise HTTPException(status_code=422, detail="scope must be all, active or archive")
+    chats = _chat_manager().search_chats(q, scope=scope)
+    return {
+        "query": q,
+        "chats": [
+            {
+                "id": c["id"],
+                "title": c["title"],
+                "date": c.get("updated_at"),
+                "message_count": c.get("message_count", 0),
+                "archived": bool(c.get("archived", False)),
+                "preview": c.get("preview", ""),
+            }
+            for c in chats
+        ],
     }
 
 

@@ -1826,17 +1826,38 @@ class AITools:
             if total_tss <= 0:
                 continue  # skip rest days
             tpl = templates[i] if i < len(templates) else {}
-            sport = str((tpl or {}).get("sport") or "")
-            if not sport or sport == "—":
-                sport = max(dict(parts or {}).items(), key=lambda kv: float(kv[1] or 0), default=("bike", 0))[0] if parts else "bike"
-            sessions.append({
-                "date": session_date.isoformat(),
-                "sport": sport,
-                "sport_label": str((tpl or {}).get("sport_label") or sport),
-                "tss": total_tss,
-                "name": str((tpl or {}).get("export_name") or (tpl or {}).get("session_focus") or "Сессия"),
-                "phase": str((tpl or {}).get("phase") or ""),
-            })
+            phase = str((tpl or {}).get("phase") or "")
+            # День может содержать несколько leaf-сессий (brick/составные).
+            # Раскрываем их как отдельные тренировки, иначе Коуч видит день
+            # как одну тренировку вместо двух (#266 browser acceptance).
+            leaves = [dict(session or {}) for session in list((tpl or {}).get("sessions") or [])]
+            if not leaves:
+                leaves = [dict(tpl or {})]
+            for leaf in leaves:
+                leaf_tss = float(leaf.get("total_tss") or 0.0)
+                if leaf_tss <= 0 and len(leaves) > 1:
+                    continue  # нулевой leaf внутри составного дня — не тренировка
+                sport = str(leaf.get("sport") or "")
+                if not sport or sport == "—":
+                    sport = (
+                        max(dict(parts or {}).items(), key=lambda kv: float(kv[1] or 0), default=("bike", 0))[0]
+                        if parts
+                        else "bike"
+                    )
+                sessions.append({
+                    "date": session_date.isoformat(),
+                    "sport": sport,
+                    "sport_label": str(leaf.get("sport_label") or sport),
+                    "tss": int(round(leaf_tss)),
+                    "name": str(
+                        leaf.get("export_name")
+                        or leaf.get("template_name")
+                        or leaf.get("session_focus")
+                        or "Сессия"
+                    ),
+                    "phase": phase,
+                    "kind": str(leaf.get("kind") or "single"),
+                })
 
         if not sessions:
             return {
