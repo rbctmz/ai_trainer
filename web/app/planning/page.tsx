@@ -296,6 +296,8 @@ function ActivePlanOverview({ overview, error }: { overview?: PlanningOverview; 
         />
       </dl>
       <div className="mt-5 space-y-5">
+        <AvailabilitySummary availability={overview.availability} />
+        <WeeklyTargetExplanation explanation={overview.weekly_target_explanation} />
         <PhaseRoadmap roadmap={overview.roadmap} />
         <FormProjection projection={overview.form_projection} />
       </div>
@@ -310,6 +312,54 @@ function OverviewFact({ label, value, detail }: { label: string; value: string; 
       <dd className="mt-1 text-sm font-semibold text-ink">{value}</dd>
       {detail ? <p className="mt-1 text-xs text-ink-soft">{detail}</p> : null}
     </div>
+  );
+}
+
+function AvailabilitySummary({ availability }: { availability?: PlanningOverview["availability"] }) {
+  if (!availability || availability.state !== "available") {
+    return <LocalDataGap label={availability?.reason ?? "Доступность пока недоступна в сохранённом checkpoint."} />;
+  }
+  const periodLabel = availability.period
+    ? `${availability.period.week_start} — ${availability.period.week_end}`
+    : "выбранная неделя не определена";
+  return (
+    <section aria-labelledby="availability-title">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id="availability-title" className="text-sm font-semibold text-ink">Доступность</h3>
+        <span className="text-xs text-ink-faint">Сохранённые ограничения плана</span>
+      </div>
+      <dl className="mt-3 grid gap-2 sm:grid-cols-4">
+        <OverviewFact label="Доступно" value={`${availability.available_hours} ч/нед.`} detail={`${availability.available_days.join(" · ")} · ${availability.available_minutes} мин/нед. · потолок, не цель заполнения`} />
+        <OverviewFact label="Запланировано на выбранной неделе" value={`${availability.planned_hours} ч`} detail={`${availability.planned_minutes} мин · ${periodLabel}`} />
+        <OverviewFact label="Сессии на выбранной неделе" value={`${availability.session_count}`} detail={periodLabel} />
+        <OverviewFact label="По дням" value="Нет лимитов" detail={availability.daily.reason ?? "Дневные данные недоступны."} />
+      </dl>
+    </section>
+  );
+}
+
+function WeeklyTargetExplanation({ explanation }: { explanation?: PlanningOverview["weekly_target_explanation"] }) {
+  if (!explanation || explanation.state !== "available" || !explanation.demand) {
+    return <LocalDataGap label={explanation?.reason ?? "Расчёт недельной нагрузки пока недоступен в сохранённом checkpoint."} />;
+  }
+  return (
+    <section aria-labelledby="weekly-target-title">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id="weekly-target-title" className="text-sm font-semibold text-ink">Как рассчитана недельная нагрузка</h3>
+        <span className="text-xs text-ink-faint">Сохранённый расчёт при создании плана</span>
+      </div>
+      <dl className="mt-3 grid gap-2 sm:grid-cols-4">
+        {explanation.rows.map((row) => (
+          <OverviewFact key={row.key} label={row.label} value={`${row.value} ${row.unit}`} detail={row.detail} />
+        ))}
+      </dl>
+      <div className="mt-3 rounded-lg border border-accent/20 bg-accent/5 p-3 text-sm text-ink">
+        <strong>Итог: {explanation.final_target_weekly_tss} TSS/нед.</strong>
+        <span className="ml-2 text-xs text-ink-soft">
+          спрос: {explanation.demand.label} × {explanation.demand.multiplier}
+        </span>
+      </div>
+    </section>
   );
 }
 

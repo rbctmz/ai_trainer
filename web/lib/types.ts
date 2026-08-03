@@ -490,6 +490,42 @@ export interface PlanningOverview {
       days_to_goal: number | null;
     } | null;
   };
+  availability?: {
+    state: "available" | "data_gap" | string;
+    reason: string | null;
+    available_hours: number | null;
+    available_minutes: number | null;
+    available_days: string[];
+    period: {
+      kind: "selected_week" | string;
+      week_start: string;
+      week_end: string;
+    } | null;
+    planned_minutes: number | null;
+    planned_hours: number | null;
+    session_count: number | null;
+    daily: {
+      state: "available" | "data_gap" | string;
+      reason: string | null;
+      days: Array<{
+        date: string;
+        available_minutes: number;
+        planned_minutes: number;
+        session_count: number;
+      }>;
+    };
+  };
+  weekly_target_explanation?: {
+    state: "available" | "data_gap" | string;
+    reason: string | null;
+    rows: WeeklyTargetRow[];
+    goal_need_tss: number | null;
+    availability_cap_tss: number | null;
+    recent_load_tss: number | null;
+    base_weekly_tss: number | null;
+    final_target_weekly_tss: number | null;
+    demand: Pick<PlanningDemand, "level" | "label" | "multiplier"> | null;
+  };
   weeks?: Array<{ number: number; week_start: string | null; phase: string | null; weekly_tss: number }>;
 }
 

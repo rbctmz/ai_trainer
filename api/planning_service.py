@@ -74,6 +74,7 @@ from models.training_planner import (
     flatten_daily_total,
     SESSION_ROLE_LABELS_RU,
     synchronize_microcycle_changes,
+    WEEKDAY_LABELS_RU,
     weeks_until,
 )
 from models.workout_catalog import (
@@ -570,6 +571,171 @@ def _active_plan_form_projection(
     }
 
 
+def _overview_number(value: Any) -> float | None:
+    """Return a persisted numeric fact or ``None`` without manufacturing a default."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _active_plan_availability(
+    goal_plan: Dict[str, Any],
+    *,
+    selected_week_start: date | None,
+) -> Dict[str, Any]:
+    """Describe saved weekly availability and planned session volume.
+
+    Planned values use the same current/nearest/last week selected by the
+    overview. The planning checkpoint has a weekly availability contract only;
+    it has no persisted daily minute limits, so this reader deliberately
+    exposes that absence rather than allocating the weekly total across days.
+    """
+    daily_gap = {
+        "state": "data_gap",
+        "reason": "В сохранённом checkpoint нет дневных лимитов доступности.",
+        "days": [],
+    }
+    period = (
+        {
+            "kind": "selected_week",
+            "week_start": selected_week_start.isoformat(),
+            "week_end": (selected_week_start + timedelta(days=6)).isoformat(),
+        }
+        if selected_week_start is not None
+        else None
+    )
+    constraints = dict(goal_plan.get("constraint_summary") or {})
+    available_hours = _overview_number(constraints.get("available_hours"))
+    raw_labels = constraints.get("available_day_labels")
+    available_days = [str(label) for label in raw_labels if str(label).strip()] if isinstance(raw_labels, list) else []
+    if not available_days:
+        raw_indices = constraints.get("available_day_indices")
+        if isinstance(raw_indices, list):
+            try:
+                indices = [int(index) for index in raw_indices]
+            except (TypeError, ValueError):
+                indices = []
+            if indices and all(0 <= index < len(WEEKDAY_LABELS_RU) for index in indices):
+                available_days = [WEEKDAY_LABELS_RU[index] for index in indices]
+
+    if available_hours is None or not available_days:
+        return {
+            "state": "data_gap",
+            "reason": "В сохранённом checkpoint нет недельной доступности.",
+            "available_hours": None,
+            "available_minutes": None,
+            "available_days": [],
+            "period": period,
+            "planned_minutes": None,
+            "planned_hours": None,
+            "session_count": None,
+            "daily": daily_gap,
+        }
+
+    if selected_week_start is None:
+        return {
+            "state": "data_gap",
+            "reason": "В сохранённом checkpoint нет выбранной недели плана.",
+            "available_hours": None,
+            "available_minutes": None,
+            "available_days": [],
+            "period": None,
+            "planned_minutes": None,
+            "planned_hours": None,
+            "session_count": None,
+            "daily": daily_gap,
+        }
+
+    selected_week_end = selected_week_start + timedelta(days=7)
+    sessions: List[Dict[str, Any]] = []
+    for day in plan_days(goal_plan):
+        session_date = _overview_date(day.get("date"))
+        if session_date is None or not selected_week_start <= session_date < selected_week_end:
+            continue
+        sessions.extend(
+            session
+            for session in list(day.get("sessions") or [])
+            if isinstance(session, dict)
+        )
+    planned_minutes = sum(_overview_int(session.get("duration_minutes")) for session in sessions)
+    return {
+        "state": "available",
+        "reason": None,
+        "available_hours": round(available_hours, 1),
+        "available_minutes": _overview_int(available_hours * 60),
+        "available_days": available_days,
+        "period": period,
+        "planned_minutes": planned_minutes,
+        "planned_hours": round(planned_minutes / 60.0, 1),
+        "session_count": len(sessions),
+        "daily": daily_gap,
+    }
+
+
+def _active_plan_weekly_target_explanation(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
+    """Return the already saved target calculation with its demand multiplier."""
+    raw = goal_plan.get("weekly_target_breakdown")
+    if not isinstance(raw, dict):
+        raw = {}
+    availability = raw.get("availability") if isinstance(raw.get("availability"), dict) else {}
+    recent_load = raw.get("recent_load") if isinstance(raw.get("recent_load"), dict) else {}
+    values = {
+        "goal_need_tss": _overview_number(raw.get("goal_need_tss")),
+        "availability_cap_tss": _overview_number(availability.get("weekly_capacity_tss")),
+        "recent_load_tss": _overview_number(recent_load.get("median_weekly_tss")),
+        "base_weekly_tss": _overview_number(raw.get("base_weekly_tss")),
+        "final_target_weekly_tss": _overview_number(raw.get("final_target_weekly_tss")),
+    }
+    raw_demand = raw.get("demand") if isinstance(raw.get("demand"), dict) else {}
+    multiplier = _overview_number(raw_demand.get("multiplier"))
+    demand = (
+        {
+            "level": str(raw_demand.get("level") or ""),
+            "label": str(raw_demand.get("label") or ""),
+            "multiplier": multiplier,
+        }
+        if raw_demand.get("level") and raw_demand.get("label") and multiplier is not None
+        else None
+    )
+    if any(value is None for value in values.values()) or demand is None:
+        return {
+            "state": "data_gap",
+            "reason": "В сохранённом checkpoint нет разбивки недельной цели.",
+            "rows": [],
+            **{key: None for key in values},
+            "demand": None,
+        }
+
+    allowed_keys = {"goal_need", "availability_cap", "recent_load", "base_weekly_tss"}
+    rows = [
+        {
+            "key": str(row.get("key") or ""),
+            "label": str(row.get("label") or ""),
+            "value": _overview_int(row.get("value")),
+            "unit": str(row.get("unit") or ""),
+            "detail": str(row.get("detail") or ""),
+        }
+        for row in list(raw.get("rows") or [])
+        if isinstance(row, dict) and str(row.get("key") or "") in allowed_keys
+    ]
+    if {row["key"] for row in rows} != allowed_keys:
+        return {
+            "state": "data_gap",
+            "reason": "В сохранённом checkpoint нет полной разбивки недельной цели.",
+            "rows": [],
+            **{key: None for key in values},
+            "demand": None,
+        }
+    return {
+        "state": "available",
+        "reason": None,
+        "rows": rows,
+        **{key: _overview_int(value) for key, value in values.items()},
+        "demand": demand,
+    }
+
+
 def active_plan_overview(db: Database) -> Dict[str, Any]:
     """Project the active checkpoint into a compact, reader-facing overview.
 
@@ -693,6 +859,11 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
         planning_mode=planning_mode,
         event=event,
     )
+    availability = _active_plan_availability(
+        goal_plan,
+        selected_week_start=parsed_week_starts[current_index] if current_index is not None else None,
+    )
+    weekly_target_explanation = _active_plan_weekly_target_explanation(goal_plan)
 
     return {
         "has_plan": True,
@@ -708,6 +879,8 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
         "execution": execution,
         "roadmap": roadmap,
         "form_projection": form_projection,
+        "availability": availability,
+        "weekly_target_explanation": weekly_target_explanation,
         "weeks": [
             {
                 "number": index + 1,
