@@ -23,6 +23,18 @@ function formatPace(secondsPerKm: number | null | undefined): string {
   return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}/км`;
 }
 
+function formatSwimPace(secondsPer100m: number | null | undefined): string {
+  if (
+    secondsPer100m == null ||
+    !Number.isFinite(secondsPer100m) ||
+    secondsPer100m <= 0
+  ) {
+    return "—";
+  }
+  const rounded = Math.round(secondsPer100m);
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}/100м`;
+}
+
 export function AthleteProfileCard({ className = "" }: { className?: string }) {
   const { data, isLoading } = useSWR<AthleteProfileResponse>(
     "/api/athlete-profile",
@@ -40,6 +52,9 @@ export function AthleteProfileCard({ className = "" }: { className?: string }) {
   const thresholdPaceSyncedAtLabel = formatSyncedAt(
     profile?.threshold_pace_synced_at ?? null,
   );
+  const swimThresholdPaceSyncedAtLabel = formatSyncedAt(
+    profile?.swim_threshold_pace_synced_at ?? null,
+  );
 
   return (
     <div className={`rounded-card border border-surface-border bg-surface p-4 shadow-card ${className}`}>
@@ -53,7 +68,7 @@ export function AthleteProfileCard({ className = "" }: { className?: string }) {
         </p>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
             <div>
               <div className="text-[11px] text-ink-faint">FTP</div>
               <div className="text-lg font-semibold text-ink">
@@ -81,6 +96,18 @@ export function AthleteProfileCard({ className = "" }: { className?: string }) {
                 <div className="mt-0.5 text-[10px] text-ink-faint">
                   {dataSourceLabel(profile.threshold_pace_source)}
                   {thresholdPaceSyncedAtLabel ? ` · ${thresholdPaceSyncedAtLabel}` : null}
+                </div>
+              ) : null}
+            </div>
+            <div>
+              <div className="text-[11px] text-ink-faint">Пороговый темп плавания</div>
+              <div className="text-lg font-semibold text-ink">
+                {formatSwimPace(profile?.swim_threshold_pace_seconds_per_100m)}
+              </div>
+              {profile?.swim_threshold_pace_seconds_per_100m != null ? (
+                <div className="mt-0.5 text-[10px] text-ink-faint">
+                  {dataSourceLabel(profile.swim_threshold_pace_source)}
+                  {swimThresholdPaceSyncedAtLabel ? ` · ${swimThresholdPaceSyncedAtLabel}` : null}
                 </div>
               ) : null}
             </div>

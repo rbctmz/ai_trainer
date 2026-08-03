@@ -334,8 +334,9 @@ class Database:
             )
         ''')
 
-        # Athlete profile (FTP/вес/LTHR/беговой threshold pace), синкается из
-        # intervals.icu вместо статичных env-переменных (issue #102).
+        # Athlete profile (FTP/вес/LTHR/беговой и плавательный threshold pace),
+        # синкается из intervals.icu вместо статичных env-переменных (issue
+        # #102, #308, #362).
         # Append-only: каждый sync добавляет новую строку,
         # get_athlete_profile() читает последнюю.
         conn.execute('''
@@ -347,6 +348,9 @@ class Database:
                 threshold_pace_seconds_per_km REAL,
                 threshold_pace_source TEXT,
                 threshold_pace_synced_at TIMESTAMP,
+                swim_threshold_pace_seconds_per_100m REAL,
+                swim_threshold_pace_source TEXT,
+                swim_threshold_pace_synced_at TIMESTAMP,
                 source TEXT,
                 synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -840,7 +844,7 @@ class Database:
 
     @staticmethod
     def _ensure_athlete_profile_columns(conn: sqlite3.Connection) -> None:
-        """Add issue #308 pace fields to databases created before the feature."""
+        """Add issue #308/#362 pace fields to databases created before the features."""
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(athlete_profile)")
         existing_columns = {row[1] for row in cursor.fetchall()}
@@ -848,6 +852,9 @@ class Database:
             "threshold_pace_seconds_per_km": "REAL",
             "threshold_pace_source": "TEXT",
             "threshold_pace_synced_at": "TIMESTAMP",
+            "swim_threshold_pace_seconds_per_100m": "REAL",
+            "swim_threshold_pace_source": "TEXT",
+            "swim_threshold_pace_synced_at": "TIMESTAMP",
         }
         for column, column_type in column_types.items():
             if column in existing_columns:
@@ -896,7 +903,7 @@ class Database:
 
     def _repair_legacy_activity_tss(self, conn: sqlite3.Connection) -> None:
         """Пересчитывает сохраненный activity TSS по текущим resolver-правилам."""
-        from data.data_processor import ActivityProcessor, resolve_athlete_ftp_lthr
+        from data.data_processor import ActivityProcessor, resolve_athlete_tss_profile
 
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -910,7 +917,7 @@ class Database:
         if not rows:
             return
 
-        ftp, lthr = resolve_athlete_ftp_lthr(self)
+        ftp, lthr, swim_css = resolve_athlete_tss_profile(self)
 
         for row in rows:
             activity = dict(row)
@@ -918,6 +925,7 @@ class Database:
                 activity,
                 ftp=ftp,
                 lthr=lthr,
+                swim_threshold_pace_seconds_per_100m=swim_css,
             )
             needs_update = (
                 not self._numeric_equal(activity.get('tss'), resolved['tss'])
@@ -3790,6 +3798,9 @@ class Database:
         threshold_pace = self.clean_value(
             profile.get('threshold_pace_seconds_per_km')
         )
+        swim_threshold_pace = self.clean_value(
+            profile.get('swim_threshold_pace_seconds_per_100m')
+        )
         conn.execute(
             '''
             INSERT INTO athlete_profile (
@@ -3799,11 +3810,18 @@ class Database:
                 threshold_pace_seconds_per_km,
                 threshold_pace_source,
                 threshold_pace_synced_at,
+                swim_threshold_pace_seconds_per_100m,
+                swim_threshold_pace_source,
+                swim_threshold_pace_synced_at,
                 source
             )
             VALUES (
                 ?, ?, ?, ?, ?,
                 CASE
+                    WHEN ? IS NOT NULL THEN COALESCE(?, CURRENT_TIMESTAMP)
+                    ELSE NULL
+                END,
+                ?, ?, CASE
                     WHEN ? IS NOT NULL THEN COALESCE(?, CURRENT_TIMESTAMP)
                     ELSE NULL
                 END,
@@ -3818,6 +3836,10 @@ class Database:
                 profile.get('threshold_pace_source'),
                 threshold_pace,
                 profile.get('threshold_pace_synced_at'),
+                swim_threshold_pace,
+                profile.get('swim_threshold_pace_source'),
+                swim_threshold_pace,
+                profile.get('swim_threshold_pace_synced_at'),
                 profile.get('source'),
             ),
         )
@@ -3837,6 +3859,9 @@ class Database:
                 threshold_pace_seconds_per_km,
                 threshold_pace_source,
                 threshold_pace_synced_at,
+                swim_threshold_pace_seconds_per_100m,
+                swim_threshold_pace_source,
+                swim_threshold_pace_synced_at,
                 source,
                 synced_at
             FROM athlete_profile
@@ -3855,8 +3880,11 @@ class Database:
             'threshold_pace_seconds_per_km': row[3],
             'threshold_pace_source': row[4],
             'threshold_pace_synced_at': row[5],
-            'source': row[6],
-            'synced_at': row[7],
+            'swim_threshold_pace_seconds_per_100m': row[6],
+            'swim_threshold_pace_source': row[7],
+            'swim_threshold_pace_synced_at': row[8],
+            'source': row[9],
+            'synced_at': row[10],
         }
 
     def get_database_stats(self):

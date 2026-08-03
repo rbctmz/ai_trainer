@@ -2,6 +2,8 @@
 
 Issue #102 introduced FTP/weight/LTHR sync. Issue #308 adds running threshold
 pace with explicit seconds-per-kilometre units and field-level provenance.
+Issue #362 adds the swimming threshold pace (CSS) in explicit seconds-per-100m
+units with the same provenance contract.
 """
 from __future__ import annotations
 
@@ -96,6 +98,9 @@ def test_database_athlete_profile_round_trips_and_reads_latest(tmp_path):
             "threshold_pace_seconds_per_km": 375.0,
             "threshold_pace_source": "intervals_icu",
             "threshold_pace_synced_at": "2026-07-29 06:00:00",
+            "swim_threshold_pace_seconds_per_100m": 120.0,
+            "swim_threshold_pace_source": "intervals_icu",
+            "swim_threshold_pace_synced_at": "2026-08-03 06:00:00",
             "source": "intervals_icu",
         }
     )
@@ -104,6 +109,9 @@ def test_database_athlete_profile_round_trips_and_reads_latest(tmp_path):
     assert latest["threshold_pace_seconds_per_km"] == pytest.approx(375.0)
     assert latest["threshold_pace_source"] == "intervals_icu"
     assert latest["threshold_pace_synced_at"] == "2026-07-29 06:00:00"
+    assert latest["swim_threshold_pace_seconds_per_100m"] == pytest.approx(120.0)
+    assert latest["swim_threshold_pace_source"] == "intervals_icu"
+    assert latest["swim_threshold_pace_synced_at"] == "2026-08-03 06:00:00"
 
 
 def test_normalize_athlete_profile_picks_cycling_entry_by_capability_not_index():
@@ -114,6 +122,7 @@ def test_normalize_athlete_profile_picks_cycling_entry_by_capability_not_index()
         "weight_kg": pytest.approx(93.9),
         "lthr": pytest.approx(163.0),
         "threshold_pace_seconds_per_km": pytest.approx(375.0),
+        "swim_threshold_pace_seconds_per_100m": None,
     }
 
 
@@ -175,12 +184,69 @@ def test_normalize_athlete_profile_rejects_ambiguous_run_settings():
     assert normalized["threshold_pace_seconds_per_km"] is None
 
 
+def test_normalize_athlete_profile_picks_swim_threshold_pace_from_mps():
+    profile = deepcopy(_REAL_SHAPE_PROFILE)
+    profile["sportSettings"][2]["threshold_pace"] = 100.0 / 110.0
+
+    normalized = intervals_icu.normalize_athlete_profile(profile)
+
+    # Intervals.icu stores swim threshold pace as SPEED in m/s; canonical local
+    # unit is seconds per 100 metres.
+    assert normalized["swim_threshold_pace_seconds_per_100m"] == pytest.approx(110.0)
+
+
+@pytest.mark.parametrize(
+    "raw_value",
+    [
+        True,
+        "0.9090909",
+        0,
+        -1,
+        float("nan"),
+        float("inf"),
+        100 / 49,
+        100 / 301,
+    ],
+)
+def test_normalize_athlete_profile_rejects_malformed_or_implausible_swim_pace(raw_value):
+    profile = deepcopy(_REAL_SHAPE_PROFILE)
+    profile["sportSettings"][2]["threshold_pace"] = raw_value
+
+    normalized = intervals_icu.normalize_athlete_profile(profile)
+
+    assert normalized["swim_threshold_pace_seconds_per_100m"] is None
+
+
+@pytest.mark.parametrize("seconds_per_100m", [50.0, 300.0])
+def test_normalize_athlete_profile_accepts_swim_pace_validation_boundaries(seconds_per_100m):
+    profile = deepcopy(_REAL_SHAPE_PROFILE)
+    profile["sportSettings"][2]["threshold_pace"] = 100.0 / seconds_per_100m
+
+    normalized = intervals_icu.normalize_athlete_profile(profile)
+
+    assert normalized["swim_threshold_pace_seconds_per_100m"] == pytest.approx(
+        seconds_per_100m
+    )
+
+
+def test_normalize_athlete_profile_rejects_ambiguous_swim_settings():
+    profile = deepcopy(_REAL_SHAPE_PROFILE)
+    profile["sportSettings"].append(
+        {"types": ["Swim"], "threshold_pace": 1.0, "eFTPSupported": False}
+    )
+
+    normalized = intervals_icu.normalize_athlete_profile(profile)
+
+    assert normalized["swim_threshold_pace_seconds_per_100m"] is None
+
+
 def test_normalize_athlete_profile_degrades_to_none_on_missing_or_malformed_data():
     empty_profile = {
         "ftp": None,
         "weight_kg": None,
         "lthr": None,
         "threshold_pace_seconds_per_km": None,
+        "swim_threshold_pace_seconds_per_100m": None,
     }
     assert intervals_icu.normalize_athlete_profile({}) == empty_profile
     assert intervals_icu.normalize_athlete_profile({"sportSettings": []}) == {
@@ -188,6 +254,7 @@ def test_normalize_athlete_profile_degrades_to_none_on_missing_or_malformed_data
         "weight_kg": None,
         "lthr": None,
         "threshold_pace_seconds_per_km": None,
+        "swim_threshold_pace_seconds_per_100m": None,
     }
     assert intervals_icu.normalize_athlete_profile(None) == empty_profile
     # A cycling entry with a non-numeric ftp must degrade that one field, not raise.
@@ -197,6 +264,7 @@ def test_normalize_athlete_profile_degrades_to_none_on_missing_or_malformed_data
         "weight_kg": pytest.approx(93.9),
         "lthr": pytest.approx(163.0),
         "threshold_pace_seconds_per_km": None,
+        "swim_threshold_pace_seconds_per_100m": None,
     }
 
 
@@ -227,6 +295,9 @@ def test_legacy_athlete_profile_schema_migrates_additively(tmp_path):
     assert legacy["threshold_pace_seconds_per_km"] is None
     assert legacy["threshold_pace_source"] is None
     assert legacy["threshold_pace_synced_at"] is None
+    assert legacy["swim_threshold_pace_seconds_per_100m"] is None
+    assert legacy["swim_threshold_pace_source"] is None
+    assert legacy["swim_threshold_pace_synced_at"] is None
 
     db.save_athlete_profile(
         {
@@ -235,10 +306,15 @@ def test_legacy_athlete_profile_schema_migrates_additively(tmp_path):
             "lthr": 163.0,
             "threshold_pace_seconds_per_km": 375.0,
             "threshold_pace_source": "intervals_icu",
+            "swim_threshold_pace_seconds_per_100m": 125.0,
+            "swim_threshold_pace_source": "intervals_icu",
             "source": "intervals_icu",
         }
     )
     assert db.get_athlete_profile()["threshold_pace_seconds_per_km"] == pytest.approx(375.0)
+    assert db.get_athlete_profile()["swim_threshold_pace_seconds_per_100m"] == pytest.approx(
+        125.0
+    )
 
 
 def test_sync_athlete_profile_success_path_persists_to_database(monkeypatch, tmp_path):
@@ -265,6 +341,68 @@ def test_sync_athlete_profile_success_path_persists_to_database(monkeypatch, tmp
     assert stored["threshold_pace_seconds_per_km"] == pytest.approx(375.0)
     assert stored["threshold_pace_source"] == "intervals_icu"
     assert stored["threshold_pace_synced_at"] is not None
+
+
+def test_sync_athlete_profile_persists_swim_threshold_pace(monkeypatch, tmp_path):
+    monkeypatch.setattr(Settings, "INTERVALS_ICU_API_KEY", "secret-key")
+    monkeypatch.setattr(Settings, "INTERVALS_ICU_ATHLETE_ID", "0")
+    monkeypatch.setattr(Settings, "INTERVALS_ICU_BASE_URL", "https://intervals.icu")
+    with_swim = deepcopy(_REAL_SHAPE_PROFILE)
+    with_swim["sportSettings"][2]["threshold_pace"] = 100.0 / 120.0
+    monkeypatch.setattr(
+        intervals_icu.urlrequest,
+        "urlopen",
+        lambda *_args, **_kwargs: _FakeResponse(with_swim),
+    )
+
+    db = Database(str(tmp_path / "swim_sync.db"))
+    result = intervals_icu.sync_athlete_profile(db)
+
+    assert result["synced"] is True
+    assert result["profile"]["swim_threshold_pace_seconds_per_100m"] == pytest.approx(
+        120.0
+    )
+    stored = db.get_athlete_profile()
+    assert stored["swim_threshold_pace_seconds_per_100m"] == pytest.approx(120.0)
+    assert stored["swim_threshold_pace_source"] == "intervals_icu"
+    assert stored["swim_threshold_pace_synced_at"] is not None
+
+
+def test_sync_athlete_profile_partial_response_preserves_last_valid_swim_pace(
+    monkeypatch,
+    tmp_path,
+):
+    monkeypatch.setattr(Settings, "INTERVALS_ICU_API_KEY", "secret-key")
+    monkeypatch.setattr(Settings, "INTERVALS_ICU_ATHLETE_ID", "0")
+    monkeypatch.setattr(Settings, "INTERVALS_ICU_BASE_URL", "https://intervals.icu")
+    partial = deepcopy(_REAL_SHAPE_PROFILE)
+    partial["sportSettings"][2]["threshold_pace"] = "malformed"
+    monkeypatch.setattr(
+        intervals_icu.urlrequest,
+        "urlopen",
+        lambda *_args, **_kwargs: _FakeResponse(partial),
+    )
+
+    db = Database(str(tmp_path / "swim_partial_profile.db"))
+    db.save_athlete_profile(
+        {
+            "ftp": 158.0,
+            "weight_kg": 94.0,
+            "lthr": 162.0,
+            "swim_threshold_pace_seconds_per_100m": 130.0,
+            "swim_threshold_pace_source": "intervals_icu",
+            "swim_threshold_pace_synced_at": "2026-08-02 05:00:00",
+            "source": "intervals_icu",
+        }
+    )
+
+    result = intervals_icu.sync_athlete_profile(db)
+
+    assert result["synced"] is True
+    stored = db.get_athlete_profile()
+    assert stored["swim_threshold_pace_seconds_per_100m"] == pytest.approx(130.0)
+    assert stored["swim_threshold_pace_source"] == "intervals_icu"
+    assert stored["swim_threshold_pace_synced_at"] == "2026-08-02 05:00:00"
 
 
 def test_sync_athlete_profile_partial_response_preserves_last_valid_pace_and_checkpoint(

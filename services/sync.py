@@ -9,7 +9,7 @@ import uuid
 from typing import Any, Dict
 
 from config.settings import Settings
-from data.data_processor import ActivityProcessor, resolve_athlete_ftp_lthr
+from data.data_processor import ActivityProcessor, resolve_athlete_tss_profile
 from data.data_processor_phase1 import Phase1DataProcessor
 from services.activity_ingest import ingest_provider_activity, normalize_provider_activity
 from services.data_cache import clear_data_caches
@@ -634,7 +634,7 @@ def _sync_activities(
     if df.empty:
         return counts
 
-    ftp, lthr = resolve_athlete_ftp_lthr(database)
+    ftp, lthr, swim_css = resolve_athlete_tss_profile(database)
     for _, row in df.iterrows():
         # The ENTIRE per-activity pipeline — row.to_dict → resolve_tss → pre-clean →
         # normalize → ingest — runs under ONE try/except, so ANY per-activity failure
@@ -651,7 +651,12 @@ def _sync_activities(
                 counts["skipped"] += 1
                 continue
             activity_dict.update(
-                ActivityProcessor.resolve_tss(activity_dict, ftp=ftp, lthr=lthr)
+                ActivityProcessor.resolve_tss(
+                    activity_dict,
+                    ftp=ftp,
+                    lthr=lthr,
+                    swim_threshold_pace_seconds_per_100m=swim_css,
+                )
             )
             # Normalize values to SQLite-native scalars BEFORE they enter the link
             # payload: the projection re-derives the canonical row from that JSON

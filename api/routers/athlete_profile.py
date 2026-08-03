@@ -1,4 +1,4 @@
-"""Athlete profile endpoint: current FTP/weight/LTHR/run threshold pace.
+"""Athlete profile endpoint: FTP/weight/LTHR/run+swim threshold paces.
 
 Pure read over ``athlete_profile`` (synced from intervals.icu when configured,
 falling back to the static ``.env`` values otherwise). See
@@ -40,6 +40,15 @@ def athlete_profile(demo: bool = False, db: Database = Depends(get_database)) ->
             "threshold_pace_source": profile.get("threshold_pace_source"),
             "threshold_pace_synced_at": profile.get(
                 "threshold_pace_synced_at"
+            ),
+            "swim_threshold_pace_seconds_per_100m": profile.get(
+                "swim_threshold_pace_seconds_per_100m"
+            ),
+            "swim_threshold_pace_source": profile.get(
+                "swim_threshold_pace_source"
+            ),
+            "swim_threshold_pace_synced_at": profile.get(
+                "swim_threshold_pace_synced_at"
             ),
             "source": profile.get("source"),
             "synced_at": profile.get("synced_at"),

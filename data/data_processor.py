@@ -10,12 +10,26 @@ def resolve_athlete_ftp_lthr(database):
     profile when available, falling back to the static Settings.USER_FTP/USER_LTHR
     for any field the synced profile does not have (or when nothing has been
     synced yet)."""
+    ftp, lthr, _ = resolve_athlete_tss_profile(database)
+    return ftp, lthr
+
+
+def resolve_athlete_tss_profile(database):
+    """Return (ftp, lthr, swim_threshold_pace_seconds_per_100m) for TSS math.
+
+    FTP/LTHR fall back to the static Settings.USER_FTP/USER_LTHR. The swimming
+    threshold pace (CSS) has NO static fallback: without a synced value the
+    swim cascade intentionally stays on the HR path instead of inventing a
+    threshold pace that would silently distort load.
+    """
     profile = database.get_athlete_profile()
     if not profile:
-        return Settings.USER_FTP, Settings.USER_LTHR
+        return Settings.USER_FTP, Settings.USER_LTHR, None
     ftp = profile.get('ftp') or Settings.USER_FTP
     lthr = profile.get('lthr') or Settings.USER_LTHR
-    return ftp, lthr
+    swim_css = profile.get('swim_threshold_pace_seconds_per_100m')
+    return ftp, lthr, swim_css
+
 
 class ActivityProcessor:
     _GARMIN_SOURCE_TSS_KEYS = (
@@ -111,6 +125,28 @@ class ActivityProcessor:
         duration_hours = duration_minutes / 60
         intensity_factor = avg_power / ftp
         return round(duration_hours * intensity_factor ** 2 * 100, 1)
+
+    @staticmethod
+    def _pace_tss(duration_minutes, distance_km, threshold_seconds_per_100m):
+        """TrainingPeaks swim TSS: hours x IF^3 x 100, IF = CSS pace / avg pace.
+
+        Pace is the industry-standard swim load signal: HR in water is
+        suppressed (cooling, dive reflex, wrist accuracy) and systematically
+        underestimates effort. The exponent is 3, not 2, because water
+        resistance makes physiological stress grow faster with speed.
+        """
+        if duration_minutes <= 0 or not distance_km or distance_km <= 0:
+            return None
+        if not threshold_seconds_per_100m or threshold_seconds_per_100m <= 0:
+            return None
+        avg_pace_seconds_per_100m = duration_minutes * 60 / (distance_km * 10)
+        # Faster than 30 s/100m (~2 m/s) is not physically plausible for a
+        # whole session; fail closed rather than emit nonsense load.
+        if avg_pace_seconds_per_100m <= 30.0:
+            return None
+        intensity_factor = threshold_seconds_per_100m / avg_pace_seconds_per_100m
+        duration_hours = duration_minutes / 60
+        return round(duration_hours * intensity_factor ** 3 * 100, 1)
 
     @classmethod
     def _zone_weighted_tss(cls, activity_data, weights):
@@ -239,7 +275,13 @@ class ActivityProcessor:
         return df
     
     @classmethod
-    def resolve_tss(cls, activity_data, ftp=None, lthr=None):
+    def resolve_tss(
+        cls,
+        activity_data,
+        ftp=None,
+        lthr=None,
+        swim_threshold_pace_seconds_per_100m=None,
+    ):
         """Resolve the stored activity load and explain where it came from."""
         source_tss = cls._safe_float(activity_data.get('source_tss'))
         garmin_training_load = cls._safe_float(activity_data.get('garmin_training_load'))
@@ -302,6 +344,19 @@ class ActivityProcessor:
                     'tss_ftp_used': None,
                 }
         elif sport_key == 'swim':
+            swim_pace_tss = cls._pace_tss(
+                duration_minutes,
+                cls._safe_float(activity_data.get('distance_km')),
+                swim_threshold_pace_seconds_per_100m,
+            )
+            if swim_pace_tss is not None:
+                return {
+                    'tss': swim_pace_tss,
+                    'source_tss': garmin_training_load,
+                    'garmin_training_load': garmin_training_load,
+                    'tss_method': 'pace_tss_swim',
+                    'tss_ftp_used': None,
+                }
             swim_zone_tss = cls._zone_weighted_tss(activity_data, cls._SWIM_HR_ZONE_TSS_WEIGHTS)
             if swim_zone_tss is not None:
                 return {

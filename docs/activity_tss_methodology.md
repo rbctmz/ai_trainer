@@ -13,6 +13,25 @@ TSS (Training Stress Score) для каждой активности счита�
 
 `resolve_athlete_ftp_lthr()` (`data/data_processor.py`) берёт `ftp`/`lthr` из последней синхронизированной с Intervals.icu записи `athlete_profile`; для любого поля, которого там нет (или если синка ещё не было), используется статичный `Settings.USER_FTP`/`USER_LTHR` из `.env` (дефолты 250/170).
 
+## Плавательный порог (CSS)
+
+Плавательный TSS считается по темпу (sTSS) относительно индивидуального
+порогового темпа плавания — CSS (Critical Swim Speed, функциональный порог
+плавания). Значение берётся из Intervals.icu (Settings → Swim → Threshold
+pace; Intervals.icu может считать его автоматически из лучших заплывов):
+
+- `services/intervals_icu.py::sync_athlete_profile` читает запись `sportSettings`
+  с типом `Swim` и поле `threshold_pace` — это **скорость в м/с** (API
+  Intervals.icu всегда хранит скорость в м/с);
+- каноническая локальная единица — **секунды на 100 метров**,
+  `swim_threshold_pace_seconds_per_100m`, с provenance
+  `swim_threshold_pace_source`/`swim_threshold_pace_synced_at` (та же схема,
+  что у бегового темпа, #308/#362);
+- валидный диапазон 50–300 с/100м (1:00–5:00/100м); malformed/ambiguous →
+  `None`;
+- статичного `.env`-дефолта для CSS **нет**: без синхронизированного значения
+  каскад честно остаётся на ЧСС-ветках.
+
 ## Каскад по видам спорта
 
 `resolve_tss()` пробует методы по убыванию точности и берёт первый, для которого хватает данных. Длительность для всех формул — `moving_duration_minutes`, если она есть и > 0, иначе `duration_minutes` (`_tss_duration_minutes`).
@@ -29,9 +48,10 @@ TSS (Training Stress Score) для каждой активности счита�
 3. `heuristic_duration_run` — эвристика, 50 TSS/час
 
 **Swim:**
-1. `hr_zone_tss_swim`
-2. `hr_tss_swim`
-3. `heuristic_duration_swim` — эвристика, 25 TSS/час
+1. `pace_tss_swim` — sTSS по темпу (CSS-порог из профиля)
+2. `hr_zone_tss_swim`
+3. `hr_tss_swim`
+4. `heuristic_duration_swim` — эвристика, 25 TSS/час
 
 **Walk:** только эвристика (`heuristic_duration_walk`) — 9 TSS/час для сессий короче 45 мин, иначе 7 TSS/час; минимальный floor 2.0 TSS при движении от 8 минут.
 
@@ -41,6 +61,12 @@ TSS (Training Stress Score) для каждой активности счита�
 
 - **Power TSS**: `duration_hours × (NP/FTP)² × 100`
 - **HR TSS**: `duration_hours × (avg_HR/LTHR)² × 100` — формула Коггана, но на пульсе вместо мощности
+- **Swim Pace TSS (sTSS)**: `duration_hours × IF³ × 100`, где
+  `IF = CSS-темп / средний темп` (обе величины в секундах на 100 м). Средний
+  темп считается из `moving_duration_minutes` и `distance_km`:
+  `мин × 60 / (км × 10)` с/100м. Показатель кубический (а не квадратный),
+  потому что сопротивление воды делает рост стресса от скорости быстрее, чем
+  на суше (TrainingPeaks). Sanity-порог: средний темп должен быть > 30 с/100м.
 - **Zone-weighted TSS**: `Σ (время_в_зоне_мин × вес_зоны)` по 5 зонам ЧСС Garmin (`hrTimeInZone_1..5`)
 
 Веса зон (`data/data_processor.py`):
@@ -52,6 +78,11 @@ TSS (Training Stress Score) для каждой активности счита�
 | 3 | 0.65 | 1.00 | 0.5 |
 | 4 | 0.95 | 1.20 | 0.6 |
 | 5 | 1.30 | 1.50 | 1.8 |
+
+Плавательные веса применяются только когда `pace_tss_swim` недоступен (нет CSS
+в профиле или нет дистанции/темпа): ЧСС в воде систематически занижается
+(ниже ЧСС-потолок из-за охлаждения и dive reflex, неточный wrist-HR), поэтому
+приоритет у темпа.
 
 ## Что сохраняется, но не участвует в расчёте
 

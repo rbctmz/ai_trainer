@@ -29,6 +29,8 @@ WELLNESS_FIELDS = (
 )
 MIN_RUNNING_THRESHOLD_PACE_SECONDS_PER_KM = 120.0
 MAX_RUNNING_THRESHOLD_PACE_SECONDS_PER_KM = 900.0
+MIN_SWIM_THRESHOLD_PACE_SECONDS_PER_100M = 50.0
+MAX_SWIM_THRESHOLD_PACE_SECONDS_PER_100M = 300.0
 
 
 class IntervalsICUError(RuntimeError):
@@ -523,6 +525,41 @@ def _running_threshold_pace_seconds_per_km(value: Any) -> float | None:
     return seconds_per_km
 
 
+def _swimming_sport_settings(raw: Mapping[str, Any]) -> Mapping[str, Any]:
+    """Return the one exact Swim settings entry, or fail closed on ambiguity."""
+    matches: list[Mapping[str, Any]] = []
+    for entry in raw.get("sportSettings") or []:
+        if not isinstance(entry, Mapping):
+            continue
+        types = entry.get("types")
+        if isinstance(types, list) and "Swim" in types:
+            matches.append(entry)
+    return matches[0] if len(matches) == 1 else {}
+
+
+def _swim_threshold_pace_seconds_per_100m(value: Any) -> float | None:
+    """Convert Intervals.icu metres/second speed to bounded seconds/100 metres.
+
+    Intervals.icu stores the swim threshold pace (CSS) as SPEED in m/s, exactly
+    like the run entry (the back-end/API always uses m/s for speed; the display
+    units like SECS_100M are a UI hint only). The canonical local unit mirrors
+    the run precedent: explicit seconds per fixed distance, here 100 metres.
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    speed_metres_per_second = float(value)
+    if not math.isfinite(speed_metres_per_second) or speed_metres_per_second <= 0:
+        return None
+    seconds_per_100m = round(100.0 / speed_metres_per_second, 6)
+    if not (
+        MIN_SWIM_THRESHOLD_PACE_SECONDS_PER_100M
+        <= seconds_per_100m
+        <= MAX_SWIM_THRESHOLD_PACE_SECONDS_PER_100M
+    ):
+        return None
+    return seconds_per_100m
+
+
 def normalize_athlete_profile(raw: Mapping[str, Any]) -> Dict[str, Any]:
     """Flatten Intervals profile signals into explicit local canonical units.
 
@@ -535,10 +572,12 @@ def normalize_athlete_profile(raw: Mapping[str, Any]) -> Dict[str, Any]:
             "weight_kg": None,
             "lthr": None,
             "threshold_pace_seconds_per_km": None,
+            "swim_threshold_pace_seconds_per_100m": None,
         }
 
     cycling = _cycling_sport_settings(raw)
     running = _running_sport_settings(raw)
+    swimming = _swimming_sport_settings(raw)
 
     def _positive_number(value: Any) -> float | None:
         try:
@@ -558,6 +597,11 @@ def normalize_athlete_profile(raw: Mapping[str, Any]) -> Dict[str, Any]:
         "threshold_pace_seconds_per_km": (
             _running_threshold_pace_seconds_per_km(
                 running.get("threshold_pace")
+            )
+        ),
+        "swim_threshold_pace_seconds_per_100m": (
+            _swim_threshold_pace_seconds_per_100m(
+                swimming.get("threshold_pace")
             )
         ),
     }
@@ -603,10 +647,33 @@ def sync_athlete_profile(database: Any) -> Dict[str, Any]:
             "threshold_pace_synced_at": None,
         }
 
+    swim_threshold_pace = profile.get("swim_threshold_pace_seconds_per_100m")
+    if swim_threshold_pace is not None:
+        swim_provenance = {
+            "swim_threshold_pace_source": "intervals_icu",
+            "swim_threshold_pace_synced_at": None,
+        }
+    elif previous and previous.get("swim_threshold_pace_seconds_per_100m") is not None:
+        profile["swim_threshold_pace_seconds_per_100m"] = previous.get(
+            "swim_threshold_pace_seconds_per_100m"
+        )
+        swim_provenance = {
+            "swim_threshold_pace_source": previous.get("swim_threshold_pace_source"),
+            "swim_threshold_pace_synced_at": previous.get(
+                "swim_threshold_pace_synced_at"
+            ),
+        }
+    else:
+        swim_provenance = {
+            "swim_threshold_pace_source": None,
+            "swim_threshold_pace_synced_at": None,
+        }
+
     database.save_athlete_profile(
         {
             **profile,
             **threshold_provenance,
+            **swim_provenance,
             "source": "intervals_icu",
         }
     )
