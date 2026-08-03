@@ -21,7 +21,7 @@ clickable card with keyboard support and a visible hover/focus state.
 - [x] (2026-08-03) M2 (#266) implemented: archive metadata + safe rename/search/archive/restore/delete contracts, Coach lifecycle UI (search, groups, inline rename, two-step delete, deep-link `?chat=<id>`), path-traversal guard.
 - [x] (2026-08-03) M3 (#267) implemented: mobile overflow repair — nav brand hidden on small screens with compact links, wide planning/activities tables scroll inside their containers, Coach grid children get `min-w-0`.
 - [x] (2026-08-03) M4 (#268) implemented: dev-only badge/menu gated by `showDevTools` + README command; adherence today is `pending` not «Пропущено»; InfoTip becomes a keyboard-accessible button; «Weekly Target» → «Недельная цель».
-- [ ] Остаток #264 — закрыт при мерже M4 (последний срез кластера).
+- [x] (2026-08-03) #264 closed: UI beta v2 delivered end-to-end (M1 drill-downs, M2 Coach lifecycle, M3 mobile overflow, M4 dev-tools/trust/accessibility); parent issue closed with a summary.
 
 ## Surprises & Discoveries
 
@@ -63,7 +63,20 @@ clickable card with keyboard support and a visible hover/focus state.
 
 ## Outcomes & Retrospective
 
-Not completed yet (M1 in progress).
+UI beta v2 shipped in four merged slices. M1 (#265) turned the dashboard cards
+into drill-downs (Сон/HRV/Активности with «← Обзор», nav route group, no
+SectionLinks row). M2 (#266) made Coach dialogs manageable: search, groups
+(Сегодня/Вчера/Ранее), inline rename, archive/restore, two-step delete,
+deep-link `?chat=<id>`, path-traversal guard, and leaf-session workout listing
+so a composite day reports both sessions. M3 (#267) removed mobile overflow in
+the nav, planning tables, and Coach layout. M4 (#268) gated dev-tools behind a
+documented build flag, stopped calling today's unmatched planned session
+«Пропущено» (pending until the day boundary), made InfoTip keyboard-accessible,
+and removed stray English labels. Lessons: whole-card `Link` patterns already
+existed and were reused; `useSearchParams` needs a Suspense boundary at build;
+adherence week windows are Monday-anchored so boundary tests must align dates;
+and M4 had to be rebased onto main after being built on an unmerged sibling
+branch.
 
 ## Context and Orientation
 
