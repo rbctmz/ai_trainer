@@ -6,6 +6,7 @@ import pytest
 
 from data.database import Database
 from services import sync as sync_service
+from tests.sync_fixtures import legacy_upsert_activities
 
 
 pytestmark = pytest.mark.smoke
@@ -91,7 +92,8 @@ def test_resolve_sync_window_clamps_large_gap_to_default():
 def test_database_reports_latest_dates_per_table(tmp_path):
     database = Database(db_path=str(tmp_path / "sync_test.db"))
 
-    database.sync_activities(
+    legacy_upsert_activities(
+        database,
         [
             _activity("run-1", "2026-06-27 08:00:00"),
             _activity("run-2", "2026-06-29 08:00:00"),
@@ -115,8 +117,8 @@ def test_sync_incremental_no_duplicates(tmp_path):
     activity_day = (date.today() - timedelta(days=5)).isoformat()
     activities = [_activity("run-1", f"{activity_day} 08:00:00")]
 
-    first = database.sync_activities(activities)
-    second = database.sync_activities(activities)
+    first = legacy_upsert_activities(database, activities)
+    second = legacy_upsert_activities(database, activities)
 
     assert first == {"new": 1, "updated": 0, "skipped": 0}
     assert second == {"new": 0, "updated": 1, "skipped": 0}

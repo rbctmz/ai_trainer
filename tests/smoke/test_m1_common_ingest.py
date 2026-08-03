@@ -28,6 +28,7 @@ from data.database import Database
 from services import sync as sync_service
 from services.activity_ingest import ingest_provider_activity, normalize_provider_activity
 from services.sync import GarminSyncResult, _sync_activities, build_sync_status_payload
+from tests.sync_fixtures import legacy_upsert_activities
 
 
 pytestmark = pytest.mark.smoke
@@ -116,7 +117,7 @@ def _legacy_counts(db: Database, raw_activities: list[dict]) -> dict:
         activity = row.to_dict()
         activity.update(ActivityProcessor.resolve_tss(activity, ftp=ftp, lthr=lthr))
         resolved.append(activity)
-    return db.sync_activities(resolved)
+    return legacy_upsert_activities(db, resolved)
 
 
 # --- M1-T3 : success payload adds ONLY `source` -------------------------------
@@ -243,7 +244,8 @@ def test_m1_t3c_existing_canonical_without_link_counts_updated(tmp_path):
     db = Database(str(tmp_path / "t3c-legacy-row.db"))
 
     # Legacy bulk write: creates the activities row, leaves no provider-link.
-    db.sync_activities(
+    legacy_upsert_activities(
+        db,
         [
             {
                 "activity_id": "3001",

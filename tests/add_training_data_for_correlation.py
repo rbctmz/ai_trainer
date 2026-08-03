@@ -14,6 +14,7 @@ import random
 import uuid
 from data.database import Database
 from data.data_processor import ActivityProcessor
+from tests.sync_fixtures import legacy_upsert_activities
 
 def add_realistic_training_data():
     """Добавляет реалистичные тренировочные данные с учетом влияния на HRV"""
@@ -126,7 +127,7 @@ def add_realistic_training_data():
     # Сохраняем в базу данных
     if activities:
         print("\n💾 Сохранение в базу данных...")
-        sync_result = db.sync_activities(activities)
+        sync_result = legacy_upsert_activities(db, activities)
         print(f"   Новых: {sync_result['new']}")
         print(f"   Обновлено: {sync_result['updated']}")
         print(f"   Пропущено: {sync_result['skipped']}")
