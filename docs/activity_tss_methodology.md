@@ -88,14 +88,17 @@ Garmin-primary пути. Трек Intervals-primary (`docs/intervals_primary_han
 ADR `docs/architecture/adr_0008_intervals_activity_ingestion.md`, #269) вводит одно
 **точечное исключение — ТОЛЬКО для Intervals**:
 
-- **Local-first, fallback только при отсутствии локального результата.** Если
-  локальный `tss`/`tss_method` уже вычислен (адаптер Intervals в M1 прогоняет каскад
-  с FTP/LTHR) — он приоритетен и не подменяется провайдерским. Reconciliation-поля
-  Intervals.icu (`list_activities`: `icu_training_load`, `moving_time`, `type`, …) НЕ
-  несут потоков мощности/ЧСС — локальный каскад по ним пересчитать нельзя, поэтому
-  для «голой» reconciliation-строки `icu_training_load` становится каноническим `tss`,
-  но ЯВНО маркируется `tss_method="intervals_icu_provider_fallback"` (провайдерский
-  fallback, не локальный расчёт). Local-first-контракт закреплён тестом
+- **Local-first, fallback только при отсутствии локального результата.** Контракт
+  `_normalize_intervals` потребляет уже вычисленную ПАРУ `tss`+`tss_method`, если
+  строка её несёт (например, обогащённый адаптер или reconciliation-строка с
+  локальным расчётом), — она приоритетна и не подменяется провайдерским. Текущий
+  list-адаптер (`list_activities`) потоков мощности/ЧСС НЕ получает и локальный
+  каскад с FTP/LTHR не гоняет, поэтому для его «голых» строк
+  `icu_training_load` становится каноническим `tss`, но ЯВНО маркируется
+  `tss_method="intervals_icu_provider_fallback"` (провайдерский fallback, не
+  локальный расчёт). Потоковый пересчёт по Intervals — осознанный non-goal
+  (решение 2026-07-09: локальный каскад остаётся офлайн/детерминированным).
+  Local-first-контракт закреплён тестом
   `test_normalize_intervals_local_first_tss_not_bypassed`.
 - Нативная нагрузка каждого источника хранится ПО СВЯЗИ в
   `activity_provider_links.provider_tss` (Garmin-link и Intervals-link — раздельно).
