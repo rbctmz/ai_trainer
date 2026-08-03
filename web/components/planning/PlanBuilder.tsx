@@ -853,7 +853,7 @@ function WeeklyTargetPreview({ preview }: { preview?: TargetPreview | null }) {
     return (
       <section className="rounded-card border border-surface-border bg-surface-muted/40 p-4">
         <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-          Weekly Target
+          Недельная цель
         </div>
         <div className="mt-3 h-16 animate-pulse rounded-lg bg-surface-muted" />
       </section>
@@ -866,7 +866,7 @@ function WeeklyTargetPreview({ preview }: { preview?: TargetPreview | null }) {
     <section className="rounded-card border border-surface-border bg-surface-muted/40 p-4">
       <div className="flex items-baseline justify-between gap-3">
         <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-          Weekly Target
+          Недельная цель
         </div>
         <div className="text-sm font-semibold text-ink">
           {target.target_weekly_tss} TSS

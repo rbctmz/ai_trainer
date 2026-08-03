@@ -17,6 +17,7 @@ export const STATUS_META: Record<
   unknown: { label: "Матч без оценки", chip: "bg-surface-muted text-ink-soft" },
   unplanned: { label: "Вне плана", chip: "bg-tone-warning/10 text-tone-warning" },
   rest: { label: "Отдых", chip: "bg-surface-muted text-ink-faint" },
+  pending: { label: "В процессе", chip: "bg-accent/10 text-accent" },
 };
 
 const WEEKDAY_SHORT = ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"];

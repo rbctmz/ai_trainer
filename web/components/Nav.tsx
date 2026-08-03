@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { isDemo, setDemo } from "@/lib/api";
 import { ThemeToggle } from "@/components/ui/ThemeToggle";
+import { showDevTools } from "@/lib/flags";
 
 // 4 primary destinations only. Secondary surfaces are reachable elsewhere:
 // HRV / Сон / Активности as detail sections inside «Обзор» (dashboard);
@@ -73,6 +74,25 @@ export function Nav() {
           <ThemeToggle />
         </div>
       </nav>
+      {showDevTools ? (
+        <div className="flex flex-wrap items-center gap-1.5 rounded-lg border border-dashed border-tone-warning/40 bg-tone-warning/5 px-2 py-1.5">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-tone-warning">
+            ⚙ Dev-режим
+          </span>
+          <Link
+            href="/decisions"
+            className="rounded px-1.5 py-0.5 text-xs text-ink-soft transition hover:bg-surface-muted"
+          >
+            Решения
+          </Link>
+          <Link
+            href="/recovery"
+            className="rounded px-1.5 py-0.5 text-xs text-ink-soft transition hover:bg-surface-muted"
+          >
+            Восстановление
+          </Link>
+        </div>
+      ) : null}
       {demo ? (
         <div className="rounded-lg bg-tone-warning/10 px-3 py-1.5 text-xs text-tone-warning">
           Демо-режим: показаны тестовые данные из изолированной базы. Реальные данные не затронуты.

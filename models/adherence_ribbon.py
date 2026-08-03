@@ -13,14 +13,14 @@ from typing import Any, Dict, List, Mapping, Optional
 
 from models.session_scheduler import HARD_SESSION_ROLES
 
-RIBBON_RULE_VERSION = "adherence-ribbon-v1"
+RIBBON_RULE_VERSION = "adherence-ribbon-v2"
 
 # Худшая честная метка побеждает: лента, усредняющая major_deviation,
 # успокаивала бы вместо информирования (принцип явных срезов #205/#226).
 # `unknown` — матч есть, но классификация не смогла (нет actual_role):
 # любой КЛАССИФИЦИРОВАННЫЙ ярлык дня его перекрывает, но прятать реальный
 # матч за unplanned/rest нельзя.
-_DAY_STATUS_PRIORITY = ("major_deviation", "missed", "substituted", "exact", "unknown")
+_DAY_STATUS_PRIORITY = ("major_deviation", "missed", "substituted", "exact", "unknown", "pending")
 
 
 def _parse_date(value: Any) -> Optional[date]:
@@ -104,8 +104,12 @@ def build_adherence_ribbon(
         iso = current.isoformat()
         rows = planned_by_date.get(iso, [])
         labels = {row["adherence"] for row in rows if row["matched"] and row["adherence"]}
-        if any(not row["matched"] and row["planned_tss"] > 0 for row in rows):
-            labels.add("missed")
+        for row in rows:
+            if not row["matched"] and row["planned_tss"] > 0:
+                # День as_of ещё не закончился: неподтверждённая сессия сегодня
+                # — «В процессе», а не «Пропущено» (#268); после перехода
+                # календарной границы тот же факт становится пропуском.
+                labels.add("pending" if current == as_of else "missed")
         status = next(
             (label for label in _DAY_STATUS_PRIORITY if label in labels),
             "unplanned" if unplanned_by_date.get(iso, 0.0) > 0 else "rest",
@@ -137,7 +141,11 @@ def build_adherence_ribbon(
         week_rows.sort(key=lambda row: (row["date"], row["sport"], row["role"]))
         planned_rows = [row for row in week_rows if row["planned_tss"] > 0]
         matched_rows = [row for row in planned_rows if row["matched"]]
-        missed_rows = [row for row in planned_rows if not row["matched"]]
+        missed_rows = [
+            row
+            for row in planned_rows
+            if not row["matched"] and date.fromisoformat(row["date"]) < as_of
+        ]
         buckets = {
             "exact": 0,
             "substituted": 0,
