@@ -1492,7 +1492,8 @@ export type AdherenceDayStatus =
   | "missed"
   | "unknown"
   | "unplanned"
-  | "rest";
+  | "rest"
+  | "pending";
 
 export interface AdherenceDay {
   date: string;

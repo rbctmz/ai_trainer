@@ -20,7 +20,8 @@ clickable card with keyboard support and a visible hover/focus state.
 - [x] (2026-08-03) Inspected #266, `models/chat_manager.py`, `api/routers/coach.py`, and `web/app/coach/page.tsx` for the M2 lifecycle slice.
 - [x] (2026-08-03) M2 (#266) implemented: archive metadata + safe rename/search/archive/restore/delete contracts, Coach lifecycle UI (search, groups, inline rename, two-step delete, deep-link `?chat=<id>`), path-traversal guard.
 - [x] (2026-08-03) M3 (#267) implemented: mobile overflow repair — nav brand hidden on small screens with compact links, wide planning/activities tables scroll inside their containers, Coach grid children get `min-w-0`.
-- [ ] M4 (#268) — dev-tools discoverability and trust/accessibility polish.
+- [x] (2026-08-03) M4 (#268) implemented: dev-only badge/menu gated by `showDevTools` + README command; adherence today is `pending` not «Пропущено»; InfoTip becomes a keyboard-accessible button; «Weekly Target» → «Недельная цель».
+- [ ] Остаток #264 — закрыт при мерже M4 (последний срез кластера).
 
 ## Surprises & Discoveries
 

@@ -153,9 +153,11 @@ const TIPS: Record<string, React.ReactNode> = {
 export function Tooltip({
   content,
   children,
+  label,
 }: {
   content: React.ReactNode;
   children: React.ReactNode;
+  label?: string;
 }) {
   const [open, setOpen] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>();
@@ -165,11 +167,23 @@ export function Tooltip({
 
   return (
     <div className="relative inline-flex" onMouseEnter={show} onMouseLeave={hide}>
-      <div onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}>
+      <button
+        type="button"
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        onKeyDown={(event) => {
+          if (event.key === "Escape") setOpen(false);
+        }}
+        onFocus={show}
+        onBlur={hide}
+        aria-expanded={open}
+        aria-label={label}
+        className="cursor-help rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
         {children}
-      </div>
+      </button>
       {open && (
         <div
+          role="tooltip"
           className="absolute bottom-full right-0 z-50 mb-2 w-60 rounded-xl border border-surface-border bg-surface p-3 shadow-xl"
           onMouseEnter={show}
           onMouseLeave={hide}
@@ -188,7 +202,7 @@ export function InfoTip({ metric }: { metric: keyof typeof TIPS }) {
   const content = TIPS[metric];
   if (!content) return null;
   return (
-    <Tooltip content={content}>
+    <Tooltip content={content} label={`Подробнее: ${metric}`}>
       <span className="cursor-help select-none text-[11px] leading-none text-ink-faint transition-colors hover:text-ink-soft">
         ⓘ
       </span>

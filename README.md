@@ -99,6 +99,16 @@ override. Например:
 API_PORT=8010 WEB_PORT=3010 ./run_web.sh
 ```
 
+Dev-поверхности (`/decisions`, `/recovery`, shadow-модуль на `/today`) скрыты по
+умолчанию build-time флагом. Чтобы включить их в локальной разработке:
+
+```bash
+NEXT_PUBLIC_SHOW_DEV_TOOLS=true ./run_web.sh
+```
+
+Флаг инлайнится в клиентский бандл при сборке (runtime-переключатель не
+создаётся), поэтому изменение требует перезапуска dev-сервера.
+
 Скрипт также автоматически устанавливает `requirements-web.txt` и `web`-зависимости, если они ещё не установлены.
 
 #### Self-hosted deployment (Docker)
