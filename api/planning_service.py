@@ -320,6 +320,7 @@ def planning_edit_context(db: Database) -> Dict[str, Any]:
             "manual_phases": list(goal_plan.get("phases") or []),
             "events": list(goal_plan.get("events") or []),
             "event_date": str(goal_plan.get("event_date") or "")[:10] or None,
+            "start_week": str(goal_plan.get("start_week") or "")[:10] or None,
             "available_hours": float(available_hours),
             "available_days": day_keys,
             "demand": str(demand.get("level") or DEFAULT_DEMAND_LEVEL),

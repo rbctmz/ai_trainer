@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+from datetime import date
 from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -22,6 +23,7 @@ class BuildRequest(BaseModel):
     goal_type: str
     distance: str
     event_date: Optional[str] = None  # YYYY-MM-DD; legacy event_goal input
+    start_week: Optional[str] = None  # YYYY-MM-DD; preserved plan calendar (M4c)
     planning_mode: str = "event_goal"
     intent: str = "develop"
     focus: str = "balanced_triathlon"
@@ -210,12 +212,19 @@ def planning_demand_confirm(
 def planning_build(req: BuildRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     if req.persist and not req.confirm:
         raise HTTPException(status_code=409, detail="Сначала просмотрите план, затем подтвердите сохранение.")
+    start_week = None
+    if req.start_week:
+        try:
+            start_week = date.fromisoformat(str(req.start_week)[:10])
+        except ValueError:
+            raise HTTPException(status_code=422, detail="start_week must be YYYY-MM-DD")
     try:
         return planning_service.build_plan(
             db,
             goal_type=req.goal_type,
             distance=req.distance,
             event_date=req.event_date,
+            start_week=start_week,
             available_hours=req.available_hours,
             available_days=req.available_days,
             demand=req.demand,

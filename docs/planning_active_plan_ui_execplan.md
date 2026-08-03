@@ -46,6 +46,8 @@ When an athlete already has a saved training plan, opening `/planning` should fi
   Evidence: `planning_edit_context` in `api/planning_service.py`; M4c source gates in `tests/smoke/test_planning_m4c_plan_editor.py`.
 - Observation: the M2 web contract tests pointed at `web/app/planning/page.tsx` strings that moved into the extracted builder; after the M4c extraction they now read both files so the gates follow the component.
   Evidence: `tests/smoke/test_m2_onboarding_web_contract.py` reads `PAGE` + `BUILDER`.
+- Observation: manual acceptance of the M4c stepper found a dead end after confirmation (the confirm button vanished with no next action) and a confusing large `weekly_tss_delta` when editing an older active plan.
+  Evidence: rebuilding through `/build` without a start week restarts the macrocycle from today; fixing this required `start_week` in `edit-context`, an optional `start_week` on `BuildRequest`, and a vivid success panel with «Открыть план в Обзоре» / «Собрать заново».
 - Observation: `plan_days` is the existing public/export projection that preserves session IDs, materialized steps, composite legs, and per-leaf exportability; it deliberately excludes rest days.
   Evidence: `api/planning_service.py::plan_days` skips zero-TSS rows while `daily_plan` retains every calendar day.
 - Observation: browser automation was unavailable to the implementing agent but available during independent M3 review.
@@ -90,6 +92,9 @@ When an athlete already has a saved training plan, opening `/planning` should fi
   Date/Author: 2026-08-03 / Codex.
 - Decision: M4c extracts the builder into `web/components/planning/PlanBuilder.tsx`, moving its local helpers (Field, Select, Stat, WeeklyTargetPreview, ForecastSection, WeeksTable) with it and re-exporting shared pieces the page still uses.
   Rationale: `page.tsx` is the reader/action orchestrator; the stepper is a self-contained product surface (ASR-MOD-2) and dropping it out of the 2100-line page keeps the diff reviewable.
+  Date/Author: 2026-08-03 / Codex.
+- Decision: M4c edit flow preserves the plan calendar by passing the checkpoint's `start_week` through `edit-context` → `BuildRequest.start_week` → `build_plan`, and after confirmation shows a clear success panel (checkpoint id, total TSS delta across the plan weeks) with explicit next actions.
+  Rationale: without it, editing an older plan silently compressed the remaining horizon to today, producing the misleading −300 TSS delta; a confirmed save must end in an obvious, actionable final state.
   Date/Author: 2026-08-03 / Codex.
 
 ## Outcomes & Retrospective

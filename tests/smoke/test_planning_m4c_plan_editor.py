@@ -65,6 +65,27 @@ def test_edit_context_returns_build_inputs_from_checkpoint(tmp_path):
     assert inputs["demand"] == "aggressive"
     assert inputs["horizon_weeks"] >= 1
     assert isinstance(inputs["events"], list)
+    assert inputs["start_week"] is not None
+
+
+def test_build_plan_respects_explicit_start_week(tmp_path):
+    db = _seeded_db(tmp_path)
+    event_date = (datetime.now().date() + timedelta(weeks=9)).isoformat()
+    original_start = datetime.now().date() - timedelta(days=21)
+
+    built = ps.build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=event_date,
+        available_hours=10,
+        start_week=original_start,
+        persist=False,
+    )
+
+    # Считаем от заданной start_week: 9 недель до гонки + 3 недели до «сегодня».
+    assert built["goal"]["weeks_to_race"] == 12
+    assert built["weeks"][0]["week_start"] == original_start.isoformat()
 
 
 def test_edit_context_without_plan_is_data_gap(tmp_path):
@@ -108,3 +129,20 @@ def test_m4c_builder_hydrates_once_and_uses_edit_context():
     assert "PlanBuilder" in page
     assert "hasPlan" in page
     assert "Изменить план" in page
+
+
+def test_m4c_builder_offers_next_step_after_confirm():
+    builder = BUILDER.read_text(encoding="utf-8")
+    page = PAGE.read_text(encoding="utf-8")
+
+    assert "План сохранён и стал активным" in builder
+    assert "Открыть план в Обзоре" in builder
+    assert "onSaved" in builder
+    assert 'onSaved={() => setTab("overview")}' in page
+
+
+def test_m4c_builder_preserves_plan_calendar_on_edit():
+    builder = BUILDER.read_text(encoding="utf-8")
+
+    assert "start_week" in builder
+    assert "start_week: startWeek" in builder

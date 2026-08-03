@@ -105,7 +105,13 @@ function microcycleStateLabel(state: { role: string; sport: string; tss: number 
  * /api/planning/edit-context). Preview is explicit on step 3; confirmation is
  * an explicit action on step 4 and writes through the existing /build flow.
  */
-export function PlanBuilder({ status }: { status?: PlanningStatus }) {
+export function PlanBuilder({
+  status,
+  onSaved,
+}: {
+  status?: PlanningStatus;
+  onSaved?: () => void;
+}) {
   const { mutate } = useSWRConfig();
   const [step, setStep] = useState(1);
   const [planningMode, setPlanningMode] = useState<PlanningMode>("event_goal");
@@ -128,6 +134,9 @@ export function PlanBuilder({ status }: { status?: PlanningStatus }) {
   const [plan, setPlan] = useState<BuiltPlan | null>(null);
   const [selectedEvents, setSelectedEvents] = useState<RaceEvent[]>([]);
   const [lastRequest, setLastRequest] = useState<Record<string, unknown> | null>(null);
+  // Сохранённая неделя старта активного плана: при редактировании пересборка
+  // идёт с того же календаря, а не «с сегодня» (#337, фикс после ручной приёмки).
+  const [startWeek, setStartWeek] = useState<string | null>(null);
   const demandOptions = status?.demand_options?.length ? status.demand_options : DEFAULT_DEMAND_OPTIONS;
   const hydrated = useRef(false);
   const stepHeadingRef = useRef<HTMLHeadingElement | null>(null);
@@ -163,6 +172,7 @@ export function PlanBuilder({ status }: { status?: PlanningStatus }) {
       if (source.available_days.length) setDays(source.available_days);
       setDemand(source.demand);
       if (source.events?.length) setSelectedEvents(source.events);
+      setStartWeek(source.start_week);
       return;
     }
     if (!onboarding) return;
@@ -259,6 +269,7 @@ export function PlanBuilder({ status }: { status?: PlanningStatus }) {
       available_hours: hours,
       available_days: days,
       demand,
+      start_week: startWeek,
     };
   }
   async function build() {
@@ -328,6 +339,13 @@ export function PlanBuilder({ status }: { status?: PlanningStatus }) {
   function goToStep(next: number) {
     setStep(next);
     requestAnimationFrame(() => stepHeadingRef.current?.focus());
+  }
+  function resetBuilder() {
+    setPlan(null);
+    setLastRequest(null);
+    setError(null);
+    setProfileWarning(null);
+    goToStep(1);
   }
 
   return (
@@ -632,20 +650,58 @@ export function PlanBuilder({ status }: { status?: PlanningStatus }) {
       {plan && step === 4 ? (
         <>
           <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-                  {plan.plan_id ? "План сохранён" : "Предпросмотр · SQLite не изменён"}
+            {plan.plan_id ? (
+              <div className="text-sm text-tone-success">
+                <div className="flex items-center gap-2 text-base font-semibold">
+                  <span
+                    aria-hidden="true"
+                    className="flex h-6 w-6 items-center justify-center rounded-full bg-tone-success/15 text-tone-success"
+                  >
+                    ✓
+                  </span>
+                  План сохранён и стал активным
                 </div>
-                <div className="mt-1 text-sm text-ink-soft">
-                  Изменение нагрузки: {plan.preview.weekly_tss_delta >= 0 ? "+" : ""}{plan.preview.weekly_tss_delta} TSS · {plan.event_overlay.rule_version}
+                <p className="mt-1 text-xs">
+                  Новая версия сохранена как checkpoint #{plan.plan_id}. Общая нагрузка
+                  изменилась на {plan.preview.weekly_tss_delta >= 0 ? "+" : ""}
+                  {plan.preview.weekly_tss_delta} TSS по {plan.weeks.length}{" "}
+                  {plan.weeks.length === 1 ? "неделе" : "неделям"} плана.
+                </p>
+                <p className="mt-1 text-xs text-ink-soft">
+                  Продолжить можно в «Обзоре» — там видны доступность, расчёт нагрузки и режим
+                  нагрузки.
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={onSaved}
+                    className="rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground transition hover:bg-accent/90"
+                  >
+                    Открыть план в Обзоре
+                  </button>
+                  <button
+                    type="button"
+                    onClick={resetBuilder}
+                    className="rounded-lg border border-surface-border px-4 py-2 text-sm text-ink-soft transition hover:bg-surface-muted"
+                  >
+                    Собрать заново
+                  </button>
                 </div>
               </div>
-              {!plan.plan_id ? (
+            ) : (
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+                    Предпросмотр · SQLite не изменён
+                  </div>
+                  <div className="mt-1 text-sm text-ink-soft">
+                    Изменение нагрузки: {plan.preview.weekly_tss_delta >= 0 ? "+" : ""}{plan.preview.weekly_tss_delta} TSS · {plan.event_overlay.rule_version}
+                  </div>
+                </div>
                 <div className="flex gap-2">
                   <button
                     type="button"
-                    onClick={() => { setPlan(null); setLastRequest(null); }}
+                    onClick={resetBuilder}
                     className="rounded-lg border border-surface-border px-3 py-2 text-sm text-ink-soft"
                   >
                     Отменить
@@ -659,8 +715,8 @@ export function PlanBuilder({ status }: { status?: PlanningStatus }) {
                     Подтвердить и сохранить
                   </button>
                 </div>
-              ) : null}
-            </div>
+              </div>
+            )}
           </section>
           {plan.preview.microcycle_changes.length ? (
             <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">

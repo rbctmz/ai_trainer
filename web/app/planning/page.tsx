@@ -129,7 +129,9 @@ export default function PlanningPage() {
         </>
       ) : null}
 
-      {!hasPlan || tab === "build" ? <PlanBuilder status={status} /> : null}
+      {!hasPlan || tab === "build" ? (
+        <PlanBuilder status={status} onSaved={() => setTab("overview")} />
+      ) : null}
       {hasPlan && tab === "overview" ? <ActivePlanOverview overview={overview} error={overviewError} /> : null}
       {hasPlan && tab === "weeks" ? <PlanWeeks onResolveAmbiguous={() => setTab("adjust")} /> : null}
       {hasPlan && tab === "execution" ? <ExecutionOverview /> : null}

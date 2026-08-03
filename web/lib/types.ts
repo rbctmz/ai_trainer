@@ -620,6 +620,7 @@ export interface PlanningEditContext {
     manual_phases: string[];
     events: RaceEvent[];
     event_date: string | null;
+    start_week: string | null;
     available_hours: number;
     available_days: string[];
     demand: string;
