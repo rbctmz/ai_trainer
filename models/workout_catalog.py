@@ -1404,6 +1404,12 @@ def planned_session_requires_repair(session: Mapping[str, Any]) -> bool:
         return False
     template_key = str(session.get("template_key") or "").strip()
     status = str(session.get("materialization_status") or "").strip()
+    # #323: lineage-маркеры (session_material_fingerprint,
+    # session_identity_rule_version, replaces_session_id) НЕЛЬЗЯ использовать
+    # как признак modern — ensure_session_identities добавляет их любой legacy,
+    # и детектор перестал бы отличать catalog-lost stub от identity-migrated
+    # legacy (#299). Контракт закреплён регрессионным тестом
+    # tests/smoke/test_workout_catalog_modern_detector.py.
     is_modern = (
         template_key.startswith("manual:")
         or bool(status)
