@@ -28,6 +28,11 @@ from models.planning_checkpoints import (
 )
 from models.planning_execution import rebuild_goal_plan_with_adjustment
 from services import demo_mode as demo_mode_service
+from services.athlete_aggregates import (
+    activity_totals,
+    daily_activity_totals,
+    sport_distribution,
+)
 from services.data_cache import load_activities, load_hrv, load_sleep
 from state import StateManager
 from ui.components.execution_feedback import render_execution_feedback_editor
@@ -718,31 +723,28 @@ def _render_compact_analytics(
             st.info("Нет данных для анализа")
             return
 
+        totals = activity_totals(activities_df)
         col1, col2, col3, col4 = st.columns(4)
 
         with col1:
-            st.metric("Активности", len(activities_df))
+            st.metric("Активности", totals["count"])
 
         with col2:
-            st.metric("Дистанция", f"{activities_df['distance_km'].sum():.0f} км")
+            st.metric("Дистанция", f"{totals['distance_km']:.0f} км")
 
         with col3:
-            st.metric("Время", f"{activities_df['duration_minutes'].sum() / 60:.0f}ч")
+            st.metric("Время", f"{totals['duration_hours']:.0f}ч")
 
         with col4:
-            avg_tss = activities_df["tss"].mean() if "tss" in activities_df.columns and activities_df["tss"].notna().any() else 0
-            st.metric("Ср. TSS", f"{avg_tss:.0f}")
+            st.metric("Ср. TSS", f"{totals['avg_tss']:.0f}")
 
         col1, col2 = st.columns(2)
 
         with col1:
-            activities_df_copy = activities_df.copy()
-            if not pd.api.types.is_datetime64_any_dtype(activities_df_copy["date"]):
-                activities_df_copy["date"] = pd.to_datetime(activities_df_copy["date"])
-
-            daily_stats = activities_df_copy.groupby(activities_df_copy["date"].dt.date).agg(
-                {"duration_minutes": "sum"}
-            ).reset_index()
+            daily_stats = daily_activity_totals(
+                activities_df,
+                columns=("duration_minutes",),
+            )
 
             from utils.modern_ui import ModernUI
 
@@ -753,11 +755,11 @@ def _render_compact_analytics(
             st.plotly_chart(fig, width="stretch")
 
         with col2:
-            sport_dist = activities_df["sport"].value_counts()
+            sport_counts = sport_distribution(activities_df)
             theme = get_plotly_theme()
             fig = px.pie(
-                values=sport_dist.values,
-                names=sport_dist.index,
+                values=list(sport_counts.values()),
+                names=list(sport_counts.keys()),
                 title="Виды спорта",
                 template=theme["template"],
             )

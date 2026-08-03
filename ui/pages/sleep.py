@@ -10,6 +10,7 @@ from plotly.subplots import make_subplots
 import streamlit as st
 
 from services.data_cache import load_sleep
+from services.athlete_aggregates import sleep_averages
 from state import StateManager
 from utils.sleep_metrics import compute_sleep_regularity
 
@@ -414,10 +415,11 @@ def render_sleep_page(state: StateManager) -> None:
             hovermode="x unified",
         )
 
-        avg_score = filtered_df["sleep_score"].mean()
-        avg_hours = filtered_df["total_sleep_minutes"].mean() / 60
-        avg_efficiency = filtered_df["sleep_efficiency"].mean()
-        avg_awakenings = filtered_df["awakenings_count"].mean()
+        averages = sleep_averages(filtered_df)
+        avg_score = averages["score"]
+        avg_hours = averages["hours"]
+        avg_efficiency = averages["efficiency"]
+        avg_awakenings = averages["awakenings"]
 
         fig.add_hrect(y0=7, y1=9, fillcolor="rgba(16, 185, 129, 0.1)", line_width=0, row=1, col=2)
         fig.add_hline(

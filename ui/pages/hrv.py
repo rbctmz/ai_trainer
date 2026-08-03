@@ -8,6 +8,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from services.data_cache import load_activities, load_hrv
+from services.athlete_aggregates import hrv_baseline_rmssd, hrv_training_correlations
 from state import StateManager
 from ui.plotly_theme import get_plotly_theme
 
@@ -73,7 +74,7 @@ def render_hrv_page(state: StateManager) -> None:
         return
 
     latest_data = hrv_df.iloc[0]
-    baseline_rmssd = hrv_df["rmssd"].mean()
+    baseline_rmssd = hrv_baseline_rmssd(hrv_df)
 
     latest_date = latest_data.get("date") if isinstance(latest_data, pd.Series) else None
     display_date = _format_date(latest_date, "display") if latest_date is not None and not pd.isna(latest_date) else "Н/Д"
@@ -187,7 +188,7 @@ def render_hrv_page(state: StateManager) -> None:
         fig_rmssd = Visualizations.create_hrv_trend(hrv_values, hrv_dates)
 
         if trend_option in ["Среднее", "Среднее + Тренд"]:
-            avg_rmssd = hrv_df["rmssd"].mean()
+            avg_rmssd = hrv_baseline_rmssd(hrv_df)
             fig_rmssd.add_hline(
                 y=avg_rmssd,
                 line_dash="dash",
@@ -323,22 +324,20 @@ def render_hrv_page(state: StateManager) -> None:
 
             if len(combined_df) > 5:
                 st.write("**📊 Анализ корреляции HRV и нагрузки:**")
+                correlations = hrv_training_correlations(combined_df)
+                correlation_same_day = correlations["same_day"]
+                correlation_lag1 = correlations["lag1"]
+                correlation_cumulative = correlations["cumulative_3day"]
                 col1, col2, col3, col4 = st.columns(4)
                 with col1:
-                    correlation_same_day = combined_df[["rmssd", "tss"]].corr().iloc[0, 1]
                     if not pd.isna(correlation_same_day):
                         corr_status = "success" if abs(correlation_same_day) > 0.4 else "warning" if abs(correlation_same_day) > 0.2 else "secondary"
                         ModernUI.status_card("📅 Тот же день", f"{correlation_same_day:.3f}", corr_status)
                 with col2:
-                    combined_shifted = combined_df.copy()
-                    combined_shifted["tss_prev"] = combined_shifted["tss"].shift(1)
-                    correlation_lag1 = combined_shifted[["rmssd", "tss_prev"]].corr().iloc[0, 1]
                     if not pd.isna(correlation_lag1):
                         lag_status = "success" if abs(correlation_lag1) > 0.4 else "warning" if abs(correlation_lag1) > 0.2 else "secondary"
                         ModernUI.status_card("⏭️ Запаздывание (1 день)", f"{correlation_lag1:.3f}", lag_status)
                 with col3:
-                    combined_shifted["tss_3day"] = combined_shifted["tss"].rolling(window=3, min_periods=1).sum()
-                    correlation_cumulative = combined_shifted[["rmssd", "tss_3day"]].corr().iloc[0, 1]
                     if not pd.isna(correlation_cumulative):
                         cum_status = "success" if abs(correlation_cumulative) > 0.4 else "warning" if abs(correlation_cumulative) > 0.2 else "secondary"
                         ModernUI.status_card("📈 Кумулятивная (3 дня)", f"{correlation_cumulative:.3f}", cum_status)
