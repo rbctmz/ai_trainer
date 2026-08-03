@@ -569,6 +569,42 @@ export interface TargetPreview {
   options: PlanningDemand[];
 }
 
+/** Read-only expected effect of a demand change on the active plan (M4b). */
+export interface DemandPreview {
+  has_plan: boolean;
+  state: "available" | "data_gap" | string;
+  reason: string | null;
+  current: {
+    level: string;
+    label: string;
+    multiplier: number;
+    final_target_weekly_tss: number;
+  } | null;
+  preview: {
+    level: string;
+    label: string;
+    multiplier: number;
+    final_target_weekly_tss: number;
+    delta_weekly_tss: number;
+    capped: boolean;
+    availability_cap_tss: number;
+    goal_need_tss: number;
+    recent_load_tss: number;
+    base_weekly_tss: number;
+    rows: WeeklyTargetRow[];
+  } | null;
+  base_checkpoint_id: number | null;
+  preview_fingerprint: string | null;
+}
+
+/** Result of an explicitly confirmed demand change (M4b). */
+export interface DemandConfirmResult {
+  applied_checkpoint_id: number;
+  base_checkpoint_id: number;
+  checkpoint_source: string;
+  weekly_target?: PlanningWeeklyTarget;
+}
+
 export interface PlanWeek {
   index: number;
   week_start: string;

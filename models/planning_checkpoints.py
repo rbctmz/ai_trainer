@@ -19,6 +19,7 @@ from models.planning_summary import (
 NON_ACTIONABLE_PLAN_ADJUSTMENTS = {"", "Нет", "Выполнено по плану"}
 CHECKPOINT_SOURCE_LABELS = {
     "initial_plan": "Базовая версия",
+    "demand_change": "Изменение режима нагрузки",
     "manual_edit": "Ручная правка",
     "execution_feedback": "Execution replan",
     "execution_adjustment": "Execution replan",
