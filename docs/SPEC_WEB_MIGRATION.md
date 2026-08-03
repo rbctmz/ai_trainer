@@ -189,6 +189,12 @@ GET /api/coach/history/{chat_id}
 GET /api/planning/status
 → { "checkpoint": {...}, "next_days": [...], "weekly_tss": {...} }
 
+GET /api/planning/overview
+→ { "has_plan": true, "goal": {...}, "roadmap": {...}, "form_projection": {...} }
+
+GET /api/planning/week-by-week
+→ { "state": "available", "weeks": [...], "chart": {...} }
+
 POST /api/planning/build
 { "goal_type": "triathlon", "distance": "olympic", "event_date": "2026-08-22", "available_hours": 12, "available_days": ["mon","tue","wed","thu","fri","sat"] }
 → { "plan_id": "uuid", "weeks": [...], "forecast": {...} }
@@ -290,7 +296,12 @@ GET /api/hrv/summary?days=30
 - [x] Режим «Собрать план» + прогноз: `GET /api/planning/status`, `POST /api/planning/build` (headless поверх `training_planner` + `BanisterModel.simulate_variable_load`; маппинг EN→RU целей/дистанций/дней). `persist=true` сохраняет checkpoint → план виден на Дашборде и в Коуч-сайдбаре.
 - [x] Режим «Скорректировать выполнение»: `GET /api/planning/reconciliation`, `POST /api/planning/adjust` (`build_execution_reconciliation_rows` → `build_execution_plan_adjustment` → `rebuild_goal_plan_with_adjustment`). Редактируемые строки план/факт, пересборка + новый прогноз.
 - [x] Режим «Экспорт» — FIT/TCX/ICS через бэкенд: `GET /api/planning/plan`, `/export/ics`, `/export/workout/{i}?fmt=tcx|fit_csv|tcx_activity` (переиспользует `fit_export`/`tcx_export`/`tcx_activity_export`/`create_ics_from_daily`).
-- Фронт `web/app/planning/page.tsx`: три таба (Собрать/Скорректировать/Экспорт), статус-панель, таблица недель по фазам, inline-SVG прогноз CTL/ATL/TSB, скачивание файлов через прокси.
+- [x] Фронт `web/app/planning/page.tsx`: при активном checkpoint по умолчанию
+  открывает reader-вкладки «Обзор / Недели / Выполнение»; «Изменить план»,
+  «Скорректировать» и «Экспорт» остаются явными действиями. Обзор показывает
+  цель, roadmap фаз/A-B-C и факт/прогноз CTL/ATL/TSB; недельный reader объединяет
+  target/fact, внеплановую нагрузку, дни и leaf-сессии из одного bounded
+  provider-free API-снимка. Без активного плана открывается прежний onboarding.
 - Проверено: build зелёный (9 страниц), smoke 216 passed (+`test_api_planning.py`), HTTP-прогон всех эндпоинтов на реальной БД; связность persist→Дашборд подтверждена в браузере.
 
 ### Фаза 3 — Полировка (1 неделя) ✅

@@ -1,6 +1,6 @@
 # ASR Catalog — единая точка истины по quality attributes
 
-Статусы на 2026-07-28. Источник сценариев: `architecture_analysis_add3.md` §2.
+Статусы на 2026-08-03. Источник сценариев: `architecture_analysis_add3.md` §2.
 Правило ведения: новый архитектурный трек (ExecPlan) обязан назвать задетые
 ASR в секции «ASR / risk traceability» и обновить здесь статус/проверку.
 Подтверждённые открытые улучшения ведутся по стабильным ID в
@@ -11,17 +11,46 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-PERF-1 | «Сегодня» < 2 сек с 3 годами данных | High | локальный SQLite, canonical snapshot без provider-вызовов на рендере (`include_provider=False`, #228) | `test_today_snapshot_perf_gate.py` — p95 < 2с на 3 годах синтетических данных (#241) | ✅ |
 | ASR-PERF-2 | Коуч: первый токен < 5 сек | High | стриминг SSE; native function calling (#190) убрал маркерный второй проход у поддерживающих провайдеров | `first_token_ms` в SSE `done`, покрыт смоуком (#241); 5с — наблюдение, авто-гейта на порог нет (недетерминизм провайдера) | 🟡 |
 | ASR-PERF-3 | Инкрементальный provider-sync, дельта дня < 10 сек | Medium | Garmin incremental window; Intervals per-provider/per-domain cursors | smoke sync/cursor-сьюты | ✅ |
-| ASR-PERF-4 | Planning preview 16 недель < 10 сек | Medium | детерминированный scheduler без БД внутри цикла (#205) | референс-сборки в smoke (секунды) | ✅ |
-| ASR-REL-1 | Reconciliation: ни одна активность или исполнимая тренировка не теряется при перепланировании | High | content-derived session identity + lineage (`replaces_session_id`, #206/#209), append-only ledger; recovery/near-term mutations повторно материализуют точный catalog prescription; recovery downgrade проверяет component-wise fatigue/recovery и совпадение с preview-profile до checkpoint (#312); modern broken sessions fail closed | `test_recovery_transfer_identity_handoff.py`, twin-матрица identity, `test_recovery_replan_materialization_p1.py` | ✅ |
-| ASR-REL-2 | Отсутствие данных → data gap, не падение | High | gate-исходы silence/data_gap (#154), `has_plan=false` пробросы (#228); readiness salience учитывает persisted fatigue/recovery и legacy-safe fallback (#315) | smoke-гейты loop/ribbon + `test_readiness_conflicts.py` | ✅ |
+| ASR-PERF-4 | Planning preview 16 недель < 10 сек | Medium | детерминированный scheduler без БД внутри цикла (#205); week-by-week reader делает один provider-free reconciliation read на bounded 16-недельном окне (#303) | референс-сборки в smoke; `test_planning_week_by_week.py` пинует cap, isolated browser acceptance — отсутствие disclosure N+1 | ✅ |
+| ASR-REL-1 | Reconciliation: ни одна активность или исполнимая тренировка не теряется при перепланировании | High | content-derived session identity + lineage (`replaces_session_id`, #206/#209), append-only ledger; recovery/near-term мутации повторно материализуют точный catalog prescription; reader сохраняет leaf/composite IDs и покрывает факт всех 16 отображаемых недель без расширения provider-I/O (#303); modern broken sessions fail closed | `test_recovery_transfer_identity_handoff.py`, twin-матрица identity, `test_recovery_replan_materialization_p1.py`, `test_planning_week_by_week.py`, `test_reconciliation_service_migration.py` | ✅ |
+| ASR-REL-2 | Отсутствие данных → data gap, не падение | High | gate-исходы silence/data_gap (#154), `has_plan=false` пробросы (#228/#301–#303); readiness salience учитывает persisted fatigue/recovery и legacy-safe fallback (#315) | smoke-гейты loop/ribbon + `test_readiness_conflicts.py`, `test_planning_active_plan_overview.py`, `test_planning_phase_roadmap.py`, `test_planning_week_by_week.py` | ✅ |
 | ASR-REL-3 | Обрыв sync/maintenance не портит частичные данные | Medium | атомарный common-ingest; cursor-after-clean-batch; независимые activity/wellness cursors; SQLite restore через validated temp + atomic replace + pre-restore rollback | M0/M1 ingest/cursor, M4 wellness rollback и `test_sqlite_backup_restore.py` fail-before-replace | ✅ |
 | ASR-MOD-1 | Новый AI-провайдер без правки основного кода | High | `AIProvider` ABC + фабрика; capability-флаги (`supports_native_tools`, #190) делают расширения аддитивными | capability-матрица в `test_coach_native_tools.py` | ✅ |
-| ASR-MOD-2 | Новый компонент дашборда без регрессии | Medium | canonical snapshot проекции (#152/#153) | trust-alignment smoke | ✅ |
-| ASR-MOD-3 | Смена схемы — обратная совместимость | Medium | аддитивные поля чекпойнтов, migrate-on-read (#206), append-only журналы | legacy-byte-equivalence гейты | ✅ |
+| ASR-MOD-2 | Новый компонент дашборда без регрессии | Medium | canonical snapshot проекции (#152/#153); `/planning` читает server-owned overview/week DTO без расчёта доменных метрик в TypeScript (#301–#303) | trust-alignment smoke + planning reader browser/API gates | ✅ |
+| ASR-MOD-3 | Смена схемы — обратная совместимость | Medium | аддитивные поля чекпойнтов, migrate-on-read (#206), append-only журналы; planning reader добавлен отдельными GET-контрактами без изменения checkpoint schema (#301–#303) | legacy-byte-equivalence + planning router/service contracts | ✅ |
 | ASR-SEC-1 | Ключи не в логах/UI/git | High | `.env` вне git, UI скрывает поля, env-fallback; contributor-safe Gitleaks блокирует event range и текущее дерево, runtime probe проверяет detector | `test_secret_scanning_ci.py`; live `Secret scan` в PR #296; revoked historical finding требует отдельной policy ([TD-008](../technical_debt_register.md#td-008--политика-для-отозванного-credential-в-git-history)) | 🟡 |
 | ASR-SEC-2 | Basic Auth перед публичным доступом | High | Caddy + Basic Auth в self-hosted стеке | деплой-чеклист | ✅ |
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
 | ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты; stopped-service Backup API snapshot, integrity check, atomic restore и pre-restore rollback (#293) | `test_sqlite_backup_restore.py`: clean-volume domain drill + rollback/failure gates | ✅ |
+
+## Active Planning reader (ASR-REL-1/2, ASR-PERF-4, ASR-MOD-2/3; #301–#303)
+
+`/planning` разделяет чтение и мутации: активный append-only checkpoint
+открывается через reader-вкладки Overview, Weeks и Execution, а build/edit,
+adjust и export остаются явными действиями. При отсутствии checkpoint UI
+возвращается к onboarding первого плана.
+
+- **ASR-REL-1**: week DTO переиспользует `plan_days` и канонический
+  `reconciliation_at`, сохраняя parent index, `session_id`, composite/brick
+  legs и export semantics. Локальный provider-disabled снимок покрывает все 16
+  отображаемых недель; provider-backed reconciliation сохраняет cap 12 недель.
+- **ASR-REL-2**: no-plan, malformed checkpoint, rest, unplanned и ambiguous
+  evidence выражены отдельными состояниями; отсутствующий факт не превращается
+  в синтетическое выполнение. Roadmap принимает только семидневный post-plan
+  bridge, поэтому далёкая B/C-цель не растягивает текущий план.
+- **ASR-PERF-4**: `GET /api/planning/week-by-week` bounded до 16 недель и делает
+  один reconciliation read без provider I/O; раскрытие прошлых недель не
+  запускает новые API-запросы.
+- **ASR-MOD-2/3**: `GET /api/planning/overview` и
+  `GET /api/planning/week-by-week` — аддитивные server-owned проекции над
+  существующим checkpoint, без новой схемы хранения и без дублирования
+  training/reconciliation math в браузере.
+
+Проверка: `test_planning_active_plan_overview.py`,
+`test_planning_phase_roadmap.py`, `test_planning_week_by_week.py`,
+`test_api_planning_router_contract.py`, `test_plan_actual_reconciliation.py`,
+`test_reconciliation_service_migration.py`; Next lint/build и изолированная
+browser-приёмка 1280/390 px без overflow, console errors и disclosure N+1.
 
 ## TD-002: contributor-safe secret scanning (ASR-SEC-1; #295, закрыт)
 
@@ -257,7 +286,7 @@ FastAPI отклонит до хендлера). Настоящий HTTP-round-t
 | `dashboard.py` | `test_api_dashboard.py`, `test_api_operational_states.py`, `test_readiness_snapshot_contract.py`, `test_signals_engine.py`, `test_dashboard_tsb_zones.py` |
 | `decisions.py` | `test_coach_decisions.py`, `test_recovery_replan_loop.py`, `test_recovery_transfer_product_surface_web.py` |
 | `hrv.py` | `test_api_operational_states.py`, `test_api_phase1.py` |
-| `planning.py` | `test_api_planning.py`, `test_coach_constraints.py`, `test_planning_target_demand_history.py`, `test_api_planning_router_contract.py`, `test_api_planning_router_http_contract.py` |
+| `planning.py` | `test_api_planning.py`, `test_coach_constraints.py`, `test_planning_target_demand_history.py`, `test_planning_active_plan_overview.py`, `test_planning_phase_roadmap.py`, `test_planning_week_by_week.py`, `test_api_planning_router_contract.py`, `test_api_planning_router_http_contract.py` |
 | `recovery_analytics.py` | `test_api_recovery_analytics.py` |
 | `session_feedback.py` | `test_post_workout_feedback.py`, `test_api_session_feedback_router_contract.py` |
 | `session_quality.py` | `test_session_quality_forecast.py`, `test_api_session_quality_router_contract.py` |
