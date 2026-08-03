@@ -61,6 +61,12 @@ class DemandRequest(BaseModel):
     level: str
 
 
+class DemandConfirmRequest(BaseModel):
+    level: str
+    base_checkpoint_id: int
+    preview_fingerprint: str
+
+
 class IntervalsDeliveryRequest(BaseModel):
     days: int = Field(7, ge=7, le=14)
 
@@ -164,6 +170,34 @@ def planning_get_demand(db: Database = Depends(get_database)) -> dict[str, Any]:
 @router.post("/demand")
 def planning_set_demand(req: DemandRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.set_demand(db, req.level)
+
+
+@router.get("/demand-preview")
+def planning_demand_preview(
+    level: str = "moderate",
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    """Read-only expected effect of a demand change on the active plan."""
+    return planning_service.demand_preview(db, level)
+
+
+@router.post("/demand/confirm")
+def planning_demand_confirm(
+    req: DemandConfirmRequest,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    """Apply an approved demand change as a new guarded checkpoint."""
+    try:
+        return planning_service.confirm_demand_change(
+            db,
+            level=req.level,
+            base_checkpoint_id=req.base_checkpoint_id,
+            preview_fingerprint=req.preview_fingerprint,
+        )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
 
 
 @router.post("/build")

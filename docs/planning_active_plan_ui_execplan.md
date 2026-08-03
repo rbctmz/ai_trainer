@@ -22,7 +22,8 @@ When an athlete already has a saved training plan, opening `/planning` should fi
 - [x] (2026-08-03) Validated no-plan, past/current/future, unplanned, ambiguous, rest, event, and composite-session states through focused contracts and independent browser acceptance at 1280px and 390px.
 - [x] (2026-08-03) Addressed PR review: the provider-disabled reader now receives all 16 displayed fact weeks, while provider-backed reconciliation remains capped at 12; roadmap extension accepts only the existing seven-day post-plan event bridge.
 - [x] (2026-08-03) M4a: added checkpoint-only availability and saved weekly-target explanation to Overview, with an explicit per-day data gap because no daily availability-limit contract is persisted.
-- [ ] M4b/M4c (future): demand application/confirmation and schedule editor require separately approved scopes.
+- [x] (2026-08-03) M4b (#335): added Overview demand control with read-only demand-preview and stale-guarded confirm; new checkpoint gets `demand_change` provenance and the saved parent id.
+- [ ] M4c (future): schedule editor («Изменить план» stepper) requires a separately approved scope.
 
 ## Surprises & Discoveries
 
@@ -36,6 +37,10 @@ When an athlete already has a saved training plan, opening `/planning` should fi
   Evidence: M2 projection passes only future persisted triples to `_forecast`, preserving the planner's existing input contract and race-load handling.
 - Observation: browser automation was unavailable to the implementing agent but available during independent review.
   Evidence: the reviewer exercised `/planning` against an isolated database at 1280px and 390px, confirmed the roadmap and form chart, found no horizontal overflow or console errors, and made no provider writes.
+- Observation: with 10–12 saved weekly hours the availability cap binds the final weekly target even at the aggressive multiplier, so a demand-preview delta test needs a higher cap (16 h) to prove a non-zero delta; the capped case itself is asserted explicitly.
+  Evidence: `tests/smoke/test_planning_demand_change.py` builds with 10 h (`capped: true`, delta 0) and 16 h (`capped: false`, positive delta).
+- Observation: `build_plan` never stamped `checkpoint_parent_id`, so a demand-change rebuild produced a parentless checkpoint until the provenance call started passing the latest checkpoint id.
+  Evidence: `with_checkpoint_provenance(..., parent_checkpoint_id=latest_checkpoint_id or None)` in `api/planning_service.py`.
 - Observation: `plan_days` is the existing public/export projection that preserves session IDs, materialized steps, composite legs, and per-leaf exportability; it deliberately excludes rest days.
   Evidence: `api/planning_service.py::plan_days` skips zero-TSS rows while `daily_plan` retains every calendar day.
 - Observation: browser automation was unavailable to the implementing agent but available during independent M3 review.
@@ -66,6 +71,12 @@ When an athlete already has a saved training plan, opening `/planning` should fi
 - Decision: M4a uses only the active checkpoint's `constraint_summary` and `weekly_target_breakdown`; daily available-minute limits are reported as a local data gap.
   Rationale: a weekly hour cap and available-day list are persisted, but the planner has no saved or derivable per-day capacity contract. Splitting a weekly cap in the browser or backend would invent availability and could create false overload warnings.
   Date/Author: 2026-08-03 / Codex.
+- Decision: M4b applies a demand change as a full `build_plan` rebuild with the checkpoint's saved inputs and its original `start_week` (new additive `start_week` parameter, default today), then stamps provenance `demand_change` with the previewed base as parent.
+  Rationale: reusing the canonical pipeline adds no new scaling math and keeps the calendar aligned; `start_week` preserves the original plan dates instead of restarting the macrocycle from today. The preview shows any secondary effect of current CTL/TSB before confirm.
+  Date/Author: 2026-08-03 / Codex.
+- Decision: M4b adds two additive endpoints, `GET /api/planning/demand-preview?level=...` (read-only) and `POST /api/planning/demand/confirm`, where the server derives inputs from the active checkpoint rather than re-sending the form payload.
+  Rationale: the client must not reconstruct or own plan inputs; preview stays a no-write projection and confirm reuses the rebalance-style `base_checkpoint_id` + `preview_fingerprint` stale guard (409).
+  Date/Author: 2026-08-03 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -78,6 +89,8 @@ M3 adds one bounded read-only endpoint, `GET /api/planning/week-by-week`, and re
 M4a extends the existing `GET /api/planning/overview` reader contract without creating an endpoint or a mutation. `availability` shows saved weekly available hours/minutes and days alongside planned duration and leaf-session count for the same server-selected current/nearest/last plan week; its explicit `period` prevents a weekly cap from being compared with the whole plan horizon. `weekly_target_explanation` displays the persisted goal need, availability cap, recent load, base target, final target, and saved demand multiplier. A checkpoint without either source returns an explicit local data gap. Per-day available/planned comparison and overload/conflict messaging are intentionally absent: the current checkpoint does not save daily availability limits. Focused contracts cover saved context, legacy/missing fields, selected-week scope, and the existing no-provider/no-mutation invariant.
 
 Final evidence: 24 focused API/router/deep-link tests passed; the full contributor-safe smoke suite passed with `1360 passed, 1 skipped`; Next lint and production build passed from an isolated web copy. Browser acceptance against isolated copies of the active and empty databases verified the event overview as the 1280px default with no build form, the Weeks and Execution readers, explicit Edit, the `session_id` adjustment deep-link, no horizontal overflow at 390px, no-plan onboarding, and deterministic Enter/Space history disclosure. No provider write or planning confirmation was made.
+
+M4b adds the demand control on Overview: selecting a new level calls the read-only `demand-preview`, which recomputes the weekly target from the checkpoint's saved inputs and shows the new final target, delta TSS, breakdown rows, and an honest cap-bound flag; nothing is written. `demand/confirm` explicitly rebuilds the same plan (same saved inputs, original `start_week`, new demand) into a new checkpoint with `checkpoint_source: "demand_change"` and the previewed base as `checkpoint_parent_id`, persists the demand level as the new default, and refuses stale/no-change/unknown requests (409/422). Focused gates (`20 passed` on demand + overview), adjacent planning contracts (`65 passed`), the full smoke suite (`1389 passed, 1 skipped`), Next lint, and the production build all passed.
 
 ## Context and Orientation
 
@@ -149,6 +162,8 @@ After M2, the same endpoint additionally returns `roadmap` and `form_projection`
 
 After M4a, the same endpoint additionally returns `availability` and `weekly_target_explanation`. Both are display-ready checkpoint projections with `available`/`data_gap` state envelopes. `availability.period` identifies the one selected plan week used for planned duration and session count, while saved availability remains a weekly cap. `availability.daily` remains a declared data gap with an empty day list until a future planning-domain contract persists per-day availability limits. `weekly_target_explanation` is the saved build-time breakdown; it does not recalculate targets from current history or settings.
 
+M4b adds `GET /api/planning/demand-preview?level=...` and `POST /api/planning/demand/confirm`. The preview returns `current` and `preview` envelopes with final weekly target, delta TSS, breakdown rows, cap flag, `base_checkpoint_id`, and a `preview_fingerprint`; a missing plan/breakdown returns `state: "data_gap"` and never a fabricated target. Confirm requires the level, base checkpoint id, and fingerprint; it returns `applied_checkpoint_id`, the base id, `checkpoint_source: "demand_change"`, and the new `weekly_target`, and raises 409 on stale evidence or 422 on unknown/no-change levels.
+
 M3 adds `GET /api/planning/week-by-week`. For an active plan it returns `state: "available"`, `as_of`, bounded `weeks`, and a server-calculated chart scale. A week has target/actual/unplanned TSS, server-calculated completion/remaining values, phase/events, an adherence aggregate, and seven calendar days. A non-rest day contains the `plan_days` leaf sessions enriched only with the already canonical match status/actual fields. `state: "no_plan"` returns no weeks; malformed checkpoint dates return `state: "data_gap"`, never a fabricated rest or zero-completion plan.
 
-Plan revision 2026-08-03: M1 (#301), M2 (#302), and M3 (#303) are merged to `main` through PRs #327–#329. M4a is the separately approved reader-only availability/weekly-target explanation slice for #304; M4b/M4c remain out of scope.
+Plan revision 2026-08-03: M1 (#301), M2 (#302), and M3 (#303) are merged to `main` through PRs #327–#329. M4a is merged through PR #334. M4b (#335) adds the demand control with preview → confirm; M4c (schedule editor) remains out of scope.

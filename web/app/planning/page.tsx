@@ -6,6 +6,8 @@ import { ApiError, fetcher, postJSON, putJSON, withDemo } from "@/lib/api";
 import { AdherenceRibbon } from "@/components/AdherenceRibbon";
 import {
   BuiltPlan,
+  DemandConfirmResult,
+  DemandPreview,
   ForecastPoint,
   IntervalsDeliveryResult,
   PlanningEventsResponse,
@@ -298,6 +300,7 @@ function ActivePlanOverview({ overview, error }: { overview?: PlanningOverview; 
       <div className="mt-5 space-y-5">
         <AvailabilitySummary availability={overview.availability} />
         <WeeklyTargetExplanation explanation={overview.weekly_target_explanation} />
+        <DemandControl explanation={overview.weekly_target_explanation} />
         <PhaseRoadmap roadmap={overview.roadmap} />
         <FormProjection projection={overview.form_projection} />
       </div>
@@ -359,6 +362,178 @@ function WeeklyTargetExplanation({ explanation }: { explanation?: PlanningOvervi
           спрос: {explanation.demand.label} × {explanation.demand.multiplier}
         </span>
       </div>
+    </section>
+  );
+}
+
+function DemandControl({ explanation }: { explanation?: PlanningOverview["weekly_target_explanation"] }) {
+  const { mutate } = useSWRConfig();
+  const [selected, setSelected] = useState<string | null>(null);
+  const [confirming, setConfirming] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [applied, setApplied] = useState<string | null>(null);
+  const currentLevel =
+    explanation?.state === "available" && explanation.demand ? explanation.demand.level : null;
+
+  const previewKey = selected
+    ? `/api/planning/demand-preview?level=${encodeURIComponent(selected)}`
+    : null;
+  const { data: preview, isValidating } = useSWR<DemandPreview>(previewKey, fetcher, {
+    revalidateOnFocus: false,
+  });
+
+  if (explanation?.state !== "available" || !currentLevel) {
+    return null;
+  }
+
+  const previewData = preview?.state === "available" && preview.preview ? preview.preview : null;
+  const baseCheckpointId = preview?.base_checkpoint_id ?? null;
+  const previewFingerprint = preview?.preview_fingerprint ?? null;
+
+  function choose(level: string) {
+    setApplied(null);
+    setError(null);
+    setSelected((current) => (current === level ? null : level));
+  }
+  function cancel() {
+    setSelected(null);
+    setError(null);
+    setApplied(null);
+  }
+  async function apply() {
+    if (!previewData || baseCheckpointId == null || !previewFingerprint) return;
+    setConfirming(true);
+    setError(null);
+    try {
+      const result = await postJSON<DemandConfirmResult>("/api/planning/demand/confirm", {
+        level: previewData.level,
+        base_checkpoint_id: baseCheckpointId,
+        preview_fingerprint: previewFingerprint,
+      });
+      setApplied(`Сохранено как checkpoint #${result.applied_checkpoint_id}. Режим нагрузки обновлён.`);
+      setSelected(null);
+      await Promise.all([
+        mutate("/api/planning/overview"),
+        mutate("/api/planning/status"),
+        mutate("/api/planning/history?limit=8"),
+      ]);
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : "Не удалось применить режим нагрузки. Подготовьте новый preview.",
+      );
+      setSelected(null);
+    } finally {
+      setConfirming(false);
+    }
+  }
+
+  return (
+    <section
+      aria-labelledby="demand-control-title"
+      className="rounded-card border border-surface-border bg-surface-muted/40 p-4"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id="demand-control-title" className="text-sm font-semibold text-ink">
+          Режим нагрузки
+        </h3>
+        <span className="text-xs text-ink-faint">Применяется отдельной кнопкой после preview</span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-2 gap-1.5 sm:grid-cols-4">
+        {DEFAULT_DEMAND_OPTIONS.map((option) => {
+          const isCurrent = option.level === currentLevel;
+          const isSelected = option.level === selected;
+          return (
+            <button
+              key={option.level}
+              type="button"
+              onClick={() => choose(option.level)}
+              aria-pressed={isSelected}
+              className={`rounded-lg border px-3 py-2 text-left text-xs font-medium transition ${
+                isSelected
+                  ? "border-accent bg-accent text-accent-foreground"
+                  : isCurrent
+                    ? "border-accent/40 bg-accent/5 text-ink"
+                    : "border-surface-border text-ink-soft hover:bg-surface-muted"
+              }`}
+            >
+              <span className="block">{option.label}</span>
+              <span className="text-[11px] opacity-70">
+                {isCurrent ? "текущий" : `×${option.multiplier.toFixed(2)}`}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {selected && isValidating ? (
+        <p className="mt-3 text-xs text-ink-faint">Считаю ожидаемый эффект…</p>
+      ) : null}
+      {selected && preview && preview.state === "data_gap" ? (
+        <p className="mt-3 text-xs text-ink-faint">{preview.reason ?? "Preview недоступен."}</p>
+      ) : null}
+
+      {previewData ? (
+        <div className="mt-3 rounded-lg border border-surface-border bg-surface p-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-xs text-ink-faint">Новый итог недели</span>
+            <span className="text-sm font-semibold tabular-nums text-ink">
+              {previewData.final_target_weekly_tss} TSS/нед
+              <span
+                className={`ml-2 text-xs font-medium ${
+                  previewData.delta_weekly_tss > 0
+                    ? "text-accent"
+                    : previewData.delta_weekly_tss < 0
+                      ? "text-rose-600"
+                      : "text-ink-faint"
+                }`}
+              >
+                {previewData.delta_weekly_tss > 0 ? "+" : ""}
+                {previewData.delta_weekly_tss} TSS
+              </span>
+            </span>
+          </div>
+          <div className="mt-2 grid gap-1.5 text-xs text-ink-soft sm:grid-cols-2">
+            <span>База недели: {previewData.base_weekly_tss} TSS/нед</span>
+            <span>Потолок доступности: {previewData.availability_cap_tss} TSS/нед</span>
+            <span>Потребность цели: {previewData.goal_need_tss} TSS/нед</span>
+            <span>Недавняя нагрузка: {previewData.recent_load_tss} TSS/нед</span>
+          </div>
+          {previewData.capped ? (
+            <p className="mt-2 text-xs text-amber-700">
+              Итог упирается в потолок доступности — выше {previewData.availability_cap_tss} TSS/нед
+              план не поднимется.
+            </p>
+          ) : null}
+          {selected === currentLevel ? (
+            <p className="mt-2 text-xs text-ink-faint">Это текущий режим — применять нечего.</p>
+          ) : (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={apply}
+                disabled={confirming}
+                className="rounded-lg bg-accent px-4 py-2 text-xs font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
+              >
+                {confirming ? "Применяю…" : "Применить и пересобрать"}
+              </button>
+              <button
+                type="button"
+                onClick={cancel}
+                disabled={confirming}
+                className="rounded-lg border border-surface-border px-4 py-2 text-xs font-medium text-ink transition hover:bg-surface-muted disabled:opacity-40"
+              >
+                Отмена
+              </button>
+            </div>
+          )}
+        </div>
+      ) : null}
+
+      {error ? <p className="mt-3 text-xs text-rose-600">{error}</p> : null}
+      {applied ? <p className="mt-3 text-xs text-emerald-700">{applied}</p> : null}
     </section>
   );
 }

@@ -53,6 +53,7 @@ from models.plan_actual_reconciliation import (
 )
 from models.planning_targets import (
     DEFAULT_DEMAND_LEVEL,
+    DEMAND_PROFILES,
     build_weekly_target_breakdown,
     demand_options,
     demand_profile,
@@ -141,6 +142,180 @@ def set_demand(db: Database, level: str) -> Dict[str, Any]:
     normalized = normalize_demand_level(level)
     db.set_user_setting(PLANNING_DEMAND_SETTING_KEY, normalized)
     return get_demand(db)
+
+
+def _demand_preview_data_gap(*, reason: str, has_plan: bool) -> Dict[str, Any]:
+    """Shared data-gap envelope for the read-only demand preview."""
+    return {
+        "has_plan": has_plan,
+        "state": "data_gap",
+        "reason": reason,
+        "current": None,
+        "preview": None,
+        "base_checkpoint_id": None,
+        "preview_fingerprint": None,
+    }
+
+
+def _demand_preview_fingerprint(
+    checkpoint: Dict[str, Any],
+    demand_level: str,
+    final_target_weekly_tss: int,
+) -> str:
+    """Deterministic stale-guard token for the active checkpoint + demand."""
+    identity = (
+        f"{checkpoint.get('id') or ''}:"
+        f"{checkpoint.get('plan_revision') or ''}:"
+        f"{checkpoint.get('goal_plan_snapshot', {}).get('plan_revision') or ''}:"
+        f"{demand_level}:{final_target_weekly_tss}"
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()[:40]
+
+
+def demand_preview(db: Database, level: str) -> Dict[str, Any]:
+    """Read-only expected effect of a demand change on the active plan.
+
+    Inputs (goal, distance, availability, recent load) come from the persisted
+    checkpoint; only the demand level differs. Never writes, never contacts a
+    provider, never fabricates a target when the checkpoint lacks the saved
+    weekly-target breakdown.
+    """
+    latest = db.get_latest_planning_checkpoint()
+    if not isinstance(latest, dict) or not latest.get("goal_plan_snapshot"):
+        return _demand_preview_data_gap(reason="Активного плана нет.", has_plan=False)
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    if goal_plan is None:
+        return _demand_preview_data_gap(
+            reason="Активный checkpoint не удаётся восстановить.",
+            has_plan=True,
+        )
+
+    breakdown = goal_plan.get("weekly_target_breakdown")
+    constraints = dict(goal_plan.get("constraint_summary") or {})
+    available_hours = _overview_number(constraints.get("available_hours"))
+    if not isinstance(breakdown, dict) or not isinstance(breakdown.get("demand"), dict) or available_hours is None:
+        return _demand_preview_data_gap(
+            reason="В сохранённом checkpoint нет разбивки недельной цели и доступности.",
+            has_plan=True,
+        )
+
+    demand_level = normalize_demand_level(level)
+    day_indices = [
+        int(index)
+        for index in (constraints.get("available_day_indices") or [])
+        if str(index).lstrip("-").isdigit()
+    ]
+    _metrics, _banister, activities_df = _current_metrics(db)
+    new_breakdown = build_weekly_target_breakdown(
+        goal_type=str(goal_plan.get("goal_type") or "Триатлон"),
+        distance=str(goal_plan.get("distance") or ""),
+        activities_df=activities_df,
+        available_hours=float(available_hours),
+        available_day_indices=day_indices or None,
+        demand=demand_level,
+    )
+
+    current_demand = dict(breakdown.get("demand") or {})
+    current_final = int(breakdown.get("final_target_weekly_tss") or 0)
+    new_final = int(new_breakdown.get("final_target_weekly_tss") or 0)
+    availability_cap = int((new_breakdown.get("availability") or {}).get("weekly_capacity_tss") or 0)
+    fingerprint = _demand_preview_fingerprint(latest, demand_level, new_final)
+
+    return {
+        "has_plan": True,
+        "state": "available",
+        "reason": None,
+        "current": {
+            "level": str(current_demand.get("level") or ""),
+            "label": str(current_demand.get("label") or ""),
+            "multiplier": float(current_demand.get("multiplier") or 1.0),
+            "final_target_weekly_tss": current_final,
+        },
+        "preview": {
+            "level": str(new_breakdown["demand"]["level"]),
+            "label": str(new_breakdown["demand"]["label"]),
+            "multiplier": float(new_breakdown["demand"]["multiplier"]),
+            "final_target_weekly_tss": new_final,
+            "delta_weekly_tss": new_final - current_final,
+            "capped": bool(availability_cap > 0 and new_final >= availability_cap),
+            "availability_cap_tss": availability_cap,
+            "goal_need_tss": int(new_breakdown.get("goal_need_tss") or 0),
+            "recent_load_tss": int((new_breakdown.get("recent_load") or {}).get("median_weekly_tss") or 0),
+            "base_weekly_tss": int(new_breakdown.get("base_weekly_tss") or 0),
+            "rows": list(new_breakdown.get("rows") or []),
+        },
+        "base_checkpoint_id": int(latest.get("id")) if latest.get("id") is not None else 0,
+        "preview_fingerprint": fingerprint,
+    }
+
+
+def confirm_demand_change(
+    db: Database,
+    *,
+    level: str,
+    base_checkpoint_id: int,
+    preview_fingerprint: str,
+) -> Dict[str, Any]:
+    """Apply an approved demand change as a new checkpoint with provenance.
+
+    Explicit confirm-only mutation: the active checkpoint is replaced by a
+    rebuild of the same plan inputs with the new demand level, parented to the
+    previewed checkpoint. A stale base or fingerprint raises
+    :class:`StalePlanningCheckpointError` (HTTP 409) and writes nothing.
+    """
+    normalized = str(level or "").strip().lower()
+    if normalized not in DEMAND_PROFILES:
+        raise ValueError("unknown demand level")
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else 0
+    if latest_id != int(base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id or 'none'} no longer matches demand preview base "
+            f"#{int(base_checkpoint_id) or 'none'}"
+        )
+
+    preview = demand_preview(db, normalized)
+    if preview.get("state") != "available":
+        raise ValueError(preview.get("reason") or "demand preview unavailable")
+    if preview.get("preview_fingerprint") != str(preview_fingerprint):
+        raise StalePlanningCheckpointError("planning inputs changed; request a fresh demand preview")
+    if str((preview.get("current") or {}).get("level") or "") == normalized:
+        raise ValueError("demand level is already active")
+
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    assert goal_plan is not None
+    constraints = dict(goal_plan.get("constraint_summary") or {})
+    day_keys = [
+        list(DAY_MAP.keys())[int(index)]
+        for index in (constraints.get("available_day_indices") or [])
+        if str(index).lstrip("-").isdigit() and 0 <= int(index) < len(DAY_MAP)
+    ]
+    mode = str(goal_plan.get("planning_mode") or "event_goal")
+    built = build_plan(
+        db,
+        goal_type=str(goal_plan.get("goal_type") or "Триатлон"),
+        distance=str(goal_plan.get("distance") or ""),
+        event_date=goal_plan.get("event_date"),
+        available_hours=float(constraints.get("available_hours") or 10.0),
+        available_days=day_keys or None,
+        demand=normalized,
+        persist=True,
+        planning_mode=mode,
+        intent=str(goal_plan.get("planning_intent") or "develop"),
+        focus=str(goal_plan.get("planning_focus") or "balanced_triathlon"),
+        horizon_weeks=int(goal_plan.get("horizon_weeks") or 8),
+        manual_phases=list(goal_plan.get("phases") or []) if mode == "manual" else None,
+        events=list(goal_plan.get("events") or []),
+        expected_base_checkpoint_id=int(base_checkpoint_id),
+        start_week=goal_plan.get("start_week"),
+        checkpoint_source="demand_change",
+    )
+    return {
+        "applied_checkpoint_id": int(built.get("plan_id") or 0),
+        "base_checkpoint_id": int(base_checkpoint_id),
+        "checkpoint_source": "demand_change",
+        "weekly_target": built.get("weekly_target"),
+    }
 
 
 def _metrics_from_signals(signals: dict[str, Any]) -> dict[str, Any]:
@@ -945,13 +1120,15 @@ def build_plan(
     manual_phases: Optional[List[str]] = None,
     events: Optional[List[Dict[str, Any]]] = None,
     expected_base_checkpoint_id: int | None = None,
+    start_week: Optional[date] = None,
+    checkpoint_source: str = "initial_plan",
 ) -> Dict[str, Any]:
     metrics, banister, activities_df = _current_metrics(db)
     gt = _internal_goal_type(goal_type)
     dist = _internal_distance(distance)
     day_indices = _day_indices(available_days)
 
-    start_week = _start_week()
+    start_week = start_week or _start_week()
     mode = str(planning_mode or "event_goal").strip().lower()
     normalized_intent = str(intent or "develop").strip().lower()
     if mode not in PLANNING_MODES:
@@ -1195,7 +1372,11 @@ def build_plan(
         list(goal_plan.get("weekly_summary") or []),
         list(goal_plan.get("session_templates") or []),
     )
-    goal_plan = with_checkpoint_provenance(goal_plan, source="initial_plan")
+    goal_plan = with_checkpoint_provenance(
+        goal_plan,
+        source=checkpoint_source,
+        parent_checkpoint_id=latest_checkpoint_id or None,
+    )
 
     preview = _build_plan_preview(existing_plan, goal_plan)
     preview["base_checkpoint_id"] = latest_checkpoint_id
