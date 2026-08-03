@@ -69,6 +69,11 @@ class DemandConfirmRequest(BaseModel):
     preview_fingerprint: str
 
 
+class HistoryRestoreRequest(BaseModel):
+    checkpoint_id: int
+    base_checkpoint_id: int
+
+
 class IntervalsDeliveryRequest(BaseModel):
     days: int = Field(7, ge=7, le=14)
 
@@ -421,3 +426,21 @@ def planning_adjust(req: AdjustRequest, db: Database = Depends(get_database)) ->
 @router.get("/history")
 def planning_history(limit: int = 10, db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.planning_history(db, limit=limit)
+
+
+@router.post("/history/restore")
+def planning_history_restore(
+    req: HistoryRestoreRequest,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    """Restore a saved plan version as a new checkpoint on top of the active one."""
+    try:
+        return planning_service.restore_history_version(
+            db,
+            checkpoint_id=req.checkpoint_id,
+            base_checkpoint_id=req.base_checkpoint_id,
+        )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))

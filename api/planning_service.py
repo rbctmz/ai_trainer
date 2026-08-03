@@ -2800,3 +2800,50 @@ def planning_history(db: Database, limit: int = 10) -> Dict[str, Any]:
             }
         )
     return {"has_history": bool(items), "items": items}
+
+
+def restore_history_version(
+    db: Database,
+    *,
+    checkpoint_id: int,
+    base_checkpoint_id: int,
+) -> Dict[str, Any]:
+    """Restore a saved plan version as a NEW checkpoint on top of the active one.
+
+    The active checkpoint is never overwritten: restoring creates a child
+    checkpoint with `restore_version` provenance (parent = current,
+    restored_from = chosen id), so the rollback itself stays reversible.
+    Stale base raises :class:`StalePlanningCheckpointError` (HTTP 409);
+    the active version itself or an unknown id raises ``ValueError`` (422).
+    """
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else 0
+    if latest_id != int(base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id or 'none'} no longer matches history base "
+            f"#{int(base_checkpoint_id) or 'none'}"
+        )
+    wanted = int(checkpoint_id)
+    if wanted == latest_id:
+        raise ValueError("cannot restore the active version itself")
+    target = db.get_planning_checkpoint(wanted)
+    if not isinstance(target, dict) or not target.get("goal_plan_snapshot"):
+        raise ValueError("checkpoint not found")
+    restored = restore_goal_plan_from_checkpoint(target)
+    if restored is None or not restored.get("daily_plan"):
+        raise ValueError("checkpoint cannot be restored")
+    restored = with_checkpoint_provenance(
+        restored,
+        source="restore_version",
+        parent_checkpoint_id=latest_id,
+        restored_from_checkpoint_id=wanted,
+    )
+    saved = db.save_planning_checkpoint(build_planning_checkpoint(restored))
+    saved_id = int(saved.get("id") or saved.get("checkpoint_id") or 0)
+    return {
+        "plan_id": str(saved_id or ""),
+        "applied_checkpoint_id": saved_id,
+        "base_checkpoint_id": latest_id,
+        "checkpoint_source": "restore_version",
+        "restored_from_checkpoint_id": wanted,
+    }

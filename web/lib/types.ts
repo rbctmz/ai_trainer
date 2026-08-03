@@ -605,6 +605,15 @@ export interface DemandConfirmResult {
   weekly_target?: PlanningWeeklyTarget;
 }
 
+/** Result of restoring a saved plan version from history (M4d). */
+export interface RestoreHistoryResult {
+  plan_id: string;
+  applied_checkpoint_id: number;
+  base_checkpoint_id: number;
+  checkpoint_source: string;
+  restored_from_checkpoint_id: number;
+}
+
 /** Read-only build inputs of the active checkpoint for the edit stepper (M4c). */
 export interface PlanningEditContext {
   has_plan: boolean;

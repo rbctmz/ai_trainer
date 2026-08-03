@@ -24,7 +24,8 @@ When an athlete already has a saved training plan, opening `/planning` should fi
 - [x] (2026-08-03) M4a: added checkpoint-only availability and saved weekly-target explanation to Overview, with an explicit per-day data gap because no daily availability-limit contract is persisted.
 - [x] (2026-08-03) M4b (#335): added Overview demand control with read-only demand-preview and stale-guarded confirm; new checkpoint gets `demand_change` provenance and the saved parent id.
 - [x] (2026-08-03) M4c (#337): extracted the build/edit form into `web/components/planning/PlanBuilder.tsx` as a four-step stepper (подход и цель → доступность → нагрузка и preview → подтверждение); editing an active plan prefills from the checkpoint via a new read-only `/api/planning/edit-context`.
-- [ ] M4d (future, if any): remaining #304 scope not covered by M4a–M4c.
+- [x] (2026-08-03) M4d (#339): added rollback from history — `POST /api/planning/history/restore` creates a new `restore_version` checkpoint on top of the active one, and the «История изменений» widget gained an inline confirm «Восстановить».
+- [ ] Остаток #304 вне скоупа M4a–M4d (дневные лимиты — data gap без контракта).
 
 ## Surprises & Discoveries
 
@@ -48,6 +49,8 @@ When an athlete already has a saved training plan, opening `/planning` should fi
   Evidence: `tests/smoke/test_m2_onboarding_web_contract.py` reads `PAGE` + `BUILDER`.
 - Observation: manual acceptance of the M4c stepper found a dead end after confirmation (the confirm button vanished with no next action) and a confusing large `weekly_tss_delta` when editing an older active plan.
   Evidence: rebuilding through `/build` without a start week restarts the macrocycle from today; fixing this required `start_week` in `edit-context`, an optional `start_week` on `BuildRequest`, and a vivid success panel with «Открыть план в Обзоре» / «Собрать заново».
+- Observation: history rows were write-only — checkpoints were listed with ids and provenance labels, but nothing could restore them; the generic restore path existed only inside the recovery rollback flow.
+  Evidence: `planning_history` returns `checkpoint_id`/`source_label`, while `restore_version` provenance appeared only in the recovery-specific function.
 - Observation: `plan_days` is the existing public/export projection that preserves session IDs, materialized steps, composite legs, and per-leaf exportability; it deliberately excludes rest days.
   Evidence: `api/planning_service.py::plan_days` skips zero-TSS rows while `daily_plan` retains every calendar day.
 - Observation: browser automation was unavailable to the implementing agent but available during independent M3 review.
@@ -96,6 +99,9 @@ When an athlete already has a saved training plan, opening `/planning` should fi
 - Decision: M4c edit flow preserves the plan calendar by passing the checkpoint's `start_week` through `edit-context` → `BuildRequest.start_week` → `build_plan`, and after confirmation shows a clear success panel (checkpoint id, total TSS delta across the plan weeks) with explicit next actions.
   Rationale: without it, editing an older plan silently compressed the remaining horizon to today, producing the misleading −300 TSS delta; a confirmed save must end in an obvious, actionable final state.
   Date/Author: 2026-08-03 / Codex.
+- Decision: M4d restores a saved version as a NEW child checkpoint (`restore_version`, parent = active, restored_from = chosen id) through a dedicated guarded endpoint instead of overwriting the active checkpoint in place.
+  Rationale: rollback must itself be reversible and stale-guarded (409); hiding restore on the newest history row prevents a no-op "restore the active version" action (422 would be the only alternative).
+  Date/Author: 2026-08-03 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -112,6 +118,8 @@ Final evidence: 24 focused API/router/deep-link tests passed; the full contribut
 M4b adds the demand control on Overview: selecting a new level calls the read-only `demand-preview`, which recomputes the weekly target from the checkpoint's saved inputs and shows the new final target, delta TSS, breakdown rows, and an honest cap-bound flag; nothing is written. `demand/confirm` explicitly rebuilds the same plan (same saved inputs, original `start_week`, new demand) into a new checkpoint with `checkpoint_source: "demand_change"` and the previewed base as `checkpoint_parent_id`, persists the demand level as the new default, and refuses stale/no-change/unknown requests (409/422). Focused gates (`20 passed` on demand + overview), adjacent planning contracts (`65 passed`), the full smoke suite (`1389 passed, 1 skipped`), Next lint, and the production build all passed.
 
 M4c reorganizes the build/edit flow into a four-step stepper inside `web/components/planning/PlanBuilder.tsx`: (1) подход и цель, (2) доступность, (3) нагрузка и preview, (4) подтверждение. The stepper keeps all three modes, manual phases, horizon, read-only Intervals events, the recommendation basis chip, and the explicit preview → confirm path. Editing an active plan starts from the checkpoint's saved inputs through the read-only `GET /api/planning/edit-context`; first-plan onboarding still hydrates once and never clobbers athlete edits. «Далее» is gated (event-goal needs a confirmed A-race or a manual date; step 3 needs a built preview), the step indicator is button-backed with `aria-current`, and focus moves to the step heading. Focused gates (`8 passed` on M4c + M2 web contracts), adjacent planning contracts (`65 passed`), the full smoke suite (`1394 passed, 1 skipped`), Next lint, and the production build all passed.
+
+M4d adds the missing rollback control: `POST /api/planning/history/restore` accepts `checkpoint_id` + `base_checkpoint_id`, restores the chosen version via `restore_goal_plan_from_checkpoint`, and saves a new checkpoint with `restore_version` provenance (parent = active, restored_from = chosen), raising 409 on a stale base and 422 for the active version itself or an unknown id. The «История изменений» widget shows «Восстановить» on non-active rows with an inline confirm; the newest row is labelled «активная версия». After a successful restore the widget, status, and overview are revalidated. Focused gates (`5 passed` on M4d), the full smoke suite (`1402 passed, 1 skipped`), Next lint, and the production build all passed.
 
 ## Context and Orientation
 
@@ -187,6 +195,8 @@ M4b adds `GET /api/planning/demand-preview?level=...` and `POST /api/planning/de
 
 M4c adds `GET /api/planning/edit-context`, a read-only projection of the active checkpoint's build inputs (English goal/distance keys, weekday keys, saved availability, events, demand) so the edit stepper prefills without client-side domain mapping; `state: "data_gap"` is returned when the checkpoint cannot supply them.
 
+M4d adds `POST /api/planning/history/restore` (`{checkpoint_id, base_checkpoint_id}`) which returns `plan_id`, `applied_checkpoint_id`, `base_checkpoint_id`, `checkpoint_source: "restore_version"`, and `restored_from_checkpoint_id`; 409 when the active checkpoint no longer matches the base, 422 for the active version or an unknown checkpoint.
+
 M3 adds `GET /api/planning/week-by-week`. For an active plan it returns `state: "available"`, `as_of`, bounded `weeks`, and a server-calculated chart scale. A week has target/actual/unplanned TSS, server-calculated completion/remaining values, phase/events, an adherence aggregate, and seven calendar days. A non-rest day contains the `plan_days` leaf sessions enriched only with the already canonical match status/actual fields. `state: "no_plan"` returns no weeks; malformed checkpoint dates return `state: "data_gap"`, never a fabricated rest or zero-completion plan.
 
-Plan revision 2026-08-03: M1 (#301), M2 (#302), and M3 (#303) are merged to `main` through PRs #327–#329. M4a is merged through PR #334, M4b (#335) through PR #336. M4c (#337) adds the four-step plan editor; remaining #304 items are out of scope.
+Plan revision 2026-08-03: M1 (#301), M2 (#302), and M3 (#303) are merged to `main` through PRs #327–#329. M4a (#334), M4b (#336), and M4c (#338) are merged. M4d (#339) adds restore-from-history; remaining #304 items (daily limits) stay out of scope as an explicit data gap.
