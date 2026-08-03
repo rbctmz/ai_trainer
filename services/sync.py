@@ -13,6 +13,7 @@ from data.data_processor import ActivityProcessor, resolve_athlete_ftp_lthr
 from data.data_processor_phase1 import Phase1DataProcessor
 from services.activity_ingest import ingest_provider_activity, normalize_provider_activity
 from services.data_cache import clear_data_caches
+from services.sync_cursor import resolve_window_from_cursor
 from state import StateManager
 
 from . import garmin as garmin_service
@@ -117,6 +118,23 @@ def resolve_sync_window(
         days = max(1, int(days))
         return SyncWindow(end_date - timedelta(days=days), end_date, days, "full")
 
+    # TD-005/D3 (#355): the Garmin ACTIVITY window comes from the shared cursor
+    # table, exactly like Intervals (`services.sync_cursor`). A present cursor
+    # re-syncs the boundary day (overlap 1); a corrupt cursor fails closed; only
+    # an ABSENT cursor falls back to the legacy per-table latest dates below.
+    get_cursor = getattr(database, "get_sync_cursor", None)
+    if callable(get_cursor):
+        cursor_value = get_cursor("garmin", "activities")
+        if cursor_value:
+            start_date, resolved_end, _bootstrapped = resolve_window_from_cursor(
+                cursor_value,
+                now=end_date,
+                overlap_days=1,
+                bootstrap_days=DEFAULT_SYNC_DAYS,
+            )
+            gap_days = max(1, int((resolved_end.date() - start_date.date()).days))
+            return SyncWindow(start_date, resolved_end, gap_days, "incremental")
+
     get_latest = getattr(database, "get_latest_data_dates", None)
     latest_dates: dict[str, str | None] = {}
     if callable(get_latest):
@@ -152,6 +170,27 @@ def resolve_sync_window(
         gap_days = DEFAULT_SYNC_DAYS
 
     return SyncWindow(start_date, end_date, max(1, gap_days), "incremental")
+
+
+def _advance_garmin_activity_cursor(
+    database: Any,
+    end_date: Any,
+    *,
+    clean: bool,
+) -> None:
+    """Advance the shared Garmin activity cursor after a clean fetch+ingest pass.
+
+    A dirty pass (fatal fetch error) advances nothing so the next run re-reads
+    the same window; the idempotent upsert absorbs the overlap. Per-activity
+    warnings do NOT block the advance (M1-T3b contract): the batch was processed.
+    """
+    if not clean:
+        return
+    set_cursor = getattr(database, "set_sync_cursor", None)
+    if not callable(set_cursor):
+        return
+    value = end_date.date().isoformat() if hasattr(end_date, "date") else str(end_date)[:10]
+    set_cursor("garmin", "activities", value)
 
 
 def build_sync_status_payload(result: GarminSyncResult, days: int | None = None) -> dict[str, Any]:
@@ -284,6 +323,7 @@ def sync_garmin_data(
         stats_message=f"Найдено активностей: {len(activities)}" if activities else None,
     )
     result.activity_result = _sync_activities(database, activities, warnings=result.warnings)
+    _advance_garmin_activity_cursor(database, end_date, clean=not activities_error)
 
     _emit_progress(
         on_progress,
