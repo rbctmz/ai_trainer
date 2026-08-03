@@ -713,6 +713,7 @@ export interface PlanLeafSession {
   replaces_session_id: string | null;
   sport: string | null;
   sport_label: string | null;
+  role: string;
   tss: number;
   duration_minutes: number;
   name: string;
@@ -767,6 +768,82 @@ export interface PlanExport {
     athlete_id: string;
     base_url: string;
   };
+}
+
+export type WeekByWeekSessionStatus =
+  | "planned"
+  | "in_progress"
+  | "exact"
+  | "substituted"
+  | "major_deviation"
+  | "unknown"
+  | "ambiguous"
+  | "missed";
+
+export interface WeekByWeekSession extends PlanLeafSession {
+  adherence_status: WeekByWeekSessionStatus;
+  actual_tss: number | null;
+  actual_duration_minutes: number | null;
+  actual_activity_ids: string[];
+}
+
+export interface WeekByWeekDay {
+  index: number | null;
+  date: string;
+  state: "past" | "current" | "future";
+  plan_state: "planned" | "unplanned" | "rest";
+  target_tss: number;
+  actual_tss: number | null;
+  unplanned_tss: number;
+  unplanned_activities: ReconActivity[];
+  sessions: WeekByWeekSession[];
+  events: RaceEvent[];
+}
+
+export interface WeekByWeekWeek {
+  number: number;
+  week_start: string;
+  week_end: string;
+  state: "past" | "current" | "future";
+  is_current: boolean;
+  phase: string;
+  target_tss: number;
+  actual_tss: number | null;
+  unplanned_tss: number;
+  completion_percent: number | null;
+  remaining_tss: number | null;
+  adherence: Record<"exact" | "substituted" | "major_deviation" | "ambiguous" | "missed" | "in_progress", number>;
+  focus: Array<{ sport: string; role: string; tss: number; name: string }>;
+  events: RaceEvent[];
+  days: WeekByWeekDay[];
+}
+
+export interface WeekByWeekPlan {
+  has_plan: boolean;
+  state: "available" | "data_gap" | "no_plan" | string;
+  as_of?: string;
+  reason?: string;
+  window?: { returned_weeks: number; total_weeks: number; max_weeks: number };
+  chart:
+    | []
+    | {
+        metric: "tss";
+        maximum_tss: number;
+        weeks: Array<{
+          number: number;
+          week_start: string;
+          phase: string;
+          state: "past" | "current" | "future";
+          is_current: boolean;
+          target_tss: number;
+          actual_tss: number | null;
+          target_percent: number;
+          actual_percent: number | null;
+          events: RaceEvent[];
+        }>;
+      };
+  weeks: WeekByWeekWeek[];
+  data_quality?: { status?: string; reasons?: string[] };
 }
 
 export interface IntervalsDeliveryResult {
