@@ -99,6 +99,12 @@ def planning_overview(db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.active_plan_overview(db)
 
 
+@router.get("/edit-context")
+def planning_edit_context(db: Database = Depends(get_database)) -> dict[str, Any]:
+    """Read-only build inputs of the active checkpoint for the edit stepper."""
+    return planning_service.planning_edit_context(db)
+
+
 @router.get("/week-by-week")
 def planning_week_by_week(db: Database = Depends(get_database)) -> dict[str, Any]:
     """One bounded, read-only active-plan week/day/session reader projection."""

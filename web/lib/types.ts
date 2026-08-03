@@ -605,6 +605,27 @@ export interface DemandConfirmResult {
   weekly_target?: PlanningWeeklyTarget;
 }
 
+/** Read-only build inputs of the active checkpoint for the edit stepper (M4c). */
+export interface PlanningEditContext {
+  has_plan: boolean;
+  state: "available" | "data_gap" | string;
+  reason: string | null;
+  inputs: {
+    goal_type: string;
+    distance: string;
+    planning_mode: string;
+    intent: string;
+    focus: string;
+    horizon_weeks: number;
+    manual_phases: string[];
+    events: RaceEvent[];
+    event_date: string | null;
+    available_hours: number;
+    available_days: string[];
+    demand: string;
+  } | null;
+}
+
 export interface PlanWeek {
   index: number;
   week_start: string;
