@@ -272,6 +272,9 @@ def _overview_event_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+_POST_PLAN_EVENT_BRIDGE_DAYS = 7
+
+
 def _active_plan_roadmap(goal_plan: Dict[str, Any], *, today: date) -> Dict[str, Any]:
     """Build bounded, proportional phase and event data from one checkpoint."""
     weekly_rows = [
@@ -302,9 +305,14 @@ def _active_plan_roadmap(goal_plan: Dict[str, Any], *, today: date) -> Dict[str,
         _overview_date(event["date"])
         for event in _overview_event_rows(goal_plan)
     ]
-    horizon_end = max(
-        [horizon_end, *(event_date for event_date in stored_event_dates if event_date is not None)]
-    )
+    bridge_end = horizon_end + timedelta(days=_POST_PLAN_EVENT_BRIDGE_DAYS)
+    bridged_event_dates = [
+        event_date
+        for event_date in stored_event_dates
+        if event_date is not None and horizon_start <= event_date <= bridge_end
+    ]
+    if bridged_event_dates:
+        horizon_end = max(horizon_end, *bridged_event_dates)
     if horizon_end < horizon_start:
         return {
             "state": "data_gap",
@@ -497,7 +505,11 @@ def _active_plan_form_projection(
     # Weekly schedules can end on Sunday while the persisted race sits on the
     # following Monday. Add only that short, zero-load calendar bridge so the
     # existing forecast can include its saved race load at the real target.
-    if final_planned_date < target_date <= final_planned_date + timedelta(days=7):
+    if (
+        final_planned_date
+        < target_date
+        <= final_planned_date + timedelta(days=_POST_PLAN_EVENT_BRIDGE_DAYS)
+    ):
         for offset in range(1, (target_date - final_planned_date).days + 1):
             bridge_date = final_planned_date + timedelta(days=offset)
             future_daily.append((datetime.combine(bridge_date, datetime.min.time()), 0.0, {}))
