@@ -221,6 +221,25 @@ class Database:
     def __init__(self, db_path=None):
         self.db_path = db_path or Settings.DATABASE_PATH
         self.init_tables()
+
+    def _connect(self) -> sqlite3.Connection:
+        """Open one SQLite connection with the unified TD-003 policy.
+
+        ``timeout=30`` (Python-level busy wait) plus ``PRAGMA busy_timeout=30000``
+        bound lock contention instead of failing immediately, and
+        ``PRAGMA journal_mode=WAL`` gives concurrent readers a consistent
+        snapshot without blocking the writer. WAL mode persists in the database
+        file and is idempotent to set.
+        """
+        conn = sqlite3.connect(self.db_path, timeout=30)
+        try:
+            conn.execute("PRAGMA busy_timeout = 30000")
+            conn.execute("PRAGMA journal_mode = WAL")
+        except sqlite3.Error:
+            conn.close()
+            raise
+        return conn
+
     
     @staticmethod
     def clean_value(value):
@@ -250,7 +269,7 @@ class Database:
     
     def init_tables(self):
         """Создание таблиц БД"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         
         # Таблица активностей
         conn.execute('''
@@ -1024,9 +1043,8 @@ class Database:
         missing = sorted(required - set(payload or {}))
         if missing:
             raise ValueError(f"missing readiness snapshot fields: {missing}")
-        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn = self._connect()
         conn.row_factory = sqlite3.Row
-        conn.execute('PRAGMA busy_timeout = 30000')
         try:
             conn.execute('BEGIN IMMEDIATE')
             existing = conn.execute(
@@ -1088,7 +1106,7 @@ class Database:
             conn.close()
 
     def get_readiness_snapshot_history(self, target_key):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             '''SELECT * FROM readiness_snapshots
@@ -1107,7 +1125,7 @@ class Database:
             clauses.append('local_date = ?')
             params.append(str(local_date))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ''
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             f'''SELECT * FROM readiness_snapshots {where}
@@ -1142,9 +1160,8 @@ class Database:
         missing = sorted(required - set(payload or {}))
         if missing:
             raise ValueError(f"missing recovery episode fields: {missing}")
-        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn = self._connect()
         conn.row_factory = sqlite3.Row
-        conn.execute('PRAGMA busy_timeout = 30000')
         try:
             conn.execute('BEGIN IMMEDIATE')
             existing = conn.execute(
@@ -1228,7 +1245,7 @@ class Database:
             query = f'''SELECT * FROM recovery_episodes {where}
                         ORDER BY session_date, target_key, revision'''
             query_params = tuple(params)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         conn.row_factory = sqlite3.Row
         rows = conn.execute(query, query_params).fetchall()
         conn.close()
@@ -1253,7 +1270,7 @@ class Database:
             raise ValueError("checkpoint_data must be a non-empty dict")
 
         payload = json.dumps(checkpoint_data, ensure_ascii=False)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1283,7 +1300,7 @@ class Database:
 
     def get_latest_planning_checkpoint(self):
         """Возвращает последний planning checkpoint или None."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1302,7 +1319,7 @@ class Database:
         if checkpoint_id is None:
             return None
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1319,7 +1336,7 @@ class Database:
 
     def get_recent_planning_checkpoints(self, limit=3):
         """Возвращает последние planning checkpoints для dashboard/AI surfaces."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1386,7 +1403,7 @@ class Database:
         else:
             date = str(date)
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1423,7 +1440,7 @@ class Database:
     def get_coach_decisions(self, days=30, limit=100):
         """Возвращает решения коуча за последние N дней, новые первыми."""
         cutoff_date = self._cutoff_date(days)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1486,7 +1503,7 @@ class Database:
         else:
             date = str(date)
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1521,7 +1538,7 @@ class Database:
 
     def link_recovery_decision_proposal(self, decision_id, proposal_id):
         """Связывает recovery decision с durable proposal."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1548,7 +1565,7 @@ class Database:
     def get_recovery_decisions(self, days=30, limit=100):
         """Возвращает recovery decisions за последние N дней, новые первыми."""
         cutoff_date = self._cutoff_date(days)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1612,7 +1629,7 @@ class Database:
         if not fingerprint or not target_key or not rule_version:
             raise ValueError("forecast identity must be non-empty")
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute("BEGIN IMMEDIATE")
         cursor.execute(
@@ -1705,14 +1722,14 @@ class Database:
         return cursor.fetchone()
 
     def get_session_quality_prediction(self, prediction_id):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         row = self._select_session_quality_prediction(conn.cursor(), prediction_id)
         conn.close()
         return self._deserialize_session_quality_prediction_row(row)
 
     def get_session_quality_predictions(self, days=30, limit=200, target_key=None):
         cutoff_date = self._cutoff_date(days)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         params = [cutoff_date]
         target_clause = ""
@@ -1740,7 +1757,7 @@ class Database:
         return [self._deserialize_session_quality_prediction_row(row) for row in rows]
 
     def link_session_quality_prediction_decision(self, prediction_id, decision_id):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -1759,7 +1776,7 @@ class Database:
         """Atomically resolve pending revisions for one target without rewriting facts."""
         if not isinstance(resolutions, list) or not resolutions:
             raise ValueError("resolutions must be a non-empty list")
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute("BEGIN IMMEDIATE")
         resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
@@ -1849,7 +1866,7 @@ class Database:
             return []
         columns = list(self._ACTIVITY_COLUMN_ORDER)
         placeholders = ", ".join("?" for _ in ids)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             f"SELECT {', '.join(columns)} FROM activities WHERE activity_id IN ({placeholders})",
@@ -1861,7 +1878,7 @@ class Database:
 
     def get_activities_between(self, start_date, end_date):
         columns = list(self._ACTIVITY_COLUMN_ORDER)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             f"SELECT {', '.join(columns)} FROM activities WHERE date BETWEEN ? AND ? ORDER BY date, started_at_utc, activity_id",
@@ -1890,7 +1907,7 @@ class Database:
         missing = sorted(key for key in required if key not in payload)
         if missing:
             raise ValueError(f"plan actual match missing fields: {', '.join(missing)}")
-        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
@@ -1946,7 +1963,7 @@ class Database:
             conn.close()
 
     def get_latest_plan_actual_matches(self, *, start_date, end_date):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -2011,7 +2028,7 @@ class Database:
         session_id = str(payload.get("session_id") or "").strip()
         if not fingerprint or not target_key or not session_id:
             raise ValueError("session feedback identity must be non-empty")
-        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
@@ -2103,7 +2120,7 @@ class Database:
             conn.close()
 
     def get_session_feedback(self, feedback_id):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         row = conn.execute(
             "SELECT * FROM session_feedback WHERE id = ? LIMIT 1",
             (int(feedback_id),),
@@ -2112,7 +2129,7 @@ class Database:
         return self._deserialize_session_feedback(row)
 
     def get_session_feedback_by_fingerprint(self, fingerprint):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         row = conn.execute(
             "SELECT * FROM session_feedback WHERE fingerprint = ? LIMIT 1",
             (str(fingerprint),),
@@ -2121,7 +2138,7 @@ class Database:
         return self._deserialize_session_feedback(row)
 
     def get_session_feedback_history(self, session_id):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         rows = conn.execute(
             "SELECT * FROM session_feedback WHERE session_id = ? ORDER BY revision, id",
             (str(session_id),),
@@ -2130,7 +2147,7 @@ class Database:
         return [self._deserialize_session_feedback(row) for row in rows]
 
     def get_latest_session_feedback(self, session_id):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         row = conn.execute(
             '''
             SELECT * FROM session_feedback
@@ -2144,7 +2161,7 @@ class Database:
         return self._deserialize_session_feedback(row)
 
     def get_latest_session_feedbacks(self, *, start_date=None, end_date=None):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         clauses = []
         params = []
         if start_date is not None:
@@ -2213,7 +2230,7 @@ class Database:
         missing = sorted(key for key in required if key not in payload)
         if missing:
             raise ValueError(f"session feedback prompt event missing fields: {', '.join(missing)}")
-        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
@@ -2251,7 +2268,7 @@ class Database:
             conn.close()
 
     def get_latest_session_feedback_prompt_events(self):
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         rows = conn.execute(
             '''
             SELECT event.id, event.fingerprint, event.target_key, event.session_id,
@@ -2289,7 +2306,7 @@ class Database:
         missing = sorted(key for key in required if key not in payload)
         if missing:
             raise ValueError(f"session quality evaluation missing fields: {', '.join(missing)}")
-        conn = sqlite3.connect(self.db_path, timeout=30)
+        conn = self._connect()
         try:
             conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
@@ -2347,7 +2364,7 @@ class Database:
             placeholders = ", ".join("?" for _ in ids)
             where = f"WHERE prediction_id IN ({placeholders})"
             params.extend(ids)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         rows = conn.execute(
             f'''
             SELECT evaluation.*
@@ -2380,7 +2397,7 @@ class Database:
                 clauses.append(f"{column} IN ({placeholders})")
                 params.extend(normalized)
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         rows = conn.execute(
             f'''
             SELECT * FROM session_quality_evaluations
@@ -2440,7 +2457,7 @@ class Database:
         else:
             date = str(date)
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         values = (
             self.clean_value(date),
@@ -2521,7 +2538,7 @@ class Database:
         RecoveryReplan v2 не должен плодить строки — только освежать превью)."""
         if not isinstance(preview, dict):
             raise ValueError("preview must be a dict")
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -2550,7 +2567,7 @@ class Database:
         """Возвращает одно предложение коуча по id или None."""
         if proposal_id is None:
             return None
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -2570,7 +2587,7 @@ class Database:
     def get_coach_proposals(self, days=30, status=None, limit=100):
         """Возвращает предложения коуча за последние N дней, новые первыми."""
         cutoff_date = self._cutoff_date(days)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         if status:
             cursor.execute(
@@ -2617,7 +2634,7 @@ class Database:
         if result is not None:
             result_json = json.dumps(result, ensure_ascii=False, default=str)
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -2660,7 +2677,7 @@ class Database:
         if transition not in allowed:
             raise ValueError(f"unsupported proposal transition: {transition}")
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -2752,7 +2769,7 @@ class Database:
         if not isinstance(metadata, dict):
             raise ValueError("metadata must be a dict")
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -2789,7 +2806,7 @@ class Database:
         """Возвращает одно durable-ограничение по id или None."""
         if constraint_id is None:
             return None
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -2825,7 +2842,7 @@ class Database:
             clauses.append("status = 'active'")
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             f'''
@@ -2845,7 +2862,7 @@ class Database:
     def deactivate_coach_constraint(self, constraint_id):
         """Деактивирует constraint, сохраняя строку как audit trail."""
         resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -2895,7 +2912,7 @@ class Database:
     
     def get_activities(self, days=30):
         """Получение активностей из БД"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         
         # Если данные есть, получаем их с фильтрацией
         cutoff_date = self._cutoff_date(days)
@@ -2918,7 +2935,7 @@ class Database:
     def get_hrv_data(self, days=30):
         """Получение данных HRV за последние N дней (исправлено)"""
         from datetime import datetime, timedelta
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         
         # Вычисляем дату начала периода в Python
         start_date = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
@@ -2947,7 +2964,7 @@ class Database:
     
     def save_hrv_data(self, hrv_data):
         """Сохранение HRV данных в БД"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         
         for date_str, data in hrv_data.items():
             conn.execute('''
@@ -2966,7 +2983,7 @@ class Database:
     
     def save_activities(self, activities):
         """Сохранение списка активностей в БД"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         columns = ', '.join(self._ACTIVITY_COLUMN_ORDER)
         placeholders = ', '.join('?' for _ in self._ACTIVITY_COLUMN_ORDER)
         
@@ -2985,7 +3002,7 @@ class Database:
     
     def clean_test_data(self):
         """Очистка всех тестовых данных из базы"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         # Удаляем тестовые активности
@@ -3017,7 +3034,7 @@ class Database:
     
     def get_latest_data_dates(self):
         """Последние даты (YYYY-MM-DD) по таблицам синка для инкрементального режима"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
 
         latest = {}
@@ -3035,7 +3052,7 @@ class Database:
     def get_sync_cursor(self, provider, domain):
         """M1 (#270): read the persistent per-provider/per-domain sync cursor — the ISO
         high-water boundary of the last fully-processed window — or None if unset."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -3059,7 +3076,7 @@ class Database:
         dates, so a corrupt PERSISTED value is likewise surfaced, not silently maxed.
         Returns the stored (possibly unchanged) ISO-date string."""
         new_date = parse_cursor_date(cursor_value)
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         try:
             cursor = conn.cursor()
             cursor.execute(
@@ -3132,7 +3149,7 @@ class Database:
                 or source not in supported
             )
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         try:
             cursor = conn.cursor()
             for record in records or []:
@@ -3300,7 +3317,7 @@ class Database:
         if not activities:
             return {'new': 0, 'updated': 0, 'skipped': 0}
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         activity_columns = [column for column in self._ACTIVITY_COLUMN_ORDER if column != 'activity_id']
         update_sql = ', '.join(f"{column}=?" for column in activity_columns)
@@ -3504,7 +3521,7 @@ class Database:
         provider_tss = self.clean_value(link.get('provider_tss'))
         payload_json = json.dumps(canonical, default=str)
 
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         try:
             cursor = conn.cursor()
 
@@ -3598,7 +3615,7 @@ class Database:
         ``source_tss``. Re-running inserts nothing new and mutates no classification.
         """
         columns = self._ACTIVITY_COLUMN_ORDER
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         try:
             cursor = conn.cursor()
             cursor.execute(f"SELECT {', '.join(columns)} FROM activities")
@@ -3651,7 +3668,7 @@ class Database:
         if not hrv_data:
             return {'new': 0, 'updated': 0}
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         # Получаем существующие даты
@@ -3717,7 +3734,7 @@ class Database:
     
     def clear_all_data(self):
         """Очистка всех данных из базы"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         # Очищаем все таблицы
@@ -3797,7 +3814,7 @@ class Database:
 
     def get_user_setting(self, key, default=None):
         """Получение пользовательской настройки по ключу."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute('SELECT value FROM user_settings WHERE key = ?', (key,))
         row = cursor.fetchone()
@@ -3808,7 +3825,7 @@ class Database:
 
     def set_user_setting(self, key, value):
         """Сохранение пользовательской настройки."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         conn.execute(
             '''
             INSERT INTO user_settings (key, value, updated_at)
@@ -3824,14 +3841,14 @@ class Database:
 
     def delete_user_setting(self, key):
         """Удаление пользовательской настройки."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         conn.execute('DELETE FROM user_settings WHERE key = ?', (key,))
         conn.commit()
         conn.close()
 
     def save_athlete_profile(self, profile):
         """Сохраняет новый append-only снэпшот athlete profile."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         threshold_pace = self.clean_value(
             profile.get('threshold_pace_seconds_per_km')
         )
@@ -3871,7 +3888,7 @@ class Database:
 
     def get_athlete_profile(self):
         """Возвращает самый свежий снэпшот athlete profile, или None если ещё ничего не синкалось."""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
@@ -3906,7 +3923,7 @@ class Database:
 
     def get_database_stats(self):
         """Получение статистики по базе данных"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         # Подсчитываем записи в каждой таблице
@@ -4006,7 +4023,7 @@ class Database:
         if not sleep_data:
             return {'new': 0, 'updated': 0}
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         # Получаем существующие даты
@@ -4139,7 +4156,7 @@ class Database:
         if not health_data:
             return {'new': 0, 'updated': 0}
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         columns = list(self._DAILY_HEALTH_COLUMN_TYPES)
         insert_columns = ['date'] + columns
@@ -4212,7 +4229,7 @@ class Database:
         if not status_data:
             return {'new': 0, 'updated': 0}
         
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         cursor = conn.cursor()
         
         # Получаем существующие даты
@@ -4255,7 +4272,7 @@ class Database:
     
     def get_sleep_data(self, days=30):
         """Получение данных сна за последние N дней"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         
         cutoff_date = self._cutoff_date(days)
         
@@ -4281,7 +4298,7 @@ class Database:
     
     def get_daily_health(self, days=30):
         """Получение ежедневных показателей здоровья за последние N дней"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         
         cutoff_date = self._cutoff_date(days)
         
@@ -4307,7 +4324,7 @@ class Database:
     
     def get_training_status_history(self, days=90):
         """Получение истории статуса тренированности за последние N дней"""
-        conn = sqlite3.connect(self.db_path)
+        conn = self._connect()
         
         cutoff_date = self._cutoff_date(days)
         

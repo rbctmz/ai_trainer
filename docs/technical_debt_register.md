@@ -29,7 +29,6 @@
 
 | ID | Приоритет | Область | Риск | Следующее действие |
 |----|-----------|---------|------|--------------------|
-| TD-003 | P1 | Reliability | Нет единой SQLite concurrency policy | WAL/retry contract + race gates |
 | TD-004 | P1 | Modifiability | Две UI-поверхности продолжают расходиться | Закрыть критерии Streamlit EOL |
 | TD-005 | P2 | Data/ingest | В M1 оставлены три compatibility-среза | Разделить и закрыть D2–D4 |
 | TD-006 | P2 | Structure | Крупные модули концентрируют churn | Churn-first decomposition |
@@ -137,3 +136,4 @@ backlog:
 |----|------|-----------|
 | TD-001 | 2026-07-28 | [#293](https://github.com/rbctmz/ai_trainer/issues/293): stopped-service SQLite Backup API CLI, integrity check, atomic no-clobber backup, sidecar-safe restore, pre-restore rollback и clean-volume domain drill |
 | TD-002 | 2026-07-28 | [#295](https://github.com/rbctmz/ai_trainer/issues/295) / [#296](https://github.com/rbctmz/ai_trainer/pull/296): contributor-safe Gitleaks на event range + current tree, immutable pins, runtime synthetic gate, 4 verified exact-fingerprint false positive, ротация и удаление current-tree credential copies; residual history-risk перенесён в TD-008 |
+| TD-003 | 2026-08-03 | [#347](https://github.com/rbctmz/ai_trainer/issues/347): единый `Database._connect()` (timeout=30, busy_timeout=30000, journal_mode=WAL), все call sites через factory, race writer+reader гейт без потери данных и с bounded latency; smoke 1439 passed |
