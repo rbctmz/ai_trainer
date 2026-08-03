@@ -158,6 +158,16 @@ def test_normalize_intervals_local_first_tss_not_bypassed():
     assert bare.canonical["tss_method"] == "intervals_icu_provider_fallback"
 
 
+def test_normalize_intervals_local_first_requires_tss_method_pair():
+    # D2 contract (#356): a bare `tss` WITHOUT `tss_method` is not a local result —
+    # the pair is the contract, so the row still takes the explicit provider fallback.
+    candidate = normalize_provider_activity(
+        _intervals_row(tss=71.5), "intervals"
+    )
+    assert candidate.canonical["tss"] == 90.0
+    assert candidate.canonical["tss_method"] == "intervals_icu_provider_fallback"
+
+
 @pytest.mark.parametrize("source", ["STRAVA", "NOT_GARMIN", "garmin_lite", "", None])
 def test_normalize_intervals_only_exact_garmin_source_is_attributed(source):
     # blockers #1/#3: only an exact known-Garmin token attributes external_id to
