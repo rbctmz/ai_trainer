@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { dataSourceLabel } from "@/lib/sourceLabels";
@@ -30,7 +31,10 @@ export function SleepWidget({ className = "" }: { className?: string }) {
     :                "text-tone-danger";
 
   return (
-    <div className={`rounded-card border border-surface-border bg-surface p-4 shadow-card ${className}`}>
+    <Link
+      href="/sleep"
+      className={`block rounded-card border border-surface-border bg-surface p-4 shadow-card transition hover:border-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${className}`}
+    >
       <div className="text-xs font-medium uppercase tracking-wide text-ink-faint mb-1">
         Сон
       </div>
@@ -65,6 +69,6 @@ export function SleepWidget({ className = "" }: { className?: string }) {
           />
         </div>
       )}
-    </div>
+    </Link>
   );
 }

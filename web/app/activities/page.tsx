@@ -3,6 +3,7 @@
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { Activity, ActivitiesResponse } from "@/lib/types";
+import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
 
 const TSS_SOURCE_LABELS: Record<string, string> = {
   power: "по мощности",
@@ -27,7 +28,7 @@ export default function ActivitiesPage() {
 
   return (
     <main className="space-y-5">
-      <h1 className="text-2xl font-bold text-ink">Активности</h1>
+      <DrillDownHeader title="Активности" />
 
       {isLoading ? <div className="h-40 animate-pulse rounded-card bg-surface" /> : null}
       {error ? (

@@ -4,6 +4,7 @@ import useSWR from "swr";
 import { fetcher } from "@/lib/api";
 import { dataSourceLabel } from "@/lib/sourceLabels";
 import { HrvSummary } from "@/lib/types";
+import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
 
 export default function HrvPage() {
   const { data, error, isLoading } = useSWR<HrvSummary>(
@@ -14,7 +15,7 @@ export default function HrvPage() {
 
   return (
     <main className="space-y-5">
-      <h1 className="text-2xl font-bold text-ink">Анализ HRV</h1>
+      <DrillDownHeader title="Анализ HRV" />
 
       {isLoading ? <div className="h-40 animate-pulse rounded-card bg-surface" /> : null}
       {error ? <ErrorCard /> : null}
