@@ -8,6 +8,7 @@ import plotly.express as px
 import streamlit as st
 
 from services.data_cache import load_activities
+from services.athlete_aggregates import activity_totals, daily_activity_totals
 from state import StateManager
 from ui.plotly_theme import get_plotly_theme
 
@@ -99,18 +100,18 @@ def _render_summary_metrics(filtered_df: pd.DataFrame) -> None:
 
     ModernUI.render_section_title("Статистика", caption="Сводка по выбранным тренировкам")
 
+    totals = activity_totals(filtered_df)
     col1, col2 = st.columns(2)
     col3, col4 = st.columns(2)
 
     with col1:
-        ModernUI.render_stat_card("Всего тренировок", len(filtered_df), tone="info")
+        ModernUI.render_stat_card("Всего тренировок", totals["count"], tone="info")
     with col2:
-        ModernUI.render_stat_card("Общая дистанция", f"{filtered_df['distance_km'].sum():.1f} км", tone="success")
+        ModernUI.render_stat_card("Общая дистанция", f"{totals['distance_km']:.1f} км", tone="success")
     with col3:
-        ModernUI.render_stat_card("Общее время", f"{filtered_df['duration_minutes'].sum() / 60:.1f} ч", tone="neutral")
+        ModernUI.render_stat_card("Общее время", f"{totals['duration_hours']:.1f} ч", tone="neutral")
     with col4:
-        avg_tss = filtered_df["tss"].mean() if "tss" in filtered_df.columns else 0
-        ModernUI.render_stat_card("Средний TSS", f"{avg_tss:.0f}", tone="info")
+        ModernUI.render_stat_card("Средний TSS", f"{totals['avg_tss']:.0f}", tone="info")
 
 
 def _render_daily_chart(filtered_df: pd.DataFrame, state: StateManager) -> None:
@@ -121,14 +122,7 @@ def _render_daily_chart(filtered_df: pd.DataFrame, state: StateManager) -> None:
 
     ModernUI.render_section_title("Активность по дням", caption="Training Stress Score")
 
-    filtered_df["date"] = pd.to_datetime(filtered_df["date"])
-    daily_stats = filtered_df.groupby("date").agg(
-        {
-            "tss": "sum",
-            "duration_minutes": "sum",
-            "distance_km": "sum",
-        }
-    ).reset_index()
+    daily_stats = daily_activity_totals(filtered_df)
 
     # Single cockpit-themed path (use_custom_theme branching removed — cockpit
     # is now the only theme engine, and get_plotly_theme already aligns to --ic-*).
