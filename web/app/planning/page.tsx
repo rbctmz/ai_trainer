@@ -17,6 +17,7 @@ import {
   RebalanceConfirmResult,
   RebalancePreviewResult,
   ReconResponse,
+  RestoreHistoryResult,
   WeekByWeekPlan,
 } from "@/lib/types";
 
@@ -717,9 +718,44 @@ function LocalDataGap({ label }: { label: string }) {
 
 /* ---------------- Первый план (онбординг, #271 §7) ---------------- */
 function AdjustmentHistory() {
+  const { mutate } = useSWRConfig();
   const { data } = useSWR<PlanningHistory>("/api/planning/history?limit=8", fetcher);
   const [expanded, setExpanded] = useState(false);
+  const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
   if (!data || !data.has_history) return null;
+  const activeId = data.items[0]?.checkpoint_id ?? null;
+
+  async function restore(item: { checkpoint_id: number | null }) {
+    if (activeId == null || item.checkpoint_id == null) return;
+    setBusy(true);
+    setError(null);
+    setDone(null);
+    try {
+      const result = await postJSON<RestoreHistoryResult>("/api/planning/history/restore", {
+        checkpoint_id: item.checkpoint_id,
+        base_checkpoint_id: activeId,
+      });
+      setConfirmingId(null);
+      setDone(`Восстановлено как checkpoint #${result.applied_checkpoint_id}.`);
+      await Promise.all([
+        mutate("/api/planning/history?limit=8"),
+        mutate("/api/planning/status"),
+        mutate("/api/planning/overview"),
+      ]);
+    } catch (e) {
+      setError(
+        e instanceof ApiError
+          ? e.message
+          : "Не удалось восстановить версию. Подготовьте новое действие.",
+      );
+      setConfirmingId(null);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
@@ -741,15 +777,65 @@ function AdjustmentHistory() {
       </button>
       {expanded ? (
         <div id="planning-adjustment-history" className="mt-3 divide-y divide-surface-border">
-          {data.items.map((item) => (
-            <div key={`${item.checkpoint_id}-${item.date}`} className="grid gap-2 py-2.5 sm:grid-cols-[110px_130px_1fr]">
-              <div className="text-xs tabular-nums text-ink-soft">
-                {item.date_label || item.date.slice(0, 10)}
+          {error ? <p className="py-2 text-xs text-rose-600">{error}</p> : null}
+          {done ? <p className="py-2 text-xs text-emerald-700">{done}</p> : null}
+          {data.items.map((item, index) => {
+            const isActive = index === 0;
+            const isConfirming = confirmingId === item.checkpoint_id;
+            return (
+              <div key={`${item.checkpoint_id}-${item.date}`} className="py-2.5">
+                <div className="grid gap-2 sm:grid-cols-[110px_130px_1fr]">
+                  <div className="text-xs tabular-nums text-ink-soft">
+                    {item.date_label || item.date.slice(0, 10)}
+                  </div>
+                  <div className="text-xs font-medium text-ink">{item.type_label}</div>
+                  <div className="text-sm text-ink-soft">{item.outcome_note}</div>
+                </div>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  {isActive ? (
+                    <span className="text-[11px] text-ink-faint">активная версия</span>
+                  ) : isConfirming ? (
+                    <>
+                      <span className="text-xs text-ink-soft">
+                        Восстановить версию {item.checkpoint_id}?
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => restore(item)}
+                        disabled={busy}
+                        className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-accent-foreground transition hover:bg-accent/90 disabled:opacity-40"
+                      >
+                        {busy ? "Восстанавливаю…" : "Да, восстановить"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setConfirmingId(null);
+                          setError(null);
+                        }}
+                        disabled={busy}
+                        className="rounded-lg border border-surface-border px-3 py-1.5 text-xs text-ink-soft transition hover:bg-surface-muted disabled:opacity-40"
+                      >
+                        Отмена
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setConfirmingId(item.checkpoint_id);
+                        setError(null);
+                        setDone(null);
+                      }}
+                      className="rounded-lg border border-surface-border px-2.5 py-1 text-xs font-medium text-ink-soft transition hover:bg-surface-muted"
+                    >
+                      Восстановить
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="text-xs font-medium text-ink">{item.type_label}</div>
-              <div className="text-sm text-ink-soft">{item.outcome_note}</div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       ) : null}
     </section>
