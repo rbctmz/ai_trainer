@@ -432,7 +432,7 @@ function ContextSidebar({
             {searchQuery.trim() ? "Ничего не найдено" : "Пока нет сохранённых чатов"}
           </p>
         ) : (
-          <div className="mt-3 space-y-4">
+          <div className="mt-3 max-h-[calc(100vh-320px)] space-y-4 overflow-y-auto pr-1">
             <HistoryGroup
               title="Активные"
               chats={activeChats}
@@ -507,6 +507,7 @@ function HistoryGroup({
   onAskDelete: (id: string | null) => void;
   onDelete: (chat: ChatSummary) => void;
 }) {
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   if (chats.length === 0) return null;
   const groups = new Map<string, ChatSummary[]>();
   for (const chat of chats) {
@@ -546,8 +547,23 @@ function HistoryGroup({
                     {chat.preview ? ` · ${chat.preview}` : ""}
                   </span>
                 </button>
-                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  {renamingId === chat.id ? (
+                <div className="mt-1 flex items-center justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMenuOpenId((current) => (current === chat.id ? null : chat.id));
+                      onAskDelete(null);
+                    }}
+                    aria-expanded={menuOpenId === chat.id}
+                    aria-label={`Действия: ${chat.title}`}
+                    className="rounded-lg border border-surface-border px-1.5 py-0.5 text-xs text-ink-soft transition hover:bg-surface-muted"
+                  >
+                    ⋯
+                  </button>
+                </div>
+                {menuOpenId === chat.id ? (
+                  <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                    {renamingId === chat.id ? (
                     <>
                       <input
                         value={renameValue}
@@ -580,55 +596,61 @@ function HistoryGroup({
                         Отмена
                       </button>
                     </>
-                  ) : deleteConfirmId === chat.id ? (
-                    <>
-                      <span className="text-xs text-ink-soft">Удалить чат?</span>
-                      <button
-                        type="button"
-                        onClick={() => onDelete(chat)}
-                        disabled={busyId === chat.id}
-                        className="rounded-lg bg-tone-danger px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40"
-                      >
-                        {busyId === chat.id ? "Удаляю…" : "Да, удалить"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onAskDelete(null)}
-                        disabled={busyId === chat.id}
-                        className="rounded-lg border border-surface-border px-2.5 py-1 text-xs text-ink-soft"
-                      >
-                        Отмена
-                      </button>
-                    </>
-                  ) : (
-                    <>
-                      <button
-                        type="button"
-                        onClick={() => onStartRename(chat)}
-                        disabled={busyId === chat.id}
-                        className="rounded-lg border border-surface-border px-2 py-0.5 text-[11px] text-ink-soft transition hover:bg-surface-muted"
-                      >
-                        Переименовать
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onToggleArchive(chat)}
-                        disabled={busyId === chat.id}
-                        className="rounded-lg border border-surface-border px-2 py-0.5 text-[11px] text-ink-soft transition hover:bg-surface-muted"
-                      >
-                        {chat.archived ? "Вернуть" : "В архив"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => onAskDelete(chat.id)}
-                        disabled={busyId === chat.id}
-                        className="rounded-lg border border-surface-border px-2 py-0.5 text-[11px] text-tone-danger transition hover:bg-tone-danger/10"
-                      >
-                        Удалить
-                      </button>
-                    </>
-                  )}
-                </div>
+                    ) : deleteConfirmId === chat.id ? (
+                      <>
+                        <span className="text-xs text-ink-soft">Удалить чат?</span>
+                        <button
+                          type="button"
+                          onClick={() => onDelete(chat)}
+                          disabled={busyId === chat.id}
+                          className="rounded-lg bg-tone-danger px-2.5 py-1 text-xs font-medium text-white disabled:opacity-40"
+                        >
+                          {busyId === chat.id ? "Удаляю…" : "Да, удалить"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onAskDelete(null)}
+                          disabled={busyId === chat.id}
+                          className="rounded-lg border border-surface-border px-2.5 py-1 text-xs text-ink-soft"
+                        >
+                          Отмена
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onStartRename(chat);
+                          }}
+                          disabled={busyId === chat.id}
+                          className="rounded-lg border border-surface-border px-2 py-1 text-[11px] text-ink-soft transition hover:bg-surface-muted"
+                        >
+                          Переименовать
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            onToggleArchive(chat);
+                            setMenuOpenId(null);
+                          }}
+                          disabled={busyId === chat.id}
+                          className="rounded-lg border border-surface-border px-2 py-1 text-[11px] text-ink-soft transition hover:bg-surface-muted"
+                        >
+                          {chat.archived ? "Вернуть" : "В архив"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => onAskDelete(chat.id)}
+                          disabled={busyId === chat.id}
+                          className="rounded-lg border border-surface-border px-2 py-1 text-[11px] text-tone-danger transition hover:bg-tone-danger/10"
+                        >
+                          Удалить
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>

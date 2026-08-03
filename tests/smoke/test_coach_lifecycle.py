@@ -158,3 +158,89 @@ def test_coach_planning_page_has_lifecycle_ui():
     assert "Удалить" in page
     assert "archived" in types and "preview" in types
     assert "deleteJSON" in api
+
+
+def test_coach_upcoming_workouts_lists_leaf_sessions(tmp_path):
+    from datetime import datetime, timedelta
+
+    from api import planning_service as ps
+    from models.ai_tools import AITools
+    from models.planning_checkpoints import (
+        build_planning_checkpoint,
+        restore_goal_plan_from_checkpoint,
+    )
+    from tests.smoke.test_api_planning import _seeded_db
+
+    db = _seeded_db(tmp_path)
+    event_date = (datetime.now().date() + timedelta(weeks=9)).isoformat()
+    ps.build_plan(
+        db,
+        goal_type="triathlon",
+        distance="olympic",
+        event_date=event_date,
+        available_hours=12,
+        persist=True,
+    )
+    goal_plan = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    assert goal_plan is not None
+    today = datetime.now().date()
+
+    daily_plan = list(goal_plan["daily_plan"])
+    templates = list(goal_plan["session_templates"])
+    today_index = None
+    for index, item in enumerate(daily_plan):
+        dt = item[0]
+        session_date = dt.date() if hasattr(dt, "date") else dt
+        if session_date == today:
+            today_index = index
+            break
+    assert today_index is not None, "plan must have a row for today"
+
+    templates[today_index] = {
+        "date": today.isoformat(),
+        "sport": "brick",
+        "sport_label": "вело → бег",
+        "phase": "Base",
+        "kind": "composite",
+        "session_id": "composite-today",
+        "sessions": [
+            {
+                "session_id": "leaf-bike",
+                "sport": "bike",
+                "sport_label": "вело",
+                "total_tss": 60,
+                "export_name": "Вело-интервалы",
+                "template_name": "Вело",
+                "kind": "single",
+            },
+            {
+                "session_id": "leaf-run",
+                "sport": "run",
+                "sport_label": "бег",
+                "total_tss": 40,
+                "export_name": "Бег после вела",
+                "template_name": "Бег",
+                "kind": "single",
+            },
+        ],
+    }
+    daily_plan[today_index] = (today, 100.0, {"bike": 60.0, "run": 40.0})
+    goal_plan["daily_plan"] = daily_plan
+    goal_plan["session_templates"] = templates
+    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+
+    tools = AITools(db)
+    result = tools.get_upcoming_workouts(days=0)
+
+    today_sessions = [session for session in result["sessions"] if session["date"] == today.isoformat()]
+    assert len(today_sessions) == 2
+    assert {session["sport"] for session in today_sessions} == {"bike", "run"}
+    assert {session["name"] for session in today_sessions} == {"Вело-интервалы", "Бег после вела"}
+
+
+def test_coach_history_sidebar_scrolls_and_uses_compact_menu():
+    page = PAGE.read_text(encoding="utf-8")
+
+    assert "max-h-[calc(100vh-320px)]" in page
+    assert "overflow-y-auto" in page
+    assert "⋯" in page
