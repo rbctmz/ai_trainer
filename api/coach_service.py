@@ -20,6 +20,11 @@ _ALIASES = {
     "gemini": "google",
 }
 
+# TD-007 (ASR-PERF-2): deterministic budget for the local, network-free coach
+# path (provider="mock"): time from stream start to the first token event.
+# Live-provider latency is observed separately and is never gated by this value.
+COACH_FIRST_TOKEN_BUDGET_MS = 5000
+
 
 def resolve_provider(provider_type: Optional[str] = None) -> Optional[AIProvider]:
     """Return an available provider.
