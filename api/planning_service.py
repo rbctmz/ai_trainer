@@ -249,6 +249,85 @@ def demand_preview(db: Database, level: str) -> Dict[str, Any]:
     }
 
 
+def _reverse_goal_type(value: str) -> str:
+    """Map a persisted Russian goal label back to the build-form key."""
+    for key, label in GOAL_TYPE_MAP.items():
+        if label == value:
+            return key
+    return value
+
+
+def _reverse_distance(value: str) -> str:
+    """Map a persisted Russian distance label back to the build-form key."""
+    for key, label in DISTANCE_MAP.items():
+        if label == value:
+            return key
+    return value
+
+
+def planning_edit_context(db: Database) -> Dict[str, Any]:
+    """Read-only build inputs of the active checkpoint for the edit stepper.
+
+    Returns exactly what `web/components/planning/PlanBuilder.tsx` needs to
+    prefill the four-step editor (English goal/distance keys, weekday keys,
+    saved availability, events, demand), so the browser never maps domain
+    labels itself. No writes, no provider I/O; missing data is an explicit gap.
+    """
+    latest = db.get_latest_planning_checkpoint()
+    if not isinstance(latest, dict) or not latest.get("goal_plan_snapshot"):
+        return {"has_plan": False, "state": "data_gap", "reason": "Активного плана нет.", "inputs": None}
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    if goal_plan is None:
+        return {
+            "has_plan": True,
+            "state": "data_gap",
+            "reason": "Активный checkpoint не удаётся восстановить.",
+            "inputs": None,
+        }
+
+    constraints = dict(goal_plan.get("constraint_summary") or {})
+    available_hours = _overview_number(constraints.get("available_hours"))
+    day_indices = sorted(
+        {
+            int(index)
+            for index in (constraints.get("available_day_indices") or [])
+            if str(index).lstrip("-").isdigit() and 0 <= int(index) < len(DAY_MAP)
+        }
+    )
+    day_keys = [list(DAY_MAP.keys())[index] for index in day_indices]
+    goal_type = _reverse_goal_type(str(goal_plan.get("goal_type") or ""))
+    distance = _reverse_distance(str(goal_plan.get("distance") or ""))
+    demand = dict((goal_plan.get("weekly_target_breakdown") or {}).get("demand") or {})
+    if not goal_type or not distance or available_hours is None:
+        return {
+            "has_plan": True,
+            "state": "data_gap",
+            "reason": "В checkpoint нет достаточных входов для редактирования.",
+            "inputs": None,
+        }
+
+    return {
+        "has_plan": True,
+        "state": "available",
+        "reason": None,
+        "inputs": {
+            "goal_type": goal_type,
+            "distance": distance,
+            "planning_mode": str(goal_plan.get("planning_mode") or "event_goal"),
+            "intent": str(goal_plan.get("planning_intent") or "develop"),
+            "focus": str(goal_plan.get("planning_focus") or "balanced_triathlon"),
+            "horizon_weeks": int(goal_plan.get("horizon_weeks") or 8),
+            "manual_phases": list(goal_plan.get("phases") or []),
+            "events": list(goal_plan.get("events") or []),
+            "event_date": str(goal_plan.get("event_date") or "")[:10] or None,
+            "start_week": str(goal_plan.get("start_week") or "")[:10] or None,
+            "available_hours": float(available_hours),
+            "available_days": day_keys,
+            "demand": str(demand.get("level") or DEFAULT_DEMAND_LEVEL),
+        },
+    }
+
+
 def confirm_demand_change(
     db: Database,
     *,
