@@ -10,6 +10,7 @@ SPORT_KEY_ALIASES = {
     "bike": "bike",
     "biking": "bike",
     "cycling": "bike",
+    "indoor_cycling": "bike",
     "ride": "bike",
     "virtual_ride": "bike",
     "run": "run",
