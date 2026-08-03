@@ -5,6 +5,7 @@ import { fetcher } from "@/lib/api";
 import { dataSourceLabel } from "@/lib/sourceLabels";
 import { SleepSummary } from "@/lib/types";
 import { MiniBars } from "@/components/ui/MiniBars";
+import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
 
 export default function SleepPage() {
   const { data, error, isLoading } = useSWR<SleepSummary>(
@@ -15,7 +16,7 @@ export default function SleepPage() {
 
   return (
     <main className="space-y-5">
-      <h1 className="text-2xl font-bold text-ink">Анализ сна</h1>
+      <DrillDownHeader title="Анализ сна" />
 
       {isLoading ? <div className="h-40 animate-pulse rounded-card bg-surface" /> : null}
       {error ? (

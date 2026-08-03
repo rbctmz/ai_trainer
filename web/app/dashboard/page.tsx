@@ -1,10 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import Link from "next/link";
 import useSWR from "swr";
 import { fetcher, isDemo, postJSON, setDemo } from "@/lib/api";
 import { DashboardResponse, DashboardWidgets } from "@/lib/types";
+import { ActivitiesWidget } from "@/components/dashboard/ActivitiesWidget";
 import { StatusRow } from "@/components/dashboard/StatusRow";
 import { TodayCard } from "@/components/dashboard/TodayCard";
 import { WeekCard } from "@/components/dashboard/WeekCard";
@@ -41,7 +41,7 @@ export default function DashboardPage() {
         </div>
       </header>
 
-      <SectionLinks />
+      <ActivitiesWidget />
 
       {isLoading ? <SkeletonState /> : null}
 
@@ -93,32 +93,6 @@ export default function DashboardPage() {
   );
 }
 
-// Secondary detail surfaces, demoted from the top nav into «Обзор» (#253).
-// The raw-data drilldowns (Активности/Сон/HRV) are no longer peer primary
-// destinations; they live here as sections reachable from the overview.
-function SectionLinks() {
-  const sections = [
-    { href: "/activities", label: "Активности" },
-    { href: "/sleep", label: "Сон" },
-    { href: "/hrv", label: "HRV" },
-  ];
-  return (
-    <nav aria-label="Разделы обзора" className="flex flex-wrap items-center gap-2">
-      <span className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-        Разделы
-      </span>
-      {sections.map((s) => (
-        <Link
-          key={s.href}
-          href={s.href}
-          className="rounded-lg border border-surface-border px-3 py-1.5 text-sm font-medium text-ink-soft transition hover:bg-surface-muted"
-        >
-          {s.label}
-        </Link>
-      ))}
-    </nav>
-  );
-}
 
 function Onboarding() {
   const [busy, setBusy] = useState(false);

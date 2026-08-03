@@ -18,6 +18,9 @@ const links = [
   { href: "/coach", label: "Коуч" },
 ];
 
+// Detail routes of «Обзор» (M1 #265): they keep the dashboard tab active.
+const DASHBOARD_CHILD_ROUTES = ["/activities", "/sleep", "/hrv"];
+
 export function Nav() {
   const pathname = usePathname();
   const [demo, setDemoState] = useState(false);
@@ -34,7 +37,15 @@ export function Nav() {
         <span className="px-3 text-sm font-bold text-ink">🏃 AI Trainer</span>
         <div className="ml-auto flex items-center gap-1">
           {links.map((l) => {
-            const active = pathname === l.href || pathname.startsWith(l.href + "/");
+            const isDashboardChild =
+              l.href === "/dashboard" &&
+              DASHBOARD_CHILD_ROUTES.some(
+                (route) => pathname === route || pathname.startsWith(route + "/"),
+              );
+            const active =
+              pathname === l.href ||
+              pathname.startsWith(l.href + "/") ||
+              isDashboardChild;
             return (
               <Link
                 key={l.href}

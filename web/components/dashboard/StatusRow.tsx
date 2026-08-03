@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { TodayState, Tone } from "@/lib/types";
 import { InfoTip } from "@/components/ui/Tooltip";
 
@@ -8,14 +9,29 @@ const toneStyles: Record<Tone, { bar: string; chip: string; text: string }> = {
   neutral: { bar: "bg-tone-neutral", chip: "bg-tone-neutral/10 text-tone-neutral", text: "text-tone-neutral" },
 };
 
-function Metric({ label, value, tip }: { label: string; value: string; tip?: string }) {
-  return (
-    <div className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+function Metric({ label, value, tip, href }: { label: string; value: string; tip?: string; href?: string }) {
+  const card = (
+    <>
       <div className="flex items-center gap-1 text-xs font-medium uppercase tracking-wide text-ink-faint">
         {label}
         {tip && <InfoTip metric={tip} />}
       </div>
       <div className="mt-1 text-2xl font-bold text-ink">{value}</div>
+    </>
+  );
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block rounded-card border border-surface-border bg-surface p-4 shadow-card transition hover:border-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+      >
+        {card}
+      </Link>
+    );
+  }
+  return (
+    <div className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+      {card}
     </div>
   );
 }
@@ -39,7 +55,7 @@ export function StatusRow({ today }: { today: TodayState }) {
       <Metric label="Readiness" value={`${today.readiness}`} tip="readiness" />
       <Metric label="TSB"       value={`${today.tsb}`}       tip="tsb" />
       <Metric label="CTL"       value={`${today.ctl}`}       tip="ctl" />
-      <Metric label="HRV"       value={today.hrv != null ? `${today.hrv}` : "—"} tip="hrv" />
+      <Metric label="HRV" value={today.hrv != null ? `${today.hrv}` : "—"} tip="hrv" href="/hrv" />
     </div>
   );
 }
