@@ -72,6 +72,37 @@ def test_event_plan_overview_has_complete_roadmap_and_server_boundary(tmp_path):
     )
 
 
+def test_roadmap_only_extends_for_the_short_post_plan_event_bridge():
+    today = datetime.now().date()
+    horizon_start = today - timedelta(days=today.weekday())
+    final_planned_date = horizon_start + timedelta(days=27)
+    boundary_event = final_planned_date + timedelta(days=1)
+    distant_event = final_planned_date + timedelta(days=365)
+    goal_plan = {
+        "daily_plan": [
+            (datetime.combine(horizon_start, datetime.min.time()), 10.0, {"run": 10.0}),
+            (datetime.combine(final_planned_date, datetime.min.time()), 10.0, {"run": 10.0}),
+        ],
+        "weekly_summary": [
+            {
+                "week_start": (horizon_start + timedelta(weeks=index)).isoformat(),
+                "phase": "Base",
+            }
+            for index in range(4)
+        ],
+        "events": [
+            {"date": boundary_event.isoformat(), "priority": "A", "label": "Boundary race"},
+            {"date": distant_event.isoformat(), "priority": "C", "label": "Next season"},
+        ],
+    }
+
+    roadmap = ps._active_plan_roadmap(goal_plan, today=today)
+
+    assert roadmap["horizon_end"] == boundary_event.isoformat()
+    assert [event["label"] for event in roadmap["events"]] == ["Boundary race"]
+    assert roadmap["segments"][-1]["end_date"] == boundary_event.isoformat()
+
+
 def test_rolling_horizon_has_no_synthetic_race_date_or_countdown(tmp_path):
     db = _seeded_db(tmp_path)
     ps.build_plan(

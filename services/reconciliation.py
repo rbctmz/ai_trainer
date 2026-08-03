@@ -20,6 +20,10 @@ from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.session_identity import ensure_session_identities
 
 
+_MAX_LOCAL_RECONCILIATION_WEEKS = 16
+_MAX_PROVIDER_RECONCILIATION_WEEKS = 12
+
+
 def _parse_as_of(value: date | str | None) -> date:
     if isinstance(value, date):
         return value
@@ -69,7 +73,12 @@ def reconciliation_at(
         return {"has_plan": False, "rows": [], "unplanned_activities": []}
     goal_plan = ensure_session_identities(goal_plan)
     resolved_as_of = _parse_as_of(as_of)
-    resolved_weeks = max(1, min(12, int(weeks or 1)))
+    max_weeks = (
+        _MAX_PROVIDER_RECONCILIATION_WEEKS
+        if include_provider
+        else _MAX_LOCAL_RECONCILIATION_WEEKS
+    )
+    resolved_weeks = max(1, min(max_weeks, int(weeks or 1)))
     start = resolved_as_of - timedelta(days=resolved_weeks * 7 - 1)
     provider_activities, provider_events, provider = _provider_reconciliation_evidence(
         start,

@@ -272,6 +272,9 @@ def _overview_event_rows(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+_POST_PLAN_EVENT_BRIDGE_DAYS = 7
+
+
 def _active_plan_roadmap(goal_plan: Dict[str, Any], *, today: date) -> Dict[str, Any]:
     """Build bounded, proportional phase and event data from one checkpoint."""
     weekly_rows = [
@@ -295,6 +298,21 @@ def _active_plan_roadmap(goal_plan: Dict[str, Any], *, today: date) -> Dict[str,
     horizon_start = starts[0]
     plan_end_raw = _goal_plan_date_bounds(goal_plan)[1]
     horizon_end = _overview_date(plan_end_raw) or (starts[-1] + timedelta(days=6))
+    # A race can fall on the Monday immediately after the final scheduled
+    # microcycle. Keep its stored marker in the reader horizon rather than
+    # silently dropping a valid A/B/C event at that calendar boundary.
+    stored_event_dates = [
+        _overview_date(event["date"])
+        for event in _overview_event_rows(goal_plan)
+    ]
+    bridge_end = horizon_end + timedelta(days=_POST_PLAN_EVENT_BRIDGE_DAYS)
+    bridged_event_dates = [
+        event_date
+        for event_date in stored_event_dates
+        if event_date is not None and horizon_start <= event_date <= bridge_end
+    ]
+    if bridged_event_dates:
+        horizon_end = max(horizon_end, *bridged_event_dates)
     if horizon_end < horizon_start:
         return {
             "state": "data_gap",
@@ -483,6 +501,18 @@ def _active_plan_form_projection(
 
     event_date = _overview_date((event or {}).get("date"))
     target_date = event_date if planning_mode == "event_goal" and event_date else future_daily[-1][0].date()
+    final_planned_date = future_daily[-1][0].date()
+    # Weekly schedules can end on Sunday while the persisted race sits on the
+    # following Monday. Add only that short, zero-load calendar bridge so the
+    # existing forecast can include its saved race load at the real target.
+    if (
+        final_planned_date
+        < target_date
+        <= final_planned_date + timedelta(days=_POST_PLAN_EVENT_BRIDGE_DAYS)
+    ):
+        for offset in range(1, (target_date - final_planned_date).days + 1):
+            bridge_date = final_planned_date + timedelta(days=offset)
+            future_daily.append((datetime.combine(bridge_date, datetime.min.time()), 0.0, {}))
     if target_date < future_daily[0][0].date() or target_date > future_daily[-1][0].date():
         return {
             "state": "data_gap",
@@ -1311,6 +1341,7 @@ def _leaf_plan_payload(
         "replaces_session_id": session.get("replaces_session_id"),
         "sport": session.get("sport"),
         "sport_label": session.get("sport_label"),
+        "role": str(session.get("session_role") or ""),
         "tss": float(session.get("total_tss") or 0.0),
         "duration_minutes": int(session.get("duration_minutes") or 0),
         "name": str(
@@ -1392,6 +1423,259 @@ def plan_days(goal_plan: Dict[str, Any]) -> List[Dict[str, Any]]:
             }
         )
     return out
+
+
+_WEEK_BY_WEEK_MAX_WEEKS = 16
+# The fact window must cover every displayed past week; otherwise a bounded
+# reader would turn valid older evidence into fabricated missed sessions.
+_WEEK_BY_WEEK_RECONCILIATION_WEEKS = _WEEK_BY_WEEK_MAX_WEEKS
+
+
+def _week_by_week_number(value: Any) -> float:
+    try:
+        return round(float(value or 0.0), 1)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _week_by_week_status(
+    match: Dict[str, Any] | None,
+    *,
+    planned_date: date,
+    today: date,
+) -> str:
+    """Translate existing matching evidence into a reader state, without matching."""
+    if planned_date > today:
+        return "planned"
+    match_status = str((match or {}).get("match_status") or "unmatched")
+    if match_status == "ambiguous":
+        return "ambiguous"
+    if match_status == "matched":
+        adherence = str((match or {}).get("adherence") or "unknown")
+        return adherence if adherence in {"exact", "substituted", "major_deviation", "unknown"} else "unknown"
+    # A calendar day is not over until its local date has passed (#268).
+    return "in_progress" if planned_date == today else "missed"
+
+
+def _week_by_week_window(
+    rows: List[tuple[Dict[str, Any], date]],
+    *,
+    today: date,
+) -> List[tuple[Dict[str, Any], date]]:
+    """Keep the current week and a bounded surrounding plan window."""
+    current_index = next(
+        (index for index, (_row, start) in enumerate(rows) if start <= today <= start + timedelta(days=6)),
+        None,
+    )
+    if current_index is None:
+        current_index = next((index for index, (_row, start) in enumerate(rows) if start > today), len(rows) - 1)
+    start_index = max(0, current_index - 4)
+    end_index = min(len(rows), start_index + _WEEK_BY_WEEK_MAX_WEEKS)
+    start_index = max(0, end_index - _WEEK_BY_WEEK_MAX_WEEKS)
+    return rows[start_index:end_index]
+
+
+def week_by_week_plan(db: Database) -> Dict[str, Any]:
+    """Build one bounded plan/fact reader DTO from saved canonical projections."""
+    goal_plan = get_active_plan(db)
+    if not goal_plan:
+        return {"has_plan": False, "state": "no_plan", "weeks": [], "chart": []}
+    if not list(goal_plan.get("daily_plan") or []):
+        return {
+            "has_plan": True,
+            "state": "data_gap",
+            "reason": "В checkpoint нет дневного плана для сопоставления недель и сессий.",
+            "weeks": [],
+            "chart": [],
+        }
+
+    today = datetime.now().date()
+    weekly_rows: List[tuple[Dict[str, Any], date]] = []
+    for raw_week in list(goal_plan.get("weekly_summary") or []):
+        if not isinstance(raw_week, dict):
+            continue
+        week_start = _overview_date(raw_week.get("week_start"))
+        if week_start is not None:
+            weekly_rows.append((dict(raw_week), week_start))
+    weekly_rows.sort(key=lambda item: item[1])
+    if not weekly_rows:
+        return {
+            "has_plan": True,
+            "state": "data_gap",
+            "reason": "В checkpoint нет дат недель активного плана.",
+            "weeks": [],
+            "chart": [],
+        }
+    selected_weeks = _week_by_week_window(weekly_rows, today=today)
+    ordinal_by_week_start = {
+        week_start.isoformat(): index + 1
+        for index, (_week, week_start) in enumerate(weekly_rows)
+    }
+
+    # These two sources already own leaf materialization/exportability and
+    # match semantics.  The reader joins their immutable output once here.
+    exported_days = {int(item["index"]): item for item in plan_days(goal_plan)}
+    reconciliation = reconciliation_at(
+        db,
+        weeks=_WEEK_BY_WEEK_RECONCILIATION_WEEKS,
+        as_of=today,
+        include_provider=False,
+    )
+    matches = {
+        str(row.get("session_id")): dict(row)
+        for row in list(reconciliation.get("rows") or [])
+        if isinstance(row, dict) and row.get("session_id")
+    }
+    unplanned_by_date: Dict[str, List[Dict[str, Any]]] = {}
+    for raw_activity in list(reconciliation.get("unplanned_activities") or []):
+        if not isinstance(raw_activity, dict):
+            continue
+        activity_date = _overview_date(raw_activity.get("date"))
+        if activity_date is not None:
+            unplanned_by_date.setdefault(activity_date.isoformat(), []).append(dict(raw_activity))
+
+    daily_rows: Dict[str, tuple[int, Any]] = {}
+    for index, item in enumerate(list(goal_plan.get("daily_plan") or [])):
+        if not isinstance(item, (tuple, list)) or len(item) < 2:
+            continue
+        planned_date = _overview_date(item[0])
+        if planned_date is not None:
+            daily_rows[planned_date.isoformat()] = (index, item)
+
+    events_by_date: Dict[str, List[Dict[str, Any]]] = {}
+    for event in _overview_event_rows(goal_plan):
+        events_by_date.setdefault(event["date"], []).append(event)
+
+    weeks: List[Dict[str, Any]] = []
+    chart_rows: List[Dict[str, Any]] = []
+    for week, week_start in selected_weeks:
+        week_end = week_start + timedelta(days=6)
+        week_state = "past" if week_end < today else "future" if week_start > today else "current"
+        days: List[Dict[str, Any]] = []
+        for offset in range(7):
+            day_date = week_start + timedelta(days=offset)
+            iso_date = day_date.isoformat()
+            entry = daily_rows.get(iso_date)
+            parent_day = exported_days.get(entry[0]) if entry else None
+            target_tss = _week_by_week_number(parent_day.get("tss") if parent_day else (entry[1][1] if entry else 0))
+            unplanned = unplanned_by_date.get(iso_date, [])
+            unplanned_tss = round(sum(_week_by_week_number(item.get("tss")) for item in unplanned), 1)
+            sessions: List[Dict[str, Any]] = []
+            actual_tss = 0.0
+            if parent_day:
+                for raw_session in list(parent_day.get("sessions") or []):
+                    session = dict(raw_session)
+                    match = matches.get(str(session.get("session_id") or ""))
+                    session_actual = _week_by_week_number((match or {}).get("actual_total_tss"))
+                    if match and str(match.get("match_status") or "") == "matched":
+                        actual_tss += session_actual
+                    sessions.append(
+                        {
+                            **session,
+                            "adherence_status": _week_by_week_status(match, planned_date=day_date, today=today),
+                            "actual_tss": session_actual if match and str(match.get("match_status")) == "matched" else None,
+                            "actual_duration_minutes": _week_by_week_number((match or {}).get("actual_duration_minutes")) if match and str(match.get("match_status")) == "matched" else None,
+                            "actual_activity_ids": list((match or {}).get("actual_activity_ids") or []),
+                        }
+                    )
+            day_state = "past" if day_date < today else "future" if day_date > today else "current"
+            plan_state = "planned" if target_tss > 0 else "unplanned" if unplanned_tss > 0 else "rest"
+            days.append(
+                {
+                    "index": entry[0] if entry else None,
+                    "date": iso_date,
+                    "state": day_state,
+                    "plan_state": plan_state,
+                    "target_tss": target_tss,
+                    "actual_tss": round(actual_tss, 1) if day_date <= today else None,
+                    "unplanned_tss": unplanned_tss,
+                    "unplanned_activities": unplanned,
+                    "sessions": sessions,
+                    "events": events_by_date.get(iso_date, []),
+                }
+            )
+
+        target_tss = _week_by_week_number(week.get("weekly_tss"))
+        actual_tss = round(sum(float(day["actual_tss"] or 0.0) for day in days), 1) if week_state != "future" else None
+        unplanned_tss = round(sum(float(day["unplanned_tss"] or 0.0) for day in days), 1)
+        statuses = [
+            str(session["adherence_status"])
+            for day in days
+            for session in list(day["sessions"])
+        ]
+        completion_percent = (
+            round((float(actual_tss or 0.0) / target_tss) * 100, 1)
+            if week_state != "future" and target_tss > 0
+            else None
+        )
+        week_events = [event for day in days for event in list(day["events"])]
+        week_out = {
+            "number": ordinal_by_week_start[week_start.isoformat()],
+            "week_start": week_start.isoformat(),
+            "week_end": week_end.isoformat(),
+            "state": week_state,
+            "is_current": week_state == "current",
+            "phase": str(week.get("phase") or "Не указана"),
+            "target_tss": target_tss,
+            "actual_tss": actual_tss,
+            "unplanned_tss": unplanned_tss,
+            "completion_percent": completion_percent,
+            "remaining_tss": round(max(0.0, target_tss - float(actual_tss or 0.0)), 1) if week_state == "current" else None,
+            "adherence": {
+                "exact": statuses.count("exact"),
+                "substituted": statuses.count("substituted"),
+                "major_deviation": statuses.count("major_deviation"),
+                "ambiguous": statuses.count("ambiguous"),
+                "missed": statuses.count("missed"),
+                "in_progress": statuses.count("in_progress"),
+            },
+            "focus": [
+                {
+                    "sport": session.get("sport_label") or session.get("sport") or "—",
+                    "role": session.get("role") or "",
+                    "tss": session.get("tss") or 0,
+                    "name": session.get("name") or "Сессия",
+                }
+                for day in days
+                for session in list(day["sessions"])
+                if str(session.get("role") or "") in {"quality", "long", "race"}
+            ][:3],
+            "events": week_events,
+            "days": days,
+        }
+        weeks.append(week_out)
+        chart_rows.append(
+            {
+                "number": week_out["number"],
+                "week_start": week_out["week_start"],
+                "phase": week_out["phase"],
+                "state": week_state,
+                "is_current": week_state == "current",
+                "target_tss": target_tss,
+                "actual_tss": actual_tss,
+                "events": week_events,
+            }
+        )
+
+    chart_maximum = max(
+        (
+            max(float(row["target_tss"] or 0.0), float(row["actual_tss"] or 0.0))
+            for row in chart_rows
+        ),
+        default=0.0,
+    )
+    for row in chart_rows:
+        row["target_percent"] = round((float(row["target_tss"]) / chart_maximum) * 100, 1) if chart_maximum else 0.0
+        row["actual_percent"] = round((float(row["actual_tss"] or 0.0) / chart_maximum) * 100, 1) if row["actual_tss"] is not None and chart_maximum else None
+    return {
+        "has_plan": True,
+        "state": "available",
+        "as_of": today.isoformat(),
+        "window": {"returned_weeks": len(weeks), "total_weeks": len(weekly_rows), "max_weeks": _WEEK_BY_WEEK_MAX_WEEKS},
+        "chart": {"metric": "tss", "maximum_tss": chart_maximum, "weeks": chart_rows},
+        "weeks": weeks,
+        "data_quality": dict(reconciliation.get("data_quality") or {}),
+    }
 
 
 # ---------------------------------------------------------------------------

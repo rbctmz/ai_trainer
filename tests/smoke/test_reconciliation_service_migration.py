@@ -298,3 +298,44 @@ def test_include_provider_false_never_touches_the_provider_module(tmp_path, monk
     result = reconciliation_at(db, weeks=1, as_of="2026-07-13", include_provider=False)
 
     assert result["provider"] == {"status": "disabled"}
+
+
+def test_reconciliation_honors_the_sixteen_week_reader_window(tmp_path, monkeypatch):
+    """The bounded M3 reader must not silently lose weeks 13-16."""
+    from services import reconciliation as service
+
+    db = Database(str(tmp_path / "sixteen-week-window.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_week()))
+    captured: dict[str, object] = {}
+
+    def _capture(*_args, **kwargs):
+        captured.update(kwargs)
+        return {"rows": [], "unplanned_activities": [], "data_quality": {}}
+
+    monkeypatch.setattr(service, "build_reconciliation", _capture)
+
+    result = service.reconciliation_at(
+        db,
+        weeks=16,
+        as_of=_TODAY,
+        include_provider=False,
+    )
+
+    assert result["has_plan"] is True
+    assert captured["weeks"] == 16
+
+    captured.clear()
+    monkeypatch.setattr(
+        service,
+        "_provider_reconciliation_evidence",
+        lambda *_args, **_kwargs: ([], [], {"status": "not_configured"}),
+    )
+
+    service.reconciliation_at(
+        db,
+        weeks=16,
+        as_of=_TODAY,
+        include_provider=True,
+    )
+
+    assert captured["weeks"] == 12

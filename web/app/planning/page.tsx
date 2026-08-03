@@ -22,6 +22,7 @@ import {
   ReconResponse,
   RaceEvent,
   TargetPreview,
+  WeekByWeekPlan,
 } from "@/lib/types";
 
 const GOAL_TYPES = [
@@ -230,7 +231,7 @@ export default function PlanningPage() {
 
       {!hasPlan || tab === "build" ? <BuildMode status={status} /> : null}
       {hasPlan && tab === "overview" ? <ActivePlanOverview overview={overview} error={overviewError} /> : null}
-      {hasPlan && tab === "weeks" ? <PlanWeeks overview={overview} error={overviewError} /> : null}
+      {hasPlan && tab === "weeks" ? <PlanWeeks onResolveAmbiguous={() => setTab("adjust")} /> : null}
       {hasPlan && tab === "execution" ? <ExecutionOverview /> : null}
       {tab === "adjust" ? (
         <AdjustMode
@@ -319,6 +320,15 @@ const PHASE_TONES: Record<string, string> = {
   Peak: "bg-amber-100 text-amber-900",
   Taper: "bg-orange-100 text-orange-900",
   "Race Week": "bg-rose-100 text-rose-900",
+};
+
+const PHASE_BAR_TONES: Record<string, string> = {
+  Base: "bg-sky-200",
+  Build: "bg-violet-200",
+  Recovery: "bg-emerald-200",
+  Peak: "bg-amber-200",
+  Taper: "bg-orange-200",
+  "Race Week": "bg-rose-200",
 };
 
 function PhaseRoadmap({ roadmap }: { roadmap?: PlanningOverview["roadmap"] }) {
@@ -459,35 +469,105 @@ function FormProjection({ projection }: { projection?: PlanningOverview["form_pr
   );
 }
 
-function PlanWeeks({ overview, error }: { overview?: PlanningOverview; error?: Error }) {
+function PlanWeeks({ onResolveAmbiguous }: { onResolveAmbiguous: () => void }) {
+  const { data, error } = useSWR<WeekByWeekPlan>("/api/planning/week-by-week", fetcher);
   if (error) return <LocalDataGap label="Недели плана сейчас недоступны. Попробуйте открыть их позже." />;
-  if (!overview || !overview.has_plan) return <Skeleton />;
-  if (!overview.weeks?.length) {
-    return <LocalDataGap label="Недели плана пока недоступны в сохранённом checkpoint." />;
+  if (!data) return <Skeleton />;
+  if (data.state === "no_plan") return <LocalDataGap label="Активного плана пока нет." />;
+  if (data.state !== "available" || !data.weeks.length || Array.isArray(data.chart)) {
+    return <LocalDataGap label={data.reason ?? "Недели плана пока недоступны в сохранённом checkpoint."} />;
   }
   return (
-    <section className="overflow-x-auto rounded-card border border-surface-border bg-surface shadow-card">
-      <table className="w-full min-w-[520px] text-sm">
-        <thead>
-          <tr className="border-b border-surface-border text-left text-xs uppercase tracking-wide text-ink-faint">
-            <th className="px-3 py-2.5 font-medium">Неделя</th>
-            <th className="px-3 py-2.5 font-medium">Старт</th>
-            <th className="px-3 py-2.5 font-medium">Фаза</th>
-            <th className="px-3 py-2.5 text-right font-medium">TSS</th>
-          </tr>
-        </thead>
-        <tbody>
-          {overview.weeks.map((week) => (
-            <tr key={week.number} className="border-b border-surface-border last:border-0">
-              <td className="px-3 py-2.5 text-ink">{week.number}</td>
-              <td className="px-3 py-2.5 text-ink-soft">{week.week_start ?? "—"}</td>
-              <td className="px-3 py-2.5 text-ink">{week.phase ?? "Недостаточно данных"}</td>
-              <td className="px-3 py-2.5 text-right tabular-nums text-ink">{week.weekly_tss}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <section className="space-y-4">
+      <WeekLoadChart chart={data.chart} />
+      <p className="text-xs text-ink-faint">
+        {data.window?.returned_weeks} из {data.window?.total_weeks} недель сохранённого плана. Факт и статусы совпадений получены одним локальным снимком на {data.as_of}.
+      </p>
+      {data.weeks.map((week) => (
+        <details
+          key={week.week_start}
+          open={week.is_current}
+          className="overflow-hidden rounded-card border border-surface-border bg-surface shadow-card"
+        >
+          <summary className="cursor-pointer list-none p-4 marker:hidden">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <div className="text-xs text-ink-faint">{week.week_start} — {week.week_end} · {week.state === "current" ? "текущая неделя" : week.state === "past" ? "прошедшая" : "будущая"}</div>
+                <div className="mt-1 font-semibold text-ink"><span className={`mr-2 inline-block rounded px-1.5 py-0.5 text-xs ${PHASE_TONES[week.phase] ?? "bg-surface-muted text-ink-soft"}`}>Фаза: {week.phase}</span></div>
+                {week.focus.length ? <div className="mt-1 text-xs text-ink-soft">Фокус: {week.focus.map((item) => item.name).join(" · ")}</div> : null}
+              </div>
+              <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-right text-xs tabular-nums text-ink-soft">
+                <span>План: <strong className="text-ink">{week.target_tss} TSS</strong></span>
+                <span>Факт: <strong className="text-ink">{week.actual_tss ?? "—"}</strong></span>
+                <span>Вне плана: <strong className="text-tone-warning">{week.unplanned_tss || "—"}</strong></span>
+                <span>{week.completion_percent == null ? "Ожидается" : `${week.completion_percent}%`}</span>
+              </div>
+            </div>
+            {week.state === "current" ? <div className="mt-2 text-xs text-ink-soft">В процессе · осталось {week.remaining_tss} TSS</div> : null}
+            {week.events.length ? <div className="mt-2 flex flex-wrap gap-1 text-xs">{week.events.map((event) => <span key={`${event.priority}-${event.date}`} className="rounded bg-surface-muted px-1.5 py-0.5 text-ink"><strong>{event.priority}</strong> · {event.label}</span>)}</div> : null}
+          </summary>
+          <div className="border-t border-surface-border p-4">
+            <div className="grid gap-2">
+              {week.days.map((day) => <WeekDay key={day.date} day={day} onResolveAmbiguous={onResolveAmbiguous} />)}
+            </div>
+          </div>
+        </details>
+      ))}
     </section>
+  );
+}
+
+function WeekLoadChart({ chart }: { chart: Exclude<WeekByWeekPlan["chart"], []> }) {
+  return (
+    <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2 className="text-sm font-semibold text-ink">Недельная нагрузка</h2>
+        <span className="text-xs text-ink-faint">TSS · план и факт</span>
+      </div>
+      <div role="img" aria-label="Столбцы недельного TSS: светлый фон — план, тёмный столбец — факт; маркеры A, B и C обозначают сохранённые старты." className="mt-4 flex h-36 items-end gap-1 overflow-x-auto pb-5">
+        {chart.weeks.map((week) => {
+          const phaseLabel = `Фаза: ${week.phase}`;
+          return (
+          <div key={week.week_start} aria-label={`${phaseLabel}. ${week.week_start}: план ${week.target_tss} TSS, факт ${week.actual_tss ?? "—"}.`} className="relative flex h-full min-w-10 flex-1 items-end justify-center" title={`${phaseLabel}. ${week.week_start}: план ${week.target_tss} TSS, факт ${week.actual_tss ?? "—"}`}>
+            <span aria-hidden="true" className={`absolute bottom-0 w-full rounded-t ${PHASE_BAR_TONES[week.phase] ?? "bg-surface-muted"}`} style={{ height: `${week.target_percent}%` }} />
+            <span aria-hidden="true" className="relative w-3/5 rounded-t bg-accent/70" style={{ height: `${week.actual_percent ?? 0}%` }} />
+            {week.events.map((event) => <span key={`${event.priority}-${event.date}`} className="absolute top-1 z-10 rounded bg-surface px-1 text-[10px] font-bold text-ink shadow-sm">{event.priority}</span>)}
+            <span className="absolute -bottom-5 text-[10px] text-ink-faint">{week.number}</span>
+          </div>
+          );
+        })}
+      </div>
+      <div className="mt-2 flex flex-wrap gap-3 text-xs text-ink-soft"><span>Фон: план</span><span>Столбец: факт</span><span>A/B/C: старты</span></div>
+    </section>
+  );
+}
+
+function WeekDay({ day, onResolveAmbiguous }: { day: WeekByWeekPlan["weeks"][number]["days"][number]; onResolveAmbiguous: () => void }) {
+  const dayLabel = day.plan_state === "rest" ? "Отдых" : day.plan_state === "unplanned" ? "Вне плана" : "Запланировано";
+  return (
+    <article className="rounded-lg bg-surface-muted p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2 text-sm">
+        <div><strong className="text-ink">{day.date}</strong><span className="ml-2 text-xs text-ink-faint">{dayLabel}</span></div>
+        <div className="text-right text-xs tabular-nums text-ink-soft">План {day.target_tss} · факт {day.actual_tss ?? "—"}{day.unplanned_tss ? <span className="ml-1 text-tone-warning">+{day.unplanned_tss} вне плана</span> : null}</div>
+      </div>
+      {day.events.length ? <div className="mt-2 text-xs text-ink-soft">{day.events.map((event) => <span key={`${event.priority}-${event.date}`} className="mr-2"><strong className="text-ink">{event.priority}</strong> · {event.label}</span>)}</div> : null}
+      {day.sessions.length ? <div className="mt-2 grid gap-2">{day.sessions.map((session) => <WeekLeaf key={session.session_id || session.name} session={session} dayIndex={day.index} onResolveAmbiguous={onResolveAmbiguous} />)}</div> : null}
+      {day.plan_state === "rest" && !day.unplanned_tss ? <p className="mt-2 text-xs text-ink-faint">День отдыха.</p> : null}
+      {day.unplanned_activities.length ? <p className="mt-2 text-xs text-tone-warning">Вне плана: {day.unplanned_activities.map((activity) => activity.name || activity.sport).join(" · ")}</p> : null}
+    </article>
+  );
+}
+
+function WeekLeaf({ session, dayIndex, onResolveAmbiguous }: { session: WeekByWeekPlan["weeks"][number]["days"][number]["sessions"][number]; dayIndex: number | null; onResolveAmbiguous: () => void }) {
+  const labels: Record<string, string> = { planned: "запланировано", in_progress: "в процессе", exact: "выполнено", substituted: "замена", major_deviation: "отклонение", unknown: "нужна проверка", ambiguous: "нужно уточнить", missed: "пропущено" };
+  return (
+    <div className="rounded-md border border-surface-border bg-surface p-2.5 text-xs">
+      <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium text-ink">{session.name}</span><span className="text-ink-soft">{session.duration_minutes} мин · {session.tss} TSS · {labels[session.adherence_status]}</span></div>
+      {session.actual_tss != null ? <div className="mt-1 text-ink-faint">Факт: {session.actual_tss} TSS · {session.actual_duration_minutes} мин</div> : null}
+      {session.adherence_status === "ambiguous" ? <button type="button" onClick={onResolveAmbiguous} className="mt-2 rounded border border-surface-border px-2 py-1 text-ink hover:bg-surface-muted">Нужно уточнить</button> : null}
+      {dayIndex != null && session.executable && session.kind !== "composite" && session.session_id ? <div className="mt-2 flex gap-2"><DownloadLink index={dayIndex} sessionId={session.session_id} fmt="tcx" label="TCX" /><DownloadLink index={dayIndex} sessionId={session.session_id} fmt="fit_csv" label="FIT" /></div> : null}
+      {dayIndex != null && session.executable && session.kind === "composite" ? <div className="mt-2 flex flex-wrap gap-2">{session.legs.map((leg) => <span key={leg.leg_index} className="inline-flex items-center gap-1"><span className="text-ink-faint">{leg.sport}</span><DownloadLink index={dayIndex} sessionId={session.session_id ?? undefined} leg={leg.leg_index ?? undefined} fmt="tcx" label="TCX" /><DownloadLink index={dayIndex} sessionId={session.session_id ?? undefined} leg={leg.leg_index ?? undefined} fmt="fit_csv" label="FIT" /></span>)}</div> : null}
+    </div>
   );
 }
 

@@ -93,6 +93,12 @@ def planning_overview(db: Database = Depends(get_database)) -> dict[str, Any]:
     return planning_service.active_plan_overview(db)
 
 
+@router.get("/week-by-week")
+def planning_week_by_week(db: Database = Depends(get_database)) -> dict[str, Any]:
+    """One bounded, read-only active-plan week/day/session reader projection."""
+    return planning_service.week_by_week_plan(db)
+
+
 @router.get("/constraints")
 def list_constraints(days: int = 30, db: Database = Depends(get_database)) -> dict[str, Any]:
     from datetime import datetime, timedelta
