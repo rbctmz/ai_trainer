@@ -244,3 +244,5 @@ def test_coach_history_sidebar_scrolls_and_uses_compact_menu():
     assert "max-h-[calc(100vh-320px)]" in page
     assert "overflow-y-auto" in page
     assert "⋯" in page
+    assert "defaultOpen" in page
+    assert "aria-expanded={open}" in page

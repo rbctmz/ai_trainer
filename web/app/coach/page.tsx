@@ -435,6 +435,7 @@ function ContextSidebar({
           <div className="mt-3 max-h-[calc(100vh-320px)] space-y-4 overflow-y-auto pr-1">
             <HistoryGroup
               title="Активные"
+              defaultOpen
               chats={activeChats}
               activeId={activeId}
               busyId={busyId}
@@ -452,6 +453,7 @@ function ContextSidebar({
             />
             <HistoryGroup
               title="Архив"
+              defaultOpen={false}
               chats={archivedChats}
               activeId={activeId}
               busyId={busyId}
@@ -476,6 +478,7 @@ function ContextSidebar({
 
 function HistoryGroup({
   title,
+  defaultOpen = true,
   chats,
   activeId,
   busyId,
@@ -492,6 +495,7 @@ function HistoryGroup({
   onDelete,
 }: {
   title: string;
+  defaultOpen?: boolean;
   chats: ChatSummary[];
   activeId: string | null;
   busyId: string | null;
@@ -508,6 +512,7 @@ function HistoryGroup({
   onDelete: (chat: ChatSummary) => void;
 }) {
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+  const [open, setOpen] = useState(defaultOpen);
   if (chats.length === 0) return null;
   const groups = new Map<string, ChatSummary[]>();
   for (const chat of chats) {
@@ -519,15 +524,24 @@ function HistoryGroup({
 
   return (
     <section>
-      <h3 className="text-[11px] font-medium uppercase tracking-wide text-ink-faint">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-expanded={open}
+        aria-controls={`history-group-${title}`}
+        className="flex w-full items-center justify-between text-left text-[11px] font-medium uppercase tracking-wide text-ink-faint transition hover:text-ink"
+      >
         {title}
-      </h3>
-      {[...groups.entries()].map(([label, items]) => (
-        <div key={label} className="mt-2">
-          <div className="text-[10px] uppercase tracking-wide text-ink-faint/70">{label}</div>
-          <ul className="mt-1 space-y-1.5">
-            {items.map((chat) => (
-              <li key={chat.id} className="rounded-lg border border-surface-border p-2">
+        <span aria-hidden="true">{open ? "▾" : "▸"}</span>
+      </button>
+      {open ? (
+        <div id={`history-group-${title}`}>
+          {[...groups.entries()].map(([label, items]) => (
+            <div key={label} className="mt-2">
+              <div className="text-[10px] uppercase tracking-wide text-ink-faint/70">{label}</div>
+              <ul className="mt-1 space-y-1.5">
+                {items.map((chat) => (
+                  <li key={chat.id} className="rounded-lg border border-surface-border p-2">
                 <button
                   type="button"
                   onClick={() => onSelect(chat.id)}
@@ -651,11 +665,13 @@ function HistoryGroup({
                     )}
                   </div>
                 ) : null}
-              </li>
-            ))}
-          </ul>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
-      ))}
+      ) : null}
     </section>
   );
 }
