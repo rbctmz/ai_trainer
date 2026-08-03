@@ -75,7 +75,7 @@ Final evidence: 24 focused API/router/deep-link tests passed; the full contribut
 
 ## Context and Orientation
 
-`api/planning_service.py` orchestrates existing planning models and restores the latest append-only checkpoint. `api/routers/planning.py` exposes its stable FastAPI contracts. The current `web/app/planning/page.tsx` is a client-side page containing the planning form, execution adjustment, export, and history; it currently defaults to the form regardless of `has_plan`.
+`api/planning_service.py` orchestrates existing planning models and restores the latest append-only checkpoint. `api/routers/planning.py` exposes its stable FastAPI contracts. `web/app/planning/page.tsx` is now reader-first: an active checkpoint opens Overview, while Weeks and Execution are sibling reader tabs; build/edit, adjustment, export, and history remain explicit actions. With no active checkpoint it opens the existing first-plan onboarding.
 
 An active plan is the latest persisted planning checkpoint. A reader view only fetches and displays data. A mutating action can eventually write a checkpoint or a provider delivery and must therefore remain an explicit button. The M1 overview must never call a provider or a mutation while it renders.
 
@@ -141,4 +141,4 @@ After M2, the same endpoint additionally returns `roadmap` and `form_projection`
 
 M3 adds `GET /api/planning/week-by-week`. For an active plan it returns `state: "available"`, `as_of`, bounded `weeks`, and a server-calculated chart scale. A week has target/actual/unplanned TSS, server-calculated completion/remaining values, phase/events, an adherence aggregate, and seven calendar days. A non-rest day contains the `plan_days` leaf sessions enriched only with the already canonical match status/actual fields. `state: "no_plan"` returns no weeks; malformed checkpoint dates return `state: "data_gap"`, never a fabricated rest or zero-completion plan.
 
-Plan revision 2026-08-03: M1, #302 M2, and #303 M3 are implemented locally; independent-review regressions are fixed and automated plus browser validation are green.
+Plan revision 2026-08-03: M1 (#301), M2 (#302), and M3 (#303) are merged to `main` through PRs #327–#329. Independent-review regressions are fixed; automated and browser validation are green. This ExecPlan is complete through M3; any M4 work requires a separately approved scope.
