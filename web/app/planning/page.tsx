@@ -613,7 +613,7 @@ function PlanWeeks({ onResolveAmbiguous }: { onResolveAmbiguous: () => void }) {
         <details
           key={week.week_start}
           open={week.is_current}
-          className="overflow-hidden rounded-card border border-surface-border bg-surface shadow-card"
+          className="overflow-x-auto rounded-card border border-surface-border bg-surface shadow-card"
         >
           <summary className="cursor-pointer list-none p-4 marker:hidden">
             <div className="flex flex-wrap items-start justify-between gap-3">
@@ -977,7 +977,7 @@ function AdjustMode({
 
   return (
     <>
-      <section className="overflow-hidden rounded-card border border-surface-border bg-surface shadow-card">
+      <section className="overflow-x-auto rounded-card border border-surface-border bg-surface shadow-card">
         <div className="border-b border-surface-border p-4">
           <div className="text-sm font-medium text-ink">План и факт · {data.window?.start}–{data.window?.end}</div>
           <div className="mt-1 text-xs text-ink-soft">
@@ -1236,7 +1236,7 @@ function ExportMode() {
         ) : null}
       </section>
 
-      <section className="overflow-hidden rounded-card border border-surface-border bg-surface shadow-card">
+      <section className="overflow-x-auto rounded-card border border-surface-border bg-surface shadow-card">
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-surface-border text-left text-xs uppercase tracking-wide text-ink-faint">
