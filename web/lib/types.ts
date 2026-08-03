@@ -496,6 +496,11 @@ export interface PlanningOverview {
     available_hours: number | null;
     available_minutes: number | null;
     available_days: string[];
+    period: {
+      kind: "selected_week" | string;
+      week_start: string;
+      week_end: string;
+    } | null;
     planned_minutes: number | null;
     planned_hours: number | null;
     session_count: number | null;

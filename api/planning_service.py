@@ -579,18 +579,32 @@ def _overview_number(value: Any) -> float | None:
         return None
 
 
-def _active_plan_availability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
+def _active_plan_availability(
+    goal_plan: Dict[str, Any],
+    *,
+    selected_week_start: date | None,
+) -> Dict[str, Any]:
     """Describe saved weekly availability and planned session volume.
 
-    The planning checkpoint has a weekly availability contract only. It has no
-    persisted daily minute limits, so this reader deliberately exposes that
-    absence rather than allocating the weekly total across days in the UI.
+    Planned values use the same current/nearest/last week selected by the
+    overview. The planning checkpoint has a weekly availability contract only;
+    it has no persisted daily minute limits, so this reader deliberately
+    exposes that absence rather than allocating the weekly total across days.
     """
     daily_gap = {
         "state": "data_gap",
         "reason": "В сохранённом checkpoint нет дневных лимитов доступности.",
         "days": [],
     }
+    period = (
+        {
+            "kind": "selected_week",
+            "week_start": selected_week_start.isoformat(),
+            "week_end": (selected_week_start + timedelta(days=6)).isoformat(),
+        }
+        if selected_week_start is not None
+        else None
+    )
     constraints = dict(goal_plan.get("constraint_summary") or {})
     available_hours = _overview_number(constraints.get("available_hours"))
     raw_labels = constraints.get("available_day_labels")
@@ -612,18 +626,38 @@ def _active_plan_availability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
             "available_hours": None,
             "available_minutes": None,
             "available_days": [],
+            "period": period,
             "planned_minutes": None,
             "planned_hours": None,
             "session_count": None,
             "daily": daily_gap,
         }
 
-    sessions = [
-        session
-        for day in plan_days(goal_plan)
-        for session in list(day.get("sessions") or [])
-        if isinstance(session, dict)
-    ]
+    if selected_week_start is None:
+        return {
+            "state": "data_gap",
+            "reason": "В сохранённом checkpoint нет выбранной недели плана.",
+            "available_hours": None,
+            "available_minutes": None,
+            "available_days": [],
+            "period": None,
+            "planned_minutes": None,
+            "planned_hours": None,
+            "session_count": None,
+            "daily": daily_gap,
+        }
+
+    selected_week_end = selected_week_start + timedelta(days=7)
+    sessions: List[Dict[str, Any]] = []
+    for day in plan_days(goal_plan):
+        session_date = _overview_date(day.get("date"))
+        if session_date is None or not selected_week_start <= session_date < selected_week_end:
+            continue
+        sessions.extend(
+            session
+            for session in list(day.get("sessions") or [])
+            if isinstance(session, dict)
+        )
     planned_minutes = sum(_overview_int(session.get("duration_minutes")) for session in sessions)
     return {
         "state": "available",
@@ -631,6 +665,7 @@ def _active_plan_availability(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "available_hours": round(available_hours, 1),
         "available_minutes": _overview_int(available_hours * 60),
         "available_days": available_days,
+        "period": period,
         "planned_minutes": planned_minutes,
         "planned_hours": round(planned_minutes / 60.0, 1),
         "session_count": len(sessions),
@@ -824,7 +859,10 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
         planning_mode=planning_mode,
         event=event,
     )
-    availability = _active_plan_availability(goal_plan)
+    availability = _active_plan_availability(
+        goal_plan,
+        selected_week_start=parsed_week_starts[current_index] if current_index is not None else None,
+    )
     weekly_target_explanation = _active_plan_weekly_target_explanation(goal_plan)
 
     return {

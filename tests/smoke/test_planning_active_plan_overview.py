@@ -75,24 +75,41 @@ def test_active_plan_overview_never_discovers_provider_events(tmp_path, monkeypa
 def test_active_plan_overview_explains_saved_availability_and_weekly_target(tmp_path):
     db, _event_date = _event_plan_db(tmp_path)
     checkpoint_before = db.get_latest_planning_checkpoint()
+    goal_plan = restore_goal_plan_from_checkpoint(checkpoint_before)
+    assert goal_plan is not None
 
     overview = planning_overview(db=db)
 
     availability = overview["availability"]
-    assert availability == {
-        "state": "available",
-        "reason": None,
-        "available_hours": 10.0,
-        "available_minutes": 600,
-        "available_days": ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"],
-        "planned_minutes": 2690,
-        "planned_hours": 44.8,
-        "session_count": 69,
-        "daily": {
-            "state": "data_gap",
-            "reason": "В сохранённом checkpoint нет дневных лимитов доступности.",
-            "days": [],
-        },
+    assert availability["state"] == "available"
+    assert availability["reason"] is None
+    assert availability["available_hours"] == 10.0
+    assert availability["available_minutes"] == 600
+    assert availability["available_days"] == ["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"]
+    assert availability["period"] == {
+        "kind": "selected_week",
+        "week_start": overview["current_week"]["week_start"],
+        "week_end": (datetime.fromisoformat(overview["current_week"]["week_start"]).date() + timedelta(days=6)).isoformat(),
+    }
+    selected_week_start = datetime.fromisoformat(availability["period"]["week_start"]).date()
+    selected_sessions = [
+        session
+        for day in ps.plan_days(goal_plan)
+        if selected_week_start <= datetime.fromisoformat(day["date"]).date() < selected_week_start + timedelta(days=7)
+        for session in day["sessions"]
+    ]
+    all_sessions = [session for day in ps.plan_days(goal_plan) for session in day["sessions"]]
+    selected_minutes = sum(int(session["duration_minutes"]) for session in selected_sessions)
+    all_minutes = sum(int(session["duration_minutes"]) for session in all_sessions)
+    assert availability["planned_minutes"] == selected_minutes
+    assert availability["planned_hours"] == round(selected_minutes / 60.0, 1)
+    assert availability["session_count"] == len(selected_sessions)
+    assert availability["planned_minutes"] < all_minutes
+    assert availability["session_count"] < len(all_sessions)
+    assert availability["daily"] == {
+        "state": "data_gap",
+        "reason": "В сохранённом checkpoint нет дневных лимитов доступности.",
+        "days": [],
     }
 
     target = overview["weekly_target_explanation"]
@@ -130,6 +147,11 @@ def test_active_plan_overview_marks_missing_saved_reader_context_as_data_gap(tmp
         "available_hours": None,
         "available_minutes": None,
         "available_days": [],
+        "period": {
+            "kind": "selected_week",
+            "week_start": overview["current_week"]["week_start"],
+            "week_end": (datetime.fromisoformat(overview["current_week"]["week_start"]).date() + timedelta(days=6)).isoformat(),
+        },
         "planned_minutes": None,
         "planned_hours": None,
         "session_count": None,
@@ -184,4 +206,6 @@ def test_planning_page_keeps_reader_and_mutating_actions_separate():
     assert 'searchParams.get("session_id")' in source
     assert "PlanningOverview" in types
     assert "Доступность" in source
+    assert "Запланировано на выбранной неделе" in source
+    assert "Сессии на выбранной неделе" in source
     assert "Как рассчитана недельная нагрузка" in source

@@ -319,6 +319,9 @@ function AvailabilitySummary({ availability }: { availability?: PlanningOverview
   if (!availability || availability.state !== "available") {
     return <LocalDataGap label={availability?.reason ?? "Доступность пока недоступна в сохранённом checkpoint."} />;
   }
+  const periodLabel = availability.period
+    ? `${availability.period.week_start} — ${availability.period.week_end}`
+    : "выбранная неделя не определена";
   return (
     <section aria-labelledby="availability-title">
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -327,8 +330,8 @@ function AvailabilitySummary({ availability }: { availability?: PlanningOverview
       </div>
       <dl className="mt-3 grid gap-2 sm:grid-cols-4">
         <OverviewFact label="Доступно" value={`${availability.available_hours} ч/нед.`} detail={`${availability.available_days.join(" · ")} · ${availability.available_minutes} мин/нед. · потолок, не цель заполнения`} />
-        <OverviewFact label="Запланировано" value={`${availability.planned_hours} ч`} detail={`${availability.planned_minutes} мин в плане`} />
-        <OverviewFact label="Сессии" value={`${availability.session_count}`} detail="в сохранённом горизонте" />
+        <OverviewFact label="Запланировано на выбранной неделе" value={`${availability.planned_hours} ч`} detail={`${availability.planned_minutes} мин · ${periodLabel}`} />
+        <OverviewFact label="Сессии на выбранной неделе" value={`${availability.session_count}`} detail={periodLabel} />
         <OverviewFact label="По дням" value="Нет лимитов" detail={availability.daily.reason ?? "Дневные данные недоступны."} />
       </dl>
     </section>
