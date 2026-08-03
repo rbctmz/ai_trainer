@@ -19,7 +19,8 @@ clickable card with keyboard support and a visible hover/focus state.
 - [x] (2026-08-03) M1 (#265) implemented: whole-card links for Сон/HRV/Активности, SectionLinks removed, `DrillDownHeader` («← Обзор») on all three detail pages, nav keeps «Обзор» active via a dashboard-child route group.
 - [x] (2026-08-03) Inspected #266, `models/chat_manager.py`, `api/routers/coach.py`, and `web/app/coach/page.tsx` for the M2 lifecycle slice.
 - [x] (2026-08-03) M2 (#266) implemented: archive metadata + safe rename/search/archive/restore/delete contracts, Coach lifecycle UI (search, groups, inline rename, two-step delete, deep-link `?chat=<id>`), path-traversal guard.
-- [ ] M3 (#267), M4 (#268) — separate milestones.
+- [x] (2026-08-03) M3 (#267) implemented: mobile overflow repair — nav brand hidden on small screens with compact links, wide planning/activities tables scroll inside their containers, Coach grid children get `min-w-0`.
+- [ ] M4 (#268) — dev-tools discoverability and trust/accessibility polish.
 
 ## Surprises & Discoveries
 

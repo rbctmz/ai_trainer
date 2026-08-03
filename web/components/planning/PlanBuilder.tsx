@@ -913,7 +913,7 @@ function ForecastSection({
 
 function WeeksTable({ weeks }: { weeks: PlanWeek[] }) {
   return (
-    <section className="overflow-hidden rounded-card border border-surface-border bg-surface shadow-card">
+    <section className="overflow-x-auto rounded-card border border-surface-border bg-surface shadow-card">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-surface-border text-left text-xs uppercase tracking-wide text-ink-faint">

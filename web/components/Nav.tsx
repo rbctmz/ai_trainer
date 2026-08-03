@@ -34,7 +34,7 @@ export function Nav() {
   return (
     <div className="mb-6 space-y-2">
       <nav className="flex items-center gap-1 overflow-x-auto rounded-card border border-surface-border bg-surface p-1 shadow-card">
-        <span className="px-3 text-sm font-bold text-ink">🏃 AI Trainer</span>
+        <span className="hidden px-3 text-sm font-bold text-ink sm:inline">🏃 AI Trainer</span>
         <div className="ml-auto flex items-center gap-1">
           {links.map((l) => {
             const isDashboardChild =
@@ -50,7 +50,7 @@ export function Nav() {
               <Link
                 key={l.href}
                 href={l.href}
-                className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition ${
+                className={`whitespace-nowrap rounded-lg px-2 py-1.5 text-sm font-medium transition sm:px-3 ${
                   active ? "bg-accent text-accent-foreground" : "text-ink-soft hover:bg-surface-muted"
                 }`}
               >
@@ -62,7 +62,7 @@ export function Nav() {
             type="button"
             onClick={toggleDemo}
             title="Демо-режим: изолированные тестовые данные"
-            className={`ml-1 whitespace-nowrap rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+            className={`ml-1 whitespace-nowrap rounded-lg border px-2 py-1.5 text-xs font-medium transition sm:px-2.5 ${
               demo
                 ? "border-tone-warning bg-tone-warning/10 text-tone-warning"
                 : "border-surface-border text-ink-faint hover:bg-surface-muted"

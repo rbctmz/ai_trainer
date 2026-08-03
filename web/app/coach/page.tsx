@@ -198,7 +198,7 @@ function CoachContent() {
         mutateHistory={mutateHistory}
       />
 
-      <section className="flex h-[calc(100vh-180px)] min-h-[420px] flex-col rounded-card border border-surface-border bg-surface shadow-card">
+      <section className="flex h-[calc(100vh-180px)] min-h-[420px] min-w-0 flex-col rounded-card border border-surface-border bg-surface shadow-card">
         <div ref={scroller} className="flex-1 space-y-3 overflow-y-auto p-4">
           {loadError ? (
             <div className="flex h-full flex-col items-center justify-center text-center">
@@ -389,7 +389,7 @@ function ContextSidebar({
   }
 
   return (
-    <aside className="space-y-4">
+    <aside className="min-w-0 space-y-4">
       <div className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
         <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
           Сигналы
