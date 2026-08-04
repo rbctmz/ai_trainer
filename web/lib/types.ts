@@ -128,8 +128,9 @@ export interface Activity {
   garmin_training_load?: number | null;
   source_tss?: number | null;
   tss_method?: string | null;
-  tss_source?: "power" | "heart_rate" | "heuristic" | "none" | "unknown";
+  tss_source?: "power" | "pace" | "heart_rate" | "heuristic" | "none" | "unknown";
   tss_ftp_used?: number | null;
+  tss_pace_used?: number | null;
   avg_hr: number | null;
   max_hr: number | null;
   elevation_gain: number | null;

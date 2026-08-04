@@ -41,6 +41,7 @@ def test_swim_with_css_uses_pace_tss_cubed():
 
     assert resolved["tss_method"] == "pace_tss_swim"
     assert resolved["tss_ftp_used"] is None
+    assert resolved["tss_pace_used"] == 110.0
     # avg pace = 40.886 min x 60 / (1.6 km x 10) = 153.32 s/100m;
     # IF = 110 / 153.32 = 0.7174; TSS = 0.6814 h x IF^3 x 100 = 25.2
     assert abs(resolved["tss"] - 25.2) < 0.05
@@ -72,6 +73,7 @@ def test_swim_without_css_keeps_hr_cascade():
     )
 
     assert resolved["tss_method"] == "hr_tss_swim"
+    assert resolved["tss_pace_used"] is None
     # IF = 129/163 = 0.7914; TSS = 0.6814 h x IF^2 x 100 = 42.7
     assert abs(resolved["tss"] - 42.7) < 0.05
 

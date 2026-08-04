@@ -7,15 +7,24 @@ import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
 
 const TSS_SOURCE_LABELS: Record<string, string> = {
   power: "по мощности",
+  pace: "по темпу",
   heart_rate: "по пульсу",
   heuristic: "оценочно",
 };
+
+function formatCssPace(secondsPer100m: number): string {
+  const rounded = Math.round(secondsPer100m);
+  return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}/100м`;
+}
 
 function tssProvenanceLabel(activity: Activity): string | null {
   const sourceLabel = activity.tss_source ? TSS_SOURCE_LABELS[activity.tss_source] : null;
   if (!sourceLabel) return null;
   if (activity.tss_source === "power" && activity.tss_ftp_used != null) {
     return `${sourceLabel}, FTP ${Math.round(activity.tss_ftp_used)}`;
+  }
+  if (activity.tss_source === "pace" && activity.tss_pace_used != null) {
+    return `${sourceLabel}, CSS ${formatCssPace(activity.tss_pace_used)}`;
   }
   return sourceLabel;
 }

@@ -300,6 +300,7 @@ class ActivityProcessor:
                 'garmin_training_load': garmin_training_load,
                 'tss_method': 'no_duration',
                 'tss_ftp_used': None,
+                'tss_pace_used': None,
             }
 
         sport_key = normalize_sport_key(activity_data.get('sport'))
@@ -324,6 +325,7 @@ class ActivityProcessor:
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'power_tss_bike',
                     'tss_ftp_used': ftp,
+                    'tss_pace_used': None,
                 }
             bike_zone_tss = cls._zone_weighted_tss(activity_data, cls._BIKE_HR_ZONE_TSS_WEIGHTS)
             if bike_zone_tss is not None:
@@ -333,6 +335,7 @@ class ActivityProcessor:
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_zone_tss_bike',
                     'tss_ftp_used': None,
+                    'tss_pace_used': None,
                 }
             hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
             if hr_tss is not None:
@@ -342,6 +345,7 @@ class ActivityProcessor:
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_tss_bike',
                     'tss_ftp_used': None,
+                    'tss_pace_used': None,
                 }
         elif sport_key == 'swim':
             swim_pace_tss = cls._pace_tss(
@@ -356,6 +360,7 @@ class ActivityProcessor:
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'pace_tss_swim',
                     'tss_ftp_used': None,
+                    'tss_pace_used': swim_threshold_pace_seconds_per_100m,
                 }
             swim_zone_tss = cls._zone_weighted_tss(activity_data, cls._SWIM_HR_ZONE_TSS_WEIGHTS)
             if swim_zone_tss is not None:
@@ -365,6 +370,7 @@ class ActivityProcessor:
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_zone_tss_swim',
                     'tss_ftp_used': None,
+                    'tss_pace_used': None,
                 }
             hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
             if hr_tss is not None:
@@ -374,6 +380,7 @@ class ActivityProcessor:
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_tss_swim',
                     'tss_ftp_used': None,
+                    'tss_pace_used': None,
                 }
         elif sport_key == 'run':
             run_zone_tss = cls._zone_weighted_tss(activity_data, cls._RUN_HR_ZONE_TSS_WEIGHTS)
@@ -384,6 +391,7 @@ class ActivityProcessor:
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_zone_tss_run',
                     'tss_ftp_used': None,
+                    'tss_pace_used': None,
                 }
             hr_tss = cls._hr_tss(duration_minutes, avg_hr, lthr)
             if hr_tss is not None:
@@ -393,6 +401,7 @@ class ActivityProcessor:
                     'garmin_training_load': garmin_training_load,
                     'tss_method': 'hr_tss_run',
                     'tss_ftp_used': None,
+                    'tss_pace_used': None,
                 }
 
         estimated_tss, method = cls._heuristic_tss(sport_key, duration_minutes)
@@ -402,6 +411,7 @@ class ActivityProcessor:
             'garmin_training_load': garmin_training_load,
             'tss_method': method,
             'tss_ftp_used': None,
+            'tss_pace_used': None,
         }
 
     @classmethod

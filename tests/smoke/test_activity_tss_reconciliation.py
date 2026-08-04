@@ -222,6 +222,49 @@ def test_repair_legacy_activity_tss_uses_synced_profile_on_next_database_open(tm
     assert stored_after["tss"] == pytest.approx(163.3, abs=0.5)
 
 
+def test_repair_swim_tss_writes_used_css_on_next_database_open(tmp_path, monkeypatch):
+    """The retroactive-recompute path must persist the CSS used for a swim row
+    (tss_pace_used), mirroring tss_ftp_used for bike power rows."""
+    monkeypatch.setattr(Settings, "USER_LTHR", 170)
+    db_path = str(tmp_path / "swim_repair.db")
+
+    db = Database(db_path)
+    _sync_activities(
+        db,
+        [
+            {
+                "activityId": "swim-repair-1",
+                "startTimeLocal": _recent_iso(),
+                "activityType": {"typeKey": "lap_swimming"},
+                "duration": 2608.0,
+                "movingDuration": 2453.0,
+                "distance": 1600.0,
+                "averageHR": 129.0,
+            }
+        ],
+    )
+    stored_before = _activity_row(db, "swim-repair-1")
+    assert stored_before["tss_method"] == "hr_tss_swim"
+    assert stored_before["tss_pace_used"] is None
+
+    db.save_athlete_profile(
+        {
+            "ftp": 172.0,
+            "weight_kg": 95.4,
+            "lthr": 163.0,
+            "swim_threshold_pace_seconds_per_100m": 138.0,
+            "swim_threshold_pace_source": "intervals_icu",
+            "source": "intervals_icu",
+        }
+    )
+
+    reopened = Database(db_path)
+    stored_after = _activity_row(reopened, "swim-repair-1")
+    assert stored_after["tss_method"] == "pace_tss_swim"
+    assert stored_after["tss_pace_used"] == pytest.approx(138.0)
+    assert stored_after["tss"] == pytest.approx(49.7, abs=0.1)
+
+
 def test_swim_zone_summary_beats_raw_garmin_load(tmp_path):
     db = Database(str(tmp_path / "swim.db"))
 

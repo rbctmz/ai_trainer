@@ -88,6 +88,36 @@ def test_activities_with_data(tmp_path):
     assert payload["totals"]["tss"] == 28.0
 
 
+def test_activities_swim_pace_tss_source_exposed(tmp_path):
+    from datetime import datetime, timedelta
+
+    from api.routers.activities import list_activities
+
+    db = Database(str(tmp_path / "swim_pace.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": "swim-pace-1",
+                "date": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+                "sport": "lap_swimming",
+                "duration_minutes": 43.47,
+                "moving_duration_minutes": 40.886,
+                "distance_km": 1.6,
+                "tss": 49.7,
+                "tss_method": "pace_tss_swim",
+                "tss_pace_used": 138.0,
+            }
+        ]
+    )
+
+    payload = list_activities(days=30, db=db)
+
+    item = payload["items"][0]
+    assert item["tss_method"] == "pace_tss_swim"
+    assert item["tss_source"] == "pace"
+    assert item["tss_pace_used"] == 138.0
+
+
 def test_hrv_with_data_exposes_date_labels(tmp_path):
     from api.routers.hrv import hrv_summary
 
