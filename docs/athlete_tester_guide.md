@@ -46,6 +46,8 @@ PRIMARY_WELLNESS_SOURCE=intervals
 ```
 
 `GARMIN_EMAIL`/`GARMIN_PASSWORD` оставьте пустыми (Garmin не требуется).
+Если эти поля заполнены, синк выполняется и по Garmin тоже (активности и
+wellness); с пустыми полями данные идут только из Intervals.icu.
 Ключ AI-провайдера — по инструкции в `.env.example` (например,
 `DEFAULT_AI_PROVIDER=deepseek` + `DEEPSEEK_API_KEY=...`).
 
