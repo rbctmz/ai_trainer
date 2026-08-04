@@ -1,0 +1,55 @@
+name: Фидбек тестера
+description: Впечатления, UX-замечания и идеи по продукту (пилот)
+title: "[Фидбек] "
+labels: ["status: needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо за обратную связь! Коротко и по делу: что понравилось, что мешает, что хотелось бы изменить. Чеклист сценариев: #367.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: К чему относится
+      options:
+        - Интерфейс и удобство
+        - Планирование
+        - Расчёты нагрузки
+        - Коуч
+        - Синхронизация данных
+        - Установка и запуск
+        - Другое
+    validations:
+      required: true
+
+  - type: textarea
+    id: liked
+    attributes:
+      label: Что понравилось
+      placeholder: Опишите, что зашло.
+    validations:
+      required: false
+
+  - type: textarea
+    id: pain
+    attributes:
+      label: Что мешает / неудобно
+      description: Опишите ситуацию и как, по-вашему, должно работать.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: Идея / пожелание
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Конфиденциальность
+      options:
+        - label: Я не публикую личные метрики, пароли и API-ключи
+          required: true
