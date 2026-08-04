@@ -21,6 +21,7 @@ _NUMERIC = (
     "garmin_training_load",
     "source_tss",
     "tss_ftp_used",
+    "tss_pace_used",
     "avg_hr",
     "max_hr",
     "elevation_gain",
@@ -67,6 +68,8 @@ def list_activities(
         tss_method = _text(row.get("tss_method"))
         if tss_method and tss_method.startswith("power_tss_"):
             tss_source = "power"
+        elif tss_method and tss_method.startswith("pace_tss_"):
+            tss_source = "pace"
         elif tss_method and (tss_method.startswith("hr_tss_") or tss_method.startswith("hr_zone_tss_")):
             tss_source = "heart_rate"
         elif tss_method and tss_method.startswith("heuristic_"):

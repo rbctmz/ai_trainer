@@ -77,6 +77,7 @@ class Database:
         'tss_method',
         'tss',
         'tss_ftp_used',
+        'tss_pace_used',
     ]
 
     _ACTIVITY_COLUMN_TYPES = {
@@ -110,6 +111,7 @@ class Database:
         'tss_method': 'TEXT',
         'tss': 'REAL',
         'tss_ftp_used': 'REAL',
+        'tss_pace_used': 'REAL',
     }
 
     _TRAINING_STATUS_COLUMN_ORDER = [
@@ -304,6 +306,7 @@ class Database:
                 tss_method TEXT,
                 tss REAL,
                 tss_ftp_used REAL,
+                tss_pace_used REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -936,6 +939,7 @@ class Database:
                     resolved['garmin_training_load'],
                 )
                 or not self._numeric_equal(activity.get('tss_ftp_used'), resolved['tss_ftp_used'])
+                or not self._numeric_equal(activity.get('tss_pace_used'), resolved['tss_pace_used'])
             )
             if not needs_update:
                 continue
@@ -947,7 +951,8 @@ class Database:
                     tss_method = ?,
                     source_tss = ?,
                     garmin_training_load = ?,
-                    tss_ftp_used = ?
+                    tss_ftp_used = ?,
+                    tss_pace_used = ?
                 WHERE activity_id = ?
                 ''',
                 (
@@ -956,6 +961,7 @@ class Database:
                     self.clean_value(resolved['source_tss']),
                     self.clean_value(resolved['garmin_training_load']),
                     self.clean_value(resolved['tss_ftp_used']),
+                    self.clean_value(resolved['tss_pace_used']),
                     self.clean_value(activity.get('activity_id')),
                 ),
             )

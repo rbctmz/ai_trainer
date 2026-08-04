@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 TYPES = ROOT / "web" / "lib" / "types.ts"
 PROFILE_CARD = ROOT / "web" / "components" / "dashboard" / "AthleteProfileCard.tsx"
+ACTIVITIES_PAGE = ROOT / "web" / "app" / "activities" / "page.tsx"
 
 
 def test_athlete_profile_web_contract_exposes_swim_pace_units_and_provenance():
@@ -25,3 +26,14 @@ def test_athlete_profile_web_contract_exposes_swim_pace_units_and_provenance():
     assert "Пороговый темп плавания" in card
     assert "formatSwimPace" in card
     assert "swim_threshold_pace_source" in card
+
+
+def test_activities_page_exposes_pace_tss_source_label():
+    page = ACTIVITIES_PAGE.read_text(encoding="utf-8")
+    types = TYPES.read_text(encoding="utf-8")
+
+    assert "по темпу" in page
+    assert "tss_pace_used" in page
+    assert "CSS" in page
+    assert '"pace"' in types
+    assert "tss_pace_used?: number | null" in types
