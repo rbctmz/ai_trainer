@@ -1,0 +1,109 @@
+name: Баг-репорт тестера
+description: Сообщить о проблеме при тестировании AI Trainer (пилот)
+title: "[Баг] "
+labels: ["type: bug", "status: needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Спасибо, что тестируете! Заполните поля ниже — этого достаточно, чтобы мы быстро воспроизвели проблему. Чеклист сценариев: #367.
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Где запущено
+      description: Как вы запустили приложение?
+      options:
+        - Docker (docker compose)
+        - Локально (./run_web.sh)
+        - Демо-режим
+        - Другое
+    validations:
+      required: true
+
+  - type: input
+    id: date
+    attributes:
+      label: Дата теста
+      description: Когда вы это воспроизвели?
+      placeholder: например, 2026-08-05
+    validations:
+      required: false
+
+  - type: dropdown
+    id: data_source
+    attributes:
+      label: Источник данных
+      description: Какие данные были подключены?
+      options:
+        - Intervals.icu
+        - Garmin Connect
+        - Оба
+        - Демо-режим (без реальных данных)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scenario
+    attributes:
+      label: Шаг из чеклиста
+      description: Какой сценарий вы проверяли (см. чеклист #367)?
+      options:
+        - 1. Онбординг и запуск
+        - 2. Синхронизация данных
+        - 3. Корректность нагрузки
+        - 4. Планирование
+        - 5. Выполнение и факт
+        - 6. Экспорт и доставка
+        - 7. Коуч
+        - Другое / не из чеклиста
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Что вы делали
+      description: Коротко, по шагам.
+      placeholder: |
+        1. Открыл /planning
+        2. Нажал «Предпросмотр»
+        3. ...
+      render: markdown
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Что ожидали
+      description: Как должно было работать?
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Что получилось
+      description: Ошибка, неверное число, пропавшая кнопка, белый экран и т.п.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Скриншот / лог (по желанию)
+      description: >-
+        Приложите скриншот или фрагмент лога. Не выносите личные метрики,
+        пароли и API-ключи — при необходимости замаскируйте.
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Конфиденциальность
+      description: Подтвердите перед отправкой.
+      options:
+        - label: Я не публикую личные метрики, пароли и API-ключи
+          required: true
