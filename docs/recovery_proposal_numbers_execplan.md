@@ -15,9 +15,9 @@ This document must be maintained in accordance with `.agent/PLANS.md` at the rep
 ## Progress
 
 - [x] (2026-08-06) Создан ExecPlan; прочитаны `models/planning_near_term.py`, `models/recovery_replan.py`, `api/recovery_replan_loop.py`, `web/app/decisions/page.tsx`, `tests/smoke/test_recovery_replan_loop.py`.
-- [ ] Milestone 1: поля длительности в `current_session`/`recommended_session` + TSS-guard + тесты.
-- [ ] Milestone 2: дельты длительности в `summarize_near_term_draft_rows` и в proposal payload + контрактные тесты.
-- [ ] Milestone 3: web-отображение «было → станет» в `/decisions` + lint/build + браузерная проверка.
+- [x] (2026-08-06) Milestone 1: `duration_minutes`/`delta_duration_minutes` в `current_session`/`recommended_session`, TSS-guard (fail-closed) в `build_recovery_replan_variant`, поля planned/proposed в `safety_guard`; тесты расширены (75 passed focused).
+- [x] (2026-08-06) Milestone 2: `summarize_near_term_draft_rows` отдаёт `total_delta_duration_minutes` и «Δ мин»; `_proposal_payload` пробрасывает дельты и заменяет `None` на реальное число для downgrade; контрактные assertion'ы M6 обновлены с `None` на число.
+- [x] (2026-08-06) Milestone 3: `web/app/decisions/page.tsx` показывает «{name} · {tss} TSS · {duration} мин (было {tss} TSS · {duration} мин)» с fallback на старый формат; ESLint и production build зелёные.
 
 ## Surprises & Discoveries
 
@@ -25,6 +25,10 @@ This document must be maintained in accordance with `.agent/PLANS.md` at the rep
   Evidence: `models/planning_near_term.py` (строки сборки draft содержат `duration_minutes`, `total_tss`, `current_total_tss`), `models/recovery_replan.py` (`current_session`/`recommended_session` содержат только `tss` и `delta_tss`).
 - Observation: у downgrade-варианта `weekly_duration_delta_minutes` в proposal payload всегда `None`, хотя суммарный дельт-счёт по TSS уже есть (`total_delta_tss`).
   Evidence: `api/recovery_replan_loop.py::_proposal_payload` (`"weekly_duration_delta_minutes": None` в ветке downgrade).
+- Observation: M6-контракт (issue #209) закреплял `weekly_duration_delta_minutes: None` для downgrade тестами — изменение на реальное число потребовало осознанного обновления этих assertion'ов.
+  Evidence: `tests/smoke/test_recovery_replan_loop.py` (строки «weekly_duration_delta_minutes is None» для downgrade).
+- Observation: `safety_guard` в variant появляется только когда в шаблонах есть fatigue-метаданные (`fatigue_cost`/`expected_recovery_hours`); в простых фикстурах его нет — гарантию «не тяжелее» в тестах надёжнее проверять по самим сессиям.
+  Evidence: `models/recovery_replan.py` (условие `baseline_profile is not None and preview_profile is not None`).
 - Observation: `_profile_is_nonincreasing` гарантирует только `fatigue_cost` и `expected_recovery_hours`, но не TSS; на практике `_recommendation` возвращает долю от текущей TSS (0.40/0.50/0.60), поэтому TSS-guard — это фиксация существующего поведения тестом, а не новое ограничение.
   Evidence: `models/recovery_replan.py::_recommendation` и `_profile_is_nonincreasing`.
 
@@ -36,10 +40,13 @@ This document must be maintained in accordance with `.agent/PLANS.md` at the rep
 - Decision: новые поля добавляем аддитивно; существующие ключи (`tss`, `delta_tss`, `options`, `safety_guard`) не переименовываем.
   Rationale: proposal-контракт уже используется web и тестами; смена имён без необходимости = риск регрессий.
   Date/Author: 2026-08-06 / Codex.
+- Decision: TSS-guard размещён сразу после `_recommendation` (fail-fast), а не после сборки `recommended_session`.
+  Rationale: ранняя проверка не зависит от того, прошёл ли preview-редактор; тест с monkeypatch `_recommendation` детерминированно проверяет ValueError.
+  Date/Author: 2026-08-06 / Codex.
 
 ## Outcomes & Retrospective
 
-Заполняется по завершении плана.
+2026-08-06: issue #373 реализован. Пользователь теперь видит в `/decisions` числа «было → станет» (TSS и длительность) с дельтой; `weekly_duration_delta_minutes` для downgrade — реальное число вместо `None`; добавлен fail-closed guard «замена не тяжелее оригинала по TSS». 75 focused тестов зелёные, ESLint и web build зелёные. Открыт PR с `Closes #373`.
 
 ## Context and Orientation
 

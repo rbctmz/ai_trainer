@@ -187,6 +187,9 @@ function ProposalEntry({
   const recommended = proposal.preview?.recommended_session as
     | Record<string, unknown>
     | undefined;
+  const current = proposal.preview?.current_session as
+    | Record<string, unknown>
+    | undefined;
   const recoveryResult = proposal.result ?? {};
   const selectedRecoveryKind = String(recoveryResult.selected_kind ?? "downgrade_today");
   const oldSessionId = String(recoveryResult.old_session_id ?? "");
@@ -195,12 +198,19 @@ function ProposalEntry({
   const affectedDates = Array.isArray(recoveryResult.affected_dates)
     ? recoveryResult.affected_dates.map(String)
     : [];
+  const hasRecoveryNumbers =
+    typeof recommended?.tss === "number" &&
+    typeof recommended?.duration_minutes === "number" &&
+    typeof current?.tss === "number" &&
+    typeof current?.duration_minutes === "number";
   const recoverySummary =
     selectedRecoveryKind === "keep"
       ? "План оставлен без изменений"
       : selectedRecoveryKind === "transfer_1_3d"
         ? [newSessionLabel, affectedDates.join(" → ")].filter(Boolean).join(" · ")
-        : `${String(recommended?.name ?? "Снижение нагрузки")} · ${String(recommended?.tss ?? "—")} TSS`;
+        : hasRecoveryNumbers
+          ? `${String(recommended?.name ?? "Снижение нагрузки")} · ${recommended?.tss} TSS · ${recommended?.duration_minutes} мин (было ${current?.tss} TSS · ${current?.duration_minutes} мин)`
+          : `${String(recommended?.name ?? "Снижение нагрузки")} · ${String(recommended?.tss ?? "—")} TSS`;
   // Identity handoff stays available as evidence (tooltip), never the main summary text.
   const transferIdentityTitle =
     selectedRecoveryKind === "transfer_1_3d" && oldSessionId && newSessionId
