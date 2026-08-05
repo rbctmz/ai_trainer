@@ -15,9 +15,9 @@ This document must be maintained in accordance with `.agent/PLANS.md` at the rep
 ## Progress
 
 - [x] (2026-08-06) Создан ExecPlan; прочитаны `data/athlete_profile_store.py`, `data/data_processor.py`, `api/routers/athlete_profile.py`, `services/intervals_icu.py`, `web/components/dashboard/AthleteProfileCard.tsx`, `web/app/activities/page.tsx`.
-- [ ] Milestone 1: `models/threshold_drift.py::detect_threshold_drift` + юнит-тесты.
-- [ ] Milestone 2: поле `warnings` в `/api/athlete-profile` + контрактные тесты.
-- [ ] Milestone 3: web-подсказки в карточке профиля и на странице активностей + lint/build + браузер.
+- [x] (2026-08-06) Milestone 1: `models/threshold_drift.py::detect_threshold_drift` + 3 теста детектора (drift ≥10%, ниже порога, нет профиля/старые активности).
+- [x] (2026-08-06) Milestone 2: поле `warnings` в `/api/athlete-profile` (аддитивно, пусто без расхождения) + контрактные тесты (новые + обновлённый `test_api_athlete_profile_contract.py`).
+- [x] (2026-08-06) Milestone 3: web-подсказки в `AthleteProfileCard` и на странице активностей (`FTP профиля сейчас N Вт, эта активность посчитана по M Вт`); ESLint и production build зелёные.
 
 ## Surprises & Discoveries
 
@@ -25,6 +25,8 @@ This document must be maintained in accordance with `.agent/PLANS.md` at the rep
   Evidence: `data/data_processor.py` (поле `tss_ftp_used` в результатах `resolve_tss`), `web/app/activities/page.tsx` («FTP N»).
 - Observation: профиль атлета уже хранит `source` и `synced_at`, так что можно отличить «синхронизировано из Intervals.icu» от «fallback из .env».
   Evidence: `data/athlete_profile_store.py` (колонки `source`, `synced_at`), `api/routers/athlete_profile.py` (отдаёт их наружу).
+- Observation: использованный LTHR в активностях не сохраняется (колонки `lthr_used` нет), поэтому v1 детектит только FTP-дрейф; порог темпа/плавания можно добавить аналогично при появлении полей.
+  Evidence: `data/database.py` (`_ACTIVITY_COLUMN_ORDER`: `tss_ftp_used`, `tss_pace_used`, без `lthr_used`).
 
 ## Decision Log
 
@@ -34,10 +36,13 @@ This document must be maintained in accordance with `.agent/PLANS.md` at the rep
 - Decision: сравниваем FTP профиля (последний синк) с `tss_ftp_used` последней активности не старше 30 дней; если активностей нет или профиля нет — предупреждений нет.
   Rationale: это честное сравнение «что показывает источник» против «чем реально считали»; старые активности могли быть посчитаны до обновления профиля и не показательны.
   Date/Author: 2026-08-06 / Codex.
+- Decision: v1 покрывает только FTP-дрейф; LTHR/темп отложены.
+  Rationale: `tss_ftp_used` — единственное сохраняемое «использованное» пороговое значение; остальное потребовало бы миграции данных.
+  Date/Author: 2026-08-06 / Codex.
 
 ## Outcomes & Retrospective
 
-Заполняется по завершении плана.
+2026-08-06: issue #374 реализован. Детектор `detect_threshold_drift` сравнивает FTP профиля с `tss_ftp_used` последней активности за 30 дней и предупреждает при расхождении ≥10%; `/api/athlete-profile` отдаёт `warnings`; карточка профиля и список активностей показывают подсказку с обоими числами. 9 focused тестов + обновлённый контракт зелёные; ESLint и web build зелёные; полный smoke 1493 passed (тот же pre-existing fail). Открыт PR с `Closes #374`.
 
 ## Context and Orientation
 

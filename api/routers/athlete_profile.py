@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends
 from api.deps import get_database
 from api.operational_state import build_operational_state
 from data.database import Database
+from models.threshold_drift import detect_threshold_drift
 
 router = APIRouter(prefix="/api/athlete-profile", tags=["athlete-profile"])
 
@@ -25,6 +26,7 @@ def athlete_profile(demo: bool = False, db: Database = Depends(get_database)) ->
         return {
             "has_data": False,
             "profile": None,
+            "warnings": [],
             "operational_state": build_operational_state(db, demo=demo, has_data=False),
         }
 
@@ -53,6 +55,7 @@ def athlete_profile(demo: bool = False, db: Database = Depends(get_database)) ->
             "source": profile.get("source"),
             "synced_at": profile.get("synced_at"),
         },
+        "warnings": detect_threshold_drift(db),
         "operational_state": build_operational_state(
             db,
             demo=demo,

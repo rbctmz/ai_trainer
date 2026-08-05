@@ -323,9 +323,18 @@ export interface AthleteProfile {
   synced_at: string | null;
 }
 
+export interface ThresholdDriftWarning {
+  kind: string;
+  source_value: number;
+  used_value: number;
+  pct: number;
+  message: string;
+}
+
 export interface AthleteProfileResponse {
   has_data: boolean;
   profile: AthleteProfile | null;
+  warnings: ThresholdDriftWarning[];
 }
 
 // --- Sync ---
