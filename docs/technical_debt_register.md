@@ -30,7 +30,6 @@
 | ID | Приоритет | Область | Риск | Следующее действие |
 |----|-----------|---------|------|--------------------|
 | TD-006 | P2 | Structure | Крупные модули концентрируют churn | Churn-first decomposition (первый срез сделан: athlete_profile_store, #371/#372) |
-| TD-008 | P2 | Security | Отозванное значение остаётся в Git history | Решение: rewrite или accepted residual risk |
 
 На дату снимка подтверждённых `P0` нет. Это не означает отсутствие дефектов:
 реестр описывает известный долг, а не заменяет issue/bug triage.
@@ -133,6 +132,16 @@
   явное решение о принятом residual risk с evidence ротации и сроком повторного
   пересмотра.
 
+- **Решение (2026-08-06):** accepted residual risk — coordinated history rewrite
+  не выполняется на текущую дату. Причины: приватный репозиторий, значение
+  отозвано и ротировано, event-range и current-tree Gitleaks проходят;
+  rewrite на активном репозитории с открытыми ветками/агентами несёт риск
+  порчи открытых PR и требует координации всех клонов без соразмерной выгоды.
+  Evidence: аудит #296, ротация в TD-002, чистые Gitleaks-сканы.
+  Повторный пересмотр: **2027-02-06** или раньше — при публикации репозитория,
+  новом требовании политики безопасности или новом full-history аудите.
+  Owner-issue: [#385](https://github.com/rbctmz/ai_trainer/issues/385).
+
 ## Не переносить автоматически
 
 Следующие источники являются входом для повторной проверки, а не открытым
@@ -153,5 +162,6 @@ backlog:
 | TD-003 | 2026-08-03 | [#347](https://github.com/rbctmz/ai_trainer/issues/347) / [#348](https://github.com/rbctmz/ai_trainer/pull/348): единый `Database._connect()` (timeout=30, busy_timeout=30000, journal_mode=WAL), все call sites через factory, race writer+reader гейт без потери данных и с bounded latency; smoke 1439 passed |
 | TD-004 | 2026-08-03 | Аудит критериев EOL (ADR-0001): (a) acceptance-runtime формально признан dev-инструментом; (b) не выполнен — правки ui/pages до 2026-08-01; (c) не выполнен — встроенные агрегаты в dashboard/hrv/activities/sleep. Решение: maintenance-only, EOL/удаление не назначаются. Док: docs/streamlit_eol_assessment.md; follow-up по (c) — [#349](https://github.com/rbctmz/ai_trainer/issues/349) |
 | TD-004 | 2026-08-03 | Аудит критериев EOL (ADR-0001): (a) acceptance-runtime формально признан dev-инструментом; (b) не выполнен — правки ui/pages до 2026-08-01; (c) не выполнен — встроенные агрегаты в dashboard/hrv/activities/sleep. Решение: maintenance-only, EOL/удаление не назначаются. Док: docs/streamlit_eol_assessment.md; follow-up по (c) — [#349](https://github.com/rbctmz/ai_trainer/issues/349). Обновление 2026-08-06: follow-up #349/#351 смержен (dashboard-status и HRV-агрегаты вынесены в shared-слой); остаются средние по сну в `ui/pages/sleep.py`; критерий (b) не выполнен — повторный аудит позже |
+| TD-008 | 2026-08-06 | Решение accepted residual risk (owner-issue [#385](https://github.com/rbctmz/ai_trainer/issues/385)): history rewrite не выполняется — приватный репо, credential отозван/ротирован, event-range и current-tree Gitleaks чистые; повторный пересмотр 2027-02-06 или раньше при публикации репо/новом требовании политики. PR: [#386](https://github.com/rbctmz/ai_trainer/pull/386) |
 | TD-007 | 2026-08-03 | [#352](https://github.com/rbctmz/ai_trainer/issues/352): детерминированный first-token гейт на локальном mock-runtime (`COACH_FIRST_TOKEN_BUDGET_MS=5000`), live-метрика остаётся наблюдаемой; smoke 1446 passed |
 | TD-005 | 2026-08-03 | D4 [#354](https://github.com/rbctmz/ai_trainer/issues/354) / [#357](https://github.com/rbctmz/ai_trainer/pull/357) (shim `sync_activities` удалён, тесты — через oracle `tests/sync_fixtures.py`), D3 [#355](https://github.com/rbctmz/ai_trainer/issues/355) / [#358](https://github.com/rbctmz/ai_trainer/pull/358) (окно Garmin-активностей через общую cursor-таблицу, advance только после чистого прогона), D2 [#356](https://github.com/rbctmz/ai_trainer/issues/356) / [#359](https://github.com/rbctmz/ai_trainer/pull/359) (аудит local-first TSS: контракт пары `tss`+`tss_method` закреплён тестом, ложные формулировки в методологии/ADR-0008 исправлены, потоковый пересчёт — осознанный non-goal) |
