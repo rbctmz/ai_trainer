@@ -10,7 +10,11 @@ from pydantic import BaseModel
 from api.deps import get_database
 from api.operational_state import build_operational_state, latest_iso_from_frame
 from data.database import Database
-from models.activity_card import build_activity_analysis, feedback_for_activity
+from models.activity_card import (
+    build_activity_analysis,
+    feedback_for_activity,
+    foster_load_au,
+)
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
@@ -102,6 +106,11 @@ def list_activities(
         item = _base_item(row)
         activity_id = item["activity_id"]
         item["feedback"] = feedback_for_activity(activity_id, latest_feedbacks)
+        if item["feedback"]:
+            item["feedback"]["foster_load"] = foster_load_au(
+                item["feedback"].get("session_rpe_1_10"),
+                item.get("duration_minutes"),
+            )
         item["tags"] = tags_by_activity.get(activity_id, [])
         item["coach_notes"] = notes_by_activity.get(activity_id)
         items.append(item)
@@ -148,6 +157,11 @@ def get_activity_card(
     item["feedback"] = feedback_for_activity(
         activity_id, db.get_latest_session_feedbacks()
     )
+    if item["feedback"]:
+        item["feedback"]["foster_load"] = foster_load_au(
+            item["feedback"].get("session_rpe_1_10"),
+            item.get("duration_minutes"),
+        )
     item["tags"] = db.get_activity_tags(activity_id)
     item["coach_notes"] = db.get_activity_coach_notes(activity_id)
     return {"activity": item}

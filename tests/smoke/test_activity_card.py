@@ -13,6 +13,7 @@ from data.database import Database
 from models.activity_card import (
     build_activity_analysis,
     feedback_for_activity,
+    foster_load_au,
     grade_from_quality,
 )
 
@@ -107,6 +108,13 @@ def test_grade_mapping_matches_quality_scale():
     assert grade_from_quality(None) is None
 
 
+def test_foster_load_au_multiplies_rpe_by_duration():
+    assert foster_load_au(8, 30) == 240
+    assert foster_load_au(8, 60) == 480
+    assert foster_load_au(None, 30) is None
+    assert foster_load_au(8, None) is None
+
+
 def test_feedback_for_activity_matches_by_actual_ids_and_skips_tombstones():
     found = feedback_for_activity("act-1", [_feedback_row("act-1")])
     assert found is not None
@@ -176,6 +184,7 @@ def test_activity_card_api_enriches_list_and_endpoints(tmp_path):
     item = payload["items"][0]
     assert item["feedback"]["session_rpe_1_10"] == 8
     assert item["feedback"]["grade"] == "A"
+    assert item["feedback"]["foster_load"] == 480
     assert item["tags"] == []
     assert item["coach_notes"] is None
 
@@ -195,6 +204,7 @@ def test_activity_card_api_enriches_list_and_endpoints(tmp_path):
 
     analyzed = analyze_activity("act-1", db=db)
     assert analyzed["coach_notes"].startswith("## Разбор тренировки")
+    assert "480 AU (RPE 8 × 60 мин)" in analyzed["coach_notes"]
     assert db.get_activity_coach_notes("act-1") == analyzed["coach_notes"]
 
 
@@ -247,3 +257,27 @@ def test_analyze_labels_swim_css_pace_source(tmp_path):
     result = analyze_activity("act-swim-css", db=db)
 
     assert "источник: CSS-темп" in result["coach_notes"]
+
+
+def test_foster_load_works_without_power_for_swim(tmp_path):
+    from api.routers.activities import analyze_activity
+
+    db = Database(str(tmp_path / "swim-au.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": "act-swim-au",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "sport": "swimming",
+                "duration_minutes": 30,
+                "distance_km": 1.1,
+                "tss": 34.0,
+                "tss_method": "hr_zone_tss_swim",
+            }
+        ]
+    )
+    _seed_feedback(db, "act-swim-au", rpe=6, quality=4)
+
+    result = analyze_activity("act-swim-au", db=db)
+
+    assert "180 AU (RPE 6 × 30 мин)" in result["coach_notes"]
