@@ -19,6 +19,14 @@ GRADE_BY_QUALITY: dict[int, str] = {
     1: "E",
 }
 
+TSS_SOURCE_LABELS_RU: dict[str, str] = {
+    "power": "мощность",
+    "pace": "темп",
+    "heart_rate": "пульс",
+    "heuristic": "оценка",
+    "none": "нет данных",
+}
+
 
 def grade_from_quality(quality: int | None) -> str | None:
     if quality is None:
@@ -69,6 +77,7 @@ def build_activity_analysis(
     distance = activity.get("distance_km")
     tss = activity.get("tss")
     tss_source = _text(activity.get("tss_source")) or "неизвестен"
+    tss_source_label = TSS_SOURCE_LABELS_RU.get(tss_source, tss_source)
     avg_hr = activity.get("avg_hr")
     max_hr = activity.get("max_hr")
 
@@ -81,9 +90,9 @@ def build_activity_analysis(
         + (f"; дистанция: {distance_text}" if distance_text else "")
     )
     if tss is not None:
-        lines.append(f"- Нагрузка: {float(tss):.0f} TSS (источник: {tss_source})")
+        lines.append(f"- Нагрузка: {float(tss):.0f} TSS (источник: {tss_source_label})")
     else:
-        lines.append(f"- Нагрузка: не рассчитана (источник: {tss_source})")
+        lines.append(f"- Нагрузка: не рассчитана (источник: {tss_source_label})")
     hr_parts = []
     if avg_hr is not None:
         hr_parts.append(f"средний {float(avg_hr):.0f}")

@@ -196,3 +196,31 @@ def test_activity_card_api_enriches_list_and_endpoints(tmp_path):
     analyzed = analyze_activity("act-1", db=db)
     assert analyzed["coach_notes"].startswith("## Разбор тренировки")
     assert db.get_activity_coach_notes("act-1") == analyzed["coach_notes"]
+
+
+def test_analyze_uses_russian_sport_label_and_tss_source(tmp_path):
+    from api.routers.activities import analyze_activity
+
+    db = Database(str(tmp_path / "swim.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": "act-swim",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "sport": "open_water_swimming",
+                "duration_minutes": 30,
+                "distance_km": 1.1,
+                "tss": 34.0,
+                "tss_method": "hr_zone_tss_swim",
+                "avg_hr": 119,
+                "max_hr": 136,
+            }
+        ]
+    )
+
+    result = analyze_activity("act-swim", db=db)
+
+    assert "open_water_swimming" not in result["coach_notes"]
+    assert "плавание" in result["coach_notes"]
+    assert "источник: пульс" in result["coach_notes"]
+    assert "34 TSS" in result["coach_notes"]

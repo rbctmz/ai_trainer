@@ -203,11 +203,12 @@ def analyze_activity(
     row = db.get_activity(activity_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Activity not found")
+    item = _base_item(row)
     activity_date = pd.to_datetime(row["date"]).date()
     readiness = build_readiness_snapshot(db, as_of=activity_date)
     feedback = feedback_for_activity(
         activity_id, db.get_latest_session_feedbacks()
     )
-    body = build_activity_analysis(row, feedback, readiness)
+    body = build_activity_analysis(item, feedback, readiness)
     db.save_activity_coach_notes(activity_id, body, source="auto")
     return {"activity_id": activity_id, "coach_notes": body}
