@@ -135,6 +135,17 @@ export interface Activity {
   max_hr: number | null;
   elevation_gain: number | null;
   calories: number | null;
+  feedback?: ActivityFeedback | null;
+  tags?: string[];
+  coach_notes?: string | null;
+}
+
+export interface ActivityFeedback {
+  session_rpe_1_10: number | null;
+  quality_rating_1_5: number | null;
+  grade: string | null;
+  note: string | null;
+  submitted_at: string | null;
 }
 
 export interface ActivitiesResponse {
