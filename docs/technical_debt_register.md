@@ -29,7 +29,7 @@
 
 | ID | Приоритет | Область | Риск | Следующее действие |
 |----|-----------|---------|------|--------------------|
-| TD-006 | P2 | Structure | Крупные модули концентрируют churn | Churn-first decomposition (первый срез сделан: athlete_profile_store, #371/#372) |
+| TD-006 | P2 | Structure | Крупные модули концентрируют churn | Churn-first decomposition (срезы: athlete_profile_store #371/#372, activity_store #387) |
 
 На дату снимка подтверждённых `P0` нет. Это не означает отсутствие дефектов:
 реестр описывает известный долг, а не заменяет issue/bug triage.
@@ -104,6 +104,12 @@
   `models/ai_tools.py` — 2027, `ui/pages/planning.py` — 3366. Следующий шаг —
   churn-first выбор следующего hotspot (кандидаты: методы activities/readiness/
   feedback в `database.py`) с owner-issue по правилам реестра.
+- **Второй срез (2026-08-06):** кластер «карточка активности» (get_activity,
+  теги, coach notes + таблицы activity_tags/activity_coach_notes) вынесен в
+  `data/activity_store.py` по паттерну athlete_profile_store; `Database`
+  делегирует через тонкие фасады. Owner-issue: [#387](https://github.com/rbctmz/ai_trainer/issues/387).
+  `data/database.py` уменьшился на ~160 строк. Следующий шаг прежний:
+  churn-first выбор следующего hotspot.
 
 ### TD-007 — Детерминированный latency-гейт коуча
 
@@ -163,5 +169,6 @@ backlog:
 | TD-004 | 2026-08-03 | Аудит критериев EOL (ADR-0001): (a) acceptance-runtime формально признан dev-инструментом; (b) не выполнен — правки ui/pages до 2026-08-01; (c) не выполнен — встроенные агрегаты в dashboard/hrv/activities/sleep. Решение: maintenance-only, EOL/удаление не назначаются. Док: docs/streamlit_eol_assessment.md; follow-up по (c) — [#349](https://github.com/rbctmz/ai_trainer/issues/349) |
 | TD-004 | 2026-08-03 | Аудит критериев EOL (ADR-0001): (a) acceptance-runtime формально признан dev-инструментом; (b) не выполнен — правки ui/pages до 2026-08-01; (c) не выполнен — встроенные агрегаты в dashboard/hrv/activities/sleep. Решение: maintenance-only, EOL/удаление не назначаются. Док: docs/streamlit_eol_assessment.md; follow-up по (c) — [#349](https://github.com/rbctmz/ai_trainer/issues/349). Обновление 2026-08-06: follow-up #349/#351 смержен (dashboard-status и HRV-агрегаты вынесены в shared-слой); остаются средние по сну в `ui/pages/sleep.py`; критерий (b) не выполнен — повторный аудит позже |
 | TD-008 | 2026-08-06 | Решение accepted residual risk (owner-issue [#385](https://github.com/rbctmz/ai_trainer/issues/385)): history rewrite не выполняется — приватный репо, credential отозван/ротирован, event-range и current-tree Gitleaks чистые; повторный пересмотр 2027-02-06 или раньше при публикации репо/новом требовании политики. PR: [#386](https://github.com/rbctmz/ai_trainer/pull/386) |
+| TD-006 | 2026-08-06 | Первый churn-first срез (owner-issue [#387](https://github.com/rbctmz/ai_trainer/issues/387)): кластер карточки активности вынесен в `data/activity_store.py` (8 методов, DDL карточных таблиц), `Database` — тонкие фасады; smoke 1505 passed, регрессий нет. Долг остаётся открытым (P2) — следующий hotspot по churn |
 | TD-007 | 2026-08-03 | [#352](https://github.com/rbctmz/ai_trainer/issues/352): детерминированный first-token гейт на локальном mock-runtime (`COACH_FIRST_TOKEN_BUDGET_MS=5000`), live-метрика остаётся наблюдаемой; smoke 1446 passed |
 | TD-005 | 2026-08-03 | D4 [#354](https://github.com/rbctmz/ai_trainer/issues/354) / [#357](https://github.com/rbctmz/ai_trainer/pull/357) (shim `sync_activities` удалён, тесты — через oracle `tests/sync_fixtures.py`), D3 [#355](https://github.com/rbctmz/ai_trainer/issues/355) / [#358](https://github.com/rbctmz/ai_trainer/pull/358) (окно Garmin-активностей через общую cursor-таблицу, advance только после чистого прогона), D2 [#356](https://github.com/rbctmz/ai_trainer/issues/356) / [#359](https://github.com/rbctmz/ai_trainer/pull/359) (аудит local-first TSS: контракт пары `tss`+`tss_method` закреплён тестом, ложные формулировки в методологии/ADR-0008 исправлены, потоковый пересчёт — осознанный non-goal) |
