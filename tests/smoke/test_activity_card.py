@@ -224,3 +224,26 @@ def test_analyze_uses_russian_sport_label_and_tss_source(tmp_path):
     assert "плавание" in result["coach_notes"]
     assert "источник: пульс" in result["coach_notes"]
     assert "34 TSS" in result["coach_notes"]
+
+
+def test_analyze_labels_swim_css_pace_source(tmp_path):
+    from api.routers.activities import analyze_activity
+
+    db = Database(str(tmp_path / "swim-css.db"))
+    db.save_activities(
+        [
+            {
+                "activity_id": "act-swim-css",
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "sport": "swimming",
+                "duration_minutes": 30,
+                "distance_km": 1.1,
+                "tss": 34.0,
+                "tss_method": "pace_tss_swim",
+            }
+        ]
+    )
+
+    result = analyze_activity("act-swim-css", db=db)
+
+    assert "источник: CSS-темп" in result["coach_notes"]

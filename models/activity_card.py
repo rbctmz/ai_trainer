@@ -77,7 +77,11 @@ def build_activity_analysis(
     distance = activity.get("distance_km")
     tss = activity.get("tss")
     tss_source = _text(activity.get("tss_source")) or "неизвестен"
-    tss_source_label = TSS_SOURCE_LABELS_RU.get(tss_source, tss_source)
+    tss_method = _text(activity.get("tss_method")) or ""
+    if tss_method.startswith("pace_tss_swim"):
+        tss_source_label = "CSS-темп"
+    else:
+        tss_source_label = TSS_SOURCE_LABELS_RU.get(tss_source, tss_source)
     avg_hr = activity.get("avg_hr")
     max_hr = activity.get("max_hr")
 
