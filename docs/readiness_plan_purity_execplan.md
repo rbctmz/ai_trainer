@@ -15,9 +15,9 @@ This document must be maintained in accordance with `.agent/PLANS.md` at the rep
 ## Progress
 
 - [x] (2026-08-06) Создан ExecPlan; найдены потребители `compute_readiness_today`: `services/readiness_snapshot.py`, `api/readiness_conflicts.py`, `models/readiness_conflicts.py`, `models/signals_engine.py`, `models/ai_tools.py`.
-- [ ] Milestone 1: аудит потребителей — откуда каждая точка берёт `activities_df`; запись находок.
-- [ ] Milestone 2: контрактные тесты «план не влияет на скор».
-- [ ] Milestone 3: фикс, если аудит найдёт путь плана в готовность; проверка разделения «готовность» и «рекомендация» в today-snapshot.
+- [x] (2026-08-06) Milestone 1: аудит потребителей завершён — все точки берут `activities_df` из БД-таблицы завершённых активностей (`Database.get_activities_between` / `get_activities`); plan-строки живут в `planning_checkpoints` и в readiness не попадают.
+- [x] (2026-08-06) Milestone 2: контрактные тесты в `tests/smoke/test_readiness_plan_purity.py` (3 теста) — зелёные (3 passed).
+- [x] (2026-08-06) Milestone 3: фикс не потребовался — структура уже чистая; разделение «готовность» и «рекомендация» подтверждено: today-snapshot берёт readiness из канонического снапшота (`readiness_source: canonical_snapshot`), рекомендации живут отдельными полями.
 
 ## Surprises & Discoveries
 
@@ -25,6 +25,8 @@ This document must be maintained in accordance with `.agent/PLANS.md` at the rep
   Evidence: `services/readiness_snapshot.py` (`db.get_activities_between`), `api/readiness_conflicts.py` (`db.get_activities(LOAD_METRICS_WINDOW_DAYS)`), `models/signals_engine.py` (принимает `activities_df` на вход).
 - Observation: `_tsb_metrics` дополнительно отсекает всё, что позже сегодняшней даты (`df["date"] <= anchor_ts`), так что даже случайно переданная будущая активность не попадёт в TSB.
   Evidence: `models/readiness.py::_tsb_metrics` (фильтр `df[df["date"] <= anchor_ts]`).
+- Observation: today-snapshot уже разделяет «готовность» и «что делать сегодня»: поле `readiness` приходит из канонического снапшота, а плановые сессии/конфликты/recovery-proposal — отдельные поля того же ответа.
+  Evidence: `api/today_snapshot.py` (`readiness_source: "canonical_snapshot"`, рядом `planned_sessions`, `readiness_conflicts`, recovery proposal).
 
 ## Decision Log
 
@@ -34,10 +36,13 @@ This document must be maintained in accordance with `.agent/PLANS.md` at the rep
 - Decision: TSB-фактор остаётся в скоре, но только по завершённым активностям.
   Rationale: накопленная усталость от реально сделанного — легитимный вход «восстановленности»; запрещён только план (будущее), а не прошлое.
   Date/Author: 2026-08-06 / Codex.
+- Decision: производственный код не меняется — поведение уже чистое; работа ограничивается аудитом и контрактными тестами.
+  Rationale: тесты фиксируют инвариант «план не влияет на скор» на двух уровнях (модель и снапшот с БД), чтобы будущие изменения не сломали его молча.
+  Date/Author: 2026-08-06 / Codex.
 
 ## Outcomes & Retrospective
 
-Заполняется по завершении плана.
+2026-08-06: issue #375 реализован как тестовый контракт. Аудит подтвердил, что архитектура уже чистая (activities отдельно от plan-строк, `_tsb_metrics` режет будущее, today-snapshot не смешивает готовность с рекомендацией). Добавлены 3 теста `tests/smoke/test_readiness_plan_purity.py`: будущие плановые TSS не меняют score/факторы; завершённая активность меняет TSB-фактор; checkpoint с будущей quality-сессией не меняет снапшот. Производственный код без изменений; риск регрессии — только если кто-то начнёт кормить readiness плановыми строками, что тесты теперь запрещают.
 
 ## Context and Orientation
 
