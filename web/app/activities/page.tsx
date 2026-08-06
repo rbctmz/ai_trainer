@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { ApiError, deleteJSON, fetcher, postJSON, putJSON } from "@/lib/api";
 import {
@@ -193,6 +193,7 @@ function ActivityCardModal({
   const [intervals, setIntervals] = useState<ActivityIntervals | null | undefined>(
     activity.intervals,
   );
+  const fallbackIntervals = useRef(activity.intervals);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -206,7 +207,7 @@ function ActivityCardModal({
         if (!cancelled) setIntervals(res.activity.intervals ?? null);
       })
       .catch(() => {
-        if (!cancelled) setIntervals(null);
+        if (!cancelled) setIntervals(fallbackIntervals.current ?? null);
       });
     return () => {
       cancelled = true;

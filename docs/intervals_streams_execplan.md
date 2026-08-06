@@ -15,10 +15,10 @@ Intervals.icu — **первичный** источник данных (Garmin �
 - [x] (2026-08-06) Спайк. Эндпоинты подтверждены официальной OpenAPI-спецификацией (`https://intervals.icu/api/v1/docs`, v1.0.0) и форумом: интервалы — `GET /api/v1/activity/{id}?intervals=true` (или `/intervals`) → `IntervalsDTO` с `icu_intervals`/`icu_groups`; стримы — `GET /api/v1/activity/{id}/streams.json?types=watts` → объект «имя стрима → массив значений». Отдельно подтверждены готовые `best-efforts` и `power-curves` эндпоинты для #382.
 - [x] (2026-08-06) Создан issue #390.
 - [x] (2026-08-06) ExecPlan создан; прочитаны `services/intervals_icu.py`, `data/activity_store.py`, `data/database.py` (схема `activity_provider_links`), `api/routers/activities.py`, `web/app/activities/page.tsx`, `web/lib/types.ts`.
-- [x] (2026-08-06) Milestone 1: клиент (`get_activity_intervals` / `get_activity_streams`) + чистый нормализатор `models/activity_intervals.py` + контрактные тесты (19 passed).
+- [x] (2026-08-06) Milestone 1: клиент (`get_activity_intervals` / `get_activity_streams`) + чистый нормализатор `models/activity_intervals.py` + контрактные тесты (20 passed).
 - [x] (2026-08-06) Milestone 2: кэш-таблица `activity_intervals` + резолв Intervals-id через provider-links + сервис fetch-on-demand с фолбэком на кэш + поле `intervals` в карточке API.
 - [x] (2026-08-06) Milestone 3: web-секция «Структура тренировки» в карточке; ESLint и production build зелёные.
-- [x] (2026-08-06) Полный smoke — 1526 passed, 1 skipped (socket preflight); ruff чистый.
+- [x] (2026-08-06) Полный smoke — 1527 passed, 1 skipped (socket preflight); ruff чистый.
 - [ ] Мердж PR (решает #390); затем #383 (план vs факт в карточке) и #382 (power curve / best efforts).
 
 ## Surprises & Discoveries
@@ -51,6 +51,9 @@ Intervals.icu — **первичный** источник данных (Garmin �
   Date/Author: 2026-08-06 / Codex.
 - Decision: `streams`-метод добавляем в клиент сейчас (контракт), но в карточку и БД не вшиваем — он задействуется в #382.
   Rationale: фундамент issue #390 покрывает оба эндпоинта; включать power curve сейчас — разрастание скоупа.
+  Date/Author: 2026-08-06 / Codex.
+- Decision: при резолве Intervals-id через `activity_provider_links` НЕ фильтруем по `match_status = 'matched'`.
+  Rationale: `match_status` — статус склейки провайдеров (ADR-0008), а не валидности. Standalone-активность из Intervals.icu (первичный источник, Garmin может вообще не прийти) имеет `unmatched` по дизайну; фильтр отломал бы главный сценарий (#390, карточка плавания). `ambiguous` при этом тоже имеет один Intervals-link, и интервалы для него честно показываются по этому link. Ревью-замечание закрыто как documented decision.
   Date/Author: 2026-08-06 / Codex.
 
 ## Context and Orientation
@@ -101,4 +104,4 @@ Intervals.icu — **первичный** источник данных (Garmin �
 
 ## Outcomes & Retrospective
 
-2026-08-06: фундамент #390 реализован. Клиент читает интервалы (`?intervals=true`) и стримы (`streams.json`), нормализатор приводит ответ к компактной структуре (fail-closed), компактный результат кэшируется в `activity_intervals` при открытии карточки, карточка API и web показывают «Структуру тренировки» (репетиции/восстановление) с фолбэком на кэш/`null` при сбое провайдера. Полные стримы в БД не пишутся — они задействуются в #382. Smoke: 1526 passed, 1 skipped; ruff/ESLint/build зелёные.
+2026-08-06: фундамент #390 реализован. Клиент читает интервалы (`?intervals=true`) и стримы (`streams.json`), нормализатор приводит ответ к компактной структуре (fail-closed; дистанция интервалов — метры → `distance_km`), компактный результат кэшируется в `activity_intervals` при открытии карточки, карточка API и web показывают «Структуру тренировки» (репетиции/восстановление) с фолбэком на кэш/`null` при сбое провайдера. Полные стримы в БД не пишутся — они задействуются в #382. Ревью: учтены фолбэк веба на `activity.intervals` и счётчики тестов; замечание по `match_status` закрыто как documented decision. Smoke: 1527 passed, 1 skipped; ruff/ESLint/build зелёные.
