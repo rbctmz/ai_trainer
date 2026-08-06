@@ -4,11 +4,13 @@ from __future__ import annotations
 from typing import Any
 
 import pandas as pd
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 
 from api.deps import get_database
 from api.operational_state import build_operational_state, latest_iso_from_frame
 from data.database import Database
+from models.activity_card import build_activity_analysis, feedback_for_activity
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
@@ -45,6 +47,36 @@ def _num(value: Any) -> float | None:
         return None
 
 
+def _base_item(row: Any) -> dict[str, Any]:
+    """Базовый элемент карточки активности из строки БД (без enrich-полей)."""
+    raw_sport = row.get("sport") or "—"
+    tss_method = _text(row.get("tss_method"))
+    if tss_method and tss_method.startswith("power_tss_"):
+        tss_source = "power"
+    elif tss_method and tss_method.startswith("pace_tss_"):
+        tss_source = "pace"
+    elif tss_method and (
+        tss_method.startswith("hr_tss_") or tss_method.startswith("hr_zone_tss_")
+    ):
+        tss_source = "heart_rate"
+    elif tss_method and tss_method.startswith("heuristic_"):
+        tss_source = "heuristic"
+    elif tss_method == "no_duration":
+        tss_source = "none"
+    else:
+        tss_source = "unknown"
+    return {
+        "activity_id": str(row.get("activity_id")),
+        "date": pd.to_datetime(row["date"]).strftime("%Y-%m-%d"),
+        "date_label": format_date_label(row.get("date")),
+        "sport": normalize_sport_key(raw_sport),
+        "sport_label": sport_label(raw_sport),
+        **{key: _num(row.get(key)) for key in _NUMERIC},
+        "tss_method": tss_method,
+        "tss_source": tss_source,
+    }
+
+
 @router.get("")
 def list_activities(
     days: int = 30,
@@ -62,34 +94,17 @@ def list_activities(
         }
 
     df = df.sort_values("date", ascending=False)
+    tags_by_activity = db.get_all_activity_tags()
+    notes_by_activity = db.get_all_activity_coach_notes()
+    latest_feedbacks = db.get_latest_session_feedbacks()
     items = []
     for _, row in df.iterrows():
-        raw_sport = row.get("sport") or "—"
-        tss_method = _text(row.get("tss_method"))
-        if tss_method and tss_method.startswith("power_tss_"):
-            tss_source = "power"
-        elif tss_method and tss_method.startswith("pace_tss_"):
-            tss_source = "pace"
-        elif tss_method and (tss_method.startswith("hr_tss_") or tss_method.startswith("hr_zone_tss_")):
-            tss_source = "heart_rate"
-        elif tss_method and tss_method.startswith("heuristic_"):
-            tss_source = "heuristic"
-        elif tss_method == "no_duration":
-            tss_source = "none"
-        else:
-            tss_source = "unknown"
-        items.append(
-            {
-                "activity_id": str(row.get("activity_id")),
-                "date": pd.to_datetime(row["date"]).strftime("%Y-%m-%d"),
-                "date_label": format_date_label(row.get("date")),
-                "sport": normalize_sport_key(raw_sport),
-                "sport_label": sport_label(raw_sport),
-                **{key: _num(row.get(key)) for key in _NUMERIC},
-                "tss_method": tss_method,
-                "tss_source": tss_source,
-            }
-        )
+        item = _base_item(row)
+        activity_id = item["activity_id"]
+        item["feedback"] = feedback_for_activity(activity_id, latest_feedbacks)
+        item["tags"] = tags_by_activity.get(activity_id, [])
+        item["coach_notes"] = notes_by_activity.get(activity_id)
+        items.append(item)
 
     totals = {
         "count": int(len(df)),
@@ -110,3 +125,90 @@ def list_activities(
             latest_data_at=latest_iso_from_frame(df),
         ),
     }
+
+
+class TagRequest(BaseModel):
+    tag: str
+
+
+class CoachNotesRequest(BaseModel):
+    body: str
+    source: str = "coach"
+
+
+@router.get("/{activity_id}")
+def get_activity_card(
+    activity_id: str,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    row = db.get_activity(activity_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    item = _base_item(row)
+    item["feedback"] = feedback_for_activity(
+        activity_id, db.get_latest_session_feedbacks()
+    )
+    item["tags"] = db.get_activity_tags(activity_id)
+    item["coach_notes"] = db.get_activity_coach_notes(activity_id)
+    return {"activity": item}
+
+
+@router.post("/{activity_id}/tags")
+def add_activity_tag(
+    activity_id: str,
+    payload: TagRequest,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    if db.get_activity(activity_id) is None:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    db.add_activity_tag(activity_id, payload.tag)
+    return {"activity_id": activity_id, "tags": db.get_activity_tags(activity_id)}
+
+
+@router.delete("/{activity_id}/tags/{tag}")
+def remove_activity_tag(
+    activity_id: str,
+    tag: str,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    if db.get_activity(activity_id) is None:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    db.remove_activity_tag(activity_id, tag)
+    return {"activity_id": activity_id, "tags": db.get_activity_tags(activity_id)}
+
+
+@router.put("/{activity_id}/coach-notes")
+def save_coach_notes(
+    activity_id: str,
+    payload: CoachNotesRequest,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    if db.get_activity(activity_id) is None:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    db.save_activity_coach_notes(activity_id, payload.body, source=payload.source)
+    return {
+        "activity_id": activity_id,
+        "coach_notes": db.get_activity_coach_notes(activity_id),
+    }
+
+
+@router.post("/{activity_id}/analyze")
+def analyze_activity(
+    activity_id: str,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    """Детерминированный разбор по реальным данным; результат в coach_notes."""
+    from services.readiness_snapshot import build_readiness_snapshot
+
+    row = db.get_activity(activity_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="Activity not found")
+    item = _base_item(row)
+    activity_date = pd.to_datetime(row["date"]).date()
+    readiness = build_readiness_snapshot(db, as_of=activity_date)
+    feedback = feedback_for_activity(
+        activity_id, db.get_latest_session_feedbacks()
+    )
+    body = build_activity_analysis(item, feedback, readiness)
+    db.save_activity_coach_notes(activity_id, body, source="auto")
+    return {"activity_id": activity_id, "coach_notes": body}

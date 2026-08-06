@@ -444,6 +444,24 @@ class Database:
         ''')
 
         conn.execute('''
+            CREATE TABLE IF NOT EXISTS activity_tags (
+                activity_id TEXT NOT NULL,
+                tag TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (activity_id, tag)
+            )
+        ''')
+
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS activity_coach_notes (
+                activity_id TEXT PRIMARY KEY,
+                body TEXT NOT NULL,
+                source TEXT NOT NULL DEFAULT 'coach',
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        conn.execute('''
             CREATE TABLE IF NOT EXISTS coach_decisions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 date TEXT NOT NULL,
@@ -2976,7 +2994,113 @@ class Database:
         
         conn.commit()
         conn.close()
-    
+
+    def get_activity(self, activity_id):
+        """Возвращает одну активность словарём, или None если её нет."""
+        columns = list(self._ACTIVITY_COLUMN_ORDER)
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                f"SELECT {', '.join(columns)} FROM activities WHERE activity_id = ?",
+                (str(activity_id),),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None:
+            return None
+        return dict(zip(columns, row))
+
+    def get_activity_tags(self, activity_id):
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT tag FROM activity_tags WHERE activity_id = ? ORDER BY tag",
+                (str(activity_id),),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [row[0] for row in rows]
+
+    def add_activity_tag(self, activity_id, tag):
+        tag = str(tag or "").strip().lower()
+        if not tag:
+            raise ValueError("tag must be a non-empty string")
+        conn = self._connect()
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO activity_tags (activity_id, tag) VALUES (?, ?)",
+                (str(activity_id), tag),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def remove_activity_tag(self, activity_id, tag):
+        conn = self._connect()
+        try:
+            conn.execute(
+                "DELETE FROM activity_tags WHERE activity_id = ? AND tag = ?",
+                (str(activity_id), str(tag or "").strip().lower()),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_all_activity_tags(self):
+        """Все теги сразу: {activity_id: [tag, ...]} для карточек списка."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT activity_id, tag FROM activity_tags ORDER BY tag"
+            ).fetchall()
+        finally:
+            conn.close()
+        tags_by_activity: dict[str, list[str]] = {}
+        for activity_id, tag in rows:
+            tags_by_activity.setdefault(activity_id, []).append(tag)
+        return tags_by_activity
+
+    def get_activity_coach_notes(self, activity_id):
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT body FROM activity_coach_notes WHERE activity_id = ?",
+                (str(activity_id),),
+            ).fetchone()
+        finally:
+            conn.close()
+        return row[0] if row else None
+
+    def save_activity_coach_notes(self, activity_id, body, source="coach"):
+        body = str(body or "").strip()
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT INTO activity_coach_notes (activity_id, body, source, updated_at)
+                VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(activity_id) DO UPDATE SET
+                    body = excluded.body,
+                    source = excluded.source,
+                    updated_at = CURRENT_TIMESTAMP
+                """,
+                (str(activity_id), body, str(source or "coach")),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_all_activity_coach_notes(self):
+        """Все заметки сразу: {activity_id: body} для карточек списка."""
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                "SELECT activity_id, body FROM activity_coach_notes"
+            ).fetchall()
+        finally:
+            conn.close()
+        return {activity_id: body for activity_id, body in rows}
+
     def clean_test_data(self):
         """Очистка всех тестовых данных из базы"""
         conn = self._connect()
