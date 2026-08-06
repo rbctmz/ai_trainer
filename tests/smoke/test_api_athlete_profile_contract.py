@@ -27,6 +27,7 @@ def test_athlete_profile_empty_envelope(tmp_path):
 
     assert payload["has_data"] is False
     assert payload["profile"] is None
+    assert payload["warnings"] == []
     assert payload["operational_state"]["status"] == "empty"
     assert payload["operational_state"]["empty"] is True
     assert payload["operational_state"]["demo"] is False
@@ -65,6 +66,7 @@ def test_athlete_profile_with_data(tmp_path):
     assert payload["profile"]["swim_threshold_pace_synced_at"] == "2026-08-03 06:00:00"
     assert payload["profile"]["source"] == "intervals_icu"
     assert payload["profile"]["synced_at"] is not None
+    assert payload["warnings"] == []
     assert payload["operational_state"]["status"] in {"ready", "stale"}
     assert payload["operational_state"]["empty"] is False
     assert payload["operational_state"]["latest_data_at"] == payload["profile"]["synced_at"]

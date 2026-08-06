@@ -116,6 +116,18 @@ export function AthleteProfileCard({ className = "" }: { className?: string }) {
             Синхронизировано: {dataSourceLabel(profile?.source)}
             {syncedAtLabel ? ` · ${syncedAtLabel}` : null}
           </div>
+          {data?.warnings?.length ? (
+            <div className="mt-3 space-y-2">
+              {data.warnings.map((warning) => (
+                <div
+                  key={warning.kind}
+                  className="rounded-md border border-tone-warning/30 bg-tone-warning/10 px-3 py-2 text-xs text-tone-warning"
+                >
+                  {warning.message}
+                </div>
+              ))}
+            </div>
+          ) : null}
         </>
       )}
     </div>
