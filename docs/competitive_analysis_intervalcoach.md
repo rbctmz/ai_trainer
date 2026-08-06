@@ -24,9 +24,9 @@
 | **Адаптация плана в реальном времени** | Да — daily cron переписывает тренировку при позднем синке recovery; preview/approve flow | Частично — execution-driven corrective microcycle (ветка iteration1) | IC зрелее в рантайм-адаптации; мы развиваем это направление |
 | **Workout catalog** | 130+ шаблонов с phase-gating, rotation, recency penalty | Есть training_planner, но масштаб неясен | IC промышленного масштаба |
 | **Power curve / eFTP** | Полная: power curve, peak powers, eFTP history с projection plume, rider profile, durability | Базовые метрики | **Сильный gap** |
-| **Мультиязычность** | 13 языков | Русский | Узкая, но наш аудитория русскоязычная |
+| **Мультиязычность** | 17 языков (JA/KO — 08.07, SV/NB — 30.07) | Русский | Узкая, но наш аудитория русскоязычная |
 | **Coach+ (LLM-чат)** | Да, с tool-calling, approval-gated мутациями, memories с context tags | Да — `ai_tools.py` tool-calling, chat_manager | **Паритет**, мы чуть гибче по провайдерам |
-| **Нативные приложения** | iOS/macOS/Android-PWA | Только Streamlit web | Gap, но не критичный для нас |
+| **Нативные приложения** | iOS/macOS native + Android native (Google Play, 23.06) | Только Streamlit web | Gap, но не критичный для нас |
 
 ---
 
@@ -143,3 +143,42 @@ IC за эти две недели шипил ровно то, что мы се�
 ### Что подтвердилось без изменений
 
 Приоритеты из анализа 2026-06-20 (recovery curve, signals engine, power curve/eFTP, agent log, daily briefing) остаются актуальными. Низкоприоритетные пункты (clubs/leaderboards, menstrual cycle, Apple Health) — по-прежнему низкий приоритет; в новых записях больше их вариаций (Coach Mode, Club Event Editing), но это командные/социальные фичи не в духе нашего single-athlete продукта.
+
+---
+
+## Дополнение: 2026-08-06 (changelog за 2026-07-03 → 2026-08-02)
+
+> Окно ~250 записей не перечитывалось с прошлого дополнения. Ниже — что изменилось и как это соотносится с текущим контуром проекта (readiness → conflict gate → recovery replan loop, issues A–F) и ближайшими клиньями (калибровка TSS против IntervalCoach, plan reconciliation, concurrency), а не повторный список фич.
+
+### Прямое совпадение с нашим контуром (issues A–F)
+
+- **Readiness Score 2.0 (4 июля)** — фактически Issue B в их исполнении. Чистая мера восстановления: HRV, RHR, сон, личная recovery curve и morning check-in, каждый фактор против собственного 30-дневного базлайна, и «training plan no longer touches the number» (отдых с восстановленным телом показывает высокий скор). Это дизайн-решение стоит проверить у нас: `compute_readiness_today` не должен смешивать «как восстановлен» и «что делать сегодня» — у IC это была отдельная ошибка (22 июня: recovery ring показывал низкое восстановление из-за отсутствия запланированной сессии).
+- **Якорение скора (4–7 июля):** «score anchors once your morning data is in... only moves for a real reason (check-in, genuinely new recovery data mid-day)», до данных — provisional `~`, и «when there's genuinely nothing to go on, we show no number at all instead of a made-up one». Это ровно семантика нашего `readiness_today`/snapshot contract плюс принцип «молчание — дефолт» (Issue C), применённый к самому скору.
+- **Единый источник истины (5 июля):** «the coach now talks about your readiness score consistently everywhere... instead of sometimes quoting your device's recovery percentage» — dashboard, briefing, outlook, weekly summary, race-day advice и Coach+ рассуждают от одного 0–100. Подтверждает наш вывод про единый signals engine и закрывает класс source-of-truth багов.
+- **Салиенс-гейт дословно (6 июля):** «the "take it easy if you feel off" line no longer appears every single day: it shows up only when a fatigue or recovery signal is actually flagged», и коуч называет конкретный сигнал («HRV is 15% below baseline»), а не «the signals suggested it» — объяснимость из Issue F.
+- **Proposal с числами (5–8 июля):** «Duration: 90 min (+15 vs planned) · Load: ~85 TSS (vs ~95 planned)» и «an eased workout is always lighter than the session it replaces, capped to the reduction the coach intended». Это готовая спецификация для Issue D (фальсифицируемый прогноз нагрузки) и для нашего recovery variant builder: замена не может быть тяжелее оригинала.
+- **Injury-контур (15, 18 июля):** серьёзная травма (3/4) снимает всю интенсивность, «injured» (4/4) логирует injury day, отдых и постепенный return-to-training ramp; счётчик дней травмы непрерывен. Плюс «коуч читает и check-in, и Intervals.icu, берёт худшее из двух» — паттерн merge субъективных данных из двух источников. Валидирует расширение входов Issue B (sick/injured) и наш `woz_recovery_replan_protocol` (keep/downgrade/ramp).
+
+### Параллель с нашими клиньями (user intent, concurrency, reconciliation)
+
+- **Durable user intent:** удаления через Coach+, rest days и «weekly plan off» записываются durable и уважаются фоновым sync (5, 6, 22 июля) — IC целый месяц чинил класс «фон вернул то, что пользователь убрал». У нас это архитектурно покрыто `planning_checkpoints` + `coach_proposals` lifecycle; урок: любые новые background-пути обязаны идти от последнего checkpoint и уважать user-intent записи (удаление/rest day/disabled plan).
+- **Concurrency:** «background syncs wait until an in-progress rebuild finishes» (16 июля) и «the same daily workout could appear twice when morning processing ran twice in parallel» (22 июля) — класс, который мы закрываем TD-003 (unified sqlite concurrency policy). Их баги — наша валидация: планировщик обязан быть идемпотентным, а фоновые задачи не должны гоняться с мутациями.
+- **Plan reconciliation:** «weekly TSS target no longer changes on Sunday», «hours match scheduled sessions», «Training Plan page shows the actual plan total, not a recomputed one», «upcoming weeks step up toward your CTL target» (12, 16, 21, 24 июля) — то же семейство, что наши #54/#61 (TSB desync) и `docs/plan_actual_reconciliation_execplan.md`. Их темп показывает: display-пересчёт target отдельно от планирования — это бесконечный источник рассинхрона; нужна одна функция расчёта.
+
+### Новый сигнал: thresholds как source-of-truth с явной диагностикой
+
+- **Правка FTP/threshold pace/HR прямо в приложении** (19 июля) и **предупреждение при расхождении FTP >10%** между Intervals.icu и моделью коучинга (30 июля): post-workout analysis в этом случае говорит «targets themselves were off», а не «you took it easy». Прямое попадание в наш клин калибровки против IntervalCoach (`docs/activity_tss_calibration_execplan.md`). Урок: недостаточно калибровать формулы — продукт обязан *показывать* пользователю расхождение базовых констант (FTP/threshold), иначе провал тренировки выглядит как «не справился». Дешёвый кандидат: пункт про отображение расхождения FTP/зоны в Settings добавить в клин калибровки TSS.
+- **Per-sport thresholds:** running power отдельно от cycling FTP (19 июля), progressive overload сравнивает только внутри спорта (30 июля) — паттерн у нас уже частично есть (swim CSS); при расширении мультиспорта держать thresholds per sport, иначе сравнительные тренды бессмысленны.
+
+### MCP/ассистент: подтверждение нашего ADR-0004
+
+- **MCP-коннектор для Max вышел из беты** (7 июля, Settings → Integrations), **новые правила авторизации MCP** (28 июля: identity documents, local redirects для desktop/CLI, сервер называет себя в ответе) и **«ассистент спрашивает перед любым изменением»** (30 июля) — независимо пришли к approval-gated мутациям, ровно наш `coach_approval_mutation_lifecycle`/`docs/architecture/adr_0004_coach_mutations_via_proposals.md`. Подтверждение, что контракт правильный; экспонировать *наши* данные наружу через MCP — по-прежнему будущий дифференциатор, не текущий приоритет.
+
+### Что осталось вне нашего контекста
+
+- Социальное (community races, race catalog/SEO, clubs) и weather/nutrition — по-прежнему не наш контекст. Распознавание личных рекордов в post-workout email (31 июля, beta) — это retention-фича поверх уже зафиксированного gap #3 (power curve); полезен как спецификация: «only genuine efforts count» (фильтр дрейфа измерений: ватт/секунда как шум, новая дистанция — не рекорд).
+- Локализация/юниты: 17 языков (JA/KO — 8 июля, SV/NB — 30 июля), «values are converted now, not just the labels» (31 июля) — универсальный урок про юниты (наш клин миль/км тоже должен конвертировать значения, а не подписи), но не приоритет для RU-first продукта.
+
+### Вывод
+
+Контур подтверждается третий раз подряд, теперь на самом зрелом куске: IC за месяц выкристаллизовал ровно нашу форму — единый anchored readiness score → салиенс («молчание — дефолт») → объяснимые proposal с числами → approval-gated мутации (включая MCP-агента). Два практических урока: (1) user-intent записи должны быть durable и уважаться любыми фоновыми задачами — у нас уже есть через checkpoints, следить за новыми background-путями; (2) явная product-facing диагностика расхождения thresholds — дешёвый способ убрать класс «выглядит как провал тренировки» — предложить отдельным пунктом в клине калибровки TSS.

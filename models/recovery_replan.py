@@ -228,6 +228,10 @@ def build_recovery_replan_variant(
     severity = str(conflict.get("severity") or "medium")
     current_tss = float(target_row.get("current_total_tss") or session.get("tss") or 0.0)
     target_role, target_tss = _recommendation(current_role, severity, current_tss)
+    if target_tss > current_tss:
+        # Issue #373: a recovery downgrade must never be heavier than the
+        # session it replaces (IntervalCoach proposal contract, 2026-07-08).
+        raise ValueError("recovery downgrade raised TSS above the original")
     current_sport = str(target_row.get("current_sport") or "run")
 
     def build_draft_rows(role: str) -> list[dict[str, Any]]:
@@ -294,7 +298,10 @@ def build_recovery_replan_variant(
         "sport": current_sport,
         "sport_label": str(session.get("sport_label") or ""),
         "tss": int(round(current_tss)),
+        "duration_minutes": int(target_row.get("current_duration_minutes") or 0),
     }
+    current_duration_minutes = int(current_session["duration_minutes"])
+    recommended_duration_minutes = int(recommended_row.get("target_duration_minutes") or 0)
     recommended_session = {
         "date": conflict_date,
         "name": str(
@@ -308,6 +315,8 @@ def build_recovery_replan_variant(
         "sport_label": str(session.get("sport_label") or ""),
         "tss": target_tss,
         "delta_tss": target_tss - int(round(current_tss)),
+        "duration_minutes": recommended_duration_minutes,
+        "delta_duration_minutes": recommended_duration_minutes - current_duration_minutes,
         "template_key": preview_session.get("template_key"),
         "stimulus": preview_session.get("stimulus"),
         "fatigue_cost": list(preview_session.get("fatigue_cost") or []),
@@ -349,6 +358,10 @@ def build_recovery_replan_variant(
             "target_index": target_index,
             "baseline_profile": baseline_profile,
             "expected_profile": preview_profile,
+            "planned_tss": int(round(current_tss)),
+            "proposed_tss": int(target_tss),
+            "planned_duration_minutes": current_duration_minutes,
+            "proposed_duration_minutes": recommended_duration_minutes,
         }
     return result
 

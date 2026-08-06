@@ -245,7 +245,9 @@ def _proposal_payload(
         else:
             by_variant[kind] = {
                 "weekly_tss_delta": variant["draft_summary"].get("total_delta_tss"),
-                "weekly_duration_delta_minutes": None,
+                "weekly_duration_delta_minutes": variant["draft_summary"].get(
+                    "total_delta_duration_minutes"
+                ),
                 "mutates_plan": True,
             }
 

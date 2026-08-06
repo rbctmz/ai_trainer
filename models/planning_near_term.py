@@ -61,6 +61,20 @@ def _normalize_total_tss(value: Any) -> float:
     return round(max(0.0, total_tss), 1)
 
 
+def _normalize_duration_minutes(value: Any) -> int:
+    try:
+        return max(0, int(round(float(value or 0.0))))
+    except (TypeError, ValueError):
+        return 0
+
+
+def _format_duration_delta(target_minutes: int, current_minutes: int) -> str:
+    delta = target_minutes - current_minutes
+    if delta == 0:
+        return "0 мин"
+    return f"{delta:+d} мин"
+
+
 def _normalize_metric_or_none(value: Any) -> float | None:
     try:
         return float(value) if value is not None else None
@@ -724,6 +738,14 @@ def summarize_near_term_draft_rows(
     changed_rows = [row for row in normalized_rows if bool(row.get("changed", False))]
     current_total_tss = int(round(sum(_normalize_total_tss(row.get("current_total_tss")) for row in normalized_rows)))
     target_total_tss = int(round(sum(_normalize_total_tss(row.get("total_tss", row.get("current_total_tss"))) for row in normalized_rows)))
+    current_total_duration_minutes = sum(
+        _normalize_duration_minutes(row.get("current_duration_minutes"))
+        for row in normalized_rows
+    )
+    target_total_duration_minutes = sum(
+        _normalize_duration_minutes(row.get("target_duration_minutes"))
+        for row in normalized_rows
+    )
     off_day_count = sum(1 for row in normalized_rows if _normalize_session_role(row.get("session_role")) == "off")
     quality_day_count = sum(1 for row in normalized_rows if _normalize_session_role(row.get("session_role")) == "quality")
 
@@ -734,6 +756,9 @@ def summarize_near_term_draft_rows(
         "current_total_tss": current_total_tss,
         "target_total_tss": target_total_tss,
         "total_delta_tss": target_total_tss - current_total_tss,
+        "current_total_duration_minutes": current_total_duration_minutes,
+        "target_total_duration_minutes": target_total_duration_minutes,
+        "total_delta_duration_minutes": target_total_duration_minutes - current_total_duration_minutes,
         "off_day_count": off_day_count,
         "quality_day_count": quality_day_count,
         "changed_rows": [
@@ -742,6 +767,10 @@ def summarize_near_term_draft_rows(
                 "Было": str(row.get("current_summary") or ""),
                 "Станет": str(row.get("target_summary") or ""),
                 "Δ TSS": f"{int(round(float(row.get('delta_tss', 0.0) or 0.0))):+d}",
+                "Δ мин": _format_duration_delta(
+                    _normalize_duration_minutes(row.get("target_duration_minutes")),
+                    _normalize_duration_minutes(row.get("current_duration_minutes")),
+                ),
             }
             for row in changed_rows
         ],

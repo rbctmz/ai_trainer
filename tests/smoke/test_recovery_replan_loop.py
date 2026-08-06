@@ -177,8 +177,48 @@ def test_recovery_variant_targets_absolute_date_beyond_old_ten_row_cap() -> None
     assert variant["recommended_session"]["role"] == "recovery"
     assert variant["recommended_session"]["tss"] == 25
     assert variant["recommended_session"]["delta_tss"] == -35
+    assert variant["current_session"]["duration_minutes"] == 60
+    assert variant["recommended_session"]["duration_minutes"] >= 0
+    assert variant["recommended_session"]["delta_duration_minutes"] == (
+        variant["recommended_session"]["duration_minutes"]
+        - variant["current_session"]["duration_minutes"]
+    )
+    assert variant["current_session"]["tss"] == 60
+    assert variant["recommended_session"]["tss"] == 25
+    guard = variant.get("safety_guard")
+    if guard is not None:
+        assert guard["planned_tss"] == 60
+        assert guard["proposed_tss"] == 25
+        assert guard["planned_duration_minutes"] == 60
+        assert guard["proposed_duration_minutes"] == variant["recommended_session"][
+            "duration_minutes"
+        ]
+    assert isinstance(variant["draft_summary"]["total_delta_duration_minutes"], (int, float))
     assert [option["key"] for option in variant["options"]] == ["keep", "recommended"]
     assert variant["post_edit_strategy"] == "protect_recovery"
+
+
+def test_recovery_variant_fails_closed_when_recommendation_raises_tss(monkeypatch) -> None:
+    from models import recovery_replan as recovery_module
+
+    today = date(2026, 7, 10)
+
+    def heavier_recommendation(role: str, severity: str, current_tss: float) -> tuple[str, int]:
+        return "easy", int(current_tss + 100)
+
+    monkeypatch.setattr(recovery_module, "_recommendation", heavier_recommendation)
+
+    with pytest.raises(ValueError, match="raised TSS above"):
+        build_recovery_replan_variant(
+            _goal_plan(today, conflict_days_until=4),
+            _conflict_report(
+                today,
+                days_until=4,
+                status="limited",
+                severity="medium",
+            ),
+            today=today,
+        )
 
 
 def test_medium_quality_conflict_downgrades_to_easy_without_llm() -> None:
@@ -425,6 +465,16 @@ def test_loop_creates_one_recovery_proposal_and_exposes_it_in_decisions_api(
     assert first["proposal"]["action"] == "recovery_replan"
     assert first["proposal"]["params"]["base_checkpoint_id"] == checkpoint["id"]
     assert first["proposal"]["preview"]["options"][0]["key"] == "keep"
+    preview = first["proposal"]["preview"]
+    assert preview["current_session"]["duration_minutes"] == 60
+    assert preview["recommended_session"]["duration_minutes"] >= 0
+    assert preview["recommended_session"]["delta_duration_minutes"] == (
+        preview["recommended_session"]["duration_minutes"]
+        - preview["current_session"]["duration_minutes"]
+    )
+    assert (
+        preview["what_is_protected"]["weekly_duration_delta_minutes"] is not None
+    )
     assert second["proposal"]["id"] == first["proposal"]["id"]
     assert len(db.get_coach_proposals(days=36500)) == 1
     assert len(db.get_recovery_decisions(days=36500)) == 1
@@ -1705,11 +1755,11 @@ def test_preview_exposes_three_product_blocks_with_recommended_transfer_when_saf
         "weekly_duration_delta_minutes": 0,
         "mutates_plan": False,
     }
-    assert protected["by_variant"]["downgrade_today"] == {
-        "weekly_tss_delta": preview["total_delta_tss"],
-        "weekly_duration_delta_minutes": None,
-        "mutates_plan": True,
-    }
+    assert protected["by_variant"]["downgrade_today"]["weekly_tss_delta"] == preview[
+        "total_delta_tss"
+    ]
+    assert protected["by_variant"]["downgrade_today"]["weekly_duration_delta_minutes"] is not None
+    assert protected["by_variant"]["downgrade_today"]["mutates_plan"] is True
     assert protected["by_variant"]["transfer_1_3d"] == {
         "weekly_tss_delta": 0,
         "weekly_duration_delta_minutes": 0,
@@ -1750,7 +1800,7 @@ def test_preview_exposes_three_product_blocks_with_downgrade_recommended_and_exa
     assert all(row["eligible"] is False for row in protected["candidates"])
     assert all(row["rejected_reasons"] == ["protected"] for row in protected["candidates"])
     assert protected["weekly_tss_delta"] == preview["total_delta_tss"]
-    assert protected["weekly_duration_delta_minutes"] is None
+    assert protected["weekly_duration_delta_minutes"] is not None
     assert set(protected["by_variant"]) == {"keep", "downgrade_today"}
     assert protected["by_variant"]["keep"]["mutates_plan"] is False
     assert protected["by_variant"]["keep"]["weekly_tss_delta"] == 0
