@@ -1,6 +1,7 @@
 """BDD gates for Planning M3 week-by-week reader (#303)."""
 from __future__ import annotations
 
+import copy
 from datetime import date, datetime, timedelta
 import importlib
 from pathlib import Path
@@ -17,7 +18,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _shift_active_plan_into_past_and_future(db: Database) -> dict:
-    """Persist a fixture whose saved horizon includes past/current/future weeks."""
+    """Persist a fixture whose saved horizon includes past/current/future weeks.
+
+    The planner places rest days nondeterministically, so a fixed calendar
+    shift can land "today" on a rest day (``plan_days`` omits rest days) and
+    the test's ``current`` lookup fails with StopIteration. We try offsets
+    0..6 days around the -14 day shift and keep the first plan where today is
+    a training day; at most eight of the fifty-six days are rest days, so at
+    least one of the seven offsets is guaranteed to work.
+    """
     db.save_athlete_profile({"ftp": 200, "lthr": 165, "weight_kg": 80, "source": "test"})
     ps.build_plan(
         db,
@@ -34,18 +43,42 @@ def _shift_active_plan_into_past_and_future(db: Database) -> dict:
     )
     plan = ps.get_active_plan(db)
     assert plan is not None
-    shift = timedelta(days=-14)
-    plan["daily_plan"] = [
-        (item[0] + shift, item[1], item[2])
-        for item in plan["daily_plan"]
-    ]
-    for template in plan["session_templates"]:
-        template["date"] = (date.fromisoformat(str(template["date"])[:10]) + shift).isoformat()
-        for session in template.get("sessions") or []:
-            session["date"] = template["date"]
-    for week in plan["weekly_summary"]:
-        week["week_start"] = (date.fromisoformat(str(week["week_start"])[:10]) + shift).isoformat()
     today = datetime.now().date()
+
+    def shifted(delta: timedelta) -> dict:
+        candidate = copy.deepcopy(plan)
+        candidate["daily_plan"] = [
+            (item[0] + delta, item[1], item[2])
+            for item in candidate["daily_plan"]
+        ]
+        for template in candidate["session_templates"]:
+            template["date"] = (
+                date.fromisoformat(str(template["date"])[:10]) + delta
+            ).isoformat()
+            for session in template.get("sessions") or []:
+                session["date"] = template["date"]
+        for week in candidate["weekly_summary"]:
+            week["week_start"] = (
+                date.fromisoformat(str(week["week_start"])[:10]) + delta
+            ).isoformat()
+        return candidate
+
+    def includes_today(candidate: dict) -> bool:
+        db.save_planning_checkpoint(build_planning_checkpoint(candidate))
+        restored = ps.get_active_plan(db) or {}
+        return any(
+            date.fromisoformat(str(day.get("date"))[:10]) == today
+            for day in ps.plan_days(restored)
+        )
+
+    selected = None
+    for offset in range(7):
+        candidate = shifted(timedelta(days=-14 + offset))
+        if includes_today(candidate):
+            selected = candidate
+            break
+    assert selected is not None, "fixture could not place today on a training day"
+    plan = selected
     plan["events"] = [
         {"date": (today - timedelta(days=4)).isoformat(), "priority": "B", "label": "Tune-up", "confirmed": True},
         {"date": (today + timedelta(days=3)).isoformat(), "priority": "C", "label": "Club race", "confirmed": True},
