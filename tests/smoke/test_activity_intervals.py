@@ -27,28 +27,35 @@ def _sample_intervals_payload() -> dict:
         "icu_intervals": [
             {
                 "start_index": 0,
-                "moving_time": 300,
-                "elapsed_time": 310,
-                "distance": 1.2,
-                "average_watts": 260,
-                "average_heartrate": 158,
-                "max_heartrate": 172,
-                "average_cadence": 92,
-                "zone": 4,
-                "training_load": 8.75,
-                "average_speed": 4.1,
+                "moving_time": 780,
+                "elapsed_time": 790,
+                "distance": 500.4,
+                "average_heartrate": 115,
+                "zone": 1,
             },
             {
-                "start_index": 300,
-                "moving_time": 180,
-                "elapsed_time": 185,
+                "start_index": 780,
+                "moving_time": 15,
+                "elapsed_time": 20,
                 "distance": 0.6,
-                "average_watts": 120,
-                "average_heartrate": 130,
-                "average_cadence": 80,
+                "average_heartrate": 117,
                 "zone": 1,
-                "training_load": 1.25,
-                "average_speed": 3.2,
+            },
+            {
+                "start_index": 795,
+                "moving_time": 780,
+                "elapsed_time": 800,
+                "distance": 500.1,
+                "average_heartrate": 123,
+                "zone": 1,
+            },
+            {
+                "start_index": 1575,
+                "moving_time": 240,
+                "elapsed_time": 250,
+                "distance": 111.1,
+                "average_heartrate": 118,
+                "zone": 1,
             },
         ],
         "icu_groups": [],
@@ -116,21 +123,31 @@ def test_normalize_intervals_payload_compacts_selected_fields():
     compact = normalize_intervals_payload(_sample_intervals_payload())
 
     assert compact["analyzed"] == "2026-08-06T10:00:00Z"
-    assert len(compact["intervals"]) == 2
+    assert len(compact["intervals"]) == 4
     assert compact["groups"] == []
 
     first = compact["intervals"][0]
     assert first["start_index"] == 0
-    assert first["moving_time"] == 300
-    assert first["elapsed_time"] == 310
-    assert first["distance"] == 1.2
-    assert first["average_watts"] == 260
-    assert first["average_heartrate"] == 158
-    assert first["max_heartrate"] == 172
-    assert first["average_cadence"] == 92
-    assert first["zone"] == 4
-    assert first["training_load"] == 8.8
-    assert first["average_speed"] == 4.1
+    assert first["moving_time"] == 780
+    assert first["elapsed_time"] == 790
+    assert first["distance_km"] == 0.5
+    assert first["average_heartrate"] == 115
+    assert first["zone"] == 1
+
+    # Реальные данные из карточки: интервалы в метрах, восстановление ~0 м.
+    assert compact["intervals"][1]["distance_km"] == 0.0
+    assert compact["intervals"][2]["distance_km"] == 0.5
+    assert compact["intervals"][3]["distance_km"] == 0.11
+
+
+def test_normalize_intervals_payload_distance_is_metres_converted_to_km():
+    compact = normalize_intervals_payload(
+        {"icu_intervals": [{"distance": 1000}, {"distance": 250}]}
+    )
+
+    assert compact["intervals"][0]["distance_km"] == 1.0
+    assert compact["intervals"][1]["distance_km"] == 0.25
+    assert compact["intervals"][0]["moving_time"] is None
 
 
 def test_normalize_intervals_payload_empty_payload():

@@ -35,6 +35,8 @@ Intervals.icu — **первичный** источник данных (Garmin �
   Evidence: `data/database.py` схема `activity_provider_links`; `services/activity_ingest.py::_normalize_intervals` создаёт link с `provider="intervals"` и `provider_activity_id=intervals_id`. Для Garmin-only активностей Intervals-id нет → интервалы корректно недоступны.
 - Observation: GET-стримы не обязаны иметь одинаковую длину/ключи во всех активностях; нормализатор и UI должны быть устойчивы к отсутствию стрима (например, нет `watts` у плавания).
   Evidence: `stream_types` в списке активностей меняется от активности к активности (`heartrate`, `watts`, `cadence`, …).
+- Observation: `Interval.distance` из Intervals.icu приходит в **метрах**, а не в км (500.4 — это 500 м интервала плавания, 0.6 — «нулевая» дистанция восстановления).
+  Evidence: живая карточка после мерджа; контракт `Activity.distance` в API тоже в метрах (пример ручного создания: `"distance": 10000` = 10 км). Компактная структура поэтому хранит `distance_km` (пересчёт на 1000), а не сырое `distance`.
 
 ## Decision Log
 

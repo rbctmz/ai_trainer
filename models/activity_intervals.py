@@ -16,7 +16,6 @@ _INTERVAL_FIELDS = (
     "start_index",
     "moving_time",
     "elapsed_time",
-    "distance",
     "average_watts",
     "average_heartrate",
     "min_heartrate",
@@ -41,10 +40,25 @@ def _compact_number(value: Any) -> int | float | None:
     return round(number, 1)
 
 
+def _distance_to_km(value: Any) -> float | None:
+    """Intervals.icu interval ``distance`` is in metres -> compact ``distance_km``."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        metres = float(value)
+    except (TypeError, ValueError):
+        return None
+    if metres < 0:
+        return None
+    return round(metres / 1000.0, 2)
+
+
 def _compact_interval(raw: Any) -> dict[str, Any]:
     if not isinstance(raw, Mapping):
         raise ValueError("Intervals.icu interval entries must be objects")
-    return {field: _compact_number(raw.get(field)) for field in _INTERVAL_FIELDS}
+    compact = {field: _compact_number(raw.get(field)) for field in _INTERVAL_FIELDS}
+    compact["distance_km"] = _distance_to_km(raw.get("distance"))
+    return compact
 
 
 def normalize_intervals_payload(payload: Any) -> dict[str, Any]:

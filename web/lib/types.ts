@@ -154,7 +154,7 @@ export interface ActivityInterval {
   start_index?: number | null;
   moving_time?: number | null;
   elapsed_time?: number | null;
-  distance?: number | null;
+  distance_km?: number | null;
   average_watts?: number | null;
   average_heartrate?: number | null;
   min_heartrate?: number | null;

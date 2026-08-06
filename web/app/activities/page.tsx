@@ -23,6 +23,21 @@ function formatCssPace(secondsPer100m: number): string {
   return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}/100м`;
 }
 
+function formatIntervalTime(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+function formatIntervalDistance(distanceKm: number): string {
+  if (distanceKm >= 1) {
+    const rounded = Math.round(distanceKm * 10) / 10;
+    return `${rounded} км`;
+  }
+  return `${Math.round(distanceKm * 1000)} м`;
+}
+
 function tssProvenanceLabel(activity: Activity): string | null {
   const sourceLabel = activity.tss_source ? TSS_SOURCE_LABELS[activity.tss_source] : null;
   if (!sourceLabel) return null;
@@ -326,20 +341,30 @@ function ActivityCardModal({
               {intervals.intervals.map((iv, index) => (
                 <li
                   key={index}
-                  className="flex flex-wrap items-center gap-x-3 gap-y-0.5"
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1"
                 >
-                  <span className="font-medium text-ink-soft">#{index + 1}</span>
+                  <span className="rounded border border-surface-border bg-surface px-1.5 py-0.5 text-xs font-semibold text-ink-soft">
+                    #{index + 1}
+                  </span>
                   {iv.moving_time != null ? (
-                    <span>{Math.round(iv.moving_time / 60)}′</span>
+                    <span className="font-medium tabular-nums">
+                      {formatIntervalTime(iv.moving_time)}
+                    </span>
                   ) : null}
-                  {iv.distance != null ? <span>{iv.distance} км</span> : null}
+                  {iv.distance_km != null ? (
+                    <span className="text-ink-soft">
+                      {formatIntervalDistance(iv.distance_km)}
+                    </span>
+                  ) : null}
                   {iv.average_watts != null ? (
-                    <span>{iv.average_watts} Вт</span>
+                    <span className="text-ink-soft">{iv.average_watts} Вт</span>
                   ) : null}
                   {iv.average_heartrate != null ? (
-                    <span>HR {iv.average_heartrate}</span>
+                    <span className="text-ink-soft">HR {iv.average_heartrate}</span>
                   ) : null}
-                  {iv.zone != null ? <span>зона {iv.zone}</span> : null}
+                  {iv.zone != null ? (
+                    <span className="text-ink-soft">зона {iv.zone}</span>
+                  ) : null}
                   {iv.training_load != null ? (
                     <span className="text-ink-faint">TL {iv.training_load}</span>
                   ) : null}
