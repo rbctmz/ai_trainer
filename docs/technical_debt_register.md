@@ -1,7 +1,7 @@
 # Реестр технического долга AI Trainer
 
 - **Статус:** Current
-- **Снимок:** 2026-07-28
+- **Снимок:** 2026-08-06
 - **Владелец процесса:** issue-first цикл из
   [`loop_engineering_instruction.md`](loop_engineering_instruction.md)
 
@@ -29,7 +29,7 @@
 
 | ID | Приоритет | Область | Риск | Следующее действие |
 |----|-----------|---------|------|--------------------|
-| TD-006 | P2 | Structure | Крупные модули концентрируют churn | Churn-first decomposition |
+| TD-006 | P2 | Structure | Крупные модули концентрируют churn | Churn-first decomposition (первый срез сделан: athlete_profile_store, #371/#372) |
 | TD-008 | P2 | Security | Отозванное значение остаётся в Git history | Решение: rewrite или accepted residual risk |
 
 На дату снимка подтверждённых `P0` нет. Это не означает отсутствие дефектов:
@@ -62,6 +62,16 @@
 - **Закрытие:** выполнены критерии ADR-0001, удаление/изоляция legacy surface
   оформлены отдельным ExecPlan.
 
+- **Обновление (2026-08-06):** follow-up по критерию (c) — issue #349, PR #351
+  (извлечение display-агрегатов в shared-слой) — смержен: статус дашборда
+  переведён на headless-билдер (`_calculate_current_status` в
+  `ui/pages/dashboard.py` делегирует в общий код), HRV-агрегаты живут в
+  `services/athlete_aggregates.py`. Остаются средние по сну в
+  `ui/pages/sleep.py` (строки 516–630) и суммы/средние в других страницах,
+  требующие повторной инвентаризации. Критерий (b) по-прежнему не выполнен
+  (последние правки `ui/pages/` — 2026-08-01); режим maintenance-only,
+  повторный аудит после двух релизных циклов без Streamlit user-flow фиксов.
+
 ### TD-005 — Отложенные compatibility-срезы M1
 
 - **ASR:** ASR-MOD-3, ASR-PERF-3
@@ -88,6 +98,13 @@
   существующим contract tests; запрет на «разбить файл ради размера».
 - **Закрытие:** для выбранного hotspot issue показывает baseline churn/import
   graph, сохраняет публичные контракты и уменьшает связанность измеримым образом.
+
+- **Обновление (2026-08-06):** первый срез сделан — профиль атлета извлечён в
+  `data/athlete_profile_store.py` (#371/#372). Текущие размеры:
+  `data/database.py` — 4330, `models/training_planner.py` — 2413,
+  `models/ai_tools.py` — 2027, `ui/pages/planning.py` — 3366. Следующий шаг —
+  churn-first выбор следующего hotspot (кандидаты: методы activities/readiness/
+  feedback в `database.py`) с owner-issue по правилам реестра.
 
 ### TD-007 — Детерминированный latency-гейт коуча
 
@@ -135,5 +152,6 @@ backlog:
 | TD-002 | 2026-07-28 | [#295](https://github.com/rbctmz/ai_trainer/issues/295) / [#296](https://github.com/rbctmz/ai_trainer/pull/296): contributor-safe Gitleaks на event range + current tree, immutable pins, runtime synthetic gate, 4 verified exact-fingerprint false positive, ротация и удаление current-tree credential copies; residual history-risk перенесён в TD-008 |
 | TD-003 | 2026-08-03 | [#347](https://github.com/rbctmz/ai_trainer/issues/347) / [#348](https://github.com/rbctmz/ai_trainer/pull/348): единый `Database._connect()` (timeout=30, busy_timeout=30000, journal_mode=WAL), все call sites через factory, race writer+reader гейт без потери данных и с bounded latency; smoke 1439 passed |
 | TD-004 | 2026-08-03 | Аудит критериев EOL (ADR-0001): (a) acceptance-runtime формально признан dev-инструментом; (b) не выполнен — правки ui/pages до 2026-08-01; (c) не выполнен — встроенные агрегаты в dashboard/hrv/activities/sleep. Решение: maintenance-only, EOL/удаление не назначаются. Док: docs/streamlit_eol_assessment.md; follow-up по (c) — [#349](https://github.com/rbctmz/ai_trainer/issues/349) |
+| TD-004 | 2026-08-03 | Аудит критериев EOL (ADR-0001): (a) acceptance-runtime формально признан dev-инструментом; (b) не выполнен — правки ui/pages до 2026-08-01; (c) не выполнен — встроенные агрегаты в dashboard/hrv/activities/sleep. Решение: maintenance-only, EOL/удаление не назначаются. Док: docs/streamlit_eol_assessment.md; follow-up по (c) — [#349](https://github.com/rbctmz/ai_trainer/issues/349). Обновление 2026-08-06: follow-up #349/#351 смержен (dashboard-status и HRV-агрегаты вынесены в shared-слой); остаются средние по сну в `ui/pages/sleep.py`; критерий (b) не выполнен — повторный аудит позже |
 | TD-007 | 2026-08-03 | [#352](https://github.com/rbctmz/ai_trainer/issues/352): детерминированный first-token гейт на локальном mock-runtime (`COACH_FIRST_TOKEN_BUDGET_MS=5000`), live-метрика остаётся наблюдаемой; smoke 1446 passed |
 | TD-005 | 2026-08-03 | D4 [#354](https://github.com/rbctmz/ai_trainer/issues/354) / [#357](https://github.com/rbctmz/ai_trainer/pull/357) (shim `sync_activities` удалён, тесты — через oracle `tests/sync_fixtures.py`), D3 [#355](https://github.com/rbctmz/ai_trainer/issues/355) / [#358](https://github.com/rbctmz/ai_trainer/pull/358) (окно Garmin-активностей через общую cursor-таблицу, advance только после чистого прогона), D2 [#356](https://github.com/rbctmz/ai_trainer/issues/356) / [#359](https://github.com/rbctmz/ai_trainer/pull/359) (аудит local-first TSS: контракт пары `tss`+`tss_method` закреплён тестом, ложные формулировки в методологии/ADR-0008 исправлены, потоковый пересчёт — осознанный non-goal) |
