@@ -7,6 +7,7 @@ importers keep working unchanged. Pattern: ``data/athlete_profile_store.py``.
 """
 from __future__ import annotations
 
+import json
 import sqlite3
 from typing import Any, Callable
 
@@ -51,7 +52,7 @@ ACTIVITY_COLUMN_ORDER = [
 
 
 def create_activity_card_tables(conn: sqlite3.Connection) -> None:
-    """Create the activity tags and coach-notes tables if they do not exist."""
+    """Create the activity-card cluster tables if they do not exist."""
     conn.execute(
         '''
         CREATE TABLE IF NOT EXISTS activity_tags (
@@ -70,6 +71,18 @@ def create_activity_card_tables(conn: sqlite3.Connection) -> None:
             body TEXT NOT NULL,
             source TEXT NOT NULL DEFAULT 'coach',
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        '''
+    )
+
+    # #390: компактный кэш структуры интервалов из Intervals.icu (одна строка на
+    # активность). Полные стримы сюда не пишем — только репетиции/группы.
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS activity_intervals (
+            activity_id TEXT PRIMARY KEY,
+            intervals_json TEXT NOT NULL,
+            fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         '''
     )
@@ -155,6 +168,49 @@ class ActivityStore:
             "SELECT activity_id, body FROM activity_coach_notes"
         ).fetchall()
         return {activity_id: body for activity_id, body in rows}
+
+    def save_activity_intervals(
+        self, activity_id: str, intervals: dict[str, Any]
+    ) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO activity_intervals (activity_id, intervals_json, fetched_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(activity_id) DO UPDATE SET
+                intervals_json = excluded.intervals_json,
+                fetched_at = CURRENT_TIMESTAMP
+            """,
+            (str(activity_id), json.dumps(intervals, ensure_ascii=False)),
+        )
+
+    def get_activity_intervals(self, activity_id: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT intervals_json FROM activity_intervals WHERE activity_id = ?",
+            (str(activity_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row[0])
+        except (TypeError, ValueError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def get_intervals_provider_activity_id(
+        self, canonical_activity_id: str
+    ) -> str | None:
+        """Resolve the Intervals.icu provider id for a canonical activity (#390).
+
+        The Intervals id lives in ``activity_provider_links`` (provider
+        ``'intervals'``); Garmin-only activities have no link and thus no
+        intervals data available.
+        """
+        row = self._conn.execute(
+            "SELECT provider_activity_id FROM activity_provider_links "
+            "WHERE canonical_activity_id = ? AND provider = 'intervals' LIMIT 1",
+            (str(canonical_activity_id),),
+        ).fetchone()
+        return row[0] if row else None
 
 
 __all__ = [

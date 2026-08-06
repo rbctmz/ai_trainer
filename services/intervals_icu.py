@@ -233,6 +233,57 @@ class IntervalsICUClient:
             rows.append({field: row.get(field) for field in fields})
         return rows
 
+    def get_activity_intervals(self, activity_id: str) -> Dict[str, Any]:
+        """Fetch one activity with the intervals Intervals.icu already detected.
+
+        ``GET /api/v1/activity/{id}?intervals=true`` returns the activity object
+        with ``icu_intervals`` / ``icu_groups`` embedded (or the raw ``/intervals``
+        DTO). We do NOT re-detect intervals locally (#390, #383) — we consume the
+        provider result, the same pattern as ``icu_training_load``.
+
+        Fail-closed: a non-mapping response RAISES ``IntervalsICUError`` instead of
+        being coerced, so a malformed payload cannot masquerade as "no intervals".
+        """
+        _validate_activity_id(activity_id)
+        payload = self._request_json(
+            "GET",
+            f"/api/v1/activity/{activity_id}",
+            params={"intervals": "true"},
+        )
+        if not isinstance(payload, Mapping):
+            raise IntervalsICUError(
+                "Intervals.icu intervals: expected an object response, got "
+                f"{type(payload).__name__}"
+            )
+        return dict(payload)
+
+    def get_activity_streams(
+        self, activity_id: str, types: str | None = None
+    ) -> Dict[str, List[Any]]:
+        """Fetch time-series streams (e.g. watts) for one activity.
+
+        ``GET /api/v1/activity/{id}/streams.json`` returns an object mapping a
+        stream name (``watts``, ``heart_rate``, ``cadence``, …) to its value
+        array. ``types`` is an optional comma-separated filter such as
+        ``"watts"`` or ``"watts,heart_rate"``. Full streams are NOT persisted
+        (#390 decision); this is the on-demand source for power curve (#382).
+
+        Fail-closed like ``get_activity_intervals``.
+        """
+        _validate_activity_id(activity_id)
+        params = {"types": types} if types else None
+        payload = self._request_json(
+            "GET",
+            f"/api/v1/activity/{activity_id}/streams.json",
+            params=params,
+        )
+        if not isinstance(payload, Mapping):
+            raise IntervalsICUError(
+                "Intervals.icu streams: expected an object response, got "
+                f"{type(payload).__name__}"
+            )
+        return dict(payload)
+
     def list_wellness(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
         """Read only recovery inputs used by the canonical M4 mapping.
 
@@ -483,6 +534,18 @@ def push_planned_events(event_payloads: Iterable[Mapping[str, Any]]) -> List[Dic
 def list_race_events(oldest: date, newest: date) -> List[Dict[str, Any]]:
     """Return read-only normalized race events from the configured account."""
     return get_client().list_race_events(oldest, newest)
+
+
+def get_activity_intervals(activity_id: str) -> Dict[str, Any]:
+    """Return one activity with detected intervals (read-only, #390)."""
+    return get_client().get_activity_intervals(activity_id)
+
+
+def get_activity_streams(
+    activity_id: str, types: str | None = None
+) -> Dict[str, List[Any]]:
+    """Return time-series streams for one activity (read-only, #390)."""
+    return get_client().get_activity_streams(activity_id, types=types)
 
 
 def _cycling_sport_settings(raw: Mapping[str, Any]) -> Mapping[str, Any]:

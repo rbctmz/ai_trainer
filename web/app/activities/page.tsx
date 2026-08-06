@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import useSWR from "swr";
 import { ApiError, deleteJSON, fetcher, postJSON, putJSON } from "@/lib/api";
-import { Activity, ActivitiesResponse, AthleteProfileResponse } from "@/lib/types";
+import {
+  Activity,
+  ActivitiesResponse,
+  ActivityIntervals,
+  AthleteProfileResponse,
+} from "@/lib/types";
 import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
 
 const TSS_SOURCE_LABELS: Record<string, string> = {
@@ -170,11 +175,28 @@ function ActivityCardModal({
   const [tags, setTags] = useState<string[]>(activity.tags ?? []);
   const [newTag, setNewTag] = useState("");
   const [draftNotes, setDraftNotes] = useState(activity.coach_notes ?? "");
+  const [intervals, setIntervals] = useState<ActivityIntervals | null | undefined>(
+    activity.intervals,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const id = encodeURIComponent(activity.activity_id);
   const feedback = activity.feedback;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetcher<{ activity: Activity }>(`/api/activities/${id}`)
+      .then((res) => {
+        if (!cancelled) setIntervals(res.activity.intervals ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setIntervals(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -291,6 +313,44 @@ function ActivityCardModal({
           ) : (
             <p className="mt-2 text-sm text-ink-soft">
               Фидбек ещё не заполнен — он появится на экране «Сегодня».
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-md border border-surface-border bg-surface p-3">
+          <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+            Структура тренировки
+          </div>
+          {intervals && intervals.intervals.length > 0 ? (
+            <ul className="mt-2 space-y-1.5 text-sm text-ink">
+              {intervals.intervals.map((iv, index) => (
+                <li
+                  key={index}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-0.5"
+                >
+                  <span className="font-medium text-ink-soft">#{index + 1}</span>
+                  {iv.moving_time != null ? (
+                    <span>{Math.round(iv.moving_time / 60)}′</span>
+                  ) : null}
+                  {iv.distance != null ? <span>{iv.distance} км</span> : null}
+                  {iv.average_watts != null ? (
+                    <span>{iv.average_watts} Вт</span>
+                  ) : null}
+                  {iv.average_heartrate != null ? (
+                    <span>HR {iv.average_heartrate}</span>
+                  ) : null}
+                  {iv.zone != null ? <span>зона {iv.zone}</span> : null}
+                  {iv.training_load != null ? (
+                    <span className="text-ink-faint">TL {iv.training_load}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-ink-soft">
+              {intervals
+                ? "Интервалы не детектированы."
+                : "Интервалы недоступны для этой активности."}
             </p>
           )}
         </div>

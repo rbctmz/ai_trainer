@@ -138,6 +138,7 @@ export interface Activity {
   feedback?: ActivityFeedback | null;
   tags?: string[];
   coach_notes?: string | null;
+  intervals?: ActivityIntervals | null;
 }
 
 export interface ActivityFeedback {
@@ -147,6 +148,27 @@ export interface ActivityFeedback {
   foster_load?: number | null;
   note: string | null;
   submitted_at: string | null;
+}
+
+export interface ActivityInterval {
+  start_index?: number | null;
+  moving_time?: number | null;
+  elapsed_time?: number | null;
+  distance?: number | null;
+  average_watts?: number | null;
+  average_heartrate?: number | null;
+  min_heartrate?: number | null;
+  max_heartrate?: number | null;
+  average_cadence?: number | null;
+  zone?: number | null;
+  training_load?: number | null;
+  average_speed?: number | null;
+}
+
+export interface ActivityIntervals {
+  analyzed?: string | null;
+  intervals: ActivityInterval[];
+  groups: ActivityInterval[];
 }
 
 export interface ActivitiesResponse {
