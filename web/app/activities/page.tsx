@@ -2,7 +2,7 @@
 
 import useSWR from "swr";
 import { fetcher } from "@/lib/api";
-import { Activity, ActivitiesResponse } from "@/lib/types";
+import { Activity, ActivitiesResponse, AthleteProfileResponse } from "@/lib/types";
 import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
 
 const TSS_SOURCE_LABELS: Record<string, string> = {
@@ -29,9 +29,35 @@ function tssProvenanceLabel(activity: Activity): string | null {
   return sourceLabel;
 }
 
+function ftpDriftHint(
+  activity: Activity,
+  profileFtp: number | null | undefined,
+): string | null {
+  if (
+    activity.tss_source !== "power" ||
+    activity.tss_ftp_used == null ||
+    activity.tss_ftp_used <= 0 ||
+    profileFtp == null ||
+    profileFtp <= 0
+  ) {
+    return null;
+  }
+  const used = activity.tss_ftp_used;
+  const base = Math.min(used, profileFtp);
+  const pct = (Math.abs(profileFtp - used) / base) * 100;
+  if (pct < 10) {
+    return null;
+  }
+  return `FTP профиля сейчас ${Math.round(profileFtp)} Вт, эта активность посчитана по ${Math.round(used)} Вт`;
+}
+
 export default function ActivitiesPage() {
   const { data, error, isLoading } = useSWR<ActivitiesResponse>(
     "/api/activities?days=30",
+    fetcher,
+  );
+  const { data: profileData } = useSWR<AthleteProfileResponse>(
+    "/api/athlete-profile",
     fetcher,
   );
 
@@ -85,6 +111,11 @@ export default function ActivitiesPage() {
                       {tssProvenanceLabel(a) ? (
                         <div className="text-[11px] font-normal normal-case tabular-nums text-ink-faint">
                           {tssProvenanceLabel(a)}
+                        </div>
+                      ) : null}
+                      {ftpDriftHint(a, profileData?.profile?.ftp) ? (
+                        <div className="text-[11px] font-normal normal-case text-tone-warning">
+                          {ftpDriftHint(a, profileData?.profile?.ftp)}
                         </div>
                       ) : null}
                     </td>
