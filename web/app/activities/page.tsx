@@ -274,6 +274,11 @@ function ActivityCardModal({
               <span className="text-sm text-ink">
                 RPE {feedback.session_rpe_1_10 ?? "—"}/10
               </span>
+              {feedback.foster_load != null ? (
+                <span className="text-sm text-ink-soft">
+                  нагрузка {feedback.foster_load} AU
+                </span>
+              ) : null}
               {feedback.quality_rating_1_5 != null ? (
                 <span className="text-sm text-ink-soft">
                   качество {feedback.quality_rating_1_5}/5

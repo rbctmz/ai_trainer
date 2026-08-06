@@ -34,6 +34,13 @@ def grade_from_quality(quality: int | None) -> str | None:
     return GRADE_BY_QUALITY.get(int(quality))
 
 
+def foster_load_au(rpe: int | None, duration_minutes: int | float | None) -> int | None:
+    """Нагрузка по Фостеру: AU = sRPE × длительность (мин)."""
+    if rpe is None or duration_minutes is None:
+        return None
+    return int(round(float(rpe) * float(duration_minutes)))
+
+
 def feedback_for_activity(
     activity_id: str,
     latest_feedbacks: list[Mapping[str, Any]],
@@ -111,6 +118,11 @@ def build_activity_analysis(
         parts = []
         if rpe is not None:
             parts.append(f"RPE {int(rpe)}/10")
+            au = foster_load_au(rpe, duration)
+            if au is not None:
+                lines.append(
+                    f"- Нагрузка по Фостеру: {au} AU (RPE {int(rpe)} × {duration_text})"
+                )
         if grade is not None:
             parts.append(f"grade {grade} (качество {int(quality)}/5)")
         if parts:
@@ -132,5 +144,6 @@ __all__ = [
     "GRADE_BY_QUALITY",
     "build_activity_analysis",
     "feedback_for_activity",
+    "foster_load_au",
     "grade_from_quality",
 ]

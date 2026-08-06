@@ -144,6 +144,7 @@ export interface ActivityFeedback {
   session_rpe_1_10: number | null;
   quality_rating_1_5: number | null;
   grade: string | null;
+  foster_load?: number | null;
   note: string | null;
   submitted_at: string | null;
 }
