@@ -3015,6 +3015,34 @@ class Database:
         finally:
             conn.close()
 
+    def save_activity_intervals(self, activity_id, intervals):
+        conn = self._connect()
+        try:
+            ActivityStore(conn, self.clean_value).save_activity_intervals(
+                activity_id, intervals
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_activity_intervals(self, activity_id):
+        conn = self._connect()
+        try:
+            return ActivityStore(conn, self.clean_value).get_activity_intervals(
+                activity_id
+            )
+        finally:
+            conn.close()
+
+    def get_intervals_provider_activity_id(self, canonical_activity_id):
+        conn = self._connect()
+        try:
+            return ActivityStore(
+                conn, self.clean_value
+            ).get_intervals_provider_activity_id(canonical_activity_id)
+        finally:
+            conn.close()
+
     def clean_test_data(self):
         """Очистка всех тестовых данных из базы"""
         conn = self._connect()

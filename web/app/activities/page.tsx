@@ -1,9 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { ApiError, deleteJSON, fetcher, postJSON, putJSON } from "@/lib/api";
-import { Activity, ActivitiesResponse, AthleteProfileResponse } from "@/lib/types";
+import {
+  Activity,
+  ActivitiesResponse,
+  ActivityIntervals,
+  AthleteProfileResponse,
+} from "@/lib/types";
 import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
 
 const TSS_SOURCE_LABELS: Record<string, string> = {
@@ -16,6 +21,21 @@ const TSS_SOURCE_LABELS: Record<string, string> = {
 function formatCssPace(secondsPer100m: number): string {
   const rounded = Math.round(secondsPer100m);
   return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}/100м`;
+}
+
+function formatIntervalTime(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return `${minutes}:${String(rest).padStart(2, "0")}`;
+}
+
+function formatIntervalDistance(distanceKm: number): string {
+  if (distanceKm >= 1) {
+    const rounded = Math.round(distanceKm * 10) / 10;
+    return `${rounded} км`;
+  }
+  return `${Math.round(distanceKm * 1000)} м`;
 }
 
 function tssProvenanceLabel(activity: Activity): string | null {
@@ -170,11 +190,29 @@ function ActivityCardModal({
   const [tags, setTags] = useState<string[]>(activity.tags ?? []);
   const [newTag, setNewTag] = useState("");
   const [draftNotes, setDraftNotes] = useState(activity.coach_notes ?? "");
+  const [intervals, setIntervals] = useState<ActivityIntervals | null | undefined>(
+    activity.intervals,
+  );
+  const fallbackIntervals = useRef(activity.intervals);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const id = encodeURIComponent(activity.activity_id);
   const feedback = activity.feedback;
+
+  useEffect(() => {
+    let cancelled = false;
+    fetcher<{ activity: Activity }>(`/api/activities/${id}`)
+      .then((res) => {
+        if (!cancelled) setIntervals(res.activity.intervals ?? null);
+      })
+      .catch(() => {
+        if (!cancelled) setIntervals(fallbackIntervals.current ?? null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
 
   async function run(action: () => Promise<void>) {
     setBusy(true);
@@ -291,6 +329,54 @@ function ActivityCardModal({
           ) : (
             <p className="mt-2 text-sm text-ink-soft">
               Фидбек ещё не заполнен — он появится на экране «Сегодня».
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-md border border-surface-border bg-surface p-3">
+          <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+            Структура тренировки
+          </div>
+          {intervals && intervals.intervals.length > 0 ? (
+            <ul className="mt-2 space-y-1.5 text-sm text-ink">
+              {intervals.intervals.map((iv, index) => (
+                <li
+                  key={index}
+                  className="flex flex-wrap items-center gap-x-2 gap-y-1"
+                >
+                  <span className="rounded border border-surface-border bg-surface px-1.5 py-0.5 text-xs font-semibold text-ink-soft">
+                    #{index + 1}
+                  </span>
+                  {iv.moving_time != null ? (
+                    <span className="font-medium tabular-nums">
+                      {formatIntervalTime(iv.moving_time)}
+                    </span>
+                  ) : null}
+                  {iv.distance_km != null ? (
+                    <span className="text-ink-soft">
+                      {formatIntervalDistance(iv.distance_km)}
+                    </span>
+                  ) : null}
+                  {iv.average_watts != null ? (
+                    <span className="text-ink-soft">{iv.average_watts} Вт</span>
+                  ) : null}
+                  {iv.average_heartrate != null ? (
+                    <span className="text-ink-soft">HR {iv.average_heartrate}</span>
+                  ) : null}
+                  {iv.zone != null ? (
+                    <span className="text-ink-soft">зона {iv.zone}</span>
+                  ) : null}
+                  {iv.training_load != null ? (
+                    <span className="text-ink-faint">TL {iv.training_load}</span>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-ink-soft">
+              {intervals
+                ? "Интервалы не детектированы."
+                : "Интервалы недоступны для этой активности."}
             </p>
           )}
         </div>

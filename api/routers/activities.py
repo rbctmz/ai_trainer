@@ -15,6 +15,7 @@ from models.activity_card import (
     feedback_for_activity,
     foster_load_au,
 )
+from services.activity_intervals import fetch_activity_intervals
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
@@ -164,6 +165,7 @@ def get_activity_card(
         )
     item["tags"] = db.get_activity_tags(activity_id)
     item["coach_notes"] = db.get_activity_coach_notes(activity_id)
+    item["intervals"] = fetch_activity_intervals(db, activity_id)
     return {"activity": item}
 
 
