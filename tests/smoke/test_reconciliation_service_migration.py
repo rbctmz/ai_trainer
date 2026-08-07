@@ -48,11 +48,14 @@ def _canonical(payload: dict) -> str:
 
 _PRE_REFACTOR_PAYLOAD_SHA256 = {
     # Captured from main@eeefc96 before reconciliation_at moved to services/.
+    # Re-pinned 2026-08-08 (#383): _planned_snapshot now carries `intervals`
+    # (projected from materialized_steps) for plan-vs-fact matching. Scenarios
+    # without a plan keep their digest; the four with planned sessions shifted.
     "no_plan": "e91c4897f1de495c9564da88f8a9fdeaba02f0439e7fb5c2f7aa1148833bd9dd",
-    "local_disabled": "a7dc028bb5ea036eb9df29f7f25af6ac375cc5c4da99a1b4d80427e5b41d7449",
-    "provider_available": "e73108c14b9b7931bed05dd3998e0f9302615dbe2f42563732337841d2d182b0",
-    "provider_unavailable": "4ddcc6c4b46f1cddacf14a4212b9a8f29dc029da3165c90e02c4757b038f99a1",
-    "nested_ledger": "ed5430b52b1999f8a83f7635164d6745daa05eef561a010e8c10c4b7497e6e4e",
+    "local_disabled": "3314c8e397a8df22b77a5bfd5499b4d93d524b8341c655675e61ba46b0d64a96",
+    "provider_available": "2e75343960c7bc0263a22c70098978096c4d207d20329a07c87abecae9b0bb03",
+    "provider_unavailable": "12e4d081c0676d232f54a3c031f7c117c9347fa8e4b936409ca6dbdc94db19b8",
+    "nested_ledger": "a96536b19ced5a673a5ce7c4ae6e9f5e33cea4d47b46742c9e403d8fd64b4204",
 }
 
 

@@ -168,6 +168,10 @@ def get_activity_card(
     item["coach_notes"] = db.get_activity_coach_notes(activity_id)
     item["intervals"] = fetch_activity_intervals(db, activity_id)
     item["power_curve"] = fetch_activity_power_curve(db, activity_id)
+    planned_match = db.get_plan_actual_match_for_activity(activity_id)
+    item["planned_intervals"] = (
+        planned_match.get("planned_snapshot", {}).get("intervals") if planned_match else None
+    )
     return {"activity": item}
 
 

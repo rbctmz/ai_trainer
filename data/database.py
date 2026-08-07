@@ -1936,6 +1936,37 @@ class Database:
         conn.close()
         return [self._deserialize_plan_actual_match(row) for row in rows]
 
+    def get_plan_actual_match_for_activity(self, activity_id):
+        """Resolve the latest plan-actual match that includes ``activity_id`` (#383).
+
+        ``actual_activity_ids_json`` is a JSON array; we look up the latest
+        revision whose array contains the activity. Returns the deserialised
+        match dict (with ``planned_snapshot``), or ``None``.
+        """
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT pam.*
+            FROM plan_actual_matches pam
+            JOIN (
+                SELECT target_key, MAX(revision) AS revision
+                FROM plan_actual_matches
+                GROUP BY target_key
+            ) latest
+              ON latest.target_key = pam.target_key AND latest.revision = pam.revision
+            WHERE EXISTS (
+                SELECT 1 FROM json_each(pam.actual_activity_ids_json)
+                WHERE json_each.value = ?
+            )
+            LIMIT 1
+            ''',
+            (str(activity_id),),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        return self._deserialize_plan_actual_match(row)
+
     @staticmethod
     def _deserialize_plan_actual_match(row):
         if not row:

@@ -6,8 +6,13 @@ ExecPlan: docs/plan_vs_fact_execplan.md (Milestone 1). Покрывает чис
 """
 from __future__ import annotations
 
+import json
+import sqlite3
+from datetime import datetime
+
 import pytest
 
+from data.database import Database
 from models.plan_intervals import project_planned_intervals
 
 
@@ -190,3 +195,130 @@ def test_project_planned_intervals_work_segment_classifies_as_work():
     intervals = project_planned_intervals(session)
 
     assert intervals[0]["type"] == "work"
+
+
+# --- _planned_snapshot integration (#383 M2) ------------------------------
+
+
+def test_planned_snapshot_carries_intervals():
+    from models.plan_actual_reconciliation import _planned_snapshot
+
+    session = {
+        "session_id": "ats_1",
+        "sport": "bike",
+        "session_role": "key",
+        "export_name": "Threshold",
+        "total_tss": 80.0,
+        "duration_minutes": 60,
+        "materialized_steps": [
+            _step(name="Work 1", intensity="work", segment_kind="work",
+                  duration_seconds=720, relative_high=1.0),
+            _step(name="Rest 1", intensity="easy", segment_kind="recovery",
+                  duration_seconds=240, relative_high=0.6),
+        ],
+    }
+    template = {"phase": "build", "date": "2026-07-28"}
+
+    snapshot = _planned_snapshot("2026-07-28", session, template, 0)
+
+    assert snapshot["intervals"] == project_planned_intervals(session)
+    assert [iv["type"] for iv in snapshot["intervals"]] == ["work", "rest"]
+
+
+def test_planned_snapshot_intervals_empty_for_unstructured_session():
+    from models.plan_actual_reconciliation import _planned_snapshot
+
+    session = {"session_id": "ats_2", "sport": "bike", "total_tss": 40.0,
+               "duration_minutes": 60}  # no materialized_steps
+    template = {"phase": "base"}
+
+    snapshot = _planned_snapshot("2026-07-28", session, template, 0)
+
+    assert snapshot["intervals"] == []
+
+
+# --- DB lookup + card field (#383 M2) --------------------------------------
+
+
+def _seed_plan_actual_match_for_activity(db, activity_id, session_id="ats_1"):
+    planned_snapshot = {
+        "index": 0,
+        "session_id": session_id,
+        "date": "2026-07-28",
+        "sport": "bike",
+        "role": "key",
+        "phase": "build",
+        "name": "Threshold",
+        "tss": 80.0,
+        "duration_minutes": 60,
+        "parts": {"bike": 80.0},
+        "intervals": [
+            {"type": "work", "duration_seconds": 720, "target_zone": None,
+             "segment_kind": "work", "name": "Work 1"},
+        ],
+    }
+    conn = sqlite3.connect(db.db_path)
+    try:
+        conn.execute(
+            """INSERT INTO plan_actual_matches
+               (fingerprint, target_key, revision, session_id, base_checkpoint_id,
+                session_date, match_status, match_method, confidence,
+                planned_snapshot_json, actual_activity_ids_json, actual_snapshot_json,
+                evidence_json, rule_version)
+               VALUES (?, ?, 1, ?, 1, '2026-07-28', 'matched', 'auto', 0.9, ?, ?, '{}', '{}', 'v1')""",
+            (f"fp-{activity_id}", f"tk-{activity_id}", session_id,
+             json.dumps(planned_snapshot), json.dumps([activity_id])),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_db_get_plan_actual_match_for_activity(tmp_path):
+
+    db = Database(str(tmp_path / "match.db"))
+    assert db.get_plan_actual_match_for_activity("act-1") is None
+    _seed_plan_actual_match_for_activity(db, "act-1")
+
+    match = db.get_plan_actual_match_for_activity("act-1")
+
+    assert match is not None
+    assert match["planned_snapshot"]["intervals"][0]["type"] == "work"
+    assert "act-1" in match["actual_activity_ids"]
+    # other activity -> None
+    assert db.get_plan_actual_match_for_activity("act-other") is None
+
+
+def test_activity_card_includes_planned_intervals(tmp_path):
+    from api.routers import activities as activities_router
+
+    db = Database(str(tmp_path / "api.db"))
+
+    db.save_activities([{
+        "activity_id": "act-1", "date": datetime.now().strftime("%Y-%m-%d"),
+        "sport": "cycling", "duration_minutes": 60, "distance_km": 30.0,
+        "tss": 80.0, "tss_method": "power_tss_v1", "avg_hr": 140, "max_hr": 175,
+    }])
+    _seed_plan_actual_match_for_activity(db, "act-1")
+
+    card = activities_router.get_activity_card("act-1", db=db)
+
+    planned = card["activity"]["planned_intervals"]
+    assert planned is not None
+    assert planned[0]["type"] == "work"
+
+
+def test_activity_card_planned_intervals_null_without_match(tmp_path):
+    from api.routers import activities as activities_router
+
+    db = Database(str(tmp_path / "api2.db"))
+
+    db.save_activities([{
+        "activity_id": "act-1", "date": datetime.now().strftime("%Y-%m-%d"),
+        "sport": "cycling", "duration_minutes": 60, "distance_km": 30.0,
+        "tss": 80.0, "tss_method": "power_tss_v1", "avg_hr": 140, "max_hr": 175,
+    }])
+
+    card = activities_router.get_activity_card("act-1", db=db)
+
+    assert card["activity"]["planned_intervals"] is None
