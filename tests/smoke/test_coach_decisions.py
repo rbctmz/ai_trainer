@@ -130,25 +130,30 @@ def test_decisions_api_collapses_consecutive_identical_decisions(tmp_path):
     from api.routers.decisions import list_decisions
 
     db = Database(str(tmp_path / "decision_dedup.db"))
+    # Date-safe fixtures (issue #320): keep dates inside the rolling 30-day
+    # window used by list_decisions, instead of hardcoded dates that age out.
+    today = date.today()
+    recent_day = today - timedelta(days=1)
+    older_day = today - timedelta(days=2)
     repeated_reason = "TSB -18.1: держите нагрузку контролируемой."
     for hour in range(9, 12):
         db.save_coach_decision(
-            "Moderate", repeated_reason, date=f"2026-07-09T{hour:02d}:00:00"
+            "Moderate", repeated_reason, date=f"{recent_day.isoformat()}T{hour:02d}:00:00"
         )
     db.save_coach_decision(
-        "Push", "TSB +5.0: можно качественную работу.", date="2026-07-09T13:00:00"
+        "Push", "TSB +5.0: можно качественную работу.", date=f"{recent_day.isoformat()}T13:00:00"
     )
     db.save_coach_decision(
-        "Moderate", repeated_reason, date="2026-07-09T14:00:00"
+        "Moderate", repeated_reason, date=f"{recent_day.isoformat()}T14:00:00"
     )
     db.save_coach_decision(
-        "Moderate", repeated_reason, date="2026-07-08T10:00:00"
+        "Moderate", repeated_reason, date=f"{older_day.isoformat()}T10:00:00"
     )
 
     payload = list_decisions(db=db)
 
     assert payload["count"] == 6
-    assert [day["date"] for day in payload["days"]] == ["2026-07-09", "2026-07-08"]
+    assert [day["date"] for day in payload["days"]] == [recent_day.isoformat(), older_day.isoformat()]
 
     day_items = payload["days"][0]["decisions"]
     assert [(item["decision_type"], item["count"]) for item in day_items] == [
