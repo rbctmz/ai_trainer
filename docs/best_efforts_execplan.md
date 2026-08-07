@@ -14,10 +14,10 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 - [x] (2026-08-07) Спайк. Все три эндпоинта подтверждены живыми запросами на `i172121399` (cycling) и `i172399181` (open_water_swimming, edge-case). Формы ответов зафиксированы ниже в Surprises. Обнаружен и пофиксен баг контракта `get_activity_streams` из #390 (ответ — list, не mapping): PR #392.
 - [x] (2026-08-07) ExecPlan создан.
-- [ ] Milestone 1: клиентские методы + контрактные тесты.
-- [ ] Milestone 2: нормализаторы + кэш ActivityStore.
-- [ ] Milestone 3: сервис fetch-on-demand + поле в карточке API.
-- [ ] Milestone 4: гибридный фолбэк (mean-max из streams).
+- [x] (2026-08-07) Milestone 1: клиентские методы + `IntervalsICUError.status_code` + контрактные тесты. Live-verified на cycling/swim (422→empty).
+- [x] (2026-08-07) Milestone 2: нормализаторы (`models/best_efforts.py`, `models/power_curve.py`) + кэш `activity_power_curves` (ActivityStore + Database фасады) + тесты. Live-verified: cycling → 198/155/150/134/None W на 5s/1min/5min/20min/60min.
+- [x] (2026-08-07) Milestone 3: сервис `fetch_activity_power_curve` (fetch-on-demand, фолбэк на кэш/None) + поле `power_curve` в карточке API + тесты.
+- [x] (2026-08-07) Milestone 4 (пересмотрен): `MetricsCalculator.mean_max_power` добавлен как утилитный метод (локальная power curve из стрима watts). **Интеграция в сервис отложена** — без персистенции стримов (#390 decision) фолбэк не имеет источника данных для Garmin-only активностей (см. Decision Log). Метод пригодится в #383.
 - [ ] Milestone 5: web-блок «Рекорды».
 - [ ] Полный smoke + ruff + web lint/build; мердж PR (решает #382).
 
@@ -65,6 +65,9 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Decision: **гибрид** — Intervals.icu первичный источник, локальный mean-max — фолбэк для активностей без Intervals-линка (как TSS и интервалы #390).
   Rationale: минимум работы, лучшее качество детекции; не отламывает Garmin-only активности.
   Date/Author: 2026-08-07 / Codex.
+  Update (2026-08-07): **интеграция локального фолбэка в сервис отложена.** В текущей архитектуре стримы не персистятся (#390 decision), а `get_activity_streams` требует Intervals-id — значит для Garmin-only активностей (нет линка) нет источника watts-стрима. В БД таких power-активностей практически нет (1 multi_sport). `MetricsCalculator.mean_max_power` оставлен как утилитный метод (полезен в #383, где стримы тянутся для авто-детекта); подключение к карточке — после решения о персистенции стримов.
+
+
 
 - Decision: клиент **отличает 422 от 5xx**. 422 («Stream not on activity») → структурированный «нет данных» (None/empty, не raise). 5xx/сеть → кэш или фолбэк (как #390).
   Rationale: 422 — нормальное состояние для активностей без power (плавание/бег); raise ломал бы карточку.
