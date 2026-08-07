@@ -1,9 +1,9 @@
-"""Smoke: best-efforts / power-curve клиентские контракты Intervals.icu (#382).
+"""Smoke: best-efforts / power-curve из Intervals.icu (#382).
 
 ExecPlan: docs/best_efforts_execplan.md. Покрывает клиентские методы
-``get_activity_best_efforts`` / ``get_activity_power_curve``: пути/параметры,
-fail-closed на не-mapping/не-list и — главное — 422 как нормальный «нет данных»
-(например watts на плавательной активности), а не ошибка.
+``get_activity_best_efforts`` / ``get_activity_power_curve`` (пути/параметры,
+fail-closed на не-mapping/не-list, 422 как нормальный «нет данных»), чистые
+нормализаторы (fail-closed) и кэш ``activity_power_curves`` (roundtrip).
 
 Формы ответов зафиксированы живыми запросами 2026-08-07 (спайк для #382).
 """
@@ -11,6 +11,9 @@ from __future__ import annotations
 
 import pytest
 
+from data.database import Database
+from models.best_efforts import normalize_best_efforts_payload
+from models.power_curve import normalize_power_curve_payload
 from services.intervals_icu import IntervalsICUClient, IntervalsICUError
 
 
@@ -199,3 +202,137 @@ def test_intervals_icu_error_status_code_set():
     err = IntervalsICUError("boom", status_code=422)
 
     assert err.status_code == 422
+
+
+# --- Чистый нормализатор: best-efforts ------------------------------------
+
+
+def test_normalize_best_efforts_payload_compacts_fields():
+    payload = {
+        "efforts": [
+            {"start_index": 2151, "end_index": 2211, "average": 155.71666,
+             "duration": 60, "distance": None},
+            {"start_index": 2286, "end_index": 2346, "average": 153.26666,
+             "duration": 60, "distance": 10000},
+        ]
+    }
+
+    compact = normalize_best_efforts_payload(payload, stream="watts", duration=60)
+
+    assert compact == {
+        "stream": "watts",
+        "duration": 60,
+        "efforts": [
+            {"start_index": 2151, "end_index": 2211, "average": 155.7,
+             "duration": 60, "distance_km": None},
+            {"start_index": 2286, "end_index": 2346, "average": 153.3,
+             "duration": 60, "distance_km": 10.0},
+        ],
+    }
+
+
+def test_normalize_best_efforts_payload_empty_efforts():
+    assert normalize_best_efforts_payload({"efforts": []}) == {
+        "stream": "watts",
+        "duration": 60,
+        "efforts": [],
+    }
+
+
+def test_normalize_best_efforts_payload_missing_efforts_is_empty():
+    assert normalize_best_efforts_payload({})["efforts"] == []
+
+
+def test_normalize_best_efforts_payload_fails_closed_on_non_mapping():
+    with pytest.raises(ValueError):
+        normalize_best_efforts_payload(["not", "mapping"])
+
+
+def test_normalize_best_efforts_payload_fails_closed_on_non_list_efforts():
+    with pytest.raises(ValueError):
+        normalize_best_efforts_payload({"efforts": "oops"})
+
+
+def test_normalize_best_efforts_payload_fails_closed_on_non_mapping_effort():
+    with pytest.raises(ValueError):
+        normalize_best_efforts_payload({"efforts": [{"average": 100}, "bad"]})
+
+
+# --- Чистый нормализатор: power curve -------------------------------------
+
+
+def _sample_power_curve_payload() -> list:
+    # Truncated but representative of the live 135-point curve (spike 2026-08-07).
+    return [{
+        "id": "i123", "stream_type": "watts", "weight": 95.4,
+        "secs": [1, 2, 3, 4, 5, 60, 300, 1200, 3600],
+        "values": [234, 230, 222, 207, 198, 155, 150, 134, 112],
+        "watts_per_kg": [2.45, 2.41, 2.32, 2.17, 2.07, 1.62, 1.57, 1.40, 1.17],
+        "vo2max_5m": 30.546541, "compound_score_5m": 235.84906,
+    }]
+
+
+def test_normalize_power_curve_payload_extracts_headline_peaks():
+    compact = normalize_power_curve_payload(_sample_power_curve_payload())
+
+    assert compact["weight"] == 95.4
+    assert compact["vo2max_5m"] == 30.5
+    assert compact["compound_score_5m"] == 235.8
+    labels = [p["label"] for p in compact["peaks"]]
+    assert labels == ["5s", "1min", "5min", "20min", "60min"]
+    by_label = {p["label"]: p for p in compact["peaks"]}
+    assert by_label["5s"]["watts"] == 198          # exact match at secs=5
+    assert by_label["1min"]["watts"] == 155         # exact match at secs=60
+    assert by_label["5min"]["watts"] == 150         # exact match at secs=300
+    assert by_label["20min"]["watts"] == 134        # exact match at secs=1200
+    assert by_label["60min"]["watts"] == 112        # exact match at secs=3600
+    assert by_label["5s"]["watts_per_kg"] == 2.1
+
+
+def test_normalize_power_curve_payload_empty_list_is_no_data():
+    # Swim/run activity → provider returns [] (200).
+    assert normalize_power_curve_payload([]) == {
+        "weight": None, "peaks": [], "vo2max_5m": None, "compound_score_5m": None,
+    }
+
+
+def test_normalize_power_curve_payload_nearest_match_within_tolerance():
+    # No exact 5s; closest is 6s (delta=1, within tolerance).
+    payload = [{"secs": [6, 60], "values": [190, 155], "weight": 75.0}]
+    compact = normalize_power_curve_payload(payload)
+    five_sec = next(p for p in compact["peaks"] if p["label"] == "5s")
+    assert five_sec["watts"] == 190
+
+
+def test_normalize_power_curve_payload_too_far_is_none():
+    # Closest to 5s is 60s (delta=55, way beyond tolerance).
+    payload = [{"secs": [60], "values": [155], "weight": 75.0}]
+    compact = normalize_power_curve_payload(payload)
+    five_sec = next(p for p in compact["peaks"] if p["label"] == "5s")
+    assert five_sec["watts"] is None
+
+
+def test_normalize_power_curve_payload_fails_closed_on_non_list():
+    with pytest.raises(ValueError):
+        normalize_power_curve_payload({"not": "a list"})
+
+
+def test_normalize_power_curve_payload_fails_closed_on_non_mapping_entry():
+    with pytest.raises(ValueError):
+        normalize_power_curve_payload(["not-mapping"])
+
+
+# --- Кэш activity_power_curves --------------------------------------------
+
+
+def test_db_save_and_get_activity_power_curve_roundtrip(tmp_path):
+    db = Database(str(tmp_path / "curve.db"))
+    curve = normalize_power_curve_payload(_sample_power_curve_payload())
+
+    assert db.get_activity_power_curve("act-1") is None
+    db.save_activity_power_curve("act-1", curve)
+    assert db.get_activity_power_curve("act-1") == curve
+
+    updated = normalize_power_curve_payload([])
+    db.save_activity_power_curve("act-1", updated)
+    assert db.get_activity_power_curve("act-1") == updated
