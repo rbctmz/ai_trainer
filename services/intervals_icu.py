@@ -259,14 +259,19 @@ class IntervalsICUClient:
 
     def get_activity_streams(
         self, activity_id: str, types: str | None = None
-    ) -> Dict[str, List[Any]]:
+    ) -> List[Mapping[str, Any]]:
         """Fetch time-series streams (e.g. watts) for one activity.
 
-        ``GET /api/v1/activity/{id}/streams.json`` returns an object mapping a
-        stream name (``watts``, ``heart_rate``, ``cadence``, …) to its value
-        array. ``types`` is an optional comma-separated filter such as
-        ``"watts"`` or ``"watts,heart_rate"``. Full streams are NOT persisted
-        (#390 decision); this is the on-demand source for power curve (#382).
+        ``GET /api/v1/activity/{id}/streams.json`` returns a LIST of stream
+        objects, one per channel: ``[{"type": "watts", "data": [...],
+        "valueType": ..., "allNull": false, ...}, ...]``. ``types`` is an
+        optional comma-separated filter such as ``"watts"`` or
+        ``"watts,heart_rate"``. Full streams are NOT persisted (#390 decision);
+        this is the on-demand source for power curve (#382).
+
+        Verified against the live API 2026-08-07 (spike for #382): the response
+        is a list, NOT an object — earlier #390 contract (``Dict[str, list]``)
+        was wrong and raised ``IntervalsICUError`` on a valid payload.
 
         Fail-closed like ``get_activity_intervals``.
         """
@@ -277,12 +282,12 @@ class IntervalsICUClient:
             f"/api/v1/activity/{activity_id}/streams.json",
             params=params,
         )
-        if not isinstance(payload, Mapping):
+        if not isinstance(payload, list):
             raise IntervalsICUError(
-                "Intervals.icu streams: expected an object response, got "
+                "Intervals.icu streams: expected a list response, got "
                 f"{type(payload).__name__}"
             )
-        return dict(payload)
+        return [dict(stream) for stream in payload if isinstance(stream, Mapping)]
 
     def list_wellness(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
         """Read only recovery inputs used by the canonical M4 mapping.
@@ -543,7 +548,7 @@ def get_activity_intervals(activity_id: str) -> Dict[str, Any]:
 
 def get_activity_streams(
     activity_id: str, types: str | None = None
-) -> Dict[str, List[Any]]:
+) -> List[Mapping[str, Any]]:
     """Return time-series streams for one activity (read-only, #390)."""
     return get_client().get_activity_streams(activity_id, types=types)
 
