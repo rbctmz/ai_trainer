@@ -336,3 +336,142 @@ def test_db_save_and_get_activity_power_curve_roundtrip(tmp_path):
     updated = normalize_power_curve_payload([])
     db.save_activity_power_curve("act-1", updated)
     assert db.get_activity_power_curve("act-1") == updated
+
+
+# --- Сервис fetch-on-demand ------------------------------------------------
+
+
+def _seed_intervals_link(
+    db: Database, canonical: str = "act-1", intervals_id: str = "i123"
+) -> None:
+    import sqlite3
+
+    conn = sqlite3.connect(db.db_path)
+    try:
+        conn.execute(
+            """INSERT INTO activity_provider_links
+               (canonical_activity_id, provider, provider_activity_id, match_status)
+               VALUES (?, 'intervals', ?, 'matched')""",
+            (canonical, intervals_id),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_fetch_activity_power_curve_fetches_normalizes_and_caches(tmp_path, monkeypatch):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc.db"))
+    _seed_intervals_link(db)
+    client, _ = _patch_client(monkeypatch, _sample_power_curve_payload())
+
+    result = fetch_activity_power_curve(db, "act-1", client=client)
+
+    assert result is not None
+    assert result["weight"] == 95.4
+    assert [p["label"] for p in result["peaks"]] == ["5s", "1min", "5min", "20min", "60min"]
+    assert db.get_activity_power_curve("act-1") == result
+
+
+def test_fetch_activity_power_curve_serves_cache_on_provider_failure(
+    tmp_path, monkeypatch
+):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc2.db"))
+    _seed_intervals_link(db)
+    cached = normalize_power_curve_payload(_sample_power_curve_payload())
+    db.save_activity_power_curve("act-1", cached)
+    client = _patch_client_http_error(monkeypatch, 503, "upstream down")
+
+    assert fetch_activity_power_curve(db, "act-1", client=client) == cached
+
+
+def test_fetch_activity_power_curve_returns_none_without_cache_on_failure(
+    tmp_path, monkeypatch
+):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc3.db"))
+    _seed_intervals_link(db)
+    client = _patch_client_http_error(monkeypatch, 503, "upstream down")
+
+    assert fetch_activity_power_curve(db, "act-1", client=client) is None
+
+
+def test_fetch_activity_power_curve_none_without_intervals_link(tmp_path, monkeypatch):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc4.db"))
+    client, _ = _patch_client(monkeypatch, _sample_power_curve_payload())
+
+    # No provider link → None (Garmin-only; local fallback is Milestone 4).
+    assert fetch_activity_power_curve(db, "act-garmin-only", client=client) is None
+
+
+def test_fetch_activity_power_curve_422_is_no_power_not_failure(tmp_path, monkeypatch):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc5.db"))
+    _seed_intervals_link(db)
+    # power-curves for a swim activity returns [] (200), not 422 — but a
+    # malformed/edge provider response that 422s must still be fail-open.
+    client = _patch_client_http_error(monkeypatch, 422, "no power stream")
+
+    # 422 bubbles out of the client as IntervalsICUError(status_code=422); the
+    # service catches it (IntervalsICUError) and falls back to cache/None.
+    assert fetch_activity_power_curve(db, "act-1", client=client) is None
+
+
+# --- API: карточка ---------------------------------------------------------
+
+
+def _seed_activity(db: Database, activity_id: str = "act-1") -> None:
+    from datetime import datetime
+
+    db.save_activities(
+        [
+            {
+                "activity_id": activity_id,
+                "date": datetime.now().strftime("%Y-%m-%d"),
+                "sport": "cycling",
+                "duration_minutes": 60,
+                "distance_km": 30.0,
+                "tss": 60.0,
+                "tss_method": "power_tss_v1",
+                "avg_hr": 140,
+                "max_hr": 175,
+            }
+        ]
+    )
+
+
+def test_activity_card_includes_power_curve(tmp_path, monkeypatch):
+    from api.routers import activities as activities_router
+
+    db = Database(str(tmp_path / "api.db"))
+    _seed_activity(db)
+    curve = normalize_power_curve_payload(_sample_power_curve_payload())
+    monkeypatch.setattr(
+        activities_router, "fetch_activity_power_curve", lambda db, aid: curve
+    )
+
+    card = activities_router.get_activity_card("act-1", db=db)
+
+    assert card["activity"]["power_curve"]["weight"] == 95.4
+    assert card["activity"]["power_curve"]["peaks"][0]["label"] == "5s"
+
+
+def test_activity_card_power_curve_null_when_unavailable(tmp_path, monkeypatch):
+    from api.routers import activities as activities_router
+
+    db = Database(str(tmp_path / "api2.db"))
+    _seed_activity(db)
+    monkeypatch.setattr(
+        activities_router, "fetch_activity_power_curve", lambda db, aid: None
+    )
+
+    card = activities_router.get_activity_card("act-1", db=db)
+
+    assert card["activity"]["power_curve"] is None
