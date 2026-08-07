@@ -139,6 +139,7 @@ export interface Activity {
   tags?: string[];
   coach_notes?: string | null;
   intervals?: ActivityIntervals | null;
+  power_curve?: ActivityPowerCurve | null;
 }
 
 export interface ActivityFeedback {
@@ -169,6 +170,20 @@ export interface ActivityIntervals {
   analyzed?: string | null;
   intervals: ActivityInterval[];
   groups: ActivityInterval[];
+}
+
+export interface ActivityPowerPeak {
+  label: string;
+  duration: number;
+  watts: number | null;
+  watts_per_kg: number | null;
+}
+
+export interface ActivityPowerCurve {
+  weight?: number | null;
+  peaks: ActivityPowerPeak[];
+  vo2max_5m?: number | null;
+  compound_score_5m?: number | null;
 }
 
 export interface ActivitiesResponse {

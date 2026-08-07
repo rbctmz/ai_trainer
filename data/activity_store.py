@@ -87,6 +87,19 @@ def create_activity_card_tables(conn: sqlite3.Connection) -> None:
         '''
     )
 
+    # #382: компактный кэш power curve (пиковая мощность на ключевых
+    # длительностях). Полные стримы/кривые на 135 точек сюда не пишем — только
+    # headline-пики 5s/1min/5min/20min/60min + мета.
+    conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS activity_power_curves (
+            activity_id TEXT PRIMARY KEY,
+            curve_json TEXT NOT NULL,
+            fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        '''
+    )
+
 
 class ActivityStore:
     """SQLite persistence for the activity-card cluster.
@@ -186,6 +199,36 @@ class ActivityStore:
     def get_activity_intervals(self, activity_id: str) -> dict[str, Any] | None:
         row = self._conn.execute(
             "SELECT intervals_json FROM activity_intervals WHERE activity_id = ?",
+            (str(activity_id),),
+        ).fetchone()
+        if row is None:
+            return None
+        try:
+            payload = json.loads(row[0])
+        except (TypeError, ValueError):
+            return None
+        return payload if isinstance(payload, dict) else None
+
+    def save_activity_power_curve(
+        self, activity_id: str, curve: dict[str, Any]
+    ) -> None:
+        # payload is already normalized/controlled, so clean_value (sanitising
+        # free-form user input) is intentionally not applied here — see #390
+        # review note P3 on activity_intervals for the same rationale.
+        self._conn.execute(
+            """
+            INSERT INTO activity_power_curves (activity_id, curve_json, fetched_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(activity_id) DO UPDATE SET
+                curve_json = excluded.curve_json,
+                fetched_at = CURRENT_TIMESTAMP
+            """,
+            (str(activity_id), json.dumps(curve, ensure_ascii=False)),
+        )
+
+    def get_activity_power_curve(self, activity_id: str) -> dict[str, Any] | None:
+        row = self._conn.execute(
+            "SELECT curve_json FROM activity_power_curves WHERE activity_id = ?",
             (str(activity_id),),
         ).fetchone()
         if row is None:

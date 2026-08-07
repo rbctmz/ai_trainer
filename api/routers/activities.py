@@ -16,6 +16,7 @@ from models.activity_card import (
     foster_load_au,
 )
 from services.activity_intervals import fetch_activity_intervals
+from services.best_efforts import fetch_activity_power_curve
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
 
 router = APIRouter(prefix="/api/activities", tags=["activities"])
@@ -166,6 +167,7 @@ def get_activity_card(
     item["tags"] = db.get_activity_tags(activity_id)
     item["coach_notes"] = db.get_activity_coach_notes(activity_id)
     item["intervals"] = fetch_activity_intervals(db, activity_id)
+    item["power_curve"] = fetch_activity_power_curve(db, activity_id)
     return {"activity": item}
 
 
