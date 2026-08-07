@@ -7,6 +7,7 @@ import {
   Activity,
   ActivitiesResponse,
   ActivityIntervals,
+  ActivityPowerCurve,
   AthleteProfileResponse,
 } from "@/lib/types";
 import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
@@ -194,6 +195,10 @@ function ActivityCardModal({
     activity.intervals,
   );
   const fallbackIntervals = useRef(activity.intervals);
+  const [powerCurve, setPowerCurve] = useState<ActivityPowerCurve | null | undefined>(
+    activity.power_curve,
+  );
+  const fallbackPowerCurve = useRef(activity.power_curve);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -204,10 +209,16 @@ function ActivityCardModal({
     let cancelled = false;
     fetcher<{ activity: Activity }>(`/api/activities/${id}`)
       .then((res) => {
-        if (!cancelled) setIntervals(res.activity.intervals ?? null);
+        if (!cancelled) {
+          setIntervals(res.activity.intervals ?? null);
+          setPowerCurve(res.activity.power_curve ?? null);
+        }
       })
       .catch(() => {
-        if (!cancelled) setIntervals(fallbackIntervals.current ?? null);
+        if (!cancelled) {
+          setIntervals(fallbackIntervals.current ?? null);
+          setPowerCurve(fallbackPowerCurve.current ?? null);
+        }
       });
     return () => {
       cancelled = true;
@@ -377,6 +388,47 @@ function ActivityCardModal({
               {intervals
                 ? "Интервалы не детектированы."
                 : "Интервалы недоступны для этой активности."}
+            </p>
+          )}
+        </div>
+
+        <div className="mt-4 rounded-md border border-surface-border bg-surface p-3">
+          <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+            Рекорды
+          </div>
+          {powerCurve && powerCurve.peaks.length > 0 ? (
+            <ul className="mt-2 space-y-1.5 text-sm text-ink">
+              {powerCurve.peaks.map((peak) => (
+                <li
+                  key={peak.duration}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1"
+                >
+                  <span className="rounded border border-surface-border bg-surface px-1.5 py-0.5 text-xs font-semibold text-ink-soft">
+                    {peak.label}
+                  </span>
+                  {peak.watts != null ? (
+                    <span className="font-medium tabular-nums">{peak.watts} Вт</span>
+                  ) : (
+                    <span className="text-ink-faint">—</span>
+                  )}
+                  {peak.watts_per_kg != null ? (
+                    <span className="text-ink-soft tabular-nums">
+                      {peak.watts_per_kg} Вт/кг
+                    </span>
+                  ) : null}
+                </li>
+              ))}
+              {powerCurve.vo2max_5m != null ? (
+                <li className="flex items-center gap-x-3 pt-1 text-xs text-ink-faint">
+                  <span>VO₂max 5min {powerCurve.vo2max_5m}</span>
+                </li>
+              ) : null}
+            </ul>
+          ) : (
+            <p className="mt-2 text-sm text-ink-soft">
+              {powerCurve
+                ? "Пиковая мощность не детектирована."
+                : "Рекорды недоступны для этой активности."}
             </p>
           )}
         </div>
