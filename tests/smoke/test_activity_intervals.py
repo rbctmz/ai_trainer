@@ -201,28 +201,56 @@ def test_client_get_activity_intervals_fails_closed_on_non_mapping(monkeypatch):
 
 
 def test_client_get_activity_streams_requests_types_filter(monkeypatch):
-    client, calls = _patch_client(monkeypatch, {"watts": [100, 200], "time": [0, 1]})
+    # Live API returns a LIST of stream objects (spike #382, 2026-08-07), not a
+    # dict; the #390 contract (Dict[str, list]) was wrong and raised on a valid
+    # payload. Mirror the real shape here.
+    response = [
+        {"type": "watts", "name": None, "data": [100, 200], "allNull": False},
+        {"type": "time", "name": None, "data": [0, 1], "allNull": False},
+    ]
+    client, calls = _patch_client(monkeypatch, response)
 
     result = client.get_activity_streams("i123", types="watts")
 
     assert calls["path"] == "/api/v1/activity/i123/streams.json"
     assert calls["params"] == {"types": "watts"}
-    assert result["watts"] == [100, 200]
+    assert isinstance(result, list)
+    assert result[0]["type"] == "watts"
+    assert result[0]["data"] == [100, 200]
+    assert result[1]["type"] == "time"
 
 
 def test_client_get_activity_streams_without_types(monkeypatch):
-    client, calls = _patch_client(monkeypatch, {"watts": []})
+    client, calls = _patch_client(
+        monkeypatch, [{"type": "watts", "data": [], "allNull": False}]
+    )
 
     client.get_activity_streams("i123")
 
     assert calls["params"] is None
 
 
-def test_client_get_activity_streams_fails_closed_on_non_mapping(monkeypatch):
-    client, _ = _patch_client(monkeypatch, [1, 2])
+def test_client_get_activity_streams_fails_closed_on_non_list(monkeypatch):
+    # A dict (the old, wrong assumption) now correctly fails closed.
+    client, _ = _patch_client(monkeypatch, {"watts": [1, 2]})
 
     with pytest.raises(IntervalsICUError):
         client.get_activity_streams("i123")
+
+
+def test_client_get_activity_streams_drops_non_mapping_entries(monkeypatch):
+    # Defensive: junk entries inside the list are skipped, not raised — the
+    # surrounding valid streams are still returned.
+    response = [
+        {"type": "watts", "data": [100], "allNull": False},
+        "not-a-mapping",
+        {"type": "time", "data": [0], "allNull": False},
+    ]
+    client, _ = _patch_client(monkeypatch, response)
+
+    result = client.get_activity_streams("i123")
+
+    assert [s["type"] for s in result] == ["watts", "time"]
 
 
 # --- Кэш и резолв Intervals-id ---------------------------------------------
