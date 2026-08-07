@@ -34,7 +34,17 @@ MAX_SWIM_THRESHOLD_PACE_SECONDS_PER_100M = 300.0
 
 
 class IntervalsICUError(RuntimeError):
-    """Base Intervals.icu integration error."""
+    """Base Intervals.icu integration error.
+
+    ``status_code`` carries the upstream HTTP status when the error originated
+    from an HTTP response (e.g. 422 when a stream is not on an activity), so
+    callers can distinguish a provider "no data" signal from a real failure.
+    It is ``None`` for non-HTTP causes (network, JSON decode, configuration).
+    """
+
+    def __init__(self, message: str = "", status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
 
 
 class IntervalsICUConfigurationError(IntervalsICUError):
@@ -289,6 +299,77 @@ class IntervalsICUClient:
             )
         return [dict(stream) for stream in payload if isinstance(stream, Mapping)]
 
+    def get_activity_best_efforts(
+        self,
+        activity_id: str,
+        stream: str = "watts",
+        duration: int = 60,
+        count: int = 1,
+    ) -> List[Mapping[str, Any]]:
+        """Fetch the best (peak) efforts for one stream/duration (#382).
+
+        ``GET /api/v1/activity/{id}/best-efforts?stream=watts&duration=60&count=N``
+        returns ``{"efforts": [{start_index, end_index, average, duration,
+        distance}, ...]}``. We consume the provider's result (same pattern as
+        intervals in #390) — no local detector.
+
+        A **422** ("Stream not on activity", e.g. a swim activity asked for
+        watts) is a normal "no data" signal, NOT a failure: it returns an empty
+        list. Verified against the live API 2026-08-07 (spike for #382). Other
+        HTTP errors (5xx, network) still raise ``IntervalsICUError``.
+
+        Fail-closed: a 200 whose body is not a mapping (or whose ``efforts`` is
+        not a list) raises instead of being coerced.
+        """
+        _validate_activity_id(activity_id)
+        params = {"stream": stream, "duration": str(int(duration)), "count": str(int(count))}
+        try:
+            payload = self._request_json(
+                "GET",
+                f"/api/v1/activity/{activity_id}/best-efforts",
+                params=params,
+            )
+        except IntervalsICUError as exc:
+            if exc.status_code == 422:
+                return []
+            raise
+        if not isinstance(payload, Mapping):
+            raise IntervalsICUError(
+                "Intervals.icu best-efforts: expected an object response, got "
+                f"{type(payload).__name__}"
+            )
+        efforts = payload.get("efforts")
+        if efforts is None:
+            return []
+        if not isinstance(efforts, list):
+            raise IntervalsICUError("Intervals.icu best-efforts: `efforts` must be a list")
+        return [dict(effort) for effort in efforts if isinstance(effort, Mapping)]
+
+    def get_activity_power_curve(self, activity_id: str) -> List[Mapping[str, Any]]:
+        """Fetch the activity's power curve (peak power per duration, #382).
+
+        ``GET /api/v1/activity/{id}/power-curves`` returns a list of one
+        PowerCurve object: ``[{id, stream_type, weight, secs: [...],
+        values: [...], watts_per_kg: [...], start_index, end_index,
+        vo2max_5m, compound_score_5m, ...}]`` (135 standard durations 1s…2700s).
+        Verified against the live API 2026-08-07 (spike for #382).
+
+        Activities without power (swim/run without a power meter) return an
+        empty list (200) — fail-open "no curve", not an error. Fail-closed: a
+        200 that is not a list raises.
+        """
+        _validate_activity_id(activity_id)
+        payload = self._request_json(
+            "GET",
+            f"/api/v1/activity/{activity_id}/power-curves",
+        )
+        if not isinstance(payload, list):
+            raise IntervalsICUError(
+                "Intervals.icu power-curves: expected a list response, got "
+                f"{type(payload).__name__}"
+            )
+        return [dict(curve) for curve in payload if isinstance(curve, Mapping)]
+
     def list_wellness(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
         """Read only recovery inputs used by the canonical M4 mapping.
 
@@ -459,7 +540,7 @@ class IntervalsICUClient:
                 raw = response.read().decode("utf-8").strip()
         except urlerror.HTTPError as exc:
             message = _decode_http_error(exc)
-            raise IntervalsICUError(message) from exc
+            raise IntervalsICUError(message, status_code=exc.code) from exc
         except urlerror.URLError as exc:
             reason = getattr(exc, "reason", exc)
             raise IntervalsICUError(f"Не удалось подключиться к Intervals.icu: {reason}") from exc
@@ -551,6 +632,30 @@ def get_activity_streams(
 ) -> List[Mapping[str, Any]]:
     """Return time-series streams for one activity (read-only, #390)."""
     return get_client().get_activity_streams(activity_id, types=types)
+
+
+def get_activity_best_efforts(
+    activity_id: str,
+    stream: str = "watts",
+    duration: int = 60,
+    count: int = 1,
+) -> List[Mapping[str, Any]]:
+    """Return the best efforts for one stream/duration (read-only, #382).
+
+    Returns an empty list when the stream is not on the activity (HTTP 422),
+    e.g. watts on a swim — not an error.
+    """
+    return get_client().get_activity_best_efforts(
+        activity_id, stream=stream, duration=duration, count=count
+    )
+
+
+def get_activity_power_curve(activity_id: str) -> List[Mapping[str, Any]]:
+    """Return the activity's power curve (read-only, #382).
+
+    Returns an empty list for activities without power (swim/run).
+    """
+    return get_client().get_activity_power_curve(activity_id)
 
 
 def _cycling_sport_settings(raw: Mapping[str, Any]) -> Mapping[str, Any]:
