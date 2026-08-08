@@ -2353,8 +2353,8 @@ def record_plan_actual_match(
     if template is None or session is None:
         raise ValueError("planned session not found")
     normalized_action = str(action or "confirm").strip().lower()
-    if normalized_action not in {"confirm", "reject"}:
-        raise ValueError("action must be confirm or reject")
+    if normalized_action not in {"confirm", "reject", "unmatch"}:
+        raise ValueError("action must be confirm, reject or unmatch")
     if normalized_action == "confirm" and not activity_ids:
         raise ValueError("confirm requires at least one activity")
     activities = db.get_activities_by_ids(activity_ids if normalized_action == "confirm" else [])
@@ -2398,7 +2398,11 @@ def record_plan_actual_match(
         "base_checkpoint_id": latest_id,
         "session_date": session_date,
         "match_status": "matched" if normalized_action == "confirm" else "unmatched",
-        "match_method": "user_confirmed" if normalized_action == "confirm" else "user_rejected",
+        "match_method": {
+            "confirm": "user_confirmed",
+            "reject": "user_rejected",
+            "unmatch": "user_unmatched",
+        }[normalized_action],
         "confidence": 1.0,
         "planned_snapshot": {
             "date": session_date,
@@ -2409,9 +2413,11 @@ def record_plan_actual_match(
         "actual_activity_ids": [str(item["activity_id"]) for item in activities],
         "actual_snapshot": actual_snapshot,
         "evidence": [
-            "Пользователь явно подтвердил соответствие активности"
-            if normalized_action == "confirm"
-            else "Пользователь явно отклонил кандидатную активность"
+            {
+                "confirm": "Пользователь явно подтвердил соответствие активности",
+                "reject": "Пользователь явно отклонил кандидатную активность",
+                "unmatch": "Пользователь отменил сопоставление",
+            }[normalized_action]
         ],
         "rule_version": MATCH_RULE_VERSION,
         "supersedes_match_id": previous_row.get("id") if previous_row else None,

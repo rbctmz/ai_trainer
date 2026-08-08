@@ -307,6 +307,7 @@ def build_reconciliation(
         if ledger and str(ledger.get("match_method")) in {
             "user_confirmed",
             "user_rejected",
+            "user_unmatched",
             "admin_resolve",
         }:
             match_method = str(ledger.get("match_method"))

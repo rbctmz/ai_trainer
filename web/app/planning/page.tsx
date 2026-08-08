@@ -970,7 +970,7 @@ function AdjustMode({
 
   async function resolveMatch(
     row: ReconResponse["rows"][number],
-    action: "confirm" | "reject",
+    action: "confirm" | "reject" | "unmatch",
     actualRole: string | null = null,
   ) {
     if (data?.base_checkpoint_id == null) return;
@@ -1023,6 +1023,7 @@ function AdjustMode({
     ai_trainer_external_id: "по external_id Intervals.icu",
     user_confirmed: "подтверждено пользователем",
     user_rejected: "отклонено пользователем",
+    user_unmatched: "отменено пользователем",
     admin_resolve: "сопоставлено вручную",
   };
   // Legacy evidence persisted before #399 localization; rendered verbatim from
@@ -1132,6 +1133,19 @@ function AdjustMode({
                       busy={busy}
                       onConfirm={(role) => resolveMatch(r, "confirm", role)}
                     />
+                  ) : null}
+                  {r.match_method === "user_confirmed" ? (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        data-target-action="secondary"
+                        onClick={() => resolveMatch(r, "unmatch")}
+                        disabled={busy}
+                        className="rounded border border-tone-danger/30 px-2 py-1 text-[11px] text-tone-danger disabled:opacity-40"
+                      >
+                        Отменить сопоставление
+                      </button>
+                    </div>
                   ) : null}
                   {r.match_status === "ambiguous" && r.candidate_activities.length ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">

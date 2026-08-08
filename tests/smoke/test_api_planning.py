@@ -885,6 +885,75 @@ def test_confirm_match_with_explicit_role_evaluates_adherence(tmp_path):
     assert row["adherence"] == "exact"
 
 
+def test_unmatch_creates_user_unmatched_and_frees_activity(tmp_path):
+    # #405: unmatch cancels a user_confirmed match — a user_unmatched revision
+    # supersedes it, the session returns to "no fact", and the activity is free
+    # to be confirmed again.
+    from api import planning_service as ps
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(
+        item for item in plan["session_templates"] if item["date"] == "2026-07-12"
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "same-sport",
+                "date": "2026-07-12",
+                "started_at_utc": "2026-07-12T18:00:00Z",
+                "sport": "cycling",
+                "duration_minutes": 30,
+                "tss": 10.0,
+            }
+        ]
+    )
+
+    confirmed = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=["same-sport"],
+        actual_role="recovery",
+        action="confirm",
+    )
+    assert confirmed["match_method"] == "user_confirmed"
+
+    unmatched = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=[],
+        actual_role=None,
+        action="unmatch",
+    )
+    assert unmatched["match_method"] == "user_unmatched"
+    assert unmatched["match_status"] == "unmatched"
+    assert unmatched["supersedes_match_id"] == confirmed["id"]
+
+    result = ps.reconciliation_at(
+        db, as_of="2026-07-13", weeks=1, include_provider=False
+    )
+    row = next(
+        item
+        for item in result["rows"]
+        if item["session_id"] == target["session_id"]
+    )
+    assert row["match_status"] == "unmatched"
+    assert row["match_method"] == "user_unmatched"
+    assert row["actual_activity_ids"] == []
+
+    # Activity freed → confirm works again.
+    again = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=["same-sport"],
+        actual_role="recovery",
+        action="confirm",
+    )
+    assert again["match_method"] == "user_confirmed"
+
+
 def test_export_and_adjust_active_plan(tmp_path):
     from api import planning_service as ps
 
