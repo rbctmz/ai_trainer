@@ -9,6 +9,7 @@ Contributor-safe:
 """
 from __future__ import annotations
 
+import sqlite3
 from datetime import date, datetime, timedelta
 
 from data.database import Database
@@ -761,49 +762,111 @@ def test_device_sync_hint_fires_on_today_recovery_replan() -> None:
 
     today = "2026-08-08"
     checkpoint = {
+        "id": 77,
         "checkpoint_source": "recovery_replan",
         "created_at": "2026-08-08T06:41:49",
     }
-    goal_plan = {"session_templates": [{"date": "2026-08-08", "session_id": "s1"}]}
+    deliveries = [
+        {
+            "checkpoint_id": 77,
+            "dates": ["2026-08-08"],
+            "status": "success",
+            "created_at": "2026-08-08T06:41:10",
+        }
+    ]
 
-    hint = _device_sync_hint(checkpoint, goal_plan, today)
+    hint = _device_sync_hint(checkpoint, today, deliveries)
 
-    assert hint == {"reason": "recovery_replan", "at": "2026-08-08T06:41:49"}
+    assert hint == {
+        "reason": "recovery_replan",
+        "at": "2026-08-08T06:41:49",
+        "delivered_at": "2026-08-08T06:41:10",
+    }
 
 
 def test_device_sync_hint_silent_without_today_replan() -> None:
     from api.today_snapshot import _device_sync_hint
 
     today = "2026-08-08"
-    goal_plan = {"session_templates": [{"date": "2026-08-08", "session_id": "s1"}]}
+    deliveries = [
+        {
+            "checkpoint_id": 77,
+            "dates": ["2026-08-08"],
+            "status": "success",
+            "created_at": "2026-08-08T06:41:10",
+        }
+    ]
+    replan = {
+        "id": 77,
+        "checkpoint_source": "recovery_replan",
+        "created_at": "2026-08-08T06:41:49",
+    }
 
     assert (
         _device_sync_hint(
-            {"checkpoint_source": "initial_plan", "created_at": "2026-08-08T06:00:00"},
-            goal_plan,
+            {
+                "id": 77,
+                "checkpoint_source": "initial_plan",
+                "created_at": "2026-08-08T06:00:00",
+            },
             today,
+            deliveries,
         )
         is None
     )
     assert (
         _device_sync_hint(
-            {"checkpoint_source": "recovery_replan", "created_at": "2026-08-07T06:00:00"},
-            goal_plan,
+            {
+                "id": 77,
+                "checkpoint_source": "recovery_replan",
+                "created_at": "2026-08-07T06:00:00",
+            },
             today,
+            deliveries,
+        )
+        is None
+    )
+    # Без успешной доставки на сегодня — подсказки нет (P1).
+    assert (
+        _device_sync_hint(replan, today, [])
+        is None
+    )
+    # Доставка на другую дату / от другого чекпоинта — не считается (P2).
+    assert (
+        _device_sync_hint(
+            replan,
+            today,
+            [
+                {
+                    "checkpoint_id": 77,
+                    "dates": ["2026-08-09"],
+                    "status": "success",
+                    "created_at": "2026-08-08T06:41:10",
+                }
+            ],
         )
         is None
     )
     assert (
         _device_sync_hint(
-            {"checkpoint_source": "recovery_replan", "created_at": "2026-08-08T06:41:49"},
-            {"session_templates": []},
+            replan,
             today,
+            [
+                {
+                    "checkpoint_id": 78,
+                    "dates": ["2026-08-08"],
+                    "status": "success",
+                    "created_at": "2026-08-08T06:41:10",
+                }
+            ],
         )
         is None
     )
 
 
 def test_today_snapshot_carries_device_sync_hint_for_recovery_replan(tmp_path) -> None:
+    import json as _json
+
     from api.today_snapshot import build_today_decision_snapshot
 
     today = date(2026, 8, 8)
@@ -811,6 +874,29 @@ def test_today_snapshot_carries_device_sync_hint_for_recovery_replan(tmp_path) -
     goal_plan["checkpoint_source"] = "recovery_replan"
     db = Database(str(tmp_path / "sync-hint.db"))
     db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+    # Успешная доставка этого же дня из чекпоинта 1 (первый сохранённый).
+    conn = sqlite3.connect(db.db_path)
+    try:
+        conn.execute(
+            """INSERT INTO coach_proposals
+               (date, action, status, params_json, preview_json, result_json, created_at)
+               VALUES (?, 'recovery_replan', 'approved', '{}', '{}', ?, '2026-08-08T06:41:10')""",
+            (
+                "2026-08-08",
+                _json.dumps(
+                    {
+                        "delivery": {
+                            "status": "success",
+                            "checkpoint_id": 1,
+                            "dates": ["2026-08-08"],
+                        }
+                    }
+                ),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
     payload = build_today_decision_snapshot(db, today=today)
 
