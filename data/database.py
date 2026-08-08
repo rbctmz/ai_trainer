@@ -2151,6 +2151,21 @@ class Database:
         conn.close()
         return [self._deserialize_session_feedback(row) for row in rows]
 
+    def get_active_feedback_for_match(self, match_revision_id):
+        """Active feedback revisions linked to one match revision (#405).
+
+        Used by the unmatch flow to tombstone feedback derived from a canceled
+        match so its evaluations stop contaminating results.
+        """
+        conn = self._connect()
+        rows = conn.execute(
+            "SELECT * FROM session_feedback "
+            "WHERE match_revision_id = ? AND status = 'active'",
+            (int(match_revision_id),),
+        ).fetchall()
+        conn.close()
+        return [self._deserialize_session_feedback(row) for row in rows]
+
     def get_latest_session_feedback(self, session_id):
         conn = self._connect()
         row = conn.execute(

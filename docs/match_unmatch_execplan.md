@@ -19,6 +19,8 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 - Observation: `build_reconciliation` признаёт только `{user_confirmed, user_rejected, admin_resolve}` — без добавления `user_unmatched` эвристика после отмены снова матчила бы активность (matched вместо unmatched).
   Evidence: RED-прогон `test_unmatch_creates_user_unmatched_and_frees_activity` → `row["match_status"] == "matched"`; фикс — добавить метод в признаваемый набор.
+- Observation (review P2): признание `user_unmatched` как ledger-метода гасит эвристику и кандидатов — сессия «запирается» в «отменено пользователем», даже если есть другие активности дня.
+  Evidence: после unmatch `candidate_activities` пуст; фикс — для `user_unmatched` наполнять кандидатов из day_activities (без авто-матчинга).
 
 ## Decision Log
 
@@ -27,6 +29,9 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
   Date/Author: 2026-08-08 / Codex.
 - Decision: переназначение = отмена + подтверждение целевой сессии (два шага), без атомарного «move».
   Rationale: переиспользуем существующий confirm-флоу с ролью (#401); атомарный move добавляет конфликт-логику без пользы для кейса.
+  Date/Author: 2026-08-08 / Codex.
+- Decision (review P1): при unmatch фидбек, привязанный к отменяемой ревизии матча, томбстонится.
+  Rationale: иначе `session_quality_evaluations` продолжают считаться по отменённому сопоставлению и загрязняют эксперименты.
   Date/Author: 2026-08-08 / Codex.
 
 ## Context and Orientation
@@ -58,4 +63,4 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 ## Outcomes & Retrospective
 
-2026-08-08: клин #405 реализован. У user_confirmed-строк появилась кнопка «Отменить сопоставление» → ревизия `user_unmatched` (supersedes), сессия возвращается в «Нет факта», активность освобождается (переназначение = отмена + confirm целевой сессии с ролью из #401). Smoke 1606 passed, 1 skipped; ruff/ESLint/build зелёные.
+2026-08-08: клин #405 реализован (с review-фиксами). У user_confirmed-строк кнопка «Отменить сопоставление» → ревизия `user_unmatched`; сессия «Нет факта», кандидаты остаются видимыми (P2); фидбек от отменённого матча томбстонится (P1); legacy user_confirmed без роли получают контроль роли (P1 #406). Smoke 1607 passed, 1 skipped; ruff/ESLint/build зелёные.

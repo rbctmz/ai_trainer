@@ -320,6 +320,11 @@ def build_reconciliation(
                 match_status = "ambiguous"
                 confidence = 0.0
                 evidence.append("Сохранённое пользователем сопоставление ссылается на активность, которая больше недоступна однозначно")
+            if match_method == "user_unmatched":
+                # #405 review P2: keep replacement candidates visible so the
+                # athlete can re-select a different activity instead of the
+                # session being permanently locked as "отменено пользователем".
+                candidates = list(day_activities)
         else:
             stable = []
             provider_pair_notes: list[str] = []

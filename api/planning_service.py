@@ -2425,6 +2425,26 @@ def record_plan_actual_match(
     fingerprint_source = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     payload["fingerprint"] = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
     saved = db.save_plan_actual_match(payload)
+    if normalized_action == "unmatch" and previous_row is not None:
+        # #405 review P1: feedback derived from the superseded match must not
+        # stay active — tombstone it so quality evaluations are not attributed
+        # to a canceled association.
+        from api.session_feedback import (
+            StaleFeedbackError,
+            tombstone_session_feedback,
+        )
+
+        for feedback in db.get_active_feedback_for_match(int(previous_row["id"])):
+            try:
+                tombstone_session_feedback(
+                    db,
+                    int(feedback["id"]),
+                    client_submission_fingerprint=(
+                        f"unmatch:{previous_row['id']}:{feedback['id']}"
+                    ),
+                )
+            except StaleFeedbackError:
+                continue
     from services.recovery_analytics import refresh_recovery_episodes_best_effort
 
     refresh_recovery_episodes_best_effort(db, as_of=date.today(), target_session_ids=[session_id])

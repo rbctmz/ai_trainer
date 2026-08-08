@@ -1125,9 +1125,9 @@ function AdjustMode({
                       {legacyEvidenceLabels[r.evidence[0]] ?? r.evidence[0]}
                     </div>
                   ) : null}
-                  {r.match_status === "matched" &&
-                  r.adherence === "unknown" &&
-                  r.match_method !== "user_confirmed" ? (
+                  {(r.match_status === "matched" && r.adherence === "unknown") ||
+                  (r.match_method === "user_unmatched" &&
+                    r.candidate_activities.length) ? (
                     <ConfirmMatchControl
                       row={r}
                       busy={busy}
