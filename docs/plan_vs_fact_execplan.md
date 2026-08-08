@@ -14,11 +14,11 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 - [x] (2026-08-07) Разведка. `materialized_steps` уже персистятся в `planning_checkpoints.checkpoint_data → goal_plan_snapshot.session_templates[].materialized_steps` (каждый шаг: `{index, name, intensity, duration_seconds, target:{type,low,high,relative_low,relative_high}, segment_kind, repeat_index}`). Точки интеграции подтверждены своими глазами: `_finalize` (`training_planner.py:2099`), `_planned_snapshot` (`plan_actual_reconciliation.py:155`).
 - [x] (2026-08-07) Подтверждено на живых данных: есть bike plan-actual-матчи (`2026-07-28` act `23765394202` ↔ Intervals `i170127087`; `2026-07-27` ↔ `i169725694`) с intervals-линками → фактические интервалы (#390) доступны для матчинга.
-- [ ] Milestone 1: проекция materialized_steps → компактные плановые `intervals` (чистый нормализатор).
-- [ ] Milestone 2: расширение `_planned_snapshot` + `planned_intervals` в карточке API (read-side reconciliation).
-- [ ] Milestone 3: сервис матчинга план-шаг ↔ факт-интервал (по репетициям).
-- [ ] Milestone 4: web-секция «План vs факт» в карточке.
-- [ ] Полный smoke + ruff + web lint/build; мердж PR (решает #383).
+- [x] (2026-08-07) Milestone 1: проекция materialized_steps → компактные плановые `intervals` (чистый нормализатор `models/plan_intervals.py`).
+- [x] (2026-08-07) Milestone 2: расширение `_planned_snapshot` + `planned_intervals` в карточке API (read-side reconciliation).
+- [x] (2026-08-08) Milestone 3: матчинг план-шаг ↔ факт-интервал по репетициям (`models/plan_vs_fact.py::match_plan_vs_fact`; работа по порядку + длительность, tolerance ±30%, greedy-потребление, fail-open на пустых/мусорных входах).
+- [x] (2026-08-08) Milestone 4: web-секция «План vs факт» в карточке (сумма по плану/факту/совпадениям + строки «план → факт → отклонение/зона»; скрыта без плана).
+- [x] (2026-08-08) Полный smoke — 1596 passed, 1 skipped; ruff/ESLint/build зелёные. Мердж PR (решает #383).
 
 ## Surprises & Discoveries
 
@@ -53,6 +53,9 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Decision: расширение `_planned_snapshot` без миграции БД (JSON-колонка `planned_snapshot_json`).
   Rationale: минимальная инвазивность; checkpoints уже несут materialized_steps.
   Date/Author: 2026-08-07 / Codex.
+- Decision: матчер живёт в `models/plan_vs_fact.py`, а не в `services/plan_vs_fact.py` (как планировалось в ExecPlan).
+  Rationale: чистая функция без I/O/БД — консистентно с соседями `models/activity_card.py`, `models/activity_intervals.py`, `models/plan_intervals.py`; сервисный слой не нужен, вызов — из API-роутера.
+  Date/Author: 2026-08-08 / Codex.
 
 ## Context and Orientation
 
@@ -96,4 +99,4 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 ## Outcomes & Retrospective
 
-(заполняется по мере выполнения milestones)
+2026-08-08: клин #383 завершён. Плановые интервалы проецируются из `materialized_steps` (Milestone 1), несутся в `_planned_snapshot` и карточку API (Milestone 2), матчер `match_plan_vs_fact` сопоставляет work-шаги с фактическими интервалами Intervals.icu по порядку + длительности (±30%, greedy-потребление, fail-open) (Milestone 3), web-карточка показывает секцию «План vs факт» (Milestone 4). Live-проверка на bike-матчах (2026-07-27/28) доступна после мерджа. Smoke 1596 passed, 1 skipped; ruff/ESLint/build зелёные.

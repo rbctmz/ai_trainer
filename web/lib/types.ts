@@ -140,6 +140,8 @@ export interface Activity {
   coach_notes?: string | null;
   intervals?: ActivityIntervals | null;
   power_curve?: ActivityPowerCurve | null;
+  planned_intervals?: PlanVsFactStep[] | null;
+  plan_vs_fact?: PlanVsFact | null;
 }
 
 export interface ActivityFeedback {
@@ -184,6 +186,31 @@ export interface ActivityPowerCurve {
   peaks: ActivityPowerPeak[];
   vo2max_5m?: number | null;
   compound_score_5m?: number | null;
+}
+
+export interface PlanVsFactStep {
+  type?: string | null;
+  duration_seconds?: number | null;
+  target_zone?: number | null;
+  segment_kind?: string | null;
+  repeat_index?: number | null;
+}
+
+export interface PlanVsFactMatch {
+  planned: PlanVsFactStep;
+  actual: ActivityInterval | null;
+  duration_delta: number | null;
+  zone: { planned: number | null; actual: number | null };
+  matched: boolean;
+}
+
+export interface PlanVsFact {
+  matches: PlanVsFactMatch[];
+  summary: {
+    planned_work_steps: number;
+    actual_intervals: number;
+    matched: number;
+  };
 }
 
 export interface ActivitiesResponse {
