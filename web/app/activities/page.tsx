@@ -9,6 +9,7 @@ import {
   ActivityIntervals,
   ActivityPowerCurve,
   AthleteProfileResponse,
+  PlanVsFact,
 } from "@/lib/types";
 import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
 
@@ -37,6 +38,11 @@ function formatIntervalDistance(distanceKm: number): string {
     return `${rounded} км`;
   }
   return `${Math.round(distanceKm * 1000)} м`;
+}
+
+function formatPlanDelta(delta: number): string {
+  const pct = Math.round(delta * 100);
+  return `${pct > 0 ? "+" : ""}${pct}%`;
 }
 
 function tssProvenanceLabel(activity: Activity): string | null {
@@ -199,6 +205,10 @@ function ActivityCardModal({
     activity.power_curve,
   );
   const fallbackPowerCurve = useRef(activity.power_curve);
+  const [planVsFact, setPlanVsFact] = useState<PlanVsFact | null | undefined>(
+    activity.plan_vs_fact,
+  );
+  const fallbackPlanVsFact = useRef(activity.plan_vs_fact);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -212,12 +222,14 @@ function ActivityCardModal({
         if (!cancelled) {
           setIntervals(res.activity.intervals ?? null);
           setPowerCurve(res.activity.power_curve ?? null);
+          setPlanVsFact(res.activity.plan_vs_fact ?? null);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setIntervals(fallbackIntervals.current ?? null);
           setPowerCurve(fallbackPowerCurve.current ?? null);
+          setPlanVsFact(fallbackPlanVsFact.current ?? null);
         }
       });
     return () => {
@@ -391,6 +403,56 @@ function ActivityCardModal({
             </p>
           )}
         </div>
+
+        {planVsFact ? (
+          <div className="mt-4 rounded-md border border-surface-border bg-surface p-3">
+            <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+              План vs факт
+            </div>
+            <div className="mt-2 text-xs text-ink-soft">
+              План {planVsFact.summary.planned_work_steps} работы · факт{" "}
+              {planVsFact.summary.actual_intervals} интервалов · совпало{" "}
+              {planVsFact.summary.matched}
+            </div>
+            {planVsFact.matches.length > 0 ? (
+              <ul className="mt-2 space-y-1.5 text-sm text-ink">
+                {planVsFact.matches.map((match, index) => (
+                  <li
+                    key={index}
+                    className="flex flex-wrap items-center gap-x-2 gap-y-1"
+                  >
+                    <span className="rounded border border-surface-border bg-surface px-1.5 py-0.5 text-xs font-semibold text-ink-soft">
+                      #{index + 1}
+                    </span>
+                    {match.planned.duration_seconds != null ? (
+                      <span className="text-ink-soft">
+                        план {formatIntervalTime(match.planned.duration_seconds)}
+                      </span>
+                    ) : null}
+                    {match.actual && match.actual.moving_time != null ? (
+                      <span className="font-medium tabular-nums">
+                        факт {formatIntervalTime(match.actual.moving_time)}
+                      </span>
+                    ) : (
+                      <span className="font-medium text-tone-danger">факт —</span>
+                    )}
+                    {match.duration_delta != null ? (
+                      <span className="tabular-nums text-ink-soft">
+                        {formatPlanDelta(match.duration_delta)}
+                      </span>
+                    ) : null}
+                    {match.zone.planned != null ? (
+                      <span className="text-ink-faint">зона {match.zone.planned}</span>
+                    ) : null}
+                    {match.zone.actual != null ? (
+                      <span className="text-ink-faint">→ {match.zone.actual}</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
 
         <div className="mt-4 rounded-md border border-surface-border bg-surface p-3">
           <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">

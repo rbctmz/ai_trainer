@@ -15,6 +15,7 @@ from models.activity_card import (
     feedback_for_activity,
     foster_load_au,
 )
+from models.plan_vs_fact import match_plan_vs_fact
 from services.activity_intervals import fetch_activity_intervals
 from services.best_efforts import fetch_activity_power_curve
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
@@ -168,6 +169,19 @@ def get_activity_card(
     item["coach_notes"] = db.get_activity_coach_notes(activity_id)
     item["intervals"] = fetch_activity_intervals(db, activity_id)
     item["power_curve"] = fetch_activity_power_curve(db, activity_id)
+    planned_match = db.get_plan_actual_match_for_activity(activity_id)
+    planned_intervals = (
+        planned_match.get("planned_snapshot", {}).get("intervals") if planned_match else None
+    )
+    item["planned_intervals"] = planned_intervals
+    if planned_intervals is None:
+        item["plan_vs_fact"] = None
+    else:
+        actual = item.get("intervals")
+        actual_intervals = actual.get("intervals") if isinstance(actual, dict) else []
+        item["plan_vs_fact"] = match_plan_vs_fact(
+            planned_intervals, actual_intervals or []
+        )
     return {"activity": item}
 
 

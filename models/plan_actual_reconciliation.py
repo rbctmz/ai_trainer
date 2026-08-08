@@ -10,6 +10,7 @@ import re
 from typing import Any, Iterable, Mapping, Sequence
 
 from models.session_identity import ensure_session_identities
+from models.plan_intervals import project_planned_intervals
 from models.workout_catalog import rescale_materialized_session
 from models.session_quality_forecast import (
     SUBSTITUTED_LOAD_MAX,
@@ -152,6 +153,13 @@ def _planned_snapshot(
     template: Mapping[str, Any],
     index: int,
 ) -> dict[str, Any]:
+    # #383: carry the projected planned intervals so the card can match plan vs
+    # actual by reps. project_planned_intervals is fail-closed at the session
+    # boundary but graceful per step; a malformed session yields [].
+    try:
+        intervals = project_planned_intervals(session)
+    except ValueError:
+        intervals = []
     return {
         "index": index,
         "session_id": session.get("session_id"),
@@ -163,6 +171,7 @@ def _planned_snapshot(
         "tss": round(max(0.0, _float(session.get("total_tss"))), 1),
         "duration_minutes": int(round(max(0.0, _float(session.get("duration_minutes"))))),
         "parts": _session_parts(session),
+        "intervals": intervals,
     }
 
 
