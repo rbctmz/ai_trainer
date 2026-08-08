@@ -11,8 +11,8 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 ## Progress
 
 - [x] (2026-08-08) Разведка. Эндпоинт `POST /api/planning/reconciliation/matches` (MatchCorrectionRequest) уже есть; `record_plan_actual_match` пишет `actual_snapshot.role` из переданного `actual_role`; web (`resolveMatch`) шлёт `actual_role: null` и рендерит кнопки только для ambiguous. Тесты: `test_api_planning.py` (record + adherence).
-- [x] (2026-08-08) Milestone 1: backend — дефолт роли к плановой сессии при confirm (`resolved_role = actual_role or session.session_role or template.session_role`).
-- [x] (2026-08-08) Milestone 2: web — кнопка «Подтвердить» для matched-строк с unknown-adherence (activity_ids из `actual_activity_ids`, роль = плановая); hint «подтвердите сопоставление» возвращён.
+- [x] (2026-08-08) Milestone 1: backend — роль хранится ровно как передана (без подстановки из плана; P1-коррекция).
+- [x] (2026-08-08) Milestone 2: web — «Подтвердить» для matched-строк с unknown-adherence: видимый селектор роли (prefill = плановая, но выбор явный), hint возвращён.
 - [x] (2026-08-08) Тесты (новый контракт: confirm без роли → role=planned → exact), smoke 1604 passed, lint/build/ruff зелёные. PR.
 
 ## Surprises & Discoveries
@@ -25,7 +25,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 ## Decision Log
 
 - Decision: при confirm без явной роли роль по умолчанию = роль плановой сессии (session_role, фолбэк template.session_role).
-  Rationale: пользователь явно подтверждает «эта активность — та самая плановая сессия»; роль установлена подтверждением, а не выдумана (в отличие от регрессионного P1 из #399). Нагрузка/спорт считаются по-прежнему честно из факта.
+  Rationale: ~~пользователь явно подтверждает «эта активность — та самая плановая сессия»~~ **ОТМЕНЕНО ревью P1 (#404)**: копирование плановой роли фабрикует факт — лёгкая езда против quality-плана с похожей нагрузкой стала бы «exact» и попала бы в recovery-аналитику. Роль — пользовательское свидетельство о ВЫПОЛНЕНИИ, а не о плане; без явной роли adherence честно «не оценено».
   Date/Author: 2026-08-08 / Codex.
 
 ## Context and Orientation
@@ -60,4 +60,4 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 ## Outcomes & Retrospective
 
-2026-08-08: клин #401 реализован. Подтверждение matched-строки теперь устанавливает роль факта (по умолчанию — роль плановой сессии, потому что подтверждение = явное «эта активность — та самая сессия»), и adherence оценивается честно (exact/substituted/major_deviation), а не «не оценено». Legacy user_confirmed-матчи без роли (кейс 08-04) можно переподтвердить — кнопка появляется у всех matched-строк с unknown-adherence. Smoke 1604 passed, 1 skipped; ruff/ESLint/build зелёные.
+2026-08-08: клин #401 реализован (с P1-коррекцией из ревью). Подтверждение matched-строки устанавливает соответствие «активность ↔ сессия», а роль факта задаётся пользователем явно (видимый селектор, prefill = плановая роль). Без роли adherence честно «не оценено»; с ролью — exact/substituted/major_deviation по факту. Legacy user_confirmed-матчи без роли можно переподтвердить. Smoke 1604 passed, 1 skipped; ruff/ESLint/build зелёные.

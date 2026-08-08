@@ -30,6 +30,51 @@ const READER_TAB_LABELS: Record<ReaderTab, string> = {
   execution: "Выполнение",
 };
 
+const ACTUAL_ROLE_OPTIONS = ["recovery", "easy", "quality", "long", "race"] as const;
+
+function ConfirmMatchControl({
+  row,
+  busy,
+  onConfirm,
+}: {
+  row: ReconResponse["rows"][number];
+  busy: boolean;
+  onConfirm: (role: string | null) => void;
+}) {
+  // #401 review P1: the executed role is user-supplied evidence, never silently
+  // copied from the plan. The selector is prefilled with the planned role (the
+  // sensible default the user sees), but the confirm click carries the explicit
+  // choice — change it if the session was executed at a different intensity.
+  const [role, setRole] = useState<string>(row.role ?? "");
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+      <select
+        value={role}
+        onChange={(event) => setRole(event.target.value)}
+        disabled={busy}
+        aria-label="Роль факта"
+        className="rounded border border-surface-border bg-surface px-1.5 py-1 text-[11px] text-ink disabled:opacity-40"
+      >
+        <option value="">Роль факта…</option>
+        {ACTUAL_ROLE_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        data-target-action="primary"
+        onClick={() => onConfirm(role || null)}
+        disabled={busy}
+        className="rounded border border-tone-success/30 px-2 py-1 text-[11px] text-tone-success disabled:opacity-40"
+      >
+        Подтвердить
+      </button>
+    </div>
+  );
+}
+
 export default function PlanningPage() {
   const { data: status } = useSWR<PlanningStatus>("/api/planning/status", fetcher);
   const { data: overview, error: overviewError } = useSWR<PlanningOverview>(
@@ -926,6 +971,7 @@ function AdjustMode({
   async function resolveMatch(
     row: ReconResponse["rows"][number],
     action: "confirm" | "reject",
+    actualRole: string | null = null,
   ) {
     if (data?.base_checkpoint_id == null) return;
     setBusy(true);
@@ -940,7 +986,7 @@ function AdjustMode({
               ? row.actual_activity_ids
               : row.candidate_activities.map((item) => item.activity_id)
             : [],
-        actual_role: row.role ?? null,
+        actual_role: actualRole,
         action,
       });
       setPreviewResult(null);
@@ -1077,17 +1123,11 @@ function AdjustMode({
                     </div>
                   ) : null}
                   {r.match_status === "matched" && r.adherence === "unknown" ? (
-                    <div className="mt-2">
-                      <button
-                        type="button"
-                        data-target-action="primary"
-                        onClick={() => resolveMatch(r, "confirm")}
-                        disabled={busy}
-                        className="rounded border border-tone-success/30 px-2 py-1 text-[11px] text-tone-success disabled:opacity-40"
-                      >
-                        Подтвердить
-                      </button>
-                    </div>
+                    <ConfirmMatchControl
+                      row={r}
+                      busy={busy}
+                      onConfirm={(role) => resolveMatch(r, "confirm", role)}
+                    />
                   ) : null}
                   {r.match_status === "ambiguous" && r.candidate_activities.length ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
