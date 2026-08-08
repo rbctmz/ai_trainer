@@ -206,21 +206,12 @@ def _adherence(
     if ratio < SUBSTITUTED_LOAD_MIN or ratio > SUBSTITUTED_LOAD_MAX:
         return "major_deviation"
     if not actual_role:
-        # Unconfirmed heuristic match: the actual role label is unknown (it is
-        # only persisted in a confirmed ledger match), but same-sport + in-bounds
-        # load is enough to classify comparability — the role label would add
-        # nothing when the athlete did the planned sport at the planned load.
-        planned_sport = normalize_sport_key(planned.get("sport"))
-        if not (planned_sport and actual_sport and planned_sport == actual_sport):
-            return "unknown"
-        return classify_plan_adherence(
-            {
-                "role": planned.get("role"),
-                "sport": planned.get("sport"),
-                "tss": planned.get("tss"),
-            },
-            {"role": planned.get("role"), "sport": actual_sport, "tss": actual_tss},
-        ) or "unknown"
+        # Review #399 P1: never fabricate the actual role for an unconfirmed
+        # heuristic match — a planned quality day matched to an easy same-sport
+        # activity would be misreported as `exact`. Keep `unknown` until role
+        # evidence exists; the outer load check above still yields
+        # `major_deviation` for clearly out-of-bounds loads.
+        return "unknown"
     return classify_plan_adherence(
         {"role": planned.get("role"), "sport": planned.get("sport"), "tss": planned.get("tss")},
         {"role": actual_role, "sport": actual_sport, "tss": actual_tss},

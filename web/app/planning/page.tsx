@@ -1037,7 +1037,12 @@ function AdjustMode({
                     {matchLabels[r.match_status] ?? r.match_status}
                   </div>
                   <div className="mt-0.5 text-xs text-ink-faint">
-                    {matchMethodLabels[r.match_method] ?? r.match_method} · {adherenceLabels[r.adherence] ?? r.adherence} · {Math.round(r.confidence * 100)}%
+                    {matchMethodLabels[r.match_method] ?? r.match_method} ·{" "}
+                    {adherenceLabels[r.adherence] ?? r.adherence}
+                    {r.adherence === "unknown" && r.match_status === "matched"
+                      ? " — подтвердите сопоставление"
+                      : ""}{" "}
+                    · {Math.round(r.confidence * 100)}%
                   </div>
                   {r.evidence[0] ? <div className="mt-1 max-w-xs text-[11px] text-ink-faint">{r.evidence[0]}</div> : null}
                   {r.match_status === "ambiguous" && r.candidate_activities.length ? (

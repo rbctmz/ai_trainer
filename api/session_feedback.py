@@ -602,7 +602,7 @@ def _admin_match_evidence(
             "tss": actual_tss,
             "duration_minutes": actual_duration,
         },
-        "evidence": ["Administrative compatibility resolve selected explicit activities"],
+        "evidence": ["Административное сопоставление выбрало явные активности"],
         "rule_version": MATCH_RULE_VERSION,
     }
     match = db.save_plan_actual_match(match_payload)

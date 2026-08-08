@@ -42,7 +42,6 @@ from models.session_identity import ensure_session_identities
 from models.session_transfer import apply_session_transfer
 from models.planning_execution import (
     build_execution_plan_adjustment,
-    build_execution_reconciliation_rows,
     rebuild_goal_plan_with_adjustment,
 )
 from models.plan_actual_reconciliation import (
@@ -93,7 +92,6 @@ from models.workout_catalog import (
 # api.planning_service.reconciliation_at caller working unchanged.
 from services.reconciliation import (
     _parse_as_of,
-    _provider_reconciliation_evidence,
     reconciliation_at,
 )
 from services.planning_contracts import (
@@ -2406,7 +2404,11 @@ def record_plan_actual_match(
         },
         "actual_activity_ids": [str(item["activity_id"]) for item in activities],
         "actual_snapshot": actual_snapshot,
-        "evidence": ["User explicitly confirmed activity match"] if normalized_action == "confirm" else ["User explicitly rejected candidate activity match"],
+        "evidence": [
+            "Пользователь явно подтвердил соответствие активности"
+            if normalized_action == "confirm"
+            else "Пользователь явно отклонил кандидатную активность"
+        ],
         "rule_version": MATCH_RULE_VERSION,
         "supersedes_match_id": previous_row.get("id") if previous_row else None,
     }

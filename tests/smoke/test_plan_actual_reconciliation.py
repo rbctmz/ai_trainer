@@ -205,10 +205,11 @@ def test_reconciliation_uses_relative_lookback_and_preserves_full_actual_load() 
     assert result["metrics"]["unplanned_tss"] == pytest.approx(50.3)
 
 
-def test_heuristic_same_sport_match_classifies_adherence_without_role() -> None:
-    # #399: an unconfirmed date_sport_heuristic match has no actual_role (it is
-    # only persisted in a confirmed ledger match), but same-sport + in-bounds
-    # load is enough to classify comparability instead of "не оценено".
+def test_heuristic_same_sport_match_without_role_stays_unknown() -> None:
+    # #399 review P1: without actual_role we must NOT fabricate the planned role
+    # (a quality day matched to an easy same-sport activity would otherwise be
+    # misreported as `exact`). Keep `unknown`; only the outer load check may
+    # yield `major_deviation`.
     plan = ensure_session_identities(_goal_plan())
     activities = [_activity("ride-a", "2026-07-08", "cycling", 21)]
 
@@ -224,7 +225,7 @@ def test_heuristic_same_sport_match_classifies_adherence_without_role() -> None:
     assert row["match_status"] == "matched"
     assert row["match_method"] == "date_sport_heuristic"
     assert row["actual_role"] is None
-    assert row["adherence"] == "exact"
+    assert row["adherence"] == "unknown"
     # локализованный evidence (#399)
     assert row["evidence"][0] == (
         "Единственная плановая сессия сопоставлена со всеми активностями того же дня и вида спорта"
