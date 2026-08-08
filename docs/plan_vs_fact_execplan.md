@@ -18,7 +18,8 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-08-07) Milestone 2: расширение `_planned_snapshot` + `planned_intervals` в карточке API (read-side reconciliation).
 - [x] (2026-08-08) Milestone 3: матчинг план-шаг ↔ факт-интервал по репетициям (`models/plan_vs_fact.py::match_plan_vs_fact`; работа по порядку + длительность, tolerance ±30%, greedy-потребление, fail-open на пустых/мусорных входах).
 - [x] (2026-08-08) Milestone 4: web-секция «План vs факт» в карточке (сумма по плану/факту/совпадениям + строки «план → факт → отклонение/зона»; скрыта без плана).
-- [x] (2026-08-08) Полный smoke — 1596 passed, 1 skipped; ruff/ESLint/build зелёные. Мердж PR (решает #383).
+- [x] (2026-08-08) P1 (Codex review): резолв вложенных сессий `template["sessions"]` до date-фолбэка — иначе на multi-session дне проецировалась бы не та сессия. Live-проверка на 07-27/28; PR #395.
+- [x] (2026-08-08) Полный smoke — 1601 passed, 1 skipped; ruff/ESLint/build зелёные. Мерджи #394 и #395 (решают #383).
 
 ## Surprises & Discoveries
 
@@ -35,6 +36,12 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Observation: есть **реальные bike plan-actual-матчи** с intervals-линками для матчинга. `2026-07-28` act `23765394202` ↔ Intervals `i170127087`; `2026-07-27` act `23751063360` ↔ `i169725694`. Факт доступен через `get_activity_intervals` (#390).
 
 - Observation: матчинг «по репетициям» должен сопоставлять **по порядку + длительности**, не по таймстемпам. Плановый шаг «12' work @90%» → фактический интервал с `moving_time ≈ 720s` и высокой intensity. Разминка/заминка (`segment_kind`) участвуют, но главный фокус — work-репетиции.
+
+- Observation: **все 8 существующих plan-actual-матчей живой БД созданы до #383-M2** и не несут `intervals` в `planned_snapshot_json` — без read-time recovery секция не появлялась ни у одной тренировки.
+  Evidence: `plan_actual_matches.planned_snapshot_json` за 2026-07-13…08-04 — ключа `intervals` нет.
+
+- Observation: на **multi-session дне** `session_id` матча живёт во вложенной сессии `template["sessions"]`, а не на day-level template; date-фолбэк проекцировал бы day-level шаги (не ту сессию). P1 от Codex review.
+  Evidence: чекпоинт 76 — 2026-07-27 day-level `ats_06a8…` vs matched `ats_3eaf…` внутри `sessions[]`; reconciliation резолвит именно вложенные (`find_planned_session`).
 
 ## Decision Log
 
@@ -53,6 +60,10 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - Decision: расширение `_planned_snapshot` без миграции БД (JSON-колонка `planned_snapshot_json`).
   Rationale: минимальная инвазивность; checkpoints уже несут materialized_steps.
   Date/Author: 2026-08-07 / Codex.
+
+- Decision: legacy-матчи (без `intervals` в snapshot) восстанавливаются **на чтении** из чекпоинта (`base_checkpoint_id` → `goal_plan_snapshot.session_templates`); точная сессия ищется сначала во вложенных `sessions[]`, затем по дате.
+  Rationale: snapshot'ы иммутабельны, а re-run reconciliation не пересоздаёт существующие ревизии. Не восстановимо → `None` (секция скрыта, а не врёт «0 работы»).
+  Date/Author: 2026-08-08 / Codex.
 - Decision: матчер живёт в `models/plan_vs_fact.py`, а не в `services/plan_vs_fact.py` (как планировалось в ExecPlan).
   Rationale: чистая функция без I/O/БД — консистентно с соседями `models/activity_card.py`, `models/activity_intervals.py`, `models/plan_intervals.py`; сервисный слой не нужен, вызов — из API-роутера.
   Date/Author: 2026-08-08 / Codex.
@@ -99,4 +110,4 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 ## Outcomes & Retrospective
 
-2026-08-08: клин #383 завершён. Плановые интервалы проецируются из `materialized_steps` (Milestone 1), несутся в `_planned_snapshot` и карточку API (Milestone 2), матчер `match_plan_vs_fact` сопоставляет work-шаги с фактическими интервалами Intervals.icu по порядку + длительности (±30%, greedy-потребление, fail-open) (Milestone 3), web-карточка показывает секцию «План vs факт» (Milestone 4). Live-проверка на bike-матчах (2026-07-27/28) доступна после мерджа. Smoke 1596 passed, 1 skipped; ruff/ESLint/build зелёные.
+2026-08-08: клин #383 завершён и смержен (#394 + #395). Плановые интервалы проецируются из `materialized_steps` (M1), несутся в `_planned_snapshot` и карточку API (M2), матчер `match_plan_vs_fact` сопоставляет work-шаги с фактическими интервалами Intervals.icu по порядку + длительности (±30%, greedy-потребление, fail-open) (M3), web-карточка показывает секцию «План vs факт» (M4). Legacy-матчи восстанавливаются на чтении из чекпоинта с резолвом вложенных сессий (P1-фикс). Live-данные: 2026-07-27 → 5 интервалов плана (3 работы), 2026-07-28 → 4 (2 работы); по кэшу факта 07-28 «совпало 1» (22:00 → 16:28, −25%). Smoke 1601 passed, 1 skipped; ruff/ESLint/build зелёные.

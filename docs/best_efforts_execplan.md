@@ -18,8 +18,8 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-08-07) Milestone 2: нормализаторы (`models/best_efforts.py`, `models/power_curve.py`) + кэш `activity_power_curves` (ActivityStore + Database фасады) + тесты. Live-verified: cycling → 198/155/150/134/None W на 5s/1min/5min/20min/60min.
 - [x] (2026-08-07) Milestone 3: сервис `fetch_activity_power_curve` (fetch-on-demand, фолбэк на кэш/None) + поле `power_curve` в карточке API + тесты.
 - [x] (2026-08-07) Milestone 4 (пересмотрен): `MetricsCalculator.mean_max_power` добавлен как утилитный метод (локальная power curve из стрима watts). **Интеграция в сервис отложена** — без персистенции стримов (#390 decision) фолбэк не имеет источника данных для Garmin-only активностей (см. Decision Log). Метод пригодится в #383.
-- [ ] Milestone 5: web-блок «Рекорды».
-- [ ] Полный smoke + ruff + web lint/build; мердж PR (решает #382).
+- [x] (2026-08-07) Milestone 5: web-блок «Рекорды» (peaks 5s/1min/5min/20min/60min, Вт/кг, VO₂max 5min), fetch-on-demand в модалке; ESLint/build зелёные.
+- [x] (2026-08-07) Полный smoke + ruff + web lint/build; мердж PR #393 (решает #382).
 
 ## Surprises & Discoveries
 
@@ -142,4 +142,4 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 ## Outcomes & Retrospective
 
-(заполняется по мере выполнения milestones)
+2026-08-07: клин #382 завершён и смержен (PR #393). Карточка показывает «Рекорды»: peaks 5s/1min/5min/20min/60min (+ Вт/кг, VO₂max 5min) из best-efforts/power-curves Intervals.icu — fetch-on-demand + кэш `activity_power_curves` (ActivityStore), фолбэк на кэш/`None`. `MetricsCalculator.mean_max_power` добавлен как утилита, но интеграция локального фолбэка в сервис отложена: без персистенции стримов (#390 decision) Garmin-only активности не имеют источника данных и показывают «Рекорды недоступны» — открытый follow-up. Спека «only genuine efforts count» (фильтр дрейфа/новых дистанций) в коде не реализована — бэклог качества рекордов.
