@@ -974,6 +974,28 @@ function AdjustMode({
     user_rejected: "отклонено пользователем",
     admin_resolve: "сопоставлено вручную",
   };
+  // Legacy evidence persisted before #399 localization; rendered verbatim from
+  // the ledger. Map known values to Russian (new rows are already localized).
+  const legacyEvidenceLabels: Record<string, string> = {
+    "User explicitly confirmed activity match":
+      "Пользователь явно подтвердил соответствие активности",
+    "User explicitly rejected candidate activity match":
+      "Пользователь явно отклонил кандидатную активность",
+    "Administrative compatibility resolve selected explicit activities":
+      "Административное сопоставление выбрало явные активности",
+    "Unique planned session matched all same-date, same-sport local activities":
+      "Единственная плановая сессия сопоставлена со всеми активностями того же дня и вида спорта",
+    "Intervals external_id and paired event resolve to this AI Trainer session":
+      "Внешний id Intervals и парное событие соответствуют сессии AI Trainer",
+    "More than one planned session can claim the same-date, same-sport activity":
+      "Несколько плановых сессий претендуют на активность того же дня и вида спорта",
+    "Same-date activities exist, but sport evidence conflicts with the planned session":
+      "Есть активности за эту дату, но вид спорта не совпадает с плановой сессией",
+    "No completed activity evidence for this planned session":
+      "Нет завершённой активности для этой плановой сессии",
+    "Stored user match references activity evidence that is no longer uniquely available":
+      "Сохранённое пользователем сопоставление ссылается на активность, которая больше недоступна однозначно",
+  };
   const reasonLabels: Record<string, string> = {
     data_gap: "Пока недостаточно надёжных сопоставлений — план не меняется.",
     no_change_under_plan: "Недовыполнение принято как факт: догонять объём автоматически не будем.",
@@ -1038,13 +1060,14 @@ function AdjustMode({
                   </div>
                   <div className="mt-0.5 text-xs text-ink-faint">
                     {matchMethodLabels[r.match_method] ?? r.match_method} ·{" "}
-                    {adherenceLabels[r.adherence] ?? r.adherence}
-                    {r.adherence === "unknown" && r.match_status === "matched"
-                      ? " — подтвердите сопоставление"
-                      : ""}{" "}
+                    {adherenceLabels[r.adherence] ?? r.adherence}{" "}
                     · {Math.round(r.confidence * 100)}%
                   </div>
-                  {r.evidence[0] ? <div className="mt-1 max-w-xs text-[11px] text-ink-faint">{r.evidence[0]}</div> : null}
+                  {r.evidence[0] ? (
+                    <div className="mt-1 max-w-xs text-[11px] text-ink-faint">
+                      {legacyEvidenceLabels[r.evidence[0]] ?? r.evidence[0]}
+                    </div>
+                  ) : null}
                   {r.match_status === "ambiguous" && r.candidate_activities.length ? (
                     <div className="mt-2 flex flex-wrap gap-1.5">
                       <button
