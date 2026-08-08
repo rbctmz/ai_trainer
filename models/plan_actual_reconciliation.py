@@ -206,6 +206,11 @@ def _adherence(
     if ratio < SUBSTITUTED_LOAD_MIN or ratio > SUBSTITUTED_LOAD_MAX:
         return "major_deviation"
     if not actual_role:
+        # Review #399 P1: never fabricate the actual role for an unconfirmed
+        # heuristic match — a planned quality day matched to an easy same-sport
+        # activity would be misreported as `exact`. Keep `unknown` until role
+        # evidence exists; the outer load check above still yields
+        # `major_deviation` for clearly out-of-bounds loads.
         return "unknown"
     return classify_plan_adherence(
         {"role": planned.get("role"), "sport": planned.get("sport"), "tss": planned.get("tss")},
@@ -313,7 +318,7 @@ def build_reconciliation(
             if match_method in {"user_confirmed", "admin_resolve"} and len(matched) != len(ledger_selected_ids):
                 match_status = "ambiguous"
                 confidence = 0.0
-                evidence.append("Stored user match references activity evidence that is no longer uniquely available")
+                evidence.append("Сохранённое пользователем сопоставление ссылается на активность, которая больше недоступна однозначно")
         else:
             stable = []
             provider_pair_notes: list[str] = []
@@ -332,13 +337,13 @@ def build_reconciliation(
                 ):
                     stable.append(item)
                 else:
-                    provider_pair_notes.append(f"Provider paired event {paired_id} has no AI Trainer session identity")
+                    provider_pair_notes.append(f"Парное событие провайдера {paired_id} не имеет identity сессии AI Trainer")
             if stable:
                 matched = stable
                 match_status = "matched"
                 match_method = "ai_trainer_external_id"
                 confidence = 1.0
-                evidence.append("Intervals external_id and paired event resolve to this AI Trainer session")
+                evidence.append("Внешний id Intervals и парное событие соответствуют сессии AI Trainer")
             else:
                 same_sport = [item for item in day_activities if item.get("sport") == planned.get("sport")]
                 signature_count = planned_signature_counts.get((planned["date"], planned["sport"]), 0)
@@ -347,19 +352,19 @@ def build_reconciliation(
                     match_status = "matched"
                     match_method = "date_sport_heuristic"
                     confidence = 0.75
-                    evidence.append("Unique planned session matched all same-date, same-sport local activities")
+                    evidence.append("Единственная плановая сессия сопоставлена со всеми активностями того же дня и вида спорта")
                     evidence.extend(provider_pair_notes)
                 elif day_activities:
                     candidates = list(day_activities)
                     match_status = "ambiguous"
                     confidence = 0.35
                     if same_sport:
-                        evidence.append("More than one planned session can claim the same-date, same-sport activity")
+                        evidence.append("Несколько плановых сессий претендуют на активность того же дня и вида спорта")
                     else:
-                        evidence.append("Same-date activities exist, but sport evidence conflicts with the planned session")
+                        evidence.append("Есть активности за эту дату, но вид спорта не совпадает с плановой сессией")
                     evidence.extend(provider_pair_notes)
                 else:
-                    evidence.append("No completed activity evidence for this planned session")
+                    evidence.append("Нет завершённой активности для этой плановой сессии")
 
         for item in matched:
             assigned_ids.add(item["activity_id"])
