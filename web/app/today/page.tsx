@@ -107,6 +107,12 @@ export default function TodayPage() {
 
       {data ? (
         <>
+          {data.device_sync_hint ? (
+            <div className="rounded-card border border-tone-warning/30 bg-tone-warning/10 p-4 text-sm text-tone-warning">
+              План на сегодня изменился (переплан по состоянию). Синхронизируй
+              устройство (Garmin), чтобы получить актуальную тренировку.
+            </div>
+          ) : null}
           <header className="flex items-start justify-between gap-3">
             <div>
               <p className="text-sm text-ink-faint">{formatHumanDate(data.date)}</p>

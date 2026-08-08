@@ -1488,6 +1488,7 @@ export interface TodayResponse {
   readiness: TodayReadiness | null;
   readiness_source: string;
   session: TodaySession | null;
+  device_sync_hint?: { reason: string; at: string } | null;
   gate: TodayGate;
   briefing: TodayBriefing;
   proposal: TodayProposalResolution;
