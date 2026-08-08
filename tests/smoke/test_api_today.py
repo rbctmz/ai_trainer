@@ -751,3 +751,70 @@ def test_today_route_is_wired_into_app() -> None:
     from api.main import app
 
     assert app.url_path_for("today_view") == "/api/today"
+
+
+# --- #397: подсказка синхронизировать устройство после recovery_replan ------
+
+
+def test_device_sync_hint_fires_on_today_recovery_replan() -> None:
+    from api.today_snapshot import _device_sync_hint
+
+    today = "2026-08-08"
+    checkpoint = {
+        "checkpoint_source": "recovery_replan",
+        "created_at": "2026-08-08T06:41:49",
+    }
+    goal_plan = {"session_templates": [{"date": "2026-08-08", "session_id": "s1"}]}
+
+    hint = _device_sync_hint(checkpoint, goal_plan, today)
+
+    assert hint == {"reason": "recovery_replan", "at": "2026-08-08T06:41:49"}
+
+
+def test_device_sync_hint_silent_without_today_replan() -> None:
+    from api.today_snapshot import _device_sync_hint
+
+    today = "2026-08-08"
+    goal_plan = {"session_templates": [{"date": "2026-08-08", "session_id": "s1"}]}
+
+    assert (
+        _device_sync_hint(
+            {"checkpoint_source": "initial_plan", "created_at": "2026-08-08T06:00:00"},
+            goal_plan,
+            today,
+        )
+        is None
+    )
+    assert (
+        _device_sync_hint(
+            {"checkpoint_source": "recovery_replan", "created_at": "2026-08-07T06:00:00"},
+            goal_plan,
+            today,
+        )
+        is None
+    )
+    assert (
+        _device_sync_hint(
+            {"checkpoint_source": "recovery_replan", "created_at": "2026-08-08T06:41:49"},
+            {"session_templates": []},
+            today,
+        )
+        is None
+    )
+
+
+def test_today_snapshot_carries_device_sync_hint_for_recovery_replan(tmp_path) -> None:
+    from api.today_snapshot import build_today_decision_snapshot
+
+    today = date(2026, 8, 8)
+    goal_plan = _goal_plan(today)
+    goal_plan["checkpoint_source"] = "recovery_replan"
+    db = Database(str(tmp_path / "sync-hint.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
+
+    payload = build_today_decision_snapshot(db, today=today)
+
+    hint = payload.get("device_sync_hint")
+    assert hint is not None
+    assert hint["reason"] == "recovery_replan"
+    assert hint["at"][:10] == "2026-08-08"

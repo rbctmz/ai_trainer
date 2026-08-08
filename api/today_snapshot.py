@@ -30,6 +30,32 @@ _NO_PLAN_REASON = (
 )
 
 
+def _device_sync_hint(
+    checkpoint: Mapping[str, Any] | None,
+    goal_plan: Mapping[str, Any] | None,
+    as_of: str,
+) -> dict[str, str] | None:
+    """Напоминание синхронизировать устройство (#397).
+
+    План на сегодня был перепланирован сегодня (recovery_replan) — доставка в
+    Intervals.icu прошла, но на устройство Garmin воркаут попадает только после
+    синка часов. Возвращаем подсказку, когда переплан свежий и на дату есть
+    плановая сессия.
+    """
+    if not isinstance(checkpoint, dict):
+        return None
+    source = str(checkpoint.get("checkpoint_source") or "").strip().lower()
+    if source != "recovery_replan":
+        return None
+    created_at = str(checkpoint.get("created_at") or "").strip()
+    if not created_at or created_at[:10] != str(as_of)[:10]:
+        return None
+    templates = ((goal_plan or {}).get("session_templates")) or []
+    if not any(str(item.get("date") or "")[:10] == str(as_of)[:10] for item in templates):
+        return None
+    return {"reason": "recovery_replan", "at": created_at}
+
+
 def build_today_decision_snapshot(
     db: Database,
     *,
@@ -90,6 +116,7 @@ def build_today_decision_snapshot(
         "readiness": readiness,
         "readiness_source": "canonical_snapshot",
         "session": session,
+        "device_sync_hint": _device_sync_hint(checkpoint, goal_plan, as_of),
         "gate": gate,
         "briefing": briefing,
         "proposal": proposal,
