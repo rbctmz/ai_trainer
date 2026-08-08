@@ -1967,6 +1967,28 @@ class Database:
         conn.close()
         return self._deserialize_plan_actual_match(row)
 
+    def get_checkpoint_data(self, checkpoint_id):
+        """Return parsed ``checkpoint_data`` for one planning checkpoint (#383).
+
+        Used by the card read path to recover planned intervals for legacy
+        plan-actual matches whose snapshots predate #383-M2. ``None`` when the
+        checkpoint is missing or its JSON is unreadable.
+        """
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT checkpoint_data FROM planning_checkpoints WHERE id = ?",
+                (checkpoint_id,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if row is None or not row[0]:
+            return None
+        try:
+            return json.loads(row[0])
+        except (TypeError, ValueError):
+            return None
+
     @staticmethod
     def _deserialize_plan_actual_match(row):
         if not row:

@@ -117,4 +117,62 @@ def project_planned_intervals(session: Mapping[str, Any]) -> list[dict[str, Any]
     return [interval for interval in (_project_step(s) for s in steps_source) if interval]
 
 
-__all__ = ["project_planned_intervals"]
+def planned_intervals_for_match(
+    match: Any, checkpoint_data: Any
+) -> list[dict[str, Any]] | None:
+    """Planned intervals for one plan-actual match (#383, read-time recovery).
+
+    Fresh snapshots (created after #383-M2) carry ``planned_snapshot.intervals``
+    and win. Legacy snapshots (before #383) don't, so we recover the session
+    from the checkpoint by ``session_id`` (exact) then by date, and project its
+    ``materialized_steps``. Returns ``None`` when unrecoverable — the card then
+    hides the plan-vs-fact section instead of showing an empty plan.
+    """
+    if not isinstance(match, Mapping):
+        return None
+    snapshot = match.get("planned_snapshot")
+    if not isinstance(snapshot, Mapping):
+        return None
+
+    intervals = snapshot.get("intervals")
+    if intervals is not None:
+        return intervals
+
+    session = _find_plan_session(snapshot, checkpoint_data)
+    if session is None:
+        return None
+    try:
+        return project_planned_intervals(session)
+    except ValueError:
+        return None
+
+
+def _find_plan_session(
+    snapshot: Mapping[str, Any], checkpoint_data: Any
+) -> Mapping[str, Any] | None:
+    """Locate the planned session inside checkpoint data for a legacy match."""
+    if not isinstance(checkpoint_data, Mapping):
+        return None
+    goal_plan = checkpoint_data.get("goal_plan_snapshot")
+    templates = goal_plan.get("session_templates") if isinstance(goal_plan, Mapping) else None
+    if not isinstance(templates, list):
+        return None
+
+    session_id = snapshot.get("session_id")
+    session_date = snapshot.get("date") or snapshot.get("session_date")
+    by_date: Mapping[str, Any] | None = None
+    for template in templates:
+        if not isinstance(template, Mapping):
+            continue
+        if session_id and str(template.get("session_id") or "") == str(session_id):
+            return template
+        if (
+            by_date is None
+            and session_date
+            and str(template.get("date") or "") == str(session_date)
+        ):
+            by_date = template
+    return by_date
+
+
+__all__ = ["planned_intervals_for_match", "project_planned_intervals"]

@@ -15,6 +15,7 @@ from models.activity_card import (
     feedback_for_activity,
     foster_load_au,
 )
+from models.plan_intervals import planned_intervals_for_match
 from models.plan_vs_fact import match_plan_vs_fact
 from services.activity_intervals import fetch_activity_intervals
 from services.best_efforts import fetch_activity_power_curve
@@ -170,9 +171,13 @@ def get_activity_card(
     item["intervals"] = fetch_activity_intervals(db, activity_id)
     item["power_curve"] = fetch_activity_power_curve(db, activity_id)
     planned_match = db.get_plan_actual_match_for_activity(activity_id)
-    planned_intervals = (
-        planned_match.get("planned_snapshot", {}).get("intervals") if planned_match else None
-    )
+    planned_intervals = None
+    if planned_match is not None:
+        checkpoint_id = planned_match.get("base_checkpoint_id")
+        checkpoint_data = (
+            db.get_checkpoint_data(checkpoint_id) if checkpoint_id is not None else None
+        )
+        planned_intervals = planned_intervals_for_match(planned_match, checkpoint_data)
     item["planned_intervals"] = planned_intervals
     if planned_intervals is None:
         item["plan_vs_fact"] = None
