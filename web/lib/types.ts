@@ -211,6 +211,12 @@ export interface PlanVsFact {
     actual_intervals: number;
     matched: number;
   };
+  plan_replanned_after_delivery?: {
+    reason: string;
+    delivered_at?: string | null;
+    delivery_checkpoint_id?: number | null;
+    replanned_checkpoint_id?: number | null;
+  } | null;
 }
 
 export interface ActivitiesResponse {
@@ -1488,6 +1494,7 @@ export interface TodayResponse {
   readiness: TodayReadiness | null;
   readiness_source: string;
   session: TodaySession | null;
+  device_sync_hint?: { reason: string; at: string } | null;
   gate: TodayGate;
   briefing: TodayBriefing;
   proposal: TodayProposalResolution;

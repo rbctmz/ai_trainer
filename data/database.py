@@ -2723,6 +2723,50 @@ class Database:
         conn.close()
         return self._deserialize_coach_proposal_row(row) if claimed else None
 
+    def get_approved_recovery_replan_deliveries(self):
+        """Recovery replan/rollback proposals with successful delivery (#398/#397).
+
+        Used by the card to flag "план перепланирован после доставки" — the
+        athlete may have trained by the previously delivered plan version.
+        Includes rolled_back proposals: their delivery restored an earlier
+        version, which is real delivery history (review #410 P2). Returns
+        ``[{proposal_id, created_at, checkpoint_id, dates, status}]``.
+        """
+        conn = self._connect()
+        try:
+            rows = conn.execute(
+                """
+                SELECT id, created_at, result_json
+                FROM coach_proposals
+                WHERE action = 'recovery_replan'
+                  AND status IN ('approved', 'rolled_back')
+                ORDER BY id
+                """
+            ).fetchall()
+        finally:
+            conn.close()
+        deliveries: list[dict] = []
+        for row in rows:
+            if not row[2]:
+                continue
+            try:
+                result = json.loads(row[2])
+            except (TypeError, ValueError):
+                continue
+            delivery = result.get("delivery") if isinstance(result, dict) else None
+            if not isinstance(delivery, dict) or delivery.get("status") != "success":
+                continue
+            deliveries.append(
+                {
+                    "proposal_id": row[0],
+                    "created_at": row[1],
+                    "checkpoint_id": delivery.get("checkpoint_id"),
+                    "dates": list(delivery.get("dates") or []),
+                    "status": str(delivery.get("status") or ""),
+                }
+            )
+        return deliveries
+
     def _deserialize_coach_proposal_row(self, row):
         if not row:
             return None

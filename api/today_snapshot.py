@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from api.briefing_settings import get_briefing_frequency, is_quiet_day
 from api.operational_state import build_operational_state
@@ -28,6 +28,52 @@ _NO_PLAN_REASON = (
     "Нет активного плана — контуру не с чем сверять готовность. "
     "Построй план, и экран оживёт."
 )
+
+
+def _device_sync_hint(
+    checkpoint: Mapping[str, Any] | None,
+    as_of: str,
+    deliveries: Sequence[Mapping[str, Any]],
+) -> dict[str, str] | None:
+    """Напоминание синхронизировать устройство (#397).
+
+    План на сегодня был перепланирован сегодня (recovery_replan) — доставка в
+    Intervals.icu прошла, но на устройство Garmin воркаут попадает только после
+    синка часов. Возвращаем подсказку только когда переплан свежий И успешно
+    доставлен именно на сегодня (review P1/P2) — иначе синк не принесёт
+    обновлённую тренировку.
+    """
+    if not isinstance(checkpoint, dict):
+        return None
+    source = str(checkpoint.get("checkpoint_source") or "").strip().lower()
+    if source != "recovery_replan":
+        return None
+    created_at = str(checkpoint.get("created_at") or "").strip()
+    checkpoint_id = checkpoint.get("id")
+    if (
+        checkpoint_id is None
+        or not created_at
+        or created_at[:10] != str(as_of)[:10]
+    ):
+        return None
+    delivery = next(
+        (
+            item
+            for item in deliveries
+            if item.get("checkpoint_id") == int(checkpoint_id)
+            and str(as_of)[:10]
+            in [str(value) for value in (item.get("dates") or [])]
+            and str(item.get("status") or "") == "success"
+        ),
+        None,
+    )
+    if delivery is None:
+        return None
+    return {
+        "reason": "recovery_replan",
+        "at": created_at,
+        "delivered_at": delivery.get("created_at"),
+    }
 
 
 def build_today_decision_snapshot(
@@ -90,6 +136,9 @@ def build_today_decision_snapshot(
         "readiness": readiness,
         "readiness_source": "canonical_snapshot",
         "session": session,
+        "device_sync_hint": _device_sync_hint(
+            checkpoint, as_of, db.get_approved_recovery_replan_deliveries()
+        ),
         "gate": gate,
         "briefing": briefing,
         "proposal": proposal,
