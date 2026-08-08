@@ -2353,8 +2353,8 @@ def record_plan_actual_match(
     if template is None or session is None:
         raise ValueError("planned session not found")
     normalized_action = str(action or "confirm").strip().lower()
-    if normalized_action not in {"confirm", "reject"}:
-        raise ValueError("action must be confirm or reject")
+    if normalized_action not in {"confirm", "reject", "unmatch"}:
+        raise ValueError("action must be confirm, reject or unmatch")
     if normalized_action == "confirm" and not activity_ids:
         raise ValueError("confirm requires at least one activity")
     activities = db.get_activities_by_ids(activity_ids if normalized_action == "confirm" else [])
@@ -2398,7 +2398,11 @@ def record_plan_actual_match(
         "base_checkpoint_id": latest_id,
         "session_date": session_date,
         "match_status": "matched" if normalized_action == "confirm" else "unmatched",
-        "match_method": "user_confirmed" if normalized_action == "confirm" else "user_rejected",
+        "match_method": {
+            "confirm": "user_confirmed",
+            "reject": "user_rejected",
+            "unmatch": "user_unmatched",
+        }[normalized_action],
         "confidence": 1.0,
         "planned_snapshot": {
             "date": session_date,
@@ -2409,9 +2413,11 @@ def record_plan_actual_match(
         "actual_activity_ids": [str(item["activity_id"]) for item in activities],
         "actual_snapshot": actual_snapshot,
         "evidence": [
-            "Пользователь явно подтвердил соответствие активности"
-            if normalized_action == "confirm"
-            else "Пользователь явно отклонил кандидатную активность"
+            {
+                "confirm": "Пользователь явно подтвердил соответствие активности",
+                "reject": "Пользователь явно отклонил кандидатную активность",
+                "unmatch": "Пользователь отменил сопоставление",
+            }[normalized_action]
         ],
         "rule_version": MATCH_RULE_VERSION,
         "supersedes_match_id": previous_row.get("id") if previous_row else None,
@@ -2419,6 +2425,26 @@ def record_plan_actual_match(
     fingerprint_source = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     payload["fingerprint"] = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
     saved = db.save_plan_actual_match(payload)
+    if normalized_action == "unmatch" and previous_row is not None:
+        # #405 review P1: feedback derived from the superseded match must not
+        # stay active — tombstone it so quality evaluations are not attributed
+        # to a canceled association.
+        from api.session_feedback import (
+            StaleFeedbackError,
+            tombstone_session_feedback,
+        )
+
+        for feedback in db.get_active_feedback_for_match(int(previous_row["id"])):
+            try:
+                tombstone_session_feedback(
+                    db,
+                    int(feedback["id"]),
+                    client_submission_fingerprint=(
+                        f"unmatch:{previous_row['id']}:{feedback['id']}"
+                    ),
+                )
+            except StaleFeedbackError:
+                continue
     from services.recovery_analytics import refresh_recovery_episodes_best_effort
 
     refresh_recovery_episodes_best_effort(db, as_of=date.today(), target_session_ids=[session_id])

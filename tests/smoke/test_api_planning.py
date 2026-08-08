@@ -885,6 +885,146 @@ def test_confirm_match_with_explicit_role_evaluates_adherence(tmp_path):
     assert row["adherence"] == "exact"
 
 
+def test_unmatch_creates_user_unmatched_and_frees_activity(tmp_path):
+    # #405: unmatch cancels a user_confirmed match — a user_unmatched revision
+    # supersedes it, the session returns to "no fact", and the activity is free
+    # to be confirmed again.
+    from api import planning_service as ps
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(
+        item for item in plan["session_templates"] if item["date"] == "2026-07-12"
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "same-sport",
+                "date": "2026-07-12",
+                "started_at_utc": "2026-07-12T18:00:00Z",
+                "sport": "cycling",
+                "duration_minutes": 30,
+                "tss": 10.0,
+            }
+        ]
+    )
+
+    confirmed = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=["same-sport"],
+        actual_role="recovery",
+        action="confirm",
+    )
+    assert confirmed["match_method"] == "user_confirmed"
+
+    unmatched = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=[],
+        actual_role=None,
+        action="unmatch",
+    )
+    assert unmatched["match_method"] == "user_unmatched"
+    assert unmatched["match_status"] == "unmatched"
+    assert unmatched["supersedes_match_id"] == confirmed["id"]
+
+    result = ps.reconciliation_at(
+        db, as_of="2026-07-13", weeks=1, include_provider=False
+    )
+    row = next(
+        item
+        for item in result["rows"]
+        if item["session_id"] == target["session_id"]
+    )
+    assert row["match_status"] == "unmatched"
+    assert row["match_method"] == "user_unmatched"
+    assert row["actual_activity_ids"] == []
+    # #405 review P2: replacement candidates stay available after unmatch.
+    assert [item["activity_id"] for item in row["candidate_activities"]] == [
+        "same-sport"
+    ]
+
+    # Activity freed → confirm works again.
+    again = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=["same-sport"],
+        actual_role="recovery",
+        action="confirm",
+    )
+    assert again["match_method"] == "user_confirmed"
+
+
+def test_unmatch_tombstones_feedback_derived_from_match(tmp_path):
+    # #405 review P1: feedback linked to a canceled match must not stay active —
+    # the unmatch flow tombstones it so evaluations are not contaminated.
+    import sqlite3
+
+    from api import planning_service as ps
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(
+        item for item in plan["session_templates"] if item["date"] == "2026-07-12"
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "same-sport",
+                "date": "2026-07-12",
+                "started_at_utc": "2026-07-12T18:00:00Z",
+                "sport": "cycling",
+                "duration_minutes": 30,
+                "tss": 10.0,
+            }
+        ]
+    )
+    confirmed = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=["same-sport"],
+        actual_role="recovery",
+        action="confirm",
+    )
+
+    conn = sqlite3.connect(db.db_path)
+    try:
+        conn.execute(
+            """INSERT INTO session_feedback
+               (fingerprint, target_key, revision, session_id, match_revision_id,
+                match_snapshot_json, actual_activity_ids_json, completion_status,
+                session_rpe_1_10, quality_rating_1_5, source, session_end_provenance,
+                status, rule_version, submitted_at)
+               VALUES (?, ?, 1, ?, ?, '{}', '["same-sport"]', 'completed', 6, 5,
+                       'user_web', 'local', 'active', 'test', ?)""",
+            (
+                "fp-unmatch-fb",
+                f"session:{target['session_id']}",
+                target["session_id"],
+                confirmed["id"],
+                "2026-08-08T10:00:00Z",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=[],
+        actual_role=None,
+        action="unmatch",
+    )
+
+    history = db.get_session_feedback_history(target["session_id"])
+    assert any(row["status"] == "tombstone" for row in history)
+
+
 def test_export_and_adjust_active_plan(tmp_path):
     from api import planning_service as ps
 
