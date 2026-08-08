@@ -185,6 +185,6 @@ IC за эти две недели шипил ровно то, что мы се�
 
 ### Статус реализации (2026-08-08)
 
-- **Gap #3 (power curve / best efforts) закрыт** — карточка тренировки показывает «Рекорды» (peaks 5s…60min, Вт/кг, VO₂max 5min) из best-efforts/power-curves Intervals.icu: #382, PR #393 (см. `docs/best_efforts_execplan.md`).
+- **Gap #3 (power curve / best efforts) — закрыт только слайс «пер-активность»**: карточка тренировки показывает «Рекорды» (peaks 5s…60min, Вт/кг, VO₂max 5min) из best-efforts/power-curves Intervals.icu: #382, PR #393 (см. `docs/best_efforts_execplan.md`). Более широкий gap остаётся открытым: eFTP history, rider profile, durability, all-time сравнение и фильтр «only genuine efforts count» не реализованы.
 - **Gap «структура тренировки» закрыт** — карточка показывает «Структуру тренировки» (интервалы Intervals.icu): #390, PR #391; и «План vs факт по репетициям»: #383, PR #394 + #395 (см. `docs/plan_vs_fact_execplan.md`).
 - **«Only genuine efforts count»** (фильтр дрейфа измерений / новые дистанции) — в коде не реализован, остаётся бэклогом качества рекордов (follow-up к #382).
