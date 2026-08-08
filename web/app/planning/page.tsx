@@ -1067,6 +1067,20 @@ function AdjustMode({
             {data.provider?.status ? ` · Intervals: ${data.provider.status}` : ""}
           </div>
         </div>
+        {data.unplanned_activities.length ? (
+          <div className="mx-4 mt-4 rounded border border-tone-warning/30 bg-tone-warning/10 px-3 py-2">
+            <div className="text-xs font-medium text-tone-warning">
+              Вне плана: {data.metrics?.unplanned_tss ?? 0} TSS — учитывается в нагрузке
+            </div>
+            <ul className="mt-1 space-y-0.5 text-xs text-ink-soft">
+              {data.unplanned_activities.map((item, index) => (
+                <li key={index}>
+                  {item.date.slice(5)} · {item.name} · {item.sport} · {item.tss} TSS
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-surface-border text-left text-xs uppercase tracking-wide text-ink-faint">
@@ -1174,14 +1188,6 @@ function AdjustMode({
             })}
           </tbody>
         </table>
-        {data.unplanned_activities.length ? (
-          <div className="border-t border-surface-border bg-surface-muted/40 p-4 text-xs text-ink-soft">
-            <div className="font-medium text-ink">Несопоставленная нагрузка · {data.metrics?.unplanned_tss ?? 0} TSS</div>
-            <div className="mt-1">
-              {data.unplanned_activities.map((item) => `${item.date.slice(5)} ${item.name} · ${item.sport} · ${item.tss} TSS`).join("; ")}
-            </div>
-          </div>
-        ) : null}
         <div className="p-4">
           <button
             type="button"
