@@ -168,6 +168,129 @@ def test_match_falls_back_to_elapsed_time_when_no_moving_time():
     assert result["matches"][0]["matched"] is True
 
 
+# --- #398: флаг «план перепланирован после доставки» -------------------------
+
+
+def test_plan_replanned_after_delivery_flags_earlier_delivery():
+    from models.plan_vs_fact import plan_replanned_after_delivery
+
+    match = {"session_date": "2026-08-08", "base_checkpoint_id": 77}
+    checkpoint = {"checkpoint_source": "recovery_replan"}
+    deliveries = [
+        {
+            "checkpoint_id": 76,
+            "dates": ["2026-08-08"],
+            "created_at": "2026-08-08T06:41:10",
+        },
+        {
+            "checkpoint_id": 78,
+            "dates": ["2026-08-10"],
+            "created_at": "2026-08-08T06:41:26",
+        },
+    ]
+
+    result = plan_replanned_after_delivery(match, checkpoint, deliveries)
+
+    assert result == {
+        "reason": "replanned_after_delivery",
+        "delivered_at": "2026-08-08T06:41:10",
+        "delivery_checkpoint_id": 76,
+        "replanned_checkpoint_id": 77,
+    }
+
+
+def test_plan_replanned_after_delivery_none_without_replan():
+    from models.plan_vs_fact import plan_replanned_after_delivery
+
+    assert (
+        plan_replanned_after_delivery(
+            {"session_date": "2026-08-08", "base_checkpoint_id": 77},
+            {"checkpoint_source": "initial_plan"},
+            [{"checkpoint_id": 76, "dates": ["2026-08-08"], "created_at": "x"}],
+        )
+        is None
+    )
+
+
+def test_plan_replanned_after_delivery_none_without_earlier_delivery():
+    from models.plan_vs_fact import plan_replanned_after_delivery
+
+    match = {"session_date": "2026-08-08", "base_checkpoint_id": 77}
+    checkpoint = {"checkpoint_source": "recovery_replan"}
+
+    assert plan_replanned_after_delivery(match, checkpoint, []) is None
+    # Доставка из того же/более нового чекпоинта не считается «ранней версией».
+    assert (
+        plan_replanned_after_delivery(
+            match,
+            checkpoint,
+            [{"checkpoint_id": 78, "dates": ["2026-08-08"], "created_at": "x"}],
+        )
+        is None
+    )
+
+
+def test_activity_card_plan_replanned_after_delivery_flag(tmp_path, monkeypatch):
+    import json as _json
+    import sqlite3
+
+    from api.routers import activities as activities_router
+    from data.database import Database
+
+    db = Database(str(tmp_path / "replan.db"))
+    _seed_activity(db)
+    today = datetime.now().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(db.db_path)
+    try:
+        conn.execute(
+            """INSERT INTO planning_checkpoints
+               (id, goal_type, distance, weeks_to_race, checkpoint_data, created_at)
+               VALUES (76, 'triathlon', 'olympic', 8, ?, '2026-08-08T05:00:00')""",
+            (_json.dumps({"checkpoint_source": "initial_plan", "goal_plan_snapshot": {}}),),
+        )
+        conn.execute(
+            """INSERT INTO planning_checkpoints
+               (id, goal_type, distance, weeks_to_race, checkpoint_data, created_at)
+               VALUES (77, 'triathlon', 'olympic', 8, ?, ?)""",
+            (
+                _json.dumps({"checkpoint_source": "recovery_replan", "goal_plan_snapshot": {}}),
+                f"{today}T06:41:49",
+            ),
+        )
+        conn.execute(
+            """INSERT INTO coach_proposals
+               (date, action, status, params_json, preview_json, result_json, created_at)
+               VALUES (?, 'recovery_replan', 'approved', '{}', '{}', ?, '2026-08-08T06:41:10')""",
+            (
+                today,
+                _json.dumps(
+                    {
+                        "delivery": {
+                            "status": "success",
+                            "checkpoint_id": 76,
+                            "dates": [today],
+                        }
+                    }
+                ),
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    _seed_plan_match(db, base_checkpoint_id=77)
+    monkeypatch.setattr(
+        activities_router, "fetch_activity_intervals", lambda db, aid: None
+    )
+
+    card = activities_router.get_activity_card("act-1", db=db)
+
+    risk = card["activity"]["plan_vs_fact"]["plan_replanned_after_delivery"]
+    assert risk is not None
+    assert risk["reason"] == "replanned_after_delivery"
+    assert risk["delivery_checkpoint_id"] == 76
+    assert risk["replanned_checkpoint_id"] == 77
+
+
 # --- API: карточка несёт план vs факт --------------------------------------
 
 
@@ -189,12 +312,12 @@ def _seed_activity(db, activity_id: str = "act-1") -> None:
     )
 
 
-def _seed_plan_match(db, activity_id: str = "act-1") -> None:
+def _seed_plan_match(db, activity_id: str = "act-1", base_checkpoint_id: int = 1) -> None:
     db.save_plan_actual_match(
         {
             "fingerprint": "fp-plan-vs-fact",
             "target_key": "tk-1",
-            "base_checkpoint_id": 1,
+            "base_checkpoint_id": base_checkpoint_id,
             "session_date": datetime.now().strftime("%Y-%m-%d"),
             "match_status": "matched",
             "match_method": "date_sport_heuristic",

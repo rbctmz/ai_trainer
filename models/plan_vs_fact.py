@@ -173,4 +173,47 @@ def _empty_summary() -> dict[str, Any]:
     return {"planned_work_steps": 0, "actual_intervals": 0, "matched": 0}
 
 
-__all__ = ["match_plan_vs_fact"]
+def plan_replanned_after_delivery(
+    match: Any,
+    checkpoint: Any,
+    deliveries: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    """Флаг рассинхрона с устройством (#398).
+
+    Когда план на дату был доставлен в Intervals.icu (старая версия), а затем
+    переплан (recovery_replan) — атлет мог тренироваться по предыдущей версии
+    (кейс 2026-08-08: доставка 06:41, тренировка в 09:06 по старому плану).
+    Возвращает описание риска или ``None``, если план не перепланирован либо
+    доставки более ранней версии для этой даты не было.
+    """
+    if not isinstance(match, Mapping):
+        return None
+    checkpoint_id = match.get("base_checkpoint_id")
+    session_date = str(match.get("session_date") or "")
+    if checkpoint_id is None or not session_date:
+        return None
+    if not isinstance(checkpoint, Mapping):
+        return None
+    source = str(checkpoint.get("checkpoint_source") or "").strip().lower()
+    if source != "recovery_replan":
+        return None
+
+    earlier = [
+        item
+        for item in deliveries
+        if session_date in [str(value) for value in (item.get("dates") or [])]
+        and item.get("checkpoint_id") is not None
+        and int(item["checkpoint_id"]) < int(checkpoint_id)
+    ]
+    if not earlier:
+        return None
+    latest = max(earlier, key=lambda item: str(item.get("created_at") or ""))
+    return {
+        "reason": "replanned_after_delivery",
+        "delivered_at": latest.get("created_at"),
+        "delivery_checkpoint_id": latest.get("checkpoint_id"),
+        "replanned_checkpoint_id": checkpoint_id,
+    }
+
+
+__all__ = ["match_plan_vs_fact", "plan_replanned_after_delivery"]

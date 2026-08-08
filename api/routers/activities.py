@@ -16,7 +16,7 @@ from models.activity_card import (
     foster_load_au,
 )
 from models.plan_intervals import planned_intervals_for_match
-from models.plan_vs_fact import match_plan_vs_fact
+from models.plan_vs_fact import match_plan_vs_fact, plan_replanned_after_delivery
 from services.activity_intervals import fetch_activity_intervals
 from services.best_efforts import fetch_activity_power_curve
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
@@ -184,9 +184,22 @@ def get_activity_card(
     else:
         actual = item.get("intervals")
         actual_intervals = actual.get("intervals") if isinstance(actual, dict) else []
-        item["plan_vs_fact"] = match_plan_vs_fact(
+        plan_vs_fact = match_plan_vs_fact(
             planned_intervals, actual_intervals or []
         )
+        checkpoint = (
+            db.get_planning_checkpoint(planned_match["base_checkpoint_id"])
+            if planned_match.get("base_checkpoint_id") is not None
+            else None
+        )
+        plan_vs_fact["plan_replanned_after_delivery"] = (
+            plan_replanned_after_delivery(
+                planned_match,
+                checkpoint,
+                db.get_approved_recovery_replan_deliveries(),
+            )
+        )
+        item["plan_vs_fact"] = plan_vs_fact
     return {"activity": item}
 
 

@@ -414,6 +414,12 @@ function ActivityCardModal({
               {planVsFact.summary.actual_intervals} интервалов · совпало{" "}
               {planVsFact.summary.matched}
             </div>
+            {planVsFact.plan_replanned_after_delivery ? (
+              <p className="mt-2 text-xs text-tone-warning">
+                Возможен рассинхрон с устройством: план на этот день перепланирован
+                после доставки — тренировка могла выполняться по предыдущей версии.
+              </p>
+            ) : null}
             {planVsFact.matches.length > 0 ? (
               <ul className="mt-2 space-y-1.5 text-sm text-ink">
                 {planVsFact.matches.map((match, index) => (
