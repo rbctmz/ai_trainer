@@ -1112,7 +1112,9 @@ function AdjustMode({
                   <div className="mt-0.5 text-xs text-ink-faint">
                     {matchMethodLabels[r.match_method] ?? r.match_method} ·{" "}
                     {adherenceLabels[r.adherence] ?? r.adherence}
-                    {r.adherence === "unknown" && r.match_status === "matched"
+                    {r.adherence === "unknown" &&
+                    r.match_status === "matched" &&
+                    r.match_method !== "user_confirmed"
                       ? " — подтвердите сопоставление"
                       : ""}{" "}
                     · {Math.round(r.confidence * 100)}%
@@ -1122,7 +1124,9 @@ function AdjustMode({
                       {legacyEvidenceLabels[r.evidence[0]] ?? r.evidence[0]}
                     </div>
                   ) : null}
-                  {r.match_status === "matched" && r.adherence === "unknown" ? (
+                  {r.match_status === "matched" &&
+                  r.adherence === "unknown" &&
+                  r.match_method !== "user_confirmed" ? (
                     <ConfirmMatchControl
                       row={r}
                       busy={busy}
