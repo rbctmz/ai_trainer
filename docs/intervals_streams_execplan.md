@@ -19,7 +19,8 @@ Intervals.icu — **первичный** источник данных (Garmin �
 - [x] (2026-08-06) Milestone 2: кэш-таблица `activity_intervals` + резолв Intervals-id через provider-links + сервис fetch-on-demand с фолбэком на кэш + поле `intervals` в карточке API.
 - [x] (2026-08-06) Milestone 3: web-секция «Структура тренировки» в карточке; ESLint и production build зелёные.
 - [x] (2026-08-06) Полный smoke — 1527 passed, 1 skipped (socket preflight); ruff чистый.
-- [ ] Мердж PR (решает #390); затем #383 (план vs факт в карточке) и #382 (power curve / best efforts).
+- [x] (2026-08-07) Мердж PR #391 (решает #390); фикс контракта стримов — #392 (ответ `streams.json` — список объектов, не mapping).
+- [x] (2026-08-08) Потребители фундамента: #383 «План vs факт» (PR #394 + #395), #382 «Рекорды / power curve» (PR #393).
 
 ## Surprises & Discoveries
 
@@ -105,3 +106,5 @@ Intervals.icu — **первичный** источник данных (Garmin �
 ## Outcomes & Retrospective
 
 2026-08-06: фундамент #390 реализован. Клиент читает интервалы (`?intervals=true`) и стримы (`streams.json`), нормализатор приводит ответ к компактной структуре (fail-closed; дистанция интервалов — метры → `distance_km`), компактный результат кэшируется в `activity_intervals` при открытии карточки, карточка API и web показывают «Структуру тренировки» (репетиции/восстановление) с фолбэком на кэш/`null` при сбое провайдера. Полные стримы в БД не пишутся — они задействуются в #382. Ревью: учтены фолбэк веба на `activity.intervals` и счётчики тестов; замечание по `match_status` закрыто как documented decision. Smoke: 1527 passed, 1 skipped; ruff/ESLint/build зелёные.
+
+2026-08-07/08: фундамент полностью потреблён. `streams.json`-контракт уточнён (#392: ответ — список объектов, а не mapping; `get_activity_streams` переведён на него). На нём построены «Рекорды / power curve» (#382, PR #393; гибрид: серверные best-efforts/power-curves + локальный `mean_max_power` как утилита) и «План vs факт по репетициям» (#383, PR #394/#395, с read-time recovery legacy-матчей). Полные стримы по-прежнему не персистятся — фолбэк-расчёт power curve для Garmin-only активностей остаётся открытым follow-up (#382 Decision Log).
