@@ -205,6 +205,32 @@ def test_reconciliation_uses_relative_lookback_and_preserves_full_actual_load() 
     assert result["metrics"]["unplanned_tss"] == pytest.approx(50.3)
 
 
+def test_heuristic_same_sport_match_classifies_adherence_without_role() -> None:
+    # #399: an unconfirmed date_sport_heuristic match has no actual_role (it is
+    # only persisted in a confirmed ledger match), but same-sport + in-bounds
+    # load is enough to classify comparability instead of "не оценено".
+    plan = ensure_session_identities(_goal_plan())
+    activities = [_activity("ride-a", "2026-07-08", "cycling", 21)]
+
+    result = build_reconciliation(
+        plan,
+        activities,
+        as_of=date(2026, 7, 13),
+        weeks=1,
+        base_checkpoint_id=63,
+    )
+
+    row = next(item for item in result["rows"] if item["date"] == "2026-07-08")
+    assert row["match_status"] == "matched"
+    assert row["match_method"] == "date_sport_heuristic"
+    assert row["actual_role"] is None
+    assert row["adherence"] == "exact"
+    # локализованный evidence (#399)
+    assert row["evidence"][0] == (
+        "Единственная плановая сессия сопоставлена со всеми активностями того же дня и вида спорта"
+    )
+
+
 def test_ai_trainer_external_id_wins_while_foreign_provider_pair_is_only_evidence() -> None:
     plan = ensure_session_identities(_goal_plan())
     target = _session_by_date(plan, "2026-07-08")
@@ -253,7 +279,10 @@ def test_ai_trainer_external_id_wins_while_foreign_provider_pair_is_only_evidenc
     )
     foreign_row = next(row for row in foreign["rows"] if row["date"] == "2026-07-08")
     assert foreign_row["match_method"] == "date_sport_heuristic"
-    assert any("provider paired event" in evidence.lower() for evidence in foreign_row["evidence"])
+    assert any(
+        "парное событие провайдера" in evidence.lower()
+        for evidence in foreign_row["evidence"]
+    )
 
 
 def test_ai_trainer_brick_leg_external_ids_are_exact_parent_evidence() -> None:

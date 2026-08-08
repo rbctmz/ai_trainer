@@ -51,11 +51,13 @@ _PRE_REFACTOR_PAYLOAD_SHA256 = {
     # Re-pinned 2026-08-08 (#383): _planned_snapshot now carries `intervals`
     # (projected from materialized_steps) for plan-vs-fact matching. Scenarios
     # without a plan keep their digest; the four with planned sessions shifted.
+    # Re-pinned 2026-08-08 (#399): evidence локализован + same-sport эвристика
+    # классифицирует adherence — байты payload'ов изменились, digest'ы обновлены.
     "no_plan": "e91c4897f1de495c9564da88f8a9fdeaba02f0439e7fb5c2f7aa1148833bd9dd",
-    "local_disabled": "3314c8e397a8df22b77a5bfd5499b4d93d524b8341c655675e61ba46b0d64a96",
-    "provider_available": "2e75343960c7bc0263a22c70098978096c4d207d20329a07c87abecae9b0bb03",
-    "provider_unavailable": "12e4d081c0676d232f54a3c031f7c117c9347fa8e4b936409ca6dbdc94db19b8",
-    "nested_ledger": "a96536b19ced5a673a5ce7c4ae6e9f5e33cea4d47b46742c9e403d8fd64b4204",
+    "local_disabled": "0c6d3d8cf1cd8d0b6bfa9b17d07ab4dc1ec2539485d7848323327ef9a415861e",
+    "provider_available": "28bbda241e06d7157d8002c2eddff67382a5726e7e774841938746fcafdadbf9",
+    "provider_unavailable": "f631e7abd45b54e1987270a6b5aacdc5e2a655a20f80f531691b6be20983c901",
+    "nested_ledger": "1184d23e60aa45818cd16b584e7bc029c672a246db8853f860dcd12351a58c62",
 }
 
 

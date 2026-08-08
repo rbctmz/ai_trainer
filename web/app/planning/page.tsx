@@ -967,6 +967,13 @@ function AdjustMode({
     major_deviation: "сильное отклонение",
     unknown: "не оценено",
   };
+  const matchMethodLabels: Record<string, string> = {
+    date_sport_heuristic: "по дате и виду спорта",
+    ai_trainer_external_id: "по external_id Intervals.icu",
+    user_confirmed: "подтверждено пользователем",
+    user_rejected: "отклонено пользователем",
+    admin_resolve: "сопоставлено вручную",
+  };
   const reasonLabels: Record<string, string> = {
     data_gap: "Пока недостаточно надёжных сопоставлений — план не меняется.",
     no_change_under_plan: "Недовыполнение принято как факт: догонять объём автоматически не будем.",
@@ -1030,7 +1037,7 @@ function AdjustMode({
                     {matchLabels[r.match_status] ?? r.match_status}
                   </div>
                   <div className="mt-0.5 text-xs text-ink-faint">
-                    {r.match_method} · {adherenceLabels[r.adherence] ?? r.adherence} · {Math.round(r.confidence * 100)}%
+                    {matchMethodLabels[r.match_method] ?? r.match_method} · {adherenceLabels[r.adherence] ?? r.adherence} · {Math.round(r.confidence * 100)}%
                   </div>
                   {r.evidence[0] ? <div className="mt-1 max-w-xs text-[11px] text-ink-faint">{r.evidence[0]}</div> : null}
                   {r.match_status === "ambiguous" && r.candidate_activities.length ? (
