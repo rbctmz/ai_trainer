@@ -371,6 +371,58 @@ def test_planned_intervals_for_match_recovers_legacy_by_date():
     assert result[0]["duration_seconds"] == 405
 
 
+def test_planned_intervals_for_match_resolves_nested_session_before_date_fallback():
+    # P1 (Codex review): on a multi-session day the matched session_id lives in
+    # template["sessions"], not on the day template. The date fallback alone
+    # would project the day-level steps (999s) instead of the session's (720s).
+    checkpoint = {
+        "goal_plan_snapshot": {
+            "session_templates": [
+                {
+                    "session_id": "ats_day_level",
+                    "date": "2026-07-27",
+                    "materialized_steps": [
+                        {
+                            "intensity": "easy",
+                            "segment_kind": "warmup",
+                            "duration_seconds": 999,
+                        }
+                    ],
+                    "sessions": [
+                        {
+                            "session_id": "ats_target",
+                            "materialized_steps": [
+                                {
+                                    "intensity": "work",
+                                    "segment_kind": "work",
+                                    "duration_seconds": 720,
+                                }
+                            ],
+                        },
+                        {
+                            "session_id": "ats_other",
+                            "materialized_steps": [
+                                {
+                                    "intensity": "easy",
+                                    "segment_kind": "cooldown",
+                                    "duration_seconds": 300,
+                                }
+                            ],
+                        },
+                    ],
+                }
+            ]
+        }
+    }
+    match = {"planned_snapshot": {"session_id": "ats_target", "date": "2026-07-27"}}
+
+    result = planned_intervals_for_match(match, checkpoint)
+
+    assert result is not None
+    assert result[0]["duration_seconds"] == 720
+    assert result[0]["type"] == "work"
+
+
 def test_planned_intervals_for_match_none_when_unrecoverable():
     assert planned_intervals_for_match(None, {}) is None
     assert (

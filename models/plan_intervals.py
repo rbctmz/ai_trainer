@@ -166,6 +166,17 @@ def _find_plan_session(
             continue
         if session_id and str(template.get("session_id") or "") == str(session_id):
             return template
+        # Multi-session day: the matched session lives in template["sessions"]
+        # (reconciliation resolves it via iter_parent_sessions/find_planned_session).
+        # Resolve it BEFORE the date fallback, which would otherwise project the
+        # day-level template and produce intervals for the wrong session.
+        for session in list(template.get("sessions") or []):
+            if (
+                isinstance(session, Mapping)
+                and session_id
+                and str(session.get("session_id") or "") == str(session_id)
+            ):
+                return session
         if (
             by_date is None
             and session_date
