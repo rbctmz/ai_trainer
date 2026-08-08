@@ -793,6 +793,98 @@ def test_user_match_correction_appends_ledger_and_changes_reconciliation(
         )
 
 
+def test_confirm_match_without_role_stays_unknown(tmp_path):
+    # #401 review P1: the executed role is user evidence, never copied from the
+    # plan. Confirming without a role keeps adherence honestly "не оценено".
+    from api import planning_service as ps
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(
+        item for item in plan["session_templates"] if item["date"] == "2026-07-12"
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "same-sport",
+                "date": "2026-07-12",
+                "started_at_utc": "2026-07-12T18:00:00Z",
+                "sport": "cycling",
+                "duration_minutes": 30,
+                "tss": 10.0,
+            }
+        ]
+    )
+
+    saved = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=["same-sport"],
+        actual_role=None,
+        action="confirm",
+    )
+
+    assert saved["match_method"] == "user_confirmed"
+    assert saved["actual_snapshot"]["role"] is None
+
+    result = ps.reconciliation_at(
+        db, as_of="2026-07-13", weeks=1, include_provider=False
+    )
+    row = next(
+        item
+        for item in result["rows"]
+        if item["session_id"] == target["session_id"]
+    )
+    assert row["match_method"] == "user_confirmed"
+    assert row["adherence"] == "unknown"
+
+
+def test_confirm_match_with_explicit_role_evaluates_adherence(tmp_path):
+    # #401: when the user supplies the executed role, adherence evaluates
+    # honestly (same sport + in-bounds load + role match → exact).
+    from api import planning_service as ps
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(
+        item for item in plan["session_templates"] if item["date"] == "2026-07-12"
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "same-sport",
+                "date": "2026-07-12",
+                "started_at_utc": "2026-07-12T18:00:00Z",
+                "sport": "cycling",
+                "duration_minutes": 30,
+                "tss": 10.0,
+            }
+        ]
+    )
+
+    saved = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=["same-sport"],
+        actual_role="recovery",
+        action="confirm",
+    )
+
+    assert saved["match_method"] == "user_confirmed"
+    assert saved["actual_snapshot"]["role"] == "recovery"
+
+    result = ps.reconciliation_at(
+        db, as_of="2026-07-13", weeks=1, include_provider=False
+    )
+    row = next(
+        item
+        for item in result["rows"]
+        if item["session_id"] == target["session_id"]
+    )
+    assert row["match_method"] == "user_confirmed"
+    assert row["adherence"] == "exact"
+
+
 def test_export_and_adjust_active_plan(tmp_path):
     from api import planning_service as ps
 

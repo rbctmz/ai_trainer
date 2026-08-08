@@ -2383,6 +2383,10 @@ def record_plan_actual_match(
         "tss": round(sum(float(item.get("tss") or 0.0) for item in activities), 1),
         "duration_minutes": round(sum(float(item.get("duration_minutes") or 0.0) for item in activities), 1),
         "sport": next(iter(sports)) if len(sports) == 1 else "",
+        # #401 review P1: the executed role is user-supplied evidence, never
+        # copied from the plan. Confirmation establishes WHICH activity matches
+        # the session; what the athlete actually did stays as given (None → the
+        # adherence stays "не оценено" honestly).
         "role": str(actual_role or "").strip().lower() or None,
     }
     target_key = f"session:{session_id}"
