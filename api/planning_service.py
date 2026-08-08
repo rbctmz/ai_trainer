@@ -2360,6 +2360,18 @@ def record_plan_actual_match(
     activities = db.get_activities_by_ids(activity_ids if normalized_action == "confirm" else [])
     if normalized_action == "confirm" and len(activities) != len(set(activity_ids)):
         raise ValueError("one or more activities were not found")
+    resolved_role = str(actual_role or "").strip().lower() or None
+    if normalized_action == "confirm" and resolved_role is None:
+        # #401: confirming a match establishes the actual role explicitly. Default
+        # to the planned session role so adherence can be evaluated honestly
+        # instead of staying "не оценено" — the user says "this activity IS that
+        # planned session", so role alignment is a confirmed fact, not a guess.
+        resolved_role = (
+            str(session.get("session_role") or template.get("session_role") or "")
+            .strip()
+            .lower()
+            or None
+        )
     session_date = str(template.get("date") or "")[:10]
     if any(str(item.get("date") or "")[:10] != session_date for item in activities):
         raise ValueError("confirmed activities must share the planned session date")
@@ -2383,7 +2395,7 @@ def record_plan_actual_match(
         "tss": round(sum(float(item.get("tss") or 0.0) for item in activities), 1),
         "duration_minutes": round(sum(float(item.get("duration_minutes") or 0.0) for item in activities), 1),
         "sport": next(iter(sports)) if len(sports) == 1 else "",
-        "role": str(actual_role or "").strip().lower() or None,
+        "role": resolved_role,
     }
     target_key = f"session:{session_id}"
     previous = db.get_latest_plan_actual_matches(start_date=session_date, end_date=session_date)

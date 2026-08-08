@@ -934,8 +934,13 @@ function AdjustMode({
       await postJSON("/api/planning/reconciliation/matches", {
         base_checkpoint_id: data.base_checkpoint_id,
         session_id: row.session_id,
-        activity_ids: action === "confirm" ? row.candidate_activities.map((item) => item.activity_id) : [],
-        actual_role: null,
+        activity_ids:
+          action === "confirm"
+            ? row.actual_activity_ids.length
+              ? row.actual_activity_ids
+              : row.candidate_activities.map((item) => item.activity_id)
+            : [],
+        actual_role: row.role ?? null,
         action,
       });
       setPreviewResult(null);
@@ -1060,12 +1065,28 @@ function AdjustMode({
                   </div>
                   <div className="mt-0.5 text-xs text-ink-faint">
                     {matchMethodLabels[r.match_method] ?? r.match_method} ·{" "}
-                    {adherenceLabels[r.adherence] ?? r.adherence}{" "}
+                    {adherenceLabels[r.adherence] ?? r.adherence}
+                    {r.adherence === "unknown" && r.match_status === "matched"
+                      ? " — подтвердите сопоставление"
+                      : ""}{" "}
                     · {Math.round(r.confidence * 100)}%
                   </div>
                   {r.evidence[0] ? (
                     <div className="mt-1 max-w-xs text-[11px] text-ink-faint">
                       {legacyEvidenceLabels[r.evidence[0]] ?? r.evidence[0]}
+                    </div>
+                  ) : null}
+                  {r.match_status === "matched" && r.adherence === "unknown" ? (
+                    <div className="mt-2">
+                      <button
+                        type="button"
+                        data-target-action="primary"
+                        onClick={() => resolveMatch(r, "confirm")}
+                        disabled={busy}
+                        className="rounded border border-tone-success/30 px-2 py-1 text-[11px] text-tone-success disabled:opacity-40"
+                      >
+                        Подтвердить
+                      </button>
                     </div>
                   ) : null}
                   {r.match_status === "ambiguous" && r.candidate_activities.length ? (
