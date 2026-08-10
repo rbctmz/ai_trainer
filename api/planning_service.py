@@ -1739,6 +1739,7 @@ def _steps_payload(session: Dict[str, Any]) -> List[Dict[str, Any]]:
         {
             "name": step.get("name"),
             "intensity": step.get("intensity"),
+            "segment_kind": step.get("segment_kind"),
             "duration_seconds": step.get("duration_seconds"),
             "target": step.get("target"),
         }

@@ -5,6 +5,7 @@ import useSWR, { useSWRConfig } from "swr";
 import { ApiError, fetcher, postJSON, withDemo } from "@/lib/api";
 import { AdherenceRibbon } from "@/components/AdherenceRibbon";
 import { DEFAULT_DEMAND_OPTIONS, PlanBuilder, Stat } from "@/components/planning/PlanBuilder";
+import { WorkoutStrip } from "@/components/WorkoutStrip";
 import {
   DemandConfirmResult,
   DemandPreview,
@@ -734,6 +735,18 @@ function WeekLeaf({ session, dayIndex, onResolveAmbiguous }: { session: WeekByWe
   return (
     <div className="rounded-md border border-surface-border bg-surface p-2.5 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium text-ink">{session.name}</span><span className="text-ink-soft">{session.duration_minutes} мин · {session.tss} TSS · {labels[session.adherence_status]}</span></div>
+      {session.kind === "composite" && session.legs?.length ? (
+        <div className="mt-2 space-y-1.5">
+          {session.legs.map((leg) => (
+            <div key={leg.leg_index}>
+              <div className="text-[10px] text-ink-faint">{leg.sport}</div>
+              <WorkoutStrip steps={leg.steps || []} />
+            </div>
+          ))}
+        </div>
+      ) : (
+        <WorkoutStrip steps={session.steps || []} />
+      )}
       {session.actual_tss != null ? <div className="mt-1 text-ink-faint">Факт: {session.actual_tss} TSS · {session.actual_duration_minutes} мин</div> : null}
       {session.adherence_status === "ambiguous" ? <button type="button" onClick={onResolveAmbiguous} className="mt-2 rounded border border-surface-border px-2 py-1 text-ink hover:bg-surface-muted">Нужно уточнить</button> : null}
       {dayIndex != null && session.executable && session.kind !== "composite" && session.session_id ? <div className="mt-2 flex gap-2"><DownloadLink index={dayIndex} sessionId={session.session_id} fmt="tcx" label="TCX" /><DownloadLink index={dayIndex} sessionId={session.session_id} fmt="fit_csv" label="FIT" /></div> : null}
