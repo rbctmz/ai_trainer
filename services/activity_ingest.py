@@ -106,6 +106,14 @@ def _to_float(value: Any) -> float | None:
         return None
 
 
+def _meters_to_km(value: Any) -> float | None:
+    """Intervals.icu отдаёт дистанцию в метрах -> км (#417)."""
+    metres = _to_float(value)
+    if metres is None or metres < 0:
+        return None
+    return round(metres / 1000.0, 2)
+
+
 def _normalize_garmin(row: dict[str, Any]) -> ProviderActivity:
     activity_id = str(row.get("activity_id") or "").strip()
     if not activity_id:
@@ -208,6 +216,8 @@ def _normalize_intervals(row: dict[str, Any]) -> ProviderActivity:
         "started_at_utc": start_utc,
         "sport": sport,
         "duration_minutes": duration_minutes,
+        # #417: Intervals.icu отдаёт дистанцию в метрах — маппим в км.
+        "distance_km": _meters_to_km(row.get("distance")),
         "activity_name": row.get("name"),
         "source_tss": provider_tss,
         "tss": canonical_tss,
