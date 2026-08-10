@@ -749,6 +749,56 @@ def test_loop_offers_transfer_variant_alongside_keep_and_downgrade_when_safe_dat
     assert recommended == ["transfer_1_3d"]
 
 
+def test_recovery_transfer_approve_delivers_affected_dates(tmp_path, monkeypatch):
+    # #411: approve transfer_1_3d должен доставлять изменённые даты в
+    # Intervals.icu (как downgrade_today), а не молча оставлять календарь
+    # на старых датах (живой кейс 09.08).
+    from api import recovery_replan_loop as loop_module
+    from api.routers import decisions as decisions_router
+    from api.routers.decisions import approve_proposal
+
+    today = date(2026, 7, 13)  # Monday
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    delivery_calls = []
+
+    def fake_delivery(_db, *, dates, source, **_kwargs):
+        delivery_calls.append({"dates": list(dates), "source": source})
+        return {
+            "status": "success",
+            "retryable": False,
+            "failed_count": 0,
+            "dates": list(dates),
+            "provider_event_ids": [1],
+        }
+
+    monkeypatch.setattr(
+        decisions_router,
+        "safe_deliver_active_plan",
+        fake_delivery,
+        raising=False,
+    )
+
+    db = Database(str(tmp_path / "transfer-approve-delivery.db"))
+    _save_plan(db, _transfer_ready_goal_plan(today, days_until=1))
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+
+    approved = approve_proposal(
+        proposal["id"],
+        variant_kind="transfer_1_3d",
+        db=db,
+    )
+
+    assert approved["proposal"]["status"] == "approved"
+    assert approved["result"]["selected_kind"] == "transfer_1_3d"
+    assert approved["result"]["affected_dates"] == ["2026-07-14", "2026-07-15"]
+    # #411: перенос доставляется (как downgrade), а не остаётся stale.
+    assert delivery_calls == [
+        {"dates": ["2026-07-14", "2026-07-15"], "source": "recovery_approve"}
+    ]
+    assert approved["result"]["delivery"]["status"] == "success"
+
+
 def test_loop_omits_transfer_variant_and_exposes_candidate_rejections_when_no_safe_date(
     tmp_path,
     monkeypatch,
@@ -1296,9 +1346,9 @@ def test_approve_recovery_transfer_variant_applies_via_shared_primitive_and_roll
     """Full M4 contract for the happy path: explicit `transfer_1_3d`
     selection routes through `apply_session_transfer` against the exact
     base checkpoint (never the near-term editor), appends exactly one
-    `recovery_replan_transfer` checkpoint with auditable lineage, never
-    calls the provider boundary, and rollback appends exactly one restored
-    revision without deleting history."""
+    `recovery_replan_transfer` checkpoint with auditable lineage, delivers
+    the affected dates to Intervals.icu (#411), and rollback appends exactly
+    one restored revision without deleting history."""
     from api import planning_service as planning_service_module
     from api import recovery_replan_loop as loop_module
     from api.routers import decisions as decisions_router
@@ -1313,10 +1363,11 @@ def test_approve_recovery_transfer_variant_applies_via_shared_primitive_and_roll
     def fake_delivery(_db, *, dates, source, **_kwargs):
         delivery_calls.append({"dates": list(dates), "source": source})
         return {
-            "status": "failed",
-            "retryable": True,
-            "error": "must not be called on the transfer path",
+            "status": "success",
+            "retryable": False,
+            "failed_count": 0,
             "dates": list(dates),
+            "provider_event_ids": [1],
         }
 
     monkeypatch.setattr(decisions_router, "safe_deliver_active_plan", fake_delivery, raising=False)
@@ -1349,7 +1400,14 @@ def test_approve_recovery_transfer_variant_applies_via_shared_primitive_and_roll
     assert result["new_session_id"] == expected_new_session_id
     assert sorted(result["affected_dates"]) == sorted([source_date, target_date])
     assert result["rollback_checkpoint_id"] == base["id"]
-    assert delivery_calls == []
+    # #411: перенос доставляется в IC (как downgrade), а не остаётся stale.
+    assert delivery_calls == [
+        {
+            "dates": sorted([source_date, target_date]),
+            "source": "recovery_approve",
+        }
+    ]
+    assert result["delivery"]["status"] == "success"
     assert near_term_calls == []
 
     applied = db.get_latest_planning_checkpoint()
@@ -1382,7 +1440,19 @@ def test_approve_recovery_transfer_variant_applies_via_shared_primitive_and_roll
     rolled_back = rollback_proposal(proposal["id"], db=db)
 
     assert rolled_back["proposal"]["status"] == "rolled_back"
-    assert delivery_calls == []  # still no provider call after rollback
+    # #411 review P1: rollback transfer тоже доставляет восстановленные даты
+    # (события были сдвинуты при approve — их надо вернуть).
+    assert delivery_calls == [
+        {
+            "dates": sorted([source_date, target_date]),
+            "source": "recovery_approve",
+        },
+        {
+            "dates": sorted([source_date, target_date]),
+            "source": "recovery_rollback",
+        },
+    ]
+    assert rolled_back["result"]["delivery"]["status"] == "success"
     restored = db.get_latest_planning_checkpoint()
     assert restored["id"] > applied["id"]
     assert restored["checkpoint_source"] == "restore_version"

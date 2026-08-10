@@ -212,7 +212,10 @@ def approve_proposal(
         db.update_coach_proposal_status(proposal_id, "failed", error=str(exc))
         raise HTTPException(status_code=500, detail=str(exc))
 
-    if proposal.get("action") == "recovery_replan" and result.get("selected_kind") == "downgrade_today":
+    if (
+        proposal.get("action") == "recovery_replan"
+        and result.get("selected_kind") in _RECOVERY_DELIVERY_KINDS
+    ):
         result = {
             **result,
             "delivery": safe_deliver_active_plan(
@@ -269,14 +272,16 @@ def rollback_proposal(
     prior_result = proposal.get("result") or {}
     affected_dates = list(prior_result.get("affected_dates") or [])
     selected_kind = str(prior_result.get("selected_kind") or "downgrade_today")
-    if selected_kind == "downgrade_today":
+    if selected_kind in _RECOVERY_DELIVERY_KINDS:
         delivery = safe_deliver_active_plan(
             db,
             dates=affected_dates,
             source="recovery_rollback",
         )
     else:
-        # Issue #209/M4: zero provider calls anywhere on the transfer path.
+        # #411 review P1: перенос тоже доставляется при approve, значит при
+        # rollback надо вернуть события восстановленного плана. Skip остаётся
+        # только для keep (план не менялся).
         delivery = {
             "status": "skipped",
             "retryable": False,
@@ -330,6 +335,9 @@ def _approved_recovery_proposal_or_error(
 # Issue #209 M4: the three decision-contract variant kinds a `recovery_replan`
 # proposal's preview may offer (`preview["variants"][*]["kind"]`).
 _RECOVERY_VARIANT_KINDS = {"keep", "downgrade_today", "transfer_1_3d"}
+# #411: варианты, которые МЕНЯЮТ план и потому требуют доставки изменённых дат
+# в Intervals.icu (keep ничего не меняет — provider не трогаем).
+_RECOVERY_DELIVERY_KINDS = {"downgrade_today", "transfer_1_3d"}
 
 
 def _resolve_recovery_variant_kind(
