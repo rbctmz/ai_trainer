@@ -5,13 +5,16 @@ import useSWR from "swr";
 import { ApiError, deleteJSON, fetcher, postJSON, putJSON } from "@/lib/api";
 import {
   Activity,
+  ActivityInterval,
   ActivitiesResponse,
   ActivityIntervals,
   ActivityPowerCurve,
   AthleteProfileResponse,
   PlanVsFact,
+  PlanVsFactStep,
 } from "@/lib/types";
 import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
+import { StripBar, StripSegment } from "@/components/WorkoutStrip";
 
 const TSS_SOURCE_LABELS: Record<string, string> = {
   power: "по мощности",
@@ -43,6 +46,91 @@ function formatIntervalDistance(distanceKm: number): string {
 function formatPlanDelta(delta: number): string {
   const pct = Math.round(delta * 100);
   return `${pct > 0 ? "+" : ""}${pct}%`;
+}
+
+function plannedStripSegments(
+  planned: PlanVsFactStep[] | null | undefined,
+): StripSegment[] {
+  if (!planned?.length) return [];
+  const segments: StripSegment[] = [];
+  planned.forEach((step, index) => {
+    const seconds = Math.max(0, Number(step.duration_seconds) || 0);
+    if (seconds <= 0) return;
+    const type = String(step.type || "").toLowerCase();
+    const kind = String(step.segment_kind || "").toLowerCase();
+    const zone = plannedZone(step);
+    let tone = "bg-ink-faint/20";
+    let heightPct = 38;
+    if (kind === "warmup" || kind === "cooldown") {
+      tone = "bg-ink-faint/25";
+      heightPct = 30;
+    } else if (type === "rest" || kind === "recovery") {
+      tone = "bg-tone-success/30";
+      heightPct = 38;
+    } else if (type === "work") {
+      tone = "bg-tone-danger/40";
+      heightPct = zone != null ? clampStripHeight(zone * 100) : 90;
+    }
+    const label = type === "work" ? "Работа" : type === "rest" ? "Отдых" : `Шаг ${index + 1}`;
+    segments.push({
+      seconds,
+      label,
+      title: `${label} · ${formatIntervalTime(seconds)}${
+        zone != null ? ` · ${Math.round(zone * 100)}%` : ""
+      }`,
+      tone,
+      heightPct,
+    });
+  });
+  return segments;
+}
+
+function plannedZone(step: PlanVsFactStep): number | null {
+  const raw = step.target_zone as unknown;
+  if (typeof raw === "number" && Number.isFinite(raw)) return raw;
+  if (raw && typeof raw === "object") {
+    const relative = (raw as { relative_high?: unknown }).relative_high;
+    if (typeof relative === "number" && Number.isFinite(relative)) return relative;
+  }
+  return null;
+}
+
+function factStripSegments(intervals: ActivityInterval[]): StripSegment[] {
+  const segments: StripSegment[] = [];
+  intervals.forEach((iv, index) => {
+    const seconds = Math.max(
+      0,
+      Number(iv.moving_time ?? iv.elapsed_time) || 0,
+    );
+    if (seconds <= 0) return;
+    const zone = Number(iv.zone) || 0;
+    let tone = "bg-ink-faint/20";
+    let heightPct = 35;
+    if (zone >= 4) {
+      tone = "bg-tone-danger/40";
+      heightPct = 90;
+    } else if (zone === 3) {
+      tone = "bg-tone-warning/40";
+      heightPct = 75;
+    } else if (zone >= 1) {
+      tone = "bg-tone-success/30";
+      heightPct = 55;
+    }
+    segments.push({
+      seconds,
+      label: `${Math.round(seconds / 60)}′`,
+      title: `Интервал ${index + 1} · ${formatIntervalTime(seconds)}${
+        zone ? ` · зона ${zone}` : ""
+      }${iv.average_heartrate ? ` · HR ${iv.average_heartrate}` : ""}`,
+      tone,
+      heightPct,
+    });
+  });
+  return segments;
+}
+
+function clampStripHeight(value: number): number {
+  return Math.max(28, Math.min(100, Math.round(value)));
 }
 
 function tssProvenanceLabel(activity: Activity): string | null {
@@ -209,11 +297,22 @@ function ActivityCardModal({
     activity.plan_vs_fact,
   );
   const fallbackPlanVsFact = useRef(activity.plan_vs_fact);
+  const [plannedIntervals, setPlannedIntervals] = useState<
+    PlanVsFactStep[] | null | undefined
+  >(activity.planned_intervals);
+  const fallbackPlannedIntervals = useRef(activity.planned_intervals);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const id = encodeURIComponent(activity.activity_id);
   const feedback = activity.feedback;
+  const plannedStrip = plannedStripSegments(plannedIntervals);
+  const factStrip = factStripSegments(intervals?.intervals ?? []);
+  const stripScale = Math.max(
+    plannedStrip.reduce((sum, segment) => sum + segment.seconds, 0),
+    factStrip.reduce((sum, segment) => sum + segment.seconds, 0),
+    1,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -223,6 +322,7 @@ function ActivityCardModal({
           setIntervals(res.activity.intervals ?? null);
           setPowerCurve(res.activity.power_curve ?? null);
           setPlanVsFact(res.activity.plan_vs_fact ?? null);
+          setPlannedIntervals(res.activity.planned_intervals ?? null);
         }
       })
       .catch(() => {
@@ -230,6 +330,7 @@ function ActivityCardModal({
           setIntervals(fallbackIntervals.current ?? null);
           setPowerCurve(fallbackPowerCurve.current ?? null);
           setPlanVsFact(fallbackPlanVsFact.current ?? null);
+          setPlannedIntervals(fallbackPlannedIntervals.current ?? null);
         }
       });
     return () => {
@@ -414,6 +515,24 @@ function ActivityCardModal({
               {planVsFact.summary.actual_intervals} интервалов · совпало{" "}
               {planVsFact.summary.matched}
             </div>
+            {plannedStrip.length || factStrip.length ? (
+              <div className="mt-3 space-y-2">
+                {plannedStrip.length ? (
+                  <StripBar
+                    segments={plannedStrip}
+                    scaleSeconds={stripScale}
+                    label="План"
+                  />
+                ) : null}
+                {factStrip.length ? (
+                  <StripBar
+                    segments={factStrip}
+                    scaleSeconds={stripScale}
+                    label="Факт"
+                  />
+                ) : null}
+              </div>
+            ) : null}
             {planVsFact.plan_replanned_after_delivery ? (
               <p className="mt-2 text-xs text-tone-warning">
                 Возможен рассинхрон с устройством: план на этот день перепланирован
