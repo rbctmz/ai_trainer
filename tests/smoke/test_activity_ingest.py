@@ -58,6 +58,7 @@ def _intervals_row(
         "name": "Morning Ride",
         "icu_training_load": 90,
         "moving_time": 5700,  # 95 min
+        "distance": 38000,  # метры (#417)
     }
     row.update(overrides)
     return row
@@ -145,6 +146,16 @@ def test_normalize_intervals_records_utc_not_local_time():
     # Missing UTC field → None, never the local timestamp.
     no_utc = normalize_provider_activity(_intervals_row(start_date=None), "intervals")
     assert no_utc.canonical["started_at_utc"] is None
+
+
+def test_normalize_intervals_maps_distance_meters_to_km():
+    candidate = normalize_provider_activity(_intervals_row(), "intervals")
+    assert candidate.canonical["distance_km"] == 38.0
+
+    no_distance = normalize_provider_activity(
+        _intervals_row(distance=None), "intervals"
+    )
+    assert no_distance.canonical["distance_km"] is None
 
 
 def test_normalize_intervals_local_first_tss_not_bypassed():
@@ -384,7 +395,10 @@ def test_external_identity_change_remerge_does_not_double_count(tmp_path):
     )
     snap = _snapshot(path)
     assert {a["activity_id"] for a in snap["activities"]} == {"G1", "G2"}
-    canonicals = {(l["provider"], l["canonical_activity_id"]): l for l in snap["links"]}
+    canonicals = {
+        (link["provider"], link["canonical_activity_id"]): link
+        for link in snap["links"]
+    }
     assert ("intervals", "G2") in canonicals  # moved to G2
     assert ("intervals", "G1") not in canonicals  # not left on G1
     assert canonicals[("garmin", "G1")]["match_status"] == "unmatched"

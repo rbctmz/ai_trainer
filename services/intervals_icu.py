@@ -231,6 +231,8 @@ class IntervalsICUClient:
             "name",
             "icu_training_load",
             "moving_time",
+            # #417: distance приходит в метрах — маппится в distance_km при ingest.
+            "distance",
         )
         rows: List[Dict[str, Any]] = []
         for row in payload:
