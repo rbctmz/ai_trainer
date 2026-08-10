@@ -27,8 +27,9 @@ function segmentTone(step: WorkoutStep): string {
   return SEGMENT_TONES[intensity] ?? "bg-ink-faint/10";
 }
 
-// Высота сегмента кодирует интенсивность (профиль нагрузки): разминка и
-// восстановление — низкие, work — полный рост.
+// Высота сегмента кодирует относительную интенсивность (профиль нагрузки):
+// target.relative_high (% FTP / % порогового темпа) — работает и для вело,
+// и для бега; плавание (relative_rpe) — по RPE; фолбэк — уровни intensity.
 const SEGMENT_HEIGHTS: Record<string, number> = {
   warmup: 32,
   cooldown: 32,
@@ -38,7 +39,29 @@ const SEGMENT_HEIGHTS: Record<string, number> = {
   work: 100,
 };
 
+function clampHeight(value: number): number {
+  return Math.max(28, Math.min(100, Math.round(value)));
+}
+
 function segmentHeight(step: WorkoutStep): number {
+  const target = step.target;
+  if (target) {
+    const relative = target.relative_high;
+    if (
+      typeof relative === "number" &&
+      Number.isFinite(relative) &&
+      relative > 0
+    ) {
+      return clampHeight(relative * 100);
+    }
+    if (String(target.type || "") === "relative_rpe") {
+      const low = Number(target.low);
+      const high = Number(target.high);
+      if (Number.isFinite(low) && Number.isFinite(high) && high > 0) {
+        return clampHeight(((low + high) / 2 / 8) * 100);
+      }
+    }
+  }
   const kind = String(step.segment_kind || "").toLowerCase();
   if (kind === "warmup" || kind === "cooldown" || kind === "recovery") {
     return SEGMENT_HEIGHTS.warmup;
