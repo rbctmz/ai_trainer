@@ -153,6 +153,11 @@ export function WorkoutStrip({
         const title = `${shortLabel(step, index)} · ${formatDuration(seconds)}${
           target ? ` · ${target}` : ""
         }`;
+        // Краевые сегменты (разминка/заминка) подписываем всегда — на краях
+        // есть место, и без подписи структура теряет начало/конец; середина —
+        // только если сегмент достаточно широкий и высокий.
+        const isEdge = index === 0 || index === steps.length - 1;
+        const showLabel = isEdge || (pct >= 9 && heightPct >= 50);
         return (
           <div
             key={`${step.name}-${index}`}
@@ -160,7 +165,7 @@ export function WorkoutStrip({
             className={`flex flex-none items-start justify-center overflow-hidden px-0.5 pt-1 text-[9px] font-medium text-ink ${segmentTone(step)}`}
             style={{ width: `${pct}%`, height: `${heightPct}%` }}
           >
-            {pct >= 9 && heightPct >= 50 ? (
+            {showLabel ? (
               <span className="truncate">{shortLabel(step, index)}</span>
             ) : null}
           </div>
