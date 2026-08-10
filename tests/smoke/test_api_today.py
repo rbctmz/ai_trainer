@@ -864,6 +864,32 @@ def test_device_sync_hint_silent_without_today_replan() -> None:
     )
 
 
+def test_device_sync_hint_fires_for_transfer_checkpoint() -> None:
+    # #411 review P2: перенос сессии (recovery_replan_transfer) тоже меняет план
+    # на сегодня — подсказка синка должна срабатывать.
+    from api.today_snapshot import _device_sync_hint
+
+    today = "2026-08-08"
+    checkpoint = {
+        "id": 77,
+        "checkpoint_source": "recovery_replan_transfer",
+        "created_at": "2026-08-08T18:50:24",
+    }
+    deliveries = [
+        {
+            "checkpoint_id": 77,
+            "dates": ["2026-08-08"],
+            "status": "success",
+            "created_at": "2026-08-08T18:50:30",
+        }
+    ]
+
+    hint = _device_sync_hint(checkpoint, today, deliveries)
+
+    assert hint is not None
+    assert hint["reason"] == "recovery_replan"
+
+
 def test_today_snapshot_carries_device_sync_hint_for_recovery_replan(tmp_path) -> None:
     import json as _json
 

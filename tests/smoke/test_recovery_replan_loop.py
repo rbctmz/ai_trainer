@@ -1440,14 +1440,19 @@ def test_approve_recovery_transfer_variant_applies_via_shared_primitive_and_roll
     rolled_back = rollback_proposal(proposal["id"], db=db)
 
     assert rolled_back["proposal"]["status"] == "rolled_back"
-    # #411: rollback transfer по-прежнему без provider (M4) — в истории
-    # остаётся только approve-доставка перенесённых дат.
+    # #411 review P1: rollback transfer тоже доставляет восстановленные даты
+    # (события были сдвинуты при approve — их надо вернуть).
     assert delivery_calls == [
         {
             "dates": sorted([source_date, target_date]),
             "source": "recovery_approve",
-        }
+        },
+        {
+            "dates": sorted([source_date, target_date]),
+            "source": "recovery_rollback",
+        },
     ]
+    assert rolled_back["result"]["delivery"]["status"] == "success"
     restored = db.get_latest_planning_checkpoint()
     assert restored["id"] > applied["id"]
     assert restored["checkpoint_source"] == "restore_version"

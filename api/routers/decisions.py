@@ -272,14 +272,16 @@ def rollback_proposal(
     prior_result = proposal.get("result") or {}
     affected_dates = list(prior_result.get("affected_dates") or [])
     selected_kind = str(prior_result.get("selected_kind") or "downgrade_today")
-    if selected_kind == "downgrade_today":
+    if selected_kind in _RECOVERY_DELIVERY_KINDS:
         delivery = safe_deliver_active_plan(
             db,
             dates=affected_dates,
             source="recovery_rollback",
         )
     else:
-        # Issue #209/M4: zero provider calls anywhere on the transfer path.
+        # #411 review P1: перенос тоже доставляется при approve, значит при
+        # rollback надо вернуть события восстановленного плана. Skip остаётся
+        # только для keep (план не менялся).
         delivery = {
             "status": "skipped",
             "retryable": False,

@@ -46,7 +46,9 @@ def _device_sync_hint(
     if not isinstance(checkpoint, dict):
         return None
     source = str(checkpoint.get("checkpoint_source") or "").strip().lower()
-    if source != "recovery_replan":
+    # #411 review P2: перенос сессии тоже меняет план на сегодня (checkpoint
+    # recovery_replan_transfer) — подсказка синка должна срабатывать и для него.
+    if source not in {"recovery_replan", "recovery_replan_transfer"}:
         return None
     created_at = str(checkpoint.get("created_at") or "").strip()
     checkpoint_id = checkpoint.get("id")
