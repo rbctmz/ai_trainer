@@ -97,12 +97,30 @@ function plannedZone(step: PlanVsFactStep): number | null {
 
 function factStripSegments(intervals: ActivityInterval[]): StripSegment[] {
   const segments: StripSegment[] = [];
+  let cursor = 0;
   intervals.forEach((iv, index) => {
+    const start = Math.max(0, Number(iv.start_index) || 0);
     const seconds = Math.max(
       0,
       Number(iv.moving_time ?? iv.elapsed_time) || 0,
     );
-    if (seconds <= 0) return;
+    // start_index — смещение в секундах на таймлайне (1s-сэмплы IC); если между
+    // интервалами есть разрыв (например, разминка/пауза не входят в детект),
+    // вставляем нейтральный gap, чтобы факт выравнивался с планом (review P2).
+    if (start > cursor) {
+      const gapSeconds = start - cursor;
+      segments.push({
+        seconds: gapSeconds,
+        label: "",
+        title: `Пауза ${formatIntervalTime(gapSeconds)}`,
+        tone: "bg-ink-faint/10",
+        heightPct: 12,
+      });
+    }
+    if (seconds <= 0) {
+      cursor = Math.max(cursor, start);
+      return;
+    }
     const zone = Number(iv.zone) || 0;
     let tone = "bg-ink-faint/20";
     let heightPct = 35;
@@ -125,6 +143,7 @@ function factStripSegments(intervals: ActivityInterval[]): StripSegment[] {
       tone,
       heightPct,
     });
+    cursor = start + seconds;
   });
   return segments;
 }
