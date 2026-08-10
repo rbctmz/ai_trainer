@@ -893,6 +893,7 @@ export interface WorkoutTarget {
 export interface WorkoutStep {
   name: string | null;
   intensity: string | null;
+  segment_kind?: string | null;
   duration_seconds: number | null;
   target: WorkoutTarget | null;
 }

@@ -770,6 +770,7 @@ def _compact_steps(value: Any) -> list[dict[str, Any]]:
         {
             "name": step.get("name"),
             "intensity": step.get("intensity"),
+            "segment_kind": step.get("segment_kind"),
             "duration_seconds": step.get("duration_seconds"),
             "target": step.get("target"),
         }

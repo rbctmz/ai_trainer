@@ -9,6 +9,7 @@ import type { TodayResponse, WorkoutStep } from "@/lib/types";
 import { ProposalCard } from "@/components/ui/ProposalCard";
 import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackCard";
 import { AdherenceStrip } from "@/components/today/AdherenceStrip";
+import { WorkoutStrip } from "@/components/WorkoutStrip";
 
 const STATE_META: Record<
   string,
@@ -541,16 +542,19 @@ function forecastBandLabel(value: string): string {
 function TodaySteps({ steps }: { steps: WorkoutStep[] }) {
   if (!steps.length) return null;
   return (
-    <div className="mt-2 space-y-1 text-xs text-ink-faint">
-      {steps.map((step, index) => (
-        <div key={`${step.name}-${index}`} className="flex items-center justify-between gap-3">
-          <span>{step.name || `Шаг ${index + 1}`}</span>
-          <span className="shrink-0 tabular-nums">
-            {formatSeconds(step.duration_seconds)}
-            {formatTarget(step.target) ? ` · ${formatTarget(step.target)}` : ""}
-          </span>
-        </div>
-      ))}
+    <div>
+      <WorkoutStrip steps={steps} />
+      <div className="mt-1.5 space-y-1 text-xs text-ink-faint">
+        {steps.map((step, index) => (
+          <div key={`${step.name}-${index}`} className="flex items-center justify-between gap-3">
+            <span>{step.name || `Шаг ${index + 1}`}</span>
+            <span className="shrink-0 tabular-nums">
+              {formatSeconds(step.duration_seconds)}
+              {formatTarget(step.target) ? ` · ${formatTarget(step.target)}` : ""}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
