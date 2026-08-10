@@ -113,6 +113,60 @@ function formatTarget(target: WorkoutTarget | null): string {
   return type;
 }
 
+export interface StripSegment {
+  seconds: number;
+  label: string;
+  title: string;
+  tone: string;
+  heightPct: number;
+}
+
+/** Низкоуровневая полоса сегментов с общей шкалой (ширина = доля от scaleSeconds). */
+export function StripBar({
+  segments,
+  scaleSeconds,
+  ariaLabel,
+  label,
+}: {
+  segments: StripSegment[];
+  scaleSeconds: number;
+  ariaLabel?: string;
+  label?: string;
+}) {
+  if (!segments.length || scaleSeconds <= 0) return null;
+
+  return (
+    <div>
+      {label ? (
+        <div className="mb-0.5 text-[10px] text-ink-faint">{label}</div>
+      ) : null}
+      <div
+        role="img"
+        aria-label={ariaLabel ?? segments.map((segment) => segment.title).join(", ")}
+        className="flex h-14 w-full items-end overflow-hidden rounded border border-surface-border"
+      >
+        {segments.map((segment, index) => {
+          const pct = (segment.seconds / scaleSeconds) * 100;
+          // Краевые сегменты подписываем всегда; середина — только если
+          // сегмент достаточно широкий и высокий.
+          const isEdge = index === 0 || index === segments.length - 1;
+          const showLabel = isEdge || (pct >= 9 && segment.heightPct >= 50);
+          return (
+            <div
+              key={index}
+              title={segment.title}
+              className={`flex flex-none items-start justify-center overflow-hidden px-0.5 pt-1 text-[9px] font-medium text-ink ${segment.tone}`}
+              style={{ width: `${pct}%`, height: `${segment.heightPct}%` }}
+            >
+              {showLabel ? <span className="truncate">{segment.label}</span> : null}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function WorkoutStrip({
   steps,
   ariaLabel,
@@ -121,56 +175,32 @@ export function WorkoutStrip({
   ariaLabel?: string;
 }) {
   if (!steps.length) return null;
-  const total = steps.reduce(
-    (sum, step) => sum + Math.max(0, Number(step.duration_seconds) || 0),
-    0,
-  );
-  if (total <= 0) return null;
-
-  const summary =
-    ariaLabel ??
-    steps
-      .map((step, index) => {
-        const target = formatTarget(step.target);
-        return `${shortLabel(step, index)} ${formatDuration(step.duration_seconds)}${
-          target ? ` · ${target}` : ""
-        }`;
-      })
-      .join(", ");
-
+  const segments: StripSegment[] = [];
+  let total = 0;
+  steps.forEach((step, index) => {
+    const seconds = Math.max(0, Number(step.duration_seconds) || 0);
+    if (seconds <= 0) return;
+    total += seconds;
+    const label = shortLabel(step, index);
+    const target = formatTarget(step.target);
+    segments.push({
+      seconds,
+      label,
+      title: `${label} · ${formatDuration(seconds)}${
+        target ? ` · ${target}` : ""
+      }`,
+      tone: segmentTone(step),
+      heightPct: segmentHeight(step),
+    });
+  });
+  if (!segments.length || total <= 0) return null;
   return (
-    <div
-      role="img"
-      aria-label={summary}
-      className="mt-2 flex h-14 w-full items-end overflow-hidden rounded border border-surface-border"
-    >
-      {steps.map((step, index) => {
-        const seconds = Math.max(0, Number(step.duration_seconds) || 0);
-        if (seconds <= 0) return null;
-        const pct = (seconds / total) * 100;
-        const heightPct = segmentHeight(step);
-        const target = formatTarget(step.target);
-        const title = `${shortLabel(step, index)} · ${formatDuration(seconds)}${
-          target ? ` · ${target}` : ""
-        }`;
-        // Краевые сегменты (разминка/заминка) подписываем всегда — на краях
-        // есть место, и без подписи структура теряет начало/конец; середина —
-        // только если сегмент достаточно широкий и высокий.
-        const isEdge = index === 0 || index === steps.length - 1;
-        const showLabel = isEdge || (pct >= 9 && heightPct >= 50);
-        return (
-          <div
-            key={`${step.name}-${index}`}
-            title={title}
-            className={`flex flex-none items-start justify-center overflow-hidden px-0.5 pt-1 text-[9px] font-medium text-ink ${segmentTone(step)}`}
-            style={{ width: `${pct}%`, height: `${heightPct}%` }}
-          >
-            {showLabel ? (
-              <span className="truncate">{shortLabel(step, index)}</span>
-            ) : null}
-          </div>
-        );
-      })}
-    </div>
+    <StripBar
+      segments={segments}
+      scaleSeconds={total}
+      ariaLabel={
+        ariaLabel ?? segments.map((segment) => segment.title).join(", ")
+      }
+    />
   );
 }
