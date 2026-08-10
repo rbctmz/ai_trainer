@@ -869,12 +869,13 @@ def test_today_snapshot_carries_device_sync_hint_for_recovery_replan(tmp_path) -
 
     from api.today_snapshot import build_today_decision_snapshot
 
-    today = date(2026, 8, 8)
+    today = date.today()  # created_at чекпоинта = реальная дата (CURRENT_TIMESTAMP)
     goal_plan = _goal_plan(today)
     goal_plan["checkpoint_source"] = "recovery_replan"
     db = Database(str(tmp_path / "sync-hint.db"))
     db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
     # Успешная доставка этого же дня из чекпоинта 1 (первый сохранённый).
+    today_iso = today.isoformat()
     conn = sqlite3.connect(db.db_path)
     try:
         conn.execute(
@@ -882,13 +883,13 @@ def test_today_snapshot_carries_device_sync_hint_for_recovery_replan(tmp_path) -
                (date, action, status, params_json, preview_json, result_json, created_at)
                VALUES (?, 'recovery_replan', 'approved', '{}', '{}', ?, '2026-08-08T06:41:10')""",
             (
-                "2026-08-08",
+                today_iso,
                 _json.dumps(
                     {
                         "delivery": {
                             "status": "success",
                             "checkpoint_id": 1,
-                            "dates": ["2026-08-08"],
+                            "dates": [today_iso],
                         }
                     }
                 ),
@@ -903,4 +904,4 @@ def test_today_snapshot_carries_device_sync_hint_for_recovery_replan(tmp_path) -
     hint = payload.get("device_sync_hint")
     assert hint is not None
     assert hint["reason"] == "recovery_replan"
-    assert hint["at"][:10] == "2026-08-08"
+    assert hint["at"][:10] == today_iso
