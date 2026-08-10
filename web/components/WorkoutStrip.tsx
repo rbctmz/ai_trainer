@@ -14,12 +14,17 @@ const SEGMENT_TONES: Record<string, string> = {
   easy: "bg-tone-success/30",
   steady: "bg-tone-warning/40",
   work: "bg-tone-danger/40",
-  stage: "bg-tone-danger/40",
 };
 
 function segmentTone(step: WorkoutStep): string {
-  const kind = String(step.segment_kind || step.intensity || "").toLowerCase();
-  return SEGMENT_TONES[kind] ?? "bg-ink-faint/10";
+  const kind = String(step.segment_kind || "").toLowerCase();
+  if (kind === "warmup" || kind === "cooldown") return SEGMENT_TONES.warmup;
+  if (kind === "recovery") return SEGMENT_TONES.recovery;
+  if (kind === "work") return SEGMENT_TONES.work;
+  // Generic `stage` (recovery/endurance prescriptions use intensity "steady"):
+  // color by intensity — a stage is NOT automatically hard work (review P2).
+  const intensity = String(step.intensity || "").toLowerCase();
+  return SEGMENT_TONES[intensity] ?? "bg-ink-faint/10";
 }
 
 function shortLabel(step: WorkoutStep, index: number): string {
