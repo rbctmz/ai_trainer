@@ -24,8 +24,9 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from config.settings import Settings
-from services.intervals_icu import IntervalsICUError, get_client
+from data.activity_store import ACTIVITY_COLUMN_ORDER  # noqa: E402
+from config.settings import Settings  # noqa: E402
+from services.intervals_icu import IntervalsICUError, get_client  # noqa: E402
 
 
 def _meters_to_km(value: Any) -> float | None:
@@ -52,6 +53,9 @@ def main() -> int:
     conn = sqlite3.connect(Settings.DATABASE_PATH)
     try:
         cursor = conn.cursor()
+        primary_source = str(
+            getattr(Settings, "PRIMARY_ACTIVITY_SOURCE", "") or "garmin"
+        ).strip().lower()
         cursor.execute("SELECT MIN(date) FROM activities")
         min_date = cursor.fetchone()[0]
         oldest = (
@@ -93,17 +97,45 @@ def main() -> int:
                 skipped += 1  # нет дистанции в API / активность вне окна
                 continue
 
+            # P1: если у канонической есть Garmin-линк и primary=garmin,
+            # activities.distance_km не трогаем — авторитетна Garmin-дистанция;
+            # payload intervals-линка всё равно обновляем (для проекции при
+            # primary=intervals). Для intervals-only канонических — заполняем.
+            cursor.execute(
+                "SELECT 1 FROM activity_provider_links "
+                "WHERE canonical_activity_id=? AND provider='garmin' LIMIT 1",
+                (canonical_id,),
+            )
+            has_garmin = cursor.fetchone() is not None
+            intervals_authoritative = primary_source == "intervals" or not has_garmin
+
+            cursor.execute(
+                f"SELECT {', '.join(ACTIVITY_COLUMN_ORDER)} FROM activities "
+                "WHERE activity_id=?",
+                (canonical_id,),
+            )
+            activity_row = cursor.fetchone()
+            if activity_row is None:
+                skipped += 1
+                continue
+            canonical_row = dict(zip(ACTIVITY_COLUMN_ORDER, activity_row))
+
             new_payload: str | None = None
+            payload: Any = None
             if payload_json:
                 try:
                     payload = json.loads(payload_json)
                 except (TypeError, ValueError):
                     payload = None
-                if isinstance(payload, dict) and payload.get("distance_km") != km:
-                    payload["distance_km"] = km
-                    new_payload = json.dumps(payload, ensure_ascii=False)
-            else:
-                new_payload = json.dumps({"distance_km": km}, ensure_ascii=False)
+            # P2: никогда не пишем урезанный снапшот — если payload отсутствует
+            # или неполный, строим полный из текущей канонической строки.
+            if not isinstance(payload, dict) or not payload.get("date"):
+                payload = dict(canonical_row)
+                payload["distance_km"] = km
+                new_payload = json.dumps(payload, ensure_ascii=False)
+            elif payload.get("distance_km") != km:
+                payload["distance_km"] = km
+                new_payload = json.dumps(payload, ensure_ascii=False)
             if new_payload is not None:
                 cursor.execute(
                     "UPDATE activity_provider_links SET provider_payload=? WHERE id=?",
@@ -111,22 +143,17 @@ def main() -> int:
                 )
                 updated_payloads += 1
 
-            cursor.execute(
-                "SELECT distance_km FROM activities WHERE activity_id=?",
-                (canonical_id,),
-            )
-            activity = cursor.fetchone()
-            if activity is None:
-                skipped += 1
-                continue
-            if activity[0] == km:
-                unchanged += 1
-            else:
+            if intervals_authoritative and canonical_row.get("distance_km") != km:
                 cursor.execute(
                     "UPDATE activities SET distance_km=? WHERE activity_id=?",
                     (km, canonical_id),
                 )
                 updated_activities += 1
+            elif canonical_row.get("distance_km") == km:
+                unchanged += 1
+            else:
+                # Garmin-primary и дистанция уже есть — не перезаписываем (P1).
+                unchanged += 1
 
         conn.commit()
         print(f"Проверено links: {len(links)}")
