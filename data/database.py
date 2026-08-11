@@ -1,6 +1,9 @@
+import hashlib
 import json
 import re
 import sqlite3
+from typing import Any, Mapping
+
 import pandas as pd
 from datetime import date, datetime, timedelta
 
@@ -449,6 +452,30 @@ class Database:
                 source TEXT,
                 source_key TEXT,
                 active_key TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+
+        # Immutable provider-delivery evidence. Proposal result_json remains a
+        # backward-compatible source for historical recovery sends, but it
+        # cannot represent manual delivery and can be replaced on rollback.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS intervals_plan_deliveries (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                fingerprint TEXT NOT NULL UNIQUE,
+                source TEXT NOT NULL,
+                checkpoint_id INTEGER,
+                dates_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                provider_event_ids_json TEXT NOT NULL,
+                desired_count INTEGER NOT NULL DEFAULT 0,
+                executable_count INTEGER NOT NULL DEFAULT 0,
+                calendar_only_count INTEGER NOT NULL DEFAULT 0,
+                target_mismatch_count INTEGER NOT NULL DEFAULT 0,
+                deleted_count INTEGER NOT NULL DEFAULT 0,
+                failed_count INTEGER NOT NULL DEFAULT 0,
+                retryable INTEGER NOT NULL DEFAULT 0,
+                error TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -2724,7 +2751,7 @@ class Database:
         return self._deserialize_coach_proposal_row(row) if claimed else None
 
     def get_approved_recovery_replan_deliveries(self):
-        """Recovery replan/rollback proposals with successful delivery (#398/#397).
+        """Successful plan deliveries from the ledger plus legacy proposals.
 
         Used by the card to flag "план перепланирован после доставки" — the
         athlete may have trained by the previously delivered plan version.
@@ -2732,6 +2759,15 @@ class Database:
         version, which is real delivery history (review #410 P2). Returns
         ``[{proposal_id, created_at, checkpoint_id, dates, status}]``.
         """
+        deliveries = self.get_intervals_plan_deliveries(successful_only=True)
+        seen = {
+            (
+                item.get("checkpoint_id"),
+                tuple(item.get("dates") or []),
+                item.get("status"),
+            )
+            for item in deliveries
+        }
         conn = self._connect()
         try:
             rows = conn.execute(
@@ -2745,7 +2781,6 @@ class Database:
             ).fetchall()
         finally:
             conn.close()
-        deliveries: list[dict] = []
         for row in rows:
             if not row[2]:
                 continue
@@ -2756,16 +2791,164 @@ class Database:
             delivery = result.get("delivery") if isinstance(result, dict) else None
             if not isinstance(delivery, dict) or delivery.get("status") != "success":
                 continue
-            deliveries.append(
-                {
-                    "proposal_id": row[0],
-                    "created_at": row[1],
-                    "checkpoint_id": delivery.get("checkpoint_id"),
-                    "dates": list(delivery.get("dates") or []),
-                    "status": str(delivery.get("status") or ""),
-                }
+            item = {
+                "proposal_id": row[0],
+                "created_at": row[1],
+                "checkpoint_id": delivery.get("checkpoint_id"),
+                "dates": list(delivery.get("dates") or []),
+                "status": str(delivery.get("status") or ""),
+                "source": "recovery_proposal_legacy",
+            }
+            identity = (
+                item["checkpoint_id"],
+                tuple(item["dates"]),
+                item["status"],
             )
+            if identity not in seen:
+                deliveries.append(item)
+                seen.add(identity)
         return deliveries
+
+    def save_intervals_plan_delivery(
+        self, payload: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Append one idempotent, sanitized Intervals plan-delivery event."""
+        dates = sorted({str(value)[:10] for value in (payload.get("dates") or [])})
+        provider_event_ids = sorted(
+            {
+                str(value)
+                for value in (payload.get("provider_event_ids") or [])
+                if value is not None
+            }
+        )
+
+        def _count(name):
+            try:
+                return max(0, int(payload.get(name) or 0))
+            except (TypeError, ValueError):
+                return 0
+
+        checkpoint_id = payload.get("checkpoint_id")
+        try:
+            checkpoint_id = int(checkpoint_id) if checkpoint_id is not None else None
+        except (TypeError, ValueError):
+            checkpoint_id = None
+        event = {
+            "source": str(payload.get("source") or "unknown"),
+            "checkpoint_id": checkpoint_id,
+            "dates": dates,
+            "status": str(payload.get("status") or "unknown"),
+            "provider_event_ids": provider_event_ids,
+            "desired_count": _count("desired_count"),
+            "executable_count": _count("executable_count"),
+            "calendar_only_count": _count("calendar_only_count"),
+            "target_mismatch_count": _count("target_mismatch_count"),
+            "deleted_count": _count("deleted_count"),
+            "failed_count": _count("failed_count"),
+            "retryable": bool(payload.get("retryable")),
+            "error": str(payload.get("error")) if payload.get("error") else None,
+        }
+        canonical = json.dumps(
+            event, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        )
+        fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+        conn = self._connect()
+        try:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO intervals_plan_deliveries
+                    (fingerprint, source, checkpoint_id, dates_json, status,
+                     provider_event_ids_json, desired_count, executable_count,
+                     calendar_only_count, target_mismatch_count, deleted_count,
+                     failed_count, retryable, error)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    fingerprint,
+                    event["source"],
+                    event["checkpoint_id"],
+                    json.dumps(event["dates"], ensure_ascii=False),
+                    event["status"],
+                    json.dumps(event["provider_event_ids"], ensure_ascii=False),
+                    event["desired_count"],
+                    event["executable_count"],
+                    event["calendar_only_count"],
+                    event["target_mismatch_count"],
+                    event["deleted_count"],
+                    event["failed_count"],
+                    int(event["retryable"]),
+                    event["error"],
+                ),
+            )
+            row = conn.execute(
+                """SELECT id, fingerprint, source, checkpoint_id, dates_json,
+                          status, provider_event_ids_json, desired_count,
+                          executable_count, calendar_only_count,
+                          target_mismatch_count, deleted_count, failed_count,
+                          retryable, error, created_at
+                   FROM intervals_plan_deliveries WHERE fingerprint = ?""",
+                (fingerprint,),
+            ).fetchone()
+            conn.commit()
+        finally:
+            conn.close()
+        return self._deserialize_intervals_plan_delivery(row)
+
+    def get_intervals_plan_deliveries(
+        self, *, successful_only: bool = False
+    ) -> list[dict[str, Any]]:
+        """Read immutable plan-delivery events in creation order."""
+        conn = self._connect()
+        try:
+            query = """SELECT id, fingerprint, source, checkpoint_id, dates_json,
+                              status, provider_event_ids_json, desired_count,
+                              executable_count, calendar_only_count,
+                              target_mismatch_count, deleted_count, failed_count,
+                              retryable, error, created_at
+                       FROM intervals_plan_deliveries"""
+            params = ()
+            if successful_only:
+                query += " WHERE status = ?"
+                params = ("success",)
+            query += " ORDER BY id"
+            rows = conn.execute(query, params).fetchall()
+        finally:
+            conn.close()
+        return [self._deserialize_intervals_plan_delivery(row) for row in rows]
+
+    @staticmethod
+    def _deserialize_intervals_plan_delivery(row):
+        if not row:
+            return None
+        try:
+            dates = json.loads(row[4])
+        except (TypeError, ValueError):
+            dates = []
+        try:
+            provider_event_ids = json.loads(row[6])
+        except (TypeError, ValueError):
+            provider_event_ids = []
+        return {
+            "id": row[0],
+            "fingerprint": row[1],
+            "proposal_id": None,
+            "source": row[2],
+            "checkpoint_id": row[3],
+            "dates": dates if isinstance(dates, list) else [],
+            "status": row[5],
+            "provider_event_ids": (
+                provider_event_ids if isinstance(provider_event_ids, list) else []
+            ),
+            "desired_count": row[7],
+            "executable_count": row[8],
+            "calendar_only_count": row[9],
+            "target_mismatch_count": row[10],
+            "deleted_count": row[11],
+            "failed_count": row[12],
+            "retryable": bool(row[13]),
+            "error": row[14],
+            "created_at": row[15],
+        }
 
     def _deserialize_coach_proposal_row(self, row):
         if not row:

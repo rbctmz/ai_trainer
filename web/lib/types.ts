@@ -1061,6 +1061,9 @@ export interface IntervalsDeliveryResult {
   failed_count: number;
   retryable: boolean;
   error: string | null;
+  history_status: "recorded" | "failed";
+  history_retryable: boolean;
+  history_error: string | null;
 }
 
 // --- Dashboard Widgets ---

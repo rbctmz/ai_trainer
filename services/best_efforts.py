@@ -8,11 +8,53 @@
 """
 from __future__ import annotations
 
-from typing import Any
+import math
+from typing import Any, Mapping
 
 from models.power_curve import normalize_power_curve_payload
 from services import intervals_icu
 from services.intervals_icu import IntervalsICUClient, IntervalsICUError
+
+
+_SIXTY_MINUTES_SECONDS = 3600
+
+
+def _enrich_sixty_minute_peak(
+    compact: dict[str, Any],
+    efforts: list[Mapping[str, Any]],
+) -> None:
+    """Fill the provider curve's missing 60-minute headline in place."""
+    peak = next(
+        (
+            item
+            for item in compact.get("peaks", [])
+            if item.get("duration") == _SIXTY_MINUTES_SECONDS
+            and item.get("watts") is None
+        ),
+        None,
+    )
+    if peak is None or not efforts:
+        return
+
+    average = efforts[0].get("average")
+    if average is None or isinstance(average, bool):
+        return
+    try:
+        watts = float(average)
+    except (TypeError, ValueError):
+        return
+    if not math.isfinite(watts) or watts <= 0:
+        return
+
+    peak["watts"] = int(round(watts))
+    weight = compact.get("weight")
+    if (
+        isinstance(weight, (int, float))
+        and not isinstance(weight, bool)
+        and math.isfinite(weight)
+        and weight > 0
+    ):
+        peak["watts_per_kg"] = round(watts / weight, 1)
 
 
 def fetch_activity_power_curve(
@@ -44,6 +86,23 @@ def fetch_activity_power_curve(
         compact = normalize_power_curve_payload(payload)
     except (IntervalsICUError, ValueError):
         return database.get_activity_power_curve(activity_id)
+
+    sixty_minute_peak_missing = any(
+        peak.get("duration") == _SIXTY_MINUTES_SECONDS
+        and peak.get("watts") is None
+        for peak in compact.get("peaks", [])
+    )
+    if sixty_minute_peak_missing:
+        try:
+            efforts = client.get_activity_best_efforts(
+                intervals_id,
+                stream="watts",
+                duration=_SIXTY_MINUTES_SECONDS,
+                count=1,
+            )
+        except (IntervalsICUError, ValueError):
+            return database.get_activity_power_curve(activity_id)
+        _enrich_sixty_minute_peak(compact, efforts)
 
     database.save_activity_power_curve(activity_id, compact)
     return compact

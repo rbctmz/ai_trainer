@@ -51,8 +51,8 @@ def _target_zone(step: Mapping[str, Any]) -> dict[str, Any] | None:
         "type": kind,
         "low": _compact_number(target.get("low")),
         "high": _compact_number(target.get("high")),
-        "relative_low": _compact_number(target.get("relative_low")),
-        "relative_high": _compact_number(target.get("relative_high")),
+        "relative_low": _compact_relative_number(target.get("relative_low")),
+        "relative_high": _compact_relative_number(target.get("relative_high")),
     }
 
 
@@ -67,6 +67,19 @@ def _compact_number(value: Any) -> int | float | None:
     if number.is_integer():
         return int(number)
     return round(number, 1)
+
+
+def _compact_relative_number(value: Any) -> int | float | None:
+    """Round a relative fraction to at most 2 decimals; junk -> None."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number.is_integer():
+        return int(number)
+    return round(number, 2)
 
 
 def _project_step(step: Any) -> dict[str, Any] | None:

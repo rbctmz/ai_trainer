@@ -223,7 +223,7 @@ def safe_deliver_active_plan(
 ) -> dict[str, Any]:
     """Return retryable delivery evidence without invalidating local truth."""
     try:
-        return deliver_active_plan(
+        result = deliver_active_plan(
             db,
             days=days,
             dates=dates,
@@ -236,7 +236,7 @@ def safe_deliver_active_plan(
             selected = _selected_dates(days=days, dates=dates, today=today)
         except Exception:
             selected = []
-        return {
+        result = {
             **_base_result(
                 status="failed",
                 source=str(source),
@@ -251,6 +251,24 @@ def safe_deliver_active_plan(
                 list(secrets or []) + [str(Settings.INTERVALS_ICU_API_KEY or "")],
             ),
         }
+    result["history_status"] = "pending"
+    result["history_retryable"] = False
+    result["history_error"] = None
+    try:
+        db.save_intervals_plan_delivery(result)
+        result["history_status"] = "recorded"
+    except Exception as exc:
+        # The provider may already have accepted the write. Keep that evidence
+        # honest and expose a retryable local-history failure without claiming
+        # the provider delivery itself failed.
+        result["retryable"] = True
+        result["history_status"] = "failed"
+        result["history_retryable"] = True
+        result["history_error"] = _sanitized_error(
+            exc,
+            list(secrets or []) + [str(Settings.INTERVALS_ICU_API_KEY or "")],
+        )
+    return result
 
 
 __all__ = [

@@ -41,8 +41,9 @@ def _meters_to_km(value: Any) -> float | None:
     return round(metres / 1000.0, 2)
 
 
-def main() -> int:
-    client = get_client()
+def main(*, client=None, database_path: str | None = None) -> int:
+    """Run the backfill; injectable boundaries keep the real path hermetic in tests."""
+    client = client or get_client()
     if not client.is_configured():
         print(
             "INTERVALS_ICU_API_KEY не настроен — backfill невозможен.",
@@ -50,7 +51,7 @@ def main() -> int:
         )
         return 2
 
-    conn = sqlite3.connect(Settings.DATABASE_PATH)
+    conn = sqlite3.connect(database_path or Settings.DATABASE_PATH)
     try:
         cursor = conn.cursor()
         primary_source = str(

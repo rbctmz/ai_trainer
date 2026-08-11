@@ -39,6 +39,7 @@ from models.planning_near_term import (
 from models.recovery_replan import assert_recovery_replan_safety
 from models.planning_summary import summarize_near_term_edit
 from models.session_identity import ensure_session_identities
+from models.session_quality_forecast import ACTUAL_SESSION_ROLES
 from models.session_transfer import apply_session_transfer
 from models.planning_execution import (
     build_execution_plan_adjustment,
@@ -2356,6 +2357,11 @@ def record_plan_actual_match(
     normalized_action = str(action or "confirm").strip().lower()
     if normalized_action not in {"confirm", "reject", "unmatch"}:
         raise ValueError("action must be confirm, reject or unmatch")
+    normalized_actual_role = str(actual_role or "").strip().lower()
+    if normalized_actual_role and normalized_actual_role not in ACTUAL_SESSION_ROLES:
+        raise ValueError(
+            f"actual_role must be one of {sorted(ACTUAL_SESSION_ROLES)}"
+        )
     if normalized_action == "confirm" and not activity_ids:
         raise ValueError("confirm requires at least one activity")
     activities = db.get_activities_by_ids(activity_ids if normalized_action == "confirm" else [])
@@ -2388,7 +2394,7 @@ def record_plan_actual_match(
         # copied from the plan. Confirmation establishes WHICH activity matches
         # the session; what the athlete actually did stays as given (None → the
         # adherence stays "не оценено" honestly).
-        "role": str(actual_role or "").strip().lower() or None,
+        "role": normalized_actual_role or None,
     }
     target_key = f"session:{session_id}"
     previous = db.get_latest_plan_actual_matches(start_date=session_date, end_date=session_date)
@@ -2426,26 +2432,28 @@ def record_plan_actual_match(
     fingerprint_source = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     payload["fingerprint"] = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
     saved = db.save_plan_actual_match(payload)
-    if normalized_action == "unmatch" and previous_row is not None:
+    if normalized_action == "unmatch":
         # #405 review P1: feedback derived from the superseded match must not
-        # stay active — tombstone it so quality evaluations are not attributed
-        # to a canceled association.
+        # stay active — including feedback linked to an older match revision
+        # before a role correction. The latest feedback is the active state for
+        # this session, so this lookup also makes repeated unmatch calls safe.
         from api.session_feedback import (
             StaleFeedbackError,
             tombstone_session_feedback,
         )
 
-        for feedback in db.get_active_feedback_for_match(int(previous_row["id"])):
+        feedback = db.get_latest_session_feedback(session_id)
+        if feedback is not None and feedback.get("status") == "active":
             try:
                 tombstone_session_feedback(
                     db,
                     int(feedback["id"]),
                     client_submission_fingerprint=(
-                        f"unmatch:{previous_row['id']}:{feedback['id']}"
+                        f"unmatch:{target_key}:{feedback['id']}"
                     ),
                 )
             except StaleFeedbackError:
-                continue
+                pass
     from services.recovery_analytics import refresh_recovery_episodes_best_effort
 
     refresh_recovery_episodes_best_effort(db, as_of=date.today(), target_session_ids=[session_id])

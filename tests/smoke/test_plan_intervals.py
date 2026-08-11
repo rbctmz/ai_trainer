@@ -70,7 +70,7 @@ def test_project_planned_intervals_classifies_work_and_rest():
     assert [iv["type"] for iv in intervals] == ["rest", "work", "rest", "rest"]
     assert intervals[0]["segment_kind"] == "warmup"
     assert intervals[1]["duration_seconds"] == 720
-    assert intervals[1]["target_zone"]["relative_high"] == round(0.95, 1)
+    assert intervals[1]["target_zone"]["relative_high"] == 0.95
     assert intervals[2]["segment_kind"] == "recovery"
     assert intervals[3]["segment_kind"] == "cooldown"
 
@@ -90,7 +90,7 @@ def test_project_planned_intervals_preserves_order_and_repeat_index():
     intervals = project_planned_intervals(session)
 
     assert [iv["repeat_index"] for iv in intervals] == [1, 1, 2]
-    assert intervals[0]["target_zone"]["relative_high"] == round(1.02, 1)
+    assert intervals[0]["target_zone"]["relative_high"] == 1.02
 
 
 def test_project_planned_intervals_empty_when_no_steps():
@@ -179,9 +179,8 @@ def test_project_planned_intervals_target_zone_compact_number():
 
     intervals = project_planned_intervals(session)
 
-    # _compact_number rounds to 1 decimal; 0.948 -> 0.9.
-    assert intervals[0]["target_zone"]["relative_high"] == 0.9
-    assert intervals[0]["target_zone"]["relative_low"] == 0.9
+    assert intervals[0]["target_zone"]["relative_high"] == 0.95
+    assert intervals[0]["target_zone"]["relative_low"] == 0.88
 
 
 def test_project_planned_intervals_work_segment_classifies_as_work():

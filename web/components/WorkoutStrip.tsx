@@ -38,6 +38,7 @@ const SEGMENT_HEIGHTS: Record<string, number> = {
   steady: 72,
   work: 100,
 };
+const RPE_SCALE_MAX = 10;
 
 function clampHeight(value: number): number {
   return Math.max(28, Math.min(100, Math.round(value)));
@@ -58,7 +59,7 @@ function segmentHeight(step: WorkoutStep): number {
       const low = Number(target.low);
       const high = Number(target.high);
       if (Number.isFinite(low) && Number.isFinite(high) && high > 0) {
-        return clampHeight(((low + high) / 2 / 8) * 100);
+        return clampHeight(((low + high) / 2 / RPE_SCALE_MAX) * 100);
       }
     }
   }

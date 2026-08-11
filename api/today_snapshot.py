@@ -16,6 +16,7 @@ from models.planning_checkpoints import (
     summarize_checkpoint_provenance,
 )
 from models.readiness_conflicts import ROLE_LABELS_RU
+from services.intervals_plan_delivery import athlete_local_date
 
 TODAY_SNAPSHOT_VERSION = "today_decision_snapshot_v2"
 
@@ -51,11 +52,18 @@ def _device_sync_hint(
     if source not in {"recovery_replan", "recovery_replan_transfer"}:
         return None
     created_at = str(checkpoint.get("created_at") or "").strip()
+    try:
+        checkpoint_created_at = datetime.fromisoformat(created_at.replace(" ", "T"))
+        if checkpoint_created_at.tzinfo is None:
+            checkpoint_created_at = checkpoint_created_at.replace(tzinfo=timezone.utc)
+        checkpoint_local_date = athlete_local_date(checkpoint_created_at).isoformat()
+    except (TypeError, ValueError):
+        return None
     checkpoint_id = checkpoint.get("id")
     if (
         checkpoint_id is None
         or not created_at
-        or created_at[:10] != str(as_of)[:10]
+        or checkpoint_local_date != str(as_of)[:10]
     ):
         return None
     delivery = next(

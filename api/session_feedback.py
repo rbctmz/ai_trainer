@@ -18,15 +18,12 @@ from models.post_workout_feedback import (
     evaluate_prediction,
     validate_feedback_values,
 )
-from models.session_quality_forecast import classify_plan_adherence
+from models.session_quality_forecast import ACTUAL_SESSION_ROLES, classify_plan_adherence
 from utils.product_semantics import normalize_sport_key
 
 
 class StaleFeedbackError(RuntimeError):
     """Raised when a correction targets a superseded feedback revision."""
-
-
-_ACTUAL_ROLES = {"off", "recovery", "easy", "activation", "quality", "long"}
 
 
 def _now(value: datetime | None = None) -> datetime:
@@ -648,8 +645,8 @@ def resolve_prediction_via_feedback(
     if prediction is None:
         raise LookupError(f"prediction {prediction_id} not found")
     normalized_role = str(actual_role or "").strip().lower()
-    if normalized_role and normalized_role not in _ACTUAL_ROLES:
-        raise ValueError(f"actual_role must be one of {sorted(_ACTUAL_ROLES)}")
+    if normalized_role and normalized_role not in ACTUAL_SESSION_ROLES:
+        raise ValueError(f"actual_role must be one of {sorted(ACTUAL_SESSION_ROLES)}")
     if quality_rating_1_5 is not None and quality_rating_1_5 not in {1, 2, 3, 4, 5}:
         raise ValueError("quality_rating_1_5 must be between 1 and 5")
     evidence, match = _admin_match_evidence(
