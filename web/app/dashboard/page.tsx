@@ -15,6 +15,7 @@ import { SleepWidget } from "@/components/dashboard/SleepWidget";
 import { RaceProjection } from "@/components/dashboard/RaceProjection";
 import { AthleteProfileCard } from "@/components/dashboard/AthleteProfileCard";
 import { SyncControl } from "@/components/sync/SyncControl";
+import { DataCoverageCard } from "@/components/sync/DataCoverageCard";
 
 export default function DashboardPage() {
   const { data, error, isLoading, mutate } = useSWR<DashboardResponse>(
@@ -42,6 +43,8 @@ export default function DashboardPage() {
       </header>
 
       <ActivitiesWidget />
+
+      <DataCoverageCard />
 
       {isLoading ? <SkeletonState /> : null}
 

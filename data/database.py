@@ -17,6 +17,7 @@ from data.activity_store import (
     ActivityStore,
     create_activity_card_tables,
 )
+from data.data_coverage_store import DataCoverageStore
 from config.settings import Settings
 
 
@@ -1868,6 +1869,18 @@ class Database:
         rows = cursor.fetchall()
         conn.close()
         return [dict(zip(columns, row)) for row in rows]
+
+    def get_data_coverage_rows(
+        self,
+        start_date: str,
+        end_date: str,
+    ) -> dict[str, Any]:
+        """Read bounded presence/provenance rows for the coverage service."""
+        conn = self._connect()
+        try:
+            return DataCoverageStore(conn).load(str(start_date), str(end_date))
+        finally:
+            conn.close()
 
     def save_plan_actual_match(self, payload):
         """Append one immutable user match revision, idempotent by fingerprint."""

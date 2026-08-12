@@ -172,6 +172,29 @@ M5 завершает Intervals-primary трек только на presentation-
 Проверка: `test_m5_garmin_demotion.py`, M3/M4 source regressions, Next lint/build
 и изолированная browser-приёмка пустого Dashboard. Статус: M5 завершён.
 
+### Data coverage inventory: local aggregate diagnostic (#427)
+
+`GET /api/sync/coverage?days=30|90` и постоянная карточка Dashboard показывают
+покрытие канонического локального набора без чтения provider API на рендере.
+
+- **ASR-PERF-1**: запрос ограничен выбранным 30/90-дневным окном и читает только
+  SQLite presence/provenance; на локальной 90-дневной истории контрольный замер
+  выполняется за единицы миллисекунд.
+- **ASR-SEC-1**: контракт содержит только counts, календарные даты и source labels;
+  значения health-метрик, имена/ID активностей, provider payload и credentials не
+  сериализуются.
+- **ASR-MOD-2**: активности имеют event-grain (`canonical_count`, пересекающиеся
+  `provider_link_counts`), а ежедневные сигналы — day-grain (`observed_days`,
+  `missing_days`, `coverage_pct`). UI не смешивает отсутствие тренировки с
+  пропуском ежедневной метрики.
+- **ASR-REL-2**: день считается покрытым только при non-null каноническом значении;
+  `steps=0` остаётся валидным наблюдением. Источник берётся из metric-scoped
+  provenance полей, поэтому карточка описывает сохранённый канон, а не сырой
+  ответ провайдера.
+
+Проверка: `test_data_coverage.py`, `test_data_coverage_ui_contract.py`, Next
+lint/build и contributor-safe smoke suite.
+
 ### Running threshold pace: единицы, provenance и safe fallback (#308)
 
 Профиль Intervals.icu теперь отделяет provider-unit от planning-unit:
