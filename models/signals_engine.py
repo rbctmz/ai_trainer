@@ -50,14 +50,16 @@ def _latest_row(frame: pd.DataFrame | None) -> dict[str, Any]:
 
 
 def _without_multisport_envelopes(frame: pd.DataFrame) -> pd.DataFrame:
-    """Drop a multisport summary when its detailed activities are present.
+    """Drop a multisport summary when all three triathlon legs are present.
 
     Garmin can expose a ``multi_sport`` envelope while Intervals.icu exposes
     the swim/bike/run legs for the same day.  Both carry TSS, so keeping the
-    envelope would count the session twice.  A standalone envelope is retained
-    because it may be the only available load when a provider sync is partial.
+    envelope would count the session twice.  Requiring usable swim, bike and run
+    TSS avoids hiding the envelope for an unrelated same-day workout or partial
+    provider sync.
     """
-    if frame.empty or "sport" not in frame.columns or "date" not in frame.columns:
+    required = {"date", "sport", "tss"}
+    if frame.empty or not required.issubset(frame.columns):
         return frame
 
     sport_keys = (
@@ -73,8 +75,27 @@ def _without_multisport_envelopes(frame: pd.DataFrame) -> pd.DataFrame:
         return frame
 
     activity_dates = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
-    detailed_dates = activity_dates[~envelopes & sport_keys.ne("")].dropna()
-    superseded = envelopes & activity_dates.isin(detailed_dates)
+    leg_sports = sport_keys.replace(
+        {
+            "swim": "swim",
+            "swimming": "swim",
+            "open_water_swimming": "swim",
+            "bike": "bike",
+            "cycling": "bike",
+            "ride": "bike",
+            "run": "run",
+            "running": "run",
+        }
+    )
+    usable_tss = pd.to_numeric(frame["tss"], errors="coerce").notna()
+    legs = pd.DataFrame({"date": activity_dates, "sport": leg_sports})
+    legs = legs.loc[usable_tss & leg_sports.isin({"swim", "bike", "run"})]
+    complete_dates = {
+        day
+        for day, sports in legs.groupby("date")["sport"]
+        if {"swim", "bike", "run"}.issubset(set(sports))
+    }
+    superseded = envelopes & activity_dates.isin(complete_dates)
     return frame.loc[~superseded]
 
 
