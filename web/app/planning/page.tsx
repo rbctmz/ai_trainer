@@ -604,9 +604,9 @@ function FormProjection({ projection }: { projection?: PlanningOverview["form_pr
     points.map((point, index) => `${index === 0 ? "M" : "L"}${x(point.date)},${y(point[key])}`).join(" ");
   const targetX = x(summary.target_date);
   const series = [
-    { key: "ctl" as const, color: "#3B82F6", label: "CTL (форма)" },
-    { key: "atl" as const, color: "#F59E0B", label: "ATL (усталость)" },
-    { key: "tsb" as const, color: "#10B981", label: "TSB (свежесть)" },
+    { key: "ctl" as const, color: "#3B82F6", label: "CTL", meaning: "Форма" },
+    { key: "atl" as const, color: "#F59E0B", label: "ATL", meaning: "Усталость" },
+    { key: "tsb" as const, color: "#10B981", label: "TSB", meaning: "Свежесть" },
   ];
   const targetDetail = summary.target_kind === "event"
     ? `${summary.target_date} · ${summary.days_to_goal} дн. до A-цели`
@@ -624,14 +624,19 @@ function FormProjection({ projection }: { projection?: PlanningOverview["form_pr
         <OverviewFact label="CTL к цели" value={`${summary.projected_ctl}`} detail={summary.target_date} />
         <OverviewFact label="TSB к цели" value={`${summary.projected_tsb}`} detail={summary.target_kind === "event" ? "к A-цели" : "к концу горизонта"} />
       </dl>
+      <ProjectionLegend
+        series={series}
+        boundary={boundary}
+        targetDate={summary.target_date}
+      />
       <svg
         role="img"
         aria-label={`Факт формы до ${boundary} показан сплошной линией; прогноз после ${boundary} — пунктиром. ${targetDetail}.`}
         viewBox={`0 0 ${width} ${height}`}
-        className="mt-4 w-full"
+        className="mt-3 w-full"
       >
         <line x1={padding} x2={width - padding} y1={y(0)} y2={y(0)} stroke="#E2E8F0" strokeWidth={1} />
-        <line x1={targetX} x2={targetX} y1={padding} y2={height - padding} stroke="#334155" strokeWidth={1} />
+        <line x1={targetX} x2={targetX} y1={padding} y2={height - padding} stroke="#94A3B8" strokeWidth={1} strokeDasharray="3 3" />
         {series.map((item) => (
           <Fragment key={`actual-${item.key}`}>
             <path d={path(actual, item.key)} fill="none" stroke={item.color} strokeWidth={2} />
@@ -639,13 +644,91 @@ function FormProjection({ projection }: { projection?: PlanningOverview["form_pr
           </Fragment>
         ))}
       </svg>
-      <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-ink-soft">
-        <span>Сплошная: Факт до {boundary}</span>
-        <span>Пунктир: Прогноз после {boundary}</span>
-        <span>│ Целевая дата</span>
-        {series.map((item) => <span key={item.key}>{item.label}</span>)}
-      </div>
     </section>
+  );
+}
+
+function ProjectionLegend({
+  series,
+  boundary,
+  targetDate,
+}: {
+  series: ReadonlyArray<{
+    key: "ctl" | "atl" | "tsb";
+    color: string;
+    label: string;
+    meaning: string;
+  }>;
+  boundary: string;
+  targetDate: string;
+}) {
+  return (
+    <div className="mt-4 space-y-2 text-xs text-ink-soft">
+      <div
+        role="group"
+        aria-label="Легенда показателей формы"
+        className="flex flex-wrap gap-x-5 gap-y-2"
+      >
+        {series.map((item) => (
+          <span key={item.key} className="inline-flex items-center gap-2">
+            <svg aria-hidden="true" viewBox="0 0 32 8" className="h-2 w-8 shrink-0">
+              <line
+                x1="1"
+                x2="31"
+                y1="4"
+                y2="4"
+                stroke={item.color}
+                strokeWidth="3"
+                strokeLinecap="round"
+              />
+            </svg>
+            <span>
+              <strong className="text-ink">{item.label}</strong> · {item.meaning}
+            </span>
+          </span>
+        ))}
+      </div>
+      <div
+        role="group"
+        aria-label="Легенда периодов графика"
+        className="flex flex-wrap gap-x-5 gap-y-2 border-t border-surface-border pt-2 text-ink-faint"
+      >
+        <span className="inline-flex items-center gap-2">
+          <svg aria-hidden="true" viewBox="0 0 32 8" className="h-2 w-8 shrink-0">
+            <line x1="1" x2="31" y1="4" y2="4" stroke="currentColor" strokeWidth="2" />
+          </svg>
+          Факт до {boundary}
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <svg aria-hidden="true" viewBox="0 0 32 8" className="h-2 w-8 shrink-0">
+            <line
+              x1="1"
+              x2="31"
+              y1="4"
+              y2="4"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeDasharray="6 4"
+            />
+          </svg>
+          Прогноз после {boundary}
+        </span>
+        <span className="inline-flex items-center gap-2">
+          <svg aria-hidden="true" viewBox="0 0 12 16" className="h-4 w-3 shrink-0">
+            <line
+              x1="6"
+              x2="6"
+              y1="1"
+              y2="15"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeDasharray="3 3"
+            />
+          </svg>
+          Целевая дата {targetDate}
+        </span>
+      </div>
+    </div>
   );
 }
 
