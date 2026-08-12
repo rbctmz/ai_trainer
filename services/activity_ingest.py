@@ -329,11 +329,28 @@ def ingest_provider_batch(
     return result
 
 
-def backfill_provider_links(db: Any) -> dict[str, int]:
+def backfill_provider_links(
+    db: Any,
+    *,
+    primary_source: str | None = None,
+) -> dict[str, int]:
     """ADR-0008 п.7: offline, idempotent backfill of provider-links for existing
     canonical activities, classified by :func:`classify_activity_id`.
+
+    Reconciliation is part of the same transaction: a historical Garmin row may
+    already have a standalone Intervals claimant that is outside today's incremental
+    sync window. Leaving the merge until another provider fetch would preserve a
+    duplicate indefinitely.
     """
-    return db.backfill_activity_provider_links(classify_activity_id)
+    resolved_primary = str(
+        primary_source or Settings.PRIMARY_ACTIVITY_SOURCE
+    ).strip().lower()
+    if resolved_primary not in {"garmin", "intervals"}:
+        raise ValueError("primary_source must be 'garmin' or 'intervals'")
+    return db.backfill_activity_provider_links(
+        classify_activity_id,
+        primary_source=resolved_primary,
+    )
 
 
 __all__ = [

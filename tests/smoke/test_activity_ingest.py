@@ -508,6 +508,98 @@ def test_backfilled_garmin_activity_merges_with_intervals_copy(tmp_path):
     assert _orphan_count(path) == 0
 
 
+@pytest.mark.parametrize("primary_source", ["garmin", "intervals"])
+def test_backfill_immediately_merges_existing_single_intervals_claimant(
+    tmp_path,
+    primary_source,
+):
+    """Repair must remove an already-created Intervals duplicate offline.
+
+    Historical real DBs can have a legacy numeric Garmin row while an earlier
+    Intervals ingest already created ``intervals_<id>`` for the same coordinate.
+    Waiting for a future provider re-fetch is not a repair: old rows may be outside
+    the incremental sync window. Backfill therefore resolves and projects now.
+    """
+    path = str(tmp_path / f"backfill_existing_{primary_source}.db")
+    db = Database(path)
+    db.save_activities([_garmin_row("555111")])
+    ingest_provider_activity(
+        db,
+        normalize_provider_activity(
+            _intervals_row(external_id="555111", icu_training_load=91),
+            "intervals",
+        ),
+        primary_source=primary_source,
+    )
+    assert _activity_ids(path) == {"555111", "intervals_i_777"}
+
+    counts = backfill_provider_links(db, primary_source=primary_source)
+
+    assert counts["garmin"] == 1
+    assert _activity_ids(path) == {"555111"}
+    snap = _snapshot(path)
+    links = {link["provider"]: link for link in snap["links"]}
+    assert set(links) == {"garmin", "intervals"}
+    assert {link["canonical_activity_id"] for link in links.values()} == {"555111"}
+    assert {link["match_status"] for link in links.values()} == {"matched"}
+    expected_tss = 86.0 if primary_source == "garmin" else 91.0
+    assert snap["activities"][0]["tss"] == expected_tss
+    assert _orphan_count(path) == 0
+
+
+def test_backfill_keeps_multiple_intervals_claimants_ambiguous(tmp_path):
+    path = str(tmp_path / "backfill_ambiguous.db")
+    db = Database(path)
+    db.save_activities([_garmin_row("555111")])
+    for intervals_id in ("i_a", "i_b"):
+        ingest_provider_activity(
+            db,
+            normalize_provider_activity(
+                _intervals_row(intervals_id=intervals_id, external_id="555111"),
+                "intervals",
+            ),
+            primary_source="garmin",
+        )
+
+    backfill_provider_links(db, primary_source="garmin")
+
+    snap = _snapshot(path)
+    assert _activity_ids(path) == {"555111", "intervals_i_a", "intervals_i_b"}
+    by_provider_id = {
+        (link["provider"], link["provider_activity_id"]): link
+        for link in snap["links"]
+    }
+    assert by_provider_id[("garmin", "555111")]["match_status"] == "unmatched"
+    for intervals_id in ("i_a", "i_b"):
+        link = by_provider_id[("intervals", intervals_id)]
+        assert link["canonical_activity_id"] == f"intervals_{intervals_id}"
+        assert link["match_status"] == "ambiguous"
+    assert _orphan_count(path) == 0
+
+
+def test_backfill_rolls_back_link_and_reconciliation_together(tmp_path, monkeypatch):
+    path = str(tmp_path / "backfill_atomic.db")
+    db = Database(path)
+    db.save_activities([_garmin_row("555111")])
+    ingest_provider_activity(
+        db,
+        normalize_provider_activity(_intervals_row(external_id="555111"), "intervals"),
+        primary_source="garmin",
+    )
+    before = _snapshot(path)
+
+    monkeypatch.setattr(
+        db,
+        "_project_canonical",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(RuntimeError("injected")),
+    )
+    with pytest.raises(RuntimeError, match="injected"):
+        backfill_provider_links(db, primary_source="garmin")
+
+    assert _snapshot(path) == before
+    assert _orphan_count(path) == 0
+
+
 def test_backfill_after_intervals_ingest_adds_no_spurious_link(tmp_path):
     # RED→GREEN idempotency: a projection-created canonical (`intervals_<id>`) is
     # already covered by its Intervals link, so backfill must NOT misclassify it as
@@ -689,6 +781,42 @@ def test_backfill_classifies_and_is_idempotent(tmp_path):
     assert recounts == {"garmin": 0, "demo": 0, "legacy_unknown": 0, "skipped_existing": 3}
     assert _snapshot(path)["links"] == first
     assert _orphan_count(path) == 0
+
+
+def test_backfill_normalizes_integer_legacy_ids_when_detecting_existing_links(tmp_path):
+    """The real pre-migration SQLite uses INTEGER activity_id, link IDs are TEXT."""
+    path = str(tmp_path / "legacy_integer_ids.db")
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE activities(activity_id INTEGER, date TEXT, sport TEXT, tss REAL)"
+    )
+    conn.executemany(
+        "INSERT INTO activities(activity_id, date, sport, tss) VALUES (?, ?, ?, ?)",
+        [(111, "2026-07-01", "running", 40), (222, "2026-07-02", "cycling", 50)],
+    )
+    conn.commit()
+    conn.close()
+    db = Database(path)
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """INSERT INTO activity_provider_links(
+               canonical_activity_id, provider, provider_activity_id, match_status
+           ) VALUES ('111', 'garmin', '111', 'unmatched')"""
+    )
+    conn.commit()
+    conn.close()
+
+    result = backfill_provider_links(db, primary_source="garmin")
+
+    assert result["garmin"] == 1
+    assert result["skipped_existing"] == 1
+    conn = sqlite3.connect(path)
+    links = conn.execute(
+        "SELECT canonical_activity_id, provider_activity_id FROM activity_provider_links "
+        "ORDER BY provider_activity_id"
+    ).fetchall()
+    conn.close()
+    assert links == [("111", "111"), ("222", "222")]
 
 
 def test_classify_activity_id_shapes():
