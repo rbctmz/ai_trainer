@@ -101,7 +101,12 @@ def fetch_activity_power_curve(
                 count=1,
             )
         except (IntervalsICUError, ValueError):
-            return database.get_activity_power_curve(activity_id)
+            # The headline enrichment is optional. A transient failure here
+            # must not hide the freshly fetched 5s..20min curve behind a stale
+            # cache (or None for a first view); persist the honest partial
+            # result and let a later card read retry the 60-minute peak.
+            database.save_activity_power_curve(activity_id, compact)
+            return compact
         _enrich_sixty_minute_peak(compact, efforts)
 
     database.save_activity_power_curve(activity_id, compact)

@@ -455,7 +455,7 @@ def test_fetch_activity_power_curve_60min_no_data_caches_partial_curve(tmp_path)
     assert db.get_activity_power_curve("act-1") == result
 
 
-def test_fetch_activity_power_curve_60min_failure_preserves_cache(tmp_path):
+def test_fetch_activity_power_curve_60min_failure_caches_fresh_partial_curve(tmp_path):
     from services.best_efforts import fetch_activity_power_curve
 
     db = Database(str(tmp_path / "svc-60min-failure.db"))
@@ -466,8 +466,35 @@ def test_fetch_activity_power_curve_60min_failure_preserves_cache(tmp_path):
         efforts_error=IntervalsICUError("upstream down", status_code=503),
     )
 
-    assert fetch_activity_power_curve(db, "act-1", client=client) == cached
-    assert db.get_activity_power_curve("act-1") == cached
+    result = fetch_activity_power_curve(db, "act-1", client=client)
+
+    assert result is not None
+    assert result != cached
+    assert next(item for item in result["peaks"] if item["duration"] == 3600)[
+        "watts"
+    ] is None
+    assert next(item for item in result["peaks"] if item["duration"] == 1200)[
+        "watts"
+    ] == 134
+    assert db.get_activity_power_curve("act-1") == result
+
+
+def test_fetch_activity_power_curve_60min_failure_keeps_first_fresh_curve(tmp_path):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc-60min-first-failure.db"))
+    _seed_intervals_link(db)
+    client = _PowerCurveServiceClient(
+        efforts_error=IntervalsICUError("upstream down", status_code=503),
+    )
+
+    result = fetch_activity_power_curve(db, "act-1", client=client)
+
+    assert result is not None
+    assert next(item for item in result["peaks"] if item["duration"] == 3600)[
+        "watts"
+    ] is None
+    assert db.get_activity_power_curve("act-1") == result
 
 
 def test_fetch_activity_power_curve_serves_cache_on_provider_failure(
