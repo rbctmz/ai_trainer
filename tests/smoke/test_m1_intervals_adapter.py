@@ -141,6 +141,51 @@ def test_m1_t4_intervals_only_populates_activities_and_load(tmp_path):
     assert metrics["atl"] > 0.0
 
 
+def test_m1_t4_persists_intervals_activity_summary_fields(tmp_path):
+    db = Database(str(tmp_path / "summary.db"))
+
+    def responder(method, path, params):
+        return [
+            _row(
+                "i_summary",
+                source="STRAVA",
+                external_id="s_123",
+                elapsed_time=6000,
+                moving_time=5700,
+                distance=38200,
+                average_heartrate=143.5,
+                max_heartrate=181,
+                icu_average_watts=226.4,
+                icu_weighted_avg_watts=251.2,
+                total_elevation_gain=642.7,
+                calories=984,
+                description="Endurance ride with four steady efforts",
+            )
+        ]
+
+    sync_intervals_data(db, client=FakeIntervalsClient(responder), now=NOW)
+
+    conn = sqlite3.connect(db.db_path)
+    row = conn.execute(
+        "SELECT duration_minutes, moving_duration_minutes, distance_km, avg_hr, "
+        "max_hr, avg_power, normalized_power, elevation_gain, calories, description "
+        "FROM activities WHERE activity_id='intervals_i_summary'"
+    ).fetchone()
+    conn.close()
+    assert row == (
+        100.0,
+        95.0,
+        38.2,
+        143.5,
+        181.0,
+        226.4,
+        None,
+        642.7,
+        984,
+        "Endurance ride with four steady efforts",
+    )
+
+
 def test_m1_t4_not_garmin_gated(tmp_path, monkeypatch):
     """The adapter is gated only on the Intervals API key, never on Garmin auth."""
     import services.garmin as garmin_service
@@ -229,6 +274,33 @@ def test_list_activities_raises_on_non_list_payload(tmp_path):
 
     with pytest.raises(IntervalsICUError):
         client.list_activities(date(2026, 7, 1), date(2026, 7, 23))
+
+
+def test_list_activities_preserves_existing_canonical_summary_fields():
+    payload = _row(
+        "i_summary",
+        elapsed_time=6000,
+        distance=38200,
+        average_heartrate=143.5,
+        max_heartrate=181,
+        icu_average_watts=226.4,
+        icu_weighted_avg_watts=251.2,
+        total_elevation_gain=642.7,
+        calories=984,
+        description="Endurance ride with four steady efforts",
+    )
+    client = FakeIntervalsClient(lambda method, path, params: [payload])
+
+    row = client.list_activities(date(2026, 7, 1), date(2026, 7, 23))[0]
+
+    assert row["elapsed_time"] == 6000
+    assert row["average_heartrate"] == 143.5
+    assert row["max_heartrate"] == 181
+    assert row["icu_average_watts"] == 226.4
+    assert row["total_elevation_gain"] == 642.7
+    assert row["calories"] == 984
+    assert row["description"] == "Endurance ride with four steady efforts"
+    assert "icu_weighted_avg_watts" not in row
 
 
 def test_429_makes_chunk_dirty_and_holds_cursor(tmp_path):
