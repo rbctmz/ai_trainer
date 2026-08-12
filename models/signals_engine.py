@@ -49,6 +49,66 @@ def _latest_row(frame: pd.DataFrame | None) -> dict[str, Any]:
     return df.iloc[0].to_dict()
 
 
+def _without_multisport_envelopes(frame: pd.DataFrame) -> pd.DataFrame:
+    """Choose one authoritative load source for a linked multisport activity.
+
+    Garmin can expose a ``multi_sport`` envelope while Intervals.icu exposes
+    linked legs whose ``provider_external_id`` is the envelope activity id.  A
+    complete positive swim/bike/run set supersedes the envelope; an incomplete
+    set is ignored in favour of the envelope.  Unlinked same-day workouts stay
+    untouched because date and sport alone cannot establish lineage.
+    """
+    required = {"activity_id", "provider_external_id", "sport", "tss"}
+    if frame.empty or not required.issubset(frame.columns):
+        return frame
+
+    sport_keys = (
+        frame["sport"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .str.replace(r"[\s-]+", "_", regex=True)
+    )
+    envelopes = sport_keys.isin({"multi_sport", "multisport"})
+    if not envelopes.any():
+        return frame
+
+    activity_ids = frame["activity_id"].fillna("").astype(str).str.strip()
+    parent_ids = frame["provider_external_id"].fillna("").astype(str).str.strip()
+    envelope_ids = set(activity_ids[envelopes & activity_ids.ne("")])
+    linked = parent_ids.isin(envelope_ids) & ~envelopes
+    if not linked.any():
+        return frame
+
+    leg_sports = sport_keys.replace(
+        {
+            "swim": "swim",
+            "swimming": "swim",
+            "open_water_swimming": "swim",
+            "bike": "bike",
+            "cycling": "bike",
+            "ride": "bike",
+            "run": "run",
+            "running": "run",
+        }
+    )
+    tss_values = pd.to_numeric(frame["tss"], errors="coerce")
+    usable_tss = tss_values.gt(0.0)
+    legs = pd.DataFrame({"parent_id": parent_ids, "sport": leg_sports})
+    legs = legs.loc[
+        linked & usable_tss & leg_sports.isin({"swim", "bike", "run"})
+    ]
+    complete_parents = {
+        parent_id
+        for parent_id, sports in legs.groupby("parent_id")["sport"]
+        if {"swim", "bike", "run"}.issubset(set(sports))
+    }
+    superseded_envelopes = envelopes & activity_ids.isin(complete_parents)
+    incomplete_linked_rows = linked & ~parent_ids.isin(complete_parents)
+    return frame.loc[~(superseded_envelopes | incomplete_linked_rows)]
+
+
 def training_load_metrics(
     activities_df: pd.DataFrame | None,
     *,
@@ -63,7 +123,7 @@ def training_load_metrics(
     last workout date (second instance of #139). ``as_of`` defaults to None to
     keep every existing caller's behavior unchanged.
     """
-    df = _frame_or_empty(activities_df)
+    df = _without_multisport_envelopes(_frame_or_empty(activities_df))
     if df.empty:
         return {
             "ctl": 0.0,
@@ -402,11 +462,20 @@ def assemble_signals(
     Issue #231: pass ``as_of`` to anchor CTL/ATL/TSB to today (rest days decay
     after the last workout) instead of freezing at the last activity date.
     """
-    metrics = training_load_metrics(activities_df, as_of=as_of)
+    load_activities = _without_multisport_envelopes(
+        _frame_or_empty(activities_df)
+    )
+    metrics = training_load_metrics(load_activities, as_of=as_of)
     load = _load_signal(metrics)
     hrv = _hrv_signal(hrv_df)
     sleep = _sleep_signal(sleep_df)
-    readiness = _readiness_signal(sleep_df, hrv_df, training_status, activities_df, health_df)
+    readiness = _readiness_signal(
+        sleep_df,
+        hrv_df,
+        training_status,
+        load_activities,
+        health_df,
+    )
     critical_status, critical_action, recommendations = _recommendations_for_signals(load, hrv)
     state = _state_signal(load, readiness, critical_status)
 

@@ -3165,9 +3165,19 @@ class Database:
         cutoff_date = self._cutoff_date(days)
         
         query = '''
-            SELECT * FROM activities 
-            WHERE date >= ?
-            ORDER BY date DESC
+            SELECT a.*,
+                   (
+                       SELECT CAST(link.external_id AS TEXT)
+                       FROM activity_provider_links AS link
+                       WHERE CAST(link.canonical_activity_id AS TEXT) = CAST(a.activity_id AS TEXT)
+                         AND link.provider = 'intervals'
+                         AND link.external_provider = 'garmin'
+                         AND link.external_id IS NOT NULL
+                       LIMIT 1
+                   ) AS provider_external_id
+            FROM activities AS a
+            WHERE a.date >= ?
+            ORDER BY a.date DESC
         '''
         df = pd.read_sql_query(query, conn, params=(cutoff_date,))
         conn.close()
