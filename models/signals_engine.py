@@ -462,11 +462,20 @@ def assemble_signals(
     Issue #231: pass ``as_of`` to anchor CTL/ATL/TSB to today (rest days decay
     after the last workout) instead of freezing at the last activity date.
     """
-    metrics = training_load_metrics(activities_df, as_of=as_of)
+    load_activities = _without_multisport_envelopes(
+        _frame_or_empty(activities_df)
+    )
+    metrics = training_load_metrics(load_activities, as_of=as_of)
     load = _load_signal(metrics)
     hrv = _hrv_signal(hrv_df)
     sleep = _sleep_signal(sleep_df)
-    readiness = _readiness_signal(sleep_df, hrv_df, training_status, activities_df, health_df)
+    readiness = _readiness_signal(
+        sleep_df,
+        hrv_df,
+        training_status,
+        load_activities,
+        health_df,
+    )
     critical_status, critical_action, recommendations = _recommendations_for_signals(load, hrv)
     state = _state_signal(load, readiness, critical_status)
 

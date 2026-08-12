@@ -7,7 +7,7 @@ from datetime import date
 import pandas as pd
 import pytest
 
-from models.signals_engine import training_load_metrics
+from models.signals_engine import assemble_signals, training_load_metrics
 from data.database import Database
 
 
@@ -209,3 +209,41 @@ def test_canonical_envelope_self_reference_keeps_its_load(
 
     assert float(metrics["ctl"]) > 0.0
     assert float(metrics["atl"]) > 0.0
+
+
+def test_signal_load_and_readiness_receive_same_deduplicated_activities(
+    monkeypatch,
+) -> None:
+    captured: dict[str, pd.DataFrame] = {}
+
+    def capture_readiness(
+        sleep_df, hrv_df, training_status, activities_df, health_df
+    ) -> dict[str, object]:
+        captured["activities"] = activities_df.copy()
+        return {
+            "value": None,
+            "label": "Нет данных",
+            "tone": "neutral",
+            "severity": 1,
+            "source": "none",
+            "drivers": [],
+        }
+
+    monkeypatch.setattr("models.signals_engine._readiness_signal", capture_readiness)
+    frame = pd.DataFrame(
+        [
+            _row(ENVELOPE_ID, "multi_sport", 68.7),
+            _row("swim-leg", "swimming", 34.7, parent_id=ENVELOPE_ID),
+            _row("bike-leg", "cycling", 85.7, parent_id=ENVELOPE_ID),
+            _row("run-leg", "running", 65.2, parent_id=ENVELOPE_ID),
+        ]
+    )
+
+    assemble_signals(activities_df=frame, as_of=date(2026, 7, 26))
+
+    readiness_activities = captured["activities"]
+    assert set(readiness_activities["activity_id"]) == {
+        "swim-leg",
+        "bike-leg",
+        "run-leg",
+    }
