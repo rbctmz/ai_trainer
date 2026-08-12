@@ -7,6 +7,11 @@ from utils.product_semantics import normalize_sport_key
 
 
 RULE_VERSION = "session_quality_v1"
+# Closed vocabulary shared by forecast resolution, post-workout feedback,
+# explicit plan matching, and the Planning selector. It mirrors planner roles.
+ACTUAL_SESSION_ROLES = frozenset(
+    {"off", "race", "activation", "recovery", "easy", "quality", "long"}
+)
 MIN_CONFIDENCE = 0.60
 MIN_PROBABILITY = 5.0
 MAX_PROBABILITY = 95.0

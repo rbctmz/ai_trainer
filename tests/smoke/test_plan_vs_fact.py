@@ -105,6 +105,39 @@ def test_match_carries_zone_for_planned_and_actual():
     assert result["matches"][0]["zone"] == {"planned": 1.0, "actual": 5}
 
 
+def test_full_projection_and_match_pipeline_preserves_relative_zone_precision():
+    from models.plan_intervals import project_planned_intervals
+
+    planned = project_planned_intervals(
+        {
+            "materialized_steps": [
+                {
+                    "name": "Threshold",
+                    "intensity": "work",
+                    "segment_kind": "work",
+                    "duration_seconds": 720,
+                    "target": {
+                        "type": "power",
+                        "relative_low": 0.882,
+                        "relative_high": 0.95,
+                    },
+                }
+            ]
+        }
+    )
+
+    result = match_plan_vs_fact(planned, [_actual(720, zone=4)])
+
+    assert result["matches"][0]["planned"]["target_zone"] == {
+        "type": "power",
+        "low": None,
+        "high": None,
+        "relative_low": 0.88,
+        "relative_high": 0.95,
+    }
+    assert result["matches"][0]["zone"]["planned"] == 0.95
+
+
 # --- greedy matching / consumption ---------------------------------------
 
 
@@ -129,6 +162,16 @@ def test_non_matching_actual_is_skipped_to_find_a_match():
 
     assert result["matches"][0]["matched"] is True
     assert result["matches"][0]["actual"]["moving_time"] == 718
+
+
+def test_matching_never_moves_backwards_in_actual_order():
+    planned = [_planned_work(60), _planned_work(300)]
+    actual = [_actual(300), _actual(60)]
+
+    result = match_plan_vs_fact(planned, actual)
+
+    assert [match["matched"] for match in result["matches"]] == [True, False]
+    assert result["summary"]["matched"] == 1
 
 
 # --- fail-open on bad/empty inputs ----------------------------------------

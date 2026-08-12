@@ -31,7 +31,15 @@ const READER_TAB_LABELS: Record<ReaderTab, string> = {
   execution: "Выполнение",
 };
 
-const ACTUAL_ROLE_OPTIONS = ["recovery", "easy", "quality", "long", "race"] as const;
+const ACTUAL_ROLE_OPTIONS = [
+  "off",
+  "race",
+  "activation",
+  "recovery",
+  "easy",
+  "quality",
+  "long",
+] as const;
 
 function ConfirmMatchControl({
   row,
@@ -1364,6 +1372,12 @@ function ExportMode() {
             ) : null}
             {deliveryResult.error ? (
               <p className="sm:col-span-4 text-tone-danger">{deliveryResult.error}</p>
+            ) : null}
+            {deliveryResult.history_retryable ? (
+              <p className="sm:col-span-4 text-tone-warning">
+                Результат попытки доставки не сохранён в локальной истории. Повторите отправку:
+                операция идемпотентна и восстановит предупреждения о синхронизации.
+              </p>
             ) : null}
           </div>
         ) : null}

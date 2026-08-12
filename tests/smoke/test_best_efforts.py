@@ -272,6 +272,44 @@ def _sample_power_curve_payload() -> list:
     }]
 
 
+def _live_shaped_power_curve_payload() -> list:
+    """Live contract stops before the card's 60-minute headline duration."""
+    return [{
+        "id": "i123", "stream_type": "watts", "weight": 95.4,
+        "secs": [5, 60, 300, 1200, 2700],
+        "values": [198, 155, 150, 134, 118],
+        "watts_per_kg": [2.07, 1.62, 1.57, 1.40, 1.24],
+        "vo2max_5m": 30.546541, "compound_score_5m": 235.84906,
+    }]
+
+
+class _PowerCurveServiceClient:
+    def __init__(self, *, efforts=None, efforts_error: Exception | None = None):
+        self.efforts = [] if efforts is None else efforts
+        self.efforts_error = efforts_error
+        self.best_effort_calls: list[dict] = []
+
+    def is_configured(self):
+        return True
+
+    def get_activity_power_curve(self, activity_id):
+        assert activity_id == "i123"
+        return _live_shaped_power_curve_payload()
+
+    def get_activity_best_efforts(self, activity_id, *, stream, duration, count):
+        self.best_effort_calls.append(
+            {
+                "activity_id": activity_id,
+                "stream": stream,
+                "duration": duration,
+                "count": count,
+            }
+        )
+        if self.efforts_error is not None:
+            raise self.efforts_error
+        return self.efforts
+
+
 def test_normalize_power_curve_payload_extracts_headline_peaks():
     compact = normalize_power_curve_payload(_sample_power_curve_payload())
 
@@ -371,6 +409,91 @@ def test_fetch_activity_power_curve_fetches_normalizes_and_caches(tmp_path, monk
     assert result is not None
     assert result["weight"] == 95.4
     assert [p["label"] for p in result["peaks"]] == ["5s", "1min", "5min", "20min", "60min"]
+    assert db.get_activity_power_curve("act-1") == result
+
+
+def test_fetch_activity_power_curve_enriches_60min_from_best_effort(tmp_path):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc-60min.db"))
+    _seed_intervals_link(db)
+    client = _PowerCurveServiceClient(
+        efforts=[{"average": 112.4, "duration": 3600}],
+    )
+
+    result = fetch_activity_power_curve(db, "act-1", client=client)
+
+    assert client.best_effort_calls == [{
+        "activity_id": "i123",
+        "stream": "watts",
+        "duration": 3600,
+        "count": 1,
+    }]
+    assert result is not None
+    peak = next(item for item in result["peaks"] if item["duration"] == 3600)
+    assert peak == {
+        "label": "60min",
+        "duration": 3600,
+        "watts": 112,
+        "watts_per_kg": 1.2,
+    }
+    assert db.get_activity_power_curve("act-1") == result
+
+
+def test_fetch_activity_power_curve_60min_no_data_caches_partial_curve(tmp_path):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc-60min-empty.db"))
+    _seed_intervals_link(db)
+    client = _PowerCurveServiceClient(efforts=[])
+
+    result = fetch_activity_power_curve(db, "act-1", client=client)
+
+    assert result is not None
+    peak = next(item for item in result["peaks"] if item["duration"] == 3600)
+    assert peak["watts"] is None
+    assert db.get_activity_power_curve("act-1") == result
+
+
+def test_fetch_activity_power_curve_60min_failure_caches_fresh_partial_curve(tmp_path):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc-60min-failure.db"))
+    _seed_intervals_link(db)
+    cached = normalize_power_curve_payload(_sample_power_curve_payload())
+    db.save_activity_power_curve("act-1", cached)
+    client = _PowerCurveServiceClient(
+        efforts_error=IntervalsICUError("upstream down", status_code=503),
+    )
+
+    result = fetch_activity_power_curve(db, "act-1", client=client)
+
+    assert result is not None
+    assert result != cached
+    assert next(item for item in result["peaks"] if item["duration"] == 3600)[
+        "watts"
+    ] is None
+    assert next(item for item in result["peaks"] if item["duration"] == 1200)[
+        "watts"
+    ] == 134
+    assert db.get_activity_power_curve("act-1") == result
+
+
+def test_fetch_activity_power_curve_60min_failure_keeps_first_fresh_curve(tmp_path):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc-60min-first-failure.db"))
+    _seed_intervals_link(db)
+    client = _PowerCurveServiceClient(
+        efforts_error=IntervalsICUError("upstream down", status_code=503),
+    )
+
+    result = fetch_activity_power_curve(db, "act-1", client=client)
+
+    assert result is not None
+    assert next(item for item in result["peaks"] if item["duration"] == 3600)[
+        "watts"
+    ] is None
     assert db.get_activity_power_curve("act-1") == result
 
 

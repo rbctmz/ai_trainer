@@ -98,7 +98,8 @@ def match_plan_vs_fact(
             },
         }
 
-    # Match against a copy so consumed indices aren't reused across identical reps.
+    # Advance beyond every match so later planned steps cannot consume an actual
+    # interval that occurred before the previous match.
     remaining = list(actual)
     matches: list[dict[str, Any]] = []
     matched_count = 0
@@ -107,7 +108,7 @@ def match_plan_vs_fact(
         if matched is None or index is None:
             matches.append(_unmatched(step))
             continue
-        remaining.pop(index)
+        remaining = remaining[index + 1 :]
         matched_count += 1
         matches.append(_matched(step, matched))
 
@@ -150,14 +151,14 @@ def _unmatched(step: Mapping[str, Any]) -> dict[str, Any]:
     }
 
 
-def _planned_zone(step: Mapping[str, Any]) -> int | None:
+def _planned_zone(step: Mapping[str, Any]) -> int | float | None:
     target = step.get("target_zone")
     if not isinstance(target, Mapping):
         return None
-    return _compact(target.get("relative_high"))
+    return _compact(target.get("relative_high"), digits=2)
 
 
-def _compact(value: Any) -> int | float | None:
+def _compact(value: Any, *, digits: int = 1) -> int | float | None:
     if value is None or isinstance(value, bool):
         return None
     try:
@@ -166,7 +167,7 @@ def _compact(value: Any) -> int | float | None:
         return None
     if number.is_integer():
         return int(number)
-    return round(number, 1)
+    return round(number, digits)
 
 
 def _empty_summary() -> dict[str, Any]:

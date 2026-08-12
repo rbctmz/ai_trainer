@@ -11,6 +11,7 @@ from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.session_quality_forecast import (
+    ACTUAL_SESSION_ROLES,
     RULE_VERSION,
     build_session_quality_forecast,
 )
@@ -18,7 +19,8 @@ from utils.product_semantics import normalize_sport_key
 
 
 TARGET_ROLES = {"quality", "long"}
-ACTUAL_ROLES = {"off", "recovery", "easy", "activation", "quality", "long"}
+# Backward-compatible module export; the canonical definition lives in models.
+ACTUAL_ROLES = ACTUAL_SESSION_ROLES
 FORECAST_HORIZON_DAYS = 7
 
 
@@ -148,8 +150,8 @@ def resolve_session_quality_prediction(
 ) -> dict[str, Any]:
     """Compatibility facade; feedback is the only source of new resolution facts."""
     normalized_role = str(actual_role or "").strip().lower()
-    if normalized_role and normalized_role not in ACTUAL_ROLES:
-        raise ValueError(f"actual_role must be one of {sorted(ACTUAL_ROLES)}")
+    if normalized_role and normalized_role not in ACTUAL_SESSION_ROLES:
+        raise ValueError(f"actual_role must be one of {sorted(ACTUAL_SESSION_ROLES)}")
     from api.session_feedback import resolve_prediction_via_feedback
 
     return resolve_prediction_via_feedback(

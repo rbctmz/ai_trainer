@@ -890,6 +890,34 @@ def test_device_sync_hint_fires_for_transfer_checkpoint() -> None:
     assert hint["reason"] == "recovery_replan"
 
 
+def test_device_sync_hint_compares_sqlite_utc_timestamp_in_athlete_timezone(
+    monkeypatch,
+) -> None:
+    from config.settings import Settings
+    from api.today_snapshot import _device_sync_hint
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "Europe/Moscow")
+    checkpoint = {
+        "id": 77,
+        "checkpoint_source": "recovery_replan",
+        # SQLite CURRENT_TIMESTAMP is UTC: this is already 2026-08-11 in Moscow.
+        "created_at": "2026-08-10 21:30:00",
+    }
+    deliveries = [
+        {
+            "checkpoint_id": 77,
+            "dates": ["2026-08-11"],
+            "status": "success",
+            "created_at": "2026-08-10 21:30:05",
+        }
+    ]
+
+    hint = _device_sync_hint(checkpoint, "2026-08-11", deliveries)
+
+    assert hint is not None
+    assert hint["at"] == "2026-08-10 21:30:00"
+
+
 def test_today_snapshot_carries_device_sync_hint_for_recovery_replan(tmp_path) -> None:
     import json as _json
 

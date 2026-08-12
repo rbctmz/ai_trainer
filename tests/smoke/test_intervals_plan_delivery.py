@@ -724,3 +724,142 @@ def test_safe_delivery_sanitizes_provider_failure(tmp_path) -> None:
     assert result["status"] == "failed"
     assert result["retryable"] is True
     assert "secret-token" not in result["error"]
+
+
+def test_safe_delivery_marks_history_failure_as_retryable(
+    tmp_path, monkeypatch
+) -> None:
+    from services.intervals_plan_delivery import safe_deliver_active_plan
+
+    db = Database(str(tmp_path / "history-failure.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+
+    def fail_history(_payload):
+        raise RuntimeError("ledger unavailable secret-token")
+
+    monkeypatch.setattr(db, "save_intervals_plan_delivery", fail_history)
+    result = safe_deliver_active_plan(
+        db,
+        dates=["2026-07-15"],
+        source="manual",
+        client=_FakeClient(),
+        secrets=["secret-token"],
+    )
+
+    assert result["status"] == "success"
+    assert result["retryable"] is True
+    assert result["history_status"] == "failed"
+    assert result["history_retryable"] is True
+    assert "secret-token" not in result["history_error"]
+
+
+def test_safe_delivery_keeps_provider_and_history_failures_distinct(
+    tmp_path, monkeypatch
+) -> None:
+    from services.intervals_icu import IntervalsICUError
+    from services.intervals_plan_delivery import safe_deliver_active_plan
+
+    class FailingClient(_FakeClient):
+        def list_workout_events(self, oldest, newest):
+            raise IntervalsICUError("provider unavailable")
+
+    db = Database(str(tmp_path / "double-failure.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+    monkeypatch.setattr(
+        db,
+        "save_intervals_plan_delivery",
+        lambda _payload: (_ for _ in ()).throw(RuntimeError("ledger unavailable")),
+    )
+
+    result = safe_deliver_active_plan(
+        db,
+        dates=["2026-07-15"],
+        source="manual",
+        client=FailingClient(),
+    )
+
+    assert result["status"] == "failed"
+    assert result["error"] == "provider unavailable"
+    assert result["history_status"] == "failed"
+    assert result["history_error"] == "ledger unavailable"
+    assert result["retryable"] is result["history_retryable"] is True
+
+
+def test_delivery_history_failure_is_typed_and_visible_in_export_ui() -> None:
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[2]
+    types_source = (root / "web" / "lib" / "types.ts").read_text(encoding="utf-8")
+    page_source = (root / "web" / "app" / "planning" / "page.tsx").read_text(
+        encoding="utf-8"
+    )
+
+    assert "history_status:" in types_source
+    assert "history_retryable:" in types_source
+    assert "deliveryResult.history_retryable" in page_source
+    assert "Результат попытки доставки не сохранён" in page_source
+    assert "План отправлен провайдеру, но локальная история" not in page_source
+
+
+def test_manual_safe_delivery_is_persisted_idempotently(tmp_path) -> None:
+    """A manual delivery is durable evidence, not only recovery-proposal metadata."""
+    from services.intervals_plan_delivery import safe_deliver_active_plan
+
+    db = Database(str(tmp_path / "manual-delivery-ledger.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_single_plan()))
+    client = _FakeClient()
+
+    first = safe_deliver_active_plan(
+        db,
+        dates=["2026-07-15"],
+        source="manual",
+        client=client,
+    )
+    second = safe_deliver_active_plan(
+        db,
+        dates=["2026-07-15"],
+        source="manual",
+        client=client,
+    )
+
+    assert first["status"] == second["status"] == "success"
+    deliveries = db.get_approved_recovery_replan_deliveries()
+    assert len(deliveries) == 1
+    assert deliveries[0]["proposal_id"] is None
+    assert deliveries[0]["checkpoint_id"] == checkpoint["id"]
+    assert deliveries[0]["dates"] == ["2026-07-15"]
+    assert deliveries[0]["status"] == "success"
+    assert deliveries[0]["source"] == "manual"
+
+    from models.plan_vs_fact import plan_replanned_after_delivery
+
+    warning = plan_replanned_after_delivery(
+        {"session_date": "2026-07-15", "base_checkpoint_id": checkpoint["id"] + 1},
+        {"checkpoint_source": "recovery_replan"},
+        deliveries,
+    )
+    assert warning is not None
+    assert warning["delivery_checkpoint_id"] == checkpoint["id"]
+
+
+def test_delivery_ledger_fingerprint_ignores_provider_id_order_and_scalar_type(
+    tmp_path,
+) -> None:
+    db = Database(str(tmp_path / "delivery-id-order.db"))
+    payload = {
+        "source": "manual",
+        "checkpoint_id": 9,
+        "dates": ["2026-07-15"],
+        "status": "success",
+        "provider_event_ids": [101, "102"],
+        "desired_count": 2,
+        "executable_count": 2,
+    }
+
+    first = db.save_intervals_plan_delivery(payload)
+    second = db.save_intervals_plan_delivery(
+        {**payload, "provider_event_ids": [102, "101"]}
+    )
+
+    assert first["id"] == second["id"]
+    assert db.get_intervals_plan_deliveries() == [first]

@@ -885,6 +885,72 @@ def test_confirm_match_with_explicit_role_evaluates_adherence(tmp_path):
     assert row["adherence"] == "exact"
 
 
+@pytest.mark.parametrize("actual_role", ["activation", "race"])
+def test_confirm_match_accepts_every_planner_execution_role(tmp_path, actual_role):
+    from api import planning_service as ps
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(
+        item for item in plan["session_templates"] if item["date"] == "2026-07-12"
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": f"valid-role-{actual_role}",
+                "date": "2026-07-12",
+                "sport": "cycling",
+                "duration_minutes": 30,
+                "tss": 10.0,
+            }
+        ]
+    )
+
+    saved = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=[f"valid-role-{actual_role}"],
+        actual_role=actual_role,
+        action="confirm",
+    )
+
+    assert saved["actual_snapshot"]["role"] == actual_role
+
+
+def test_confirm_match_rejects_unknown_actual_role_without_writing(tmp_path):
+    from api import planning_service as ps
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(
+        item for item in plan["session_templates"] if item["date"] == "2026-07-12"
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "invalid-role",
+                "date": "2026-07-12",
+                "sport": "cycling",
+                "duration_minutes": 30,
+                "tss": 10.0,
+            }
+        ]
+    )
+
+    with pytest.raises(ValueError, match="actual_role must be one of"):
+        ps.record_plan_actual_match(
+            db,
+            base_checkpoint_id=1,
+            session_id=target["session_id"],
+            activity_ids=["invalid-role"],
+            actual_role="not-a-real-role",
+            action="confirm",
+        )
+
+    assert db.get_latest_plan_actual_matches(
+        start_date="2026-07-12", end_date="2026-07-12"
+    ) == []
+
+
 def test_unmatch_creates_user_unmatched_and_frees_activity(tmp_path):
     # #405: unmatch cancels a user_confirmed match — a user_unmatched revision
     # supersedes it, the session returns to "no fact", and the activity is free
@@ -1023,6 +1089,93 @@ def test_unmatch_tombstones_feedback_derived_from_match(tmp_path):
 
     history = db.get_session_feedback_history(target["session_id"])
     assert any(row["status"] == "tombstone" for row in history)
+
+
+def test_unmatch_tombstones_feedback_from_superseded_match_revision(tmp_path):
+    """Role correction must not hide active feedback from the unmatch cleanup."""
+    from api import planning_service as ps
+
+    db, plan = _reconciliation_db(tmp_path)
+    target = next(
+        item for item in plan["session_templates"] if item["date"] == "2026-07-12"
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "same-sport",
+                "date": "2026-07-12",
+                "started_at_utc": "2026-07-12T18:00:00Z",
+                "sport": "cycling",
+                "duration_minutes": 30,
+                "tss": 10.0,
+            }
+        ]
+    )
+    first_match = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=["same-sport"],
+        actual_role=None,
+        action="confirm",
+    )
+    feedback = db.save_session_feedback(
+        {
+            "fingerprint": "feedback-before-role-correction",
+            "target_key": f"session:{target['session_id']}",
+            "session_id": target["session_id"],
+            "match_revision_id": first_match["id"],
+            "match_snapshot": {
+                "planned": {"session_id": target["session_id"]},
+                "match_status": "matched",
+                "match_method": "user_confirmed",
+            },
+            "actual_activity_ids": ["same-sport"],
+            "completion_status": "completed",
+            "session_rpe_1_10": 6,
+            "quality_rating_1_5": 5,
+            "source": "user_web",
+            "session_end_provenance": "local",
+            "status": "active",
+            "rule_version": "test",
+            "submitted_at": "2026-08-08T10:00:00Z",
+        }
+    )["feedback"]
+    corrected_match = ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=["same-sport"],
+        actual_role="recovery",
+        action="confirm",
+    )
+    assert corrected_match["supersedes_match_id"] == first_match["id"]
+
+    ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=[],
+        actual_role=None,
+        action="unmatch",
+    )
+
+    latest = db.get_latest_session_feedback(target["session_id"])
+    assert latest["status"] == "tombstone"
+    assert latest["supersedes_feedback_id"] == feedback["id"]
+
+    # Retrying unmatch is safe and does not append another feedback tombstone.
+    history_size = len(db.get_session_feedback_history(target["session_id"]))
+    ps.record_plan_actual_match(
+        db,
+        base_checkpoint_id=1,
+        session_id=target["session_id"],
+        activity_ids=[],
+        actual_role=None,
+        action="unmatch",
+    )
+    assert len(db.get_session_feedback_history(target["session_id"])) == history_size
+    assert db.get_latest_session_feedback(target["session_id"])["status"] == "tombstone"
 
 
 def test_export_and_adjust_active_plan(tmp_path):
