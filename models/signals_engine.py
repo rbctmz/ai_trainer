@@ -49,6 +49,35 @@ def _latest_row(frame: pd.DataFrame | None) -> dict[str, Any]:
     return df.iloc[0].to_dict()
 
 
+def _without_multisport_envelopes(frame: pd.DataFrame) -> pd.DataFrame:
+    """Drop a multisport summary when its detailed activities are present.
+
+    Garmin can expose a ``multi_sport`` envelope while Intervals.icu exposes
+    the swim/bike/run legs for the same day.  Both carry TSS, so keeping the
+    envelope would count the session twice.  A standalone envelope is retained
+    because it may be the only available load when a provider sync is partial.
+    """
+    if frame.empty or "sport" not in frame.columns or "date" not in frame.columns:
+        return frame
+
+    sport_keys = (
+        frame["sport"]
+        .fillna("")
+        .astype(str)
+        .str.strip()
+        .str.lower()
+        .str.replace(r"[\s-]+", "_", regex=True)
+    )
+    envelopes = sport_keys.isin({"multi_sport", "multisport"})
+    if not envelopes.any():
+        return frame
+
+    activity_dates = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
+    detailed_dates = activity_dates[~envelopes & sport_keys.ne("")].dropna()
+    superseded = envelopes & activity_dates.isin(detailed_dates)
+    return frame.loc[~superseded]
+
+
 def training_load_metrics(
     activities_df: pd.DataFrame | None,
     *,
@@ -63,7 +92,7 @@ def training_load_metrics(
     last workout date (second instance of #139). ``as_of`` defaults to None to
     keep every existing caller's behavior unchanged.
     """
-    df = _frame_or_empty(activities_df)
+    df = _without_multisport_envelopes(_frame_or_empty(activities_df))
     if df.empty:
         return {
             "ctl": 0.0,
