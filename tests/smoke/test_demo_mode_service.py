@@ -25,7 +25,7 @@ class _StubDatabase:
     def save_activities(self, activities):
         self.activities = activities
 
-    def backfill_activity_provider_links(self, classify):
+    def backfill_activity_provider_links(self, classify, *, primary_source="garmin"):
         # D6 (#270): демо-сид доводит активности до provider-link модели. Стаб
         # фиксирует, СКОЛЬКО активностей уже лежало на момент вызова, — backfill
         # обязан идти после save_activities, иначе связей не будет.

@@ -3950,14 +3950,19 @@ class Database:
             'canonical_created': canonical_created,
         }
 
-    def backfill_activity_provider_links(self, classify):
+    def backfill_activity_provider_links(self, classify, *, primary_source='garmin'):
         """ADR-0008 п.7 (#269): offline, idempotent backfill — one provider-link per
         existing canonical activity, classified by ``classify(activity_id)`` (the
         service owns the policy; the data layer stays policy-free). Never touches
         the network; ``external_id`` stays NULL (a later ingest attaches the
         cross-provider link when Intervals data arrives). ``provider_tss`` ← current
-        ``source_tss``. Re-running inserts nothing new and mutates no classification.
+        ``source_tss``. Existing Intervals claimants are resolved and every touched
+        canonical is projected in this SAME transaction, so the repair cannot leave
+        an inserted Garmin link beside a duplicate canonical after failure.
+        Re-running inserts nothing new and mutates no classification.
         """
+        if primary_source not in {'garmin', 'intervals'}:
+            raise ValueError("primary_source must be 'garmin' or 'intervals'")
         columns = self._ACTIVITY_COLUMN_ORDER
         conn = self._connect()
         try:
@@ -3970,18 +3975,23 @@ class Database:
             # as `legacy_unknown` and get a spurious second link. Backfill is only for
             # legacy activities that predate the provider-link model.
             cursor.execute('SELECT canonical_activity_id FROM activity_provider_links')
-            covered = {row[0] for row in cursor.fetchall()}
+            # Real pre-migration DBs can have INTEGER activities.activity_id while
+            # provider links are TEXT. Normalize both sides or a covered numeric row
+            # compares unequal and the UNIQUE(provider, provider_activity_id) insert
+            # rolls back the entire repair.
+            covered = {str(row[0]) for row in cursor.fetchall()}
 
             counts = {'garmin': 0, 'demo': 0, 'legacy_unknown': 0, 'skipped_existing': 0}
             for values in activity_rows:
                 record = dict(zip(columns, values))
                 activity_id = record.get('activity_id')
-                if not activity_id:
+                if activity_id is None or str(activity_id).strip() == '':
                     continue
-                if activity_id in covered:
+                activity_id_text = str(activity_id).strip()
+                if activity_id_text in covered:
                     counts['skipped_existing'] += 1
                     continue
-                provider = classify(activity_id)
+                provider = classify(activity_id_text)
                 # Snapshot the existing canonical fields onto the link so the link is
                 # self-describing (projection stays lossless if the row is later
                 # re-derived from the link set).
@@ -3992,11 +4002,20 @@ class Database:
                           external_provider, external_id, provider_tss, provider_payload,
                           match_status)
                        VALUES (?, ?, ?, NULL, NULL, ?, ?, 'unmatched')''',
-                    (activity_id, provider, activity_id,
+                    (activity_id_text, provider, activity_id_text,
                      self.clean_value(record.get('source_tss')), payload_json),
                 )
-                covered.add(activity_id)
+                covered.add(activity_id_text)
                 counts[provider] = counts.get(provider, 0) + 1
+
+                affected = {activity_id_text}
+                if provider == 'garmin':
+                    affected |= self._resolve_garmin_coordinate(
+                        cursor,
+                        activity_id_text,
+                    )
+                for canonical_id in sorted(affected):
+                    self._project_canonical(cursor, canonical_id, primary_source)
 
             conn.commit()
         except Exception:
