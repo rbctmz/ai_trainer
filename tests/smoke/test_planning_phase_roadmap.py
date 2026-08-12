@@ -157,3 +157,22 @@ def test_overview_ui_uses_accessible_server_owned_roadmap_and_projection():
     assert "strokeDasharray" in source
     assert "role=\"img\"" in source
     assert "roadmap" in types and "form_projection" in types
+
+
+def test_form_projection_has_explicit_visual_and_accessible_legends():
+    source = (REPO_ROOT / "web/app/planning/page.tsx").read_text(encoding="utf-8")
+
+    assert "function ProjectionLegend" in source
+    assert 'aria-label="Легенда показателей формы"' in source
+    assert 'aria-label="Легенда периодов графика"' in source
+    assert 'aria-hidden="true"' in source
+    assert 'label: "CTL", meaning: "Форма"' in source
+    assert 'label: "ATL", meaning: "Усталость"' in source
+    assert 'label: "TSB", meaning: "Свежесть"' in source
+    assert "Факт до {boundary}" in source
+    assert "Прогноз после {boundary}" in source
+    assert "Целевая дата {targetDate}" in source
+    assert 'strokeDasharray="6 4"' in source
+    assert 'strokeDasharray="3 3"' in source
+    assert "<span>Сплошная:" not in source
+    assert "<span>Пунктир:" not in source
