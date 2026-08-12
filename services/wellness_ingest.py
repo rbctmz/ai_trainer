@@ -30,6 +30,7 @@ class WellnessRecord:
                 (self.sleep, "total_sleep_minutes"),
                 (self.sleep, "sleep_score"),
                 (self.health, "resting_hr"),
+                (self.health, "steps"),
             )
         )
 
@@ -119,6 +120,19 @@ def normalize_intervals_wellness(row: Mapping[str, Any]) -> WellnessRecord:
             "resting_hr": int(resting_hr),
             "resting_hr_source": "intervals",
         }
+
+    steps = _number(row, "steps")
+    if steps is not None:
+        if not steps.is_integer() or steps < 0:
+            raise ValueError(
+                "Intervals wellness steps must be a nonnegative integer"
+            )
+        health.update(
+            {
+                "steps": int(steps),
+                "steps_source": "intervals",
+            }
+        )
 
     return WellnessRecord(date=day, hrv=hrv, sleep=sleep, health=health)
 

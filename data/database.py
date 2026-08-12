@@ -166,6 +166,7 @@ class Database:
         'resting_hr': 'INTEGER',
         'resting_hr_source': "TEXT DEFAULT 'legacy_unknown'",
         'steps': 'INTEGER',
+        'steps_source': "TEXT DEFAULT 'legacy_unknown'",
         'floors_climbed': 'INTEGER',
         'calories_active': 'INTEGER',
         'calories_bmr': 'INTEGER',
@@ -354,6 +355,7 @@ class Database:
                 resting_hr INTEGER,
                 resting_hr_source TEXT DEFAULT 'legacy_unknown',
                 steps INTEGER,
+                steps_source TEXT DEFAULT 'legacy_unknown',
                 floors_climbed INTEGER,
                 calories_active INTEGER,
                 calories_bmr INTEGER,
@@ -3626,24 +3628,48 @@ class Database:
                 health = record.get("health") or {}
                 if health:
                     row = cursor.execute(
-                        "SELECT resting_hr, resting_hr_source FROM daily_health WHERE date=?",
+                        "SELECT resting_hr, resting_hr_source, steps, steps_source "
+                        "FROM daily_health WHERE date=?",
                         (day,),
                     ).fetchone()
-                    incoming = self.clean_value(health.get("resting_hr"))
+                    metrics = (
+                        ("resting_hr", "resting_hr_source", 0, 1),
+                        ("steps", "steps_source", 2, 3),
+                    )
                     if row is None:
-                        cursor.execute(
-                            "INSERT INTO daily_health(date, resting_hr, resting_hr_source) "
-                            "VALUES (?, ?, ?)",
-                            (day, incoming, provider),
-                        )
-                        counts["health_new"] += 1
-                    elif should_replace(row[0], row[1]):
-                        cursor.execute(
-                            "UPDATE daily_health SET resting_hr=?, resting_hr_source=? "
-                            "WHERE date=?",
-                            (incoming, provider, day),
-                        )
-                        counts["health_updated"] += 1
+                        columns = ["date"]
+                        values = [day]
+                        for metric, source_column, _, _ in metrics:
+                            if metric in health:
+                                columns.extend((metric, source_column))
+                                values.extend(
+                                    (self.clean_value(health.get(metric)), provider)
+                                )
+                        if len(columns) > 1:
+                            placeholders = ", ".join("?" for _ in columns)
+                            cursor.execute(
+                                f"INSERT INTO daily_health ({', '.join(columns)}) "
+                                f"VALUES ({placeholders})",
+                                values,
+                            )
+                            counts["health_new"] += 1
+                    else:
+                        updates = {}
+                        for metric, source_column, value_index, source_index in metrics:
+                            if metric in health and should_replace(
+                                row[value_index], row[source_index]
+                            ):
+                                updates[metric] = self.clean_value(health.get(metric))
+                                updates[source_column] = provider
+                        if updates:
+                            clause = ", ".join(
+                                f"{column}=?" for column in updates
+                            )
+                            cursor.execute(
+                                f"UPDATE daily_health SET {clause} WHERE date=?",
+                                [*updates.values(), day],
+                            )
+                            counts["health_updated"] += 1
                     touched = True
 
                 if not touched:
@@ -4410,9 +4436,17 @@ class Database:
         insert_placeholders = ', '.join('?' for _ in insert_columns)
         
         # Получаем существующие даты
-        cursor.execute('SELECT date, resting_hr, resting_hr_source FROM daily_health')
+        cursor.execute(
+            'SELECT date, resting_hr, resting_hr_source, steps, steps_source '
+            'FROM daily_health'
+        )
         existing = {
-            row[0]: (row[1], row[2])
+            row[0]: {
+                'resting_hr': row[1],
+                'resting_hr_source': row[2],
+                'steps': row[3],
+                'steps_source': row[4],
+            }
             for row in cursor.fetchall()
         }
         
@@ -4421,28 +4455,48 @@ class Database:
         
         for date_str, data in health_data.items():
             clean_date = self.clean_value(date_str)
+            prepared = dict(data)
+            for metric, source_column in (
+                ('resting_hr', 'resting_hr_source'),
+                ('steps', 'steps_source'),
+            ):
+                if metric in prepared:
+                    prepared[source_column] = self.clean_value(
+                        prepared.get(source_column) or 'legacy_unknown'
+                    )
             
             if clean_date in existing:
                 # Обновляем только переданные поля: отсутствующий ключ означает
                 # «нет данных за этот проход» и не должен затирать сохранённое значение NULL-ом
-                present_columns = [column for column in columns if column in data]
-                incoming_source = self.clean_value(
-                    data.get('resting_hr_source') or 'legacy_unknown'
-                )
-                current_hr, current_source = existing[clean_date]
-                if 'resting_hr' in present_columns and not (
-                    current_hr is None
-                    or current_source == incoming_source
-                    or incoming_source == Settings.PRIMARY_WELLNESS_SOURCE
-                    or current_source not in {'garmin', 'intervals'}
+                present_columns = [
+                    column for column in columns if column in prepared
+                ]
+                current = existing[clean_date]
+                for metric, source_column in (
+                    ('resting_hr', 'resting_hr_source'),
+                    ('steps', 'steps_source'),
                 ):
-                    present_columns.remove('resting_hr')
-                    if 'resting_hr_source' in present_columns:
-                        present_columns.remove('resting_hr_source')
+                    if metric not in present_columns:
+                        if source_column in present_columns:
+                            present_columns.remove(source_column)
+                        continue
+                    incoming_source = prepared[source_column]
+                    if not (
+                        current[metric] is None
+                        or current[source_column] == incoming_source
+                        or incoming_source == Settings.PRIMARY_WELLNESS_SOURCE
+                        or current[source_column] not in {'garmin', 'intervals'}
+                    ):
+                        present_columns.remove(metric)
+                        if source_column in present_columns:
+                            present_columns.remove(source_column)
                 if not present_columns:
                     continue
                 update_clause = ', '.join(f"{column}=?" for column in present_columns)
-                column_values = [self.clean_value(data.get(column)) for column in present_columns]
+                column_values = [
+                    self.clean_value(prepared.get(column))
+                    for column in present_columns
+                ]
                 cursor.execute(
                     f'UPDATE daily_health SET {update_clause} WHERE date=?',
                     (*column_values, clean_date),
@@ -4450,17 +4504,25 @@ class Database:
                 updated_count += 1
             else:
                 # Вставляем новую запись
-                column_values = [self.clean_value(data.get(column)) for column in columns]
+                prepared.setdefault('resting_hr_source', 'legacy_unknown')
+                prepared.setdefault('steps_source', 'legacy_unknown')
+                column_values = [
+                    self.clean_value(prepared.get(column)) for column in columns
+                ]
                 cursor.execute(
                     f"INSERT INTO daily_health ({', '.join(insert_columns)}) VALUES ({insert_placeholders})",
                     [clean_date] + column_values,
                 )
-                existing[clean_date] = (
-                    self.clean_value(data.get('resting_hr')),
-                    self.clean_value(
-                        data.get('resting_hr_source') or 'legacy_unknown'
+                existing[clean_date] = {
+                    'resting_hr': self.clean_value(prepared.get('resting_hr')),
+                    'resting_hr_source': self.clean_value(
+                        prepared.get('resting_hr_source')
                     ),
-                )
+                    'steps': self.clean_value(prepared.get('steps')),
+                    'steps_source': self.clean_value(
+                        prepared.get('steps_source')
+                    ),
+                }
                 new_count += 1
         
         conn.commit()

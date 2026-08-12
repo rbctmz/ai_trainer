@@ -376,6 +376,8 @@ def sync_garmin_data(
     for values in daily_health_data.values():
         if values.get("resting_hr") is not None:
             values["resting_hr_source"] = "garmin"
+        if values.get("steps") is not None:
+            values["steps_source"] = "garmin"
 
     if hrv_data:
         result.hrv_result = database.sync_hrv_data(hrv_data)

@@ -26,6 +26,7 @@ WELLNESS_FIELDS = (
     "sleepSecs",
     "sleepScore",
     "sleepQuality",
+    "steps",
 )
 MIN_RUNNING_THRESHOLD_PACE_SECONDS_PER_KM = 120.0
 MAX_RUNNING_THRESHOLD_PACE_SECONDS_PER_KM = 900.0

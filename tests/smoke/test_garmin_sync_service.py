@@ -268,6 +268,7 @@ def test_sync_service_runs_pipeline_and_emits_progress(monkeypatch: pytest.Monke
     assert state.database.sleep
     assert state.database.health
     for entry in state.database.health.values():
+        assert entry["steps_source"] == "garmin"
         assert entry["respiration_avg"] == 13.2
         assert entry["respiration_min"] == 9.1
         assert entry["respiration_max"] == 17.8
