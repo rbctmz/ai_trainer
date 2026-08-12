@@ -445,6 +445,28 @@ export interface SyncProviderTestResponse {
   calendar_count: number | null;
 }
 
+export interface ActivityCoverage {
+  canonical_count: number;
+  provider_link_counts: Record<SyncSource, number>;
+  unattributed_count: number;
+  latest_date: string | null;
+}
+
+export interface DailyMetricCoverage {
+  key: "sleep_duration" | "sleep_score" | "hrv" | "resting_hr" | "steps";
+  observed_days: number;
+  missing_days: number;
+  coverage_pct: number;
+  latest_date: string | null;
+  source_days: Record<string, number>;
+}
+
+export interface DataCoverageResponse {
+  window: { days: 30 | 90; start_date: string; end_date: string };
+  activities: ActivityCoverage;
+  daily_metrics: DailyMetricCoverage[];
+}
+
 export interface SyncResult {
   sync_state?: "succeeded" | "partial" | "running" | "failed" | "idle" | string;
   title: string;

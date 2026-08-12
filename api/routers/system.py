@@ -11,9 +11,10 @@
 """
 from __future__ import annotations
 
+from enum import IntEnum
 from typing import Any, Callable, Dict, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from api.deps import demo_database, make_headless_state, real_database
@@ -28,6 +29,7 @@ from services import intervals_icu as intervals_icu_service
 from services import intervals_sync as intervals_sync_service
 from services import sync as sync_service
 from services import sync_providers as sync_provider_service
+from services.data_coverage import build_data_coverage
 from state import StateManager
 
 router = APIRouter(prefix="/api", tags=["system"])
@@ -46,6 +48,39 @@ class SyncRequest(BaseModel):
     source: Literal["garmin", "intervals"] = "garmin"
 
 
+class CoverageDays(IntEnum):
+    DAYS_30 = 30
+    DAYS_90 = 90
+
+
+class CoverageWindow(BaseModel):
+    days: Literal[30, 90]
+    start_date: str
+    end_date: str
+
+
+class ActivityCoverage(BaseModel):
+    canonical_count: int
+    provider_link_counts: Dict[str, int]
+    unattributed_count: int
+    latest_date: str | None
+
+
+class DailyMetricCoverage(BaseModel):
+    key: Literal["sleep_duration", "sleep_score", "hrv", "resting_hr", "steps"]
+    observed_days: int
+    missing_days: int
+    coverage_pct: float
+    latest_date: str | None
+    source_days: Dict[str, int]
+
+
+class DataCoverageResponse(BaseModel):
+    window: CoverageWindow
+    activities: ActivityCoverage
+    daily_metrics: list[DailyMetricCoverage]
+
+
 @router.get("/sync/providers")
 def sync_providers() -> Dict[str, Any]:
     """Return safe provider discovery for the source-aware web sync control.
@@ -56,6 +91,15 @@ def sync_providers() -> Dict[str, Any]:
     """
 
     return sync_provider_service.connection_overview()
+
+
+@router.get("/sync/coverage", response_model=DataCoverageResponse)
+def sync_data_coverage(
+    days: CoverageDays = Query(CoverageDays.DAYS_30),
+    db=Depends(get_database),
+) -> DataCoverageResponse:
+    """Return local aggregate coverage; this path performs no provider I/O."""
+    return DataCoverageResponse(**build_data_coverage(db, days=int(days)))
 
 
 @router.post("/sync/providers/{source}/test")
