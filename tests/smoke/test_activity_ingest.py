@@ -783,6 +783,42 @@ def test_backfill_classifies_and_is_idempotent(tmp_path):
     assert _orphan_count(path) == 0
 
 
+def test_backfill_normalizes_integer_legacy_ids_when_detecting_existing_links(tmp_path):
+    """The real pre-migration SQLite uses INTEGER activity_id, link IDs are TEXT."""
+    path = str(tmp_path / "legacy_integer_ids.db")
+    conn = sqlite3.connect(path)
+    conn.execute(
+        "CREATE TABLE activities(activity_id INTEGER, date TEXT, sport TEXT, tss REAL)"
+    )
+    conn.executemany(
+        "INSERT INTO activities(activity_id, date, sport, tss) VALUES (?, ?, ?, ?)",
+        [(111, "2026-07-01", "running", 40), (222, "2026-07-02", "cycling", 50)],
+    )
+    conn.commit()
+    conn.close()
+    db = Database(path)
+    conn = sqlite3.connect(path)
+    conn.execute(
+        """INSERT INTO activity_provider_links(
+               canonical_activity_id, provider, provider_activity_id, match_status
+           ) VALUES ('111', 'garmin', '111', 'unmatched')"""
+    )
+    conn.commit()
+    conn.close()
+
+    result = backfill_provider_links(db, primary_source="garmin")
+
+    assert result["garmin"] == 1
+    assert result["skipped_existing"] == 1
+    conn = sqlite3.connect(path)
+    links = conn.execute(
+        "SELECT canonical_activity_id, provider_activity_id FROM activity_provider_links "
+        "ORDER BY provider_activity_id"
+    ).fetchall()
+    conn.close()
+    assert links == [("111", "111"), ("222", "222")]
+
+
 def test_classify_activity_id_shapes():
     assert classify_activity_id("1234567890") == "garmin"
     assert classify_activity_id("demo_activity_20260101_2") == "demo"
