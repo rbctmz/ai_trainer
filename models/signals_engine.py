@@ -50,15 +50,15 @@ def _latest_row(frame: pd.DataFrame | None) -> dict[str, Any]:
 
 
 def _without_multisport_envelopes(frame: pd.DataFrame) -> pd.DataFrame:
-    """Drop a multisport summary when all three triathlon legs are present.
+    """Choose one authoritative load source for a linked multisport activity.
 
     Garmin can expose a ``multi_sport`` envelope while Intervals.icu exposes
-    the swim/bike/run legs for the same day.  Both carry TSS, so keeping the
-    envelope would count the session twice.  Requiring usable swim, bike and run
-    TSS avoids hiding the envelope for an unrelated same-day workout or partial
-    provider sync.
+    linked legs whose ``provider_external_id`` is the envelope activity id.  A
+    complete positive swim/bike/run set supersedes the envelope; an incomplete
+    set is ignored in favour of the envelope.  Unlinked same-day workouts stay
+    untouched because date and sport alone cannot establish lineage.
     """
-    required = {"date", "sport", "tss"}
+    required = {"activity_id", "provider_external_id", "sport", "tss"}
     if frame.empty or not required.issubset(frame.columns):
         return frame
 
@@ -74,7 +74,13 @@ def _without_multisport_envelopes(frame: pd.DataFrame) -> pd.DataFrame:
     if not envelopes.any():
         return frame
 
-    activity_dates = pd.to_datetime(frame["date"], errors="coerce").dt.normalize()
+    activity_ids = frame["activity_id"].fillna("").astype(str).str.strip()
+    parent_ids = frame["provider_external_id"].fillna("").astype(str).str.strip()
+    envelope_ids = set(activity_ids[envelopes & activity_ids.ne("")])
+    linked = parent_ids.isin(envelope_ids) & ~envelopes
+    if not linked.any():
+        return frame
+
     leg_sports = sport_keys.replace(
         {
             "swim": "swim",
@@ -87,16 +93,20 @@ def _without_multisport_envelopes(frame: pd.DataFrame) -> pd.DataFrame:
             "running": "run",
         }
     )
-    usable_tss = pd.to_numeric(frame["tss"], errors="coerce").notna()
-    legs = pd.DataFrame({"date": activity_dates, "sport": leg_sports})
-    legs = legs.loc[usable_tss & leg_sports.isin({"swim", "bike", "run"})]
-    complete_dates = {
-        day
-        for day, sports in legs.groupby("date")["sport"]
+    tss_values = pd.to_numeric(frame["tss"], errors="coerce")
+    usable_tss = tss_values.gt(0.0)
+    legs = pd.DataFrame({"parent_id": parent_ids, "sport": leg_sports})
+    legs = legs.loc[
+        linked & usable_tss & leg_sports.isin({"swim", "bike", "run"})
+    ]
+    complete_parents = {
+        parent_id
+        for parent_id, sports in legs.groupby("parent_id")["sport"]
         if {"swim", "bike", "run"}.issubset(set(sports))
     }
-    superseded = envelopes & activity_dates.isin(complete_dates)
-    return frame.loc[~superseded]
+    superseded_envelopes = envelopes & activity_ids.isin(complete_parents)
+    incomplete_linked_rows = linked & ~parent_ids.isin(complete_parents)
+    return frame.loc[~(superseded_envelopes | incomplete_linked_rows)]
 
 
 def training_load_metrics(
