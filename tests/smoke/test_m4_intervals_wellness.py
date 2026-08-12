@@ -67,6 +67,7 @@ def _normalized_payload(
     sleep_minutes: float,
     sleep_score: float,
     resting_hr: int,
+    steps: int | None = None,
     stages: dict[str, float] | None = None,
 ) -> dict[str, Any]:
     sleep = {
@@ -76,11 +77,14 @@ def _normalized_payload(
         "sleep_score_source": source,
     }
     sleep.update(stages or {})
+    health = {"resting_hr": resting_hr, "resting_hr_source": source}
+    if steps is not None:
+        health.update({"steps": steps, "steps_source": source})
     return {
         "date": day,
         "hrv": {"rmssd": rmssd, "rmssd_source": source},
         "sleep": sleep,
-        "health": {"resting_hr": resting_hr, "resting_hr_source": source},
+        "health": health,
     }
 
 
@@ -104,6 +108,7 @@ def test_m4_list_wellness_uses_bounded_fields_and_exact_local_dates():
         "sleepSecs",
         "sleepScore",
         "sleepQuality",
+        "steps",
     }
     assert {"readiness", "ctl", "atl"}.isdisjoint(params["fields"].split(","))
 
@@ -150,6 +155,20 @@ def test_m4_mapping_uses_rmssd_and_ignores_provider_models():
     assert "atl" not in str(payload)
 
 
+def test_m4_mapping_preserves_nonnegative_integer_steps():
+    from services.wellness_ingest import normalize_intervals_wellness
+
+    record = normalize_intervals_wellness(_wellness_row(steps=12_345))
+
+    assert record.health == {
+        "resting_hr": 51,
+        "resting_hr_source": "intervals",
+        "steps": 12_345,
+        "steps_source": "intervals",
+    }
+    assert record.mapped_metric_count == 5
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [
@@ -161,6 +180,10 @@ def test_m4_mapping_uses_rmssd_and_ignores_provider_models():
         ("restingHR", 19),
         ("restingHR", 250.5),
         ("restingHR", True),
+        ("steps", -1),
+        ("steps", 12.5),
+        ("steps", True),
+        ("steps", float("inf")),
     ],
 )
 def test_m4_mapping_fails_closed_on_invalid_present_metric(field, value):
@@ -174,7 +197,13 @@ def test_m4_null_metrics_are_absent_not_destructive():
     from services.wellness_ingest import normalize_intervals_wellness
 
     record = normalize_intervals_wellness(
-        _wellness_row(hrv=None, sleepSecs=None, sleepScore=None, restingHR=None)
+        _wellness_row(
+            hrv=None,
+            sleepSecs=None,
+            sleepScore=None,
+            restingHR=None,
+            steps=None,
+        )
     )
 
     assert record.hrv == {}
@@ -203,13 +232,14 @@ def test_m4_schema_adds_metric_provenance_without_rewriting_legacy(tmp_path):
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         CREATE TABLE daily_health (
-            date DATE PRIMARY KEY, resting_hr INTEGER,
+            date DATE PRIMARY KEY, resting_hr INTEGER, steps INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         INSERT INTO hrv_data(date, rmssd) VALUES ('2026-07-26', 40);
         INSERT INTO sleep_data(date, total_sleep_minutes, sleep_score)
             VALUES ('2026-07-26', 420, 70);
-        INSERT INTO daily_health(date, resting_hr) VALUES ('2026-07-26', 52);
+        INSERT INTO daily_health(date, resting_hr, steps)
+            VALUES ('2026-07-26', 52, 9000);
         """
     )
     conn.commit()
@@ -226,13 +256,14 @@ def test_m4_schema_adds_metric_provenance_without_rewriting_legacy(tmp_path):
         "FROM sleep_data WHERE date='2026-07-26'"
     ).fetchone()
     health = conn.execute(
-        "SELECT resting_hr, resting_hr_source FROM daily_health WHERE date='2026-07-26'"
+        "SELECT resting_hr, resting_hr_source, steps, steps_source "
+        "FROM daily_health WHERE date='2026-07-26'"
     ).fetchone()
     conn.close()
 
     assert hrv == (40.0, "legacy_unknown")
     assert sleep == (420, "legacy_unknown", "legacy_unknown")
-    assert health == (52, "legacy_unknown")
+    assert health == (52, "legacy_unknown", 9000, "legacy_unknown")
 
 
 def test_m4_wellness_batch_and_cursor_are_atomic(tmp_path):
@@ -280,6 +311,7 @@ def test_m4_primary_wellness_projection_is_order_independent(tmp_path):
         sleep_minutes=450,
         sleep_score=76,
         resting_hr=54,
+        steps=8_000,
         stages={
             "deep_sleep_minutes": 70,
             "light_sleep_minutes": 300,
@@ -292,6 +324,7 @@ def test_m4_primary_wellness_projection_is_order_independent(tmp_path):
         sleep_minutes=485,
         sleep_score=85,
         resting_hr=50,
+        steps=12_000,
     )
 
     snapshots = []
@@ -319,7 +352,8 @@ def test_m4_primary_wellness_projection_is_order_independent(tmp_path):
                     "rem_sleep_minutes FROM sleep_data"
                 ).fetchone(),
                 "health": conn.execute(
-                    "SELECT resting_hr, resting_hr_source FROM daily_health"
+                    "SELECT resting_hr, resting_hr_source, steps, steps_source "
+                    "FROM daily_health"
                 ).fetchone(),
             }
         )
@@ -336,7 +370,56 @@ def test_m4_primary_wellness_projection_is_order_independent(tmp_path):
         300,
         80,
     )
-    assert snapshots[0]["health"] == (50, "intervals")
+    assert snapshots[0]["health"] == (50, "intervals", 12_000, "intervals")
+
+
+def test_m4_steps_precedence_matches_real_garmin_and_intervals_write_paths(
+    tmp_path,
+    monkeypatch,
+):
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "PRIMARY_WELLNESS_SOURCE", "intervals")
+    snapshots = []
+    for name, order in (
+        ("garmin-first", ("garmin", "intervals")),
+        ("intervals-first", ("intervals", "garmin")),
+    ):
+        db = Database(str(tmp_path / f"steps-{name}.db"))
+        for source in order:
+            if source == "garmin":
+                db.sync_daily_health(
+                    {
+                        "2026-07-27": {
+                            "steps": 8_000,
+                            "steps_source": "garmin",
+                        }
+                    }
+                )
+            else:
+                db.sync_wellness_batch(
+                    [
+                        {
+                            "date": "2026-07-27",
+                            "health": {
+                                "steps": 12_000,
+                                "steps_source": "intervals",
+                            },
+                        }
+                    ],
+                    provider="intervals",
+                    cursor_value="2026-07-27",
+                    primary_source="intervals",
+                )
+        conn = sqlite3.connect(db.db_path)
+        snapshots.append(
+            conn.execute(
+                "SELECT steps, steps_source FROM daily_health"
+            ).fetchone()
+        )
+        conn.close()
+
+    assert snapshots == [(12_000, "intervals")] * 2
 
 
 def test_m4_derived_garmin_sleep_score_keeps_provider_priority(
@@ -395,7 +478,7 @@ def test_m4_intervals_sync_populates_separate_wellness_cursor(tmp_path):
     from services.intervals_sync import sync_intervals_data
 
     db = Database(str(tmp_path / "vertical.db"))
-    client = FakeIntervalsClient(wellness=[_wellness_row()])
+    client = FakeIntervalsClient(wellness=[_wellness_row(steps=12_345)])
 
     result = sync_intervals_data(
         db,
@@ -405,13 +488,17 @@ def test_m4_intervals_sync_populates_separate_wellness_cursor(tmp_path):
 
     assert result.halted is False
     assert result.wellness_halted is False
+    # Change counters are row/domain based: HRV + sleep + daily_health.
     assert result.recovery_changes == 3
     assert result.wellness_skipped == 0
     assert db.get_sync_cursor("intervals", "activities") == "2026-07-27"
     assert db.get_sync_cursor("intervals", "wellness") == "2026-07-27"
     assert db.get_hrv_data(10_000).iloc[0]["rmssd"] == 42.5
     assert db.get_sleep_data(10_000).iloc[0]["sleep_score_source"] == "intervals"
-    assert db.get_daily_health(10_000).iloc[0]["resting_hr_source"] == "intervals"
+    health = db.get_daily_health(10_000).iloc[0]
+    assert health["resting_hr_source"] == "intervals"
+    assert health["steps"] == 12_345
+    assert health["steps_source"] == "intervals"
 
 
 def test_m4_dirty_wellness_holds_only_wellness_cursor(tmp_path):

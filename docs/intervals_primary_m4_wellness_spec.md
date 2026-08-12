@@ -2,7 +2,8 @@
 
 > **Статус: исполнено (2026-07-27).** Документ фиксирует действующий wellness
 > mapping/provenance-контракт; финальное позиционирование источников завершено в
-> M5.
+> M5. Follow-up #425 аддитивно добавляет дневные шаги с metric-level
+> provenance; readiness-формула и sleep semantics не меняются.
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises &
 Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must be kept up to
@@ -43,6 +44,9 @@ Today readiness 70/100 по трём recovery-факторам.
   Garmin provider priority; duration-only sleep сообщает source реально
   использованной метрики. Оба угла закреплены order/provenance-гейтами.
 - [ ] PR с `Closes #273`, зелёными checks и `status: ready to merge`.
+- [x] (2026-08-12) Follow-up #425: bounded live probe подтвердил `steps` в
+  90/90 wellness-дней и отсутствие `spO2` в 0/90; `steps` добавлены в
+  canonical daily health с order-independent provenance.
 
 ## Surprises & Discoveries
 
@@ -96,8 +100,8 @@ Today readiness 70/100 по трём recovery-факторам.
   Date/Author: 2026-07-27 / Codex.
 
 - Decision: provenance хранится по метрике, не по дневной строке:
-  `rmssd_source`, `resting_hr_source`, `total_sleep_source` и существующий
-  `sleep_score_source`.
+  `rmssd_source`, `resting_hr_source`, `steps_source`, `total_sleep_source` и
+  существующий `sleep_score_source`.
   Rationale: один день может содержать Garmin-фазы сна, Intervals-длительность
   и другой источник HRV. Row-level source был бы ложным.
   Date/Author: 2026-07-27 / Codex.
@@ -166,6 +170,7 @@ cursor не двигается.
 | `sleepScore` | `sleep_data.sleep_score` | finite number, `0..100` |
 | `sleepQuality` | — | намеренно не преобразуется |
 | `restingHR` | `daily_health.resting_hr` | integer, `20..250`, bpm |
+| `steps` | `daily_health.steps` | finite integer, `>= 0`; `null` не очищает сохранённое значение |
 | `readiness`, `ctl`, `atl`, load fields | — | не запрашиваются/не импортируются |
 | `updated` | diagnostic provenance | optional ISO timestamp; не определяет canonical day |
 
