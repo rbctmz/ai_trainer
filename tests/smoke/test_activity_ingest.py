@@ -138,6 +138,46 @@ def test_normalize_intervals_references_garmin_source_and_marks_fallback():
     assert candidate.canonical["tss_method"] == "intervals_icu_provider_fallback"
 
 
+def test_normalize_intervals_maps_existing_canonical_summary_fields():
+    candidate = normalize_provider_activity(
+        _intervals_row(
+            elapsed_time=6000,
+            moving_time=5700,
+            average_heartrate=143.5,
+            max_heartrate=181,
+            icu_average_watts=226.4,
+            icu_weighted_avg_watts=251.2,
+            total_elevation_gain=642.7,
+            calories=984,
+            description="Endurance ride with four steady efforts",
+        ),
+        "intervals",
+    )
+
+    canonical = candidate.canonical
+    assert canonical["duration_minutes"] == 100.0
+    assert canonical["moving_duration_minutes"] == 95.0
+    assert canonical["avg_hr"] == 143.5
+    assert canonical["max_hr"] == 181.0
+    assert canonical["avg_power"] == 226.4
+    assert canonical["elevation_gain"] == 642.7
+    assert canonical["calories"] == 984
+    assert canonical["description"] == "Endurance ride with four steady efforts"
+    # Weighted watts are provider-specific and are not assumed to be normalized
+    # power without a separate semantics contract.
+    assert canonical.get("normalized_power") is None
+
+
+def test_normalize_intervals_minimal_payload_keeps_moving_time_fallback():
+    candidate = normalize_provider_activity(
+        _intervals_row(elapsed_time=None, moving_time=5700),
+        "intervals",
+    )
+
+    assert candidate.canonical["duration_minutes"] == 95.0
+    assert candidate.canonical["moving_duration_minutes"] == 95.0
+
+
 def test_normalize_intervals_records_utc_not_local_time():
     # blocker #5: local wall clock must not be stored in a *_utc column.
     candidate = normalize_provider_activity(_intervals_row(), "intervals")
@@ -256,6 +296,35 @@ def test_order_independent_two_source_merge(tmp_path, primary, expected_tss, exp
     assert links["intervals"]["external_id"] == "555111"
 
     assert _orphan_count(forward) == 0
+
+
+def test_garmin_primary_projection_is_not_overwritten_by_intervals_summary(tmp_path):
+    path = str(tmp_path / "garmin_primary_summary.db")
+    db = Database(path)
+    intervals = normalize_provider_activity(
+        _intervals_row(
+            elapsed_time=6300,
+            average_heartrate=150,
+            max_heartrate=188,
+            icu_average_watts=245,
+            total_elevation_gain=720,
+            calories=1050,
+            description="Intervals copy",
+        ),
+        "intervals",
+    )
+    garmin = normalize_provider_activity(_garmin_row(), "garmin")
+
+    ingest_provider_activity(db, intervals, primary_source="garmin")
+    ingest_provider_activity(db, garmin, primary_source="garmin")
+
+    conn = sqlite3.connect(path)
+    row = conn.execute(
+        "SELECT duration_minutes, avg_hr, avg_power, description "
+        "FROM activities WHERE activity_id='555111'"
+    ).fetchone()
+    conn.close()
+    assert row == (95.0, 141.0, None, None)
 
 
 # --- 3. no-orphan invariant (REQUIRED guardrail) ------------------------------

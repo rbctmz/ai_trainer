@@ -190,7 +190,7 @@ class IntervalsICUClient:
             )
 
     def list_activities(self, oldest: date, newest: date) -> List[Dict[str, Any]]:
-        """Read only the provider fields required to join local completed activities.
+        """Read provider fields required for identity and canonical summaries.
 
         Fail-closed (M1 §11 step 3 refinement 3 + review P1.2): a non-list payload,
         a non-mapping element, or an element with an INVALID ``id`` RAISES rather
@@ -230,9 +230,17 @@ class IntervalsICUClient:
             "type",
             "name",
             "icu_training_load",
+            # Intervals distinguishes elapsed duration from moving duration.
+            "elapsed_time",
             "moving_time",
             # #417: distance приходит в метрах — маппится в distance_km при ingest.
             "distance",
+            "average_heartrate",
+            "max_heartrate",
+            "icu_average_watts",
+            "total_elevation_gain",
+            "calories",
+            "description",
         )
         rows: List[Dict[str, Any]] = []
         for row in payload:

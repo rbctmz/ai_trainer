@@ -228,8 +228,15 @@ def test_list_execution_evidence_is_bounded_get_and_keeps_match_fields(monkeypat
             "type": "Ride",
             "name": "Morning Ride",
             "icu_training_load": 30.2,
+            "elapsed_time": None,
             "moving_time": 3600,
             "distance": None,  # #417: поле запрашивается (метры)
+            "average_heartrate": None,
+            "max_heartrate": None,
+            "icu_average_watts": None,
+            "total_elevation_gain": None,
+            "calories": None,
+            "description": None,
         }
     ]
     assert events == [

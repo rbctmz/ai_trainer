@@ -114,6 +114,20 @@ def _meters_to_km(value: Any) -> float | None:
     return round(metres / 1000.0, 2)
 
 
+def _seconds_to_minutes(value: Any) -> float | None:
+    seconds = _to_float(value)
+    if seconds is None or seconds <= 0:
+        return None
+    return round(seconds / 60.0, 3)
+
+
+def _nonnegative_int(value: Any) -> int | None:
+    number = _to_float(value)
+    if number is None or number < 0:
+        return None
+    return int(round(number))
+
+
 def _normalize_garmin(row: dict[str, Any]) -> ProviderActivity:
     activity_id = str(row.get("activity_id") or "").strip()
     if not activity_id:
@@ -192,8 +206,12 @@ def _normalize_intervals(row: dict[str, Any]) -> ProviderActivity:
     # Record UTC only from the real UTC field (blocker #5): never store local wall
     # clock in a *_utc column.
     start_utc = str(row.get("start_date") or "").strip() or None
-    moving_time = _to_float(row.get("moving_time"))
-    duration_minutes = round(moving_time / 60.0, 3) if moving_time else None
+    moving_duration_minutes = _seconds_to_minutes(row.get("moving_time"))
+    # Intervals exposes elapsed and moving durations separately. Older/minimal
+    # payloads may omit elapsed_time, so retain the established moving-time fallback.
+    duration_minutes = (
+        _seconds_to_minutes(row.get("elapsed_time")) or moving_duration_minutes
+    )
 
     # Local-first TSS (blocker #6): honour a locally-resolved tss/tss_method if the
     # caller (the M1 Intervals adapter runs the local cascade with FTP/LTHR) already
@@ -216,9 +234,16 @@ def _normalize_intervals(row: dict[str, Any]) -> ProviderActivity:
         "started_at_utc": start_utc,
         "sport": sport,
         "duration_minutes": duration_minutes,
+        "moving_duration_minutes": moving_duration_minutes,
         # #417: Intervals.icu отдаёт дистанцию в метрах — маппим в км.
         "distance_km": _meters_to_km(row.get("distance")),
+        "avg_hr": _to_float(row.get("average_heartrate")),
+        "max_hr": _to_float(row.get("max_heartrate")),
+        "avg_power": _to_float(row.get("icu_average_watts")),
+        "elevation_gain": _to_float(row.get("total_elevation_gain")),
+        "calories": _nonnegative_int(row.get("calories")),
         "activity_name": row.get("name"),
+        "description": row.get("description"),
         "source_tss": provider_tss,
         "tss": canonical_tss,
         "tss_method": canonical_method,
