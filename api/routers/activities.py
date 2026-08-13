@@ -241,7 +241,10 @@ def get_activity_card(
         actual = item.get("intervals")
         actual_intervals = actual.get("intervals") if isinstance(actual, dict) else []
         plan_vs_fact = match_plan_vs_fact(
-            planned_intervals, actual_intervals or []
+            planned_intervals,
+            actual_intervals or [],
+            sport=item.get("sport"),
+            athlete_profile=db.get_athlete_profile(),
         )
         checkpoint = (
             db.get_planning_checkpoint(planned_match["base_checkpoint_id"])

@@ -79,6 +79,9 @@ def _match_step_to_actual(
 def match_plan_vs_fact(
     planned: Any,
     actual: Any,
+    *,
+    sport: str | None = None,
+    athlete_profile: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Match planned work steps to actual detected intervals (#383).
 
@@ -99,7 +102,12 @@ def match_plan_vs_fact(
         return _empty_result()
 
     if _is_contiguous_timeline(actual):
-        return _match_contiguous_timeline(planned, actual)
+        return _match_contiguous_timeline(
+            planned,
+            actual,
+            sport=sport,
+            athlete_profile=athlete_profile,
+        )
 
     work_steps = _work_steps(planned)
     if not work_steps:
@@ -165,6 +173,9 @@ def _is_contiguous_timeline(actual: Sequence[Mapping[str, Any]]) -> bool:
 def _match_contiguous_timeline(
     planned: Sequence[Mapping[str, Any]],
     actual: Sequence[Mapping[str, Any]],
+    *,
+    sport: str | None,
+    athlete_profile: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     groups = _partition_actual_by_planned_duration(planned, actual)
     step_matches: list[dict[str, Any]] = []
@@ -177,7 +188,15 @@ def _match_contiguous_timeline(
             and actual_seconds is not None
             and _within_tolerance(planned_seconds, actual_seconds)
         )
-        step_matches.append(_timeline_match(step, aggregated, matched))
+        step_matches.append(
+            _timeline_match(
+                step,
+                aggregated,
+                matched,
+                sport=sport,
+                athlete_profile=athlete_profile,
+            )
+        )
 
     work_matches = [
         item
@@ -194,6 +213,16 @@ def _match_contiguous_timeline(
             "actual_intervals": len(actual),
             "matched_steps": sum(1 for item in step_matches if item["matched"]),
             "matched": sum(1 for item in work_matches if item["matched"]),
+            "intensity_assessed": sum(
+                1
+                for item in step_matches
+                if item["intensity"]["status"] != "unavailable"
+            ),
+            "intensity_within": sum(
+                1
+                for item in step_matches
+                if item["intensity"]["status"] == "within"
+            ),
         },
     }
 
@@ -265,6 +294,7 @@ def _aggregate_actual_group(
             for interval, duration in zip(intervals, durations)
         ),
         "source_interval_count": len(intervals),
+        "source_interval_durations": durations,
     }
 
     for field in (
@@ -326,6 +356,9 @@ def _timeline_match(
     step: Mapping[str, Any],
     actual: Mapping[str, Any] | None,
     matched: bool,
+    *,
+    sport: str | None,
+    athlete_profile: Mapping[str, Any] | None,
 ) -> dict[str, Any]:
     planned_seconds = int(step.get("duration_seconds") or 0)
     actual_seconds = _actual_seconds(actual or {})
@@ -341,7 +374,105 @@ def _timeline_match(
             "planned": _planned_zone(step),
             "actual": _compact((actual or {}).get("zone")),
         },
+        "intensity": _compare_intensity(
+            step,
+            actual,
+            sport=sport,
+            athlete_profile=athlete_profile,
+        ),
         "matched": matched,
+    }
+
+
+def _compare_intensity(
+    step: Mapping[str, Any],
+    actual: Mapping[str, Any] | None,
+    *,
+    sport: str | None,
+    athlete_profile: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    target = step.get("target_zone")
+    profile = athlete_profile or {}
+    heart_rate_value = _number((actual or {}).get("average_heartrate"))
+    average_heartrate = (
+        int(round(heart_rate_value)) if heart_rate_value is not None else None
+    )
+    unavailable = {
+        "metric": None,
+        "unit": None,
+        "actual_value": None,
+        "actual_relative": None,
+        "target_low": None,
+        "target_high": None,
+        "status": "unavailable",
+        "average_heartrate": average_heartrate,
+    }
+    if not isinstance(target, Mapping) or not isinstance(actual, Mapping):
+        return unavailable
+
+    metric = str(target.get("type") or "").strip().lower()
+    target_low = _number(target.get("relative_low"))
+    target_high = _number(target.get("relative_high"))
+    if target_low is None or target_high is None:
+        return {**unavailable, "metric": metric or None}
+
+    actual_value: float | None = None
+    actual_relative: float | None = None
+    unit: str | None = None
+    normalized_sport = str(sport or "").strip().lower()
+    duration = _actual_seconds(actual)
+    distance_km = _number(actual.get("distance_km"))
+
+    if metric == "pace" and duration and distance_km and distance_km > 0:
+        if normalized_sport in {"swim", "swimming"}:
+            threshold = _number(
+                profile.get("swim_threshold_pace_seconds_per_100m")
+            )
+            actual_value = duration / (distance_km * 10)
+            unit = "seconds_per_100m"
+        else:
+            threshold = _number(profile.get("threshold_pace_seconds_per_km"))
+            actual_value = duration / distance_km
+            unit = "seconds_per_km"
+        if threshold and threshold > 0 and actual_value > 0:
+            actual_relative = threshold / actual_value
+    elif metric == "power":
+        actual_value = _number(actual.get("average_watts"))
+        threshold = _number(profile.get("ftp"))
+        unit = "watts"
+        if actual_value is not None and threshold and threshold > 0:
+            actual_relative = actual_value / threshold
+    elif metric == "heart_rate":
+        actual_value = _number(actual.get("average_heartrate"))
+        threshold = _number(profile.get("lthr"))
+        unit = "bpm"
+        if actual_value is not None and threshold and threshold > 0:
+            actual_relative = actual_value / threshold
+
+    if actual_relative is None or actual_value is None:
+        return {
+            **unavailable,
+            "metric": metric or None,
+            "unit": unit,
+            "target_low": _compact(target_low, digits=2),
+            "target_high": _compact(target_high, digits=2),
+        }
+
+    if actual_relative < target_low:
+        status = "below"
+    elif actual_relative > target_high:
+        status = "above"
+    else:
+        status = "within"
+    return {
+        "metric": metric,
+        "unit": unit,
+        "actual_value": round(actual_value, 1),
+        "actual_relative": _compact(actual_relative, digits=2),
+        "target_low": _compact(target_low, digits=2),
+        "target_high": _compact(target_high, digits=2),
+        "status": status,
+        "average_heartrate": average_heartrate,
     }
 
 

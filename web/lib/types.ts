@@ -171,6 +171,7 @@ export interface ActivityInterval {
   average_speed?: number | null;
   intensity_type?: string | null;
   source_interval_count?: number;
+  source_interval_durations?: number[];
 }
 
 export interface ActivityIntervals {
@@ -218,6 +219,16 @@ export interface PlanVsFactMatch {
   actual: ActivityInterval | null;
   duration_delta: number | null;
   zone: { planned: number | null; actual: number | null };
+  intensity?: {
+    metric: string | null;
+    unit: string | null;
+    actual_value: number | null;
+    actual_relative: number | null;
+    target_low: number | null;
+    target_high: number | null;
+    status: "within" | "below" | "above" | "unavailable";
+    average_heartrate: number | null;
+  };
   matched: boolean;
 }
 
@@ -231,6 +242,8 @@ export interface PlanVsFact {
     actual_intervals: number;
     matched_steps: number;
     matched: number;
+    intensity_assessed?: number;
+    intensity_within?: number;
   };
   plan_replanned_after_delivery?: {
     reason: string;

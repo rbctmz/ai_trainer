@@ -11,6 +11,7 @@ import {
   ActivityPowerCurve,
   AthleteProfileResponse,
   PlanVsFact,
+  PlanVsFactMatch,
   PlanVsFactStep,
 } from "@/lib/types";
 import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
@@ -177,16 +178,14 @@ function plannedStripSegments(
     const kind = String(step.segment_kind || "").toLowerCase();
     const zone = plannedZone(step);
     let tone = "bg-ink-faint/20";
-    let heightPct = 38;
+    let heightPct = zone != null ? clampStripHeight(zone * 100) : 38;
     if (kind === "warmup" || kind === "cooldown") {
       tone = "bg-ink-faint/25";
-      heightPct = 30;
     } else if (type === "rest" || kind === "recovery") {
       tone = "bg-tone-success/30";
-      heightPct = 38;
     } else if (type === "work") {
       tone = "bg-tone-danger/40";
-      heightPct = zone != null ? clampStripHeight(zone * 100) : 90;
+      if (zone == null) heightPct = 90;
     }
     const label = planStepLabel(step, index);
     segments.push({
@@ -263,6 +262,91 @@ function factStripSegments(intervals: ActivityInterval[]): StripSegment[] {
     cursor = start + seconds;
   });
   return segments;
+}
+
+function intensityTone(match: PlanVsFactMatch): string {
+  const intensity = match.intensity;
+  if (!intensity || intensity.status === "unavailable") return "bg-ink-faint/25";
+  if (intensity.status === "within") return "bg-tone-success/45";
+  const actual = intensity.actual_relative;
+  const boundary =
+    intensity.status === "below" ? intensity.target_low : intensity.target_high;
+  if (actual != null && boundary != null && Math.abs(actual - boundary) <= 0.1) {
+    return "bg-tone-warning/50";
+  }
+  return "bg-tone-danger/50";
+}
+
+function sourceDivisions(interval: ActivityInterval): number[] {
+  const durations = interval.source_interval_durations ?? [];
+  const total = durations.reduce((sum, duration) => sum + duration, 0);
+  if (durations.length <= 1 || total <= 0) return [];
+  let cursor = 0;
+  return durations.slice(0, -1).map((duration) => {
+    cursor += duration;
+    return Math.round((cursor / total) * 1000) / 10;
+  });
+}
+
+function matchedFactStripSegments(matches: PlanVsFactMatch[]): StripSegment[] {
+  return matches.flatMap((match, index) => {
+    const actual = match.actual;
+    const seconds = Math.max(
+      0,
+      Number(actual?.moving_time ?? actual?.elapsed_time) || 0,
+    );
+    if (!actual || seconds <= 0) return [];
+    const relative = match.intensity?.actual_relative;
+    const label =
+      relative != null
+        ? `${Math.round(relative * 100)}%`
+        : planStepLabel(match.planned, index);
+    const pulse = match.intensity?.average_heartrate;
+    return [
+      {
+        seconds,
+        label,
+        title: `${planStepLabel(match.planned, index)} · ${formatIntervalTime(
+          seconds,
+        )}${relative != null ? ` · ${Math.round(relative * 100)}% порога` : ""}${
+          pulse != null ? ` · пульс ${pulse}` : ""
+        }`,
+        tone: intensityTone(match),
+        heightPct: relative != null ? clampStripHeight(relative * 100) : 35,
+        divisionsPct: sourceDivisions(actual),
+      },
+    ];
+  });
+}
+
+function formatActualIntensity(match: PlanVsFactMatch): string | null {
+  const intensity = match.intensity;
+  if (!intensity || intensity.actual_value == null) return null;
+  const relative =
+    intensity.actual_relative != null
+      ? ` · ${Math.round(intensity.actual_relative * 100)}% порога`
+      : "";
+  if (intensity.unit === "seconds_per_km") {
+    return `темп ${formatIntervalTime(intensity.actual_value)}/км${relative}`;
+  }
+  if (intensity.unit === "seconds_per_100m") {
+    return `темп ${formatIntervalTime(intensity.actual_value)}/100м${relative}`;
+  }
+  if (intensity.unit === "watts") {
+    return `мощность ${Math.round(intensity.actual_value)} Вт${relative}`;
+  }
+  if (intensity.unit === "bpm") {
+    return `пульс ${Math.round(intensity.actual_value)} уд/мин${relative}`;
+  }
+  return null;
+}
+
+function intensityStatusLabel(match: PlanVsFactMatch): string | null {
+  const status = match.intensity?.status;
+  if (!status || status === "unavailable") return null;
+  if (status === "within") return "интенсивность в цели";
+  if (status === "below") return "интенсивность ниже цели";
+  return "интенсивность выше цели";
 }
 
 function clampStripHeight(value: number): number {
@@ -534,7 +618,9 @@ function ActivityCardModal({
       ? planVsFact.step_matches
       : (planVsFact?.matches ?? []);
   const plannedStrip = plannedStripSegments(plannedIntervals);
-  const factStrip = factStripSegments(intervals?.intervals ?? []);
+  const factStrip = hasTimelineAlignment
+    ? matchedFactStripSegments(comparisonMatches)
+    : factStripSegments(intervals?.intervals ?? []);
   const stripScale = Math.max(
     plannedStrip.reduce((sum, segment) => sum + segment.seconds, 0),
     factStrip.reduce((sum, segment) => sum + segment.seconds, 0),
@@ -733,6 +819,12 @@ function ActivityCardModal({
                   Соседние фактические участки объединяются, если вместе образуют
                   один этап плана.
                 </div>
+                {planVsFact.summary.intensity_assessed ? (
+                  <div className="mt-1 text-xs text-ink-soft">
+                    По интенсивности в цели: {planVsFact.summary.intensity_within} из{" "}
+                    {planVsFact.summary.intensity_assessed}
+                  </div>
+                ) : null}
               </div>
             ) : (
               <div className="mt-2 text-xs text-ink-soft">
@@ -757,6 +849,14 @@ function ActivityCardModal({
                     label="Факт"
                   />
                 ) : null}
+                {hasTimelineAlignment ? (
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-ink-faint">
+                    <span>Ширина: длительность этапа</span>
+                    <span>Высота: интенсивность относительно порога</span>
+                    <span>Цвет факта: попадание в цель</span>
+                    <span>Тонкие линии: исходные участки</span>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {planVsFact.plan_replanned_after_delivery ? (
@@ -769,6 +869,8 @@ function ActivityCardModal({
               <ol className="mt-3 space-y-2 text-sm text-ink">
                 {comparisonMatches.map((match, index) => {
                   const plannedTarget = formatPlannedTarget(match.planned);
+                  const actualIntensity = formatActualIntensity(match);
+                  const intensityLabel = intensityStatusLabel(match);
                   const actualPartCount = match.actual?.source_interval_count ?? 1;
                   return (
                   <li
@@ -779,15 +881,30 @@ function ActivityCardModal({
                       <span className="font-medium text-ink">
                         {planStepLabel(match.planned, index)}
                       </span>
-                      <span
-                        className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
-                          match.matched
-                            ? "bg-tone-success/15 text-tone-success"
-                            : "bg-tone-danger/15 text-tone-danger"
-                        }`}
-                      >
-                        {match.matched ? "по времени совпало" : "есть отклонение"}
-                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                            match.matched
+                              ? "bg-tone-success/15 text-tone-success"
+                              : "bg-tone-danger/15 text-tone-danger"
+                          }`}
+                        >
+                          {match.matched
+                            ? "длительность совпала"
+                            : "есть отклонение по времени"}
+                        </span>
+                        {intensityLabel ? (
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                              match.intensity?.status === "within"
+                                ? "bg-tone-success/15 text-tone-success"
+                                : "bg-tone-warning/15 text-tone-warning"
+                            }`}
+                          >
+                            {intensityLabel}
+                          </span>
+                        ) : null}
+                      </div>
                     </div>
                     <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
                       {match.planned.duration_seconds != null ? (
@@ -811,13 +928,21 @@ function ActivityCardModal({
                         </span>
                       ) : null}
                     </div>
-                    {plannedTarget || match.zone.actual != null ? (
+                    {plannedTarget || actualIntensity || match.zone.actual != null ? (
                       <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-faint">
                         {plannedTarget ? (
                           <span>Плановая цель: {plannedTarget}</span>
                         ) : null}
+                        {actualIntensity ? (
+                          <span>Фактическая интенсивность: {actualIntensity}</span>
+                        ) : null}
+                        {match.intensity?.average_heartrate != null ? (
+                          <span>
+                            Средний пульс: {match.intensity.average_heartrate}
+                          </span>
+                        ) : null}
                         {match.zone.actual != null ? (
-                          <span>Фактическая зона: {match.zone.actual}</span>
+                          <span>Зона Intervals.icu: {match.zone.actual}</span>
                         ) : null}
                       </div>
                     ) : null}
