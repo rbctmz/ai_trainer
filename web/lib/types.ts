@@ -169,9 +169,11 @@ export interface ActivityInterval {
   zone?: number | null;
   training_load?: number | null;
   average_speed?: number | null;
+  intensity_type?: string | null;
 }
 
 export interface ActivityIntervals {
+  source?: "garmin" | "intervals" | null;
   analyzed?: string | null;
   intervals: ActivityInterval[];
   groups: ActivityInterval[];

@@ -245,8 +245,8 @@ class ActivityStore:
         """Resolve the Intervals.icu provider id for a canonical activity (#390).
 
         The Intervals id lives in ``activity_provider_links`` (provider
-        ``'intervals'``); Garmin-only activities have no link and thus no
-        intervals data available.
+        ``'intervals'``). Garmin-only activities have no such link, but may still
+        have locally cached Garmin laps in ``activity_intervals``.
         """
         row = self._conn.execute(
             "SELECT provider_activity_id FROM activity_provider_links "

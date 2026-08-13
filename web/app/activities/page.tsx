@@ -24,6 +24,19 @@ const TSS_SOURCE_LABELS: Record<string, string> = {
   stages: "по этапам",
 };
 
+const STRUCTURE_SOURCE_LABELS: Record<string, string> = {
+  garmin: "Круги Garmin",
+  intervals: "Интервалы Intervals.icu",
+};
+
+const INTENSITY_TYPE_LABELS: Record<string, string> = {
+  warmup: "разминка",
+  active: "работа",
+  interval: "интервал",
+  recovery: "восстановление",
+  cooldown: "заминка",
+};
+
 function formatCssPace(secondsPer100m: number): string {
   const rounded = Math.round(secondsPer100m);
   return `${Math.floor(rounded / 60)}:${String(rounded % 60).padStart(2, "0")}/100м`;
@@ -140,7 +153,7 @@ function factStripSegments(intervals: ActivityInterval[]): StripSegment[] {
       label: `${Math.round(seconds / 60)}′`,
       title: `Интервал ${index + 1} · ${formatIntervalTime(seconds)}${
         zone ? ` · зона ${zone}` : ""
-      }${iv.average_heartrate ? ` · HR ${iv.average_heartrate}` : ""}`,
+      }${iv.average_heartrate ? ` · пульс ${iv.average_heartrate}` : ""}`,
       tone,
       heightPct,
     });
@@ -561,6 +574,11 @@ function ActivityCardModal({
           <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
             Структура тренировки
           </div>
+          {intervals?.source ? (
+            <p className="mt-1 text-xs text-ink-faint">
+              {STRUCTURE_SOURCE_LABELS[intervals.source] ?? intervals.source}
+            </p>
+          ) : null}
           {intervals && intervals.intervals.length > 0 ? (
             <ul className="mt-2 space-y-1.5 text-sm text-ink">
               {intervals.intervals.map((iv, index) => (
@@ -571,6 +589,11 @@ function ActivityCardModal({
                   <span className="rounded border border-surface-border bg-surface px-1.5 py-0.5 text-xs font-semibold text-ink-soft">
                     #{index + 1}
                   </span>
+                  {iv.intensity_type ? (
+                    <span className="text-xs text-ink-faint">
+                      {INTENSITY_TYPE_LABELS[iv.intensity_type] ?? iv.intensity_type}
+                    </span>
+                  ) : null}
                   {iv.moving_time != null ? (
                     <span className="font-medium tabular-nums">
                       {formatIntervalTime(iv.moving_time)}
@@ -585,13 +608,17 @@ function ActivityCardModal({
                     <span className="text-ink-soft">{iv.average_watts} Вт</span>
                   ) : null}
                   {iv.average_heartrate != null ? (
-                    <span className="text-ink-soft">HR {iv.average_heartrate}</span>
+                    <span className="text-ink-soft">
+                      пульс {iv.average_heartrate}
+                    </span>
                   ) : null}
                   {iv.zone != null ? (
                     <span className="text-ink-soft">зона {iv.zone}</span>
                   ) : null}
                   {iv.training_load != null ? (
-                    <span className="text-ink-faint">TL {iv.training_load}</span>
+                    <span className="text-ink-faint">
+                      нагрузка {iv.training_load}
+                    </span>
                   ) : null}
                 </li>
               ))}

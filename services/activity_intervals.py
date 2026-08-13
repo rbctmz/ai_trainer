@@ -1,9 +1,8 @@
-"""Fetch-and-cache интервалов Intervals.icu для карточки активности (#390).
+"""Чтение и обогащение структуры фактической активности для карточки.
 
-Карточка открывается офлайн: интервалы — обогащение, не блокер. Сервис
-резолвит Intervals-id через provider-links, при настроенном провайдере
-тянет ``?intervals=true``, нормализует и кэширует компактную структуру;
-при сбое сети/провайдера отдаёт кэш, иначе ``None``.
+Карточка открывается офлайн: Garmin-круги сохраняются при синхронизации, а
+Intervals.icu может обогатить их уже определёнными интервалами. При сбое сети
+сервис отдаёт локальный кэш, иначе ``None``.
 """
 from __future__ import annotations
 
@@ -21,24 +20,33 @@ def fetch_activity_intervals(
 ) -> dict[str, Any] | None:
     """Return compact intervals for a card, fetching on demand with a cache.
 
-    - No Intervals provider link -> ``None`` (activity is not Intervals-backed).
+    - No Intervals provider link -> cached Garmin laps, if available.
     - Provider not configured -> cached intervals if any, else ``None``.
     - Provider fetch fails or payload is malformed -> cached intervals if any,
       else ``None`` (fail-open at the display boundary, never raises).
     """
+    cached = database.get_activity_intervals(activity_id)
     intervals_id = database.get_intervals_provider_activity_id(activity_id)
     if not intervals_id:
-        return None
+        return cached
 
     client = client or intervals_icu.get_client()
     if not client.is_configured():
-        return database.get_activity_intervals(activity_id)
+        return cached
 
     try:
         payload = client.get_activity_intervals(intervals_id)
         compact = normalize_intervals_payload(payload)
     except (IntervalsICUError, ValueError):
-        return database.get_activity_intervals(activity_id)
+        return cached
+
+    if (
+        cached
+        and cached.get("source") == "garmin"
+        and not compact["intervals"]
+        and not compact["groups"]
+    ):
+        return cached
 
     database.save_activity_intervals(activity_id, compact)
     return compact

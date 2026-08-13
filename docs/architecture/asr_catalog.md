@@ -216,6 +216,25 @@ web раскрывает их без provider-вызова. Сырые canonical
 `test_multisport_training_load.py`, `test_activities_multisport_ui_contract.py`,
 Next lint/build и browser acceptance 1280/390 px.
 
+### Garmin activity structure without Intervals.icu (ASR-PERF-3, ASR-REL-2, ASR-MOD-3)
+
+Garmin-синхронизация сохраняет компактные круги `lapDTOs` в общем локальном
+кэше структуры активности. Карточка `/activities` читает их без provider-вызова,
+поэтому Intervals.icu больше не обязателен для базовой структуры факта.
+Успешно определённые интервалы Intervals.icu остаются более богатым источником,
+но пустой ответ не скрывает уже сохранённые круги Garmin.
+
+- **ASR-PERF-3**: используется ограниченный endpoint кругов, а не секундные
+  потоки; существующий непустой кэш исключает повторные запросы.
+- **ASR-REL-2**: ошибка или пустой ответ не отменяет сохранение основной
+  активности и не удаляет предыдущую структуру.
+- **ASR-MOD-3**: общий JSON-контракт расширен полями `source` и
+  `intensity_type` без миграции таблицы и с поддержкой старого кэша.
+
+Проверка: `test_garmin_activity_intervals.py`, `test_activity_intervals.py`,
+Garmin/common-ingest/plan-vs-fact regression suites, полный smoke-набор,
+Next lint/build и браузерная приёмка реальной Garmin-only активности с 7 кругами.
+
 ### Running threshold pace: единицы, provenance и safe fallback (#308)
 
 Профиль Intervals.icu теперь отделяет provider-unit от planning-unit:

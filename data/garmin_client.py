@@ -229,6 +229,44 @@ class GarminClient:
 
         self._remember_error("activity_details", "Нет доступного клиента для получения деталей активности")
         return None
+
+    def get_activity_splits(self, activity_id):
+        """Круги/этапы активности без тяжёлых секундных потоков."""
+        if not self.is_authenticated:
+            return None
+
+        if self.use_garth and self.garth_client:
+            try:
+                import garth
+
+                splits = garth.connectapi(
+                    f"/activity-service/activity/{activity_id}/splits"
+                )
+                if splits:
+                    self._clear_last_error()
+                    return splits
+            except Exception as e:
+                garmin_logger.debug(
+                    "Ошибка получения кругов активности через garth: %s", e
+                )
+
+        if self.client:
+            try:
+                splits = self.client.get_activity_splits(str(activity_id))
+                self._clear_last_error()
+                return splits
+            except Exception as e:
+                self._remember_error(
+                    "activity_splits",
+                    f"Ошибка получения кругов активности: {e}",
+                )
+                return None
+
+        self._remember_error(
+            "activity_splits",
+            "Нет доступного клиента для получения кругов активности",
+        )
+        return None
     
     def get_hrv_data(self, date):
         """Получение HRV данных за день"""
