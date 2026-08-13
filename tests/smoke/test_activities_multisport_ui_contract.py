@@ -23,5 +23,8 @@ def test_activity_table_has_accessible_multisport_stage_disclosure() -> None:
     assert "activity.segments?.length" in source
     assert "aria-expanded={expanded}" in source
     assert 'aria-label={`${expanded ? "Скрыть" : "Показать"} этапы: ${activity.group_label}`}' in source
+    assert "<MultisportSegments activity={activity} onSelect={onSelect}" in source
+    assert "onClick={() => onSelect(segment)}" in source
+    assert 'aria-label={`Открыть этап: ${segment.sport_label ?? segment.sport}`}' in source
     assert "Этапы триатлона" in source
     assert 'stages: "по этапам"' in source

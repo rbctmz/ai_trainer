@@ -125,6 +125,21 @@ def test_complete_triathlon_is_one_activity_with_ordered_stages_and_single_total
     ]
 
 
+def test_multisport_detail_and_analysis_use_the_same_grouped_metrics(tmp_path) -> None:
+    from api.routers.activities import analyze_activity, get_activity_card
+
+    db = Database(str(tmp_path / "detail.db"))
+    _seed_multisport(db)
+
+    detail = get_activity_card(ENVELOPE_ID, db=db)["activity"]
+    analysis = analyze_activity(ENVELOPE_ID, db=db)["coach_notes"]
+
+    assert detail["group_kind"] == "multisport"
+    assert detail["tss"] == 291.5
+    assert len(detail["segments"]) == 5
+    assert "292 TSS (источник: сумма этапов)" in analysis
+
+
 def test_incomplete_multisport_keeps_envelope_load_and_exposes_received_stages(
     tmp_path,
 ) -> None:
