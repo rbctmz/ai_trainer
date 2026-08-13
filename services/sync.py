@@ -6,11 +6,12 @@ from datetime import datetime, timedelta
 import logging
 import time
 import uuid
-from typing import Any, Dict
+from typing import Any, Dict, Mapping
 
 from config.settings import Settings
 from data.data_processor import ActivityProcessor, resolve_athlete_tss_profile
 from data.data_processor_phase1 import Phase1DataProcessor
+from models.activity_intervals import normalize_garmin_splits_payload
 from services.activity_ingest import ingest_provider_activity, normalize_provider_activity
 from services.data_cache import clear_data_caches
 from services.sync_cursor import resolve_window_from_cursor
@@ -322,7 +323,12 @@ def sync_garmin_data(
         step_text="Шаг 2/5: Обработка активностей...",
         stats_message=f"Найдено активностей: {len(activities)}" if activities else None,
     )
-    result.activity_result = _sync_activities(database, activities, warnings=result.warnings)
+    result.activity_result = _sync_activities(
+        database,
+        activities,
+        warnings=result.warnings,
+        activity_intervals_client=client,
+    )
     _advance_garmin_activity_cursor(database, end_date, clean=not activities_error)
 
     _emit_progress(
@@ -605,6 +611,7 @@ def _sync_activities(
     activities: list[dict[str, Any]],
     *,
     warnings: list[str] | None = None,
+    activity_intervals_client: Any | None = None,
 ) -> SyncCounts:
     """Persist Garmin activities through the common provider-link ingest (M1 D1).
 
@@ -629,6 +636,11 @@ def _sync_activities(
     counts = _empty_activity_counts()
     if warnings is None:
         warnings = []
+    retried_activity_ids = _retry_pending_garmin_activity_intervals(
+        database,
+        activity_intervals_client,
+        warnings,
+    )
     if not activities:
         return counts
 
@@ -671,6 +683,14 @@ def _sync_activities(
             outcome = ingest_provider_activity(
                 database, candidate, primary_source=Settings.PRIMARY_ACTIVITY_SOURCE
             )
+            if outcome["canonical_activity_id"] not in retried_activity_ids:
+                _cache_garmin_activity_intervals(
+                    database,
+                    outcome["canonical_activity_id"],
+                    candidate.provider_activity_id,
+                    activity_intervals_client,
+                    warnings,
+                )
         except Exception as exc:  # per-activity failure → warn and continue (M1-T3b)
             _append_warning(
                 warnings, f"⚠️ Активность {activity_id or '<без id>'} не сохранена: {exc}"
@@ -682,6 +702,167 @@ def _sync_activities(
             counts["updated"] += 1
 
     return counts
+
+
+def _retry_pending_garmin_activity_intervals(
+    database: Any,
+    client: Any | None,
+    warnings: list[str],
+) -> set[str]:
+    """Повторить незавершённое обогащение, не привязываясь к окну активностей."""
+    get_pending = getattr(database, "get_activity_interval_retries", None)
+    if client is None or not callable(get_pending):
+        return set()
+    try:
+        pending = get_pending()
+    except Exception as exc:
+        _append_warning(
+            warnings,
+            f"⚠️ Очередь повторной загрузки кругов Garmin недоступна: {exc}",
+        )
+        return set()
+    attempted: set[str] = set()
+    for item in pending or []:
+        if not isinstance(item, Mapping):
+            continue
+        canonical_activity_id = str(
+            item.get("canonical_activity_id") or ""
+        ).strip()
+        provider_activity_id = str(item.get("provider_activity_id") or "").strip()
+        if not canonical_activity_id or not provider_activity_id:
+            continue
+        attempted.add(canonical_activity_id)
+        _cache_garmin_activity_intervals(
+            database,
+            canonical_activity_id,
+            provider_activity_id,
+            client,
+            warnings,
+        )
+    return attempted
+
+
+def _mark_garmin_activity_intervals_retry(
+    database: Any,
+    canonical_activity_id: str,
+    provider_activity_id: str,
+    message: str,
+) -> None:
+    """Сохранить повторную попытку рядом с необязательным кэшем структуры."""
+    get_cached = getattr(database, "get_activity_intervals", None)
+    save_cached = getattr(database, "save_activity_intervals", None)
+    if not callable(get_cached) or not callable(save_cached):
+        return
+    cached = get_cached(canonical_activity_id)
+    payload = (
+        dict(cached)
+        if isinstance(cached, Mapping)
+        else {
+            "source": "garmin",
+            "analyzed": None,
+            "intervals": [],
+            "groups": [],
+        }
+    )
+    previous = payload.get("garmin_retry")
+    try:
+        attempts = (
+            int(previous.get("attempts") or 0)
+            if isinstance(previous, Mapping)
+            else 0
+        )
+    except (TypeError, ValueError):
+        attempts = 0
+    payload["garmin_retry"] = {
+        "provider_activity_id": str(provider_activity_id),
+        "attempts": attempts + 1,
+        "message": str(message or "пустой ответ Garmin")[:500],
+    }
+    save_cached(canonical_activity_id, payload)
+
+
+def _cache_garmin_activity_intervals(
+    database: Any,
+    canonical_activity_id: str,
+    provider_activity_id: str,
+    client: Any | None,
+    warnings: list[str],
+) -> None:
+    """Сохранить Garmin-круги как необязательное обогащение активности.
+
+    Основная активность уже записана. Любой сбой этого шага остаётся предупреждением
+    и никогда не откатывает успешную синхронизацию. Круги Garmin хранятся отдельно
+    от определённых интервалов Intervals.icu, поэтому оба представления доступны в
+    карточке. Уже сохранённые круги повторно не запрашиваются.
+    """
+    get_cached = getattr(database, "get_activity_intervals", None)
+    save_cached = getattr(database, "save_activity_intervals", None)
+    if client is None or not callable(get_cached) or not callable(save_cached):
+        return
+    fetch = getattr(client, "get_activity_splits", None)
+    if not callable(fetch):
+        return
+
+    try:
+        cached = get_cached(canonical_activity_id)
+        if cached and (
+            cached.get("garmin_laps")
+            or (cached.get("source") == "garmin" and cached.get("intervals"))
+        ):
+            return
+        payload = fetch(str(provider_activity_id))
+        if payload is None:
+            pop_error = getattr(client, "pop_last_error", None)
+            error = pop_error() if callable(pop_error) else None
+            message = (
+                str(error.get("message"))
+                if isinstance(error, Mapping) and error.get("message")
+                else "пустой ответ Garmin"
+            )
+            _mark_garmin_activity_intervals_retry(
+                database,
+                canonical_activity_id,
+                provider_activity_id,
+                message,
+            )
+            _append_warning(
+                warnings,
+                f"⚠️ Структура активности {provider_activity_id} не загружена: "
+                f"{message}",
+            )
+            return
+        compact = normalize_garmin_splits_payload(payload)
+        if compact["intervals"]:
+            if cached and (
+                cached.get("source") != "garmin"
+                and (cached.get("intervals") or cached.get("groups"))
+            ):
+                combined = dict(cached)
+                combined["garmin_laps"] = compact["intervals"]
+                combined.pop("garmin_retry", None)
+                save_cached(canonical_activity_id, combined)
+            else:
+                save_cached(canonical_activity_id, compact)
+        elif cached and cached.get("garmin_retry"):
+            completed = dict(cached)
+            completed.pop("garmin_retry", None)
+            save_cached(canonical_activity_id, completed)
+        elif not cached:
+            save_cached(canonical_activity_id, compact)
+    except Exception as exc:
+        try:
+            _mark_garmin_activity_intervals_retry(
+                database,
+                canonical_activity_id,
+                provider_activity_id,
+                str(exc),
+            )
+        except Exception:
+            pass
+        _append_warning(
+            warnings,
+            f"⚠️ Структура активности {provider_activity_id} не загружена: {exc}",
+        )
 
 
 def _peak_body_battery(battery_values: list[Any]) -> float | None:

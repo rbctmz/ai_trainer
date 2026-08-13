@@ -1,8 +1,8 @@
-"""Компактная нормализация интервалов Intervals.icu (#390).
+"""Компактная нормализация структуры фактической активности.
 
-Intervals.icu уже детектит интервалы (лапы/пары); здесь мы НЕ пересчитываем
-их, а приводим ответ API к компактной структуре для карточки активности
-(тот же паттерн, что с ``icu_training_load``: потребляем результат провайдера).
+Intervals.icu уже определяет интервалы, а Garmin отдаёт записанные устройством
+круги. Здесь мы не пересчитываем структуру, а приводим оба ответа к одному
+компактному контракту карточки активности.
 
 Fail-closed: неожиданная форма ответа поднимает ``ValueError``, а не теряет
 данные молча — сервисный слой ловит ошибку и отдаёт кэш/``None``.
@@ -84,10 +84,80 @@ def normalize_intervals_payload(payload: Any) -> dict[str, Any]:
 
     analyzed = payload.get("analyzed")
     return {
+        "source": "intervals",
         "analyzed": str(analyzed).strip() if analyzed not in (None, "") else None,
         "intervals": [_compact_interval(row) for row in raw_intervals],
         "groups": [_compact_interval(row) for row in raw_groups],
     }
 
 
-__all__ = ["normalize_intervals_payload"]
+def _first_number(raw: Mapping[str, Any], *fields: str) -> int | float | None:
+    for field in fields:
+        value = _compact_number(raw.get(field))
+        if value is not None:
+            return value
+    return None
+
+
+def _garmin_interval(raw: Any, start_index: int | float) -> dict[str, Any]:
+    if not isinstance(raw, Mapping):
+        raise ValueError("Garmin lap entries must be objects")
+
+    moving_time = _first_number(raw, "movingDuration", "duration")
+    elapsed_time = _first_number(raw, "elapsedDuration", "duration")
+    intensity = raw.get("intensityType")
+    intensity_type = (
+        str(intensity).strip().lower() if intensity not in (None, "") else None
+    )
+    return {
+        "start_index": _compact_number(start_index),
+        "moving_time": moving_time,
+        "elapsed_time": elapsed_time,
+        "average_watts": _first_number(raw, "averagePower"),
+        "average_heartrate": _first_number(raw, "averageHR"),
+        "min_heartrate": _first_number(raw, "minHR"),
+        "max_heartrate": _first_number(raw, "maxHR"),
+        "average_cadence": _first_number(
+            raw, "averageRunCadence", "averageBikeCadence", "averageCadence"
+        ),
+        "zone": _first_number(raw, "zone"),
+        "training_load": _first_number(raw, "trainingLoad"),
+        "average_speed": _first_number(raw, "averageSpeed", "averageMovingSpeed"),
+        "distance_km": _distance_to_km(raw.get("distance")),
+        "intensity_type": intensity_type,
+    }
+
+
+def normalize_garmin_splits_payload(payload: Any) -> dict[str, Any]:
+    """Привести Garmin ``lapDTOs`` к общему контракту структуры карточки.
+
+    ``start_index`` — накопленное прошедшее время предыдущих кругов в секундах.
+    Так паузы между движущимися отрезками остаются видимыми на полосе факта.
+    """
+    if not isinstance(payload, Mapping):
+        raise ValueError("Garmin splits payload must be an object")
+
+    raw_laps = payload.get("lapDTOs")
+    if raw_laps is None:
+        raw_laps = []
+    if not isinstance(raw_laps, list):
+        raise ValueError("Garmin `lapDTOs` must be a list")
+
+    intervals: list[dict[str, Any]] = []
+    cursor: int | float = 0
+    for raw in raw_laps:
+        compact = _garmin_interval(raw, cursor)
+        intervals.append(compact)
+        elapsed = compact.get("elapsed_time")
+        moving = compact.get("moving_time")
+        cursor = round(float(cursor) + float(elapsed or moving or 0), 1)
+
+    return {
+        "source": "garmin",
+        "analyzed": None,
+        "intervals": intervals,
+        "groups": [],
+    }
+
+
+__all__ = ["normalize_garmin_splits_payload", "normalize_intervals_payload"]

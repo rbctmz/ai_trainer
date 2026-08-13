@@ -7,6 +7,7 @@ ExecPlan: docs/plan_vs_fact_execplan.md (Milestone 3). Покрывает чис
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -54,7 +55,15 @@ def test_match_three_work_reps_in_order():
 
     result = match_plan_vs_fact(planned, actual)
 
-    assert result["summary"] == {"planned_work_steps": 3, "actual_intervals": 3, "matched": 3}
+    assert result["summary"] == {
+        "planned_steps": 7,
+        "planned_work_steps": 3,
+        "actual_intervals": 3,
+        "matched_steps": 3,
+        "matched": 3,
+    }
+    assert result["alignment_mode"] == "work_intervals"
+    assert result["step_matches"] == []
     assert [m["matched"] for m in result["matches"]] == [True, True, True]
     # Small deltas near zero.
     assert abs(result["matches"][0]["duration_delta"]) < 0.05
@@ -68,6 +77,291 @@ def test_match_sums_up_in_summary():
 
     assert result["summary"]["matched"] == 2
     assert result["summary"]["planned_work_steps"] == 2
+
+
+def test_contiguous_timeline_groups_auto_laps_into_planned_steps():
+    planned = [
+        {**_planned_rest(315), "segment_kind": "warmup", "name": "Warm-up"},
+        _planned_work(1155, 0.8, segment_kind="stage", name="Aerobic endurance"),
+        _planned_work(315, 0.88, segment_kind="stage", name="Steady finish"),
+        {**_planned_rest(315), "segment_kind": "cooldown", "name": "Cool-down"},
+    ]
+    durations = [316, 465, 453, 237, 315, 321]
+    zones = [2, 2, 2, 2, 3, 2]
+    actual = []
+    cursor = 0
+    for duration, zone in zip(durations, zones):
+        actual.append(
+            _actual(
+                duration,
+                zone=zone,
+                start_index=cursor,
+                average_watts=280 + zone * 5,
+            )
+        )
+        cursor += duration
+
+    result = match_plan_vs_fact(planned, actual)
+
+    assert result["alignment_mode"] == "timeline"
+    assert result["summary"] == {
+        "planned_steps": 4,
+        "planned_work_steps": 2,
+        "actual_intervals": 6,
+        "matched_steps": 4,
+        "matched": 2,
+        "intensity_assessed": 0,
+        "intensity_within": 0,
+    }
+    assert [item["matched"] for item in result["step_matches"]] == [
+        True,
+        True,
+        True,
+        True,
+    ]
+    assert result["step_matches"][1]["actual"]["moving_time"] == 1155
+    assert result["step_matches"][1]["actual"]["source_interval_count"] == 3
+    assert result["step_matches"][1]["zone"]["actual"] == 2
+    assert result["step_matches"][1]["duration_delta"] == 0
+    assert result["step_matches"][2]["actual"]["source_interval_count"] == 1
+    assert [item["matched"] for item in result["matches"]] == [True, True]
+
+
+def test_timeline_compares_run_pace_to_threshold_in_same_scale():
+    planned = [
+        {
+            **_planned_rest(315),
+            "segment_kind": "warmup",
+            "name": "Warm-up",
+            "target_zone": {
+                "type": "pace",
+                "relative_low": 0.57,
+                "relative_high": 0.73,
+            },
+        },
+        _planned_work(
+            1155,
+            0.8,
+            segment_kind="stage",
+            name="Aerobic endurance",
+            target_zone={
+                "type": "pace",
+                "relative_low": 0.64,
+                "relative_high": 0.8,
+            },
+        ),
+        _planned_work(
+            315,
+            0.88,
+            segment_kind="stage",
+            name="Steady finish",
+            target_zone={
+                "type": "pace",
+                "relative_low": 0.72,
+                "relative_high": 0.88,
+            },
+        ),
+        {
+            **_planned_rest(315),
+            "segment_kind": "cooldown",
+            "name": "Cool-down",
+            "target_zone": {
+                "type": "pace",
+                "relative_low": 0.52,
+                "relative_high": 0.68,
+            },
+        },
+    ]
+    durations = [316, 465, 453, 237, 315, 321]
+    distances = [0.65, 1.0, 1.0, 0.51, 0.73, 0.62]
+    heart_rates = [117, 134, 137, 139, 143, 136]
+    actual = []
+    cursor = 0
+    for duration, distance, heart_rate in zip(durations, distances, heart_rates):
+        actual.append(
+            _actual(
+                duration,
+                start_index=cursor,
+                distance_km=distance,
+                average_heartrate=heart_rate,
+                zone=2,
+            )
+        )
+        cursor += duration
+
+    result = match_plan_vs_fact(
+        planned,
+        actual,
+        sport="running",
+        athlete_profile={"threshold_pace_seconds_per_km": 340},
+    )
+
+    matches = result["step_matches"]
+    assert [item["intensity"]["status"] for item in matches] == [
+        "within",
+        "within",
+        "within",
+        "within",
+    ]
+    assert [item["intensity"]["actual_relative"] for item in matches] == [
+        0.7,
+        0.74,
+        0.79,
+        0.66,
+    ]
+    assert matches[1]["actual"]["source_interval_durations"] == [465, 453, 237]
+    assert matches[1]["intensity"]["actual_value"] == pytest.approx(460.2, abs=0.1)
+    assert matches[1]["intensity"]["unit"] == "seconds_per_km"
+    assert matches[1]["intensity"]["average_heartrate"] == 136
+
+
+def test_intensity_is_unavailable_without_matching_threshold():
+    planned = [
+        _planned_work(
+            300,
+            target_zone={
+                "type": "pace",
+                "relative_low": 0.8,
+                "relative_high": 0.9,
+            },
+        )
+    ]
+    actual = [_actual(300, start_index=0, distance_km=1.0)]
+
+    result = match_plan_vs_fact(planned, actual, sport="running")
+
+    assert result["step_matches"][0]["intensity"]["status"] == "unavailable"
+    assert result["step_matches"][0]["intensity"]["actual_relative"] is None
+
+
+@pytest.mark.parametrize(
+    ("sport", "target", "profile", "actual", "relative", "unit", "status"),
+    [
+        (
+            "bike",
+            {"type": "power", "relative_low": 0.8, "relative_high": 0.9},
+            {"ftp": 200},
+            {"average_watts": 180},
+            0.9,
+            "watts",
+            "within",
+        ),
+        (
+            "run",
+            {"type": "heart_rate", "relative_low": 0.75, "relative_high": 0.85},
+            {"lthr": 180},
+            {"average_heartrate": 144},
+            0.8,
+            "bpm",
+            "within",
+        ),
+        (
+            "swim",
+            {"type": "pace", "relative_low": 0.8, "relative_high": 0.9},
+            {"swim_threshold_pace_seconds_per_100m": 60},
+            {"distance_km": 1.0},
+            0.86,
+            "seconds_per_100m",
+            "within",
+        ),
+        (
+            "bike",
+            {"type": "power", "relative_low": 0.8, "relative_high": 0.9},
+            {"ftp": 200},
+            {"average_watts": 210},
+            1.05,
+            "watts",
+            "above",
+        ),
+    ],
+)
+def test_intensity_uses_metric_selected_by_plan(
+    sport, target, profile, actual, relative, unit, status
+):
+    planned = [_planned_work(700, target_zone=target)]
+    intervals = [_actual(700, start_index=0, **actual)]
+
+    result = match_plan_vs_fact(
+        planned,
+        intervals,
+        sport=sport,
+        athlete_profile=profile,
+    )
+
+    intensity = result["step_matches"][0]["intensity"]
+    assert intensity["actual_relative"] == relative
+    assert intensity["unit"] == unit
+    assert intensity["status"] == status
+
+
+def test_timeline_alignment_does_not_accept_large_duration_deviation():
+    planned = [_planned_work(720)]
+    actual = [_actual(1100, start_index=0)]
+
+    result = match_plan_vs_fact(planned, actual)
+
+    assert result["alignment_mode"] == "timeline"
+    assert result["step_matches"][0]["matched"] is False
+    assert result["step_matches"][0]["actual"]["moving_time"] == 1100
+    assert result["summary"]["matched_steps"] == 0
+
+
+def test_timeline_with_gap_keeps_conservative_work_interval_matching():
+    planned = [_planned_work(720)]
+    actual = [
+        _actual(60, start_index=0),
+        _actual(718, start_index=120),
+    ]
+
+    result = match_plan_vs_fact(planned, actual)
+
+    assert result["alignment_mode"] == "work_intervals"
+    assert result["step_matches"] == []
+    assert result["matches"][0]["actual"]["moving_time"] == 718
+
+
+def test_garmin_laps_use_elapsed_timeline_without_matching_warmup_as_work():
+    planned = [
+        {**_planned_rest(300), "segment_kind": "warmup", "name": "Warm-up"},
+        _planned_work(300, name="Work"),
+    ]
+    actual = [
+        _actual(
+            300,
+            elapsed_time=305,
+            start_index=0,
+            intensity_type="warmup",
+        ),
+        _actual(
+            300,
+            elapsed_time=300,
+            start_index=305,
+            intensity_type="active",
+        ),
+    ]
+
+    result = match_plan_vs_fact(planned, actual, actual_source="garmin")
+
+    assert result["alignment_mode"] == "timeline"
+    assert result["matches"][0]["actual"]["intensity_type"] == "active"
+
+
+def test_unaligned_garmin_laps_never_use_greedy_work_matching():
+    planned = [_planned_work(300, name="Work")]
+    actual = [
+        _actual(
+            300,
+            elapsed_time=300,
+            start_index=60,
+            intensity_type="warmup",
+        )
+    ]
+
+    result = match_plan_vs_fact(planned, actual, actual_source="garmin")
+
+    assert result["alignment_mode"] == "work_intervals"
+    assert result["matches"][0]["matched"] is False
+    assert result["matches"][0]["actual"] is None
 
 
 # --- tolerance + deviation ------------------------------------------------
@@ -184,13 +478,27 @@ def test_match_no_work_steps_returns_empty():
     result = match_plan_vs_fact(planned, actual)
 
     assert result["matches"] == []
-    assert result["summary"] == {"planned_work_steps": 0, "actual_intervals": 1, "matched": 0}
+    assert result["summary"] == {
+        "planned_steps": 2,
+        "planned_work_steps": 0,
+        "actual_intervals": 1,
+        "matched_steps": 0,
+        "matched": 0,
+    }
 
 
 def test_match_non_list_inputs_fail_open():
     assert match_plan_vs_fact(None, None) == {
+        "alignment_mode": "work_intervals",
+        "step_matches": [],
         "matches": [],
-        "summary": {"planned_work_steps": 0, "actual_intervals": 0, "matched": 0},
+        "summary": {
+            "planned_steps": 0,
+            "planned_work_steps": 0,
+            "actual_intervals": 0,
+            "matched_steps": 0,
+            "matched": 0,
+        },
     }
     assert match_plan_vs_fact({"not": "list"}, [_actual(600)])["matches"] == []
 
@@ -422,8 +730,10 @@ def test_activity_card_plan_vs_fact_contract(tmp_path, monkeypatch):
     plan_vs_fact = card["activity"]["plan_vs_fact"]
     assert plan_vs_fact is not None
     assert plan_vs_fact["summary"] == {
+        "planned_steps": 3,
         "planned_work_steps": 2,
         "actual_intervals": 3,
+        "matched_steps": 2,
         "matched": 2,
     }
     assert [match["matched"] for match in plan_vs_fact["matches"]] == [True, True]
@@ -444,3 +754,59 @@ def test_activity_card_plan_vs_fact_null_without_plan(tmp_path, monkeypatch):
 
     assert card["activity"]["planned_intervals"] is None
     assert card["activity"]["plan_vs_fact"] is None
+
+
+def test_activity_card_passes_sport_and_profile_to_intensity_matcher(
+    tmp_path, monkeypatch
+):
+    from api.routers import activities as activities_router
+    from data.database import Database
+
+    db = Database(str(tmp_path / "plan-vs-fact-intensity.db"))
+    _seed_activity(db)
+    _seed_plan_match(db)
+    db.save_athlete_profile(
+        {"ftp": 200, "weight_kg": 75, "lthr": 160, "source": "test"}
+    )
+    monkeypatch.setattr(
+        activities_router,
+        "fetch_activity_intervals",
+        lambda db, aid: {
+            "source": "intervals",
+            "intervals": [_actual(720)],
+            "groups": [],
+        },
+    )
+    captured = {}
+
+    def fake_match(planned, actual, **context):
+        captured.update(context)
+        return {"matches": [], "step_matches": [], "summary": {}}
+
+    monkeypatch.setattr(activities_router, "match_plan_vs_fact", fake_match)
+
+    activities_router.get_activity_card("act-1", db=db)
+
+    assert captured["sport"] == "bike"
+    assert captured["actual_source"] == "intervals"
+    assert captured["athlete_profile"]["ftp"] == 200
+
+
+def test_activity_card_timeline_alignment_ui_contract() -> None:
+    page = Path("web/app/activities/page.tsx").read_text(encoding="utf-8")
+    types = Path("web/lib/types.ts").read_text(encoding="utf-8")
+
+    assert "step_matches: PlanVsFactMatch[]" in types
+    assert "source_interval_count?: number" in types
+    assert 'alignment_mode: "timeline" | "work_intervals"' in types
+    assert "Этапы по длительности" in page
+    assert "Плановая цель" in page
+    assert "Фактическая интенсивность" in page
+    assert "Высота: интенсивность относительно порога" in page
+    assert "planVsFact.step_matches" in page
+    assert "matchedFactStripSegments" in page
+    assert "divisionsPct" in page
+    assert "sourceDivisions(actual, index > 0)" in page
+    assert "border-ink/40" in Path(
+        "web/components/WorkoutStrip.tsx"
+    ).read_text(encoding="utf-8")

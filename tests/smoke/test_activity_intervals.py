@@ -152,6 +152,7 @@ def test_normalize_intervals_payload_distance_is_metres_converted_to_km():
 
 def test_normalize_intervals_payload_empty_payload():
     assert normalize_intervals_payload({}) == {
+        "source": "intervals",
         "analyzed": None,
         "intervals": [],
         "groups": [],

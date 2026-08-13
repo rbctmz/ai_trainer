@@ -169,12 +169,17 @@ export interface ActivityInterval {
   zone?: number | null;
   training_load?: number | null;
   average_speed?: number | null;
+  intensity_type?: string | null;
+  source_interval_count?: number;
+  source_interval_durations?: number[];
 }
 
 export interface ActivityIntervals {
+  source?: "garmin" | "intervals" | null;
   analyzed?: string | null;
   intervals: ActivityInterval[];
   groups: ActivityInterval[];
+  garmin_laps?: ActivityInterval[];
 }
 
 export interface ActivityPowerPeak {
@@ -194,9 +199,19 @@ export interface ActivityPowerCurve {
 export interface PlanVsFactStep {
   type?: string | null;
   duration_seconds?: number | null;
-  target_zone?: number | null;
+  target_zone?:
+    | number
+    | {
+        type?: string | null;
+        low?: number | null;
+        high?: number | null;
+        relative_low?: number | null;
+        relative_high?: number | null;
+      }
+    | null;
   segment_kind?: string | null;
   repeat_index?: number | null;
+  name?: string | null;
 }
 
 export interface PlanVsFactMatch {
@@ -204,15 +219,31 @@ export interface PlanVsFactMatch {
   actual: ActivityInterval | null;
   duration_delta: number | null;
   zone: { planned: number | null; actual: number | null };
+  intensity?: {
+    metric: string | null;
+    unit: string | null;
+    actual_value: number | null;
+    actual_relative: number | null;
+    target_low: number | null;
+    target_high: number | null;
+    status: "within" | "below" | "above" | "unavailable";
+    average_heartrate: number | null;
+  };
   matched: boolean;
 }
 
 export interface PlanVsFact {
+  alignment_mode: "timeline" | "work_intervals";
+  step_matches: PlanVsFactMatch[];
   matches: PlanVsFactMatch[];
   summary: {
+    planned_steps: number;
     planned_work_steps: number;
     actual_intervals: number;
+    matched_steps: number;
     matched: number;
+    intensity_assessed?: number;
+    intensity_within?: number;
   };
   plan_replanned_after_delivery?: {
     reason: string;

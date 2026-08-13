@@ -209,6 +209,36 @@ class ActivityStore:
             return None
         return payload if isinstance(payload, dict) else None
 
+    def get_activity_interval_retries(self) -> list[dict[str, Any]]:
+        """Return persisted optional-enrichment retries from the compact cache."""
+        rows = self._conn.execute(
+            """
+            SELECT activity_id, intervals_json
+            FROM activity_intervals
+            WHERE intervals_json LIKE '%"garmin_retry"%'
+            """
+        ).fetchall()
+        pending: list[dict[str, Any]] = []
+        for activity_id, raw_payload in rows:
+            try:
+                payload = json.loads(raw_payload)
+            except (TypeError, ValueError):
+                continue
+            retry = payload.get("garmin_retry") if isinstance(payload, dict) else None
+            if not isinstance(retry, dict):
+                continue
+            provider_activity_id = str(
+                retry.get("provider_activity_id") or ""
+            ).strip()
+            if provider_activity_id:
+                pending.append(
+                    {
+                        "canonical_activity_id": str(activity_id),
+                        "provider_activity_id": provider_activity_id,
+                    }
+                )
+        return pending
+
     def save_activity_power_curve(
         self, activity_id: str, curve: dict[str, Any]
     ) -> None:
@@ -245,8 +275,8 @@ class ActivityStore:
         """Resolve the Intervals.icu provider id for a canonical activity (#390).
 
         The Intervals id lives in ``activity_provider_links`` (provider
-        ``'intervals'``); Garmin-only activities have no link and thus no
-        intervals data available.
+        ``'intervals'``). Garmin-only activities have no such link, but may still
+        have locally cached Garmin laps in ``activity_intervals``.
         """
         row = self._conn.execute(
             "SELECT provider_activity_id FROM activity_provider_links "

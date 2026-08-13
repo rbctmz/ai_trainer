@@ -11,6 +11,7 @@ import {
   ActivityPowerCurve,
   AthleteProfileResponse,
   PlanVsFact,
+  PlanVsFactMatch,
   PlanVsFactStep,
 } from "@/lib/types";
 import { DrillDownHeader } from "@/components/ui/DrillDownHeader";
@@ -22,6 +23,26 @@ const TSS_SOURCE_LABELS: Record<string, string> = {
   heart_rate: "по пульсу",
   heuristic: "оценочно",
   stages: "по этапам",
+};
+
+const STRUCTURE_SOURCE_LABELS: Record<string, string> = {
+  garmin: "Круги Garmin",
+  intervals: "Интервалы Intervals.icu",
+};
+
+const INTENSITY_TYPE_LABELS: Record<string, string> = {
+  warmup: "разминка",
+  active: "работа",
+  interval: "интервал",
+  recovery: "восстановление",
+  cooldown: "заминка",
+};
+
+const PLAN_STEP_NAME_LABELS: Record<string, string> = {
+  "Warm-up": "Разминка",
+  "Aerobic endurance": "Аэробная работа",
+  "Steady finish": "Ускорение в конце",
+  "Cool-down": "Заминка",
 };
 
 function formatCssPace(secondsPer100m: number): string {
@@ -44,9 +65,105 @@ function formatIntervalDistance(distanceKm: number): string {
   return `${Math.round(distanceKm * 1000)} м`;
 }
 
+function ActivityIntervalList({ items }: { items: ActivityInterval[] }) {
+  return (
+    <ul className="mt-2 space-y-1.5 text-sm text-ink">
+      {items.map((iv, index) => (
+        <li
+          key={index}
+          className="flex flex-wrap items-center gap-x-2 gap-y-1"
+        >
+          <span className="rounded border border-surface-border bg-surface px-1.5 py-0.5 text-xs font-semibold text-ink-soft">
+            #{index + 1}
+          </span>
+          {iv.intensity_type ? (
+            <span className="text-xs text-ink-faint">
+              {INTENSITY_TYPE_LABELS[iv.intensity_type] ?? iv.intensity_type}
+            </span>
+          ) : null}
+          {iv.moving_time != null ? (
+            <span className="font-medium tabular-nums">
+              {formatIntervalTime(iv.moving_time)}
+            </span>
+          ) : null}
+          {iv.distance_km != null ? (
+            <span className="text-ink-soft">
+              {formatIntervalDistance(iv.distance_km)}
+            </span>
+          ) : null}
+          {iv.average_watts != null ? (
+            <span className="text-ink-soft">{iv.average_watts} Вт</span>
+          ) : null}
+          {iv.average_heartrate != null ? (
+            <span className="text-ink-soft">пульс {iv.average_heartrate}</span>
+          ) : null}
+          {iv.zone != null ? (
+            <span className="text-ink-soft">зона {iv.zone}</span>
+          ) : null}
+          {iv.training_load != null ? (
+            <span className="text-ink-faint">нагрузка {iv.training_load}</span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function formatPlanDelta(delta: number): string {
   const pct = Math.round(delta * 100);
   return `${pct > 0 ? "+" : ""}${pct}%`;
+}
+
+function planStepLabel(step: PlanVsFactStep, index: number): string {
+  const name = String(step.name || "").trim();
+  if (PLAN_STEP_NAME_LABELS[name]) return PLAN_STEP_NAME_LABELS[name];
+  const kind = String(step.segment_kind || "").toLowerCase();
+  if (kind === "warmup") return "Разминка";
+  if (kind === "cooldown") return "Заминка";
+  if (kind === "recovery") return "Восстановление";
+  if (String(step.type || "").toLowerCase() === "work") {
+    return `Рабочий этап ${index + 1}`;
+  }
+  return `Этап ${index + 1}`;
+}
+
+function formatPlannedTarget(step: PlanVsFactStep): string | null {
+  const target = step.target_zone;
+  if (typeof target === "number" && Number.isFinite(target)) {
+    return `${Math.round(target * 100)}% порога`;
+  }
+  if (!target || typeof target !== "object") return null;
+  const typeLabels: Record<string, string> = {
+    pace: "темп",
+    power: "мощность",
+    heart_rate: "пульс",
+    relative_rpe: "субъективная нагрузка",
+  };
+  const type = String(target.type || "");
+  const metric = typeLabels[type] ?? "интенсивность";
+  if (target.relative_low != null && target.relative_high != null) {
+    return `${metric} ${Math.round(target.relative_low * 100)}–${Math.round(
+      target.relative_high * 100,
+    )}% порога`;
+  }
+  if (target.low != null && target.high != null) {
+    return `${metric} ${target.low}–${target.high}`;
+  }
+  return metric;
+}
+
+function formatActualPartCount(count: number): string {
+  const mod100 = count % 100;
+  const mod10 = count % 10;
+  const word =
+    mod100 >= 11 && mod100 <= 14
+      ? "участков"
+      : mod10 === 1
+        ? "участок"
+        : mod10 >= 2 && mod10 <= 4
+          ? "участка"
+          : "участков";
+  return `${count} ${word}`;
 }
 
 function plannedStripSegments(
@@ -61,18 +178,16 @@ function plannedStripSegments(
     const kind = String(step.segment_kind || "").toLowerCase();
     const zone = plannedZone(step);
     let tone = "bg-ink-faint/20";
-    let heightPct = 38;
+    let heightPct = zone != null ? clampStripHeight(zone * 100) : 38;
     if (kind === "warmup" || kind === "cooldown") {
       tone = "bg-ink-faint/25";
-      heightPct = 30;
     } else if (type === "rest" || kind === "recovery") {
       tone = "bg-tone-success/30";
-      heightPct = 38;
     } else if (type === "work") {
       tone = "bg-tone-danger/40";
-      heightPct = zone != null ? clampStripHeight(zone * 100) : 90;
+      if (zone == null) heightPct = 90;
     }
-    const label = type === "work" ? "Работа" : type === "rest" ? "Отдых" : `Шаг ${index + 1}`;
+    const label = planStepLabel(step, index);
     segments.push({
       seconds,
       label,
@@ -140,13 +255,102 @@ function factStripSegments(intervals: ActivityInterval[]): StripSegment[] {
       label: `${Math.round(seconds / 60)}′`,
       title: `Интервал ${index + 1} · ${formatIntervalTime(seconds)}${
         zone ? ` · зона ${zone}` : ""
-      }${iv.average_heartrate ? ` · HR ${iv.average_heartrate}` : ""}`,
+      }${iv.average_heartrate ? ` · пульс ${iv.average_heartrate}` : ""}`,
       tone,
       heightPct,
     });
     cursor = start + seconds;
   });
   return segments;
+}
+
+function intensityTone(match: PlanVsFactMatch): string {
+  const intensity = match.intensity;
+  if (!intensity || intensity.status === "unavailable") return "bg-ink-faint/25";
+  if (intensity.status === "within") return "bg-tone-success/45";
+  const actual = intensity.actual_relative;
+  const boundary =
+    intensity.status === "below" ? intensity.target_low : intensity.target_high;
+  if (actual != null && boundary != null && Math.abs(actual - boundary) <= 0.1) {
+    return "bg-tone-warning/50";
+  }
+  return "bg-tone-danger/50";
+}
+
+function sourceDivisions(
+  interval: ActivityInterval,
+  includeStageStart: boolean,
+): number[] {
+  const durations = interval.source_interval_durations ?? [];
+  const total = durations.reduce((sum, duration) => sum + duration, 0);
+  if (total <= 0) return includeStageStart ? [0] : [];
+  let cursor = 0;
+  const internal = durations.slice(0, -1).map((duration) => {
+    cursor += duration;
+    return Math.round((cursor / total) * 1000) / 10;
+  });
+  return includeStageStart ? [0, ...internal] : internal;
+}
+
+function matchedFactStripSegments(matches: PlanVsFactMatch[]): StripSegment[] {
+  return matches.flatMap((match, index) => {
+    const actual = match.actual;
+    const seconds = Math.max(
+      0,
+      Number(actual?.moving_time ?? actual?.elapsed_time) || 0,
+    );
+    if (!actual || seconds <= 0) return [];
+    const relative = match.intensity?.actual_relative;
+    const label =
+      relative != null
+        ? `${Math.round(relative * 100)}%`
+        : planStepLabel(match.planned, index);
+    const pulse = match.intensity?.average_heartrate;
+    return [
+      {
+        seconds,
+        label,
+        title: `${planStepLabel(match.planned, index)} · ${formatIntervalTime(
+          seconds,
+        )}${relative != null ? ` · ${Math.round(relative * 100)}% порога` : ""}${
+          pulse != null ? ` · пульс ${pulse}` : ""
+        }`,
+        tone: intensityTone(match),
+        heightPct: relative != null ? clampStripHeight(relative * 100) : 35,
+        divisionsPct: sourceDivisions(actual, index > 0),
+      },
+    ];
+  });
+}
+
+function formatActualIntensity(match: PlanVsFactMatch): string | null {
+  const intensity = match.intensity;
+  if (!intensity || intensity.actual_value == null) return null;
+  const relative =
+    intensity.actual_relative != null
+      ? ` · ${Math.round(intensity.actual_relative * 100)}% порога`
+      : "";
+  if (intensity.unit === "seconds_per_km") {
+    return `темп ${formatIntervalTime(intensity.actual_value)}/км${relative}`;
+  }
+  if (intensity.unit === "seconds_per_100m") {
+    return `темп ${formatIntervalTime(intensity.actual_value)}/100м${relative}`;
+  }
+  if (intensity.unit === "watts") {
+    return `мощность ${Math.round(intensity.actual_value)} Вт${relative}`;
+  }
+  if (intensity.unit === "bpm") {
+    return `пульс ${Math.round(intensity.actual_value)} уд/мин${relative}`;
+  }
+  return null;
+}
+
+function intensityStatusLabel(match: PlanVsFactMatch): string | null {
+  const status = match.intensity?.status;
+  if (!status || status === "unavailable") return null;
+  if (status === "within") return "интенсивность в цели";
+  if (status === "below") return "интенсивность ниже цели";
+  return "интенсивность выше цели";
 }
 
 function clampStripHeight(value: number): number {
@@ -406,8 +610,21 @@ function ActivityCardModal({
 
   const id = encodeURIComponent(activity.activity_id);
   const feedback = activity.feedback;
+  const garminLaps =
+    intervals?.source === "garmin"
+      ? intervals.intervals
+      : (intervals?.garmin_laps ?? []);
+  const detectedIntervals =
+    intervals?.source === "intervals" ? intervals.intervals : [];
+  const hasTimelineAlignment = planVsFact?.alignment_mode === "timeline";
+  const comparisonMatches =
+    hasTimelineAlignment && planVsFact?.step_matches.length
+      ? planVsFact.step_matches
+      : (planVsFact?.matches ?? []);
   const plannedStrip = plannedStripSegments(plannedIntervals);
-  const factStrip = factStripSegments(intervals?.intervals ?? []);
+  const factStrip = hasTimelineAlignment
+    ? matchedFactStripSegments(comparisonMatches)
+    : factStripSegments(intervals?.intervals ?? []);
   const stripScale = Math.max(
     plannedStrip.reduce((sum, segment) => sum + segment.seconds, 0),
     factStrip.reduce((sum, segment) => sum + segment.seconds, 0),
@@ -561,60 +778,65 @@ function ActivityCardModal({
           <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
             Структура тренировки
           </div>
-          {intervals && intervals.intervals.length > 0 ? (
-            <ul className="mt-2 space-y-1.5 text-sm text-ink">
-              {intervals.intervals.map((iv, index) => (
-                <li
-                  key={index}
-                  className="flex flex-wrap items-center gap-x-2 gap-y-1"
-                >
-                  <span className="rounded border border-surface-border bg-surface px-1.5 py-0.5 text-xs font-semibold text-ink-soft">
-                    #{index + 1}
-                  </span>
-                  {iv.moving_time != null ? (
-                    <span className="font-medium tabular-nums">
-                      {formatIntervalTime(iv.moving_time)}
-                    </span>
-                  ) : null}
-                  {iv.distance_km != null ? (
-                    <span className="text-ink-soft">
-                      {formatIntervalDistance(iv.distance_km)}
-                    </span>
-                  ) : null}
-                  {iv.average_watts != null ? (
-                    <span className="text-ink-soft">{iv.average_watts} Вт</span>
-                  ) : null}
-                  {iv.average_heartrate != null ? (
-                    <span className="text-ink-soft">HR {iv.average_heartrate}</span>
-                  ) : null}
-                  {iv.zone != null ? (
-                    <span className="text-ink-soft">зона {iv.zone}</span>
-                  ) : null}
-                  {iv.training_load != null ? (
-                    <span className="text-ink-faint">TL {iv.training_load}</span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
+          {garminLaps.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-xs text-ink-faint">
+                {STRUCTURE_SOURCE_LABELS.garmin}
+              </p>
+              <ActivityIntervalList items={garminLaps} />
+            </div>
+          ) : null}
+          {detectedIntervals.length > 0 ? (
+            <div className="mt-3 border-t border-surface-border pt-3">
+              <p className="text-xs text-ink-faint">
+                {STRUCTURE_SOURCE_LABELS.intervals}
+              </p>
+              <ActivityIntervalList items={detectedIntervals} />
+            </div>
+          ) : null}
+          {garminLaps.length === 0 && detectedIntervals.length === 0 ? (
             <p className="mt-2 text-sm text-ink-soft">
               {intervals
                 ? "Интервалы не детектированы."
                 : "Интервалы недоступны для этой активности."}
             </p>
-          )}
+          ) : null}
         </div>
 
         {planVsFact ? (
           <div className="mt-4 rounded-md border border-surface-border bg-surface p-3">
             <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
-              План vs факт
+              План и факт
             </div>
-            <div className="mt-2 text-xs text-ink-soft">
-              План {planVsFact.summary.planned_work_steps} работы · факт{" "}
-              {planVsFact.summary.actual_intervals} интервалов · совпало{" "}
-              {planVsFact.summary.matched}
-            </div>
+            {hasTimelineAlignment ? (
+              <div className="mt-2 rounded border border-surface-border bg-surface-muted/30 px-2.5 py-2">
+                <div className="text-sm font-medium text-ink">
+                  Этапы по длительности: {planVsFact.summary.matched_steps} из{" "}
+                  {planVsFact.summary.planned_steps}
+                </div>
+                <div className="mt-0.5 text-xs text-ink-soft">
+                  Рабочие этапы: {planVsFact.summary.matched} из{" "}
+                  {planVsFact.summary.planned_work_steps} · факт разделён на{" "}
+                  {formatActualPartCount(planVsFact.summary.actual_intervals)}
+                </div>
+                <div className="mt-1 text-xs text-ink-faint">
+                  Соседние фактические участки объединяются, если вместе образуют
+                  один этап плана.
+                </div>
+                {planVsFact.summary.intensity_assessed ? (
+                  <div className="mt-1 text-xs text-ink-soft">
+                    По интенсивности в цели: {planVsFact.summary.intensity_within} из{" "}
+                    {planVsFact.summary.intensity_assessed}
+                  </div>
+                ) : null}
+              </div>
+            ) : (
+              <div className="mt-2 text-xs text-ink-soft">
+                Рабочие этапы: {planVsFact.summary.matched} из{" "}
+                {planVsFact.summary.planned_work_steps} · найдено{" "}
+                {formatActualPartCount(planVsFact.summary.actual_intervals)}
+              </div>
+            )}
             {plannedStrip.length || factStrip.length ? (
               <div className="mt-3 space-y-2">
                 {plannedStrip.length ? (
@@ -631,6 +853,14 @@ function ActivityCardModal({
                     label="Факт"
                   />
                 ) : null}
+                {hasTimelineAlignment ? (
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-ink-faint">
+                    <span>Ширина: длительность этапа</span>
+                    <span>Высота: интенсивность относительно порога</span>
+                    <span>Цвет факта: попадание в цель</span>
+                    <span>Тонкие линии: исходные участки</span>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             {planVsFact.plan_replanned_after_delivery ? (
@@ -639,42 +869,91 @@ function ActivityCardModal({
                 после доставки — тренировка могла выполняться по предыдущей версии.
               </p>
             ) : null}
-            {planVsFact.matches.length > 0 ? (
-              <ul className="mt-2 space-y-1.5 text-sm text-ink">
-                {planVsFact.matches.map((match, index) => (
+            {comparisonMatches.length > 0 ? (
+              <ol className="mt-3 space-y-2 text-sm text-ink">
+                {comparisonMatches.map((match, index) => {
+                  const plannedTarget = formatPlannedTarget(match.planned);
+                  const actualIntensity = formatActualIntensity(match);
+                  const intensityLabel = intensityStatusLabel(match);
+                  const actualPartCount = match.actual?.source_interval_count ?? 1;
+                  return (
                   <li
                     key={index}
-                    className="flex flex-wrap items-center gap-x-2 gap-y-1"
+                    className="rounded border border-surface-border bg-surface-muted/20 px-2.5 py-2"
                   >
-                    <span className="rounded border border-surface-border bg-surface px-1.5 py-0.5 text-xs font-semibold text-ink-soft">
-                      #{index + 1}
-                    </span>
-                    {match.planned.duration_seconds != null ? (
-                      <span className="text-ink-soft">
-                        план {formatIntervalTime(match.planned.duration_seconds)}
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <span className="font-medium text-ink">
+                        {planStepLabel(match.planned, index)}
                       </span>
-                    ) : null}
-                    {match.actual && match.actual.moving_time != null ? (
-                      <span className="font-medium tabular-nums">
-                        факт {formatIntervalTime(match.actual.moving_time)}
-                      </span>
-                    ) : (
-                      <span className="font-medium text-tone-danger">факт —</span>
-                    )}
-                    {match.duration_delta != null ? (
-                      <span className="tabular-nums text-ink-soft">
-                        {formatPlanDelta(match.duration_delta)}
-                      </span>
-                    ) : null}
-                    {match.zone.planned != null ? (
-                      <span className="text-ink-faint">зона {match.zone.planned}</span>
-                    ) : null}
-                    {match.zone.actual != null ? (
-                      <span className="text-ink-faint">→ {match.zone.actual}</span>
+                      <div className="flex flex-wrap gap-1">
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                            match.matched
+                              ? "bg-tone-success/15 text-tone-success"
+                              : "bg-tone-danger/15 text-tone-danger"
+                          }`}
+                        >
+                          {match.matched
+                            ? "длительность совпала"
+                            : "есть отклонение по времени"}
+                        </span>
+                        {intensityLabel ? (
+                          <span
+                            className={`rounded px-1.5 py-0.5 text-[11px] font-medium ${
+                              match.intensity?.status === "within"
+                                ? "bg-tone-success/15 text-tone-success"
+                                : "bg-tone-warning/15 text-tone-warning"
+                            }`}
+                          >
+                            {intensityLabel}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-soft">
+                      {match.planned.duration_seconds != null ? (
+                        <span>
+                          План: {formatIntervalTime(match.planned.duration_seconds)}
+                        </span>
+                      ) : null}
+                      {match.actual && match.actual.moving_time != null ? (
+                        <span className="font-medium tabular-nums text-ink">
+                          Факт: {formatIntervalTime(match.actual.moving_time)}
+                        </span>
+                      ) : (
+                        <span className="font-medium text-tone-danger">Факт: нет</span>
+                      )}
+                      {match.actual ? (
+                        <span>{formatActualPartCount(actualPartCount)}</span>
+                      ) : null}
+                      {match.duration_delta != null ? (
+                        <span className="tabular-nums">
+                          Отклонение: {formatPlanDelta(match.duration_delta)}
+                        </span>
+                      ) : null}
+                    </div>
+                    {plannedTarget || actualIntensity || match.zone.actual != null ? (
+                      <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-ink-faint">
+                        {plannedTarget ? (
+                          <span>Плановая цель: {plannedTarget}</span>
+                        ) : null}
+                        {actualIntensity ? (
+                          <span>Фактическая интенсивность: {actualIntensity}</span>
+                        ) : null}
+                        {match.intensity?.average_heartrate != null ? (
+                          <span>
+                            Средний пульс: {match.intensity.average_heartrate}
+                          </span>
+                        ) : null}
+                        {match.zone.actual != null ? (
+                          <span>Зона Intervals.icu: {match.zone.actual}</span>
+                        ) : null}
+                      </div>
                     ) : null}
                   </li>
-                ))}
-              </ul>
+                  );
+                })}
+              </ol>
             ) : null}
           </div>
         ) : null}

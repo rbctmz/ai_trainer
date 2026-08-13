@@ -120,6 +120,8 @@ export interface StripSegment {
   title: string;
   tone: string;
   heightPct: number;
+  /** Внутренние границы исходных участков, в процентах ширины сегмента. */
+  divisionsPct?: number[];
 }
 
 /** Низкоуровневая полоса сегментов с общей шкалой (ширина = доля от scaleSeconds). */
@@ -156,9 +158,17 @@ export function StripBar({
             <div
               key={index}
               title={segment.title}
-              className={`flex flex-none items-start justify-center overflow-hidden px-0.5 pt-1 text-[9px] font-medium text-ink ${segment.tone}`}
+              className={`relative flex flex-none items-start justify-center overflow-hidden px-0.5 pt-1 text-[9px] font-medium text-ink ${segment.tone}`}
               style={{ width: `${pct}%`, height: `${segment.heightPct}%` }}
             >
+              {segment.divisionsPct?.map((position) => (
+                <span
+                  key={position}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute inset-y-0 z-10 border-l border-ink/40"
+                  style={{ left: `${position}%` }}
+                />
+              ))}
               {showLabel ? <span className="truncate">{segment.label}</span> : null}
             </div>
           );
