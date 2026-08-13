@@ -16,7 +16,7 @@ The behavior is observable with the local 2026-07-26 data. Before this change th
 - [x] (2026-08-13 06:17Z) Implemented shared `models/activity_lineage.py`, reused it for CTL/ATL selection, and added the additive grouped API fields.
 - [x] (2026-08-13 06:17Z) Rendered an accessible expandable stage list in the Next.js activity table with Russian transition labels.
 - [x] (2026-08-13 06:20Z) Completed focused/full tests, lint, build, desktop/mobile browser acceptance, and self-review: 1693 passed, 1 skipped; no document overflow at 1280/390 px.
-- [ ] Commit GREEN, push the branch, open a draft PR that closes #433, and wait for checks.
+- [x] (2026-08-13 06:24Z) Committed GREEN, pushed the branch, opened draft PR #434 closing #433, and observed clean merge state with all current-head checks green.
 
 ## Surprises & Discoveries
 
@@ -51,7 +51,10 @@ The local implementation meets the user-visible purpose: the real 26.07.2026 eve
 
 Verification is clean: 24 focused activity/lineage/UI tests pass; the contributor-safe suite reports 1693 passed and 1 environment skip; Next lint and production build pass. Browser acceptance confirms disclosure without modal side effects, ordinary-row modal behavior, Russian stage labels, and no document-level overflow at 1280 or 390 px. No SQLite rows, provider links, or sync cursors were mutated by the implementation.
 
-The remaining operational step is publishing the GREEN commit and draft PR, then waiting for CI and human merge authority.
+The implementation is published in draft PR #434. CI, secret scan, issue linkage,
+roadmap sync, and the ready-to-merge projection are green; GitHub reports a
+clean merge state and no review threads. Human merge authority remains the only
+step outside this ExecPlan.
 
 ## Context and Orientation
 
@@ -129,4 +132,4 @@ The shared lineage module must expose a small immutable group description and a 
 
 For stage-derived group TSS, `tss_source` adds the value `stages`; `tss_method` is `multisport_stages_sum`. No new package dependency is permitted.
 
-Revision note (2026-08-13 06:20Z): Recorded the completed implementation, self-review decisions, real-data browser evidence, and full verification results before publication.
+Revision note (2026-08-13 06:24Z): Recorded draft PR #434, green current-head checks, clean merge state, and the final human merge boundary.
