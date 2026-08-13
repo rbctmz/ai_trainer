@@ -12,11 +12,11 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-PERF-2 | Коуч: первый токен < 5 сек | High | стриминг SSE; native function calling (#190) убрал маркерный второй проход у поддерживающих провайдеров | `first_token_ms` в SSE `done` (#241) + детерминированный гейт на локальном mock-runtime (TD-007, #352, `COACH_FIRST_TOKEN_BUDGET_MS`); live-провайдер остаётся наблюдением | 🟡→✅ (локальный overhead гейтится; live-недетерминизм остаётся метрикой) |
 | ASR-PERF-3 | Инкрементальный provider-sync, дельта дня < 10 сек | Medium | Garmin incremental window; Intervals per-provider/per-domain cursors | smoke sync/cursor-сьюты | ✅ |
 | ASR-PERF-4 | Planning preview 16 недель < 10 сек | Medium | детерминированный scheduler без БД внутри цикла (#205); week-by-week reader делает один provider-free reconciliation read на bounded 16-недельном окне (#303) | референс-сборки в smoke; `test_planning_week_by_week.py` пинует cap, isolated browser acceptance — отсутствие disclosure N+1 | ✅ |
-| ASR-REL-1 | Reconciliation: ни одна активность или исполнимая тренировка не теряется при перепланировании | High | content-derived session identity + lineage (`replaces_session_id`, #206/#209), append-only match/feedback/delivery ledgers; recovery/near-term мутации повторно материализуют точный catalog prescription; user unmatch retire-ит активный feedback всей superseded match-линии; reader сохраняет leaf/composite IDs и покрывает факт всех 16 отображаемых недель без расширения provider-I/O (#303); modern broken sessions fail closed | `test_recovery_transfer_identity_handoff.py`, twin-матрица identity, `test_recovery_replan_materialization_p1.py`, `test_planning_week_by_week.py`, `test_reconciliation_service_migration.py`, `test_api_planning.py`, `test_intervals_plan_delivery.py` | ✅ |
-| ASR-REL-2 | Отсутствие данных → data gap, не падение | High | gate-исходы silence/data_gap (#154), `has_plan=false` пробросы (#228/#301–#303); readiness salience учитывает persisted fatigue/recovery и legacy-safe fallback (#315); power-curve enrichment сохраняет кэш при provider failure, а execution-role принимает только закрытый planner vocabulary | smoke-гейты loop/ribbon + `test_readiness_conflicts.py`, `test_planning_active_plan_overview.py`, `test_planning_phase_roadmap.py`, `test_planning_week_by_week.py`, `test_best_efforts.py`, `test_actual_role_contract.py` | ✅ |
+| ASR-REL-1 | Reconciliation: ни одна активность или исполнимая тренировка не теряется при перепланировании | High | content-derived session identity + lineage (`replaces_session_id`, #206/#209), append-only match/feedback/delivery ledgers; recovery/near-term мутации повторно материализуют точный catalog prescription; user unmatch retire-ит активный feedback всей superseded match-линии; reader сохраняет leaf/composite IDs и покрывает факт всех 16 отображаемых недель без расширения provider-I/O (#303); multisport read-проекция сохраняет envelope и все provider-linked этапы без двойного агрегата (#433); modern broken sessions fail closed | `test_recovery_transfer_identity_handoff.py`, twin-матрица identity, `test_recovery_replan_materialization_p1.py`, `test_planning_week_by_week.py`, `test_reconciliation_service_migration.py`, `test_api_planning.py`, `test_intervals_plan_delivery.py`, `test_api_activities_multisport.py` | ✅ |
+| ASR-REL-2 | Отсутствие данных → data gap, не падение | High | gate-исходы silence/data_gap (#154), `has_plan=false` пробросы (#228/#301–#303); readiness salience учитывает persisted fatigue/recovery и legacy-safe fallback (#315); power-curve enrichment сохраняет кэш при provider failure; неполный multisport lineage оставляет envelope авторитетным и не теряет полученные этапы (#433); execution-role принимает только закрытый planner vocabulary | smoke-гейты loop/ribbon + `test_readiness_conflicts.py`, `test_planning_active_plan_overview.py`, `test_planning_phase_roadmap.py`, `test_planning_week_by_week.py`, `test_best_efforts.py`, `test_actual_role_contract.py`, `test_api_activities_multisport.py` | ✅ |
 | ASR-REL-3 | Обрыв sync/maintenance не портит частичные данные | Medium | атомарный common-ingest; cursor-after-clean-batch; независимые activity/wellness cursors; SQLite restore через validated temp + atomic replace + pre-restore rollback; единая WAL/busy-timeout политика с race-гейтом (TD-003, #347) | M0/M1 ingest/cursor, M4 wellness rollback, `test_sqlite_backup_restore.py` fail-before-replace и `test_sqlite_concurrency_policy.py` writer+reader | ✅ |
 | ASR-MOD-1 | Новый AI-провайдер без правки основного кода | High | `AIProvider` ABC + фабрика; capability-флаги (`supports_native_tools`, #190) делают расширения аддитивными | capability-матрица в `test_coach_native_tools.py` | ✅ |
-| ASR-MOD-2 | Новый компонент дашборда без регрессии | Medium | canonical snapshot проекции (#152/#153); `/planning` читает server-owned overview/week DTO без расчёта доменных метрик в TypeScript (#301–#303) | trust-alignment smoke + planning reader browser/API gates | ✅ |
+| ASR-MOD-2 | Новый компонент дашборда без регрессии | Medium | canonical snapshot проекции (#152/#153); `/planning` читает server-owned overview/week DTO без расчёта доменных метрик в TypeScript (#301–#303); `/activities` получает server-owned multisport group DTO вместо lineage-логики в React (#433) | trust-alignment smoke + planning reader browser/API gates + `test_activities_multisport_ui_contract.py` | ✅ |
 | ASR-MOD-3 | Смена схемы — обратная совместимость | Medium | аддитивные поля чекпойнтов, migrate-on-read (#206), append-only журналы; `intervals_plan_deliveries` добавлен через idempotent DDL и читается вместе с legacy proposal evidence; planning reader добавлен отдельными GET-контрактами без изменения checkpoint schema (#301–#303) | legacy-byte-equivalence + planning router/service contracts + `test_intervals_plan_delivery.py` | ✅ |
 | ASR-SEC-1 | Ключи не в логах/UI/git | High | `.env` вне git, UI скрывает поля, env-fallback; contributor-safe Gitleaks блокирует event range и текущее дерево, runtime probe проверяет detector | `test_secret_scanning_ci.py`; live `Secret scan` в PR #296; revoked historical finding требует отдельной policy ([TD-008](../technical_debt_register.md#td-008--политика-для-отозванного-credential-в-git-history)) | 🟡 |
 | ASR-SEC-2 | Basic Auth перед публичным доступом | High | Caddy + Basic Auth в self-hosted стеке | деплой-чеклист | ✅ |
@@ -194,6 +194,27 @@ M5 завершает Intervals-primary трек только на presentation-
 
 Проверка: `test_data_coverage.py`, `test_data_coverage_ui_contract.py`, Next
 lint/build и contributor-safe smoke suite.
+
+### Multisport activity grouping: event-grain list and stage disclosure (#433)
+
+`models/activity_lineage.py` является общей read-only границей для Garmin
+multisport envelope и явно связанных Intervals.icu этапов. `GET /api/activities`
+выдаёт одно событие верхнего уровня, сохраняет этапы в аддитивном `segments`, а
+web раскрывает их без provider-вызова. Сырые canonical/provider-link строки не
+переписываются.
+
+- **ASR-REL-1**: ни envelope, ни linked stages не теряются; полная положительная
+  тройка swim/bike/run использует сумму этапов TSS один раз, в том числе transitions.
+- **ASR-REL-2**: partial lineage не подменяет load неполной суммой — envelope
+  остаётся авторитетным, а полученные этапы всё равно видимы. Unlinked same-day
+  тренировка не группируется по эвристике даты или спорта.
+- **ASR-MOD-2**: completeness и lineage определяет Python-проекция, а React
+  потребляет типизированные `group_kind`, `group_label`, `segments`; CTL/ATL и
+  list totals используют одну shared-дефиницию provider lineage.
+
+Проверка: `test_api_activities_multisport.py`,
+`test_multisport_training_load.py`, `test_activities_multisport_ui_contract.py`,
+Next lint/build и browser acceptance 1280/390 px.
 
 ### Running threshold pace: единицы, provenance и safe fallback (#308)
 

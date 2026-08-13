@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from api.deps import get_database
 from api.operational_state import build_operational_state, latest_iso_from_frame
 from data.database import Database
+from models.activity_lineage import identify_multisport_groups
 from models.activity_card import (
     build_activity_analysis,
     feedback_for_activity,
@@ -74,7 +75,7 @@ def _base_item(row: Any) -> dict[str, Any]:
     else:
         tss_source = "unknown"
     return {
-        "activity_id": str(row.get("activity_id")),
+        "activity_id": _text(row.get("activity_id")) or "",
         "date": pd.to_datetime(row["date"]).strftime("%Y-%m-%d"),
         "date_label": format_date_label(row.get("date")),
         "sport": normalize_sport_key(raw_sport),
@@ -101,11 +102,11 @@ def list_activities(
             "operational_state": build_operational_state(db, demo=demo, has_data=False),
         }
 
-    df = df.sort_values("date", ascending=False)
+    df = df.sort_values("date", ascending=False, kind="stable")
     tags_by_activity = db.get_all_activity_tags()
     notes_by_activity = db.get_all_activity_coach_notes()
     latest_feedbacks = db.get_latest_session_feedbacks()
-    items = []
+    items_by_id: dict[str, dict[str, Any]] = {}
     for _, row in df.iterrows():
         item = _base_item(row)
         activity_id = item["activity_id"]
@@ -117,18 +118,50 @@ def list_activities(
             )
         item["tags"] = tags_by_activity.get(activity_id, [])
         item["coach_notes"] = notes_by_activity.get(activity_id)
+        items_by_id[activity_id] = item
+
+    groups = identify_multisport_groups(df)
+    groups_by_envelope = {group.envelope_id: group for group in groups}
+    grouped_stage_ids = {
+        stage_id for group in groups for stage_id in group.stage_ids
+    }
+    items: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        activity_id = str(row.get("activity_id"))
+        if activity_id in grouped_stage_ids:
+            continue
+        item = items_by_id[activity_id]
+        group = groups_by_envelope.get(activity_id)
+        if group is not None:
+            segments = [
+                items_by_id[stage_id]
+                for stage_id in group.stage_ids
+                if stage_id in items_by_id
+            ]
+            item["group_kind"] = "multisport"
+            item["group_label"] = "Триатлон"
+            item["sport_label"] = "триатлон"
+            item["segments"] = segments
+            if group.complete:
+                item["tss"] = _num(
+                    sum(segment.get("tss") or 0.0 for segment in segments)
+                )
+                item["tss_method"] = "multisport_stages_sum"
+                item["tss_source"] = "stages"
         items.append(item)
 
     totals = {
-        "count": int(len(df)),
-        "distance_km": _num(df["distance_km"].sum()) if "distance_km" in df else None,
-        "duration_hours": _num(df["duration_minutes"].sum() / 60) if "duration_minutes" in df else None,
-        "tss": _num(df["tss"].sum()) if "tss" in df else None,
+        "count": len(items),
+        "distance_km": _num(sum(item.get("distance_km") or 0.0 for item in items)),
+        "duration_hours": _num(
+            sum(item.get("duration_minutes") or 0.0 for item in items) / 60
+        ),
+        "tss": _num(sum(item.get("tss") or 0.0 for item in items)),
     }
 
     return {
         "has_data": True,
-        "count": int(len(df)),
+        "count": len(items),
         "totals": totals,
         "items": items,
         "operational_state": build_operational_state(

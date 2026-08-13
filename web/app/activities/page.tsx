@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import useSWR from "swr";
 import { ApiError, deleteJSON, fetcher, postJSON, putJSON } from "@/lib/api";
 import {
@@ -21,6 +21,7 @@ const TSS_SOURCE_LABELS: Record<string, string> = {
   pace: "по темпу",
   heart_rate: "по пульсу",
   heuristic: "оценочно",
+  stages: "по этапам",
 };
 
 function formatCssPace(secondsPer100m: number): string {
@@ -229,34 +230,13 @@ export default function ActivitiesPage() {
                 </tr>
               </thead>
               <tbody>
-                {data.items.map((a) => (
-                  <tr
-                    key={a.activity_id}
-                    className="cursor-pointer border-b border-surface-border last:border-0 hover:bg-surface-muted"
-                    onClick={() => setSelected(a)}
-                  >
-                    <td className="px-4 py-2.5 text-ink-soft">{a.date_label ?? a.date}</td>
-                    <td className="px-4 py-2.5 text-ink">{a.sport_label ?? a.sport}</td>
-                    <td className="px-4 py-2.5 text-right tabular-nums text-ink">
-                      {a.duration_minutes ?? "—"}
-                    </td>
-                    <td className="hidden px-4 py-2.5 text-right tabular-nums text-ink sm:table-cell">
-                      {a.distance_km ?? "—"}
-                    </td>
-                    <td className="px-4 py-2.5 text-right tabular-nums font-medium text-ink">
-                      {a.tss ?? "—"}
-                      {tssProvenanceLabel(a) ? (
-                        <div className="text-[11px] font-normal normal-case tabular-nums text-ink-faint">
-                          {tssProvenanceLabel(a)}
-                        </div>
-                      ) : null}
-                      {ftpDriftHint(a, profileData?.profile?.ftp) ? (
-                        <div className="text-[11px] font-normal normal-case text-tone-warning">
-                          {ftpDriftHint(a, profileData?.profile?.ftp)}
-                        </div>
-                      ) : null}
-                    </td>
-                  </tr>
+                {data.items.map((activity) => (
+                  <ActivityTableRows
+                    key={activity.activity_id}
+                    activity={activity}
+                    profileFtp={profileData?.profile?.ftp}
+                    onSelect={setSelected}
+                  />
                 ))}
               </tbody>
             </table>
@@ -291,6 +271,98 @@ const GRADE_CLASSES: Record<string, string> = {
   D: "border-tone-warning/40 bg-tone-warning/20 text-tone-warning",
   E: "border-tone-danger/30 bg-tone-danger/15 text-tone-danger",
 };
+
+function ActivityTableRows({
+  activity,
+  profileFtp,
+  onSelect,
+}: {
+  activity: Activity;
+  profileFtp: number | null | undefined;
+  onSelect: (activity: Activity) => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const hasSegments = Boolean(activity.segments?.length);
+
+  return (
+    <Fragment>
+      <tr
+        className="cursor-pointer border-b border-surface-border last:border-0 hover:bg-surface-muted"
+        onClick={() => onSelect(activity)}
+      >
+        <td className="px-4 py-2.5 text-ink-soft">{activity.date_label ?? activity.date}</td>
+        <td className="px-4 py-2.5 text-ink">
+          <div>{activity.group_label ?? activity.sport_label ?? activity.sport}</div>
+          {hasSegments ? (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              aria-label={`${expanded ? "Скрыть" : "Показать"} этапы: ${activity.group_label}`}
+              className="mt-1 text-xs font-medium text-tone-neutral hover:underline"
+              onClick={(event) => {
+                event.stopPropagation();
+                setExpanded((current) => !current);
+              }}
+            >
+              {expanded ? "Скрыть этапы" : `Показать этапы · ${activity.segments?.length}`}
+            </button>
+          ) : null}
+        </td>
+        <td className="px-4 py-2.5 text-right tabular-nums text-ink">
+          {activity.duration_minutes ?? "—"}
+        </td>
+        <td className="hidden px-4 py-2.5 text-right tabular-nums text-ink sm:table-cell">
+          {activity.distance_km ?? "—"}
+        </td>
+        <td className="px-4 py-2.5 text-right tabular-nums font-medium text-ink">
+          {activity.tss ?? "—"}
+          {tssProvenanceLabel(activity) ? (
+            <div className="text-[11px] font-normal normal-case tabular-nums text-ink-faint">
+              {tssProvenanceLabel(activity)}
+            </div>
+          ) : null}
+          {ftpDriftHint(activity, profileFtp) ? (
+            <div className="text-[11px] font-normal normal-case text-tone-warning">
+              {ftpDriftHint(activity, profileFtp)}
+            </div>
+          ) : null}
+        </td>
+      </tr>
+      {expanded ? <MultisportSegments activity={activity} /> : null}
+    </Fragment>
+  );
+}
+
+function MultisportSegments({ activity }: { activity: Activity }) {
+  if (!activity.segments?.length) return null;
+
+  return (
+    <tr className="border-b border-surface-border bg-surface-muted/50">
+      <td colSpan={5} className="px-4 py-3">
+        <div className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
+          Этапы триатлона
+        </div>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2">
+          {activity.segments.map((segment, index) => (
+            <div
+              key={segment.activity_id}
+              className="rounded-lg border border-surface-border bg-surface px-3 py-2"
+            >
+              <div className="text-xs font-medium text-ink">
+                {index + 1}. {segment.sport_label ?? segment.sport}
+              </div>
+              <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs tabular-nums text-ink-soft">
+                <span>{segment.duration_minutes ?? "—"} мин</span>
+                <span>{segment.distance_km ?? "—"} км</span>
+                <span>{segment.tss ?? "—"} TSS</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </td>
+    </tr>
+  );
+}
 
 function ActivityCardModal({
   activity,

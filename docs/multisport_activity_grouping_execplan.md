@@ -13,9 +13,9 @@ The behavior is observable with the local 2026-07-26 data. Before this change th
 - [x] (2026-08-13 05:45Z) Profiled the real multisport rows and provider lineage in local SQLite.
 - [x] (2026-08-13 05:45Z) Created structured GitHub issue #433 and branch `codex/issue-433-multisport-activity-groups`.
 - [x] (2026-08-13 05:47Z) Added and confirmed RED API/web tests for complete, partial, standalone, and unrelated activity shapes: 5 failed, 19 passed before implementation.
-- [ ] Implement the shared lineage projection and additive API fields.
-- [ ] Render an accessible expandable stage list in the Next.js activity table.
-- [ ] Run focused tests, contributor-safe smoke, lint, build, desktop/mobile browser acceptance, and self-review.
+- [x] (2026-08-13 06:17Z) Implemented shared `models/activity_lineage.py`, reused it for CTL/ATL selection, and added the additive grouped API fields.
+- [x] (2026-08-13 06:17Z) Rendered an accessible expandable stage list in the Next.js activity table with Russian transition labels.
+- [x] (2026-08-13 06:20Z) Completed focused/full tests, lint, build, desktop/mobile browser acceptance, and self-review: 1693 passed, 1 skipped; no document overflow at 1280/390 px.
 - [ ] Commit GREEN, push the branch, open a draft PR that closes #433, and wait for checks.
 
 ## Surprises & Discoveries
@@ -41,10 +41,17 @@ The behavior is observable with the local 2026-07-26 data. Before this change th
 - Decision: Extend the existing activity DTO additively with `group_kind`, `group_label`, and `segments`; do not version or replace the endpoint.
   Rationale: Existing single-sport consumers keep the same fields and behavior. The web UI can opt into grouping without a breaking API migration.
   Date/Author: 2026-08-13 / Codex.
+- Decision: The disclosure control owns expansion separately from the existing row click action, and its accessible name changes between show and hide.
+  Rationale: Opening stages must not accidentally open the activity modal; keyboard and screen-reader users need the same state transition as pointer users.
+  Date/Author: 2026-08-13 / Codex.
 
 ## Outcomes & Retrospective
 
-Implementation is in progress. This section will record the final behavior, verification evidence, and any remaining limitations after browser acceptance and CI.
+The local implementation meets the user-visible purpose: the real 26.07.2026 event is one top-level triathlon with five ordered stages, 206.2 minutes, 49.7 km, and 291.5 TSS. Partial linked stages remain nested under the envelope without replacing envelope TSS, and unrelated same-day activity remains separate. The shared lineage model keeps the pre-existing CTL/ATL behavior unchanged while removing duplicate totals from the activity list.
+
+Verification is clean: 24 focused activity/lineage/UI tests pass; the contributor-safe suite reports 1693 passed and 1 environment skip; Next lint and production build pass. Browser acceptance confirms disclosure without modal side effects, ordinary-row modal behavior, Russian stage labels, and no document-level overflow at 1280 or 390 px. No SQLite rows, provider links, or sync cursors were mutated by the implementation.
+
+The remaining operational step is publishing the GREEN commit and draft PR, then waiting for CI and human merge authority.
 
 ## Context and Orientation
 
@@ -122,4 +129,4 @@ The shared lineage module must expose a small immutable group description and a 
 
 For stage-derived group TSS, `tss_source` adds the value `stages`; `tss_method` is `multisport_stages_sum`. No new package dependency is permitted.
 
-Revision note (2026-08-13 05:47Z): Recorded the confirmed RED gate and its isolation evidence before implementation.
+Revision note (2026-08-13 06:20Z): Recorded the completed implementation, self-review decisions, real-data browser evidence, and full verification results before publication.

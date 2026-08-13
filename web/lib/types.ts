@@ -128,7 +128,7 @@ export interface Activity {
   garmin_training_load?: number | null;
   source_tss?: number | null;
   tss_method?: string | null;
-  tss_source?: "power" | "pace" | "heart_rate" | "heuristic" | "none" | "unknown";
+  tss_source?: "power" | "pace" | "heart_rate" | "heuristic" | "stages" | "none" | "unknown";
   tss_ftp_used?: number | null;
   tss_pace_used?: number | null;
   avg_hr: number | null;
@@ -142,6 +142,9 @@ export interface Activity {
   power_curve?: ActivityPowerCurve | null;
   planned_intervals?: PlanVsFactStep[] | null;
   plan_vs_fact?: PlanVsFact | null;
+  group_kind?: "multisport";
+  group_label?: string;
+  segments?: Activity[];
 }
 
 export interface ActivityFeedback {

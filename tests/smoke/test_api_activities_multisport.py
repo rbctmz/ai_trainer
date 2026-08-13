@@ -109,6 +109,13 @@ def test_complete_triathlon_is_one_activity_with_ordered_stages_and_single_total
         "transition",
         "run",
     ]
+    assert [stage["sport_label"] for stage in item["segments"]] == [
+        "плавание",
+        "транзит",
+        "вело",
+        "транзит",
+        "бег",
+    ]
     assert [stage["activity_id"] for stage in item["segments"]] == [
         "intervals_i169367706",
         "intervals_i169367712",
@@ -194,4 +201,3 @@ def test_standalone_multisport_activity_remains_backward_compatible(tmp_path) ->
     assert payload["items"][0]["activity_id"] == ENVELOPE_ID
     assert "segments" not in payload["items"][0]
     assert payload["totals"]["tss"] == 68.7
-
