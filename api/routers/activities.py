@@ -10,7 +10,10 @@ from pydantic import BaseModel
 from api.deps import get_database
 from api.operational_state import build_operational_state, latest_iso_from_frame
 from data.database import Database
-from models.activity_lineage import identify_multisport_groups
+from models.activity_lineage import (
+    identify_multisport_groups,
+    project_multisport_activity,
+)
 from models.activity_card import (
     build_activity_analysis,
     feedback_for_activity,
@@ -86,6 +89,35 @@ def _base_item(row: Any) -> dict[str, Any]:
     }
 
 
+def _projected_base_item(db: Database, row: Any) -> dict[str, Any]:
+    """Return the same event-grain activity DTO for list, detail, and analysis."""
+    item = _base_item(row)
+    date_key = item["date"]
+    frame = pd.DataFrame(db.get_activities_between(date_key, date_key))
+    if frame.empty:
+        return item
+    group = next(
+        (
+            candidate
+            for candidate in identify_multisport_groups(frame)
+            if candidate.envelope_id == item["activity_id"]
+        ),
+        None,
+    )
+    if group is None:
+        return item
+    rows_by_id = {
+        base["activity_id"]: base
+        for base in (_base_item(candidate) for _, candidate in frame.iterrows())
+    }
+    stages = [
+        rows_by_id[stage_id]
+        for stage_id in group.stage_ids
+        if stage_id in rows_by_id
+    ]
+    return project_multisport_activity(item, stages, group)
+
+
 @router.get("")
 def list_activities(
     days: int = 30,
@@ -138,16 +170,7 @@ def list_activities(
                 for stage_id in group.stage_ids
                 if stage_id in items_by_id
             ]
-            item["group_kind"] = "multisport"
-            item["group_label"] = "Триатлон"
-            item["sport_label"] = "триатлон"
-            item["segments"] = segments
-            if group.complete:
-                item["tss"] = _num(
-                    sum(segment.get("tss") or 0.0 for segment in segments)
-                )
-                item["tss_method"] = "multisport_stages_sum"
-                item["tss_source"] = "stages"
+            item = project_multisport_activity(item, segments, group)
         items.append(item)
 
     totals = {
@@ -190,7 +213,7 @@ def get_activity_card(
     row = db.get_activity(activity_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Activity not found")
-    item = _base_item(row)
+    item = _projected_base_item(db, row)
     item["feedback"] = feedback_for_activity(
         activity_id, db.get_latest_session_feedbacks()
     )
@@ -286,7 +309,7 @@ def analyze_activity(
     row = db.get_activity(activity_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Activity not found")
-    item = _base_item(row)
+    item = _projected_base_item(db, row)
     activity_date = pd.to_datetime(row["date"]).date()
     readiness = build_readiness_snapshot(db, as_of=activity_date)
     feedback = feedback_for_activity(

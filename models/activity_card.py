@@ -24,6 +24,7 @@ TSS_SOURCE_LABELS_RU: dict[str, str] = {
     "pace": "темп",
     "heart_rate": "пульс",
     "heuristic": "оценка",
+    "stages": "сумма этапов",
     "none": "нет данных",
 }
 

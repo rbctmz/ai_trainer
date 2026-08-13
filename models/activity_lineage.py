@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any, Mapping, Sequence
 
 import pandas as pd
 
@@ -34,6 +35,29 @@ class MultisportActivityGroup:
     envelope_id: str
     stage_ids: tuple[str, ...]
     complete: bool
+
+
+def project_multisport_activity(
+    envelope: Mapping[str, Any],
+    stages: Sequence[Mapping[str, Any]],
+    group: MultisportActivityGroup,
+) -> dict[str, Any]:
+    """Build one additive event-grain DTO from an envelope and its stages."""
+    projected = dict(envelope)
+    projected_stages = [dict(stage) for stage in stages]
+    projected["group_kind"] = "multisport"
+    projected["group_label"] = "Триатлон"
+    projected["sport_label"] = "триатлон"
+    projected["segments"] = projected_stages
+    if group.complete:
+        stage_tss = pd.to_numeric(
+            pd.Series([stage.get("tss") for stage in projected_stages]),
+            errors="coerce",
+        ).fillna(0.0)
+        projected["tss"] = round(float(stage_tss.sum()), 1)
+        projected["tss_method"] = "multisport_stages_sum"
+        projected["tss_source"] = "stages"
+    return projected
 
 
 def _text_series(frame: pd.DataFrame, column: str) -> pd.Series:

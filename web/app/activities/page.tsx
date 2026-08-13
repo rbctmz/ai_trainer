@@ -328,12 +328,18 @@ function ActivityTableRows({
           ) : null}
         </td>
       </tr>
-      {expanded ? <MultisportSegments activity={activity} /> : null}
+      {expanded ? <MultisportSegments activity={activity} onSelect={onSelect} /> : null}
     </Fragment>
   );
 }
 
-function MultisportSegments({ activity }: { activity: Activity }) {
+function MultisportSegments({
+  activity,
+  onSelect,
+}: {
+  activity: Activity;
+  onSelect: (activity: Activity) => void;
+}) {
   if (!activity.segments?.length) return null;
 
   return (
@@ -344,9 +350,12 @@ function MultisportSegments({ activity }: { activity: Activity }) {
         </div>
         <div className="mt-2 grid gap-2 sm:grid-cols-2">
           {activity.segments.map((segment, index) => (
-            <div
+            <button
+              type="button"
               key={segment.activity_id}
-              className="rounded-lg border border-surface-border bg-surface px-3 py-2"
+              aria-label={`Открыть этап: ${segment.sport_label ?? segment.sport}`}
+              onClick={() => onSelect(segment)}
+              className="rounded-lg border border-surface-border bg-surface px-3 py-2 text-left transition hover:border-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
             >
               <div className="text-xs font-medium text-ink">
                 {index + 1}. {segment.sport_label ?? segment.sport}
@@ -356,7 +365,7 @@ function MultisportSegments({ activity }: { activity: Activity }) {
                 <span>{segment.distance_km ?? "—"} км</span>
                 <span>{segment.tss ?? "—"} TSS</span>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </td>

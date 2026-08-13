@@ -17,6 +17,8 @@ The behavior is observable with the local 2026-07-26 data. Before this change th
 - [x] (2026-08-13 06:17Z) Rendered an accessible expandable stage list in the Next.js activity table with Russian transition labels.
 - [x] (2026-08-13 06:20Z) Completed focused/full tests, lint, build, desktop/mobile browser acceptance, and self-review: 1693 passed, 1 skipped; no document overflow at 1280/390 px.
 - [x] (2026-08-13 06:24Z) Committed GREEN, pushed the branch, opened draft PR #434 closing #433, and observed clean merge state with all current-head checks green.
+- [x] (2026-08-13 06:55Z) Converted two blocking review findings into RED regressions: detail/analysis projection consistency and actionable stage cards; 2 failed, 5 passed before the follow-up implementation.
+- [x] (2026-08-13 07:00Z) Reused the event-grain projection in list, detail, and analysis, restored stage-to-detail actions, and completed focused/full tests, lint, build, and desktop/mobile browser acceptance: 1694 passed, 1 skipped.
 
 ## Surprises & Discoveries
 
@@ -26,6 +28,8 @@ The behavior is observable with the local 2026-07-26 data. Before this change th
   Evidence: `training_load_metrics` filters a complete positive swim/bike/run set before invoking the Banister model, while `api.routers.activities.list_activities` sums the unfiltered DataFrame.
 - Observation: The RED gate isolates presentation aggregation from the existing training-load behavior.
   Evidence: the three new API grouping cases and two web contracts fail, while all 19 existing `test_multisport_training_load.py` cases pass.
+- Observation: The first API slice projected the aggregate only in `GET /api/activities`; detail and analysis rebuilt the raw envelope, while the first UI slice made nested stage cards informational only.
+  Evidence: review regressions observed 68.7 TSS in detail/analysis instead of 291.5 and found no stage action wired to the existing detail flow.
 
 ## Decision Log
 
@@ -44,17 +48,20 @@ The behavior is observable with the local 2026-07-26 data. Before this change th
 - Decision: The disclosure control owns expansion separately from the existing row click action, and its accessible name changes between show and hide.
   Rationale: Opening stages must not accidentally open the activity modal; keyboard and screen-reader users need the same state transition as pointer users.
   Date/Author: 2026-08-13 / Codex.
+- Decision: Centralize construction of the grouped activity DTO and reuse it in list, detail, and analysis; keep every nested stage as an accessible button that invokes the existing detail flow.
+  Rationale: One event must retain one metric definition across API surfaces without removing the ability to inspect its provider-backed child activities.
+  Date/Author: 2026-08-13 / Codex.
 
 ## Outcomes & Retrospective
 
 The local implementation meets the user-visible purpose: the real 26.07.2026 event is one top-level triathlon with five ordered stages, 206.2 minutes, 49.7 km, and 291.5 TSS. Partial linked stages remain nested under the envelope without replacing envelope TSS, and unrelated same-day activity remains separate. The shared lineage model keeps the pre-existing CTL/ATL behavior unchanged while removing duplicate totals from the activity list.
 
-Verification is clean: 24 focused activity/lineage/UI tests pass; the contributor-safe suite reports 1693 passed and 1 environment skip; Next lint and production build pass. Browser acceptance confirms disclosure without modal side effects, ordinary-row modal behavior, Russian stage labels, and no document-level overflow at 1280 or 390 px. No SQLite rows, provider links, or sync cursors were mutated by the implementation.
+Verification is clean after the review follow-up: 103 related activity, lineage, readiness, and UI tests pass; the contributor-safe suite reports 1694 passed and 1 environment skip; Next lint and production build pass. Browser acceptance confirms disclosure without modal side effects, opening the swim stage as its own 34.7-TSS card, opening the group as the 291.5-TSS aggregate, Russian stage labels, and no document-level overflow at 390 px. No SQLite rows, provider links, or sync cursors were mutated by the implementation.
 
-The implementation is published in draft PR #434. CI, secret scan, issue linkage,
-roadmap sync, and the ready-to-merge projection are green; GitHub reports a
-clean merge state and no review threads. Human merge authority remains the only
-step outside this ExecPlan.
+The implementation is published in PR #434. Two valid blocking review threads
+were addressed by the follow-up regressions and implementation. Once that
+follow-up commit is pushed, the threads are resolved, and current-head CI is
+green, human merge authority is the only step outside this ExecPlan.
 
 ## Context and Orientation
 
@@ -132,4 +139,4 @@ The shared lineage module must expose a small immutable group description and a 
 
 For stage-derived group TSS, `tss_source` adds the value `stages`; `tss_method` is `multisport_stages_sum`. No new package dependency is permitted.
 
-Revision note (2026-08-13 06:24Z): Recorded draft PR #434, green current-head checks, clean merge state, and the final human merge boundary.
+Revision note (2026-08-13 07:00Z): Recorded the blocking review findings, their RED-to-GREEN follow-up, and the final current-head verification required before merge.
