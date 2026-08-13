@@ -10,6 +10,10 @@ from pydantic import BaseModel
 from api.deps import get_database
 from api.operational_state import build_operational_state, latest_iso_from_frame
 from data.database import Database
+from models.activity_lineage import (
+    identify_multisport_groups,
+    project_multisport_activity,
+)
 from models.activity_card import (
     build_activity_analysis,
     feedback_for_activity,
@@ -74,7 +78,7 @@ def _base_item(row: Any) -> dict[str, Any]:
     else:
         tss_source = "unknown"
     return {
-        "activity_id": str(row.get("activity_id")),
+        "activity_id": _text(row.get("activity_id")) or "",
         "date": pd.to_datetime(row["date"]).strftime("%Y-%m-%d"),
         "date_label": format_date_label(row.get("date")),
         "sport": normalize_sport_key(raw_sport),
@@ -83,6 +87,35 @@ def _base_item(row: Any) -> dict[str, Any]:
         "tss_method": tss_method,
         "tss_source": tss_source,
     }
+
+
+def _projected_base_item(db: Database, row: Any) -> dict[str, Any]:
+    """Return the same event-grain activity DTO for list, detail, and analysis."""
+    item = _base_item(row)
+    date_key = item["date"]
+    frame = pd.DataFrame(db.get_activities_between(date_key, date_key))
+    if frame.empty:
+        return item
+    group = next(
+        (
+            candidate
+            for candidate in identify_multisport_groups(frame)
+            if candidate.envelope_id == item["activity_id"]
+        ),
+        None,
+    )
+    if group is None:
+        return item
+    rows_by_id = {
+        base["activity_id"]: base
+        for base in (_base_item(candidate) for _, candidate in frame.iterrows())
+    }
+    stages = [
+        rows_by_id[stage_id]
+        for stage_id in group.stage_ids
+        if stage_id in rows_by_id
+    ]
+    return project_multisport_activity(item, stages, group)
 
 
 @router.get("")
@@ -101,11 +134,11 @@ def list_activities(
             "operational_state": build_operational_state(db, demo=demo, has_data=False),
         }
 
-    df = df.sort_values("date", ascending=False)
+    df = df.sort_values("date", ascending=False, kind="stable")
     tags_by_activity = db.get_all_activity_tags()
     notes_by_activity = db.get_all_activity_coach_notes()
     latest_feedbacks = db.get_latest_session_feedbacks()
-    items = []
+    items_by_id: dict[str, dict[str, Any]] = {}
     for _, row in df.iterrows():
         item = _base_item(row)
         activity_id = item["activity_id"]
@@ -117,18 +150,41 @@ def list_activities(
             )
         item["tags"] = tags_by_activity.get(activity_id, [])
         item["coach_notes"] = notes_by_activity.get(activity_id)
+        items_by_id[activity_id] = item
+
+    groups = identify_multisport_groups(df)
+    groups_by_envelope = {group.envelope_id: group for group in groups}
+    grouped_stage_ids = {
+        stage_id for group in groups for stage_id in group.stage_ids
+    }
+    items: list[dict[str, Any]] = []
+    for _, row in df.iterrows():
+        activity_id = str(row.get("activity_id"))
+        if activity_id in grouped_stage_ids:
+            continue
+        item = items_by_id[activity_id]
+        group = groups_by_envelope.get(activity_id)
+        if group is not None:
+            segments = [
+                items_by_id[stage_id]
+                for stage_id in group.stage_ids
+                if stage_id in items_by_id
+            ]
+            item = project_multisport_activity(item, segments, group)
         items.append(item)
 
     totals = {
-        "count": int(len(df)),
-        "distance_km": _num(df["distance_km"].sum()) if "distance_km" in df else None,
-        "duration_hours": _num(df["duration_minutes"].sum() / 60) if "duration_minutes" in df else None,
-        "tss": _num(df["tss"].sum()) if "tss" in df else None,
+        "count": len(items),
+        "distance_km": _num(sum(item.get("distance_km") or 0.0 for item in items)),
+        "duration_hours": _num(
+            sum(item.get("duration_minutes") or 0.0 for item in items) / 60
+        ),
+        "tss": _num(sum(item.get("tss") or 0.0 for item in items)),
     }
 
     return {
         "has_data": True,
-        "count": int(len(df)),
+        "count": len(items),
         "totals": totals,
         "items": items,
         "operational_state": build_operational_state(
@@ -157,7 +213,7 @@ def get_activity_card(
     row = db.get_activity(activity_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Activity not found")
-    item = _base_item(row)
+    item = _projected_base_item(db, row)
     item["feedback"] = feedback_for_activity(
         activity_id, db.get_latest_session_feedbacks()
     )
@@ -253,7 +309,7 @@ def analyze_activity(
     row = db.get_activity(activity_id)
     if row is None:
         raise HTTPException(status_code=404, detail="Activity not found")
-    item = _base_item(row)
+    item = _projected_base_item(db, row)
     activity_date = pd.to_datetime(row["date"]).date()
     readiness = build_readiness_snapshot(db, as_of=activity_date)
     feedback = feedback_for_activity(

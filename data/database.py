@@ -1863,12 +1863,26 @@ class Database:
         conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
-            f"SELECT {', '.join(columns)} FROM activities WHERE date BETWEEN ? AND ? ORDER BY date, started_at_utc, activity_id",
+            f"""
+            SELECT {', '.join(f'a.{column}' for column in columns)},
+                   (
+                       SELECT CAST(link.external_id AS TEXT)
+                       FROM activity_provider_links AS link
+                       WHERE CAST(link.canonical_activity_id AS TEXT) = CAST(a.activity_id AS TEXT)
+                         AND link.provider = 'intervals'
+                         AND link.external_provider = 'garmin'
+                         AND link.external_id IS NOT NULL
+                       LIMIT 1
+                   ) AS provider_external_id
+            FROM activities AS a
+            WHERE a.date BETWEEN ? AND ?
+            ORDER BY a.date, a.started_at_utc, a.activity_id
+            """,
             (str(start_date), str(end_date)),
         )
         rows = cursor.fetchall()
         conn.close()
-        return [dict(zip(columns, row)) for row in rows]
+        return [dict(zip([*columns, "provider_external_id"], row)) for row in rows]
 
     def get_data_coverage_rows(
         self,

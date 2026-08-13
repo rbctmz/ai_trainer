@@ -12,6 +12,7 @@ from typing import Any
 
 import pandas as pd
 
+from models.activity_lineage import authoritative_training_load_activities
 from models.banister import BanisterModel, tsb_zone
 
 
@@ -58,55 +59,7 @@ def _without_multisport_envelopes(frame: pd.DataFrame) -> pd.DataFrame:
     set is ignored in favour of the envelope.  Unlinked same-day workouts stay
     untouched because date and sport alone cannot establish lineage.
     """
-    required = {"activity_id", "provider_external_id", "sport", "tss"}
-    if frame.empty or not required.issubset(frame.columns):
-        return frame
-
-    sport_keys = (
-        frame["sport"]
-        .fillna("")
-        .astype(str)
-        .str.strip()
-        .str.lower()
-        .str.replace(r"[\s-]+", "_", regex=True)
-    )
-    envelopes = sport_keys.isin({"multi_sport", "multisport"})
-    if not envelopes.any():
-        return frame
-
-    activity_ids = frame["activity_id"].fillna("").astype(str).str.strip()
-    parent_ids = frame["provider_external_id"].fillna("").astype(str).str.strip()
-    envelope_ids = set(activity_ids[envelopes & activity_ids.ne("")])
-    linked = parent_ids.isin(envelope_ids) & ~envelopes
-    if not linked.any():
-        return frame
-
-    leg_sports = sport_keys.replace(
-        {
-            "swim": "swim",
-            "swimming": "swim",
-            "open_water_swimming": "swim",
-            "bike": "bike",
-            "cycling": "bike",
-            "ride": "bike",
-            "run": "run",
-            "running": "run",
-        }
-    )
-    tss_values = pd.to_numeric(frame["tss"], errors="coerce")
-    usable_tss = tss_values.gt(0.0)
-    legs = pd.DataFrame({"parent_id": parent_ids, "sport": leg_sports})
-    legs = legs.loc[
-        linked & usable_tss & leg_sports.isin({"swim", "bike", "run"})
-    ]
-    complete_parents = {
-        parent_id
-        for parent_id, sports in legs.groupby("parent_id")["sport"]
-        if {"swim", "bike", "run"}.issubset(set(sports))
-    }
-    superseded_envelopes = envelopes & activity_ids.isin(complete_parents)
-    incomplete_linked_rows = linked & ~parent_ids.isin(complete_parents)
-    return frame.loc[~(superseded_envelopes | incomplete_linked_rows)]
+    return authoritative_training_load_activities(frame)
 
 
 def training_load_metrics(
