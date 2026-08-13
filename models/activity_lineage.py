@@ -132,4 +132,3 @@ def authoritative_training_load_activities(
         else:
             excluded.update(group.stage_ids)
     return frame.loc[~activity_ids.isin(excluded)]
-
