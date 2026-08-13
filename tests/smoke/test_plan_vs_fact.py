@@ -7,6 +7,7 @@ ExecPlan: docs/plan_vs_fact_execplan.md (Milestone 3). Покрывает чис
 from __future__ import annotations
 
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 
@@ -54,7 +55,15 @@ def test_match_three_work_reps_in_order():
 
     result = match_plan_vs_fact(planned, actual)
 
-    assert result["summary"] == {"planned_work_steps": 3, "actual_intervals": 3, "matched": 3}
+    assert result["summary"] == {
+        "planned_steps": 7,
+        "planned_work_steps": 3,
+        "actual_intervals": 3,
+        "matched_steps": 3,
+        "matched": 3,
+    }
+    assert result["alignment_mode"] == "work_intervals"
+    assert result["step_matches"] == []
     assert [m["matched"] for m in result["matches"]] == [True, True, True]
     # Small deltas near zero.
     assert abs(result["matches"][0]["duration_delta"]) < 0.05
@@ -68,6 +77,78 @@ def test_match_sums_up_in_summary():
 
     assert result["summary"]["matched"] == 2
     assert result["summary"]["planned_work_steps"] == 2
+
+
+def test_contiguous_timeline_groups_auto_laps_into_planned_steps():
+    planned = [
+        {**_planned_rest(315), "segment_kind": "warmup", "name": "Warm-up"},
+        _planned_work(1155, 0.8, segment_kind="stage", name="Aerobic endurance"),
+        _planned_work(315, 0.88, segment_kind="stage", name="Steady finish"),
+        {**_planned_rest(315), "segment_kind": "cooldown", "name": "Cool-down"},
+    ]
+    durations = [316, 465, 453, 237, 315, 321]
+    zones = [2, 2, 2, 2, 3, 2]
+    actual = []
+    cursor = 0
+    for duration, zone in zip(durations, zones):
+        actual.append(
+            _actual(
+                duration,
+                zone=zone,
+                start_index=cursor,
+                average_watts=280 + zone * 5,
+            )
+        )
+        cursor += duration
+
+    result = match_plan_vs_fact(planned, actual)
+
+    assert result["alignment_mode"] == "timeline"
+    assert result["summary"] == {
+        "planned_steps": 4,
+        "planned_work_steps": 2,
+        "actual_intervals": 6,
+        "matched_steps": 4,
+        "matched": 2,
+    }
+    assert [item["matched"] for item in result["step_matches"]] == [
+        True,
+        True,
+        True,
+        True,
+    ]
+    assert result["step_matches"][1]["actual"]["moving_time"] == 1155
+    assert result["step_matches"][1]["actual"]["source_interval_count"] == 3
+    assert result["step_matches"][1]["zone"]["actual"] == 2
+    assert result["step_matches"][1]["duration_delta"] == 0
+    assert result["step_matches"][2]["actual"]["source_interval_count"] == 1
+    assert [item["matched"] for item in result["matches"]] == [True, True]
+
+
+def test_timeline_alignment_does_not_accept_large_duration_deviation():
+    planned = [_planned_work(720)]
+    actual = [_actual(1100, start_index=0)]
+
+    result = match_plan_vs_fact(planned, actual)
+
+    assert result["alignment_mode"] == "timeline"
+    assert result["step_matches"][0]["matched"] is False
+    assert result["step_matches"][0]["actual"]["moving_time"] == 1100
+    assert result["summary"]["matched_steps"] == 0
+
+
+def test_timeline_with_gap_keeps_conservative_work_interval_matching():
+    planned = [_planned_work(720)]
+    actual = [
+        _actual(60, start_index=0),
+        _actual(718, start_index=120),
+    ]
+
+    result = match_plan_vs_fact(planned, actual)
+
+    assert result["alignment_mode"] == "work_intervals"
+    assert result["step_matches"] == []
+    assert result["matches"][0]["actual"]["moving_time"] == 718
 
 
 # --- tolerance + deviation ------------------------------------------------
@@ -184,13 +265,27 @@ def test_match_no_work_steps_returns_empty():
     result = match_plan_vs_fact(planned, actual)
 
     assert result["matches"] == []
-    assert result["summary"] == {"planned_work_steps": 0, "actual_intervals": 1, "matched": 0}
+    assert result["summary"] == {
+        "planned_steps": 2,
+        "planned_work_steps": 0,
+        "actual_intervals": 1,
+        "matched_steps": 0,
+        "matched": 0,
+    }
 
 
 def test_match_non_list_inputs_fail_open():
     assert match_plan_vs_fact(None, None) == {
+        "alignment_mode": "work_intervals",
+        "step_matches": [],
         "matches": [],
-        "summary": {"planned_work_steps": 0, "actual_intervals": 0, "matched": 0},
+        "summary": {
+            "planned_steps": 0,
+            "planned_work_steps": 0,
+            "actual_intervals": 0,
+            "matched_steps": 0,
+            "matched": 0,
+        },
     }
     assert match_plan_vs_fact({"not": "list"}, [_actual(600)])["matches"] == []
 
@@ -422,8 +517,10 @@ def test_activity_card_plan_vs_fact_contract(tmp_path, monkeypatch):
     plan_vs_fact = card["activity"]["plan_vs_fact"]
     assert plan_vs_fact is not None
     assert plan_vs_fact["summary"] == {
+        "planned_steps": 3,
         "planned_work_steps": 2,
         "actual_intervals": 3,
+        "matched_steps": 2,
         "matched": 2,
     }
     assert [match["matched"] for match in plan_vs_fact["matches"]] == [True, True]
@@ -444,3 +541,16 @@ def test_activity_card_plan_vs_fact_null_without_plan(tmp_path, monkeypatch):
 
     assert card["activity"]["planned_intervals"] is None
     assert card["activity"]["plan_vs_fact"] is None
+
+
+def test_activity_card_timeline_alignment_ui_contract() -> None:
+    page = Path("web/app/activities/page.tsx").read_text(encoding="utf-8")
+    types = Path("web/lib/types.ts").read_text(encoding="utf-8")
+
+    assert "step_matches: PlanVsFactMatch[]" in types
+    assert "source_interval_count?: number" in types
+    assert 'alignment_mode: "timeline" | "work_intervals"' in types
+    assert "Этапы по длительности" in page
+    assert "Плановая цель" in page
+    assert "Фактическая зона" in page
+    assert "planVsFact.step_matches" in page

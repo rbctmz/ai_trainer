@@ -170,6 +170,7 @@ export interface ActivityInterval {
   training_load?: number | null;
   average_speed?: number | null;
   intensity_type?: string | null;
+  source_interval_count?: number;
 }
 
 export interface ActivityIntervals {
@@ -197,9 +198,19 @@ export interface ActivityPowerCurve {
 export interface PlanVsFactStep {
   type?: string | null;
   duration_seconds?: number | null;
-  target_zone?: number | null;
+  target_zone?:
+    | number
+    | {
+        type?: string | null;
+        low?: number | null;
+        high?: number | null;
+        relative_low?: number | null;
+        relative_high?: number | null;
+      }
+    | null;
   segment_kind?: string | null;
   repeat_index?: number | null;
+  name?: string | null;
 }
 
 export interface PlanVsFactMatch {
@@ -211,10 +222,14 @@ export interface PlanVsFactMatch {
 }
 
 export interface PlanVsFact {
+  alignment_mode: "timeline" | "work_intervals";
+  step_matches: PlanVsFactMatch[];
   matches: PlanVsFactMatch[];
   summary: {
+    planned_steps: number;
     planned_work_steps: number;
     actual_intervals: number;
+    matched_steps: number;
     matched: number;
   };
   plan_replanned_after_delivery?: {
