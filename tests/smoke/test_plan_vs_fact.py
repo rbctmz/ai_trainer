@@ -320,6 +320,50 @@ def test_timeline_with_gap_keeps_conservative_work_interval_matching():
     assert result["matches"][0]["actual"]["moving_time"] == 718
 
 
+def test_garmin_laps_use_elapsed_timeline_without_matching_warmup_as_work():
+    planned = [
+        {**_planned_rest(300), "segment_kind": "warmup", "name": "Warm-up"},
+        _planned_work(300, name="Work"),
+    ]
+    actual = [
+        _actual(
+            300,
+            elapsed_time=305,
+            start_index=0,
+            intensity_type="warmup",
+        ),
+        _actual(
+            300,
+            elapsed_time=300,
+            start_index=305,
+            intensity_type="active",
+        ),
+    ]
+
+    result = match_plan_vs_fact(planned, actual, actual_source="garmin")
+
+    assert result["alignment_mode"] == "timeline"
+    assert result["matches"][0]["actual"]["intensity_type"] == "active"
+
+
+def test_unaligned_garmin_laps_never_use_greedy_work_matching():
+    planned = [_planned_work(300, name="Work")]
+    actual = [
+        _actual(
+            300,
+            elapsed_time=300,
+            start_index=60,
+            intensity_type="warmup",
+        )
+    ]
+
+    result = match_plan_vs_fact(planned, actual, actual_source="garmin")
+
+    assert result["alignment_mode"] == "work_intervals"
+    assert result["matches"][0]["matched"] is False
+    assert result["matches"][0]["actual"] is None
+
+
 # --- tolerance + deviation ------------------------------------------------
 
 
@@ -727,7 +771,11 @@ def test_activity_card_passes_sport_and_profile_to_intensity_matcher(
     monkeypatch.setattr(
         activities_router,
         "fetch_activity_intervals",
-        lambda db, aid: {"intervals": [_actual(720)], "groups": []},
+        lambda db, aid: {
+            "source": "intervals",
+            "intervals": [_actual(720)],
+            "groups": [],
+        },
     )
     captured = {}
 
@@ -740,6 +788,7 @@ def test_activity_card_passes_sport_and_profile_to_intensity_matcher(
     activities_router.get_activity_card("act-1", db=db)
 
     assert captured["sport"] == "bike"
+    assert captured["actual_source"] == "intervals"
     assert captured["athlete_profile"]["ftp"] == 200
 
 

@@ -245,6 +245,7 @@ def get_activity_card(
             actual_intervals or [],
             sport=item.get("sport"),
             athlete_profile=db.get_athlete_profile(),
+            actual_source=actual.get("source") if isinstance(actual, dict) else None,
         )
         checkpoint = (
             db.get_planning_checkpoint(planned_match["base_checkpoint_id"])

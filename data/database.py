@@ -3368,6 +3368,15 @@ class Database:
         finally:
             conn.close()
 
+    def get_activity_interval_retries(self):
+        conn = self._connect()
+        try:
+            return ActivityStore(
+                conn, self.clean_value
+            ).get_activity_interval_retries()
+        finally:
+            conn.close()
+
     def save_activity_power_curve(self, activity_id, curve):
         conn = self._connect()
         try:

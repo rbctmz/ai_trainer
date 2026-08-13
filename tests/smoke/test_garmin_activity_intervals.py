@@ -229,9 +229,41 @@ def test_garmin_split_failure_does_not_lose_main_activity(tmp_path) -> None:
 
     assert counts == {"new": 1, "updated": 0, "skipped": 0}
     assert db.get_activity("activity-without-laps") is not None
-    assert db.get_activity_intervals("activity-without-laps") is None
+    pending = db.get_activity_intervals("activity-without-laps")
+    assert pending["intervals"] == []
+    assert pending["garmin_retry"]["provider_activity_id"] == "activity-without-laps"
+    assert pending["garmin_retry"]["attempts"] == 1
     assert len(warnings) == 1
     assert "структур" in warnings[0].lower()
+
+
+def test_failed_historical_split_is_retried_without_activity_in_next_window(
+    tmp_path,
+) -> None:
+    db = Database(str(tmp_path / "garmin-retry.db"))
+    warnings: list[str] = []
+
+    _sync_activities(
+        db,
+        [_garmin_activity("historical-activity")],
+        warnings=warnings,
+        activity_intervals_client=_SplitsClient(error=RuntimeError("provider down")),
+    )
+    retry_client = _SplitsClient(_garmin_splits_payload())
+
+    counts = _sync_activities(
+        db,
+        [],
+        warnings=warnings,
+        activity_intervals_client=retry_client,
+    )
+
+    assert counts == {"new": 0, "updated": 0, "skipped": 0}
+    assert retry_client.calls == ["historical-activity"]
+    stored = db.get_activity_intervals("historical-activity")
+    assert stored["source"] == "garmin"
+    assert len(stored["intervals"]) == 2
+    assert "garmin_retry" not in stored
 
 
 def test_garmin_sync_adds_laps_without_overwriting_intervals_structure(tmp_path) -> None:

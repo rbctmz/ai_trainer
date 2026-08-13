@@ -82,6 +82,7 @@ def match_plan_vs_fact(
     *,
     sport: str | None = None,
     athlete_profile: Mapping[str, Any] | None = None,
+    actual_source: str | None = None,
 ) -> dict[str, Any]:
     """Match planned work steps to actual detected intervals (#383).
 
@@ -108,6 +109,24 @@ def match_plan_vs_fact(
             sport=sport,
             athlete_profile=athlete_profile,
         )
+
+    # Garmin laps are raw device boundaries, not detected work intervals. If
+    # their elapsed timeline cannot be trusted, greedy duration matching could
+    # label a warm-up/auto-lap as completed work. Fail closed instead.
+    if str(actual_source or "").strip().lower() == "garmin":
+        work_steps = _work_steps(planned)
+        return {
+            "alignment_mode": "work_intervals",
+            "step_matches": [],
+            "matches": [_unmatched(step) for step in work_steps],
+            "summary": {
+                "planned_steps": len(planned),
+                "planned_work_steps": len(work_steps),
+                "actual_intervals": len(actual),
+                "matched_steps": 0,
+                "matched": 0,
+            },
+        }
 
     work_steps = _work_steps(planned)
     if not work_steps:
@@ -161,13 +180,21 @@ def _is_contiguous_timeline(actual: Sequence[Mapping[str, Any]]) -> bool:
         if not isinstance(interval, Mapping):
             return False
         start = _number(interval.get("start_index"))
-        duration = _actual_seconds(interval)
+        duration = _timeline_seconds(interval)
         if start is None or duration is None or duration <= 0:
             return False
         if abs(start - cursor) > _TIMELINE_GAP_TOLERANCE_SECONDS:
             return False
         cursor = int(round(start)) + duration
     return True
+
+
+def _timeline_seconds(interval: Mapping[str, Any]) -> int | None:
+    """Timeline span: Garmin start offsets accumulate elapsed, not moving time."""
+    elapsed = _number(interval.get("elapsed_time"))
+    if elapsed is not None:
+        return int(round(elapsed))
+    return _actual_seconds(interval)
 
 
 def _match_contiguous_timeline(
@@ -331,6 +358,14 @@ def _aggregate_actual_group(
             zone_seconds[zone] = zone_seconds.get(zone, 0) + duration
     if zone_seconds:
         result["zone"] = max(zone_seconds, key=zone_seconds.get)
+
+    intensity_types = {
+        str(interval.get("intensity_type") or "").strip().lower()
+        for interval in intervals
+        if str(interval.get("intensity_type") or "").strip()
+    }
+    if len(intensity_types) == 1:
+        result["intensity_type"] = intensity_types.pop()
     return result
 
 
