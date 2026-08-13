@@ -12,7 +12,7 @@ The behavior is observable with the local 2026-07-26 data. Before this change th
 
 - [x] (2026-08-13 05:45Z) Profiled the real multisport rows and provider lineage in local SQLite.
 - [x] (2026-08-13 05:45Z) Created structured GitHub issue #433 and branch `codex/issue-433-multisport-activity-groups`.
-- [ ] Add RED API and web contract tests for complete, partial, standalone, and unrelated activity shapes.
+- [x] (2026-08-13 05:47Z) Added and confirmed RED API/web tests for complete, partial, standalone, and unrelated activity shapes: 5 failed, 19 passed before implementation.
 - [ ] Implement the shared lineage projection and additive API fields.
 - [ ] Render an accessible expandable stage list in the Next.js activity table.
 - [ ] Run focused tests, contributor-safe smoke, lint, build, desktop/mobile browser acceptance, and self-review.
@@ -24,6 +24,8 @@ The behavior is observable with the local 2026-07-26 data. Before this change th
   Evidence: raw totals are 6 rows, 412.4 minutes, 99.41 km, and 360.2 TSS; the linked stages alone are 5 rows, 206.2 minutes, 49.70 km, and 291.5 TSS.
 - Observation: CTL/ATL already use `models.signals_engine._without_multisport_envelopes`, so training load is not double-counted there. The defect is the flat activity-list projection and its aggregate totals.
   Evidence: `training_load_metrics` filters a complete positive swim/bike/run set before invoking the Banister model, while `api.routers.activities.list_activities` sums the unfiltered DataFrame.
+- Observation: The RED gate isolates presentation aggregation from the existing training-load behavior.
+  Evidence: the three new API grouping cases and two web contracts fail, while all 19 existing `test_multisport_training_load.py` cases pass.
 
 ## Decision Log
 
@@ -120,4 +122,4 @@ The shared lineage module must expose a small immutable group description and a 
 
 For stage-derived group TSS, `tss_source` adds the value `stages`; `tss_method` is `multisport_stages_sum`. No new package dependency is permitted.
 
-Revision note (2026-08-13 05:45Z): Initial self-contained plan created from the real local lineage profile and issue #433 acceptance criteria.
+Revision note (2026-08-13 05:47Z): Recorded the confirmed RED gate and its isolation evidence before implementation.
