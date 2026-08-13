@@ -165,7 +165,7 @@ export function StripBar({
                 <span
                   key={position}
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-y-0 border-l border-surface/60"
+                  className="pointer-events-none absolute inset-y-0 z-10 border-l border-ink/40"
                   style={{ left: `${position}%` }}
                 />
               ))}

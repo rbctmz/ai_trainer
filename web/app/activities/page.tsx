@@ -277,15 +277,19 @@ function intensityTone(match: PlanVsFactMatch): string {
   return "bg-tone-danger/50";
 }
 
-function sourceDivisions(interval: ActivityInterval): number[] {
+function sourceDivisions(
+  interval: ActivityInterval,
+  includeStageStart: boolean,
+): number[] {
   const durations = interval.source_interval_durations ?? [];
   const total = durations.reduce((sum, duration) => sum + duration, 0);
-  if (durations.length <= 1 || total <= 0) return [];
+  if (total <= 0) return includeStageStart ? [0] : [];
   let cursor = 0;
-  return durations.slice(0, -1).map((duration) => {
+  const internal = durations.slice(0, -1).map((duration) => {
     cursor += duration;
     return Math.round((cursor / total) * 1000) / 10;
   });
+  return includeStageStart ? [0, ...internal] : internal;
 }
 
 function matchedFactStripSegments(matches: PlanVsFactMatch[]): StripSegment[] {
@@ -313,7 +317,7 @@ function matchedFactStripSegments(matches: PlanVsFactMatch[]): StripSegment[] {
         }`,
         tone: intensityTone(match),
         heightPct: relative != null ? clampStripHeight(relative * 100) : 35,
-        divisionsPct: sourceDivisions(actual),
+        divisionsPct: sourceDivisions(actual, index > 0),
       },
     ];
   });

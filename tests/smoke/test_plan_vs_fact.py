@@ -757,3 +757,7 @@ def test_activity_card_timeline_alignment_ui_contract() -> None:
     assert "planVsFact.step_matches" in page
     assert "matchedFactStripSegments" in page
     assert "divisionsPct" in page
+    assert "sourceDivisions(actual, index > 0)" in page
+    assert "border-ink/40" in Path(
+        "web/components/WorkoutStrip.tsx"
+    ).read_text(encoding="utf-8")
