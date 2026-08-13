@@ -177,6 +177,7 @@ export interface ActivityIntervals {
   analyzed?: string | null;
   intervals: ActivityInterval[];
   groups: ActivityInterval[];
+  garmin_laps?: ActivityInterval[];
 }
 
 export interface ActivityPowerPeak {

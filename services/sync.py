@@ -708,9 +708,9 @@ def _cache_garmin_activity_intervals(
     """Сохранить Garmin-круги как необязательное обогащение активности.
 
     Основная активность уже записана. Любой сбой этого шага остаётся предупреждением
-    и никогда не откатывает успешную синхронизацию. Существующая структура имеет
-    приоритет: это сохраняет более богатые интервалы Intervals.icu и исключает
-    повторный сетевой запрос при каждом инкрементальном проходе.
+    и никогда не откатывает успешную синхронизацию. Круги Garmin хранятся отдельно
+    от определённых интервалов Intervals.icu, поэтому оба представления доступны в
+    карточке. Уже сохранённые круги повторно не запрашиваются.
     """
     get_cached = getattr(database, "get_activity_intervals", None)
     save_cached = getattr(database, "save_activity_intervals", None)
@@ -722,7 +722,10 @@ def _cache_garmin_activity_intervals(
 
     try:
         cached = get_cached(canonical_activity_id)
-        if cached and (cached.get("intervals") or cached.get("groups")):
+        if cached and (
+            cached.get("garmin_laps")
+            or (cached.get("source") == "garmin" and cached.get("intervals"))
+        ):
             return
         payload = fetch(str(provider_activity_id))
         if payload is None:
@@ -737,7 +740,15 @@ def _cache_garmin_activity_intervals(
             return
         compact = normalize_garmin_splits_payload(payload)
         if compact["intervals"]:
-            save_cached(canonical_activity_id, compact)
+            if cached and (
+                cached.get("source") != "garmin"
+                and (cached.get("intervals") or cached.get("groups"))
+            ):
+                combined = dict(cached)
+                combined["garmin_laps"] = compact["intervals"]
+                save_cached(canonical_activity_id, combined)
+            else:
+                save_cached(canonical_activity_id, compact)
     except Exception as exc:
         _append_warning(
             warnings,

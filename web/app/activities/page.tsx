@@ -57,6 +57,50 @@ function formatIntervalDistance(distanceKm: number): string {
   return `${Math.round(distanceKm * 1000)} м`;
 }
 
+function ActivityIntervalList({ items }: { items: ActivityInterval[] }) {
+  return (
+    <ul className="mt-2 space-y-1.5 text-sm text-ink">
+      {items.map((iv, index) => (
+        <li
+          key={index}
+          className="flex flex-wrap items-center gap-x-2 gap-y-1"
+        >
+          <span className="rounded border border-surface-border bg-surface px-1.5 py-0.5 text-xs font-semibold text-ink-soft">
+            #{index + 1}
+          </span>
+          {iv.intensity_type ? (
+            <span className="text-xs text-ink-faint">
+              {INTENSITY_TYPE_LABELS[iv.intensity_type] ?? iv.intensity_type}
+            </span>
+          ) : null}
+          {iv.moving_time != null ? (
+            <span className="font-medium tabular-nums">
+              {formatIntervalTime(iv.moving_time)}
+            </span>
+          ) : null}
+          {iv.distance_km != null ? (
+            <span className="text-ink-soft">
+              {formatIntervalDistance(iv.distance_km)}
+            </span>
+          ) : null}
+          {iv.average_watts != null ? (
+            <span className="text-ink-soft">{iv.average_watts} Вт</span>
+          ) : null}
+          {iv.average_heartrate != null ? (
+            <span className="text-ink-soft">пульс {iv.average_heartrate}</span>
+          ) : null}
+          {iv.zone != null ? (
+            <span className="text-ink-soft">зона {iv.zone}</span>
+          ) : null}
+          {iv.training_load != null ? (
+            <span className="text-ink-faint">нагрузка {iv.training_load}</span>
+          ) : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function formatPlanDelta(delta: number): string {
   const pct = Math.round(delta * 100);
   return `${pct > 0 ? "+" : ""}${pct}%`;
@@ -419,6 +463,12 @@ function ActivityCardModal({
 
   const id = encodeURIComponent(activity.activity_id);
   const feedback = activity.feedback;
+  const garminLaps =
+    intervals?.source === "garmin"
+      ? intervals.intervals
+      : (intervals?.garmin_laps ?? []);
+  const detectedIntervals =
+    intervals?.source === "intervals" ? intervals.intervals : [];
   const plannedStrip = plannedStripSegments(plannedIntervals);
   const factStrip = factStripSegments(intervals?.intervals ?? []);
   const stripScale = Math.max(
@@ -574,62 +624,29 @@ function ActivityCardModal({
           <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
             Структура тренировки
           </div>
-          {intervals?.source ? (
-            <p className="mt-1 text-xs text-ink-faint">
-              {STRUCTURE_SOURCE_LABELS[intervals.source] ?? intervals.source}
-            </p>
+          {garminLaps.length > 0 ? (
+            <div className="mt-2">
+              <p className="text-xs text-ink-faint">
+                {STRUCTURE_SOURCE_LABELS.garmin}
+              </p>
+              <ActivityIntervalList items={garminLaps} />
+            </div>
           ) : null}
-          {intervals && intervals.intervals.length > 0 ? (
-            <ul className="mt-2 space-y-1.5 text-sm text-ink">
-              {intervals.intervals.map((iv, index) => (
-                <li
-                  key={index}
-                  className="flex flex-wrap items-center gap-x-2 gap-y-1"
-                >
-                  <span className="rounded border border-surface-border bg-surface px-1.5 py-0.5 text-xs font-semibold text-ink-soft">
-                    #{index + 1}
-                  </span>
-                  {iv.intensity_type ? (
-                    <span className="text-xs text-ink-faint">
-                      {INTENSITY_TYPE_LABELS[iv.intensity_type] ?? iv.intensity_type}
-                    </span>
-                  ) : null}
-                  {iv.moving_time != null ? (
-                    <span className="font-medium tabular-nums">
-                      {formatIntervalTime(iv.moving_time)}
-                    </span>
-                  ) : null}
-                  {iv.distance_km != null ? (
-                    <span className="text-ink-soft">
-                      {formatIntervalDistance(iv.distance_km)}
-                    </span>
-                  ) : null}
-                  {iv.average_watts != null ? (
-                    <span className="text-ink-soft">{iv.average_watts} Вт</span>
-                  ) : null}
-                  {iv.average_heartrate != null ? (
-                    <span className="text-ink-soft">
-                      пульс {iv.average_heartrate}
-                    </span>
-                  ) : null}
-                  {iv.zone != null ? (
-                    <span className="text-ink-soft">зона {iv.zone}</span>
-                  ) : null}
-                  {iv.training_load != null ? (
-                    <span className="text-ink-faint">
-                      нагрузка {iv.training_load}
-                    </span>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-          ) : (
+          {detectedIntervals.length > 0 ? (
+            <div className="mt-3 border-t border-surface-border pt-3">
+              <p className="text-xs text-ink-faint">
+                {STRUCTURE_SOURCE_LABELS.intervals}
+              </p>
+              <ActivityIntervalList items={detectedIntervals} />
+            </div>
+          ) : null}
+          {garminLaps.length === 0 && detectedIntervals.length === 0 ? (
             <p className="mt-2 text-sm text-ink-soft">
               {intervals
                 ? "Интервалы не детектированы."
                 : "Интервалы недоступны для этой активности."}
             </p>
-          )}
+          ) : null}
         </div>
 
         {planVsFact ? (

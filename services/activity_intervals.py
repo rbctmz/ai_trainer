@@ -1,8 +1,8 @@
 """Чтение и обогащение структуры фактической активности для карточки.
 
 Карточка открывается офлайн: Garmin-круги сохраняются при синхронизации, а
-Intervals.icu может обогатить их уже определёнными интервалами. При сбое сети
-сервис отдаёт локальный кэш, иначе ``None``.
+Intervals.icu добавляет отдельно определённые интервалы. При сбое сети сервис
+отдаёт локальный кэш, иначе ``None``.
 """
 from __future__ import annotations
 
@@ -40,13 +40,17 @@ def fetch_activity_intervals(
     except (IntervalsICUError, ValueError):
         return cached
 
-    if (
-        cached
-        and cached.get("source") == "garmin"
-        and not compact["intervals"]
-        and not compact["groups"]
-    ):
+    if cached and not compact["intervals"] and not compact["groups"]:
         return cached
+
+    garmin_laps = None
+    if cached:
+        if cached.get("source") == "garmin":
+            garmin_laps = cached.get("intervals")
+        else:
+            garmin_laps = cached.get("garmin_laps")
+    if garmin_laps:
+        compact["garmin_laps"] = garmin_laps
 
     database.save_activity_intervals(activity_id, compact)
     return compact

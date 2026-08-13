@@ -181,7 +181,7 @@ def test_empty_intervals_result_does_not_hide_cached_garmin_laps(tmp_path) -> No
     assert db.get_activity_intervals("garmin-and-intervals") == cached
 
 
-def test_detected_intervals_replace_cached_garmin_laps(tmp_path) -> None:
+def test_detected_intervals_keep_cached_garmin_laps_separately(tmp_path) -> None:
     db = Database(str(tmp_path / "provider-enrichment.db"))
     cached = normalize_garmin_splits_payload(_garmin_splits_payload())
     db.save_activity_intervals("garmin-and-intervals", cached)
@@ -197,6 +197,7 @@ def test_detected_intervals_replace_cached_garmin_laps(tmp_path) -> None:
 
     assert result["source"] == "intervals"
     assert result["intervals"][0]["moving_time"] == 420
+    assert result["garmin_laps"] == cached["intervals"]
     assert db.get_activity_intervals("garmin-and-intervals") == result
 
 
@@ -233,7 +234,7 @@ def test_garmin_split_failure_does_not_lose_main_activity(tmp_path) -> None:
     assert "структур" in warnings[0].lower()
 
 
-def test_existing_intervals_structure_is_not_overwritten_by_garmin_sync(tmp_path) -> None:
+def test_garmin_sync_adds_laps_without_overwriting_intervals_structure(tmp_path) -> None:
     db = Database(str(tmp_path / "priority.db"))
     _sync_activities(db, [_garmin_activity()])
     richer = normalize_intervals_payload(
@@ -242,6 +243,35 @@ def test_existing_intervals_structure_is_not_overwritten_by_garmin_sync(tmp_path
             "icu_intervals": [{"moving_time": 420, "distance": 1000}],
         }
     )
+    db.save_activity_intervals("23958642824", richer)
+    client = _SplitsClient(_garmin_splits_payload())
+
+    _sync_activities(
+        db,
+        [_garmin_activity()],
+        activity_intervals_client=client,
+    )
+
+    stored = db.get_activity_intervals("23958642824")
+    expected_laps = normalize_garmin_splits_payload(_garmin_splits_payload())[
+        "intervals"
+    ]
+
+    assert client.calls == ["23958642824"]
+    assert stored["source"] == "intervals"
+    assert stored["intervals"] == richer["intervals"]
+    assert stored["garmin_laps"] == expected_laps
+
+
+def test_garmin_sync_does_not_refetch_laps_already_stored_separately(tmp_path) -> None:
+    db = Database(str(tmp_path / "combined-cache.db"))
+    _sync_activities(db, [_garmin_activity()])
+    richer = normalize_intervals_payload(
+        {"icu_intervals": [{"moving_time": 420, "distance": 1000}]}
+    )
+    richer["garmin_laps"] = normalize_garmin_splits_payload(
+        _garmin_splits_payload()
+    )["intervals"]
     db.save_activity_intervals("23958642824", richer)
     client = _SplitsClient(_garmin_splits_payload())
 
@@ -279,5 +309,7 @@ def test_activity_card_names_garmin_laps_and_intervals_source() -> None:
     types = Path("web/lib/types.ts").read_text(encoding="utf-8")
 
     assert 'source?: "garmin" | "intervals" | null' in types
+    assert "garmin_laps?: ActivityInterval[]" in types
     assert 'garmin: "Круги Garmin"' in page
     assert 'intervals: "Интервалы Intervals.icu"' in page
+    assert "intervals?.garmin_laps" in page
