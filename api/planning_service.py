@@ -26,6 +26,7 @@ from models.plan_events import (
     normalized_events,
     synchronize_goal_plan_events,
 )
+from models.plan_science_audit import audit_training_plan
 from models.planning_checkpoints import (
     build_planning_checkpoint,
     restore_goal_plan_from_checkpoint,
@@ -1117,6 +1118,12 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
         selected_week_start=parsed_week_starts[current_index] if current_index is not None else None,
     )
     weekly_target_explanation = _active_plan_weekly_target_explanation(goal_plan)
+    stored_science_audit = goal_plan.get("science_audit")
+    science_audit = (
+        dict(stored_science_audit)
+        if isinstance(stored_science_audit, dict)
+        else audit_training_plan(goal_plan, source="current_policy")
+    )
 
     return {
         "has_plan": True,
@@ -1134,6 +1141,7 @@ def active_plan_overview(db: Database) -> Dict[str, Any]:
         "form_projection": form_projection,
         "availability": availability,
         "weekly_target_explanation": weekly_target_explanation,
+        "science_audit": science_audit,
         "weeks": [
             {
                 "number": index + 1,
@@ -1450,6 +1458,7 @@ def build_plan(
         list(goal_plan.get("weekly_summary") or []),
         list(goal_plan.get("session_templates") or []),
     )
+    goal_plan["science_audit"] = audit_training_plan(goal_plan, source="stored")
     goal_plan = with_checkpoint_provenance(
         goal_plan,
         source=checkpoint_source,
@@ -1498,6 +1507,7 @@ def build_plan(
         },
         "totals": {"peak_tss": peak_tss, "total_tss": total_tss},
         "constraint_application": constraint_application,
+        "science_audit": goal_plan["science_audit"],
         "weeks": weeks,
         "forecast": forecast,
     }

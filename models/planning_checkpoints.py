@@ -10,6 +10,7 @@ from models.planning_execution import (
     summarize_execution_weekly_review,
 )
 from models.plan_events import synchronize_goal_plan_events
+from models.plan_science_audit import audit_training_plan
 from models.session_identity import ensure_session_identities
 from models.planning_summary import (
     summarize_execution_adaptation_pressure,
@@ -210,6 +211,7 @@ def summarize_checkpoint_provenance(checkpoint: Dict[str, Any] | None) -> Dict[s
 def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
     """Build a compact persisted snapshot from the current goal plan."""
     goal_plan = ensure_session_identities(synchronize_goal_plan_events(goal_plan))
+    science_audit = audit_training_plan(goal_plan, source="stored")
     weekly_summary_rows: List[Dict[str, Any]] = []
     for row in goal_plan.get("weekly_summary", []) or []:
         weekly_row = {
@@ -284,6 +286,7 @@ def build_planning_checkpoint(goal_plan: Dict[str, Any]) -> Dict[str, Any]:
         "demand_level": goal_plan.get("demand_level"),
         "demand_multiplier": goal_plan.get("demand_multiplier"),
         "weekly_target_breakdown": goal_plan.get("weekly_target_breakdown"),
+        "science_audit": science_audit,
         "plan_revision": goal_plan.get("plan_revision"),
         "near_term_edit_version": int(goal_plan.get("near_term_edit_version", 0) or 0),
         "near_term_edit_horizon_days": int(goal_plan.get("near_term_edit_horizon_days", 0) or 0),

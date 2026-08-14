@@ -579,6 +579,34 @@ export interface PlanningStatus {
   demand_options?: PlanningDemand[];
 }
 
+export interface PlanScienceAudit {
+  state: "available" | "data_gap" | string;
+  policy_version: string;
+  source: "stored" | "current_policy" | string;
+  summary: {
+    passed: number;
+    attention: number;
+    data_gap: number;
+    headline: string;
+  };
+  findings: Array<{
+    rule_id: string;
+    status: "passed" | "attention" | "data_gap" | string;
+    severity: "warning" | "info" | string;
+    title: string;
+    summary: string;
+    recommendation: string;
+    affected_dates: string[];
+    metrics: Record<string, unknown>;
+    evidence: Array<{
+      ref_id: string;
+      level: string;
+      doi: string | null;
+      finding: string;
+    }>;
+  }>;
+}
+
 /** Read-only projection of the persisted active checkpoint for Planning M1. */
 export interface PlanningOverview {
   has_plan: boolean;
@@ -679,6 +707,7 @@ export interface PlanningOverview {
     final_target_weekly_tss: number | null;
     demand: Pick<PlanningDemand, "level" | "label" | "multiplier"> | null;
   };
+  science_audit?: PlanScienceAudit;
   weeks?: Array<{ number: number; week_start: string | null; phase: string | null; weekly_tss: number }>;
 }
 
@@ -901,6 +930,7 @@ export interface BuiltPlan {
   plan_id: string | null;
   planning_mode: "event_goal" | "training_goal" | "manual";
   confirmation_required: boolean;
+  science_audit: PlanScienceAudit;
   preview: {
     base_checkpoint_id: number;
     events_before: RaceEvent[];

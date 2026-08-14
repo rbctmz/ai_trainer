@@ -435,6 +435,27 @@ FastAPI отклонит до хендлера). Настоящий HTTP-round-t
 пинается при конструировании модели в direct-call свите (#242/#246). Поэтому
 HTTP-слой свёлся к одному роутеру, а не к свипу по `api/routers/*`.
 
+## Версионированная научная проверка плана (ADR-0009)
+
+Конечные исполнимые сессии активного плана проверяются чистой локальной
+политикой после materialization. Blocks служит источником курирования, но не
+вызывается в пути построения или чтения плана. Новые checkpoints сохраняют
+результат и `policy_version`; старые checkpoints получают явно помеченную
+проверку текущей политикой без записи новой версии плана.
+
+- **ASR-PERF-4**: проверка ограничена сохранённым горизонтом и не выполняет
+  сетевых вызовов.
+- **ASR-REL-2**: отсутствие подтверждённой A-цели или нужного горизонта даёт
+  `data_gap`, а не ложное прохождение.
+- **ASR-MOD-3**: `science_audit` добавляется к JSON checkpoint и overview
+  аддитивно; SQLite migration не требуется.
+- **ADR-0004/0006**: v1 только объясняет план. Будущая автопоправка обязана
+  стать отдельным preview и новой подтверждённой append-only версией.
+
+Проверка: `test_plan_science_audit.py` (шесть правил, пробелы данных,
+иммутабельность) и `test_planning_active_plan_overview.py` (сохранённый снимок,
+legacy fallback без записи, web-контракт).
+
 ## Открытые долги (по 🟡)
 
 Канонический backlog находится в
@@ -456,3 +477,4 @@ HTTP-слой свёлся к одному роутеру, а не к свипу
 | [ADR-0006](adr_0006_append_only_planning_versions.md) | Append-only версии плана |
 | [ADR-0007](adr_0007_mock_ai_demo_acceptance.md) | Mock AI для demo/acceptance |
 | [ADR-0008](adr_0008_intervals_activity_ingestion.md) | Multi-provider ingest, provider links и provenance |
+| [ADR-0009](adr_0009_versioned_scientific_plan_policy.md) | Версионированная научная проверка плана без runtime-зависимости от Blocks |
