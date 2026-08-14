@@ -142,6 +142,19 @@
         {"state": "demo", "expect": 200}
       ]
     },
+    "/api/sync": {
+      "interface": "SyncJobResponse",
+      "scenarios": [
+        {"state": "demo", "expect": 200}
+      ]
+    },
+    "/api/decisions": {
+      "interface": "CoachDecisionsResponse",
+      "scenarios": [
+        {"state": "empty", "expect": 200, "query_params": {"days": "30"}},
+        {"state": "demo", "expect": 200, "query_params": {"days": "30"}}
+      ]
+    },
     "/api/sync/coverage": {
       "interface": "DataCoverageResponse",
       "scenarios": [
@@ -170,6 +183,11 @@
       "path": "/api/coach/history/{id}",
       "file": "web/app/coach/page.tsx",
       "reason": "локальный тип ChatDetail в модуле страницы; follow-up: перенести в types.ts"
+    },
+    {
+      "path": "/api/activities/{id}",
+      "file": "web/app/activities/page.tsx",
+      "reason": "инлайн-обёртка { activity: Activity }; follow-up: перенести в types.ts"
     }
   ]
 }
