@@ -9,12 +9,16 @@
  *       "<Имя>": <ValueSpec>   // interface/alias; объектные — с fields
  *   } }
  *
- * ValueSpec: {kinds, literals, widened, items, fields, ref, wildcard}
+ * ValueSpec: {kinds, literals, widened, items, fields, ref, wildcard, variants,
+ *              record_values, array_length}
  *   kinds ⊆ ["array","boolean","null","number","object","string"]
  *   literals — закрытое множество значений (advisory при widened=true)
  *   widened — union расширен голым `string` (проверка литералов не блокирует)
  *   items — спек элемента массива; fields — поля объекта; ref — ссылка на имя
- *   wildcard — Record<string, unknown>/unknown/any (принять что угодно)
+ *   wildcard — только unknown/any (принять что угодно);
+ *   record_values — Record<K, V> без закрытого набора ключей: спека значений
+ *     (null = значения не проверяются, но объект обязателен)
+ *   array_length — пустой кортеж `[]`: массив ровно этой длины
  *
  * Поддерживается: interface (extends), alias, `?`, примитивы, null/undefined,
  * строковые/булевы/числовые литералы, union, `| string`, T[]/Array<T>,
@@ -57,7 +61,20 @@ function repoRelative(filePath) {
 }
 
 function emptySpec() {
-  return { kinds: [], literals: [], widened: false, items: null, fields: null, ref: null, wildcard: false, variants: null };
+  return {
+    kinds: [],
+    literals: [],
+    widened: false,
+    items: null,
+    fields: null,
+    ref: null,
+    wildcard: false,
+    variants: null,
+    // Record<K, V> без закрытого набора ключей: спека значений (null = не проверяются).
+    record_values: null,
+    // Пустой кортеж `[]`: массив ровно этой длины.
+    array_length: null,
+  };
 }
 
 function normalizeSpec(spec) {
@@ -234,6 +251,16 @@ function specOf(node, subst) {
         if (merged.items) unsupported(node, "union разных массивов");
         merged.items = child.items;
       }
+      if (child.array_length !== null) {
+        if (merged.array_length !== null && merged.array_length !== child.array_length) {
+          unsupported(node, "union кортежей разной длины");
+        }
+        merged.array_length = child.array_length;
+      }
+      if (child.record_values) {
+        if (merged.record_values) unsupported(node, "union разных Record");
+        merged.record_values = child.record_values;
+      }
       if (!useVariants && child.fields) {
         for (const [key, field] of Object.entries(child.fields)) {
           if (fieldsOverlapConflict(merged.fields, key, field)) unsupported(node, "union конфликтующих объектов");
@@ -302,9 +329,9 @@ function specOf(node, subst) {
   }
 
   if (ts.isTupleTypeNode(node)) {
-    // `[]` в union — семантика «пустой массив»; непустые кортежи не поддерживаем.
+    // `[]` в union — семантика «ровно пустой массив»; непустые кортежи не поддерживаем.
     if (node.elements.length === 0) {
-      return { ...emptySpec(), kinds: ["array"], items: { ...emptySpec(), wildcard: true } };
+      return { ...emptySpec(), kinds: ["array"], items: null, array_length: 0 };
     }
     unsupported(node, "TupleType");
   }
@@ -324,7 +351,28 @@ function specOf(node, subst) {
       return { ...emptySpec(), kinds: ["array"], items: specOf(typeArgs[0], subst) };
     }
     if (name === "Record" && typeArgs.length === 2) {
-      return { ...emptySpec(), kinds: ["object"], wildcard: true };
+      // Закрытый набор литеральных ключей -> обязательные поля; иначе запись
+      // со спекой значений record_values (null = значения не проверяются).
+      const keySpec = specOf(typeArgs[0], subst);
+      const closedKeys =
+        keySpec.literals.length > 0 &&
+        !keySpec.widened &&
+        keySpec.literals.every((value) => typeof value === "string");
+      if (closedKeys) {
+        const fields = {};
+        for (const key of keySpec.literals) {
+          fields[key] = { optional: false, spec: specOf(typeArgs[1], subst) };
+        }
+        return { ...emptySpec(), kinds: ["object"], fields: sortedFields(fields) };
+      }
+      const valueKind = typeArgs[1].kind;
+      const valuesUnchecked =
+        valueKind === ts.SyntaxKind.UnknownKeyword || valueKind === ts.SyntaxKind.AnyKeyword;
+      return {
+        ...emptySpec(),
+        kinds: ["object"],
+        record_values: valuesUnchecked ? null : specOf(typeArgs[1], subst),
+      };
     }
     if (name === "Pick" && typeArgs.length === 2) {
       const objectSpec = resolveObjectSpec(typeArgs[0], subst);
@@ -381,7 +429,7 @@ function fieldsOverlapConflict(fields, key, field) {
   return Boolean(fields && fields[key] && JSON.stringify(fields[key]) !== JSON.stringify(field));
 }
 
-/** Спека объекта с полями: инлайн, ref (разрешается по объявлениям) или пересечение. */
+/** Спека объекта с полями: инлайн, ref (разрешается по объявлениям), Record или пересечение. */
 function resolveObjectSpec(node, subst) {
   const spec = specOf(node, subst);
   if (spec.fields) return spec;
@@ -390,6 +438,7 @@ function resolveObjectSpec(node, subst) {
     if (!body.fields) unsupported(node, `не-объектовая ссылка ${spec.ref}`);
     return body;
   }
+  if (spec.record_values !== null) return spec;
   if (spec.wildcard) return { ...emptySpec(), kinds: ["object"], wildcard: true };
   unsupported(node, "ожидался объектный тип");
 }

@@ -22,6 +22,9 @@ export interface Snapshot {
   lit: true;
   nums: 1 | 2;
   timeline: { kind: "event"; days: number } | { kind: "rolling"; horizon: number } | null;
+  counts: Record<string, number>;
+  limits: Record<"low" | "high", number>;
+  empty_list: [];
 }
 
 export interface Profile {

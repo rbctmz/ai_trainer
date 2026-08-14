@@ -76,6 +76,9 @@ def validate(payload: Any, spec: dict, types: dict, path: str = "$") -> list[str
         return [violation]
 
     if kind == "array":
+        expected_length = spec.get("array_length")
+        if expected_length is not None and len(payload) != expected_length:
+            return [f"{path}: длина массива {len(payload)} != {expected_length} (пустой кортеж `[]`)"]
         items = spec.get("items")
         if items is None:
             return []
@@ -95,8 +98,16 @@ def validate(payload: Any, spec: dict, types: dict, path: str = "$") -> list[str
             )
             return [f"{path}: значение не подходит ни под один вариант union ({reasons})"]
         fields = spec.get("fields")
-        if fields is None:  # массив/объект без полей — только kind-проверка
-            return []
+        if fields is None:
+            # Record<K, V>: все значения проверяются против record_values
+            # (null = значения не проверяются, но сам объект уже проверен по kind).
+            record_values = spec.get("record_values")
+            if record_values is None:
+                return []
+            violations = []
+            for key, value in payload.items():
+                violations.extend(validate(value, record_values, types, f"{path}.{key}"))
+            return violations
         violations = []
         for name, field_spec in fields.items():
             field_path = f"{path}.{name}"

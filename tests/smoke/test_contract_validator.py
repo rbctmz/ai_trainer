@@ -23,6 +23,8 @@ def spec(
     ref: str | None = None,
     wildcard: bool = False,
     variants: list | None = None,
+    record_values: dict | None = None,
+    array_length: int | None = None,
 ) -> dict:
     return {
         "kinds": kinds,
@@ -33,6 +35,8 @@ def spec(
         "ref": ref,
         "wildcard": wildcard,
         "variants": variants,
+        "record_values": record_values,
+        "array_length": array_length,
     }
 
 
@@ -135,6 +139,42 @@ class TestValidate:
     def test_variants_none_matches(self) -> None:
         violations = validate({"kind": "unknown"}, TYPES["Chart"], TYPES)
         assert any("вариант" in v for v in violations)
+
+
+class TestRecordAndTuple:
+    """Record<K, V> и пустой кортеж: типы значений, обязательные ключи, точная длина."""
+
+    def test_record_value_type_enforced(self) -> None:
+        record = spec(["object"], record_values=spec(["number"]))
+        assert validate({"a": 1}, record, TYPES) == []
+        violations = validate({"a": "x"}, record, TYPES)
+        assert any("$.a" in v and "несовместим" in v for v in violations)
+
+    def test_record_requires_object(self) -> None:
+        record = spec(["object"], record_values=spec(["number"]))
+        assert validate("строка", record, TYPES)
+        assert validate([1, 2], record, TYPES)
+
+    def test_record_unknown_values_object_still_required(self) -> None:
+        record = spec(["object"], record_values=None)
+        assert validate({"anything": [1, None, "x"]}, record, TYPES) == []
+        assert validate("not-an-object", record, TYPES)
+
+    def test_record_closed_keys_required(self) -> None:
+        record = spec(
+            ["object"],
+            fields={"low": field(spec(["number"])), "high": field(spec(["number"]))},
+        )
+        assert validate({"low": 1, "high": 2}, record, TYPES) == []
+        violations = validate({}, record, TYPES)
+        assert any("$.low" in v for v in violations)
+        assert any("$.high" in v for v in violations)
+
+    def test_empty_tuple_exact_length(self) -> None:
+        empty = spec(["array"], array_length=0)
+        assert validate([], empty, TYPES) == []
+        violations = validate([{"unexpected": True}], empty, TYPES)
+        assert any("длина массива" in v for v in violations)
 
 
 class TestExtraFields:

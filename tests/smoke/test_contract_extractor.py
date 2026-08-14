@@ -96,9 +96,26 @@ class TestSampleFixture:
 
     def test_wildcards(self) -> None:
         meta = _spec(self.payload, "Snapshot", "meta")["spec"]
-        assert meta["kinds"] == ["object"] and meta["wildcard"] is True
+        assert meta["kinds"] == ["object"] and meta["wildcard"] is False
+        assert meta["record_values"] is None  # значения не проверяются, но объект обязателен
         raw = _spec(self.payload, "Snapshot", "raw")["spec"]
         assert raw["wildcard"] is True
+
+    def test_record_value_types(self) -> None:
+        counts = _spec(self.payload, "Snapshot", "counts")["spec"]
+        assert counts["kinds"] == ["object"] and counts["wildcard"] is False
+        assert counts["record_values"]["kinds"] == ["number"]
+
+    def test_record_closed_keys_become_required_fields(self) -> None:
+        limits = _spec(self.payload, "Snapshot", "limits")["spec"]
+        assert set(limits["fields"]) == {"low", "high"}
+        assert limits["fields"]["low"]["optional"] is False
+        assert limits["record_values"] is None
+
+    def test_empty_tuple_exact_length(self) -> None:
+        empty = _spec(self.payload, "Snapshot", "empty_list")["spec"]
+        assert empty["kinds"] == ["array"] and empty["array_length"] == 0
+        assert empty["items"] is None
 
     def test_boolean_and_number_literals(self) -> None:
         lit = _spec(self.payload, "Snapshot", "lit")["spec"]
