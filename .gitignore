@@ -186,7 +186,6 @@ ai_trainer_env/
 # Logs and temporary files
 *.log
 logs/
-output/transcribe/
 debug.log
 app.log
 garmin_debug.log
