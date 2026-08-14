@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "a88f344e041e9b699c848f7eb689fe3f076bf67e0eab0bbdea85cf55c313fbd7",
+    "source_sha256": "df3abc85c27dc75bf01e51f4f779a96f594bf3739f4935c87a995333a1e14b2f",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "a8b1bf6dfe79c12d94a8e1ddab9697db93f2304b0714facfeeefebe0c6848a5e"
   },
@@ -16001,62 +16001,108 @@
             "variants": null
           }
         },
-        "planned_duration_minutes": {
+        "planned_session": {
           "optional": false,
           "spec": {
             "kinds": [
-              "null",
-              "number"
+              "object"
             ],
             "literals": [],
             "widened": false,
             "items": null,
-            "fields": null,
-            "ref": null,
-            "wildcard": false,
-            "variants": null
-          }
-        },
-        "planned_role": {
-          "optional": false,
-          "spec": {
-            "kinds": [
-              "string"
-            ],
-            "literals": [],
-            "widened": false,
-            "items": null,
-            "fields": null,
-            "ref": null,
-            "wildcard": false,
-            "variants": null
-          }
-        },
-        "planned_sport": {
-          "optional": false,
-          "spec": {
-            "kinds": [
-              "string"
-            ],
-            "literals": [],
-            "widened": false,
-            "items": null,
-            "fields": null,
-            "ref": null,
-            "wildcard": false,
-            "variants": null
-          }
-        },
-        "planned_tss": {
-          "optional": false,
-          "spec": {
-            "kinds": [
-              "number"
-            ],
-            "literals": [],
-            "widened": false,
-            "items": null,
-            "fields": null,
+            "fields": {
+              "date": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null
+                }
+              },
+              "duration_minutes": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null
+                }
+              },
+              "index": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null
+                }
+              },
+              "role": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null
+                }
+              },
+              "sport": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null
+                }
+              },
+              "tss": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null
+                }
+              }
+            },
             "ref": null,
             "wildcard": false,
             "variants": null

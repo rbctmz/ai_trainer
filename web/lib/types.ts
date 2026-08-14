@@ -1470,10 +1470,14 @@ export interface TodayForecastPrediction {
   target_date: string;
   plan_checkpoint_id: number;
   plan_session_index: number;
-  planned_role: string;
-  planned_sport: string;
-  planned_tss: number;
-  planned_duration_minutes: number | null;
+  planned_session: {
+    date: string;
+    index: number;
+    role: string;
+    sport: string;
+    tss: number;
+    duration_minutes: number | null;
+  };
   prediction_pct: number;
   prediction_band: string;
   evidence: string[];
