@@ -81,7 +81,7 @@ class TestValidate:
         assert any("snapshot" in v and "обязательное" in v for v in violations)
 
     def test_null_allowed_when_in_union(self) -> None:
-        assert validate({"score": None, "state": "ready", "factors": []}, TYPES["Snapshot"], TYPES) == []
+        assert validate({"score": None, "status": "low", "state": "ready", "factors": []}, TYPES["Snapshot"], TYPES) == []
 
     def test_null_not_allowed_without_union(self) -> None:
         violations = validate({"has_data": None}, TYPES["Envelope"], TYPES)
@@ -114,9 +114,9 @@ class TestValidate:
         assert violations == []
 
     def test_optional_absent_ok_present_invalid_fails(self) -> None:
-        ok = validate({"score": 1, "state": "ready", "factors": []}, TYPES["Snapshot"], TYPES)
+        ok = validate({"score": 1, "status": "low", "state": "ready", "factors": []}, TYPES["Snapshot"], TYPES)
         assert ok == []
-        bad = validate({"score": 1, "state": "ready", "factors": [], "note": 5}, TYPES["Snapshot"], TYPES)
+        bad = validate({"score": 1, "status": "low", "state": "ready", "factors": [], "note": 5}, TYPES["Snapshot"], TYPES)
         assert any("$.note" in v for v in bad)
 
     def test_ref_required_fields_checked_recursively(self) -> None:
