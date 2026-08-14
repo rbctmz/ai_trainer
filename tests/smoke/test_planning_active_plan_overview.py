@@ -15,6 +15,7 @@ from api import planning_service as ps
 from api.routers.planning import planning_overview
 from data.database import Database
 from models.planning_checkpoints import build_planning_checkpoint, restore_goal_plan_from_checkpoint
+from models.plan_science_audit import SCIENCE_POLICY_VERSION
 from tests.smoke.test_api_planning import _seeded_db
 
 
@@ -130,6 +131,39 @@ def test_active_plan_overview_explains_saved_availability_and_weekly_target(tmp_
     assert db.get_latest_planning_checkpoint() == checkpoint_before
 
 
+def test_new_plan_stores_and_projects_versioned_scientific_audit(tmp_path):
+    db, _event_date = _event_plan_db(tmp_path)
+    checkpoint = db.get_latest_planning_checkpoint()
+    goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
+    assert goal_plan is not None
+
+    stored = goal_plan["science_audit"]
+    overview = planning_overview(db=db)
+
+    assert stored["policy_version"] == SCIENCE_POLICY_VERSION
+    assert stored["source"] == "stored"
+    assert len(stored["findings"]) == 6
+    assert overview["science_audit"] == stored
+    assert db.get_latest_planning_checkpoint() == checkpoint
+
+
+def test_legacy_plan_gets_current_policy_audit_without_checkpoint_write(tmp_path):
+    db, _event_date = _event_plan_db(tmp_path)
+    goal_plan = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    assert goal_plan is not None
+    goal_plan.pop("science_audit", None)
+    legacy_checkpoint = build_planning_checkpoint(goal_plan)
+    legacy_checkpoint["goal_plan_snapshot"].pop("science_audit", None)
+    db.save_planning_checkpoint(legacy_checkpoint)
+    checkpoint_before = db.get_latest_planning_checkpoint()
+
+    overview = planning_overview(db=db)
+
+    assert overview["science_audit"]["policy_version"] == SCIENCE_POLICY_VERSION
+    assert overview["science_audit"]["source"] == "current_policy"
+    assert db.get_latest_planning_checkpoint() == checkpoint_before
+
+
 def test_active_plan_overview_marks_missing_saved_reader_context_as_data_gap(tmp_path):
     db, _event_date = _event_plan_db(tmp_path)
     goal_plan = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
@@ -209,3 +243,5 @@ def test_planning_page_keeps_reader_and_mutating_actions_separate():
     assert "Запланировано на выбранной неделе" in source
     assert "Сессии на выбранной неделе" in source
     assert "Как рассчитана недельная нагрузка" in source
+    assert "Научная проверка плана" in source
+    assert "science_audit" in types

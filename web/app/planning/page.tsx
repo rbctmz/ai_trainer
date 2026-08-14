@@ -255,6 +255,7 @@ function ActivePlanOverview({ overview, error }: { overview?: PlanningOverview; 
       <div className="mt-5 space-y-5">
         <AvailabilitySummary availability={overview.availability} />
         <WeeklyTargetExplanation explanation={overview.weekly_target_explanation} />
+        <ScientificPlanAudit audit={overview.science_audit} />
         <DemandControl explanation={overview.weekly_target_explanation} />
         <PhaseRoadmap roadmap={overview.roadmap} />
         <FormProjection projection={overview.form_projection} />
@@ -317,6 +318,78 @@ function WeeklyTargetExplanation({ explanation }: { explanation?: PlanningOvervi
           спрос: {explanation.demand.label} × {explanation.demand.multiplier}
         </span>
       </div>
+    </section>
+  );
+}
+
+function ScientificPlanAudit({ audit }: { audit?: PlanningOverview["science_audit"] }) {
+  if (!audit) {
+    return <LocalDataGap label="Научная проверка этого сохранённого плана пока недоступна." />;
+  }
+  const sourceLabel = audit.source === "stored"
+    ? "сохранено вместе с планом"
+    : "старый план проверен текущими правилами";
+  const policyLabel = audit.policy_version === "plan-science-v1"
+    ? "версия правил 1"
+    : `версия правил ${audit.policy_version}`;
+
+  return (
+    <section aria-labelledby="science-audit-title">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h3 id="science-audit-title" className="text-sm font-semibold text-ink">Научная проверка плана</h3>
+        <span className="text-xs text-ink-faint">{sourceLabel} · {policyLabel}</span>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+        <span className="rounded-full bg-tone-success/10 px-2.5 py-1 text-tone-success">
+          Пройдено: {audit.summary.passed}
+        </span>
+        <span className="rounded-full bg-tone-warning/10 px-2.5 py-1 text-tone-warning">
+          Требует внимания: {audit.summary.attention}
+        </span>
+        <span className="rounded-full bg-surface-muted px-2.5 py-1 text-ink-soft">
+          Недостаточно данных: {audit.summary.data_gap}
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {audit.findings.map((finding) => {
+          const attention = finding.status === "attention";
+          const passed = finding.status === "passed";
+          const badge = passed ? "Пройдено" : attention ? "Нужно проверить" : "Недостаточно данных";
+          const tone = passed
+            ? "border-tone-success/25 bg-tone-success/5 text-tone-success"
+            : attention
+              ? "border-tone-warning/30 bg-tone-warning/5 text-tone-warning"
+              : "border-surface-border bg-surface-muted/30 text-ink-soft";
+          return (
+            <article key={finding.rule_id} className="rounded-lg border border-surface-border bg-surface-muted/20 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <h4 className="text-sm font-semibold text-ink">{finding.title}</h4>
+                <span className={`shrink-0 rounded border px-2 py-0.5 text-[11px] ${tone}`}>{badge}</span>
+              </div>
+              <p className="mt-2 text-xs text-ink-soft">{finding.summary}</p>
+              {attention ? <p className="mt-2 text-xs text-ink"><strong>Что сделать:</strong> {finding.recommendation}</p> : null}
+              {finding.affected_dates.length ? (
+                <p className="mt-2 text-[11px] text-ink-faint">Даты: {finding.affected_dates.join(" · ")}</p>
+              ) : null}
+              <div className="mt-2 flex flex-wrap gap-x-2 text-[11px] text-ink-faint">
+                {finding.evidence.map((evidence) => (
+                  <span key={evidence.ref_id}>
+                    {evidence.doi ? (
+                      <a className="underline decoration-dotted underline-offset-2 hover:text-ink" href={`https://doi.org/${evidence.doi}`} target="_blank" rel="noreferrer">
+                        {evidence.ref_id}
+                      </a>
+                    ) : evidence.ref_id}
+                    {` · доказательность ${evidence.level}`}
+                  </span>
+                ))}
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      <p className="mt-2 text-xs text-ink-faint">
+        Проверка только объясняет план и ничего не меняет автоматически.
+      </p>
     </section>
   );
 }
