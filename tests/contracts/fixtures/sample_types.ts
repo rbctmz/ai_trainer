@@ -21,6 +21,7 @@ export interface Snapshot {
   raw: unknown;
   lit: true;
   nums: 1 | 2;
+  timeline: { kind: "event"; days: number } | { kind: "rolling"; horizon: number } | null;
 }
 
 export interface Profile {

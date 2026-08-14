@@ -82,7 +82,7 @@ class TestSampleFixture:
 
     def test_required_vs_optional(self) -> None:
         fields = self.payload["types"]["Snapshot"]["fields"]
-        assert fields["key"]["optional"] is False
+        assert fields["tone"]["optional"] is False
         assert fields["optional_note"]["optional"] is True
 
     def test_null_union(self) -> None:
@@ -130,6 +130,15 @@ class TestSampleFixture:
     def test_inline_object_array(self) -> None:
         items = _spec(self.payload, "Root", "list")["spec"]["items"]
         assert set(items["fields"]) == {"inner"}
+
+    def test_discriminated_union_variants(self) -> None:
+        timeline = _spec(self.payload, "Snapshot", "timeline")["spec"]
+        assert timeline["kinds"] == ["null", "object"]
+        assert timeline["fields"] is None
+        assert [variant["fields"]["kind"]["spec"]["literals"] for variant in timeline["variants"]] == [
+            ["event"],
+            ["rolling"],
+        ]
 
 
 def test_fail_closed_on_unsupported_syntax() -> None:
