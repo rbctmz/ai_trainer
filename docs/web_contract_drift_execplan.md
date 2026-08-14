@@ -20,6 +20,7 @@
 - [x] (2026-08-14) Этап 4: drift-тест `tests/smoke/test_web_contract_drift.py` — 43 сценария на 4 состояниях (empty/demo/edge_no_plan/edge_sparse), сетевые заглушки + fail-closed guard + доказательный тест. Первый же прогон поймал реальный дрейф (см. Surprises) — фикс 44a4a0f, тест 100ddcd. GREEN + lint + build.
 - [x] (2026-08-14) Этап 5: CI job `web-contract` в `.github/workflows/ci.yml` (pytest+python-dotenv, npm ci, `contract:extract --check`, юнит-тесты контракта). Коммит 1f7ab97.
 - [x] (2026-08-14) Этап 6: документация (шапка `types.ts`, `AGENTS.md`, живые секции этого документа) + полная валидация.
+- [x] (2026-08-14, вторая половина дня) Раунд рецензии Codex: отделение посторонних локальных правок (коммит мейнтейнера 453c8ea), `Record<K,V>`-типизация значений и обязательные литеральные ключи, пустой кортеж как точная длина 0, сверка типа потребителя с реестром, dependency_overrides в фикстуре с восстановлением, test_artifact_is_fresh (sha256 источников против артефакта, без Node). Коммиты d2a9584, 936084e.
 
 ## Surprises & Discoveries
 
@@ -31,6 +32,10 @@
   Evidence: `$.forecast.prediction.planned_*: отсутствует обязательное поле` в сценарии `demo-/api/today`; `web/app/today/page.tsx:407` читал несуществующее `forecast.planned_tss`.
 - Observation: инвентаризация вызовов вскрыла три эндпоинта, отсутствовавших в первичном ручном реестре: `GET /api/sync` (поллинг статуса в SyncControl), `GET /api/decisions` (shadow-страница), `GET /api/activities/{id}` (инлайн-обёртка — в excluded).
   Evidence: вывод `npm --prefix web run contract:inventory` до заполнения реестра.
+- Observation: правка шапки `types.ts` на этапе документации без регенерации артефакта уронила `contract:extract --check` — sha256 источника в мета сразу подсветил забытое действие. Добавлен test_artifact_is_fresh (чистый Python, без Node), чтобы класс ошибок «забыта регенерация» ловился любым pytest-прогоном, а не только CI job'ом.
+  Evidence: рецензия Codex [P1]; негативная проверка — тест падает на изменённом `types.ts`, зелёный после восстановления.
+- Observation (рецензия Codex): `Record<..., number>` проходил как wildcard — строка удовлетворяла полю-записи; `[]` в union разрешал любой непустой массив; инвентаризация не сверяла тип потребителя с реестром; подмена `dependency_overrides` на уровне модуля протекала в другие тесты.
+  Evidence: пять замечаний ревью; все закрыты фиксами d2a9584/936084e с юнит- и негативными проверками (оба порядка запуска TestClient-тестов зелёные).
 
 ## Decision Log
 
@@ -57,6 +62,15 @@
   Date/Author: 2026-08-14, реализация.
 - Decision: найденный дрейф `TodayForecastPrediction` исправлен правкой `types.ts` + `web/app/today/page.tsx` (не api/) — рантайм API в этом треке не меняется; TSS-бейдж возрождён через `planned_session?.tss`.
   Date/Author: 2026-08-14, реализация (фикс 44a4a0f).
+- Decision: `Record<K, V>` — полноценная типизация: закрытый набор литеральных ключей даёт обязательные поля; иначе значения проверяются против `record_values`; `Record<string, unknown>` требует объект, но не проверяет значения; `unknown`/`any` — единственные wildcard. Пустой кортеж `[]` — `array_length: 0`, непустой массив — нарушение.
+  Rationale: рецензия Codex [P1/P2] — wildcard на Record пропускал строки вместо записей, `[]` пропускал непустые массивы.
+  Date/Author: 2026-08-14, рецензия Codex (фикс d2a9584).
+- Decision: инвентаризация сверяет не только путь, но и тип потребителя: для `type_source=lib/types` вызов обязан использовать интерфейс, объявленный в реестре для этого пути.
+  Rationale: иначе замена `useSWR<DashboardResponse>` на другой тип осталась бы зелёной, и реестр перестал бы отражать реальность.
+  Date/Author: 2026-08-14, рецензия Codex [P1] (фикс 936084e).
+- Decision: подмена `dependency_overrides` оформлена module-фикстурой с восстановлением; добавлен test_artifact_is_fresh (sha256 types.ts и registry против мета артефакта).
+  Rationale: глобальная подмена при импорте создавала зависимость от порядка тестов; забытая регенерация артефакта должна ловиться любым локальным pytest-прогоном, а не только CI.
+  Date/Author: 2026-08-14, рецензия Codex [P1/P2] (фикс 936084e).
 
 ## Outcomes & Retrospective
 
