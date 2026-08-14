@@ -1,0 +1,175 @@
+{
+  "endpoints": {
+    "/api/dashboard/summary": {
+      "interface": "DashboardResponse",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "demo", "expect": 200}
+      ]
+    },
+    "/api/dashboard/widgets": {
+      "interface": "DashboardWidgets",
+      "scenarios": [
+        {"state": "demo", "expect": 200},
+        {"state": "edge_sparse", "expect": 200}
+      ]
+    },
+    "/api/today": {
+      "interface": "TodayResponse",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "demo", "expect": 200},
+        {"state": "edge_no_plan", "expect": 200}
+      ]
+    },
+    "/api/adherence": {
+      "interface": "AdherenceRibbonResponse",
+      "scenarios": [
+        {"state": "empty", "expect": 200, "query_params": {"weeks": "1"}},
+        {"state": "demo", "expect": 200, "query_params": {"weeks": "1"}}
+      ]
+    },
+    "/api/hrv/summary": {
+      "interface": "HrvSummary",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "demo", "expect": 200}
+      ]
+    },
+    "/api/sleep/summary": {
+      "interface": "SleepSummary",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "demo", "expect": 200, "query_params": {"days": "30"}}
+      ]
+    },
+    "/api/activities": {
+      "interface": "ActivitiesResponse",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "demo", "expect": 200, "query_params": {"days": "30"}},
+        {"state": "edge_sparse", "expect": 200, "query_params": {"days": "30"}}
+      ]
+    },
+    "/api/athlete-profile": {
+      "interface": "AthleteProfileResponse",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "demo", "expect": 200}
+      ]
+    },
+    "/api/onboarding/planning": {
+      "interface": "PlanningOnboarding",
+      "scenarios": [
+        {"state": "demo", "expect": 200},
+        {"state": "edge_no_plan", "expect": 200}
+      ]
+    },
+    "/api/planning/status": {
+      "interface": "PlanningStatus",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "demo", "expect": 200},
+        {"state": "edge_no_plan", "expect": 200}
+      ]
+    },
+    "/api/planning/overview": {
+      "interface": "PlanningOverview",
+      "scenarios": [
+        {"state": "demo", "expect": 200}
+      ]
+    },
+    "/api/planning/edit-context": {
+      "interface": "PlanningEditContext",
+      "scenarios": [
+        {"state": "demo", "expect": 200}
+      ]
+    },
+    "/api/planning/week-by-week": {
+      "interface": "WeekByWeekPlan",
+      "scenarios": [
+        {"state": "demo", "expect": 200}
+      ]
+    },
+    "/api/planning/target-preview": {
+      "interface": "TargetPreview",
+      "scenarios": [
+        {"state": "demo", "expect": 200, "query_params": {"goal_type": "half_marathon", "distance": "21.1", "available_hours": "8", "available_days": "mon,wed,sat", "demand": "maintain"}}
+      ]
+    },
+    "/api/planning/demand-preview": {
+      "interface": "DemandPreview",
+      "scenarios": [
+        {"state": "demo", "expect": 200, "query_params": {"level": "moderate"}}
+      ]
+    },
+    "/api/planning/events": {
+      "interface": "PlanningEventsResponse",
+      "scenarios": [
+        {"state": "demo", "expect": 200, "query_params": {"days": "365"}, "network_stub": "discover_intervals_events"}
+      ]
+    },
+    "/api/planning/plan": {
+      "interface": "PlanExport",
+      "scenarios": [
+        {"state": "demo", "expect": 200},
+        {"state": "edge_no_plan", "expect": 200}
+      ]
+    },
+    "/api/planning/reconciliation": {
+      "interface": "ReconResponse",
+      "scenarios": [
+        {"state": "demo", "expect": 200, "query_params": {"weeks": "1"}}
+      ]
+    },
+    "/api/planning/history": {
+      "interface": "PlanningHistory",
+      "scenarios": [
+        {"state": "empty", "expect": 200, "query_params": {"limit": "8"}},
+        {"state": "demo", "expect": 200, "query_params": {"limit": "8"}}
+      ]
+    },
+    "/api/recovery-analytics": {
+      "interface": "RecoveryAnalyticsResponse",
+      "scenarios": [
+        {"state": "demo", "expect": 200}
+      ]
+    },
+    "/api/sync/providers": {
+      "interface": "SyncProvidersResponse",
+      "scenarios": [
+        {"state": "empty", "expect": 200},
+        {"state": "demo", "expect": 200}
+      ]
+    },
+    "/api/sync/coverage": {
+      "interface": "DataCoverageResponse",
+      "scenarios": [
+        {"state": "demo", "expect": 200, "query_params": {"days": "30"}}
+      ]
+    },
+    "/api/session-feedback/{session_id}/history": {
+      "interface": "SessionFeedbackHistoryResponse",
+      "scenarios": [
+        {"state": "demo", "expect": 200, "path_params": {"session_id": "first_feedback_session_id"}}
+      ]
+    }
+  },
+  "excluded": [
+    {
+      "path": "/api/coach/history",
+      "file": "web/app/coach/page.tsx",
+      "reason": "инлайн-тип { chats: ChatSummary[] } на странице коуча; follow-up: перенести обёртку в types.ts"
+    },
+    {
+      "path": "/api/coach/search",
+      "file": "web/app/coach/page.tsx",
+      "reason": "инлайн-тип обёртки поиска; follow-up: перенести в types.ts"
+    },
+    {
+      "path": "/api/coach/history/{id}",
+      "file": "web/app/coach/page.tsx",
+      "reason": "локальный тип ChatDetail в модуле страницы; follow-up: перенести в types.ts"
+    }
+  ]
+}
