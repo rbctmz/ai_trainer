@@ -1,5 +1,9 @@
-// Mirrors the JSON shape returned by GET /api/dashboard/summary.
-// Source of truth: models/dashboard_summary.py through the FastAPI contract.
+// Рукописное зеркало JSON-ответов FastAPI, которые читает web/.
+// Реестр эндпоинтов и сценариев: tests/contracts/registry.json.
+// При изменении ответа или типов: обнови этот файл, затем
+//   npm --prefix web run contract:extract
+// и прогони python -m pytest tests/smoke/test_web_contract_drift.py -q —
+// CI (job web-contract) проверяет свежесть артефакта на каждом PR.
 
 export type Tone = "danger" | "warning" | "success" | "neutral";
 

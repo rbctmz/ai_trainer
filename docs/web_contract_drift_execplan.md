@@ -14,19 +14,23 @@
 
 ## Progress
 
-- [ ] (2026-08-14) Этап 1: реестр `tests/contracts/registry.json` + RED inventory-тест → инвентаризатор `web/scripts/inventory-api-calls.mjs` → GREEN.
-- [ ] Этап 2: экстрактор `web/scripts/extract-contract.mjs` + юнит-тесты на fixtures-образцах + артефакт `tests/contracts/ts_contract.json`.
-- [ ] Этап 3: валидатор `tests/contracts/conformance.py` + юнит-тесты.
-- [ ] Этап 4: drift-тест `tests/smoke/test_web_contract_drift.py` (состояния данных, сетевые заглушки, guard).
-- [ ] Этап 5: CI job `web-contract` в `.github/workflows/ci.yml`.
-- [ ] Этап 6: документация (шапка `types.ts`, `AGENTS.md`) + полная валидация.
+- [x] (2026-08-14) Этап 1: реестр `tests/contracts/registry.json` (25 эндпоинтов, 5 исключений) + RED inventory-тест → инвентаризатор `web/scripts/inventory-api-calls.mjs` → GREEN (3 теста). Коммиты 54a92e4 (RED), 1d074dd (GREEN).
+- [x] (2026-08-14) Этап 2: экстрактор `web/scripts/extract-contract.mjs` + 17 юнит-тестов на fixtures + артефакт `tests/contracts/ts_contract.json` (116 типов от 25 корней, мета с sha256 types.ts и registry.json, `--check`). Коммиты 8fe2683 (RED), a9ec257 (GREEN).
+- [x] (2026-08-14) Этап 3: валидатор `tests/contracts/conformance.py` + 18 юнит-тестов (чистый Python, без Node). Коммиты RED+GREEN, итог ce004df.
+- [x] (2026-08-14) Этап 4: drift-тест `tests/smoke/test_web_contract_drift.py` — 43 сценария на 4 состояниях (empty/demo/edge_no_plan/edge_sparse), сетевые заглушки + fail-closed guard + доказательный тест. Первый же прогон поймал реальный дрейф (см. Surprises) — фикс 44a4a0f, тест 100ddcd. GREEN + lint + build.
+- [x] (2026-08-14) Этап 5: CI job `web-contract` в `.github/workflows/ci.yml` (pytest+python-dotenv, npm ci, `contract:extract --check`, юнит-тесты контракта). Коммит 1f7ab97.
+- [x] (2026-08-14) Этап 6: документация (шапка `types.ts`, `AGENTS.md`, живые секции этого документа) + полная валидация.
 
 ## Surprises & Discoveries
 
-- Observation: в `web/lib/types.ts`, помимо базового подсета, фактически есть `Pick<...>` (строка 708), пересечение `A & B` (961), индексированный доступ `PlanningProfile["planning_mode"]` (886) и литеральный тип `read_only: true` (863).
-  Evidence: рецензия мейнтейнера на план + прямая проверка файла.
-- Observation: `GET /api/planning/events` ходит в Intervals.icu напрямую (`api/routers/planning.py:258` → `planning_service.discover_intervals_events`), а `GET /api/onboarding/planning` тоже запускает обнаружение стартов — обе точки требуют заглушек в provider-free тестах.
-  Evidence: чтение исходников роутеров.
+- Observation: в `web/lib/types.ts`, помимо базового подсета, фактически есть `Pick<...>` (строка 708), пересечение `A & B` (961), индексированный доступ `PlanningProfile["planning_mode"]` (886), литеральный тип `read_only: true` (863), дискриминированный union объектов `timeline` (619-626), индексная сигнатура `[key: string]: unknown` в `SyncResult` (512) и пустой кортеж `[]` в `WeekByWeekPlan.chart` (1115).
+  Evidence: fail-closed падения экстрактора на реальном файле при первом прогоне; каждая конструкция добавлена в подсет и покрыта fixtures-тестом.
+- Observation: `null`/`undefined` в типовой позиции TS — это `LiteralTypeNode`, а не ключевое слово; проверка по `SyntaxKind.NullKeyword` на самом узле не срабатывает.
+  Evidence: ошибка `unsupported литерал` на `score: number | null` fixtures-теста.
+- Observation: первый же прогон drift-теста нашёл реальный дрейф: `TodayForecastPrediction` в types.ts объявлял плоские `planned_role/planned_sport/planned_tss/planned_duration_minutes`, а API (`Database._deserialize_session_quality_prediction_row`) всегда отдаёт вложенный `planned_session: {date,index,role,sport,tss,duration_minutes}`. Плоские поля не приходили никогда; TSS-бейдж прогноза на «Сегодня» молча не отображался.
+  Evidence: `$.forecast.prediction.planned_*: отсутствует обязательное поле` в сценарии `demo-/api/today`; `web/app/today/page.tsx:407` читал несуществующее `forecast.planned_tss`.
+- Observation: инвентаризация вызовов вскрыла три эндпоинта, отсутствовавших в первичном ручном реестре: `GET /api/sync` (поллинг статуса в SyncControl), `GET /api/decisions` (shadow-страница), `GET /api/activities/{id}` (инлайн-обёртка — в excluded).
+  Evidence: вывод `npm --prefix web run contract:inventory` до заполнения реестра.
 
 ## Decision Log
 
@@ -37,20 +41,32 @@
   Date/Author: 2026-08-14, рецензия мейнтейнера.
 - Decision: извлекать только типы, достижимые от корневых интерфейсов реестра; подсет обязан покрывать `Pick`, пересечения, индексированный доступ, литеральные `true/false`, дженерик `Suggestion<T>`; fail-closed (exit ≠ 0 с файлом:строкой) для неизвестных конструкций внутри достижимого графа.
   Date/Author: 2026-08-14, рецензия мейнтейнера.
-- Decision: инвентаризация вызовов — TypeScript Compiler API, не регексы; шаблоны с идентификатором/полем объекта и простые тернарники (`cond ? "/api/..." : null`) разрешаются автоматически; неразрешимые выражения требуют аннотации `// api-contract: exclude: <причина>` или записи в `excluded` реестра.
+- Decision: инвентаризация вызовов — TypeScript Compiler API, не регексы; шаблоны с идентификатором/полем объекта, `encodeURIComponent`, нуль-арные методы (`x.trim()`) и простые тернарники (`cond ? "/api/..." : null`) разрешаются автоматически; неразрешимые выражения требуют аннотации `// api-contract: exclude: <причина>` / `// api-contract: manual: <путь>` или записи в `excluded` реестра.
   Date/Author: 2026-08-14, рецензия мейнтейнера.
-- Decision: реестр хранит путь и `query_params` раздельно (`/api/adherence` + `{"weeks": "1"}`); сценарии перечисляются явно (состояние, источник параметров пути, ожидаемый код), без произведения «эндпоинт × все состояния»; 404/422 — вне conformance-сверки.
+- Decision: реестр хранит путь и `query_params` раздельно; сценарии перечисляются явно (состояние, источник параметров пути, ожидаемый код), без произведения «эндпоинт × все состояния»; 404/422 — вне conformance-сверки.
   Date/Author: 2026-08-14, рецензия мейнтейнера.
-- Decision: свежесть артефакта проверяется в CI обязательно — отдельный job с `npm ci` и `contract:extract --check`; в job явно ставятся `pytest` и `python-dotenv` (conftest импортирует `Settings`).
+- Decision: свежесть артефакта проверяется в CI обязательно — отдельный job `web-contract` с `npm ci` и `contract:extract --check`; в job явно ставятся `pytest` и `python-dotenv` (conftest импортирует `Settings`).
   Date/Author: 2026-08-14, рецензия мейнтейнера.
 - Decision: в мета артефакта пишутся sha256 и `types.ts`, и `registry.json` — набор извлекаемых корней зависит от реестра.
   Date/Author: 2026-08-14, рецензия мейнтейнера.
-- Decision: сетевые заглушки перечисляются явно (egress `services/intervals_icu`, конструкторы Garmin-клиентов) + доказательный тест, что незаглушённое обращение падает немедленно.
-  Date/Author: 2026-08-14, рецензия мейнтейнера.
+- Decision: сетевые заглушки перечисляются явно + доказательный тест guard'а.
+  Rationale: `IntervalsICUClient._request_json` — единая точка egress; `/api/onboarding/planning` при недоступном Intervals деградирует штатно (`degraded_reason`), но локально с реальным `.env` ушёл бы в сеть — поэтому guard патчит egress, а не полагается на отсутствие ключей.
+  Date/Author: 2026-08-14, реализация.
+- Decision: ValueSpec расширен полем `variants` (дискриминированные union'ы объектов) и wildcard-объектами (индексные сигнатуры, `Record<string, unknown>`); пустой кортеж `[]` снисходительно трактуется как «массив чего угодно».
+  Rationale: эти конструкции реально присутствуют в `types.ts`; без них fail-closed падал бы на текущем файле.
+  Date/Author: 2026-08-14, реализация.
+- Decision: найденный дрейф `TodayForecastPrediction` исправлен правкой `types.ts` + `web/app/today/page.tsx` (не api/) — рантайм API в этом треке не меняется; TSS-бейдж возрождён через `planned_session?.tss`.
+  Date/Author: 2026-08-14, реализация (фикс 44a4a0f).
 
 ## Outcomes & Retrospective
 
-(Заполняется по завершении этапов/всего плана.)
+Итог (2026-08-14, все 6 этапов):
+
+- Работающий детектор совместимости: 43 сценария (25 эндпоинтов × применимые состояния) гоняются через TestClient на 4 состояниях данных; нарушения валидации падают с путями вида `$.forecast.prediction.planned_session`; необъявленные API-поля выводятся как INFO и не блокируют слияние.
+- Инвентаризация (TS Compiler API, 37 файлов, 61 вызов) гарантирует, что новый GET фронтенда не останется вне реестра; ручная аннотация нужна только для действительно динамических адресов (сейчас один — target-preview).
+- Артефакт `ts_contract.json` закоммичен (116 типов от 25 корней); CI job `web-contract` обязательно проверяет его свежесть и гоняет юнит-тесты экстрактора/инвентаризации.
+- Ценность доказана сразу: первый прогон поймал реальный дрейф прогноза (плоские `planned_*` никогда не приходили; мёртвый TSS-бейдж) и три пропущенных из ручного реестра эндпоинта.
+- Ограничения (заявлены и приняты): проверяется только наблюдаемое в объявленных сценариях; POST-мутации, SSE-чат коуча и инлайн-типы компонентов (5 записей в `excluded`) — вне сети; это мост до `response_model` + OpenAPI-кодогенерации.
 
 ## Context and Orientation
 
