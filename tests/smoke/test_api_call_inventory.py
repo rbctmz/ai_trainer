@@ -111,6 +111,14 @@ def test_inventory_matches_registry() -> None:
             norm = resolved["path"]
             covered.add(norm)
             if norm in endpoints:
+                # Реестр обязан отражать тип, который реально использует web.
+                if call.get("type_source") == "lib/types" and call.get("type"):
+                    expected = registry["endpoints"][norm]["interface"]
+                    if call["type"] != expected:
+                        problems.append(
+                            f"{location}: GET {norm} использует тип {call['type']}, "
+                            f"а реестр объявляет {expected}"
+                        )
                 continue
             if _is_excluded(excluded, norm, call["file"]):
                 continue

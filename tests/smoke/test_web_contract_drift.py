@@ -27,7 +27,7 @@ from fastapi.testclient import TestClient
 
 pytestmark = pytest.mark.smoke
 
-from api.deps import make_headless_state  # noqa: E402
+from api.deps import get_database, make_headless_state  # noqa: E402
 from api.main import app  # noqa: E402
 from api.routers.system import _seed_demo_plan  # noqa: E402
 from data.database import Database  # noqa: E402
@@ -82,7 +82,7 @@ def test_network_guard_blocks_unexpected_egress(network_guard):
 
 
 _TEMP_DIR = Path(tempfile.mkdtemp(prefix="web-contract-drift-"))
-_CURRENT_DB: dict[str, Database] = {"db": None}
+_CURRENT_DB: dict[str, Database | None] = {"db": None}
 
 
 def _get_database_override(demo: bool = Query(False)) -> Database:
@@ -91,7 +91,36 @@ def _get_database_override(demo: bool = Query(False)) -> Database:
     return _CURRENT_DB["db"]
 
 
-app.dependency_overrides[__import__("api.deps", fromlist=["get_database"]).get_database] = _get_database_override
+@pytest.fixture(scope="module")
+def app_override():
+    """Подмена get_database на время модуля; обязательное восстановление после."""
+    app.dependency_overrides[get_database] = _get_database_override
+    yield app
+    app.dependency_overrides.pop(get_database, None)
+    _CURRENT_DB["db"] = None
+
+
+def _sha256(path: Path) -> str:
+    import hashlib
+
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def test_artifact_is_fresh() -> None:
+    """Артефакт соответствует своим источникам — без Node (sha256 types.ts и registry).
+
+    Ловит забытую регенерацию после правки types.ts/реестра: именно это уронило бы
+    CI job web-contract (contract:extract --check).
+    """
+    meta = ARTIFACT["meta"]
+    assert meta["source_sha256"] == _sha256(REPO_ROOT / "web" / "lib" / "types.ts"), (
+        "web/lib/types.ts изменён без регенерации tests/contracts/ts_contract.json; "
+        "выполните npm --prefix web run contract:extract"
+    )
+    assert meta["registry_sha256"] == _sha256(CONTRACTS_DIR / "registry.json"), (
+        "tests/contracts/registry.json изменён без регенерации артефакта; "
+        "выполните npm --prefix web run contract:extract"
+    )
 
 
 def _build_state(state_name: str) -> Database:
@@ -152,7 +181,7 @@ def _cases():
 
 
 @pytest.mark.parametrize(("path", "interface", "scenario"), _cases())
-def test_endpoint_scenario(path: str, interface: str, scenario: dict, network_guard) -> None:
+def test_endpoint_scenario(path: str, interface: str, scenario: dict, network_guard, app_override) -> None:
     db, client = _state(scenario["state"])
     _CURRENT_DB["db"] = db
 
