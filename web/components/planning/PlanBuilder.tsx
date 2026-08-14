@@ -212,6 +212,7 @@ export function PlanBuilder({
     });
     return `/api/planning/target-preview?${params.toString()}`;
   }, [goalType, distance, hours, days, demand]);
+  // api-contract: manual: /api/planning/target-preview
   const { data: preview } = useSWR<TargetPreview>(previewKey, fetcher);
   const { data: discovered, error: eventDiscoveryError } = useSWR<PlanningEventsResponse>(
     "/api/planning/events?days=365",

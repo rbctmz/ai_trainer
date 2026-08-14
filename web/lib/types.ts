@@ -1,5 +1,9 @@
-// Mirrors the JSON shape returned by GET /api/dashboard/summary.
-// Source of truth: models/dashboard_summary.py through the FastAPI contract.
+// Рукописное зеркало JSON-ответов FastAPI, которые читает web/.
+// Реестр эндпоинтов и сценариев: tests/contracts/registry.json.
+// При изменении ответа или типов: обнови этот файл, затем
+//   npm --prefix web run contract:extract
+// и прогони python -m pytest tests/smoke/test_web_contract_drift.py -q —
+// CI (job web-contract) проверяет свежесть артефакта на каждом PR.
 
 export type Tone = "danger" | "warning" | "success" | "neutral";
 
@@ -1470,10 +1474,14 @@ export interface TodayForecastPrediction {
   target_date: string;
   plan_checkpoint_id: number;
   plan_session_index: number;
-  planned_role: string;
-  planned_sport: string;
-  planned_tss: number;
-  planned_duration_minutes: number | null;
+  planned_session: {
+    date: string;
+    index: number;
+    role: string;
+    sport: string;
+    tss: number;
+    duration_minutes: number | null;
+  };
   prediction_pct: number;
   prediction_band: string;
   evidence: string[];

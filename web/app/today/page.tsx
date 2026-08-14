@@ -404,7 +404,7 @@ export default function TodayPage() {
               </div>
               <p className="mt-3 text-sm text-ink-soft">
                 Цель {formatHumanDate(forecast.target_date)} · ревизия {forecast.revision}
-                {forecast.planned_tss ? ` · ${Math.round(forecast.planned_tss)} TSS` : ""}
+                {forecast.planned_session?.tss ? ` · ${Math.round(forecast.planned_session.tss)} TSS` : ""}
               </p>
               {data.forecast.relation === "stale_checkpoint" ? (
                 <p className="mt-2 text-xs text-tone-warning">

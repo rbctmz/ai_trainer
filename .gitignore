@@ -246,6 +246,8 @@ Desktop.ini
 chats/
 *.json
 !web/.eslintrc.json
+!tests/contracts/registry.json
+!tests/contracts/ts_contract.json
 
 # Temporary files and screenshots
 temp/
