@@ -17,6 +17,7 @@ The first policy is intentionally narrow. It checks six facts that the existing 
 - [x] (2026-08-14 06:22Z) Projected stored/current audits through `/api/planning/overview` and rendered readable Russian cards in `web/app/planning/page.tsx`.
 - [x] (2026-08-14 07:10Z) Corrected the taper comparison to use the pre-taper baseline plus both taper weeks, including a progressive-shape guard.
 - [x] (2026-08-14 07:32Z) Completed self-review, 1733-test smoke regression, Python compilation, diff check, web lint/type check, and production build.
+- [x] (2026-08-14 07:50Z) Addressed PR review edges: absent eligible phases now produce a data gap, while a covered zero-volume taper week produces an actionable warning.
 
 ## Surprises & Discoveries
 
@@ -31,6 +32,9 @@ The first policy is intentionally narrow. It checks six facts that the existing 
 
 - Observation: the first four-rule prototype passed the real active plan even though the earlier evidence review found missing swim specificity and missing bike/swim race-week activation.
   Evidence: the local audit returned 4 passed / 0 attention. Inspecting the final sessions showed only recovery/endurance swims in Peak/Taper and only a run activation in race week. Two RED tests and two explicit rules were added before publication; the same plan now returns 4 passed / 2 attention.
+
+- Observation: zero planned minutes and an uncovered week are different scientific states.
+  Evidence: PR review exposed that date coverage must be checked independently from summed duration. An uncovered Build/Peak or taper window now yields `data_gap`; a represented week whose sessions were all removed yields `attention`.
 
 ## Decision Log
 
@@ -58,7 +62,7 @@ The first policy is intentionally narrow. It checks six facts that the existing 
 
 The active-plan overview now exposes six deterministic, evidence-linked checks in Russian without changing a session. New planning checkpoints keep the exact result and policy version; older plans are evaluated without a write and are visibly labelled as checked with current rules. The real local triathlon plan reports four passed checks and two actionable warnings: missing race-specific swim work in Peak/Taper and missing short swim/bike intensity in race week. Its taper shape passes using the scientifically correct pre-taper baseline: 455 → 340 → 205 minutes, a progressive 55% reduction.
 
-Validation completed on 2026-08-14: `python -m pytest tests/smoke -q` returned 1733 passed and one environment-only socket skip; `npm run lint`, `npm run build`, `python -m compileall -q models api`, and `git diff --check` all completed successfully. The `/planning` page was also checked against the local API with the real plan. No automatic repair was added. The next independent milestone is an approval-gated proposal that can turn selected findings into a future-only plan preview.
+Validation completed on 2026-08-14: `python -m pytest tests/smoke -q` returned 1733 passed and one environment-only socket skip before review, with the complete suite repeated after the review corrections; `npm run lint`, `npm run build`, `python -m compileall -q models api`, and `git diff --check` all completed successfully. The `/planning` page was also checked against the local API with the real plan. No automatic repair was added. The next independent milestone is an approval-gated proposal that can turn selected findings into a future-only plan preview.
 
 ## Context and Orientation
 

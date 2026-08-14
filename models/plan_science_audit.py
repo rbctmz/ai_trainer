@@ -220,13 +220,21 @@ def _brick_specificity(
             summary="Для проверки нужна подтверждённая триатлонная A-цель.",
             recommendation="Подтвердить основную триатлонную цель и дату старта.",
         )
-    bricks = [
+    eligible = [
         item
         for item in leaves
         if str(item.get("phase") or "").strip().lower() in {"build", "peak"}
         and item["parsed_date"] < event_date
-        and _is_bike_run_brick(item)
     ]
+    if not eligible:
+        return _finding(
+            "triathlon_brick_specificity",
+            status="data_gap",
+            title="Связка велосипед — бег",
+            summary="В сохранённом горизонте нет фаз «Развитие» или «Пик» для этой проверки.",
+            recommendation="Проверить связки после появления соответствующих фаз в горизонте плана.",
+        )
+    bricks = [item for item in eligible if _is_bike_run_brick(item)]
     if not bricks:
         return _finding(
             "triathlon_brick_specificity",
@@ -258,6 +266,10 @@ def _window_minutes(
     )
 
 
+def _window_is_covered(leaves: list[dict[str, Any]], start: date, end: date) -> bool:
+    return any(start <= item["parsed_date"] < end for item in leaves)
+
+
 def _taper_volume(
     goal_plan: Mapping[str, Any], leaves: list[dict[str, Any]], event_date: date | None
 ) -> dict[str, Any]:
@@ -269,32 +281,49 @@ def _taper_volume(
             summary="Для проверки нужна подтверждённая триатлонная A-цель.",
             recommendation="Подтвердить основную триатлонную цель и дату старта.",
         )
-    baseline = _window_minutes(leaves, event_date - timedelta(days=21), event_date - timedelta(days=14))
-    first_taper = _window_minutes(leaves, event_date - timedelta(days=14), event_date - timedelta(days=7))
-    final = _window_minutes(leaves, event_date - timedelta(days=7), event_date)
-    if baseline <= 0 or first_taper <= 0 or final <= 0:
+    windows = {
+        "baseline": (event_date - timedelta(days=21), event_date - timedelta(days=14)),
+        "first_taper": (event_date - timedelta(days=14), event_date - timedelta(days=7)),
+        "final": (event_date - timedelta(days=7), event_date),
+    }
+    covered = {
+        key: _window_is_covered(leaves, start, end)
+        for key, (start, end) in windows.items()
+    }
+    baseline = _window_minutes(leaves, *windows["baseline"])
+    first_taper = _window_minutes(leaves, *windows["first_taper"])
+    final = _window_minutes(leaves, *windows["final"])
+    base_metrics = {
+        "baseline_week_minutes": baseline,
+        "first_taper_week_minutes": first_taper,
+        "final_week_minutes": final,
+    }
+    if not all(covered.values()):
         return _finding(
             "taper_volume_shape",
             status="data_gap",
             title="Снижение объёма перед стартом",
             summary="Недостаточно базовой недели и двух недель снижения объёма перед стартом.",
             recommendation="Проверить сохранённый горизонт и длительности тренировок.",
-            metrics={
-                "baseline_week_minutes": baseline,
-                "first_taper_week_minutes": first_taper,
-                "final_week_minutes": final,
-            },
+            metrics={**base_metrics, "covered_windows": covered},
         )
-    reduction = int(round((1.0 - final / baseline) * 100))
+    reduction = int(round((1.0 - final / baseline) * 100)) if baseline > 0 else None
     progressive = baseline > first_taper > final
     metrics = {
-        "baseline_week_minutes": baseline,
-        "first_taper_week_minutes": first_taper,
-        "final_week_minutes": final,
+        **base_metrics,
         "reduction_percent": reduction,
         "progressive_reduction": progressive,
     }
-    if not 40 <= reduction <= 60 or not progressive:
+    if baseline <= 0 or first_taper <= 0 or final <= 0:
+        return _finding(
+            "taper_volume_shape",
+            status="attention",
+            title="Снижение объёма перед стартом",
+            summary="Одна из покрытых недель перед стартом осталась без тренировочного объёма.",
+            recommendation="Вернуть небольшой объём и выстроить последовательное снижение без полной пустой недели.",
+            metrics=metrics,
+        )
+    if reduction is None or not 40 <= reduction <= 60 or not progressive:
         issue = (
             f"Итоговое снижение составляет {reduction}% вместо коридора 40–60%."
             if not 40 <= reduction <= 60
@@ -405,12 +434,24 @@ def _swim_specificity(
             summary="Для проверки нужна подтверждённая триатлонная A-цель.",
             recommendation="Подтвердить основную триатлонную цель и дату старта.",
         )
-    rehearsals = [
+    eligible = [
         item
         for item in leaves
         if item["parsed_date"] < event_date - timedelta(days=7)
-        and str(item.get("sport") or "").strip().lower() == "swim"
         and str(item.get("phase") or "").strip().lower() in {"peak", "taper"}
+    ]
+    if not eligible:
+        return _finding(
+            "triathlon_swim_specificity",
+            status="data_gap",
+            title="Специфичность плавания",
+            summary="В сохранённом горизонте нет фаз «Пик» или «Снижение нагрузки» для этой проверки.",
+            recommendation="Проверить специфичность плавания после появления этих фаз в горизонте плана.",
+        )
+    rehearsals = [
+        item
+        for item in eligible
+        if str(item.get("sport") or "").strip().lower() == "swim"
         and _looks_specific_or_intense(item)
     ]
     if not rehearsals:

@@ -128,6 +128,18 @@ def test_missing_build_or_peak_brick_is_actionable():
     assert finding["evidence"][0]["ref_id"] == "REF-655"
 
 
+def test_short_horizon_without_eligible_phases_reports_data_gaps():
+    plan = _compliant_plan()
+    plan["session_templates"] = [
+        item for item in plan["session_templates"] if item["date"] >= "2026-08-31"
+    ]
+
+    audit = audit_training_plan(plan)
+
+    assert _finding(audit, "triathlon_brick_specificity")["status"] == "data_gap"
+    assert _finding(audit, "triathlon_swim_specificity")["status"] == "data_gap"
+
+
 def test_final_week_without_volume_reduction_is_reported():
     plan = _compliant_plan()
     for session in plan["session_templates"]:
@@ -160,6 +172,32 @@ def test_taper_that_rises_before_race_is_reported_even_with_valid_total_reductio
     assert finding["status"] == "attention"
     assert finding["metrics"]["reduction_percent"] == 60
     assert finding["metrics"]["progressive_reduction"] is False
+
+
+@pytest.mark.parametrize(
+    ("window_start", "window_end", "metric"),
+    [
+        ("2026-08-24", "2026-08-31", "first_taper_week_minutes"),
+        ("2026-08-31", "2026-09-06", "final_week_minutes"),
+    ],
+)
+def test_covered_zero_volume_taper_week_is_attention_not_data_gap(
+    window_start: str, window_end: str, metric: str
+):
+    plan = _compliant_plan()
+    for session in plan["session_templates"]:
+        if window_start <= session["date"] < window_end:
+            session["sport"] = "off"
+            session["session_role"] = "off"
+            session["duration_minutes"] = 0
+            session["sessions"][0].update(
+                {"sport": "off", "session_role": "off", "duration_minutes": 0}
+            )
+
+    finding = _finding(audit_training_plan(plan), "taper_volume_shape")
+
+    assert finding["status"] == "attention"
+    assert finding["metrics"][metric] == 0
 
 
 def test_final_week_missing_a_discipline_reports_the_missing_sport():
