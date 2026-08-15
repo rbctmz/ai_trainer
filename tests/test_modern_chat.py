@@ -73,7 +73,7 @@ def test_modern_chat(tmp_path):
     print("\n📊 Тестирование статистики...")
     
     stats = chat_manager.get_stats()
-    print(f"✅ Статистика:")
+    print("✅ Статистика:")
     print(f"  • Всего чатов: {stats['total_chats']}")
     print(f"  • Всего сообщений: {stats['total_messages']}")
     
@@ -124,7 +124,7 @@ def test_modern_chat(tmp_path):
     assert len(main_chat["messages"]) == len(test_messages)
     
     # Резюме
-    print(f"\n" + "=" * 80)
+    print("\n" + "=" * 80)
     print("📋 РЕЗЮМЕ ТЕСТИРОВАНИЯ СОВРЕМЕННОГО ЧАТА")
     print("=" * 80)
     

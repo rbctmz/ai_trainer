@@ -5,7 +5,6 @@
 
 import sys
 import os
-from datetime import datetime, timedelta
 
 # Добавляем путь к корневой папке проекта
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -35,7 +34,7 @@ def test_real_garth_format():
     print(f"📥 Реальные данные garth: {real_garth_data}")
     
     # Обрабатываем данные
-    print(f"🔄 Обрабатываем реальные данные garth...")
+    print("🔄 Обрабатываем реальные данные garth...")
     try:
         processed_sleep = Phase1DataProcessor.process_sleep_data(real_garth_data)
         print(f"✅ Обработанные данные: {processed_sleep}")
@@ -49,13 +48,13 @@ def test_real_garth_format():
             expected_light = 21420 // 60  # 357 минут
             expected_rem = 1560 // 60     # 26 минут
             
-            print(f"🔢 Ожидаемые значения:")
+            print("🔢 Ожидаемые значения:")
             print(f"  - Общий сон: {expected_total} мин")
             print(f"  - Глубокий: {expected_deep} мин")
             print(f"  - Легкий: {expected_light} мин")
             print(f"  - REM: {expected_rem} мин")
             
-            print(f"📊 Фактические значения:")
+            print("📊 Фактические значения:")
             print(f"  - Общий сон: {processed_sleep.get('total_sleep_minutes', 'НЕТ')} мин")
             print(f"  - Глубокий: {processed_sleep.get('deep_sleep_minutes', 'НЕТ')} мин")
             print(f"  - Легкий: {processed_sleep.get('light_sleep_minutes', 'НЕТ')} мин")

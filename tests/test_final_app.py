@@ -36,7 +36,7 @@ def test_final_app():
         print(f"  • Восстановление данных: {recovery_count}")
         
         # 2. Проверяем последние данные (как в show_hrv_analysis)
-        print(f"\n📊 2. Анализ последних данных:")
+        print("\n📊 2. Анализ последних данных:")
         latest_data = hrv_df.iloc[-1]
         print(f"  • Последняя дата: {latest_data['date']}")
         
@@ -51,7 +51,7 @@ def test_final_app():
             stress_color = "🟢" if stress_score < 30 else "🟡" if stress_score < 60 else "🔴"
             print(f"  • Стресс: {stress_color} {stress_score:.0f}")
         else:
-            print(f"  • Стресс: Н/Д")
+            print("  • Стресс: Н/Д")
         
         # Восстановление
         if 'recovery_score' in latest_data and latest_data['recovery_score'] is not None and not pd.isna(latest_data['recovery_score']):
@@ -59,14 +59,14 @@ def test_final_app():
             recovery_color = "🟢" if recovery_score > 70 else "🟡" if recovery_score > 40 else "🔴"
             print(f"  • Восстановление: {recovery_color} {recovery_score:.0f}%")
         else:
-            print(f"  • Восстановление: Н/Д")
+            print("  • Восстановление: Н/Д")
         
         # 3. Проверяем логику приложения
-        print(f"\n🔍 3. Симуляция логики show_hrv_analysis:")
+        print("\n🔍 3. Симуляция логики show_hrv_analysis:")
         
         # Условие для отображения анализа
         if not hrv_df.empty:
-            print(f"  ✅ hrv_df.empty = False → Анализ HRV будет показан")
+            print("  ✅ hrv_df.empty = False → Анализ HRV будет показан")
             
             # Фильтрация по периоду
             period_days = 30
@@ -74,47 +74,47 @@ def test_final_app():
             print(f"  ✅ После фильтрации: {len(hrv_filtered)} записей")
             
             if not hrv_filtered.empty:
-                print(f"  ✅ Метрики будут отображены")
+                print("  ✅ Метрики будут отображены")
             else:
-                print(f"  ❌ После фильтрации данных нет")
+                print("  ❌ После фильтрации данных нет")
         else:
-            print(f"  ❌ hrv_df.empty = True → Будет показано 'Нет данных'")
+            print("  ❌ hrv_df.empty = True → Будет показано 'Нет данных'")
         
         # 4. Топ записи для демонстрации
-        print(f"\n📋 4. Последние записи (для демонстрации):")
+        print("\n📋 4. Последние записи (для демонстрации):")
         for _, row in hrv_df.head(5).iterrows():
             rmssd = f"{row['rmssd']:.1f}" if pd.notna(row['rmssd']) else 'Н/Д'
             stress = f"{row['stress_score']:.0f}" if pd.notna(row['stress_score']) else 'Н/Д'
             recovery = f"{row['recovery_score']:.0f}%" if pd.notna(row['recovery_score']) else 'Н/Д'
             print(f"  {row['date'].strftime('%Y-%m-%d')}: RMSSD={rmssd}, Стресс={stress}, Восст.={recovery}")
         
-        print(f"\n✅ ТЕСТ ПРОШЕЛ УСПЕШНО!")
-        print(f"🎉 Все компоненты HRV анализа работают корректно!")
+        print("\n✅ ТЕСТ ПРОШЕЛ УСПЕШНО!")
+        print("🎉 Все компоненты HRV анализа работают корректно!")
         assert rmssd_count > 0
     else:
-        print(f"  ❌ Нет HRV данных в базе")
+        print("  ❌ Нет HRV данных в базе")
         pytest.skip("В локальной базе нет HRV данных для final app diagnostic")
 
 def main():
     success = test_final_app()
     
-    print(f"\n" + "="*60)
+    print("\n" + "="*60)
     if success:
-        print(f"🚀 ПРИЛОЖЕНИЕ ГОТОВО К ИСПОЛЬЗОВАНИЮ!")
-        print(f"")
-        print(f"📱 Для запуска выполните:")
-        print(f"   streamlit run app.py")
-        print(f"")
-        print(f"💡 В разделе 'Анализ HRV' теперь доступны:")
-        print(f"   • 💓 RMSSD (вариабельность сердечного ритма)")
-        print(f"   • 😰 Стресс-индекс (реальные данные из Garmin)")  
-        print(f"   • 🔋 Восстановление (Body Battery из Garmin)")
-        print(f"   • 📈 Графики и рекомендации")
-        print(f"")
-        print(f"🔄 Синхронизация включает все типы данных")
+        print("🚀 ПРИЛОЖЕНИЕ ГОТОВО К ИСПОЛЬЗОВАНИЮ!")
+        print("")
+        print("📱 Для запуска выполните:")
+        print("   streamlit run app.py")
+        print("")
+        print("💡 В разделе 'Анализ HRV' теперь доступны:")
+        print("   • 💓 RMSSD (вариабельность сердечного ритма)")
+        print("   • 😰 Стресс-индекс (реальные данные из Garmin)")
+        print("   • 🔋 Восстановление (Body Battery из Garmin)")
+        print("   • 📈 Графики и рекомендации")
+        print("")
+        print("🔄 Синхронизация включает все типы данных")
     else:
-        print(f"❌ Требуется синхронизация с Garmin Connect")
-        print(f"📱 Запустите приложение и нажмите 'Синхронизировать данные'")
+        print("❌ Требуется синхронизация с Garmin Connect")
+        print("📱 Запустите приложение и нажмите 'Синхронизировать данные'")
 
 if __name__ == "__main__":
     main()

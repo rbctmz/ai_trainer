@@ -21,7 +21,7 @@ from ui.pages import (
     render_sync_logs_page,
     render_welcome_page,
 )
-from ui.pages.ai_coaching import (
+from ui.pages.ai_coaching import (  # noqa: F401 — re-export для корневых тестов
     create_chat_system_prompt_with_tools,
     format_tool_result,
     simulate_streaming_response,

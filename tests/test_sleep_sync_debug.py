@@ -18,7 +18,7 @@ def test_sleep_sync_with_debug():
     print("🔍 Тестирование синхронизации данных сна...")
     
     # Инициализируем клиент
-    client = GarminClient()
+    GarminClient()
     
     # Здесь нужно будет авторизоваться, но для теста мы симулируем данные
     # client.authenticate("email", "password")
@@ -55,7 +55,7 @@ def test_sleep_sync_with_debug():
     print(f"✅ Обработанные данные сна для {date_str}: {processed_sleep}")
     
     if processed_sleep:
-        print(f"✅ Обработка успешна")
+        print("✅ Обработка успешна")
         # Проверяем структуру
         expected_fields = ['total_sleep_minutes', 'deep_sleep_minutes', 'light_sleep_minutes', 'rem_sleep_minutes']
         missing_fields = [field for field in expected_fields if field not in processed_sleep]
@@ -63,11 +63,11 @@ def test_sleep_sync_with_debug():
         if missing_fields:
             print(f"⚠️ Отсутствуют поля: {missing_fields}")
         else:
-            print(f"✅ Все необходимые поля присутствуют")
+            print("✅ Все необходимые поля присутствуют")
             
         return processed_sleep
     else:
-        print(f"❌ Обработка данных сна вернула None")
+        print("❌ Обработка данных сна вернула None")
         return None
 
 if __name__ == "__main__":

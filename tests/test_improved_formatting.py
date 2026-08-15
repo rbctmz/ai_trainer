@@ -4,7 +4,6 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
 from data.database import Database
@@ -67,10 +66,10 @@ def test_improved_formatting():
                 # Форматируем результат через обновленную функцию
                 formatted_result = format_tool_result(test_case['tool'], data)
                 
-                print(f"✅ Инструмент выполнен успешно")
+                print("✅ Инструмент выполнен успешно")
                 print(f"📏 Размер отформатированного результата: {len(formatted_result)} символов")
                 
-                print(f"\n📄 ОТФОРМАТИРОВАННЫЙ РЕЗУЛЬТАТ:")
+                print("\n📄 ОТФОРМАТИРОВАННЫЙ РЕЗУЛЬТАТ:")
                 print("┌" + "─" * 58 + "┐")
                 
                 # Показываем результат построчно с рамкой
@@ -133,11 +132,11 @@ def test_improved_formatting():
     print(f"📄 {formatted}")
     
     # Резюме
-    print(f"\n" + "=" * 80)
+    print("\n" + "=" * 80)
     print("📋 ИТОГИ ТЕСТИРОВАНИЯ ФОРМАТИРОВАНИЯ")
     print("=" * 80)
     
-    print(f"""
+    print("""
 ✅ УЛУЧШЕНИЯ РЕАЛИЗОВАНЫ:
 • Использование Markdown заголовков (##, ###)
 • Эмодзи для видов спорта и метрик

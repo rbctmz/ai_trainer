@@ -5,7 +5,7 @@
 
 import pandas as pd
 import numpy as np
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Dict, Any, Optional, List
 from data.database import Database
 from models.banister import BanisterModel, tsb_zone
@@ -238,7 +238,7 @@ class AIDataContext:
                 try:
                     trend_coef = np.polyfit(range(len(recent_sleep)), recent_sleep, 1)
                     sleep_trend = 'improving' if trend_coef[0] > 0 else 'declining'
-                except:
+                except Exception:
                     sleep_trend = 'stable'
         
         # Последние записи сна
@@ -758,7 +758,7 @@ class AIDataContext:
 """
         
         if context['trends']:
-            formatted += f"""
+            formatted += """
 === ТРЕНДЫ ===
 """
             if 'training_volume' in context['trends']:

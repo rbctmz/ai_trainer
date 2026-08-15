@@ -13,7 +13,6 @@ except ImportError:
     sys.path.append('.')
     from data.database import Database
 
-import pandas as pd
 from datetime import datetime, timedelta
 
 def test_sleep_data_sync():
@@ -227,7 +226,7 @@ def test_comprehensive_sync():
     health_result = db.sync_daily_health(health_data)
     status_result = db.sync_training_status(status_data)
     
-    print(f"   Результаты синхронизации:")
+    print("   Результаты синхронизации:")
     print(f"     Сон: {sleep_result}")
     print(f"     Здоровье: {health_result}")
     print(f"     Статус: {status_result}")

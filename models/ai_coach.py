@@ -1,6 +1,4 @@
 from openai import OpenAI
-import json
-from datetime import datetime, timedelta
 from config.settings import Settings
 
 class AICoach:

@@ -92,7 +92,7 @@ def test_final_chat_features():
                                      start_date='2025-07-01', 
                                      end_date='2025-07-31')
         if result.get('success'):
-            print(f"✅ Инструмент get_activities_by_date_range: работает")
+            print("✅ Инструмент get_activities_by_date_range: работает")
         else:
             print(f"⚠️ Инструмент get_activities_by_date_range: {result.get('error')}")
             
@@ -131,7 +131,7 @@ def test_final_chat_features():
     print("✅ simulate_streaming_response: протестирован отдельно")
     
     # Итоговый отчет
-    print(f"\n" + "=" * 80)
+    print("\n" + "=" * 80)
     print("📋 ИТОГОВЫЙ ОТЧЕТ УЛУЧШЕНИЙ")
     print("=" * 80)
     

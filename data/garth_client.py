@@ -4,8 +4,6 @@
 
 from datetime import datetime, timedelta
 import logging
-import sys
-import os
 from typing import Any, Dict
 from pydantic import ValidationError
 
@@ -157,7 +155,7 @@ class GarthClient:
                     else:
                         garmin_logger.warning(f"❌ connectapi вернул пустой результат для {date_str}")
                 else:
-                    garmin_logger.error(f"❌ Не удалось получить username для connectapi")
+                    garmin_logger.error("❌ Не удалось получить username для connectapi")
             except Exception as e:
                 garmin_logger.error(f"❌ connectapi sleep failed for {date_str}: {e}")
             
@@ -368,7 +366,7 @@ class GarthClient:
                 }
             
             # Если структура неизвестна, возвращаем как есть с обёрткой
-            print(f"DEBUG CONVERT HRV: RMSSD не найден, возвращаем сырые данные")
+            print("DEBUG CONVERT HRV: RMSSD не найден, возвращаем сырые данные")
             return {
                 'hrvSummary': hrv_dict,
                 'raw_data': hrv_dict
@@ -442,7 +440,7 @@ class GarthClient:
             
             stress_response = garth.connectapi(stress_api_url)
             if stress_response:
-                print(f"DEBUG STRESS: Stress API ответ получен через wellness")
+                print("DEBUG STRESS: Stress API ответ получен через wellness")
                 return self._convert_stress_to_dict(stress_response)
         except Exception as e:
             print(f"DEBUG STRESS: Wellness stress API failed: {e}")
@@ -452,13 +450,13 @@ class GarthClient:
             username = getattr(garth.client, 'username', self.username)
             if username:
                 # Пробуем другой endpoint  
-                stress_api_url = f"/wellness-service/wellness/dailyStress"
+                stress_api_url = "/wellness-service/wellness/dailyStress"
                 params = {"date": date_str}
                 print(f"DEBUG STRESS: Попытка stress API с параметрами: {stress_api_url}")
                 
                 stress_response = garth.connectapi(stress_api_url, params=params)
                 if stress_response:
-                    print(f"DEBUG STRESS: Stress API ответ получен")
+                    print("DEBUG STRESS: Stress API ответ получен")
                     return self._convert_stress_to_dict(stress_response)
         except Exception as e:
             print(f"DEBUG STRESS: Stress API с параметрами failed: {e}")
@@ -471,7 +469,7 @@ class GarthClient:
             
             user_summary = garth.connectapi(user_data_url)
             if user_summary:
-                print(f"DEBUG STRESS: User summary получен, ищем стресс")
+                print("DEBUG STRESS: User summary получен, ищем стресс")
                 if isinstance(user_summary, dict):
                     # Ищем стресс в разных местах
                     if 'averageStressLevel' in user_summary:
@@ -527,7 +525,7 @@ class GarthClient:
                     return {'avgStressLevel': avg_stress, 'overallStressLevel': avg_stress}
             
             # Если не смогли извлечь - возвращаем None
-            print(f"DEBUG CONVERT STRESS: Не удалось извлечь уровень стресса")
+            print("DEBUG CONVERT STRESS: Не удалось извлечь уровень стресса")
             return None
             
         except Exception as e:

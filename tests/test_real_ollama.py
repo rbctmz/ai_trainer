@@ -41,7 +41,7 @@ def test_real_ollama():
     print('='*60)
     
     # Тест 1: Простой вопрос
-    print(f"\n❓ Тест 1: Простой вопрос")
+    print("\n❓ Тест 1: Простой вопрос")
     print("-" * 40)
     question = "Что означает TSB +10.5? Хорошо это или плохо для спортсмена?"
     print(f"Вопрос: {question}")
@@ -50,7 +50,7 @@ def test_real_ollama():
     print(answer)
     
     # Тест 2: Анализ состояния (короткий)
-    print(f"\n📊 Тест 2: Краткий анализ состояния")
+    print("\n📊 Тест 2: Краткий анализ состояния")
     print("-" * 40)
     analysis = coach.analyze_current_state(test_metrics)
     print(analysis)

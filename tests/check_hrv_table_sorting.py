@@ -4,12 +4,9 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
-import pandas as pd
 import sqlite3
-from datetime import datetime, timedelta
 from data.database import Database
 
 def check_data_types_and_sorting():
@@ -71,13 +68,13 @@ def check_data_types_and_sorting():
         
         # Копируем логику из app.py
         display_df = hrv_df.copy()
-        print(f"\n  До форматирования:")
+        print("\n  До форматирования:")
         print(f"    Тип date: {display_df['date'].dtype}")
         print(f"    Первые 3 даты: {display_df['date'].head(3).tolist()}")
         
         # Форматирование даты как в app.py
         display_df['date'] = display_df['date'].dt.strftime('%d.%m.%Y')
-        print(f"\n  После форматирования в строку:")
+        print("\n  После форматирования в строку:")
         print(f"    Тип date: {display_df['date'].dtype}")
         print(f"    Первые 3 даты: {display_df['date'].head(3).tolist()}")
         

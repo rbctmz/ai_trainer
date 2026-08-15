@@ -62,7 +62,7 @@ def force_sync_yesterday():
             processed_sleep = Phase1DataProcessor.process_sleep_data(sleep_raw_data)
             
             if processed_sleep:
-                print(f"✅ Данные успешно обработаны новым процессором:")
+                print("✅ Данные успешно обработаны новым процессором:")
                 print(f"  - Общий сон: {processed_sleep.get('total_sleep_minutes')} мин")
                 print(f"  - Глубокий сон: {processed_sleep.get('deep_sleep_minutes')} мин")
                 print(f"  - Легкий сон: {processed_sleep.get('light_sleep_minutes')} мин")
@@ -95,7 +95,7 @@ def force_sync_yesterday():
                     
                     if saved_data:
                         total, deep_saved, light_saved, rem_saved = saved_data
-                        print(f"✅ В базе сохранено:")
+                        print("✅ В базе сохранено:")
                         print(f"  - Общий сон: {total} мин")
                         print(f"  - Глубокий сон: {deep_saved} мин")
                         print(f"  - Легкий сон: {light_saved} мин")

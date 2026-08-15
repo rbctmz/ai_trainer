@@ -11,7 +11,6 @@ import sqlite3
 # Добавляем путь к корневой папке проекта
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from data.garmin_client import GarminClient
 from data.data_processor_phase1 import Phase1DataProcessor
 from data.database import Database
 

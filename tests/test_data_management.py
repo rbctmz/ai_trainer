@@ -17,7 +17,6 @@ except ImportError:
     from data.database import Database
     from data.garmin_client import GarminClient
 
-import pandas as pd
 from tests.sync_fixtures import legacy_upsert_activities
 from datetime import datetime, timedelta
 

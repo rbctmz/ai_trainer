@@ -4,7 +4,6 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
 import pytest
@@ -62,7 +61,6 @@ def explore_garth_sleep_methods():
     print("\n😴 Исследование методов для данных сна...")
     
     try:
-        import garth
         
         print("📋 Возможные методы для данных сна:")
         

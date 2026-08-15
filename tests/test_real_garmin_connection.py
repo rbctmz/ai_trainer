@@ -4,19 +4,14 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
 try:
-    from data.garmin_client import GarminClient
-    from data.data_processor_phase1 import Phase1DataProcessor
+    from data.garmin_client import GarminClient  # noqa: F401 — проба доступности
+    from data.data_processor_phase1 import Phase1DataProcessor  # noqa: F401 — проба доступности
 except ImportError:
     sys.path.append('.')
-    from data.garmin_client import GarminClient
-    from data.data_processor_phase1 import Phase1DataProcessor
 
-from datetime import datetime, timedelta
-import streamlit as st
 
 def test_real_garmin_connection():
     """Тестирование реального подключения к Garmin"""

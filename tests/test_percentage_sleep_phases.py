@@ -33,19 +33,19 @@ def test_percentage_based_sleep_phases():
         }
     }
     
-    print(f"📥 Тестовые данные:")
+    print("📥 Тестовые данные:")
     print(f"  - sleepTimeSeconds: {real_structure_data['dailySleepDTO']['sleepTimeSeconds']} (466 мин)")
     print(f"  - deepPercentage: {real_structure_data['sleepScores']['deepPercentage']['value']}%")
     print(f"  - lightPercentage: {real_structure_data['sleepScores']['lightPercentage']['value']}%")
     print(f"  - remPercentage: {real_structure_data['sleepScores']['remPercentage']['value']}%")
-    print(f"  - НЕТ deepSleepSeconds/lightSleepSeconds/remSleepSeconds")
+    print("  - НЕТ deepSleepSeconds/lightSleepSeconds/remSleepSeconds")
     
     # Обрабатываем данные
     try:
         processed_sleep = Phase1DataProcessor.process_sleep_data(real_structure_data)
         
         if processed_sleep:
-            print(f"✅ Данные успешно обработаны!")
+            print("✅ Данные успешно обработаны!")
             
             # Ожидаемые значения
             expected_total = 466
@@ -55,7 +55,7 @@ def test_percentage_based_sleep_phases():
             expected_score = 66
             expected_awakenings = 3
             
-            print(f"📊 Результаты обработки:")
+            print("📊 Результаты обработки:")
             print(f"  - Общий сон: {processed_sleep.get('total_sleep_minutes')} мин (ожидали {expected_total})")
             print(f"  - Глубокий сон: {processed_sleep.get('deep_sleep_minutes')} мин (ожидали {expected_deep})")
             print(f"  - Легкий сон: {processed_sleep.get('light_sleep_minutes')} мин (ожидали {expected_light})")

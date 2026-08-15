@@ -43,9 +43,9 @@ def test_with_exact_log_data():
         }
     }
     
-    print(f"📥 Данные из реальных логов:")
+    print("📥 Данные из реальных логов:")
     print(f"  - sleepTimeSeconds: {exact_log_data['dailySleepDTO']['sleepTimeSeconds']} сек (466 мин)")
-    print(f"  - НЕТ секунд для фаз сна")
+    print("  - НЕТ секунд для фаз сна")
     print(f"  - deepPercentage: {exact_log_data['sleepScores']['deepPercentage']['value']}%")
     print(f"  - lightPercentage: {exact_log_data['sleepScores']['lightPercentage']['value']}%")
     print(f"  - remPercentage: {exact_log_data['sleepScores']['remPercentage']['value']}%")
@@ -56,7 +56,7 @@ def test_with_exact_log_data():
         processed_sleep = Phase1DataProcessor.process_sleep_data(exact_log_data)
         
         if processed_sleep:
-            print(f"✅ Данные успешно обработаны!")
+            print("✅ Данные успешно обработаны!")
             
             # Ожидаемые значения из процентов
             total_minutes = 466
@@ -73,7 +73,7 @@ def test_with_exact_log_data():
             actual_score = processed_sleep.get('sleep_score')
             actual_awakenings = processed_sleep.get('awakenings_count')
             
-            print(f"📊 Результаты обработки:")
+            print("📊 Результаты обработки:")
             print(f"  - Общий сон: {actual_total} мин (ожидали {total_minutes})")
             print(f"  - Глубокий сон: {actual_deep} мин (ожидали {expected_deep})")
             print(f"  - Легкий сон: {actual_light} мин (ожидали {expected_light})")

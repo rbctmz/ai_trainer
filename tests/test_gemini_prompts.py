@@ -7,7 +7,7 @@ import sys
 sys.path.append('.')
 
 import pytest
-from models.training_prompts import TrainingPrompts, get_analysis_prompt
+from models.training_prompts import get_analysis_prompt
 from models.ai_providers import GoogleGeminiProvider
 from data.database import Database
 
@@ -78,7 +78,7 @@ def test_gemini_with_training_data():
             
             if response and not ("ошибка" in response.lower() or "error" in response.lower()):
                 print(f"✅ Ответ получен ({len(response)} символов)")
-                print(f"🎯 AI Тренер отвечает:")
+                print("🎯 AI Тренер отвечает:")
                 print("-" * 30)
                 print(response)
                 print()
@@ -108,22 +108,22 @@ def test_gemini_with_training_data():
     successful = [r for r in results if r['success']]
     failed = [r for r in results if not r['success']]
     
-    print(f"\n📊 ИТОГОВЫЕ РЕЗУЛЬТАТЫ:")
+    print("\n📊 ИТОГОВЫЕ РЕЗУЛЬТАТЫ:")
     print("=" * 40)
     print(f"✅ Успешных тестов: {len(successful)}")
     print(f"❌ Неудачных тестов: {len(failed)}")
     
     if successful:
-        print(f"\n🎉 GEMINI УСПЕШНО РАБОТАЕТ КАК AI ТРЕНЕР!")
-        print(f"💡 Специализированные prompts дают качественные ответы")
+        print("\n🎉 GEMINI УСПЕШНО РАБОТАЕТ КАК AI ТРЕНЕР!")
+        print("💡 Специализированные prompts дают качественные ответы")
     else:
-        print(f"\n⚠️ Проблемы с тестированием")
+        print("\n⚠️ Проблемы с тестированием")
     assert successful, "Gemini не вернул успешных ответов для training prompts"
 
 def test_simple_gemini():
     """Простой тест Gemini"""
     
-    print(f"\n🧪 ПРОСТОЙ ТЕСТ GEMINI")
+    print("\n🧪 ПРОСТОЙ ТЕСТ GEMINI")
     print("-" * 30)
     
     gemini = GoogleGeminiProvider(model="gemini-2.5-flash")
@@ -138,7 +138,7 @@ def test_simple_gemini():
         "Ты AI тренер по выносливости. Отвечай кратко и практично."
     )
     
-    print(f"🎯 Простой вопрос -> ответ:")
+    print("🎯 Простой вопрос -> ответ:")
     print(f"💬 {response}")
     
     assert response
@@ -153,8 +153,8 @@ if __name__ == "__main__":
     advanced_ok = test_gemini_with_training_data()
     
     if simple_ok and advanced_ok:
-        print(f"\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ!")
-        print(f"🤖 Google Gemini 2.0 готов быть AI тренером!")
-        print(f"📱 Запустите приложение: streamlit run app.py")
+        print("\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ!")
+        print("🤖 Google Gemini 2.0 готов быть AI тренером!")
+        print("📱 Запустите приложение: streamlit run app.py")
     else:
-        print(f"\n⚠️ Некоторые тесты не прошли")
+        print("\n⚠️ Некоторые тесты не прошли")

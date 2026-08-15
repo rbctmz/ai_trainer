@@ -2,9 +2,8 @@
 Универсальный AI коуч с поддержкой разных провайдеров
 """
 
-from typing import Dict, List, Optional
-from datetime import datetime, timedelta
-import json
+from typing import Dict, List
+from datetime import datetime
 
 from models.ai_providers import AIProvider, AIProviderFactory
 
@@ -142,7 +141,7 @@ class UniversalAICoach:
             try:
                 if hasattr(date_str, 'strftime'):
                     date_str = date_str.strftime('%Y-%m-%d')
-            except:
+            except Exception:
                 pass
             return (
                 f"{date_str}: total TSS {d.get('total_tss', 0):.0f} | "
@@ -230,7 +229,7 @@ class UniversalAICoach:
         try:
             race_dt = datetime.strptime(race_date, "%Y-%m-%d")
             days_to_race = (race_dt - datetime.now()).days
-        except:
+        except Exception:
             days_to_race = "неизвестно"
         
         prompt = f"""

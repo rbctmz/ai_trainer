@@ -4,16 +4,12 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
 import pandas as pd
-import sqlite3
-from datetime import datetime, timedelta
 import random
 import uuid
 from data.database import Database
-from data.data_processor import ActivityProcessor
 from tests.sync_fixtures import legacy_upsert_activities
 
 def add_realistic_training_data():
@@ -170,13 +166,13 @@ def add_realistic_training_data():
                 print("   ℹ️ Слабая корреляция - возможно нужно больше данных или улучшить модель")
             
             # Показываем распределение
-            print(f"\n📈 Распределение TSS:")
+            print("\n📈 Распределение TSS:")
             print(f"   Среднее: {combined['tss'].mean():.1f}")
             print(f"   Медиана: {combined['tss'].median():.1f}") 
             print(f"   Макс: {combined['tss'].max():.1f}")
             print(f"   Дней без тренировок: {len(combined[combined['tss'] == 0])}")
             
-            print(f"\n💓 Распределение RMSSD:")
+            print("\n💓 Распределение RMSSD:")
             print(f"   Среднее: {combined['rmssd'].mean():.1f}")
             print(f"   Медиана: {combined['rmssd'].median():.1f}")
             print(f"   Диапазон: {combined['rmssd'].min():.1f} - {combined['rmssd'].max():.1f}")

@@ -452,7 +452,7 @@ def test_iter_leaf_sessions_orders_singles_and_splits_brick_legs():
         ]
     }
     leaves = iter_leaf_sessions(two_single)
-    assert [(l["kind"], l["sport"], l["session_id"], l["total_tss"]) for l in leaves] == [
+    assert [(leaf["kind"], leaf["sport"], leaf["session_id"], leaf["total_tss"]) for leaf in leaves] == [
         ("single", "swim", "a", 20.0),
         ("single", "bike", "b", 30.0),
     ]
@@ -469,11 +469,11 @@ def test_iter_leaf_sessions_orders_singles_and_splits_brick_legs():
         ]
     }
     legs = iter_leaf_sessions(brick)
-    assert [(l["kind"], l["sport"], l["leg_index"], l["group_id"], l["session_id"]) for l in legs] == [
+    assert [(leg["kind"], leg["sport"], leg["leg_index"], leg["group_id"], leg["session_id"]) for leg in legs] == [
         ("brick_leg", "bike", 1, "grp", "grp:1"),
         ("brick_leg", "run", 2, "grp", "grp:2"),
     ]
-    assert [l["total_tss"] for l in legs] == [40.0, 20.0]
+    assert [leg["total_tss"] for leg in legs] == [40.0, 20.0]
 
     # rest/race days carry no deliverable session, so they yield no leaves
     assert iter_leaf_sessions({"sessions": []}) == []

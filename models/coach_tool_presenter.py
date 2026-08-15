@@ -1,7 +1,7 @@
 """Headless Markdown presentation for AI coach tool results."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any, Dict, Optional
 
 import pandas as pd
 

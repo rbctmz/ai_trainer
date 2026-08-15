@@ -37,7 +37,7 @@ def test_real_log_data_2025_08_13():
         }
     }
     
-    print(f"📥 Реальные данные из логов за 2025-08-13:")
+    print("📥 Реальные данные из логов за 2025-08-13:")
     print(f"  - sleepTimeSeconds: {real_garmin_data_20250813['dailySleepDTO']['sleepTimeSeconds']} сек (435 мин)")
     print(f"  - deepSleepSeconds: {real_garmin_data_20250813['dailySleepDTO']['deepSleepSeconds']} сек (56 мин)")
     print(f"  - lightSleepSeconds: {real_garmin_data_20250813['dailySleepDTO']['lightSleepSeconds']} сек (292 мин)")
@@ -54,7 +54,7 @@ def test_real_log_data_2025_08_13():
         processed = Phase1DataProcessor.process_sleep_data(real_garmin_data_20250813)
         
         if processed:
-            print(f"✅ Данные успешно обработаны!")
+            print("✅ Данные успешно обработаны!")
             
             # Ожидаемые значения из секунд (должны быть приоритетными)
             expected_total = 26100 // 60  # 435 минут
@@ -71,7 +71,7 @@ def test_real_log_data_2025_08_13():
             actual_score = processed.get('sleep_score')
             actual_awakenings = processed.get('awakenings_count')
             
-            print(f"📊 Результаты обработки:")
+            print("📊 Результаты обработки:")
             print(f"  - Общий сон: {actual_total} мин (ожидали {expected_total})")
             print(f"  - Глубокий сон: {actual_deep} мин (ожидали {expected_deep})")
             print(f"  - Легкий сон: {actual_light} мин (ожидали {expected_light})")

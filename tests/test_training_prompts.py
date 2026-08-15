@@ -10,7 +10,6 @@ import pytest
 from models.training_prompts import TrainingPrompts, get_analysis_prompt
 from models.ai_providers import AIProviderFactory
 from data.database import Database
-import pandas as pd
 
 @pytest.mark.live
 def test_specialized_prompts():
@@ -24,7 +23,7 @@ def test_specialized_prompts():
     activities_df = database.get_activities(14)
     hrv_df = database.get_hrv_data(14)
     
-    print(f"📊 Данные для тестирования:")
+    print("📊 Данные для тестирования:")
     print(f"  • Активностей: {len(activities_df)}")
     print(f"  • HRV записей: {len(hrv_df)}")
     
@@ -103,7 +102,7 @@ def test_specialized_prompts():
             results[test_case['name']] = {'success': False, 'error': str(e)}
     
     # Показываем результаты
-    print(f"\n🏆 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ PROMPTS")
+    print("\n🏆 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ PROMPTS")
     print("=" * 60)
     
     successful_tests = [name for name, result in results.items() if result.get('success', False)]
@@ -114,7 +113,7 @@ def test_specialized_prompts():
     
     # Показываем примеры ответов
     if successful_tests:
-        print(f"\n📋 ПРИМЕРЫ ОТВЕТОВ AI ТРЕНЕРА:")
+        print("\n📋 ПРИМЕРЫ ОТВЕТОВ AI ТРЕНЕРА:")
         print("=" * 60)
         
         for test_name in successful_tests[:2]:  # Показываем первые 2
@@ -129,13 +128,13 @@ def test_specialized_prompts():
 def test_prompt_components():
     """Тест компонентов prompt системы"""
     
-    print(f"\n🔧 ТЕСТ КОМПОНЕНТОВ PROMPT СИСТЕМЫ")  
+    print("\n🔧 ТЕСТ КОМПОНЕНТОВ PROMPT СИСТЕМЫ")
     print("=" * 60)
     
     # Тестируем системный prompt
     system_prompt = TrainingPrompts.get_system_prompt()
     print(f"📝 Системный prompt: {len(system_prompt)} символов")
-    print(f"🔍 Содержит ключевые слова:")
+    print("🔍 Содержит ключевые слова:")
     
     keywords = ['TSS', 'HRV', 'тренер', 'физиология', 'восстановление']
     for keyword in keywords:
@@ -149,15 +148,15 @@ def test_prompt_components():
     
     if not activities_df.empty:
         stats = TrainingPrompts._get_training_stats(activities_df, hrv_df, 7)
-        print(f"\n📊 Статистика тренировок:")
+        print("\n📊 Статистика тренировок:")
         print(stats)
     
     if not hrv_df.empty:
         hrv_stats = TrainingPrompts._get_hrv_stats(hrv_df, 7)
-        print(f"\n💓 Статистика HRV:")
+        print("\n💓 Статистика HRV:")
         print(hrv_stats)
     
-    print(f"\n✅ Компоненты prompt системы работают корректно")
+    print("\n✅ Компоненты prompt системы работают корректно")
     required_keywords = ['TSS', 'HRV', 'тренер']
     assert all(keyword.lower() in system_prompt.lower() for keyword in required_keywords)
 
@@ -171,13 +170,13 @@ if __name__ == "__main__":
     prompts_ok = test_specialized_prompts()
     
     if prompts_ok and components_ok:
-        print(f"\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
-        print(f"🧠 Специализированные AI prompts готовы!")
-        print(f"💡 Теперь AI может давать экспертные советы по:")
-        print(f"  • Анализу тренировок с учетом TSS и HRV")
-        print(f"  • Планированию восстановления")
-        print(f"  • Оптимизации тренировочного процесса")
-        print(f"  • Персонализированным рекомендациям")
+        print("\n🎉 ВСЕ ТЕСТЫ ПРОШЛИ УСПЕШНО!")
+        print("🧠 Специализированные AI prompts готовы!")
+        print("💡 Теперь AI может давать экспертные советы по:")
+        print("  • Анализу тренировок с учетом TSS и HRV")
+        print("  • Планированию восстановления")
+        print("  • Оптимизации тренировочного процесса")
+        print("  • Персонализированным рекомендациям")
     else:
-        print(f"\n⚠️ Некоторые тесты не прошли")
-        print(f"🔧 Проверьте настройки AI провайдеров")
+        print("\n⚠️ Некоторые тесты не прошли")
+        print("🔧 Проверьте настройки AI провайдеров")

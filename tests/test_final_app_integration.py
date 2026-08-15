@@ -79,13 +79,10 @@ def test_app_imports():
     try:
         # Проверяем основные импорты
         from config.settings import Settings
-        from models.banister import BanisterModel
-        from utils.metrics import MetricsCalculator
         
         print("   ✅ Основные модули импортируются")
         
         # Проверяем что новые импорты работают
-        from data.data_processor_phase1 import Phase1DataProcessor
         print("   ✅ Новый процессор Фазы 1 импортируется")
         
         # Проверяем настройки

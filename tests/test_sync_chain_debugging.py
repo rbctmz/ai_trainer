@@ -20,14 +20,14 @@ def test_sync_chain():
     # Инициализируем GarminClient
     try:
         garmin_client = GarminClient()
-        print(f"✅ GarminClient инициализирован")
+        print("✅ GarminClient инициализирован")
         
         # Проверяем авторизацию
         if not garmin_client.is_authenticated:
             print("❌ GarminClient не авторизован - пропускаем тест")
             return False
         
-        print(f"✅ GarminClient авторизован")
+        print("✅ GarminClient авторизован")
         
         # Тестируем получение данных сна за последние несколько дней
         test_dates = []
@@ -46,7 +46,7 @@ def test_sync_chain():
                 print(f"DEBUG CHAIN: Получены данные сна для {date_str}: {type(sleep_raw)}")
                 
                 if sleep_raw:
-                    print(f"DEBUG CHAIN: === ДАННЫЕ ОТ GARMIN CLIENT ===")
+                    print("DEBUG CHAIN: === ДАННЫЕ ОТ GARMIN CLIENT ===")
                     
                     if isinstance(sleep_raw, dict):
                         print(f"DEBUG CHAIN: Ключи верхнего уровня: {list(sleep_raw.keys())}")
@@ -73,7 +73,7 @@ def test_sync_chain():
                                     rem_val = scores['remPercentage'].get('value') if isinstance(scores['remPercentage'], dict) else scores['remPercentage']
                                     print(f"DEBUG CHAIN: sleepScores.remPercentage: {rem_val}")
                     
-                    print(f"DEBUG CHAIN: === ПЕРЕДАЕМ В ПРОЦЕССОР ===")
+                    print("DEBUG CHAIN: === ПЕРЕДАЕМ В ПРОЦЕССОР ===")
                     
                     # Передаем в процессор (как в app.py)
                     processed_sleep = Phase1DataProcessor.process_sleep_data(sleep_raw)
@@ -88,13 +88,13 @@ def test_sync_chain():
                         print(f"DEBUG CHAIN: ✅ Результат процессора: total={total}, deep={deep}, light={light}, rem={rem}, score={score}")
                         
                         if deep == 0 and light == 0 and rem == 0:
-                            print(f"DEBUG CHAIN: ⚠️ ПРОБЛЕМА: Все фазы сна равны 0 после обработки!")
+                            print("DEBUG CHAIN: ⚠️ ПРОБЛЕМА: Все фазы сна равны 0 после обработки!")
                         else:
-                            print(f"DEBUG CHAIN: ✅ Фазы сна обработаны правильно!")
+                            print("DEBUG CHAIN: ✅ Фазы сна обработаны правильно!")
                             
                         return True
                     else:
-                        print(f"DEBUG CHAIN: ❌ Процессор вернул None")
+                        print("DEBUG CHAIN: ❌ Процессор вернул None")
                 else:
                     print(f"DEBUG CHAIN: Нет данных сна для {date_str}")
                     

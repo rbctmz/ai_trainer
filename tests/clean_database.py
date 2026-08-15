@@ -5,7 +5,6 @@
 
 import sys
 import sqlite3
-from datetime import datetime
 
 sys.path.append('.')
 from config.settings import Settings
@@ -114,7 +113,7 @@ def clean_database(confirm=True):
     conn.commit()
     conn.close()
     
-    print(f"\n✅ Очистка завершена!")
+    print("\n✅ Очистка завершена!")
     print(f"🗑️  Всего удалено: {total_deleted} активностей, {hrv_count} HRV записей")
     
     return True
@@ -161,7 +160,7 @@ def main():
         print("\n✨ База данных уже чистая!")
         return
     
-    print(f"\n📋 План очистки:")
+    print("\n📋 План очистки:")
     print(f"  🗑️  Удалить {stats['test_activities']} тестовых активностей")
     print(f"  🗑️  Удалить {stats['total_hrv']} HRV записей")
     print(f"  ✅ Оставить {stats['real_activities']} реальных активностей")

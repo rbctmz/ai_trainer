@@ -4,11 +4,8 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
-import pandas as pd
-from datetime import datetime, timedelta
 from data.database import Database
 from models.ai_tools import AITools
 from models.ai_providers import AIProviderFactory
@@ -48,7 +45,7 @@ def test_ai_tools_system():
         result = ai_tools.execute_tool(tool_name, **params)
         
         if result.get('success'):
-            print(f"    ✅ Успешно выполнен")
+            print("    ✅ Успешно выполнен")
             # Показываем краткую информацию о результате
             result_data = result.get('result', {})
             if isinstance(result_data, dict):
@@ -57,7 +54,7 @@ def test_ai_tools_system():
                 if 'ctl' in result_data:
                     print(f"       CTL: {result_data['ctl']:.1f}, ATL: {result_data['atl']:.1f}, TSB: {result_data['tsb']:+.1f}")
                 if 'recovery_analysis' in str(result_data):
-                    print(f"       Анализ восстановления выполнен")
+                    print("       Анализ восстановления выполнен")
         else:
             print(f"    ❌ Ошибка: {result.get('error', 'Unknown error')}")
         
@@ -126,7 +123,7 @@ def test_ai_tools_system():
                                             params[key] = int(value)
                                         else:
                                             params[key] = value
-                                    except:
+                                    except Exception:
                                         params[key] = value
                         
                         # Выполняем инструмент
@@ -148,7 +145,7 @@ def test_ai_tools_system():
                     print(f"    🤖 Обработанный ответ: {preview}")
                     
                 else:
-                    print(f"    📝 AI дал обычный ответ без инструментов")
+                    print("    📝 AI дал обычный ответ без инструментов")
                     preview = response[:200] + "..." if len(response) > 200 else response
                     print(f"    🤖 Ответ: {preview}")
                 

@@ -3,7 +3,6 @@
 Тестовый скрипт для проверки работы AI коучинга
 """
 
-import os
 import sys
 sys.path.append('..')
 from dotenv import load_dotenv
@@ -33,7 +32,7 @@ def test_ai_coach():
         return
     
     # Выбираем первый доступный провайдер
-    print(f"\n🎯 Используем первый доступный провайдер...")
+    print("\n🎯 Используем первый доступный провайдер...")
     provider = AIProviderFactory.get_first_available()
     
     if not provider:

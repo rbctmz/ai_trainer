@@ -180,15 +180,6 @@ def generate_fit_csv(workout_name: str, sport: str, steps: List[Dict], created: 
       - target_type следует сохранённому target (power/heart-rate/speed/open).
     """
     created = created or datetime.utcnow()
-    # Карта вида спорта в численный enum FIT (sport): 0=generic, 1=running, 2=cycling, 5=swimming
-    sport_map = {'run': 1, 'bike': 2, 'swim': 5}
-    s_key = sport_map['run']
-    sl = sport.lower()
-    if 'bike' in sl or 'вел' in sl:
-        s_key = sport_map['bike']
-    elif 'swim' in sl or 'плав' in sl:
-        s_key = sport_map['swim']
-
     lines = []
     append = lines.append
     # Заголовок как в примере (включая Units)

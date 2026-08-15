@@ -7,7 +7,6 @@ import sys
 sys.path.append('.')
 
 from data.database import Database
-import pandas as pd
 
 def test_hrv_display():
     """Тест отображения HRV данных"""
@@ -30,7 +29,7 @@ def test_hrv_display():
         print(hrv_df.head())
         
         # Проверим RMSSD значения
-        print(f"\n💓 RMSSD статистика:")
+        print("\n💓 RMSSD статистика:")
         print(f"  Всего значений: {len(hrv_df['rmssd'])}")
         print(f"  Не NaN значений: {hrv_df['rmssd'].notna().sum()}")
         print(f"  Среднее RMSSD: {hrv_df['rmssd'].mean():.1f}")
@@ -39,7 +38,7 @@ def test_hrv_display():
         
         # Показываем последние записи с действительными данными
         valid_hrv = hrv_df[hrv_df['rmssd'].notna()]
-        print(f"\n📋 Последние записи с валидными RMSSD:")
+        print("\n📋 Последние записи с валидными RMSSD:")
         for _, row in valid_hrv.tail(5).iterrows():
             print(f"  {row['date']}: RMSSD = {row['rmssd']}")
     else:

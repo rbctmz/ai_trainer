@@ -10,7 +10,6 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import sysconfig
 
 from repair_streamlit_proto import (
     find_missing_aliases,

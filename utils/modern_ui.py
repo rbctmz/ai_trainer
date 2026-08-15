@@ -1234,7 +1234,7 @@ class ModernUI:
                 numeric_value = float(numeric_str) if numeric_str else 0
             else:
                 numeric_value = float(value) if value else 0
-        except:
+        except Exception:
             numeric_value = 0
         
         # Определяем статус, цвет и процент для кругового индикатора
@@ -1333,7 +1333,7 @@ class ModernUI:
                         f"           background: rgba(255,255,255,0.9); padding: 4px 8px; border-radius: 12px;"
                         f"           font-size: 12px; font-weight: bold; color: {color};\">{trend_text}</div>"
                     )
-            except:
+            except Exception:
                 pass
         
         # Статус бейдж

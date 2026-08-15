@@ -54,13 +54,13 @@ def test_ollama():
     print('='*60)
     
     # Тест 1: Анализ состояния (русские промпты)
-    print(f"\n📊 Тест 1: Анализ состояния спортсмена")
+    print("\n📊 Тест 1: Анализ состояния спортсмена")
     print("-" * 50)
     analysis = coach.analyze_current_state(test_metrics)
     print(analysis)
     
     # Тест 2: Быстрый вопрос
-    print(f"\n❓ Тест 2: Простой вопрос коучу")
+    print("\n❓ Тест 2: Простой вопрос коучу")
     print("-" * 50)
     question = "Что означает TSB +13.3? Хорошо это или плохо?"
     answer = coach.answer_question(question, test_metrics)
@@ -68,7 +68,7 @@ def test_ollama():
     print(f"Ответ: {answer}")
     
     # Тест 3: Объяснение метрик
-    print(f"\n📚 Тест 3: Объяснение CTL")
+    print("\n📚 Тест 3: Объяснение CTL")
     print("-" * 50)
     explanation = coach.explain_metrics("CTL (Chronic Training Load)")
     print(explanation)

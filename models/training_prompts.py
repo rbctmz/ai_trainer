@@ -3,9 +3,8 @@
 Специализированные prompts для AI анализа тренировочных данных
 """
 
-from typing import Dict, List, Optional
+from typing import Dict
 import pandas as pd
-from datetime import datetime, timedelta
 
 
 class TrainingPrompts:

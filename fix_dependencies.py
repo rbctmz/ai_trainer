@@ -4,14 +4,13 @@
 """
 
 import subprocess
-import sys
 import os
 
 def run_command(cmd, description):
     """Выполнить команду с описанием"""
     print(f"🔧 {description}...")
     try:
-        result = subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
+        subprocess.run(cmd, shell=True, check=True, capture_output=True, text=True)
         print(f"✅ {description} - успешно")
         return True
     except subprocess.CalledProcessError as e:
@@ -59,7 +58,7 @@ def main():
     print("✅ Переменная окружения установлена")
     
     print(f"\n{'='*50}")
-    print(f"📊 РЕЗУЛЬТАТЫ:")
+    print("📊 РЕЗУЛЬТАТЫ:")
     print(f"✅ Успешно: {success_count}/{len(fixes)}")
     
     if success_count == len(fixes):
@@ -67,14 +66,14 @@ def main():
     else:
         print("⚠️  Некоторые исправления не удались")
     
-    print(f"\n💡 Рекомендации:")
+    print("\n💡 Рекомендации:")
     print("1. Перезапустите терминал для применения изменений")
     print("2. Запустите тест: python3 test_mock_ai.py")
     print("3. Для постоянного решения добавьте в ~/.bashrc или ~/.zshrc:")
     print("   export PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION=python")
     
     # Тест провайдеров
-    print(f"\n🧪 Тестирование провайдеров...")
+    print("\n🧪 Тестирование провайдеров...")
     try:
         from models.ai_providers import AIProviderFactory
         available = AIProviderFactory.get_available_providers()

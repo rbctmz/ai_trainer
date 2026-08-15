@@ -62,7 +62,8 @@ def test_reinit_idempotent_and_columns(tmp_path):
 
 
 def test_unique_provider_activity(tmp_path):
-    p = str(tmp_path / "s.db"); Database(p)
+    p = str(tmp_path / "s.db")
+    Database(p)
     conn = _conn(p)
     _insert(conn, _link())
     with pytest.raises(sqlite3.IntegrityError):
@@ -72,7 +73,8 @@ def test_unique_provider_activity(tmp_path):
 
 
 def test_match_status_check(tmp_path):
-    p = str(tmp_path / "s.db"); Database(p)
+    p = str(tmp_path / "s.db")
+    Database(p)
     conn = _conn(p)
     with pytest.raises(sqlite3.IntegrityError):
         _insert(conn, _link(match_status="totally_bogus"))
@@ -82,7 +84,8 @@ def test_match_status_check(tmp_path):
 
 
 def test_external_identity_null_pair(tmp_path):
-    p = str(tmp_path / "s.db"); Database(p)
+    p = str(tmp_path / "s.db")
+    Database(p)
     conn = _conn(p)
     with pytest.raises(sqlite3.IntegrityError):  # id without namespace
         _insert(conn, _link(external_id="123", external_provider=None))
@@ -97,7 +100,8 @@ def test_link_is_logical_not_db_foreign_key(tmp_path):
     """ADR-0008: the canonical link is LOGICAL (no SQLite FOREIGN KEY). A link whose
     canonical_activity_id has no `activities` row must INSERT — no-orphan is a
     logical invariant enforced by ingest (M1), not the schema."""
-    p = str(tmp_path / "s.db"); Database(p)
+    p = str(tmp_path / "s.db")
+    Database(p)
     conn = _conn(p)
     _insert(conn, _link(canonical_activity_id="no_such_canonical"))  # must not raise
     conn.close()
