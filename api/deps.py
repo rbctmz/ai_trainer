@@ -14,7 +14,7 @@ demo seeding/clearing — important because the demo seeder wipes its database.
 from __future__ import annotations
 
 import os
-from functools import lru_cache
+import threading
 from typing import Any, Dict
 
 from fastapi import Depends, Query
@@ -33,9 +33,31 @@ def _demo_db_path() -> str:
 DEMO_DB_PATH = _demo_db_path()
 
 
-@lru_cache(maxsize=4)
+_DB_CACHE: Dict[str, Database] = {}
+_DB_LOCK = threading.Lock()
+
+
 def _db_for_path(path: str) -> Database:
-    return Database(path)
+    """Единственный экземпляр Database на путь; строительство сериализовано.
+
+    ``lru_cache`` не сериализовал вызовы: при холодном старте параллельные
+    первые запросы строили Database одновременно, обе конструкции выполняли
+    ``PRAGMA journal_mode = WAL`` и одна падала с «database is locked» → HTTP 500
+    (issue #439). Пул путей в процессе фактически ограничен (real/demo).
+    """
+    db = _DB_CACHE.get(path)
+    if db is not None:
+        return db
+    with _DB_LOCK:
+        if path not in _DB_CACHE:
+            _DB_CACHE[path] = Database(path)
+        return _DB_CACHE[path]
+
+
+def _reset_db_cache() -> None:
+    """Сброс пула экземпляров — для тестов, изолирующих real/demo пути temp-базами."""
+    with _DB_LOCK:
+        _DB_CACHE.clear()
 
 
 def real_database() -> Database:
