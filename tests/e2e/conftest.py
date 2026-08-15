@@ -33,6 +33,27 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 WEB_DIR = REPO_ROOT / "web"
 ARTIFACTS_ROOT = REPO_ROOT / "logs" / "e2e"  # logs/ уже вне git
 
+
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
+    """E2E опционален: без явного ``-m e2e`` тесты скипаются.
+
+    Иначе обычные прогоны (``pytest``, ``-m "not live and not debug"``) молча
+    поднимали бы FastAPI + Next.js + Chromium и падали бы в окружениях без
+    ``web/node_modules``/Chromium.
+    """
+    import re
+
+    markexpr = config.option.markexpr or ""
+    if re.search(r"\be2e\b", markexpr):
+        return
+    skip = pytest.mark.skip(
+        reason="e2e запускается отдельно: python -m pytest -m e2e tests/e2e -q "
+        "(поднимает FastAPI + Next.js, требует npm-зависимости web/ и playwright install chromium)"
+    )
+    for item in items:
+        if "e2e" in item.keywords:
+            item.add_marker(skip)
+
 SETUP_STAGES = (
     "fastapi:запуск",
     "api:health",

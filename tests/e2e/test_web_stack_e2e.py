@@ -46,7 +46,7 @@ def test_main_user_journey(web_stack) -> None:
         )
 
         # --- Навигация по основному меню: «Сегодня» ---
-        page.get_by_role("link", name="Сегодня").click()
+        page.locator("nav").get_by_role("link", name="Сегодня").click()
         page.wait_for_url("**/today", timeout=60_000)
         today_h1 = page.locator("h1").first
         today_h1.wait_for(state="visible", timeout=60_000)
@@ -55,9 +55,14 @@ def test_main_user_journey(web_stack) -> None:
         )
 
         # --- Навигация по основному меню: «План» ---
-        page.get_by_role("link", name="План").click()
+        # Скоуп nav: на дашборде может быть вторая ссылка-подстрока «Открыть план»,
+        # строгий локатор по имени упал бы на двух совпадениях.
+        page.locator("nav").get_by_role("link", name="План").click()
         page.wait_for_url("**/planning", timeout=60_000)
         page.locator("h1", has_text="Планирование").wait_for(state="visible", timeout=60_000)
+        # «Планирование» рендерится и в loading-ветке; маркер загрузки — блок
+        # «Текущий статус нагрузки», существующий только после /api/planning/status.
+        page.get_by_text("Текущий статус нагрузки").wait_for(state="visible", timeout=60_000)
 
         # --- Необработанные ошибки страницы/консоли — падение ---
         assert not web_stack.js_errors, "Ошибки браузера во время сценария:\n" + "\n".join(
