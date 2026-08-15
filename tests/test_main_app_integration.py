@@ -4,7 +4,6 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
 # Симулируем Streamlit сессию
@@ -78,7 +77,7 @@ def test_main_app_integration():
         
         if result.get('success'):
             data = result['result']
-            print(f"✅ Инструмент выполнен успешно")
+            print("✅ Инструмент выполнен успешно")
             print(f"   📊 Найдено тренировок: {data['count']}")
             
             if data['count'] > 0:
@@ -152,7 +151,7 @@ def test_main_app_integration():
                 
                 if tool_result.get('success'):
                     formatted_result = format_tool_result(tool_name, tool_result['result'])
-                    print(f"   ✅ Результат получен и отформатирован")
+                    print("   ✅ Результат получен и отформатирован")
                     print(f"   📊 Краткий результат: {formatted_result[:100]}...")
                 else:
                     print(f"   ❌ Ошибка: {tool_result.get('error')}")
@@ -165,11 +164,11 @@ def test_main_app_integration():
         print(f"❌ Ошибка симуляции чата: {e}")
     
     # 5. Резюме
-    print(f"\n" + "=" * 80)
+    print("\n" + "=" * 80)
     print("📋 ИТОГИ ТЕСТИРОВАНИЯ ИНТЕГРАЦИИ")
     print("=" * 80)
     
-    print(f"""
+    print("""
 ✅ ВСЕ КОМПОНЕНТЫ РАБОТАЮТ:
 • Новый инструмент get_activities_by_date_range интегрирован
 • Системный промпт содержит описание и примеры инструмента

@@ -1,7 +1,7 @@
 """Dashboard page renderer and helpers."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import datetime
 import logging
 from typing import Any, Callable
 
@@ -11,13 +11,10 @@ import streamlit as st
 
 from models.coach_explainability import build_operational_response_contract
 from models.dashboard_summary import (
-    build_activity_day_tss as _build_activity_day_tss,
     build_dashboard_explainability_summary as _build_dashboard_explainability_summary,
     build_dashboard_summary as _build_dashboard_v2_summary,
-    build_plan_day_lookup as _build_plan_day_lookup,
     calculate_current_status as _calculate_current_status_headless,
     choose_primary_next_step as _choose_primary_next_step,
-    get_dashboard_goal_plan as _get_dashboard_goal_plan,
     get_latest_training_status as _get_latest_training_status,
 )
 from models.planning_checkpoints import (

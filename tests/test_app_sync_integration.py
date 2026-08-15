@@ -48,7 +48,7 @@ def check_database_sleep_data():
         
         hrv_records = cursor.fetchall()
         if hrv_records:
-            print(f"\n📊 Для сравнения - HRV данные (последние 5):")
+            print("\n📊 Для сравнения - HRV данные (последние 5):")
             for record in hrv_records:
                 print(f"  📅 {record[0]}: RMSSD {record[1]}")
         else:
@@ -70,7 +70,7 @@ def simulate_manual_sync():
     from data.database import Database
     
     # Инициализируем компоненты
-    client = GarminClient()
+    GarminClient()
     db = Database()
     
     # Симулируем получение данных от garth

@@ -4,11 +4,15 @@
 """
 
 import sys
-import os
 sys.path.append('.')
 
 import pytest
-from models.ai_providers import *
+from models.ai_providers import (
+    AnthropicProvider,
+    GoogleGeminiProvider,
+    OllamaProvider,
+    OpenAIProvider,
+)
 from data.database import Database
 import pandas as pd
 
@@ -102,7 +106,7 @@ RMSSD: {latest_hrv['rmssd']:.1f} мс
             results[name] = {"available": False, "error": connection_test.get('error')}
             continue
         
-        print(f"  ✅ Подключение успешно")
+        print("  ✅ Подключение успешно")
         
         # Генерируем ответ
         try:
@@ -126,7 +130,7 @@ RMSSD: {latest_hrv['rmssd']:.1f} мс
             results[name] = {"available": True, "success": False, "error": str(e)}
     
     # Результаты
-    print(f"\n📊 ИТОГОВЫЕ РЕЗУЛЬТАТЫ")
+    print("\n📊 ИТОГОВЫЕ РЕЗУЛЬТАТЫ")
     print("=" * 60)
     
     working_providers = []
@@ -143,13 +147,13 @@ RMSSD: {latest_hrv['rmssd']:.1f} мс
             failed_providers.append(name)
             print(f"❌ {name}: Недоступен")
     
-    print(f"\n📈 Статистика:")
+    print("\n📈 Статистика:")
     print(f"  Работающих провайдеров: {len(working_providers)}")
     print(f"  Проблемных провайдеров: {len(failed_providers)}")
     
     # Показываем лучшие ответы
     if working_providers:
-        print(f"\n🏆 ПРИМЕРЫ ЛУЧШИХ ОТВЕТОВ:")
+        print("\n🏆 ПРИМЕРЫ ЛУЧШИХ ОТВЕТОВ:")
         print("=" * 60)
         
         for name in working_providers[:3]:  # Показываем первые 3 работающих
@@ -164,7 +168,7 @@ RMSSD: {latest_hrv['rmssd']:.1f} мс
 def test_provider_switching():
     """Тест автоматического переключения провайдеров"""
     
-    print(f"\n🔄 ТЕСТ АВТОМАТИЧЕСКОГО ПЕРЕКЛЮЧЕНИЯ ПРОВАЙДЕРОВ")
+    print("\n🔄 ТЕСТ АВТОМАТИЧЕСКОГО ПЕРЕКЛЮЧЕНИЯ ПРОВАЙДЕРОВ")
     print("=" * 60)
     
     # Получаем лучший доступный провайдер
@@ -183,7 +187,7 @@ def test_provider_switching():
         print(f"📝 Ответ: {response}")
         assert response
     else:
-        print(f"❌ Ни один провайдер не доступен")
+        print("❌ Ни один провайдер не доступен")
         pytest.skip("Ни один AI провайдер не доступен в текущем окружении")
 
 if __name__ == "__main__":
@@ -196,9 +200,9 @@ if __name__ == "__main__":
     switching_ok = test_provider_switching()
     
     if providers_ok:
-        print(f"\n🎉 ТЕСТЫ ЗАВЕРШЕНЫ УСПЕШНО!")
-        print(f"💡 AI провайдеры готовы для персонального тренерского коучинга!")
-        print(f"📱 Запустите приложение: streamlit run app.py")
+        print("\n🎉 ТЕСТЫ ЗАВЕРШЕНЫ УСПЕШНО!")
+        print("💡 AI провайдеры готовы для персонального тренерского коучинга!")
+        print("📱 Запустите приложение: streamlit run app.py")
     else:
-        print(f"\n⚠️ Проблемы с AI провайдерами")
-        print(f"🔧 Проверьте API ключи в .env файле")
+        print("\n⚠️ Проблемы с AI провайдерами")
+        print("🔧 Проверьте API ключи в .env файле")

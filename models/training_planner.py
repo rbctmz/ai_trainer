@@ -2179,10 +2179,6 @@ def build_daily_session_templates(
     brick_day_indices: set[int] | Sequence[int] = (),
 ) -> List[Dict[str, Any]]:
     """Строит метаданные сессий, выровненные с daily plan без смены его контракта."""
-    from models.workout_catalog import (
-        materialize_brick_session,
-        materialize_session_template,
-    )
 
     templates: List[Dict[str, Any]] = []
     brick_indices = {int(value) for value in brick_day_indices}

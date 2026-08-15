@@ -1,0 +1,33 @@
+# Ruff: первый слайс линтинга — дефолтный набор pycodestyle/pyflakes (E4/E7/E9/F).
+# Расширение правил (I, UP, B, ...) — отдельными слайсами с массовыми autofix-PR.
+# Форматирование (E501/W29x) сознательно не включено: это территория
+# ruff format, которая пока не принята в репо.
+
+target-version = "py310"
+
+extend-exclude = [
+    "ai_trainer_env",
+    "archived",
+    "backups",
+    "chats",
+    "debug",
+    "docs",
+    "examples",
+    "logs",
+    "output",
+    "research",
+    "spikes",
+    "web",
+]
+
+[lint]
+select = ["E4", "E7", "E9", "F"]
+
+[lint.per-file-ignores]
+# Спайки — одноразовые эксперименты вне продуктового кода.
+"spikes/**" = ["ALL"]
+# Легаси path-bootstrap: sys.path.append('.') до импортов.
+"tests/force_fresh_sync_test.py" = ["E402"]
+"tests/test_main_app_integration.py" = ["E402"]
+"tests/test_streaming_chat.py" = ["E402"]
+"tools/sync_sleep_today.py" = ["E402"]

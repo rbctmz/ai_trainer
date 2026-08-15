@@ -17,8 +17,16 @@ from models.ai_coach_runtime import (
     generate_ai_chat_response as _generate_ai_chat_response_core,
     process_tool_calls as _process_tool_calls_core,
 )
-from services import demo_mode as demo_mode_service
+from services import demo_mode as demo_mode_service  # noqa: F401 — patch-таргет тестов
 from state import StateManager, get_state_manager
+from ui.components.ai_coach_entry import (  # noqa: F401 — patch-таргеты тестов
+    _build_ai_coach_explainability_summary,
+    _choose_recommended_first_prompt,
+    _normalize_ai_coach_handoff,
+    _resolve_ai_coach_entry_prompt,
+    render_dashboard_handoff,
+    render_empty_ai_chat_guidance,
+)
 from ui.components.ai_coach_chat import (
     apply_ai_chat_styles,
     ensure_ai_chat_context_loaded,
@@ -27,20 +35,12 @@ from ui.components.ai_coach_chat import (
     render_ai_chat_input_bar,
     render_ai_chat_sidebar,
 )
-from ui.components.ai_coach_entry import (
-    _build_ai_coach_explainability_summary,
-    _choose_recommended_first_prompt,
-    _normalize_ai_coach_handoff,
-    _resolve_ai_coach_entry_prompt,
-    render_dashboard_handoff,
-    render_empty_ai_chat_guidance,
-)
 from ui.components.ai_coach_output import (
     format_tool_result as _format_tool_result_core,
     simulate_streaming_response as _simulate_streaming_response_core,
     speak_text as _speak_text_core,
 )
-from ui.components.ai_coach_provider import (
+from ui.components.ai_coach_provider import (  # noqa: F401 — приватные имена ниже: patch-таргеты тестов
     _build_provider_options,
     _connect_provider,
     _default_provider_kwargs,

@@ -23,7 +23,7 @@ def debug_ollama_issue():
     print(f"   DEFAULT_AI_PROVIDER: {Settings.DEFAULT_AI_PROVIDER}")
     
     # Пробуем создать провайдер напрямую
-    print(f"\n🏭 Создание провайдера напрямую:")
+    print("\n🏭 Создание провайдера напрямую:")
     from models.ai_providers import OllamaProvider
     
     try:
@@ -31,14 +31,14 @@ def debug_ollama_issue():
             host=Settings.OLLAMA_HOST,
             model=Settings.OLLAMA_MODEL
         )
-        print(f"   ✅ Провайдер создан")
+        print("   ✅ Провайдер создан")
         
         # Проверяем is_available()
         available = provider.is_available()
         print(f"   is_available(): {available}")
         
         if not available:
-            print(f"   🔍 Отладка is_available():")
+            print("   🔍 Отладка is_available():")
             
             # Проверяем клиент
             print(f"   client: {provider.client}")
@@ -60,20 +60,20 @@ def debug_ollama_issue():
                         print(f"   Target model '{target_model}' found: {found}")
                         
                         if not found:
-                            print(f"   🔍 Поиск похожих:")
+                            print("   🔍 Поиск похожих:")
                             similar = [name for name in model_names if any(part in name.lower() for part in target_model.lower().split(':'))]
                             print(f"   Похожие модели: {similar}")
                             
                 except Exception as e:
                     print(f"   ❌ Ошибка проверки моделей: {e}")
         else:
-            print(f"   ✅ Провайдер доступен!")
+            print("   ✅ Провайдер доступен!")
             
     except Exception as e:
         print(f"   ❌ Ошибка создания провайдера: {e}")
     
     # Тестируем Factory
-    print(f"\n🏭 Тестирование Factory:")
+    print("\n🏭 Тестирование Factory:")
     from models.ai_providers import AIProviderFactory
     
     try:

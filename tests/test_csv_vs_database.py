@@ -131,7 +131,7 @@ if __name__ == "__main__":
     test2 = test_database_methods()  
     test3 = test_recent_sync()
     
-    print(f"\n📊 Результаты диагностики:")
+    print("\n📊 Результаты диагностики:")
     print(f"  - Прямой доступ к SQLite: {'✅' if test1 else '❌'}")
     print(f"  - Методы Database класса: {'✅' if test2 else '❌'}")
     print(f"  - Недавние записи: {'✅' if test3 else '❌'}")

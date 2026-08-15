@@ -3,11 +3,10 @@
 Позволяет AI делать динамические запросы к базе данных
 """
 
-import json
 import pandas as pd
 import numpy as np
 from datetime import date, datetime, timedelta
-from typing import Dict, Any, List, Optional, Callable
+from typing import Dict, Any, List, Optional
 from api import planning_service
 from data.database import Database
 from models.banister import tsb_zone

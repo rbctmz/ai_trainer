@@ -2043,13 +2043,6 @@ def render_planning_page(state: "StateManager") -> None:
 
     current_metrics = banister.get_current_metrics(tss_data, dates)
     recommendation = banister.get_training_recommendation(current_metrics)
-    form_color = {
-        "Отличная форма": "🟢",
-        "Хорошая форма": "🟡",
-        "Усталость": "🟠",
-        "Переутомление": "🔴",
-        "Недостаточно данных": "⚫",
-    }
     form_status = current_metrics["form"] if "form" in current_metrics else "Недостаточно данных"
     ModernUI.render_page_hero(
         "Планирование",
@@ -2602,7 +2595,6 @@ def render_planning_page(state: "StateManager") -> None:
                 goal_type=goal_type,
                 load_state=str(constraint_summary.get("load_state", "balanced")),
             )
-            daily_seq = flatten_daily_total(daily_plan)
             for week_row, detail in zip(weekly_summary, constraint_details):
                 week_row["capacity_tss"] = detail.get("capacity_tss")
                 week_row["adjustment_note"] = detail.get("adjustment_note", "—")

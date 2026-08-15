@@ -4,11 +4,8 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
-import pandas as pd
-from datetime import datetime, timedelta
 from data.database import Database
 from models.ai_data_context import AIDataContext
 from models.ai_providers import AIProviderFactory
@@ -54,7 +51,7 @@ def test_ai_chat_integration():
         # Выводим краткую статистику
         summary = full_context['summary']
         if summary['has_data']:
-            print(f"\n  📈 Статистика контекста:")
+            print("\n  📈 Статистика контекста:")
             print(f"    • Период: {summary['period_start']} - {summary['period_end']}")
             print(f"    • Тренировок: {summary['total_activities']}")
             print(f"    • Общий TSS: {summary['total_tss']:.0f}")

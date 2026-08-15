@@ -4,7 +4,6 @@
 """
 
 import sys
-import os
 import tempfile
 from pathlib import Path
 sys.path.append('..')

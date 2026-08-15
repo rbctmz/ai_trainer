@@ -5,7 +5,6 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
 import re
@@ -143,7 +142,7 @@ def simulate_chat_with_tools():
     print(f"\\n🎯 Тестируем {len(test_dialogs)} диалогов...")
     
     for i, dialog in enumerate(test_dialogs, 1):
-        print(f"\\n" + "─" * 60)
+        print("\\n" + "─" * 60)
         print(f"💬 ДИАЛОГ {i}")
         print(f"🤔 Пользователь: {dialog['question']}")
         
@@ -190,7 +189,7 @@ def simulate_chat_with_tools():
         except Exception as e:
             print(f"❌ Ошибка в диалоге: {e}")
     
-    print(f"\\n" + "=" * 80)
+    print("\\n" + "=" * 80)
     print("📋 ДЕМОНСТРАЦИЯ ЗАВЕРШЕНА")
     print("=" * 80)
     

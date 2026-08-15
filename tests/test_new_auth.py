@@ -58,7 +58,7 @@ def test_new_auth():
             else:
                 print(f"  💓 HRV данные найдены (структура: {type(hrv_data)})")
         else:
-            print(f"  📭 Нет HRV данных")
+            print("  📭 Нет HRV данных")
         
         # 2. Стресс данные
         stress_data = client.get_stress_data(current_date)
@@ -72,7 +72,7 @@ def test_new_auth():
                     for key in stress_keys[:2]:
                         print(f"    {key}: {stress_data[key]}")
         else:
-            print(f"  📭 Нет стресс данных")
+            print("  📭 Нет стресс данных")
         
         # 3. Body Battery данные
         battery_data = client.get_body_battery_data(current_date)
@@ -86,12 +86,12 @@ def test_new_auth():
                 print(f"    Начало дня: {first_entry.get('batteryLevelStart', 'Н/Д')}")
                 print(f"    Конец дня: {last_entry.get('batteryLevelEnd', 'Н/Д')}")
         else:
-            print(f"  📭 Нет Body Battery данных")
+            print("  📭 Нет Body Battery данных")
         
         current_date += timedelta(days=1)
     
     # 4. Проверим активности
-    print(f"\n🏃 Проверка активностей...")
+    print("\n🏃 Проверка активностей...")
     activities = client.get_activities(start_date, end_date)
     if activities:
         data_found["activities"] = len(activities)
@@ -99,9 +99,9 @@ def test_new_auth():
         for i, activity in enumerate(activities[:3]):
             print(f"    {i+1}. {activity.get('activityName', 'Без названия')} - {activity.get('distance', 0):.1f}км")
     else:
-        print(f"  📭 Нет активностей")
+        print("  📭 Нет активностей")
     
-    print(f"\n📊 Итоговая статистика:")
+    print("\n📊 Итоговая статистика:")
     print(f"  💓 HRV данных: {data_found['hrv']} дней")
     print(f"  😰 Стресс данных: {data_found['stress']} дней")
     print(f"  🔋 Recovery данных: {data_found['recovery']} дней")
@@ -109,16 +109,16 @@ def test_new_auth():
     
     total_data = sum(data_found.values())
     if total_data > 0:
-        print(f"\n🎉 Подключение успешно! Найдены данные.")
+        print("\n🎉 Подключение успешно! Найдены данные.")
         assert True
     else:
-        print(f"\n⚠️  Подключение успешно, но данные не найдены.")
+        print("\n⚠️  Подключение успешно, но данные не найдены.")
         pytest.fail("Garmin auth успешен, но данные за проверяемый период не найдены")
 
 if __name__ == "__main__":
     success = test_new_auth()
     if success:
-        print(f"\n✅ Тест пройден! Данные доступны.")
-        print(f"💡 Можно обновить переменные окружения и протестировать синхронизацию.")
+        print("\n✅ Тест пройден! Данные доступны.")
+        print("💡 Можно обновить переменные окружения и протестировать синхронизацию.")
     else:
-        print(f"\n❓ Возможно, устройство не синхронизировано или данные недоступны.")
+        print("\n❓ Возможно, устройство не синхронизировано или данные недоступны.")

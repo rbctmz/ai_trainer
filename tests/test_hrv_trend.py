@@ -4,7 +4,6 @@
 """
 
 import sys
-import pandas as pd
 import numpy as np
 import pytest
 
@@ -40,7 +39,7 @@ def test_hrv_trend():
     # Сортируем по дате
     valid_data = valid_data.sort_values('date').reset_index(drop=True)
     
-    print(f"\n📋 Данные для анализа тренда:")
+    print("\n📋 Данные для анализа тренда:")
     print(f"  Период: {valid_data['date'].min().strftime('%Y-%m-%d')} - {valid_data['date'].max().strftime('%Y-%m-%d')}")
     print(f"  RMSSD: {valid_data['rmssd'].min():.1f} - {valid_data['rmssd'].max():.1f} мс")
     print(f"  Среднее: {valid_data['rmssd'].mean():.1f} мс")
@@ -64,7 +63,7 @@ def test_hrv_trend():
         trend_change = trend_slope * len(valid_data)  # Общее изменение за период
         r_squared = model.score(x_numeric, y_values)  # Коэффициент детерминации (качество подгонки)
         
-        print(f"\n📈 Анализ тренда:")
+        print("\n📈 Анализ тренда:")
         print(f"  Направление: {trend_direction}")
         print(f"  Скорость изменения: {trend_slope:+.3f} мс/день")
         print(f"  Изменение за период: {trend_change:+.1f} мс")
@@ -75,25 +74,25 @@ def test_hrv_trend():
         print(f"  Тренд в конце: {trend_values[-1]:.1f} мс")
         
         # Интерпретация тренда для пользователя
-        print(f"\n💡 Интерпретация тренда:")
+        print("\n💡 Интерпретация тренда:")
         if abs(trend_slope) < 0.1:
-            print(f"  ⚖️ HRV стабилен - изменения минимальны")
+            print("  ⚖️ HRV стабилен - изменения минимальны")
         elif trend_slope > 0.5:
-            print(f"  🟢 HRV значительно улучшается - отличная тенденция!")
+            print("  🟢 HRV значительно улучшается - отличная тенденция!")
         elif trend_slope > 0.1:
-            print(f"  🟢 HRV немного улучшается - хорошая тенденция")
+            print("  🟢 HRV немного улучшается - хорошая тенденция")
         elif trend_slope < -0.5:
-            print(f"  🔴 HRV значительно ухудшается - стоит обратить внимание")
+            print("  🔴 HRV значительно ухудшается - стоит обратить внимание")
         elif trend_slope < -0.1:
-            print(f"  🟡 HRV немного ухудшается - возможна усталость")
+            print("  🟡 HRV немного ухудшается - возможна усталость")
         
         if r_squared < 0.3:
-            print(f"  ⚠️ Тренд неустойчивый - данные сильно варьируются")
+            print("  ⚠️ Тренд неустойчивый - данные сильно варьируются")
         elif r_squared > 0.7:
-            print(f"  ✅ Четкий тренд - изменения последовательны")
+            print("  ✅ Четкий тренд - изменения последовательны")
         
         # Показываем несколько последних значений для примера
-        print(f"\n📋 Последние значения RMSSD:")
+        print("\n📋 Последние значения RMSSD:")
         for _, row in valid_data.tail(5).iterrows():
             print(f"  {row['date'].strftime('%Y-%m-%d')}: {row['rmssd']:.1f} мс")
         

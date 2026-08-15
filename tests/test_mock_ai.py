@@ -21,7 +21,7 @@ def test_mock_ai():
         print(f"{status} {name}")
     
     # Создаём Mock провайдер
-    print(f"\n🎯 Создаём Mock провайдер...")
+    print("\n🎯 Создаём Mock провайдер...")
     try:
         provider = AIProviderFactory.create_provider("mock", delay=0.5)  # Быстрый режим
         if provider and provider.is_available():
@@ -53,20 +53,20 @@ def test_mock_ai():
     print('='*60)
     
     # Тест 1: Анализ состояния
-    print(f"\n📊 Тест 1: Анализ текущего состояния")
+    print("\n📊 Тест 1: Анализ текущего состояния")
     print("-" * 50)
     analysis = coach.analyze_current_state(test_metrics)
     print(analysis)
     
     # Тест 2: Недельный план
-    print(f"\n📅 Тест 2: Генерация недельного плана")
+    print("\n📅 Тест 2: Генерация недельного плана")
     print("-" * 50)
     goals = "подготовка к полумарафону через 8 недель"
     plan = coach.generate_weekly_plan(test_metrics, goals)
     print(plan)
     
     # Тест 3: Анализ тренировки
-    print(f"\n🏃 Тест 3: Анализ тренировки")
+    print("\n🏃 Тест 3: Анализ тренировки")
     print("-" * 50)
     workout_data = {
         'sport': 'бег',
@@ -83,13 +83,13 @@ def test_mock_ai():
     print(workout_analysis)
     
     # Тест 4: Объяснение метрик
-    print(f"\n📚 Тест 4: Объяснение метрик")
+    print("\n📚 Тест 4: Объяснение метрик")
     print("-" * 50)
     explanation = coach.explain_metrics("CTL (Chronic Training Load)")
     print(explanation)
     
     # Тест 5: Ответ на вопрос
-    print(f"\n❓ Тест 5: Ответ на произвольный вопрос")
+    print("\n❓ Тест 5: Ответ на произвольный вопрос")
     print("-" * 50)
     question = "Как часто нужно делать интервальные тренировки?"
     answer = coach.answer_question(question, test_metrics)

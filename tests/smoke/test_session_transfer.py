@@ -11,7 +11,7 @@ primitive, so what the ranker promised is exactly what gets applied.
 from __future__ import annotations
 
 import json
-from datetime import date, timedelta
+from datetime import timedelta
 
 import pytest
 

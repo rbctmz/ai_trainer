@@ -4,7 +4,6 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
 import pandas as pd
@@ -132,7 +131,7 @@ def check_hrv_data():
                 tail_dates = df_tail['date'].values
                 
                 if not all(d in last_n_dates for d in tail_dates):
-                    print(f"    ⚠️ ОШИБКА: tail() не возвращает последние записи по дате!")
+                    print("    ⚠️ ОШИБКА: tail() не возвращает последние записи по дате!")
     
     conn.close()
     

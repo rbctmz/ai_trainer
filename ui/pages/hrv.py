@@ -136,7 +136,7 @@ def render_hrv_page(state: StateManager) -> None:
 
                 advanced_info = ""
                 try:
-                    advanced_score, info = hrv_analyzer.recovery_score_advanced(df_hrv)  # type: ignore[name-defined]
+                    advanced_score, info = hrv_analyzer.recovery_score_advanced(df_hrv)  # type: ignore[name-defined]  # noqa: F821 — legacy: ветка всегда подавлена except
                     if advanced_score is not None:
                         advanced_info = f" | AI Endurance: {advanced_score:.0f}% ({info})"
                 except Exception:

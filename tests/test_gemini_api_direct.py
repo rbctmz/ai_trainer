@@ -186,22 +186,22 @@ def main():
     # Тестируем через requests
     requests_ok = test_gemini_requests(api_key)
     
-    print(f"\n📊 ИТОГОВЫЕ РЕЗУЛЬТАТЫ:")
+    print("\n📊 ИТОГОВЫЕ РЕЗУЛЬТАТЫ:")
     print("=" * 30)
     print(f"{'✅' if models_ok else '❌'} Получение списка моделей")
     print(f"{'✅' if curl_ok else '❌'} Тест через curl")
     print(f"{'✅' if requests_ok else '❌'} Тест через Python requests")
     
     if curl_ok or requests_ok:
-        print(f"\n🎉 GEMINI API РАБОТАЕТ!")
-        print(f"💡 Теперь можно использовать в приложении")
-        print(f"🔧 Добавьте GOOGLE_API_KEY в .env файл")
+        print("\n🎉 GEMINI API РАБОТАЕТ!")
+        print("💡 Теперь можно использовать в приложении")
+        print("🔧 Добавьте GOOGLE_API_KEY в .env файл")
     else:
-        print(f"\n❌ Проблемы с Gemini API")
-        print(f"🔧 Проверьте:")
-        print(f"  • Правильность API ключа")
-        print(f"  • Интернет соединение")
-        print(f"  • Квоты и лимиты Google AI Studio")
+        print("\n❌ Проблемы с Gemini API")
+        print("🔧 Проверьте:")
+        print("  • Правильность API ключа")
+        print("  • Интернет соединение")
+        print("  • Квоты и лимиты Google AI Studio")
     
     return curl_ok or requests_ok
 

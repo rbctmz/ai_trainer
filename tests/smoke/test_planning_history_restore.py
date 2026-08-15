@@ -14,7 +14,6 @@ from pathlib import Path
 import pytest
 
 from api import planning_service as ps
-from data.database import Database
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from tests.smoke.test_api_planning import _seeded_db
 

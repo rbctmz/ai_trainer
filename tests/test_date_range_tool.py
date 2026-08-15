@@ -5,7 +5,6 @@
 """
 
 import sys
-import os
 sys.path.append('..')
 
 import re
@@ -25,18 +24,18 @@ def simulate_date_range_questions():
     mock_ai = AIProviderFactory.create_provider("mock")
     
     print("🔧 Инициализация завершена")
-    print(f"📊 Новый инструмент добавлен: get_activities_by_date_range")
+    print("📊 Новый инструмент добавлен: get_activities_by_date_range")
     
     # Сначала посмотрим какие даты есть в базе
     activities_df = db.get_activities(365)
     if not activities_df.empty:
-        print(f"\n📅 Доступные данные:")
+        print("\n📅 Доступные данные:")
         print(f"   От: {activities_df['date'].min()}")
         print(f"   До: {activities_df['date'].max()}")
         print(f"   Всего: {len(activities_df)} активностей")
     
     # Тестируем новый инструмент напрямую
-    print(f"\n🧪 Прямое тестирование инструмента:")
+    print("\n🧪 Прямое тестирование инструмента:")
     
     test_cases = [
         ("2025-08-01", "2025-08-14", "начало августа 2025"),
@@ -60,7 +59,7 @@ def simulate_date_range_questions():
             print(f"    ❌ Ошибка: {result.get('error', 'неизвестная')}")
     
     # Теперь симулируем AI чат с этими вопросами
-    print(f"\n💬 Симуляция чата с AI о датах:")
+    print("\n💬 Симуляция чата с AI о датах:")
     
     system_prompt = f"""
 Ты — персональный AI тренер. У тебя есть инструменты для получения данных.
@@ -124,11 +123,11 @@ def simulate_date_range_questions():
         except Exception as e:
             print(f"❌ Ошибка: {e}")
     
-    print(f"\n" + "=" * 80)
+    print("\n" + "=" * 80)
     print("📋 РЕЗУЛЬТАТЫ ТЕСТИРОВАНИЯ")
     print("=" * 80)
     
-    print(f"""
+    print("""
 ✅ НОВЫЙ ИНСТРУМЕНТ РАБОТАЕТ:
 • get_activities_by_date_range - поиск активностей по конкретным датам
 • Поддерживает любые диапазоны дат в формате YYYY-MM-DD

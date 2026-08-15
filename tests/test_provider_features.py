@@ -42,7 +42,7 @@ def test_provider_features():
             print(f"   Доступен: {'✅' if provider.is_available() else '❌'}")
             
             # Тест 1: test_connection()
-            print(f"\n🔗 Тест подключения:")
+            print("\n🔗 Тест подключения:")
             connection_result = provider.test_connection()
             
             if connection_result.get('success'):
@@ -57,7 +57,7 @@ def test_provider_features():
                 print(f"   ❌ Ошибка: {connection_result.get('error')}")
             
             # Тест 2: get_available_models()
-            print(f"\n📜 Доступные модели:")
+            print("\n📜 Доступные модели:")
             models = provider.get_available_models()
             
             if models:

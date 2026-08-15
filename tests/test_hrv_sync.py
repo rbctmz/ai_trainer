@@ -63,7 +63,7 @@ def test_hrv_sync():
                 'recovery_score': None
             }
         else:
-            print(f"  📭 Нет HRV данных")
+            print("  📭 Нет HRV данных")
             
         current_date += timedelta(days=1)
     

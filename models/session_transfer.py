@@ -12,7 +12,7 @@ Near-term редактор переносом НЕ является: он пер
 from __future__ import annotations
 
 from copy import deepcopy
-from typing import Any, Dict, List, Mapping, Tuple
+from typing import Any, Dict, Mapping, Tuple
 
 from models.session_identity import ensure_session_identities
 

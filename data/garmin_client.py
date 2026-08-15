@@ -1,7 +1,6 @@
 from garminconnect import Garmin
 from datetime import datetime, timedelta
 import logging
-import pandas as pd
 
 garmin_logger = logging.getLogger("garmin_sync")
 
@@ -403,7 +402,7 @@ class GarminClient:
         try:
             devices = self.client.get_devices()
             return devices if devices else []
-        except Exception as e:
+        except Exception:
             return []
     
     def disconnect(self):
@@ -517,7 +516,7 @@ class GarminClient:
         try:
             steps_data = self.client.get_steps_data(date.strftime("%Y-%m-%d"))
             return steps_data
-        except Exception as e:
+        except Exception:
             # Используем альтернативный метод
             try:
                 return self.client.get_stats(date.strftime("%Y-%m-%d"))
@@ -585,7 +584,7 @@ class GarminClient:
             return None
         
         # Пробуем разные методы получения статуса тренированности
-        from datetime import datetime, timedelta
+        from datetime import datetime
         now = datetime.now()
         current_date = now.strftime("%Y-%m-%d")
         start_date = (now - timedelta(days=30)).strftime("%Y-%m-%d")

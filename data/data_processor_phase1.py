@@ -2,7 +2,7 @@
 Процессор данных для Фазы 1 - обработка расширенных данных Garmin
 """
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 import pandas as pd
 
@@ -116,10 +116,14 @@ class Phase1DataProcessor:
                 for level in levels:
                     duration_m = level.get('durationInSeconds', 0) // 60
                     level_type = str(level.get('activityLevel', '')).lower()
-                    if level_type == 'deep': deep_m += duration_m
-                    elif level_type == 'light': light_m += duration_m
-                    elif level_type == 'rem': rem_m += duration_m
-                    elif level_type == 'awake': awake_count_from_levels += 1
+                    if level_type == 'deep':
+                        deep_m += duration_m
+                    elif level_type == 'light':
+                        light_m += duration_m
+                    elif level_type == 'rem':
+                        rem_m += duration_m
+                    elif level_type == 'awake':
+                        awake_count_from_levels += 1
                 processed_data['deep_sleep_minutes'] = deep_m
                 processed_data['light_sleep_minutes'] = light_m
                 processed_data['rem_sleep_minutes'] = rem_m

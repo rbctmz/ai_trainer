@@ -9,7 +9,7 @@ from #206 M6: the label must match what the day honestly holds.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 

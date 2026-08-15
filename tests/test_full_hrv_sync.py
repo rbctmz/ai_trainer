@@ -58,7 +58,7 @@ def test_full_hrv_sync():
             rmssd_value = hrv_summary.get('lastNightAvg')
             print(f"  💓 HRV: RMSSD = {rmssd_value}")
         else:
-            print(f"  📭 HRV данные не найдены")
+            print("  📭 HRV данные не найдены")
         
         # Стресс данные
         stress_score = None
@@ -74,7 +74,7 @@ def test_full_hrv_sync():
             else:
                 print(f"    Данные: {stress_data}")
         else:
-            print(f"  📭 Стресс данные не найдены")
+            print("  📭 Стресс данные не найдены")
         
         # Body Battery данные
         recovery_score = None
@@ -91,7 +91,7 @@ def test_full_hrv_sync():
                 recovery_score = body_battery_data.get('batteryLevelEnd') or body_battery_data.get('endLevel')
                 print(f"  🔋 Восстановление: {recovery_score}%")
         else:
-            print(f"  📭 Body Battery данные не найдены")
+            print("  📭 Body Battery данные не найдены")
         
         # Сохраняем данные если есть хотя бы один показатель
         if rmssd_value is not None or stress_score is not None or recovery_score is not None:
@@ -100,9 +100,9 @@ def test_full_hrv_sync():
                 'stress_score': stress_score,
                 'recovery_score': recovery_score
             }
-            print(f"  ✅ Данные сохранены")
+            print("  ✅ Данные сохранены")
         else:
-            print(f"  ❌ Нет данных для сохранения")
+            print("  ❌ Нет данных для сохранения")
         
         current_date += timedelta(days=1)
     

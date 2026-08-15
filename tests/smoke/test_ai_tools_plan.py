@@ -1,9 +1,7 @@
 """Smoke tests: get_active_plan / get_upcoming_workouts see a seeded plan."""
 from __future__ import annotations
 
-import tempfile
 from datetime import date, datetime, timedelta
-from pathlib import Path
 
 import pytest
 

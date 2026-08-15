@@ -4,10 +4,10 @@ from __future__ import annotations
 import json
 import re
 import time
-from typing import Any, Dict
 
 import streamlit as st
-from models.coach_tool_presenter import format_tool_result
+
+from models.coach_tool_presenter import format_tool_result as format_tool_result  # noqa: F401 — re-export
 
 
 def speak_text(text: str, voice: str = "default"):

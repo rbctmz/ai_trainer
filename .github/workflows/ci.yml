@@ -30,6 +30,9 @@ jobs:
           python -m pip install -r requirements.txt
           python -m pip install -r requirements-dev.txt
 
+      - name: Lint Python (ruff)
+        run: python -m ruff check .
+
       - name: Run contributor-safe tests
         run: >
           python -m pytest
