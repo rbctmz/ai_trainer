@@ -74,7 +74,7 @@ def test_get_database_demo_routing(monkeypatch, tmp_path):
     import api.deps as deps
 
     monkeypatch.setattr(deps, "DEMO_DB_PATH", str(tmp_path / "demo.db"))
-    deps._db_for_path.cache_clear()
+    deps._reset_db_cache()
     real = deps.get_database(demo=False)
     demo = deps.get_database(demo=True)
     assert real.db_path != demo.db_path
@@ -89,7 +89,7 @@ def test_demo_seed_and_clear_via_router(monkeypatch, tmp_path):
     from api.routers import system as system_mod
 
     monkeypatch.setattr(deps, "DEMO_DB_PATH", str(tmp_path / "demo_router.db"))
-    deps._db_for_path.cache_clear()
+    deps._reset_db_cache()
 
     seeded = system_mod.demo_seed()
     assert seeded["seeded"] is True
@@ -106,7 +106,7 @@ def test_demo_clear_without_prior_seed_is_idempotent_no_500(monkeypatch, tmp_pat
     from api.routers import system as system_mod
 
     monkeypatch.setattr(deps, "DEMO_DB_PATH", str(tmp_path / "demo_never_seeded.db"))
-    deps._db_for_path.cache_clear()
+    deps._reset_db_cache()
 
     result = system_mod.demo_clear()
     assert result["cleared"] is True
