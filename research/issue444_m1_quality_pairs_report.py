@@ -1,9 +1,9 @@
-"""M1 dev-отчёт по теневым вело-парам power+HR (#444 S1+S2).
+"""M1 dev-отчёт по теневым вело-парам power+HR (#444 S1/S2/S3).
 
-Читает таблицу ``bike_hr_quality_pairs`` (только производные признаки, сырой
-ряд не хранится — политика #390) и сравнивает фиксированные кандидаты с
-целевым Power TSS на дата-точном FTP. Формулы кандидатов переиспользуются из
-M0-скрипта ``issue444_m0_bike_hr_tss.py`` (единственный источник математики).
+Читает таблицу bike_hr_quality_pairs (только производные признаки, сырой
+ряд не хранится — политика #390) и сравнивает кандидатов с целевым Power TSS
+на дата-точном FTP. Формулы — services/bike_hr_tss_candidates.py,
+статистика и гейт перестановки зон/avgHR — services/bike_hr_tss_eval.py.
 
 Запуск:
     python research/issue444_m1_quality_pairs_report.py [--db ai_trainer.db]
@@ -13,44 +13,19 @@ from __future__ import annotations
 import argparse
 import sqlite3
 import sys
-from datetime import date
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-import numpy as np
+import numpy as np  # noqa: E402
 
-from issue444_m0_bike_hr_tss import (
-    BIKE_HR_ZONE_WEIGHTS,
-    BikeActivity,
-    by_intensity,
-    hr_avg_formula,
-    hr_zone_formula,
-    hrss_karvonen,
-    metrics,
+from services.bike_hr_tss_candidates import (  # noqa: E402
+    avg_hr_tss,
+    hrss_tss,
     power_tss_target,
+    zones_tss,
 )
-
-
-def _to_activity(pair: dict) -> BikeActivity:
-    """Адаптер строки bike_hr_quality_pairs к датаклассу M0-скрипта."""
-    zones = [pair.get(f"hr_zone_minutes_z{zone}") for zone in range(1, 6)]
-    return BikeActivity(
-        activity_id=str(pair["activity_id"]),
-        date=date.fromisoformat(pair["date"]),
-        sport=pair.get("sport"),
-        duration_min=pair["moving_minutes"],
-        moving_min=pair["moving_minutes"],
-        avg_hr=pair.get("avg_hr"),
-        max_hr=None,
-        avg_power=pair.get("avg_power"),
-        normalized_power=pair.get("normalized_power"),
-        zones_min=tuple(zones),
-        stored_tss=None,
-        stored_method=None,
-        stored_ftp=None,
-        garmin_load=None,
-    )
+from services.bike_hr_tss_eval import by_intensity, evaluate_reorder, metrics  # noqa: E402
 
 
 def main() -> None:
@@ -77,23 +52,16 @@ def main() -> None:
 
     rows_out = []
     for pair in pairs:
-        activity = _to_activity(pair)
-        target = (
-            power_tss_target(activity, pair["ftp_on_date"])
-            if pair["ftp_on_date"]
-            else None
-        )
+        target = power_tss_target(pair)
         if target is None:
             continue
-        lthr = pair.get("lthr")
         rows_out.append(
             {
                 "pair": pair,
-                "activity": activity,
                 "target": target,
-                "hrss": hrss_karvonen(activity, pair.get("rhr"), lthr) if lthr else None,
-                "zones": hr_zone_formula(activity, BIKE_HR_ZONE_WEIGHTS),
-                "avg_hr": hr_avg_formula(activity, lthr) if lthr else None,
+                "hrss": hrss_tss(pair),
+                "zones": zones_tss(pair),
+                "avg_hr": avg_hr_tss(pair),
             }
         )
     rows_out.sort(key=lambda r: r["pair"]["date"])
@@ -151,6 +119,27 @@ def main() -> None:
                 f"    {bucket_name:<9} n={bucket['n']:<3} MAE={bucket['mae']:6.1f} "
                 f"bias={bucket['bias']:+6.1f}"
             )
+
+    print("\n" + "-" * 78)
+    print("REORDER CHECK: зоны vs avgHR — статус гейта (#444 S3)")
+    print("-" * 78)
+    verdict = evaluate_reorder(pairs)
+    for check in verdict["checks"]:
+        mark = "✓" if check["passed"] else "✗"
+        print(f"  [{mark}] {check['label']:<44} {check['detail']}")
+    if verdict["passed"]:
+        status = "ПРОЙДЕН — можно планировать S3′ (flip с провенанс-эскортом)"
+    else:
+        status = "НЕ пройден — продуктовый TSS остаётся без изменений, копим пары"
+    print(f"\n  Гейт: {status}")
+    hard = verdict.get("hard_tercile") or {}
+    hard_bias_avg = hard.get("bias_avg")
+    hard_bias_zones = hard.get("bias_zones")
+    if hard_bias_avg is not None:
+        print(
+            f"  hard-терциль: bias(avgHR)={hard_bias_avg:+.1f}, "
+            f"bias(зоны)={hard_bias_zones:+.1f} (n={hard.get('n')})"
+        )
 
 
 if __name__ == "__main__":
