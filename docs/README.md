@@ -69,6 +69,13 @@ These completed ExecPlans describe the current product behavior and the invarian
 - `docs/reconciliation_service_execplan.md`: canonical read-only plan/actual reconciliation service and API compatibility boundary.
 - `docs/recovery_episode_refresh_execplan.md`: bounded ordinary recovery refresh plus targeted old-session refresh after match/feedback changes.
 
+## Drafts and Research
+
+- [`bike_hr_tss_m0_execplan.md`](bike_hr_tss_m0_execplan.md): M0 research for
+  issue #444 (personal bike TSS from HR without power) — data inventory,
+  candidate comparison, and the M0 decision; the M1–M3 plan outline is a
+  proposal, not an implemented contract.
+
 ## Historical and Superseded
 
 The following documents are retained for decision history or old UI exploration.

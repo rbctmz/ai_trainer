@@ -203,12 +203,19 @@ def hr_avg_formula(a: BikeActivity, lthr: float) -> Optional[float]:
 
 
 def hr_zone_formula(a: BikeActivity, weights) -> Optional[float]:
-    """Candidate 2: fixed HR-zone weights (current code)."""
-    if any(z is None for z in a.zones_min):
-        return None
-    if all((z or 0) <= 0 for z in a.zones_min):
-        return None
-    return float(sum((z or 0.0) * w for z, w in zip(a.zones_min, weights)))
+    """Candidate 2: fixed HR-zone weights (current code).
+
+    Mirrors data_processor._zone_weighted_tss: NULL/<=0 zones are skipped
+    per zone, and the candidate is computable when at least one zone has data.
+    """
+    total = 0.0
+    has_zone_data = False
+    for z, w in zip(a.zones_min, weights):
+        if z is None or z <= 0:
+            continue
+        has_zone_data = True
+        total += z * w
+    return float(total) if has_zone_data else None
 
 
 def metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
@@ -267,7 +274,8 @@ def main() -> None:
             pairs.append((a, ftp, verified, target))
 
     print(f"\nQuality pairs (power + HR, target computable): {len(pairs)}")
-    print(f"  with HR zones: {sum(1 for a, *_ in pairs if all(z is not None for z in a.zones_min))}")
+    print(f"  with HR zones (zones candidate computable): "
+          f"{sum(1 for a, *_ in pairs if hr_zone_formula(a, BIKE_HR_ZONE_WEIGHTS) is not None)}")
     print(f"  with RHR (HRSS computable): "
           f"{sum(1 for a, *_ in pairs if rhr_for(rhr_map, a.date) is not None)}")
     print(f"  with unverified FTP (predate first sync): "
@@ -362,8 +370,9 @@ def main() -> None:
         print(f"  {label:<20} n={m['n']:<3} MAE={m['mae']:6.1f} medAE={m['median_ae']:6.1f} "
               f"bias={m['bias']:+6.1f} RMSE={m['rmse']:6.1f}")
     if personal_ok:
-        preds = [predict_personal(r) for r in hold if predict_personal(r) is not None]
-        truths = [r["target"] for r in hold if predict_personal(r) is not None]
+        scored = [(r, predict_personal(r)) for r in hold]
+        truths = [r["target"] for r, p in scored if p is not None]
+        preds = [p for _r, p in scored if p is not None]
         if len(truths) >= 2:
             m = metrics(np.array(truths), np.array(preds))
             print(f"  {'4.personal(NNLS)':<20} n={m['n']:<3} MAE={m['mae']:6.1f} "
