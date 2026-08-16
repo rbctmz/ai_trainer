@@ -203,8 +203,13 @@ FTP на дату тренировки (159→172). `stored` — значени�
   [#453](https://github.com/rbctmz/ai_trainer/pull/453) смержен;
 - реализовать Karvonen-HRSS с версией формулы, происхождением и причиной fallback;
 - собирать качественные пары power+HR в теневом режиме (признаки при синке, без
-  сырого ряда);
-- диагностическое сравнение только в dev/admin-отчёте;
+  сырого ряда) — сделано: таблица `bike_hr_quality_pairs`, хук в общем
+  ingest-funnel (`services/bike_hr_pairs.py`, `activity_ingest.py`), backfill
+  `scripts/backfill_bike_hr_pairs.py`, PR
+  [#455](https://github.com/rbctmz/ai_trainer/pull/455) смержен;
+- диагностическое сравнение только в dev/admin-отчёте — сделано:
+  `research/issue444_m1_quality_pairs_report.py` (read-only, цифры совпадают с
+  M0), PR [#455](https://github.com/rbctmz/ai_trainer/pull/455);
 - проверить перестановку зон/avgHR как *кандидат*, не меняя продуктовый TSS до
   подтверждения на большем числе точек.
 
