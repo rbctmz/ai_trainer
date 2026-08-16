@@ -199,7 +199,8 @@ FTP на дату тренировки (159→172). `stored` — значени�
   issue на корректировку `_repair_legacy_activity_tss` — issue
   [#451](https://github.com/rbctmz/ai_trainer/issues/451), исправление в
   `data/database.py`/`data/data_processor.py` (date-accurate FTP через
-  append-only историю `athlete_profile`);
+  append-only историю `athlete_profile`), PR
+  [#453](https://github.com/rbctmz/ai_trainer/pull/453) смержен;
 - реализовать Karvonen-HRSS с версией формулы, происхождением и причиной fallback;
 - собирать качественные пары power+HR в теневом режиме (признаки при синке, без
   сырого ряда);
