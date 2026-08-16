@@ -174,6 +174,29 @@ def test_openai_compatible_adapter_normalizes_tools_and_tool_calls():
     ]
 
 
+def test_openai_compatible_tool_calls_are_deterministic_temperature():
+    """Issue #440: tool-call requests sample at temperature 0, not the 0.7 used
+    for free-text responses, so the coach selects tools and emits JSON arguments
+    deterministically."""
+    provider = DeepSeekProvider(api_key="test-key")
+    recorded: dict = {}
+
+    def _create(**kwargs):
+        recorded.update(kwargs)
+        return _openai_style_response(None, [])
+
+    provider.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+    )
+
+    provider.generate_with_tools(
+        messages=[{"role": "user", "content": "какая форма?"}],
+        tools=[],
+    )
+
+    assert recorded["temperature"] == 0.0
+
+
 def test_openai_compatible_adapter_tolerates_missing_and_broken_arguments():
     provider = DeepSeekProvider(api_key="test-key")
 
