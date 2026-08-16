@@ -873,8 +873,13 @@ class Database:
             return left == right
 
     def _repair_legacy_activity_tss(self, conn: sqlite3.Connection) -> None:
-        """Пересчитывает сохраненный activity TSS по текущим resolver-правилам."""
-        from data.data_processor import ActivityProcessor, resolve_athlete_tss_profile
+        """Пересчитывает сохраненный activity TSS по текущим resolver-правилам.
+
+        Для вело-строк с мощностью FTP берётся по дате активности из
+        append-only истории athlete_profile (#451): смена FTP не переписывает
+        прошлые TSS молча.
+        """
+        from data.data_processor import ActivityProcessor, ftp_at, resolve_athlete_tss_profile
 
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -888,13 +893,42 @@ class Database:
         if not rows:
             return
 
+        profile_rows = conn.execute(
+            '''
+            SELECT synced_at, ftp
+            FROM athlete_profile
+            WHERE ftp IS NOT NULL
+            ORDER BY synced_at, id
+            '''
+        ).fetchall()
+        ftp_history = []
+        for profile_row in profile_rows:
+            try:
+                sync_date = datetime.strptime(
+                    str(profile_row["synced_at"])[:10], "%Y-%m-%d"
+                ).date()
+                ftp_value = float(profile_row["ftp"])
+            except (TypeError, ValueError):
+                continue
+            ftp_history.append((sync_date, ftp_value))
+
         ftp, lthr, swim_css = resolve_athlete_tss_profile(self)
 
         for row in rows:
             activity = dict(row)
+            row_ftp = ftp
+            if ftp_history:
+                try:
+                    activity_date = datetime.strptime(
+                        str(activity.get("date"))[:10], "%Y-%m-%d"
+                    ).date()
+                except (TypeError, ValueError):
+                    activity_date = None
+                if activity_date is not None:
+                    row_ftp = ftp_at(ftp_history, activity_date) or ftp
             resolved = ActivityProcessor.resolve_tss(
                 activity,
-                ftp=ftp,
+                ftp=row_ftp,
                 lthr=lthr,
                 swim_threshold_pace_seconds_per_100m=swim_css,
             )
