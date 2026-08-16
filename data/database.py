@@ -756,6 +756,30 @@ class Database:
                 PRIMARY KEY (provider, domain)
             )
         ''')
+        # #444 S1: shadow bike power+HR quality pairs — derived features only
+        # (no raw series, policy #390). Best-effort upsert per activity_id.
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS bike_hr_quality_pairs (
+                activity_id TEXT PRIMARY KEY,
+                date TEXT NOT NULL,
+                sport TEXT,
+                moving_minutes REAL,
+                avg_hr REAL,
+                normalized_power REAL,
+                avg_power REAL,
+                hr_zone_minutes_z1 REAL,
+                hr_zone_minutes_z2 REAL,
+                hr_zone_minutes_z3 REAL,
+                hr_zone_minutes_z4 REAL,
+                hr_zone_minutes_z5 REAL,
+                ftp_on_date REAL,
+                ftp_verified INTEGER NOT NULL DEFAULT 0,
+                rhr REAL,
+                lthr REAL,
+                zone_coverage_pct REAL,
+                updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
         self._ensure_activity_columns(conn)
         ensure_athlete_profile_columns(conn)
         self._repair_legacy_activity_tss(conn)
@@ -893,24 +917,7 @@ class Database:
         if not rows:
             return
 
-        profile_rows = conn.execute(
-            '''
-            SELECT synced_at, ftp
-            FROM athlete_profile
-            WHERE ftp IS NOT NULL
-            ORDER BY synced_at, id
-            '''
-        ).fetchall()
-        ftp_history = []
-        for profile_row in profile_rows:
-            try:
-                sync_date = datetime.strptime(
-                    str(profile_row["synced_at"])[:10], "%Y-%m-%d"
-                ).date()
-                ftp_value = float(profile_row["ftp"])
-            except (TypeError, ValueError):
-                continue
-            ftp_history.append((sync_date, ftp_value))
+        ftp_history = AthleteProfileStore(conn, self.clean_value).ftp_history()
 
         ftp, lthr, swim_css = resolve_athlete_tss_profile(self)
 
@@ -4280,6 +4287,66 @@ class Database:
         conn = self._connect()
         try:
             return AthleteProfileStore(conn, self.clean_value).get()
+        finally:
+            conn.close()
+
+    def get_athlete_ftp_history(self):
+        """[(sync_date, ftp), ...] по возрастанию из append-only снэпшотов (#451)."""
+        conn = self._connect()
+        try:
+            return AthleteProfileStore(conn, self.clean_value).ftp_history()
+        finally:
+            conn.close()
+
+    def get_rhr_near(self, activity_date: str, window_days: int = 7):
+        """Ближайший resting_hr из daily_health в пределах window_days дней НАЗАД
+        от activity_date ("YYYY-MM-DD"), либо None (#444 S1)."""
+        try:
+            day = datetime.strptime(str(activity_date)[:10], "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            return None
+        start = (day - timedelta(days=window_days)).isoformat()
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT resting_hr FROM daily_health "
+                "WHERE resting_hr IS NOT NULL AND date >= ? AND date <= ? "
+                "ORDER BY date DESC LIMIT 1",
+                (start, day.isoformat()),
+            ).fetchone()
+        finally:
+            conn.close()
+        return row[0] if row else None
+
+    def upsert_bike_hr_pair(self, pair: dict) -> None:
+        """INSERT OR REPLACE теневой вело-пары power+HR (#444 S1)."""
+        columns = [
+            "activity_id", "date", "sport", "moving_minutes", "avg_hr",
+            "normalized_power", "avg_power",
+            "hr_zone_minutes_z1", "hr_zone_minutes_z2", "hr_zone_minutes_z3",
+            "hr_zone_minutes_z4", "hr_zone_minutes_z5",
+            "ftp_on_date", "ftp_verified", "rhr", "lthr", "zone_coverage_pct",
+        ]
+        conn = self._connect()
+        try:
+            conn.execute(
+                f"INSERT OR REPLACE INTO bike_hr_quality_pairs ({', '.join(columns)}) "
+                f"VALUES ({', '.join('?' for _ in columns)})",
+                tuple(self.clean_value(pair.get(column)) for column in columns),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+    def get_bike_hr_pairs(self) -> list[dict]:
+        """Все теневые вело-пары power+HR, по дате (#444 S1/S2)."""
+        conn = self._connect()
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT * FROM bike_hr_quality_pairs ORDER BY date, activity_id"
+            ).fetchall()
+            return [dict(row) for row in rows]
         finally:
             conn.close()
 

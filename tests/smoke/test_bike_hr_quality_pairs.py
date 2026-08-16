@@ -140,7 +140,7 @@ def test_intervals_ingest_records_pair(tmp_path, monkeypatch):
 
     pairs = _pairs(db)
     assert len(pairs) == 1
-    assert pairs[0]["activity_id"] == "i_pair_1"
+    assert pairs[0]["activity_id"] == "intervals_i_pair_1"  # canonical ids get the intervals_ namespace
     assert pairs[0]["avg_power"] == pytest.approx(111.0)
     assert pairs[0]["normalized_power"] is None
     assert pairs[0]["zone_coverage_pct"] is None  # no zone seconds from Intervals

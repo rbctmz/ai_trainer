@@ -7,6 +7,7 @@ public methods as thin facades, so existing importers keep working unchanged.
 from __future__ import annotations
 
 import sqlite3
+from datetime import datetime
 from typing import Any, Callable, Dict, Mapping, Optional
 
 
@@ -165,3 +166,29 @@ class AthleteProfileStore:
             'source': row[9],
             'synced_at': row[10],
         }
+
+    def ftp_history(self) -> list[tuple]:
+        """Return [(sync_date, ftp), ...] sorted ascending, non-NULL ftp only.
+
+        The date-accurate FTP resolution (#451/#453) and the shadow bike
+        power+HR pair features (#444 S1) both read this append-only history;
+        rows without a parseable synced_at or a numeric ftp are skipped.
+        """
+        cursor = self._conn.cursor()
+        cursor.execute(
+            '''
+            SELECT synced_at, ftp
+            FROM athlete_profile
+            WHERE ftp IS NOT NULL
+            ORDER BY synced_at, id
+            '''
+        )
+        history = []
+        for synced_at, ftp in cursor.fetchall():
+            try:
+                sync_date = datetime.strptime(str(synced_at)[:10], "%Y-%m-%d").date()
+                ftp_value = float(ftp)
+            except (TypeError, ValueError):
+                continue
+            history.append((sync_date, ftp_value))
+        return history
