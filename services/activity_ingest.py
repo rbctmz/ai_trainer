@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable
 
 from config.settings import Settings
+from services.bike_hr_pairs import record_bike_hr_pair
 
 # Cross-provider identity namespace. Intervals stores the *source* activity id in
 # ``external_id``; in the Garmin+Intervals beta that source is Garmin, so both a
@@ -297,7 +298,15 @@ def ingest_provider_activity(
     such an orphan.
     """
     primary = _resolve_primary(primary_source)
-    return db.write_provider_activity(candidate.canonical, candidate.link(), primary_source=primary)
+    result = db.write_provider_activity(candidate.canonical, candidate.link(), primary_source=primary)
+    # #444 S1: shadow bike power+HR pairs are derived data — best-effort. A pair
+    # failure must never fail or roll back the canonical ingest; a missing pair
+    # self-heals on the next sync of the same activity (idempotent upsert).
+    try:
+        record_bike_hr_pair(db, candidate.canonical)
+    except Exception:
+        pass
+    return result
 
 
 def ingest_provider_batch(
