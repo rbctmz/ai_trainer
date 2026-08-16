@@ -65,6 +65,12 @@ class Settings:
     # hardcoded 1000-token cap was too low for coach responses with tool-backed
     # context and caused mid-sentence truncation.
     AI_RESPONSE_MAX_TOKENS = int(os.getenv("AI_RESPONSE_MAX_TOKENS", 1800))
+
+    # Sampling temperature for native function-calling (tool) requests.
+    # Tool selection and JSON arguments must be deterministic, so this defaults
+    # to 0.0 while free-text responses keep the higher sampling temperature
+    # (see DeepSeek native-tools spike, issue #440).
+    AI_TOOLS_TEMPERATURE = float(os.getenv("AI_TOOLS_TEMPERATURE", "0.0"))
     
     # Провайдер по умолчанию
     DEFAULT_AI_PROVIDER = os.getenv("DEFAULT_AI_PROVIDER", "openai")

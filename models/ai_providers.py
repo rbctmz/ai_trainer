@@ -122,7 +122,8 @@ class OpenAICompatibleToolsMixin:
             "model": self.model,
             "messages": full_messages,
             "max_tokens": self.settings.AI_RESPONSE_MAX_TOKENS,
-            "temperature": 0.7,
+            # Tool selection/arguments must be deterministic (issue #440).
+            "temperature": self.settings.AI_TOOLS_TEMPERATURE,
         }
         payload = [
             {
