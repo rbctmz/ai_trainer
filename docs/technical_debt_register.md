@@ -30,7 +30,6 @@
 | ID | Приоритет | Область | Риск | Следующее действие |
 |----|-----------|---------|------|--------------------|
 | TD-006 | P2 | Structure | Крупные модули концентрируют churn | Churn-first decomposition (срезы: athlete_profile_store #371/#372, activity_store #387) |
-| TD-009 | P1 | TSS provenance | История TSS пересчитывается текущим FTP при каждом открытии БД — занижение ~15% после смены FTP | owner-issue [#451](https://github.com/rbctmz/ai_trainer/issues/451), issue-first цикл |
 
 На дату снимка подтверждённых `P0` нет. Это не означает отсутствие дефектов:
 реестр описывает известный долг, а не заменяет issue/bug triage.
@@ -149,27 +148,6 @@
   новом требовании политики безопасности или новом full-history аудите.
   Owner-issue: [#385](https://github.com/rbctmz/ai_trainer/issues/385).
 
-### TD-009 — TSS provenance: пересчёт истории текущим FTP
-
-- **ASR:** ASR-REL-2, ASR-MOD-3
-- **Evidence:** `data/database.py::_repair_legacy_activity_tss` вызывается
-  безусловно при каждом открытии БД (`data/database.py:761`) и пересчитывает
-  все строки `activities` правилами текущего `resolve_athlete_tss_profile`.
-  Найдено в M0 исследования #444 (PR #450): после смены FTP 159→172 тренировки
-  июля пересчитаны с FTP=172 — Power TSS занижен ~15% (2026-07-04: цель 164.3
-  vs хранимый 140.4 TSS), `tss_ftp_used` не соответствует FTP на дату.
-- **Риск:** история TSS и производные CTL/ATL/TSB искажены; любой калибровочный
-  таргет по «цели» наследует ошибку; нарушается критерий приёмки #444
-  «изменение модели не переписывает историю молча».
-- **Граница решения:** считать `tss` по FTP на дату активности (хранить версию
-  профиля или датированный FTP-слепок); `_repair_legacy_activity_tss` — только
-  для легаси/невалидных строк; исправление истории — отдельное контролируемое
-  действие с версией, backfill только по решению (M1-контур #444).
-- **Закрытие:** тест доказывает, что после смены FTP история до даты смены
-  сохраняет старый `tss_ftp_used`/`tss` при повторных открытиях БД, а repair
-  не трогает строки с валидным провенансом. Owner-issue:
-  [#451](https://github.com/rbctmz/ai_trainer/issues/451).
-
 ## Не переносить автоматически
 
 Следующие источники являются входом для повторной проверки, а не открытым
@@ -194,3 +172,4 @@ backlog:
 | TD-006 | 2026-08-06 | Первый churn-first срез (owner-issue [#387](https://github.com/rbctmz/ai_trainer/issues/387)): кластер карточки активности вынесен в `data/activity_store.py` (8 методов, DDL карточных таблиц), `Database` — тонкие фасады; smoke 1505 passed, регрессий нет. Долг остаётся открытым (P2) — следующий hotspot по churn |
 | TD-007 | 2026-08-03 | [#352](https://github.com/rbctmz/ai_trainer/issues/352): детерминированный first-token гейт на локальном mock-runtime (`COACH_FIRST_TOKEN_BUDGET_MS=5000`), live-метрика остаётся наблюдаемой; smoke 1446 passed |
 | TD-005 | 2026-08-03 | D4 [#354](https://github.com/rbctmz/ai_trainer/issues/354) / [#357](https://github.com/rbctmz/ai_trainer/pull/357) (shim `sync_activities` удалён, тесты — через oracle `tests/sync_fixtures.py`), D3 [#355](https://github.com/rbctmz/ai_trainer/issues/355) / [#358](https://github.com/rbctmz/ai_trainer/pull/358) (окно Garmin-активностей через общую cursor-таблицу, advance только после чистого прогона), D2 [#356](https://github.com/rbctmz/ai_trainer/issues/356) / [#359](https://github.com/rbctmz/ai_trainer/pull/359) (аудит local-first TSS: контракт пары `tss`+`tss_method` закреплён тестом, ложные формулировки в методологии/ADR-0008 исправлены, потоковый пересчёт — осознанный non-goal) |
+| TD-009 | 2026-08-16 | [#451](https://github.com/rbctmz/ai_trainer/issues/451) / PR [#453](https://github.com/rbctmz/ai_trainer/pull/453): repair использует FTP на дату активности из append-only истории `athlete_profile` (`ftp_at`); смена FTP не переписывает историю, несовпадающие строки корректируются один раз; RED→GREEN тесты в `tests/smoke/test_activity_tss_reconciliation.py`, smoke 1832 passed, методология обновлена |
