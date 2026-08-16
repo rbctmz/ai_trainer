@@ -211,7 +211,13 @@ FTP на дату тренировки (159→172). `stored` — значени�
   `research/issue444_m1_quality_pairs_report.py` (read-only, цифры совпадают с
   M0), PR [#455](https://github.com/rbctmz/ai_trainer/pull/455);
 - проверить перестановку зон/avgHR как *кандидат*, не меняя продуктовый TSS до
-  подтверждения на большем числе точек.
+  подтверждения на большем числе точек. **Гейт (предварительный):** ≥ 20 пар с
+  зонами, хронологический holdout ≥ 6 точек, full-set MAE(avgHR) ≤ MAE(зоны) и
+  |bias(avgHR)| ≤ 5 TSS, hard-терциль |bias(avgHR)| ≤ 5 TSS, holdout аналогично
+  full-set. Живой статус — `research/issue444_m1_quality_pairs_report.py`
+  (секция REORDER CHECK; логика в `services/bike_hr_tss_candidates.py` и
+  `services/bike_hr_tss_eval.py`). Сам flip — отдельный срез с
+  провенанс-эскортом против silent rewrite.
 
 ### M2 — персональная модель в тени
 
