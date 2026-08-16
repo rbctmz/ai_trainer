@@ -196,7 +196,10 @@ FTP на дату тренировки (159→172). `stored` — значени�
 
 - исправить Power-TSS provenance: `tss_ftp_used` и `tss` по FTP на дату (или
   хранить версию профиля), не перезаписывать историю молча; завести отдельный
-  issue на корректировку `_repair_legacy_activity_tss`;
+  issue на корректировку `_repair_legacy_activity_tss` — issue
+  [#451](https://github.com/rbctmz/ai_trainer/issues/451), исправление в
+  `data/database.py`/`data/data_processor.py` (date-accurate FTP через
+  append-only историю `athlete_profile`);
 - реализовать Karvonen-HRSS с версией формулы, происхождением и причиной fallback;
 - собирать качественные пары power+HR в теневом режиме (признаки при синке, без
   сырого ряда);

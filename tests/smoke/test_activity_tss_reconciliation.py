@@ -639,3 +639,101 @@ def test_existing_zone_based_rows_are_recalibrated_on_database_open(tmp_path):
     assert row["tss_method"] == "hr_zone_tss_swim"
     assert row["garmin_training_load"] == 155.7
     assert row["tss"] == pytest.approx(65.0, abs=1.0)
+
+
+def test_repair_keeps_ftp_of_activity_date_when_profile_changes(tmp_path, monkeypatch):
+    """Issue #451: when the athlete's FTP changes mid-history, rows stored with
+    the FTP that was current on their activity date must survive the next
+    database open — the retroactive-recompute path must not silently rewrite
+    them with the newer profile value."""
+    monkeypatch.setattr(Settings, "USER_FTP", 250)
+    db_path = str(tmp_path / "ftp_keep.db")
+
+    db = Database(db_path)
+    db.save_athlete_profile({"ftp": 159.0, "weight_kg": 93.9, "lthr": 163.0, "source": "intervals_icu"})
+    # Pin the first snapshot two days in the past: it is the FTP that was
+    # current when the activity below was ridden.
+    two_days_ago = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
+    conn = db._connect()
+    conn.execute("UPDATE athlete_profile SET synced_at = ?", (two_days_ago,))
+    conn.commit()
+    conn.close()
+
+    _sync_activities(
+        db,
+        [
+            {
+                "activityId": "bike-451-keep",
+                "startTimeLocal": _recent_iso(days_ago=1),
+                "activityType": {"typeKey": "cycling"},
+                "duration": 8414.07,
+                "movingDuration": 8205.007,
+                "distance": 47769.49,
+                "avgPower": 111.0,
+                "maxPower": 619.0,
+                "normPower": 134.6,
+            }
+        ],
+    )
+    before = _activity_row(db, "bike-451-keep")
+    assert before["tss_ftp_used"] == pytest.approx(159.0)
+    tss_before = before["tss"]
+
+    # FTP improves after the ride: a newer snapshot becomes the current profile.
+    db.save_athlete_profile({"ftp": 172.0, "weight_kg": 95.4, "lthr": 163.0, "source": "intervals_icu"})
+
+    reopened = Database(db_path)
+    after = _activity_row(reopened, "bike-451-keep")
+    assert after["tss_ftp_used"] == pytest.approx(159.0)  # FTP on the ride's date, not the newest
+    assert after["tss"] == pytest.approx(tss_before)
+
+    # Idempotency: a second reopen with valid provenance must be a no-op.
+    third = Database(db_path)
+    again = _activity_row(third, "bike-451-keep")
+    assert again["tss_ftp_used"] == pytest.approx(159.0)
+    assert again["tss"] == pytest.approx(tss_before)
+
+
+def test_repair_restores_date_accurate_ftp_for_mismatched_rows(tmp_path, monkeypatch):
+    """Issue #451: a row stored with the *current* FTP at sync time, while its
+    activity date falls before the FTP change, carries mismatched provenance
+    (the July scenario from M0). The next database open must correct it to the
+    date-accurate FTP exactly once."""
+    monkeypatch.setattr(Settings, "USER_FTP", 250)
+    db_path = str(tmp_path / "ftp_restore.db")
+
+    db = Database(db_path)
+    db.save_athlete_profile({"ftp": 159.0, "weight_kg": 93.9, "lthr": 163.0, "source": "intervals_icu"})
+    two_days_ago = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
+    conn = db._connect()
+    conn.execute("UPDATE athlete_profile SET synced_at = ?", (two_days_ago,))
+    conn.commit()
+    conn.close()
+
+    db.save_athlete_profile({"ftp": 172.0, "weight_kg": 95.4, "lthr": 163.0, "source": "intervals_icu"})
+
+    # Sync resolves against the CURRENT profile (172) while the ride happened
+    # before the change: mismatched provenance, exactly like the July data.
+    _sync_activities(
+        db,
+        [
+            {
+                "activityId": "bike-451-restore",
+                "startTimeLocal": _recent_iso(days_ago=1),
+                "activityType": {"typeKey": "cycling"},
+                "duration": 8414.07,
+                "movingDuration": 8205.007,
+                "distance": 47769.49,
+                "avgPower": 111.0,
+                "maxPower": 619.0,
+                "normPower": 134.6,
+            }
+        ],
+    )
+    stored = _activity_row(db, "bike-451-restore")
+    assert stored["tss_ftp_used"] == pytest.approx(172.0)
+
+    reopened = Database(db_path)
+    repaired = _activity_row(reopened, "bike-451-restore")
+    assert repaired["tss_ftp_used"] == pytest.approx(159.0)
+    assert repaired["tss"] == pytest.approx(163.3, abs=0.5)

@@ -1,5 +1,6 @@
 import pandas as pd
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from typing import Optional
 
 from config.settings import Settings
 from utils.product_semantics import normalize_sport_key
@@ -29,6 +30,25 @@ def resolve_athlete_tss_profile(database):
     lthr = profile.get('lthr') or Settings.USER_LTHR
     swim_css = profile.get('swim_threshold_pace_seconds_per_100m')
     return ftp, lthr, swim_css
+
+
+def ftp_at(history: list, activity_date: date) -> Optional[float]:
+    """Return the FTP that was current on ``activity_date`` (#451).
+
+    ``history`` is [(sync_date, ftp), ...] sorted ascending by sync date. The
+    result is the FTP of the last snapshot synced on or before the activity
+    date. For dates that predate the first snapshot, the earliest known value
+    is returned (unverified); None when the history is empty.
+    """
+    if not history:
+        return None
+    ftp = None
+    for sync_date, value in history:
+        if sync_date <= activity_date:
+            ftp = value
+        else:
+            break
+    return ftp if ftp is not None else history[0][1]
 
 
 class ActivityProcessor:
