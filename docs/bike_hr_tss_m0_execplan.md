@@ -216,8 +216,10 @@ FTP на дату тренировки (159→172). `stored` — значени�
   |bias(avgHR)| ≤ 5 TSS, hard-терциль |bias(avgHR)| ≤ 5 TSS, holdout аналогично
   full-set. Живой статус — `research/issue444_m1_quality_pairs_report.py`
   (секция REORDER CHECK; логика в `services/bike_hr_tss_candidates.py` и
-  `services/bike_hr_tss_eval.py`). Сам flip — отдельный срез с
-  провенанс-эскортом против silent rewrite.
+  `services/bike_hr_tss_eval.py`; PR
+  [#457](https://github.com/rbctmz/ai_trainer/pull/457) смержен). Сам flip —
+  отдельный срез (S3′, дизайн в #444) с провенанс-эскортом против silent
+  rewrite.
 
 ### M2 — персональная модель в тени
 
