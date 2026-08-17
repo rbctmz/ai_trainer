@@ -188,6 +188,9 @@ def _typed_variants(
     for entry in typed:
         if entry["kind"] == recommended_kind:
             entry["recommended"] = True
+    for entry in typed:
+        if entry["kind"] == "downgrade_today":
+            entry["day_changes"] = list(variant.get("day_changes") or [])
     return typed
 
 
@@ -225,6 +228,12 @@ def _proposal_payload(
     )
     selected_conflict = dict(variant["selected_conflict"])
     conflict_session = dict(selected_conflict.get("session") or {})
+    day_changes = list(variant.get("day_changes") or [])
+    before_sessions = (
+        list((day_changes[0] or {}).get("before_sessions") or [])
+        if day_changes and isinstance(day_changes[0], dict)
+        else []
+    )
     by_variant: dict[str, dict[str, Any]] = {}
     for entry in variants:
         kind = str(entry["kind"])
@@ -274,6 +283,7 @@ def _proposal_payload(
                 "sport_label": conflict_session.get("sport_label")
                 or selected_conflict.get("sport_label"),
                 "tss": conflict_session.get("tss") or selected_conflict.get("tss"),
+                "day_sessions": list(before_sessions),
             },
             "evidence": list(variant.get("evidence") or []),
         },

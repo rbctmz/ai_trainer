@@ -205,6 +205,11 @@ def test_recovery_variant_targets_absolute_date_beyond_old_ten_row_cap() -> None
     assert isinstance(variant["draft_summary"]["total_delta_duration_minutes"], (int, float))
     assert [option["key"] for option in variant["options"]] == ["keep", "recommended"]
     assert variant["post_edit_strategy"] == "protect_recovery"
+    day_changes = variant["day_changes"]
+    assert day_changes[0]["date"] == (today + timedelta(days=6)).isoformat()
+    assert day_changes[0]["before_sessions"]
+    assert day_changes[0]["before_sessions"][0]["tss"] == 60.0
+    assert day_changes[0]["after_sessions"]
 
 
 def test_recovery_variant_fails_closed_when_recommendation_raises_tss(monkeypatch) -> None:
@@ -1798,6 +1803,7 @@ def test_preview_exposes_three_product_blocks_with_recommended_transfer_when_saf
     assert why["conflict"]["role"] == "quality"
     assert why["conflict"]["date"] == (today + timedelta(days=1)).isoformat()
     assert why["evidence"] == preview["evidence"]
+    assert why["conflict"]["day_sessions"]
 
     changes = _what_changes(proposal)
     assert changes["variants"] == preview["variants"]
@@ -1810,6 +1816,9 @@ def test_preview_exposes_three_product_blocks_with_recommended_transfer_when_saf
     recommended_kinds = [v["kind"] for v in changes["variants"] if v.get("recommended")]
     assert recommended_kinds == [changes["recommended_kind"]]
     variants = {item["kind"]: item for item in changes["variants"]}
+    downgrade_day_changes = variants["downgrade_today"]["day_changes"]
+    assert downgrade_day_changes[0]["before_sessions"]
+    assert downgrade_day_changes[0]["after_sessions"]
     assert variants["keep"]["session"] == changes["current_session"]
     assert variants["downgrade_today"]["session"] == changes["recommended_session"]
     transfer = variants["transfer_1_3d"]

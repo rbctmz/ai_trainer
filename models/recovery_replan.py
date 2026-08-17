@@ -165,6 +165,57 @@ def _preview_recovery_edit(
         return None
 
 
+def _card_session_summary(
+    session: Mapping[str, Any],
+    *,
+    fallback_tss: float | None = None,
+) -> dict[str, Any]:
+    """Compact per-session entry for the proposal card's day breakdown."""
+    tss = float(session.get("total_tss") or 0.0)
+    if tss <= 0 and fallback_tss:
+        tss = float(fallback_tss)
+    return {
+        "name": str(
+            session.get("session_focus")
+            or session.get("export_name")
+            or session.get("template_name")
+            or "Сессия"
+        ),
+        "sport_label": str(session.get("sport_label") or ""),
+        "tss": round(tss, 1),
+        "session_role": str(session.get("session_role") or ""),
+    }
+
+
+def _day_sessions_for_card(
+    goal_plan: Mapping[str, Any],
+    target_index: int,
+) -> list[dict[str, Any]]:
+    """Per-session breakdown of one plan day, so the card can show the day
+    total honestly instead of labeling it as a single session's TSS."""
+    templates = list(goal_plan.get("session_templates") or [])
+    if target_index < 0 or target_index >= len(templates):
+        return []
+    template = dict(templates[target_index] or {})
+    daily_plan = list(goal_plan.get("daily_plan") or [])
+    day_total = 0.0
+    if target_index < len(daily_plan):
+        item = daily_plan[target_index]
+        if isinstance(item, (list, tuple)) and len(item) > 1:
+            try:
+                day_total = round(float(item[1] or 0.0), 1)
+            except (TypeError, ValueError):
+                day_total = 0.0
+    sessions = [
+        dict(session or {})
+        for session in list(template.get("sessions") or [])
+        if isinstance(session, dict)
+    ]
+    if not sessions:
+        return [_card_session_summary(template, fallback_tss=day_total)]
+    return [_card_session_summary(session) for session in sessions]
+
+
 def _primary_session_for_day(
     goal_plan: Mapping[str, Any],
     target_index: int,
@@ -334,6 +385,13 @@ def build_recovery_replan_variant(
             "expected_recovery_hours"
         ),
     }
+    day_changes = [
+        {
+            "date": conflict_date,
+            "before_sessions": _day_sessions_for_card(goal_plan, target_index),
+            "after_sessions": _day_sessions_for_card(preview_plan, target_index),
+        }
+    ]
     options = [
         {
             "key": "keep",
@@ -358,6 +416,7 @@ def build_recovery_replan_variant(
         "current_session": current_session,
         "recommended_session": recommended_session,
         "options": options,
+        "day_changes": day_changes,
         "reason": str(gate_report.get("reason") or ""),
         "evidence": list(conflict.get("evidence") or []),
         "as_of": str(gate_report.get("as_of") or today.isoformat()),
