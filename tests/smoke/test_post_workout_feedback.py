@@ -47,6 +47,7 @@ def _row(
     confidence: float = 0.75,
     adherence: str = "exact",
     activities: list[dict] | None = None,
+    candidates: list[dict] | None = None,
 ) -> dict:
     activities = [_activity("ride-1")] if activities is None else activities
     return {
@@ -64,7 +65,7 @@ def _row(
         "adherence": adherence,
         "actual_activity_ids": [item["activity_id"] for item in activities],
         "actual_activities": activities,
-        "candidate_activities": [],
+        "candidate_activities": list(candidates or []),
         "actual_total_tss": sum(float(item.get("tss") or 0.0) for item in activities),
         "actual_duration_minutes": sum(
             float(item.get("duration_minutes") or 0.0) for item in activities
@@ -293,6 +294,78 @@ def test_no_activity_non_start_waits_until_the_following_calendar_day() -> None:
         "did_not_start",
         "unknown",
     ]
+
+
+def _tombstone_feedback(*, ids: list[str], method: str = "user_confirmed") -> dict:
+    return {
+        "id": 35,
+        "status": "tombstone",
+        "match_snapshot": {
+            "match_method": method,
+            "actual_activity_ids": list(ids),
+        },
+    }
+
+
+def test_unmatched_row_with_candidate_activities_is_pending_match() -> None:
+    """After the athlete unmakes a match, the day's activities are still
+    candidates: the prompt must ask to clarify the fact instead of offering
+    `did_not_start`/`unknown` (the session demonstrably happened)."""
+    row = _row(
+        match_status="unmatched",
+        match_method="user_unmatched",
+        confidence=0.0,
+        activities=[],
+        candidates=[_activity("garmin-run", sport="run")],
+    )
+
+    result = build_feedback_prompts(
+        [row],
+        templates=[_template()],
+        latest_feedback_by_session={},
+        prompt_events_by_session={},
+        forecasts=[],
+        now_utc=datetime(2026, 7, 13, 9, 0, tzinfo=timezone.utc),
+        as_of="2026-07-13",
+    )
+
+    assert result["prompts"][0]["state"] == "pending_match"
+    assert result["prompts"][0]["reason"] == "unmatched_session_has_candidates"
+
+
+def test_tombstone_stays_binding_for_the_same_match_context() -> None:
+    """Unmatching the very match a feedback was saved for keeps the prompt
+    suppressed — the tombstone still describes the current context."""
+    result = build_feedback_prompts(
+        [_row(match_method="user_confirmed", confidence=1.0, activities=[_activity("ride-1")])],
+        templates=[_template()],
+        latest_feedback_by_session={"ats_quality": _tombstone_feedback(ids=["ride-1"])},
+        prompt_events_by_session={},
+        forecasts=[],
+        now_utc=datetime(2026, 7, 13, 9, 0, tzinfo=timezone.utc),
+        as_of="2026-07-13",
+    )
+
+    assert result["prompts"][0]["state"] == "superseded"
+    assert result["prompts"][0]["reason"] == "latest_feedback_tombstoned"
+
+
+def test_tombstone_reopens_prompt_after_rematch_with_other_activity() -> None:
+    """A tombstone written for an older match (e.g. an Intervals mirror id)
+    must not block evaluation after the athlete re-matched the session to a
+    different activity — otherwise the session becomes a permanent dead end."""
+    result = build_feedback_prompts(
+        [_row(match_method="user_confirmed", confidence=1.0, activities=[_activity("garmin-run", sport="run")])],
+        templates=[_template()],
+        latest_feedback_by_session={"ats_quality": _tombstone_feedback(ids=["intervals-run"])},
+        prompt_events_by_session={},
+        forecasts=[],
+        now_utc=datetime(2026, 7, 13, 9, 0, tzinfo=timezone.utc),
+        as_of="2026-07-13",
+    )
+
+    assert result["prompts"][0]["state"] == "ready"
+    assert result["prompts"][0]["reason"] == "matched_session_complete"
 
 
 def test_rpe_quality_and_completion_are_validated_independently() -> None:

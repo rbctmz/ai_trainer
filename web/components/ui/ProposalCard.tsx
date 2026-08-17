@@ -200,6 +200,17 @@ function daySessionsLabel(value: unknown): string {
   return sessions.map(sessionLabel).join(" + ");
 }
 
+function sessionsBreakdownLabel(value: unknown): string {
+  return asRecordList(value)
+    .map((session) => {
+      const sport = asString(session.sport_label).trim();
+      const tss = session.tss ?? session.total_tss;
+      return tss == null ? sport : `${sport} ${asNumber(tss)}`.trim();
+    })
+    .filter((item) => item.length > 0)
+    .join(" + ");
+}
+
 function isRecoveryVariantKind(value: unknown): value is RecoveryVariantKind {
   return value === "keep" || value === "downgrade_today" || value === "transfer_1_3d";
 }
@@ -227,10 +238,12 @@ function readinessLabel(whyIntervene: Record<string, unknown>): string {
 
 function conflictLabel(whyIntervene: Record<string, unknown>): string {
   const conflict = asRecord(whyIntervene.conflict);
-  return [conflict.date, conflict.sport_label, conflict.role, conflict.tss != null ? `${conflict.tss} TSS` : null]
+  const main = [conflict.date, conflict.sport_label, conflict.role, conflict.tss != null ? `${conflict.tss} TSS` : null]
     .filter(Boolean)
     .map(asString)
     .join(" · ");
+  const breakdown = sessionsBreakdownLabel(conflict.day_sessions);
+  return breakdown ? `${main} (день: ${breakdown})` : main;
 }
 
 function variantDescription(
@@ -317,7 +330,7 @@ function recoveryEvidenceItems(
   return asStringArray(whyIntervene.evidence) ?? asStringArray(preview.evidence) ?? [];
 }
 
-function transferDayChanges(selectedVariant: Record<string, unknown>): Record<string, unknown>[] {
+function variantDayChanges(selectedVariant: Record<string, unknown>): Record<string, unknown>[] {
   return asRecordList(selectedVariant.day_changes);
 }
 
@@ -464,6 +477,7 @@ export function ProposalCard({
   );
   const recoveryEvidence = recoveryEvidenceItems(whyIntervene, preview);
   const candidates = recoveryCandidates(whatIsProtected);
+  const dayChanges = variantDayChanges(selectedVariant);
 
   async function handleConfirm() {
     setLoading(true);
@@ -621,9 +635,9 @@ export function ProposalCard({
               })}
             </div>
 
-            {effectiveSelectedVariantKind === "transfer_1_3d" ? (
+            {dayChanges.length > 0 ? (
               <div className="mt-2 space-y-2">
-                {transferDayChanges(selectedVariant).map((change) => (
+                {dayChanges.map((change) => (
                   <div key={asString(change.date)} className="rounded-lg bg-surface/70 px-3 py-2 text-xs">
                     <div className="font-medium text-ink">{asString(change.date)}</div>
                     <div className="mt-1 text-ink-soft">

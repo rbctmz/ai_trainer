@@ -48,15 +48,60 @@ function ConfirmMatchControl({
 }: {
   row: ReconResponse["rows"][number];
   busy: boolean;
-  onConfirm: (role: string | null) => void;
+  onConfirm: (role: string | null, activityIds: string[]) => void;
 }) {
   // #401 review P1: the executed role is user-supplied evidence, never silently
   // copied from the plan. The selector is prefilled with the planned role (the
   // sensible default the user sees), but the confirm click carries the explicit
   // choice — change it if the session was executed at a different intensity.
+  //
+  // Candidate selection: confirming must never silently attach every activity
+  // of the day to one session. A matched row confirms its existing activities;
+  // rows without a match pre-check same-sport candidates and let the athlete
+  // adjust the exact set. The click must always carry a non-empty set — the
+  // API rejects confirm without activities — so an empty selection disables
+  // the button instead of sending a doomed request.
   const [role, setRole] = useState<string>(row.role ?? "");
+  const initiallySelectedIds = row.actual_activity_ids.length
+    ? row.actual_activity_ids
+    : row.candidate_activities
+        .filter((item) => item.sport === row.sport)
+        .map((item) => item.activity_id);
+  const [selectedIds, setSelectedIds] = useState<string[]>(initiallySelectedIds);
+  const showCandidatePicker =
+    row.actual_activity_ids.length === 0 && row.candidate_activities.length > 0;
+
+  function toggleActivity(activityId: string) {
+    setSelectedIds((current) =>
+      current.includes(activityId)
+        ? current.filter((id) => id !== activityId)
+        : [...current, activityId],
+    );
+  }
+
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1.5">
+    <div className="mt-2 space-y-1.5">
+      {showCandidatePicker ? (
+        <div className="space-y-1 rounded border border-surface-border bg-surface/60 px-2 py-1.5">
+          {row.candidate_activities.map((item) => (
+            <label
+              key={item.activity_id}
+              className="flex items-center gap-1.5 text-[11px] text-ink-soft"
+            >
+              <input
+                type="checkbox"
+                checked={selectedIds.includes(item.activity_id)}
+                onChange={() => toggleActivity(item.activity_id)}
+                disabled={busy}
+              />
+              <span>
+                {item.name} · {item.sport} · {item.tss} TSS
+              </span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+      <div className="flex flex-wrap items-center gap-1.5">
       <select
         value={role}
         onChange={(event) => setRole(event.target.value)}
@@ -71,15 +116,16 @@ function ConfirmMatchControl({
           </option>
         ))}
       </select>
-      <button
-        type="button"
-        data-target-action="primary"
-        onClick={() => onConfirm(role || null)}
-        disabled={busy}
-        className="rounded border border-tone-success/30 px-2 py-1 text-[11px] text-tone-success disabled:opacity-40"
-      >
-        Подтвердить
-      </button>
+        <button
+          type="button"
+          data-target-action="primary"
+          onClick={() => onConfirm(role || null, selectedIds)}
+          disabled={busy || selectedIds.length === 0}
+          className="rounded border border-tone-success/30 px-2 py-1 text-[11px] text-tone-success disabled:opacity-40"
+        >
+          Подтвердить
+        </button>
+      </div>
     </div>
   );
 }
@@ -1149,6 +1195,7 @@ function AdjustMode({
     row: ReconResponse["rows"][number],
     action: "confirm" | "reject" | "unmatch",
     actualRole: string | null = null,
+    activityIds?: string[],
   ) {
     if (data?.base_checkpoint_id == null) return;
     setBusy(true);
@@ -1159,9 +1206,11 @@ function AdjustMode({
         session_id: row.session_id,
         activity_ids:
           action === "confirm"
-            ? row.actual_activity_ids.length
-              ? row.actual_activity_ids
-              : row.candidate_activities.map((item) => item.activity_id)
+            ? activityIds !== undefined
+              ? activityIds
+              : row.actual_activity_ids.length
+                ? row.actual_activity_ids
+                : row.candidate_activities.map((item) => item.activity_id)
             : [],
         actual_role: actualRole,
         action,
@@ -1322,7 +1371,7 @@ function AdjustMode({
                     <ConfirmMatchControl
                       row={r}
                       busy={busy}
-                      onConfirm={(role) => resolveMatch(r, "confirm", role)}
+                      onConfirm={(role, ids) => resolveMatch(r, "confirm", role, ids)}
                     />
                   ) : null}
                   {r.match_method === "user_confirmed" ? (
@@ -1339,21 +1388,17 @@ function AdjustMode({
                     </div>
                   ) : null}
                   {r.match_status === "ambiguous" && r.candidate_activities.length ? (
-                    <div className="mt-2 flex flex-wrap gap-1.5">
-                      <button
-                        type="button"
-                        data-target-action="primary"
-                        onClick={() => resolveMatch(r, "confirm")}
-                        disabled={busy}
-                        className="rounded border border-tone-success/30 px-2 py-1 text-[11px] text-tone-success disabled:opacity-40"
-                      >
-                        Сопоставить {r.candidate_activities.length} акт.
-                      </button>
+                    <div className="mt-2">
+                      <ConfirmMatchControl
+                        row={r}
+                        busy={busy}
+                        onConfirm={(role, ids) => resolveMatch(r, "confirm", role, ids)}
+                      />
                       <button
                         type="button"
                         onClick={() => resolveMatch(r, "reject")}
                         disabled={busy}
-                        className="rounded border border-surface-border px-2 py-1 text-[11px] text-ink-soft disabled:opacity-40"
+                        className="mt-1.5 rounded border border-surface-border px-2 py-1 text-[11px] text-ink-soft disabled:opacity-40"
                       >
                         Не относится
                       </button>

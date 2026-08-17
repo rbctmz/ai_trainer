@@ -117,6 +117,23 @@ def validate_feedback_values(
     }
 
 
+def _tombstone_still_binding(latest: Mapping[str, Any], row: Mapping[str, Any]) -> bool:
+    """A tombstone stays binding only while the current match context still
+    equals the one the athlete removed. A later re-match (different activity
+    ids or method) must re-open the prompt instead of leaving the session a
+    permanent dead end."""
+    snapshot = dict(latest.get("match_snapshot") or {})
+    tombstone_ids = sorted(
+        str(value) for value in (snapshot.get("actual_activity_ids") or [])
+    )
+    current_ids = sorted(
+        str(value) for value in (row.get("actual_activity_ids") or [])
+    )
+    tombstone_method = str(snapshot.get("match_method") or "").strip()
+    current_method = str(row.get("match_method") or "").strip()
+    return tombstone_ids == current_ids and tombstone_method == current_method
+
+
 def build_feedback_prompts(
     rows: Sequence[Mapping[str, Any]],
     *,
@@ -174,8 +191,13 @@ def build_feedback_prompts(
         state = "not_eligible"
         reason = "match_not_stable"
         allowed = list(COMPLETION_STATUS_ORDER)
+        has_candidates = bool(row.get("candidate_activities"))
         if match_status == "ambiguous":
             state, reason = "pending_match", "ambiguous_match"
+        elif match_status == "unmatched" and has_candidates:
+            # e.g. the athlete unmade a match: the day's activities still
+            # exist and must be re-attributed before feedback makes sense.
+            state, reason = "pending_match", "unmatched_session_has_candidates"
         elif match_status == "unmatched" and not activities:
             if session_day is not None and now.date() > session_day:
                 state, reason = "ready", "past_session_without_activity"
@@ -202,11 +224,14 @@ def build_feedback_prompts(
         prompt_fingerprint = canonical_fingerprint(prompt_identity)
         latest = latest_feedback_by_session.get(session_id)
         event = prompt_events_by_session.get(session_id)
-        if latest:
-            if latest.get("status") == "tombstone":
+        if latest and latest.get("status") == "tombstone":
+            if _tombstone_still_binding(latest, row):
                 state, reason = "superseded", "latest_feedback_tombstoned"
-            else:
-                state, reason = "submitted", "feedback_saved"
+            # Otherwise the tombstone belongs to an older match context:
+            # fall through to the match-state logic so the session can be
+            # evaluated again after a re-match.
+        elif latest:
+            state, reason = "submitted", "feedback_saved"
         elif (
             event
             and event.get("event") == "dismissed"
