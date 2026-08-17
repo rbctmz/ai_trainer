@@ -37,7 +37,7 @@ from models.planning_near_term import (
     apply_near_term_day_edits,
     rematerialize_non_executable_sessions,
 )
-from models.recovery_replan import assert_recovery_replan_safety
+from models.recovery_replan import RECOVERY_BACKING_HORIZON_MAX, assert_recovery_replan_safety
 from models.planning_summary import summarize_near_term_edit
 from models.session_identity import ensure_session_identities
 from models.session_quality_forecast import ACTUAL_SESSION_ROLES
@@ -2565,7 +2565,10 @@ def apply_recovery_replan(
         draft_rows,
         horizon_days=horizon_days,
         post_edit_strategy=strategy,
-        max_horizon_days=14,
+        # Mirror the variant builder: the window must include the conflict
+        # day itself, even when it lies beyond the fourteen-row backing cap
+        # (plan older than fourteen days with today's session in conflict).
+        max_horizon_days=max(RECOVERY_BACKING_HORIZON_MAX, horizon_days),
     )
     changed_indices: list[int] = []
     daily_plan = list(goal_plan.get("daily_plan") or [])

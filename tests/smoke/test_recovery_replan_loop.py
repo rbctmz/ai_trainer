@@ -15,16 +15,25 @@ from api.recovery_replan_loop import (
     run_recovery_replan_loop,
 )
 from data.database import Database
-from models.planning_checkpoints import build_planning_checkpoint
+from models.planning_checkpoints import (
+    build_planning_checkpoint,
+    restore_goal_plan_from_checkpoint,
+)
 from models.recovery_replan import build_recovery_replan_variant
 
 
-def _goal_plan(today: date, *, conflict_days_until: int = 6) -> dict:
-    monday = today - timedelta(days=today.weekday())
+def _goal_plan(
+    today: date,
+    *,
+    conflict_days_until: int = 6,
+    plan_monday: date | None = None,
+    plan_weeks: int = 3,
+) -> dict:
+    monday = plan_monday or (today - timedelta(days=today.weekday()))
     target_date = today + timedelta(days=conflict_days_until)
     daily_plan = []
     templates = []
-    for index in range(21):
+    for index in range(plan_weeks * 7):
         session_date = monday + timedelta(days=index)
         is_target = session_date == target_date
         role = "quality" if is_target else ("off" if index % 7 == 0 else "easy")
@@ -50,7 +59,7 @@ def _goal_plan(today: date, *, conflict_days_until: int = 6) -> dict:
         )
 
     weekly_summary = []
-    for week_index in range(3):
+    for week_index in range(plan_weeks):
         start = week_index * 7
         weekly_summary.append(
             {
@@ -1917,3 +1926,97 @@ def test_loop_upgrades_legacy_pending_proposal_preview_with_product_blocks_on_re
     assert "why_intervene" in second["proposal"]["preview"]
     assert "what_changes" in second["proposal"]["preview"]
     assert "what_is_protected" in second["proposal"]["preview"]
+
+
+# ---------------------------------------------------------------------------
+# Backing-window boundary: a gate conflict must stay addressable even when
+# the plan is older than the fourteen-row backing window.
+#
+# The cap was sized for a Monday-anchored plan plus a seven-day gate horizon
+# (max plan index 13). A conflict on TODAY of a plan that started fourteen
+# days ago sits at plan index 14 and used to fall outside `build_near_term_edit_rows`,
+# so `build_recovery_replan_variant` returned None and the loop reported
+# "conflict session is not addressable in the active plan".
+#
+
+
+def test_recovery_variant_addresses_conflict_beyond_fourteen_row_backing_window() -> None:
+    """A conflict on plan day 15 (index 14) must still build a downgrade."""
+    today = date(2026, 7, 14)  # Tuesday
+    plan_monday = today - timedelta(days=14)  # plan started two weeks back
+    goal_plan = _goal_plan(
+        today,
+        conflict_days_until=0,
+        plan_monday=plan_monday,
+        plan_weeks=3,
+    )
+
+    variant = build_recovery_replan_variant(
+        goal_plan,
+        _conflict_report(today, days_until=0, status="limited", severity="medium"),
+        today=today,
+    )
+
+    assert variant is not None
+    assert variant["horizon_days"] == 15
+    assert variant["selected_conflict"]["date"] == today.isoformat()
+    assert variant["recommended_session"]["date"] == today.isoformat()
+    assert variant["recommended_session"]["role"] == "easy"
+    assert variant["recommended_session"]["tss"] == 35
+    assert variant["recommended_session"]["delta_tss"] == -25
+
+
+def test_loop_creates_proposal_for_today_conflict_on_day_fifteen(tmp_path, monkeypatch) -> None:
+    """The loop must create a pending proposal (no `proposal_gap`) when the
+    conflict day is the fifteenth day of the active plan."""
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 14)
+    plan_monday = today - timedelta(days=14)
+    report = _conflict_report(today, days_until=0, status="limited", severity="medium")
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    goal_plan = _goal_plan(
+        today,
+        conflict_days_until=0,
+        plan_monday=plan_monday,
+        plan_weeks=3,
+    )
+    db = Database(str(tmp_path / "backing-window-loop.db"))
+    _save_plan(db, goal_plan)
+
+    result = run_recovery_replan_loop(db, today=today)
+
+    assert result["outcome"] == "conflict"
+    assert result["proposal_gap"] is None
+    assert result["proposal"] is not None
+    preview = result["proposal"]["preview"]
+    assert preview["what_changes"]["recommended_session"]["date"] == today.isoformat()
+    assert preview["what_changes"]["recommended_session"]["tss"] == 35
+
+
+def test_confirm_applies_downgrade_for_conflict_beyond_backing_window(tmp_path, monkeypatch) -> None:
+    """Confirm must materialize the previewed downgrade on plan day 15 — the
+    confirm path applies the same extended backing window as the preview."""
+    from api import recovery_replan_loop as loop_module
+    from api.planning_service import apply_recovery_replan
+
+    today = date(2026, 7, 14)
+    plan_monday = today - timedelta(days=14)
+    report = _conflict_report(today, days_until=0, status="limited", severity="medium")
+    monkeypatch.setattr(loop_module, "build_readiness_conflict_report", lambda _db: report)
+    goal_plan = _goal_plan(
+        today,
+        conflict_days_until=0,
+        plan_monday=plan_monday,
+        plan_weeks=3,
+    )
+    db = Database(str(tmp_path / "backing-window-confirm.db"))
+    _save_plan(db, goal_plan)
+
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    applied = apply_recovery_replan(db, proposal["params"], persist=True)
+
+    assert today.isoformat() in applied["affected_dates"]
+    restored = restore_goal_plan_from_checkpoint(db.get_latest_planning_checkpoint())
+    daily_plan = list(restored["daily_plan"] or [])
+    assert round(float(daily_plan[14][1] or 0.0)) == 35

@@ -36,6 +36,9 @@ The behavior is visible on the web-first product surface. Running the loop durin
 - Observation: the existing near-term plan editor is deterministic and preserves checkpoint history, but its horizon is anchored at Monday of the current week and capped at ten plan rows.
   Evidence: `api/planning_service.py::_start_week` returns Monday, while `models/planning_near_term.py` currently caps editable indices at ten. A gate session up to six days from Sunday can be plan index twelve, so the reusable editor must permit a fourteen-row backing window even though the recovery decision itself remains bounded to seven days from today.
 
+- Observation: a conflict on "today" of a plan older than fourteen days was silently unaddressable (`proposal_gap`), because the backing window was capped at fourteen plan rows from the plan start.
+  Evidence: 2026-08-17 the loop logged `conflict session is not addressable in the active plan` for the same-day Aerobic Progression Ride. The plan (checkpoint #118) started 2026-08-03, so today was plan index 14 — one row beyond the cap sized for a Monday-anchored plan plus seven gate days (max index 13). The fix makes the cap a floor: the window extends to the conflict day (`max(14, target_index + 1)`), mirrored by the confirm path, so preview and materialization can never diverge.
+
 - Observation: the Wizard-of-Oz protocol names a transfer option, but moving a key session requires a quality forecast and calendar trade-off that this issue does not yet have.
   Evidence: `docs/woz_recovery_replan_protocol.md` lists keep, downgrade, and transfer variants. Issue D is explicitly out of scope, so v1 will expose `keep` and one deterministic recovery downgrade instead of pretending it can choose a safe transfer date.
 
@@ -75,6 +78,10 @@ The behavior is visible on the web-first product surface. Running the loop durin
 - Decision: use named recovery mappings and `protect_recovery` follow-up strategy.
   Rationale: high conflicts downgrade quality/long work to recovery load; medium conflicts downgrade it to easy load; easy×low becomes recovery. Removed load is not automatically caught up because that would recreate the same recovery conflict later.
   Date/Author: 2026-07-10 / Codex.
+
+- Decision: the fourteen-row backing window is a floor, not a ceiling for the conflict day.
+  Rationale: `RECOVERY_BACKING_HORIZON_MAX` was sized for a Monday-anchored plan plus the seven-day gate horizon. A same-day conflict on a plan older than fourteen days landed beyond the cap, making the variant builder fail closed with no proposal at all. Both the preview (`models/recovery_replan.py`) and the confirm apply (`api/planning_service.py::apply_recovery_replan`) now use `max(RECOVERY_BACKING_HORIZON_MAX, horizon_days)`; `protect_recovery` never re-adds removed load, so the extended window only widens the audit span, not the redistribution blast radius.
+  Date/Author: 2026-08-17 / maintenance fix (backing-window boundary regression tests in `tests/smoke/test_recovery_replan_loop.py`).
 
 - Decision: approval is optimistic-concurrency guarded by the proposal's base checkpoint id.
   Rationale: applying a preview to a different active plan is unsafe. A stale proposal must fail without mutation and ask for a fresh evaluation.

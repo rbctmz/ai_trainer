@@ -15,7 +15,7 @@ _SEVERITY_RANK = {"high": 2, "medium": 1}
 _HIGH_LOAD_FACTOR = 0.40
 _MEDIUM_LOAD_FACTOR = 0.60
 _EASY_LOW_LOAD_FACTOR = 0.50
-_RECOVERY_BACKING_HORIZON_MAX = 14
+RECOVERY_BACKING_HORIZON_MAX = 14
 
 
 def _round_to_five(value: float) -> int:
@@ -151,6 +151,7 @@ def _preview_recovery_edit(
     draft_rows: list[dict[str, Any]],
     *,
     horizon_days: int,
+    max_horizon_days: int = RECOVERY_BACKING_HORIZON_MAX,
 ) -> dict[str, Any] | None:
     try:
         return apply_near_term_day_edits(
@@ -158,7 +159,7 @@ def _preview_recovery_edit(
             draft_rows,
             horizon_days=horizon_days,
             post_edit_strategy="protect_recovery",
-            max_horizon_days=_RECOVERY_BACKING_HORIZON_MAX,
+            max_horizon_days=max_horizon_days,
         )
     except ValueError:
         return None
@@ -211,10 +212,17 @@ def build_recovery_replan_variant(
         return None
 
     horizon_days = target_index + 1
+    # The backing window must always include the conflict day itself. The
+    # fourteen-row cap was sized for a Monday-anchored plan plus a seven-day
+    # gate horizon (max plan index 13), but a gate conflict can also be today
+    # — and once the plan is older than fourteen days, today lies beyond the
+    # cap. Extend the window to the conflict day instead of failing closed
+    # with "conflict session is not addressable in the active plan".
+    backing_horizon_days = max(RECOVERY_BACKING_HORIZON_MAX, horizon_days)
     editable_rows = build_near_term_edit_rows(
         goal_plan,
         horizon_days=horizon_days,
-        max_horizon_days=_RECOVERY_BACKING_HORIZON_MAX,
+        max_horizon_days=backing_horizon_days,
     )
     target_row = next(
         (row for row in editable_rows if int(row.get("index", -1)) == target_index),
@@ -253,6 +261,7 @@ def build_recovery_replan_variant(
         goal_plan,
         draft_rows,
         horizon_days=horizon_days,
+        max_horizon_days=backing_horizon_days,
     )
     if preview_plan is None:
         return None
@@ -272,6 +281,7 @@ def build_recovery_replan_variant(
             goal_plan,
             draft_rows,
             horizon_days=horizon_days,
+            max_horizon_days=backing_horizon_days,
         )
         preview_profile = (
             _day_safety_profile(preview_plan, target_index)
@@ -367,6 +377,7 @@ def build_recovery_replan_variant(
 
 
 __all__ = [
+    "RECOVERY_BACKING_HORIZON_MAX",
     "assert_recovery_replan_safety",
     "build_recovery_replan_variant",
 ]
