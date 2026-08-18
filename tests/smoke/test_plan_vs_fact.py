@@ -663,7 +663,36 @@ def _seed_activity(db, activity_id: str = "act-1") -> None:
     )
 
 
-def _seed_plan_match(db, activity_id: str = "act-1", base_checkpoint_id: int = 1) -> None:
+def _seed_plan_match(
+    db,
+    activity_id: str = "act-1",
+    base_checkpoint_id: int = 1,
+    intervals: list | None = None,
+) -> None:
+    if intervals is None:
+        intervals = [
+            {
+                "type": "work",
+                "duration_seconds": 720,
+                "target_zone": 1.0,
+                "segment_kind": "work",
+                "repeat_index": 0,
+            },
+            {
+                "type": "rest",
+                "duration_seconds": 240,
+                "target_zone": None,
+                "segment_kind": "recovery",
+                "repeat_index": 0,
+            },
+            {
+                "type": "work",
+                "duration_seconds": 720,
+                "target_zone": 1.0,
+                "segment_kind": "work",
+                "repeat_index": 1,
+            },
+        ]
     db.save_plan_actual_match(
         {
             "fingerprint": "fp-plan-vs-fact",
@@ -675,29 +704,7 @@ def _seed_plan_match(db, activity_id: str = "act-1", base_checkpoint_id: int = 1
             "confidence": 1.0,
             "planned_snapshot": {
                 "session_id": "s-1",
-                "intervals": [
-                    {
-                        "type": "work",
-                        "duration_seconds": 720,
-                        "target_zone": 1.0,
-                        "segment_kind": "work",
-                        "repeat_index": 0,
-                    },
-                    {
-                        "type": "rest",
-                        "duration_seconds": 240,
-                        "target_zone": None,
-                        "segment_kind": "recovery",
-                        "repeat_index": 0,
-                    },
-                    {
-                        "type": "work",
-                        "duration_seconds": 720,
-                        "target_zone": 1.0,
-                        "segment_kind": "work",
-                        "repeat_index": 1,
-                    },
-                ],
+                "intervals": intervals,
             },
             "actual_activity_ids": [activity_id],
             "actual_snapshot": {"tss": 60.0, "duration_minutes": 60},
@@ -810,3 +817,297 @@ def test_activity_card_timeline_alignment_ui_contract() -> None:
     assert "border-ink/40" in Path(
         "web/components/WorkoutStrip.tsx"
     ).read_text(encoding="utf-8")
+
+
+# --- #460: приоритет кругов Garmin над автодетектом провайдера ---------------
+
+
+def _garmin_laps_2026_08_17():
+    """Круги устройства из кейса 2026-08-17: сплошная шкала, шаги в целевых зонах."""
+    specs = [
+        (0, 343, 360, 94, 109),
+        (360, 633.5, 633.5, 117, 125),
+        (993.5, 622, 622, 117, 129),
+        (1615.5, 64, 64.5, 117, 131),
+        (1680, 359, 360, 129, 136),
+        (2040, 360, 360, 69, 122),
+        (2400, 3.7, 3.7, 35, 117),
+    ]
+    return [
+        {
+            "start_index": start,
+            "moving_time": moving,
+            "elapsed_time": elapsed,
+            "average_watts": watts,
+            "average_heartrate": hr,
+        }
+        for start, moving, elapsed, watts, hr in specs
+    ]
+
+
+def test_select_actual_structure_prefers_garmin_laps_over_provider_block():
+    from models.plan_vs_fact import select_actual_structure
+
+    payload = {
+        "source": "intervals",
+        "intervals": [
+            {
+                "start_index": 0,
+                "moving_time": 2405,
+                "elapsed_time": 2405,
+                "average_watts": 107,
+                "average_heartrate": 124,
+            }
+        ],
+        "groups": [],
+        "garmin_laps": _garmin_laps_2026_08_17(),
+    }
+
+    intervals, source = select_actual_structure(payload)
+
+    assert source == "garmin"
+    assert len(intervals) == 7
+
+
+def test_select_actual_structure_keeps_provider_intervals_without_laps():
+    from models.plan_vs_fact import select_actual_structure
+
+    intervals, source = select_actual_structure(
+        {"source": "intervals", "intervals": [_actual(715)], "groups": []}
+    )
+    assert source == "intervals"
+    assert intervals == [_actual(715)]
+
+    laps = _garmin_laps_2026_08_17()
+    intervals, source = select_actual_structure({"source": "garmin", "intervals": laps})
+    assert source == "garmin"
+    assert intervals == laps
+
+    assert select_actual_structure(None) == ([], None)
+
+
+def test_activity_card_prefers_garmin_laps_over_single_provider_block(
+    tmp_path, monkeypatch
+):
+    from api.routers import activities as activities_router
+    from data.database import Database
+
+    db = Database(str(tmp_path / "plan-vs-fact-laps.db"))
+    _seed_activity(db)
+    _seed_plan_match(
+        db,
+        intervals=[
+            _planned_rest(360),
+            _planned_work(
+                1320,
+                target_zone={"type": "power", "relative_low": 0.60, "relative_high": 0.76},
+            ),
+            _planned_work(
+                360,
+                target_zone={"type": "power", "relative_low": 0.67, "relative_high": 0.83},
+            ),
+            _planned_rest(360),
+        ],
+    )
+    monkeypatch.setattr(
+        activities_router,
+        "fetch_activity_intervals",
+        lambda db, aid: {
+            "source": "intervals",
+            "intervals": [
+                {
+                    "start_index": 0,
+                    "moving_time": 2405,
+                    "elapsed_time": 2405,
+                    "average_watts": 107,
+                    "average_heartrate": 124,
+                }
+            ],
+            "groups": [],
+            "garmin_laps": _garmin_laps_2026_08_17(),
+        },
+    )
+
+    card = activities_router.get_activity_card("act-1", db=db)
+    plan_vs_fact = card["activity"]["plan_vs_fact"]
+
+    assert plan_vs_fact["alignment_mode"] == "timeline"
+    assert plan_vs_fact["summary"]["actual_intervals"] == 7
+    assert plan_vs_fact["summary"]["matched_steps"] == 4
+    assert all(
+        match["actual"] is not None for match in plan_vs_fact["step_matches"]
+    )
+    aerobic = plan_vs_fact["step_matches"][1]
+    assert aerobic["actual"]["moving_time"] == 1320  # круги 2–4 (22:00) с округлением до секунды
+    assert abs(aerobic["duration_delta"]) < 0.01
+
+
+# --- #461: успешная повторная доставка до старта гасит флаг рассинхрона ------
+
+
+def _replan_case():
+    match = {"session_date": "2026-08-17", "base_checkpoint_id": 119}
+    checkpoint = {"checkpoint_source": "recovery_replan"}
+    earlier = {
+        "checkpoint_id": 118,
+        "dates": ["2026-08-17"],
+        "created_at": "2026-08-11 20:08:02",
+    }
+    return match, checkpoint, earlier
+
+
+def test_plan_replanned_after_delivery_suppressed_by_pre_start_redelivery():
+    from models.plan_vs_fact import plan_replanned_after_delivery
+
+    match, checkpoint, earlier = _replan_case()
+    deliveries = [
+        earlier,
+        {
+            "checkpoint_id": 119,
+            "dates": ["2026-08-17"],
+            "created_at": "2026-08-17 05:48:02",
+            "status": "success",
+        },
+    ]
+
+    result = plan_replanned_after_delivery(
+        match, checkpoint, deliveries, activity_started_at="2026-08-17T16:54:23Z"
+    )
+
+    assert result is None
+
+
+def test_plan_replanned_after_delivery_kept_when_redelivery_after_start():
+    from models.plan_vs_fact import plan_replanned_after_delivery
+
+    match, checkpoint, earlier = _replan_case()
+    deliveries = [
+        earlier,
+        {
+            "checkpoint_id": 119,
+            "dates": ["2026-08-17"],
+            "created_at": "2026-08-17 18:00:00",
+            "status": "success",
+        },
+    ]
+
+    result = plan_replanned_after_delivery(
+        match, checkpoint, deliveries, activity_started_at="2026-08-17T16:54:23Z"
+    )
+
+    assert result is not None
+    assert result["delivery_checkpoint_id"] == 118
+
+
+def test_plan_replanned_after_delivery_kept_when_redelivery_not_success():
+    from models.plan_vs_fact import plan_replanned_after_delivery
+
+    match, checkpoint, earlier = _replan_case()
+    deliveries = [
+        earlier,
+        {
+            "checkpoint_id": 119,
+            "dates": ["2026-08-17"],
+            "created_at": "2026-08-17 05:48:02",
+            "status": "failed",
+        },
+    ]
+
+    result = plan_replanned_after_delivery(
+        match, checkpoint, deliveries, activity_started_at="2026-08-17T16:54:23Z"
+    )
+
+    assert result is not None
+
+
+def test_plan_replanned_after_delivery_kept_without_activity_start():
+    from models.plan_vs_fact import plan_replanned_after_delivery
+
+    match, checkpoint, earlier = _replan_case()
+
+    result = plan_replanned_after_delivery(
+        match, checkpoint, [earlier], activity_started_at=None
+    )
+
+    assert result is not None
+
+
+def test_activity_card_suppresses_desync_warning_after_pre_start_redelivery(
+    tmp_path, monkeypatch
+):
+    import json as _json
+    import sqlite3
+
+    from api.routers import activities as activities_router
+    from data.database import Database
+
+    db = Database(str(tmp_path / "replan-prestart.db"))
+    _seed_activity(db)
+    today = datetime.now().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(db.db_path)
+    try:
+        conn.execute(
+            "UPDATE activities SET started_at_utc = ? WHERE activity_id = 'act-1'",
+            (f"{today}T16:54:23Z",),
+        )
+        conn.execute(
+            """INSERT INTO planning_checkpoints
+               (id, goal_type, distance, weeks_to_race, checkpoint_data, created_at)
+               VALUES (76, 'triathlon', 'olympic', 8, ?, '2026-08-08T05:00:00')""",
+            (_json.dumps({"checkpoint_source": "initial_plan", "goal_plan_snapshot": {}}),),
+        )
+        conn.execute(
+            """INSERT INTO planning_checkpoints
+               (id, goal_type, distance, weeks_to_race, checkpoint_data, created_at)
+               VALUES (77, 'triathlon', 'olympic', 8, ?, ?)""",
+            (
+                _json.dumps({"checkpoint_source": "recovery_replan", "goal_plan_snapshot": {}}),
+                f"{today}T05:48:01",
+            ),
+        )
+        conn.execute(
+            """INSERT INTO coach_proposals
+               (date, action, status, params_json, preview_json, result_json, created_at)
+               VALUES (?, 'recovery_replan', 'approved', '{}', '{}', ?, '2026-08-08T06:41:10')""",
+            (
+                today,
+                _json.dumps(
+                    {
+                        "delivery": {
+                            "status": "success",
+                            "checkpoint_id": 76,
+                            "dates": [today],
+                        }
+                    }
+                ),
+            ),
+        )
+        conn.execute(
+            """INSERT INTO coach_proposals
+               (date, action, status, params_json, preview_json, result_json, created_at)
+               VALUES (?, 'recovery_replan', 'approved', '{}', '{}', ?, ?)""",
+            (
+                today,
+                _json.dumps(
+                    {
+                        "delivery": {
+                            "status": "success",
+                            "checkpoint_id": 77,
+                            "dates": [today],
+                        }
+                    }
+                ),
+                f"{today}T05:48:02",
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    _seed_plan_match(db, base_checkpoint_id=77)
+    monkeypatch.setattr(
+        activities_router, "fetch_activity_intervals", lambda db, aid: None
+    )
+
+    card = activities_router.get_activity_card("act-1", db=db)
+
+    assert card["activity"]["plan_vs_fact"]["plan_replanned_after_delivery"] is None
