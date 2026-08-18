@@ -29,7 +29,7 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-08-13) Визуальная корректировка: для шести исходных участков явно показаны все пять границ — внутренние Auto Lap и переходы между сгруппированными этапами; контраст линий усилен.
 - [x] (2026-08-18) Разведка #462: `compliance` присутствует в activity payload всегда (0.0 без спаривания), `paired_event_id` — ровно при спаривании с доставленным воркаутом (проверено на 6 активностях: bike 17/08=87.9%, bike 16/08=60%, bike 03/08=102.8%, run 16/08=93.9%; без спаривания — None/0.0). Стримы `GET /streams.json`: 1 Гц, каналы time/watts/heartrate/distance/velocity_smooth; лидирующие нули watts реальны (запись стартует раньше педалирования).
 - [x] (2026-08-18) Milestone 5 (#460/#461): приоритет кругов Garmin над автодетектом провайдера + гашение флага рассинхрона при успешной редоставке до старта. PR #463: 1857 smoke passed; живая приёмка 17/08 — timeline по 7 кругам, 4/4 шага matched, intensity within ×4.
-- [x] (2026-08-18) Milestone 6 (#462): нарезка факта по стримам для спаренных активностей без кругов + бейдж compliance провайдера. 1870 smoke passed; ruff, Next lint/build и contract:extract зелёные; focused 74 passed (plan_vs_fact + activity_intervals).
+- [x] (2026-08-18) Milestone 6 (#462): нарезка факта по стримам для спаренных активностей без кругов + бейдж compliance провайдера. PR #470: 1870 smoke passed; ruff, Next lint/build и contract:extract зелёные; focused 74 passed (plan_vs_fact + activity_intervals).
 
 ## Surprises & Discoveries
 
