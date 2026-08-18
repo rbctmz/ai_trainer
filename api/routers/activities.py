@@ -25,7 +25,7 @@ from models.plan_vs_fact import (
     plan_replanned_after_delivery,
     select_actual_structure,
 )
-from services.activity_intervals import fetch_activity_intervals
+from services.activity_intervals import fetch_activity_intervals, fetch_stream_structure
 from services.best_efforts import fetch_activity_power_curve
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
 
@@ -245,6 +245,17 @@ def get_activity_card(
         # #460: круги Garmin — первоисточник выполненной структуры; автодетект
         # провайдера — fallback, когда кругов нет.
         actual_intervals, actual_source = select_actual_structure(item.get("intervals"))
+        # #462: вырожденный автодетект (≤1 блок) у спаренной с доставленным
+        # воркаутом активности режем по плановым шагам из 1 Гц-стримов.
+        actual_payload = item.get("intervals")
+        paired = isinstance(actual_payload, dict) and (
+            actual_payload.get("paired_event_id") is not None
+        )
+        if paired and actual_source != "garmin" and len(actual_intervals) <= 1:
+            stream_structure = fetch_stream_structure(db, activity_id, planned_intervals)
+            if stream_structure:
+                actual_intervals = stream_structure
+                actual_source = "streams"
         plan_vs_fact = match_plan_vs_fact(
             planned_intervals,
             actual_intervals,

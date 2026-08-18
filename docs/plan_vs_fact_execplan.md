@@ -27,6 +27,9 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 - [x] (2026-08-13) Продолжение: факт сгруппирован в те же четыре этапа, высота обеих полос приведена к единой шкале интенсивности относительно порога, цвет факта показывает попадание в цель, а внутренние Auto Lap отмечены тонкими разделителями.
 - [x] (2026-08-13) Интенсивность проверена для pace/power/heart-rate и безопасного отсутствия порога; 1718 smoke passed, 1 skipped; Next lint/build, compileall и повторная браузерная приёмка зелёные.
 - [x] (2026-08-13) Визуальная корректировка: для шести исходных участков явно показаны все пять границ — внутренние Auto Lap и переходы между сгруппированными этапами; контраст линий усилен.
+- [x] (2026-08-18) Разведка #462: `compliance` присутствует в activity payload всегда (0.0 без спаривания), `paired_event_id` — ровно при спаривании с доставленным воркаутом (проверено на 6 активностях: bike 17/08=87.9%, bike 16/08=60%, bike 03/08=102.8%, run 16/08=93.9%; без спаривания — None/0.0). Стримы `GET /streams.json`: 1 Гц, каналы time/watts/heartrate/distance/velocity_smooth; лидирующие нули watts реальны (запись стартует раньше педалирования).
+- [x] (2026-08-18) Milestone 5 (#460/#461): приоритет кругов Garmin над автодетектом провайдера + гашение флага рассинхрона при успешной редоставке до старта. PR #463: 1857 smoke passed; живая приёмка 17/08 — timeline по 7 кругам, 4/4 шага matched, intensity within ×4.
+- [x] (2026-08-18) Milestone 6 (#462): нарезка факта по стримам для спаренных активностей без кругов + бейдж compliance провайдера. 1870 smoke passed; ruff, Next lint/build и contract:extract зелёные; focused 74 passed (plan_vs_fact + activity_intervals).
 
 ## Surprises & Discoveries
 
@@ -133,6 +136,32 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 ### Milestone 4: web
 
 В `web/lib/types.ts` + `web/app/activities/page.tsx`: секция «План vs факт» — плановые шаги ↔ фактические интервалы с подсветкой отклонений, или скрыта при отсутствии плана/интервалов.
+
+### Milestone 6 (#462): нарезка факта по стримам + бейдж compliance
+
+Спек:
+- (a) Чистая функция `structure_from_streams(planned, streams)` в `models/plan_vs_fact.py`: режет 1 Гц-стримы на плановые шаги от первого активного сэмпла (watts>0, fallback heartrate non-null), эмитит синтетические интервалы в контракте фактической структуры (`start_index/moving_time/elapsed_time/average_watts/average_heartrate/distance_km`). Стрим закончился — шаг не эмитится (матчер пометит unmatched). Нет ни watts, ни heartrate → `[]` (fail-open).
+- (b) Сервис `fetch_stream_structure(database, activity_id, planned)` в `services/activity_intervals.py`: гейт — `paired_event_id` в записи интервалов (режем только спаренные с доставленным воркаутом — то же условие, при котором провайдер показывает свой compliance); стримы с фильтром каналов; ошибки сети → `[]`.
+- (c) Роутер: приоритет структуры — круги Garmin → автодетект провайдера, если он структурирован (>1 интервала) → нарезка по стримам для спаренных активностей при пустом/вырожденном (≤1 блок) автодетекте; `actual_source="streams"`.
+- (d) `normalize_intervals_payload`: pass-through `compliance` (округление до 0.1) и `paired_event_id` только при спаривании.
+- (e) Web: `ActivityIntervals.compliance?: number | null`, бейдж «Intervals.icu: соответствие N%» в карточке при `compliance > 0`; регенерация контракт-артефакта.
+
+BDD:
+```gherkin
+Scenario: спаренная активность без кругов
+  Given запись интервалов без garmin_laps, с paired_event_id, стримы 1 Гц с мощностью
+  When открывается карточка
+  Then план-vs-факт считает шаги нарезкой по стримам (actual_source="streams"), а не «1 блок» автодетекта
+
+Scenario: неспаренная активность без кругов
+  Then прежний fallback — автодетект провайдера
+
+Scenario: стрим короче плана
+  Then поздние шаги — «Факт: нет», ранние — по нарезке
+
+Scenario: в payload есть compliance при спаривании
+  Then карточка показывает «Intervals.icu: соответствие 88%»
+```
 
 ## Verification
 

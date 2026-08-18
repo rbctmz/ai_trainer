@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "2ea474f94473d8ee05e5e51bedf6754cccb610bcfbfa0ad408110e80ae0fe0b9",
+    "source_sha256": "f9c3f275b5b6c922bd02c47e862c9b4f066057834494b8aef01ed252844d0695",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "a8b1bf6dfe79c12d94a8e1ddab9697db93f2304b0714facfeeefebe0c6848a5e"
   },
@@ -1341,6 +1341,24 @@
             "array_length": null
           }
         },
+        "compliance": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
         "garmin_laps": {
           "optional": true,
           "spec": {
@@ -1423,6 +1441,25 @@
               "record_values": null,
               "array_length": null
             },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "paired_event_id": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "number",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
             "fields": null,
             "ref": null,
             "wildcard": false,

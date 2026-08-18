@@ -156,6 +156,8 @@ def test_normalize_intervals_payload_empty_payload():
         "analyzed": None,
         "intervals": [],
         "groups": [],
+        "paired_event_id": None,
+        "compliance": None,
     }
 
 
@@ -361,3 +363,92 @@ def test_activity_card_intervals_null_when_unavailable(tmp_path, monkeypatch):
     card = activities_router.get_activity_card("act-1", db=db)
 
     assert card["activity"]["intervals"] is None
+
+
+# --- #462: compliance провайдера + нарезка факта по стримам ------------------
+
+
+def test_normalize_intervals_payload_keeps_compliance_when_paired():
+    payload = _sample_intervals_payload()
+    payload["compliance"] = 87.878784
+    payload["paired_event_id"] = 129681128
+
+    compact = normalize_intervals_payload(payload)
+
+    assert compact["compliance"] == 87.9
+    assert compact["paired_event_id"] == 129681128
+
+
+def test_normalize_intervals_payload_drops_compliance_without_pairing():
+    payload = _sample_intervals_payload()
+    payload["compliance"] = 0.0  # провайдер отдаёт 0.0 без спаривания
+
+    compact = normalize_intervals_payload(payload)
+
+    assert compact.get("compliance") is None
+    assert compact.get("paired_event_id") is None
+
+
+def _sample_streams() -> list:
+    return [
+        {"type": "time", "data": list(range(130))},
+        {"type": "watts", "data": [0] * 10 + [100] * 60 + [150] * 60},
+        {"type": "heartrate", "data": [70] * 10 + [110] * 60 + [130] * 60},
+        {"type": "distance", "data": [i * 7.0 for i in range(130)]},
+    ]
+
+
+def _two_step_plan() -> list:
+    return [
+        {"type": "rest", "duration_seconds": 60, "segment_kind": "recovery"},
+        {
+            "type": "work",
+            "duration_seconds": 60,
+            "segment_kind": "work",
+            "target_zone": {"type": "power", "relative_low": 0.6, "relative_high": 0.76},
+        },
+    ]
+
+
+def test_fetch_stream_structure_requires_pairing(tmp_path, monkeypatch):
+    from services.activity_intervals import fetch_stream_structure
+
+    db = Database(str(tmp_path / "streams-gate.db"))
+    _seed_intervals_link(db)
+    db.save_activity_intervals(
+        "act-1", normalize_intervals_payload(_sample_intervals_payload())
+    )
+    client, _ = _patch_client(monkeypatch, _sample_streams())
+
+    assert fetch_stream_structure(db, "act-1", _two_step_plan(), client=client) == []
+
+
+def test_fetch_stream_structure_slices_paired_activity(tmp_path, monkeypatch):
+    from services.activity_intervals import fetch_stream_structure
+
+    db = Database(str(tmp_path / "streams-slice.db"))
+    _seed_intervals_link(db)
+    payload = _sample_intervals_payload()
+    payload["paired_event_id"] = 129681128
+    db.save_activity_intervals("act-1", normalize_intervals_payload(payload))
+    client, calls = _patch_client(monkeypatch, _sample_streams())
+
+    structure = fetch_stream_structure(db, "act-1", _two_step_plan(), client=client)
+
+    assert calls["path"] == "/api/v1/activity/i123/streams.json"
+    assert calls["params"] == {"types": "time,watts,heartrate,distance"}
+    assert [iv["average_watts"] for iv in structure] == [100, 150]
+    assert structure[0]["start_index"] == 0  # холостой префикс записи вырезан
+
+
+def test_fetch_stream_structure_fails_open_on_provider_error(tmp_path, monkeypatch):
+    from services.activity_intervals import fetch_stream_structure
+
+    db = Database(str(tmp_path / "streams-error.db"))
+    _seed_intervals_link(db)
+    payload = _sample_intervals_payload()
+    payload["paired_event_id"] = 129681128
+    db.save_activity_intervals("act-1", normalize_intervals_payload(payload))
+    client = _patch_client_error(monkeypatch, IntervalsICUError("provider down"))
+
+    assert fetch_stream_structure(db, "act-1", _two_step_plan(), client=client) == []
