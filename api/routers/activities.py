@@ -20,7 +20,11 @@ from models.activity_card import (
     foster_load_au,
 )
 from models.plan_intervals import planned_intervals_for_match
-from models.plan_vs_fact import match_plan_vs_fact, plan_replanned_after_delivery
+from models.plan_vs_fact import (
+    match_plan_vs_fact,
+    plan_replanned_after_delivery,
+    select_actual_structure,
+)
 from services.activity_intervals import fetch_activity_intervals
 from services.best_efforts import fetch_activity_power_curve
 from utils.product_semantics import format_date_label, normalize_sport_key, sport_label
@@ -238,14 +242,15 @@ def get_activity_card(
     if planned_intervals is None:
         item["plan_vs_fact"] = None
     else:
-        actual = item.get("intervals")
-        actual_intervals = actual.get("intervals") if isinstance(actual, dict) else []
+        # #460: круги Garmin — первоисточник выполненной структуры; автодетект
+        # провайдера — fallback, когда кругов нет.
+        actual_intervals, actual_source = select_actual_structure(item.get("intervals"))
         plan_vs_fact = match_plan_vs_fact(
             planned_intervals,
-            actual_intervals or [],
+            actual_intervals,
             sport=item.get("sport"),
             athlete_profile=db.get_athlete_profile(),
-            actual_source=actual.get("source") if isinstance(actual, dict) else None,
+            actual_source=actual_source,
         )
         checkpoint = (
             db.get_planning_checkpoint(planned_match["base_checkpoint_id"])
@@ -257,6 +262,7 @@ def get_activity_card(
                 planned_match,
                 checkpoint,
                 db.get_approved_recovery_replan_deliveries(),
+                activity_started_at=row.get("started_at_utc"),
             )
         )
         item["plan_vs_fact"] = plan_vs_fact

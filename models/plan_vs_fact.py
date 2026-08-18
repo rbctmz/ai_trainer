@@ -12,6 +12,7 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Mapping, Sequence
 
 
@@ -582,6 +583,8 @@ def plan_replanned_after_delivery(
     match: Any,
     checkpoint: Any,
     deliveries: Sequence[Mapping[str, Any]],
+    *,
+    activity_started_at: str | None = None,
 ) -> dict[str, Any] | None:
     """Флаг рассинхрона с устройством (#398).
 
@@ -590,6 +593,10 @@ def plan_replanned_after_delivery(
     (кейс 2026-08-08: доставка 06:41, тренировка в 09:06 по старому плану).
     Возвращает описание риска или ``None``, если план не перепланирован либо
     доставки более ранней версии для этой даты не было.
+
+    #461: если известен старт активности и текущий чекпоинт был успешно
+    доставлен повторно ДО старта — устройство получило новую версию, и флаг
+    гасится (кейс 2026-08-17: редоставка в 05:48, тренировка в 16:54).
     """
     if not isinstance(match, Mapping):
         return None
@@ -601,6 +608,11 @@ def plan_replanned_after_delivery(
         return None
     source = str(checkpoint.get("checkpoint_source") or "").strip().lower()
     if source != "recovery_replan":
+        return None
+
+    if _redelivered_before_start(
+        deliveries, checkpoint_id, session_date, activity_started_at
+    ):
         return None
 
     earlier = [
@@ -621,4 +633,76 @@ def plan_replanned_after_delivery(
     }
 
 
-__all__ = ["match_plan_vs_fact", "plan_replanned_after_delivery"]
+def _redelivered_before_start(
+    deliveries: Sequence[Mapping[str, Any]],
+    checkpoint_id: Any,
+    session_date: str,
+    activity_started_at: str | None,
+) -> bool:
+    """True, когда текущий чекпоинт доставлен успешно до старта активности."""
+    if not activity_started_at:
+        return False
+    started = _parse_utc(activity_started_at)
+    if started is None:
+        return False
+    for item in deliveries:
+        try:
+            same_checkpoint = int(item.get("checkpoint_id")) == int(checkpoint_id)
+        except (TypeError, ValueError):
+            continue
+        if not same_checkpoint:
+            continue
+        if session_date not in [str(value) for value in (item.get("dates") or [])]:
+            continue
+        if str(item.get("status") or "").strip().lower() != "success":
+            continue
+        delivered = _parse_utc(str(item.get("created_at") or ""))
+        if delivered is not None and delivered <= started:
+            return True
+    return False
+
+
+def _parse_utc(raw: str) -> datetime | None:
+    """Parse ``2026-08-17T16:54:23Z`` / ``2026-08-17 05:48:02`` as UTC."""
+    text = raw.strip()
+    if not text:
+        return None
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def select_actual_structure(payload: Any) -> tuple[list, str | None]:
+    """Выбрать фактическую структуру для матчинга с приоритетом кругов Garmin (#460).
+
+    Автодетект Intervals.icu строит интервалы по смене зоны мощности и сливает
+    мягкие тренировки (шаги внутри одной зоны) в один блок на всю сессию.
+    Круги Garmin — границы, записанные устройством, — лежат рядом в той же
+    записи и отражают выполненную структуру. Когда они есть, матчинг идёт по
+    ним; иначе — прежнее поведение по интервалам провайдера.
+    """
+    if not isinstance(payload, Mapping):
+        return [], None
+    intervals = payload.get("intervals")
+    if not isinstance(intervals, list):
+        intervals = []
+    source = payload.get("source")
+    source = source if isinstance(source, str) else None
+    if source == "intervals":
+        laps = payload.get("garmin_laps")
+        if isinstance(laps, list) and laps:
+            return laps, "garmin"
+    return intervals, source
+
+
+__all__ = [
+    "match_plan_vs_fact",
+    "plan_replanned_after_delivery",
+    "select_actual_structure",
+]
