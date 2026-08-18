@@ -678,6 +678,97 @@ def _parse_utc(raw: str) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def structure_from_streams(
+    planned: Sequence[Mapping[str, Any]],
+    streams: Sequence[Mapping[str, Any]],
+) -> list[dict[str, Any]]:
+    """Синтетическая фактическая структура из 1 Гц-стримов по плановым шагам (#462).
+
+    Нарезка стартует с первого активного сэмпла (запись часто начинается раньше
+    педалирования — лидирующие нули watts реальны). Каждый плановый шаг получает
+    окно своей длительности; закончившийся стрим не эмитит поздние шаги, и матчер
+    честно покажет «Факт: нет». Требуется мощность или пульс: без обоих сигналов
+    структура не выдумывается (fail-open к прежнему пути).
+    """
+    channels = {
+        str(stream.get("type")): stream.get("data")
+        for stream in streams
+        if isinstance(stream, Mapping) and isinstance(stream.get("data"), list)
+    }
+    watts = channels.get("watts")
+    heartrate = channels.get("heartrate")
+    if not watts and not heartrate:
+        return []
+    length = max(len(watts or []), len(heartrate or []))
+    if length <= 0:
+        return []
+
+    def _value_at(series: Any, index: int) -> float | None:
+        if not series or index >= len(series):
+            return None
+        value = series[index]
+        if value is None or isinstance(value, bool):
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _active(index: int) -> bool:
+        watt_value = _value_at(watts, index) if watts else None
+        if watt_value is not None:
+            return watt_value > 0
+        return _value_at(heartrate, index) is not None
+
+    start = 0
+    while start < length and not _active(start):
+        start += 1
+    if start >= length:
+        return []
+
+    distance = channels.get("distance")
+    structure: list[dict[str, Any]] = []
+    cursor = start
+    for step in planned:
+        duration = int(step.get("duration_seconds") or 0)
+        if duration <= 0:
+            continue
+        end = min(cursor + duration, length)
+        if end <= cursor:
+            break
+        watt_values = [
+            value
+            for value in (_value_at(watts, i) for i in range(cursor, end))
+            if value is not None
+        ]
+        hr_values = [
+            value
+            for value in (_value_at(heartrate, i) for i in range(cursor, end))
+            if value is not None
+        ]
+        interval: dict[str, Any] = {
+            # Шкала синтетической структуры начинается с нуля: холостой префикс
+            # записи (лидирующие нули) вырезан, матчер требует непрерывность с 0.
+            "start_index": cursor - start,
+            "moving_time": sum(1 for i in range(cursor, end) if _active(i)),
+            "elapsed_time": end - cursor,
+        }
+        if watt_values:
+            interval["average_watts"] = round(sum(watt_values) / len(watt_values), 1)
+        if hr_values:
+            interval["average_heartrate"] = round(sum(hr_values) / len(hr_values))
+        if distance:
+            distance_start = _value_at(distance, cursor)
+            distance_end = _value_at(distance, end - 1)
+            if distance_start is not None and distance_end is not None:
+                interval["distance_km"] = round(
+                    (distance_end - distance_start) / 1000.0, 2
+                )
+        structure.append(interval)
+        cursor = end
+    return structure
+
+
 def select_actual_structure(payload: Any) -> tuple[list, str | None]:
     """Выбрать фактическую структуру для матчинга с приоритетом кругов Garmin (#460).
 
@@ -705,4 +796,5 @@ __all__ = [
     "match_plan_vs_fact",
     "plan_replanned_after_delivery",
     "select_actual_structure",
+    "structure_from_streams",
 ]

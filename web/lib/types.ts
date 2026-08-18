@@ -184,6 +184,8 @@ export interface ActivityIntervals {
   intervals: ActivityInterval[];
   groups: ActivityInterval[];
   garmin_laps?: ActivityInterval[];
+  paired_event_id?: number | string | null;
+  compliance?: number | null;
 }
 
 export interface ActivityPowerPeak {

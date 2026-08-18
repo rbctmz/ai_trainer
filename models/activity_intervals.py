@@ -83,11 +83,19 @@ def normalize_intervals_payload(payload: Any) -> dict[str, Any]:
         raise ValueError("Intervals.icu `icu_groups` must be a list")
 
     analyzed = payload.get("analyzed")
+    # #462: провайдер сам считает соответствие спаренной активности доставленному
+    # воркауту; без спаривания он отдаёт compliance=0.0 — это не оценка, а заглушка.
+    paired_event_id = _compact_number(payload.get("paired_event_id"))
+    compliance = (
+        _compact_number(payload.get("compliance")) if paired_event_id is not None else None
+    )
     return {
         "source": "intervals",
         "analyzed": str(analyzed).strip() if analyzed not in (None, "") else None,
         "intervals": [_compact_interval(row) for row in raw_intervals],
         "groups": [_compact_interval(row) for row in raw_groups],
+        "paired_event_id": paired_event_id,
+        "compliance": compliance,
     }
 
 

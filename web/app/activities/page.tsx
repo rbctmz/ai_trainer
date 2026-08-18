@@ -808,6 +808,11 @@ function ActivityCardModal({
             <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
               План и факт
             </div>
+            {intervals?.compliance != null && intervals.compliance > 0 ? (
+              <div className="mt-1 text-xs text-ink-soft">
+                Intervals.icu: соответствие {Math.round(intervals.compliance)}%
+              </div>
+            ) : null}
             {hasTimelineAlignment ? (
               <div className="mt-2 rounded border border-surface-border bg-surface-muted/30 px-2.5 py-2">
                 <div className="text-sm font-medium text-ink">

@@ -1111,3 +1111,212 @@ def test_activity_card_suppresses_desync_warning_after_pre_start_redelivery(
     card = activities_router.get_activity_card("act-1", db=db)
 
     assert card["activity"]["plan_vs_fact"]["plan_replanned_after_delivery"] is None
+
+
+# --- #462: нарезка фактической структуры по стримам --------------------------
+
+
+def _streams(watts, heartrate=None, distance=None):
+    streams = [
+        {"type": "time", "data": list(range(len(watts)))},
+        {"type": "watts", "data": watts},
+    ]
+    if heartrate is not None:
+        streams.append({"type": "heartrate", "data": heartrate})
+    if distance is not None:
+        streams.append({"type": "distance", "data": distance})
+    return streams
+
+
+def test_structure_from_streams_slices_planned_steps():
+    from models.plan_vs_fact import structure_from_streams
+
+    watts = [0] * 10 + [100] * 60 + [150] * 60
+    streams = _streams(
+        watts,
+        heartrate=[70] * 10 + [110] * 60 + [130] * 60,
+        distance=[i * 7.0 for i in range(130)],
+    )
+    planned = [
+        {"type": "rest", "duration_seconds": 60},
+        {"type": "work", "duration_seconds": 60},
+    ]
+
+    structure = structure_from_streams(planned, streams)
+
+    assert len(structure) == 2
+    first, second = structure
+    assert first["start_index"] == 0  # холостой префикс записи вырезан из шкалы
+    assert first["moving_time"] == 60
+    assert first["elapsed_time"] == 60
+    assert first["average_watts"] == 100
+    assert first["average_heartrate"] == 110
+    assert first["distance_km"] == 0.41  # окно [10, 70): 59 сэмплов по 7 м
+    assert second["start_index"] == 60
+    assert second["average_watts"] == 150
+
+
+def test_structure_from_streams_stops_when_stream_ends():
+    from models.plan_vs_fact import structure_from_streams
+
+    watts = [0] * 10 + [100] * 60  # хватило только на первый шаг
+    streams = _streams(watts)
+
+    structure = structure_from_streams(
+        [
+            {"type": "work", "duration_seconds": 60},
+            {"type": "work", "duration_seconds": 60},
+        ],
+        streams,
+    )
+
+    assert len(structure) == 1
+
+
+def test_structure_from_streams_requires_power_or_hr():
+    from models.plan_vs_fact import structure_from_streams
+
+    streams = [{"type": "time", "data": list(range(100))}]
+
+    assert (
+        structure_from_streams([{"type": "work", "duration_seconds": 60}], streams)
+        == []
+    )
+
+
+def test_match_plan_vs_fact_with_stream_structure():
+    from models.plan_vs_fact import structure_from_streams
+
+    watts = [0] * 10 + [100] * 60 + [150] * 60 + [0] * 5
+    streams = _streams(watts, heartrate=[70] * 10 + [110] * 60 + [130] * 65)
+    planned = [
+        _planned_rest(60),
+        _planned_work(
+            60, target_zone={"type": "power", "relative_low": 0.5, "relative_high": 0.9}
+        ),
+    ]
+
+    result = match_plan_vs_fact(
+        planned, structure_from_streams(planned, streams), actual_source="streams"
+    )
+
+    assert result["alignment_mode"] == "timeline"
+    assert result["summary"]["matched_steps"] == 2
+
+
+def test_activity_card_uses_stream_structure_for_degenerate_provider_block(
+    tmp_path, monkeypatch
+):
+    from api.routers import activities as activities_router
+    from data.database import Database
+
+    db = Database(str(tmp_path / "plan-vs-fact-streams.db"))
+    _seed_activity(db)
+    _seed_plan_match(db)
+    monkeypatch.setattr(
+        activities_router,
+        "fetch_activity_intervals",
+        lambda db, aid: {
+            "source": "intervals",
+            "intervals": [
+                {
+                    "start_index": 0,
+                    "moving_time": 1680,
+                    "elapsed_time": 1680,
+                    "average_watts": 107,
+                }
+            ],
+            "groups": [],
+            "garmin_laps": [],
+            "paired_event_id": 129681128,
+            "compliance": 87.9,
+        },
+    )
+    synthetic = [
+        {"start_index": 0, "moving_time": 715, "elapsed_time": 720, "average_watts": 120},
+        {"start_index": 720, "moving_time": 235, "elapsed_time": 240, "average_watts": 90},
+        {"start_index": 960, "moving_time": 718, "elapsed_time": 720, "average_watts": 125},
+    ]
+    monkeypatch.setattr(
+        activities_router,
+        "fetch_stream_structure",
+        lambda db, aid, planned: synthetic,
+    )
+
+    card = activities_router.get_activity_card("act-1", db=db)
+
+    plan_vs_fact = card["activity"]["plan_vs_fact"]
+    assert plan_vs_fact["summary"]["actual_intervals"] == 3
+    assert plan_vs_fact["summary"]["matched"] == 2
+    assert card["activity"]["intervals"]["compliance"] == 87.9
+
+
+def test_activity_card_keeps_structured_provider_intervals(tmp_path, monkeypatch):
+    from api.routers import activities as activities_router
+    from data.database import Database
+
+    db = Database(str(tmp_path / "plan-vs-fact-structured.db"))
+    _seed_activity(db)
+    _seed_plan_match(db)
+    monkeypatch.setattr(
+        activities_router,
+        "fetch_activity_intervals",
+        lambda db, aid: {
+            "source": "intervals",
+            "intervals": [_actual(715), _actual(722), _actual(718)],
+            "groups": [],
+            "garmin_laps": [],
+            "paired_event_id": 129681128,
+        },
+    )
+    stream_calls = []
+    monkeypatch.setattr(
+        activities_router,
+        "fetch_stream_structure",
+        lambda db, aid, planned: stream_calls.append(aid) or [],
+    )
+
+    card = activities_router.get_activity_card("act-1", db=db)
+
+    assert stream_calls == []  # структурированный автодетект не подменяется
+    plan_vs_fact = card["activity"]["plan_vs_fact"]
+    assert plan_vs_fact["summary"]["actual_intervals"] == 3
+
+
+def test_activity_card_skips_streams_when_not_paired(tmp_path, monkeypatch):
+    from api.routers import activities as activities_router
+    from data.database import Database
+
+    db = Database(str(tmp_path / "plan-vs-fact-unpaired.db"))
+    _seed_activity(db)
+    _seed_plan_match(db)
+    monkeypatch.setattr(
+        activities_router,
+        "fetch_activity_intervals",
+        lambda db, aid: {
+            "source": "intervals",
+            "intervals": [],
+            "groups": [],
+            "garmin_laps": [],
+        },
+    )
+    stream_calls = []
+    monkeypatch.setattr(
+        activities_router,
+        "fetch_stream_structure",
+        lambda db, aid, planned: stream_calls.append(aid) or [],
+    )
+
+    card = activities_router.get_activity_card("act-1", db=db)
+
+    assert stream_calls == []  # без спаривания нарезка не вызывается
+    plan_vs_fact = card["activity"]["plan_vs_fact"]
+    assert plan_vs_fact["summary"]["actual_intervals"] == 0
+
+
+def test_activity_card_compliance_ui_contract() -> None:
+    page = Path("web/app/activities/page.tsx").read_text(encoding="utf-8")
+    types = Path("web/lib/types.ts").read_text(encoding="utf-8")
+
+    assert "compliance?: number | null" in types
+    assert "Intervals.icu: соответствие" in page

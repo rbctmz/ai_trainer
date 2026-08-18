@@ -6,11 +6,15 @@ Intervals.icu добавляет отдельно определённые ин�
 """
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 
 from models.activity_intervals import normalize_intervals_payload
+from models.plan_vs_fact import structure_from_streams
 from services import intervals_icu
 from services.intervals_icu import IntervalsICUClient, IntervalsICUError
+
+
+_STREAM_TYPES = "time,watts,heartrate,distance"
 
 
 def fetch_activity_intervals(
@@ -56,4 +60,35 @@ def fetch_activity_intervals(
     return compact
 
 
-__all__ = ["fetch_activity_intervals"]
+def fetch_stream_structure(
+    database: Any,
+    activity_id: str,
+    planned: Sequence[Any],
+    client: IntervalsICUClient | None = None,
+) -> list:
+    """Структура факта из 1 Гц-стримов спаренной активности (#462).
+
+    Гейт — ``paired_event_id`` в записи интервалов: режем по плановым шагам
+    только активности, спаренные с доставленным воркаутом (то же условие, при
+    котором провайдер показывает свой compliance). Любой сбой — ``[]``
+    (fail-open к прежнему пути), полные стримы не персистим (#390).
+    """
+    cached = database.get_activity_intervals(activity_id)
+    if not isinstance(cached, dict) or cached.get("paired_event_id") is None:
+        return []
+    if not planned:
+        return []
+    client = client or intervals_icu.get_client()
+    if not client.is_configured():
+        return []
+    intervals_id = database.get_intervals_provider_activity_id(activity_id)
+    if not intervals_id:
+        return []
+    try:
+        streams = client.get_activity_streams(intervals_id, types=_STREAM_TYPES)
+        return structure_from_streams(planned, streams)
+    except (IntervalsICUError, ValueError):
+        return []
+
+
+__all__ = ["fetch_activity_intervals", "fetch_stream_structure"]
