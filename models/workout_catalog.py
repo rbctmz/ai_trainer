@@ -942,6 +942,27 @@ _TARGET_DENSITY = {
 }
 
 
+# Issue #475 / spike #471 (VALIDATED): the generic key above predates staged
+# bike structures and overshot their own power bands — steady-state bike steps
+# imply ~22/~40/~45 TSS/h at 22/40/70 targets, i.e. plans ran 23-37% hotter
+# than the workout could honestly deliver. Sport-scoped overrides carry the
+# zone-derived values so run/swim/walk definitions keep their (separately
+# validated) shared numbers. Pinned by tests/smoke/test_catalog_target_density.py.
+_TARGET_DENSITY_BY_SPORT = {
+    ("bike", "recovery"): 22.28,
+    ("bike", "endurance"): 40.11,
+    ("bike", "progression"): 44.97,
+}
+
+
+def _resolve_target_density(definition: WorkoutTemplateDefinition) -> float:
+    """Duration-estimate density: sport scope wins, generic builder key falls back."""
+    scoped = _TARGET_DENSITY_BY_SPORT.get((definition.sport, definition.step_builder_key))
+    if scoped is not None:
+        return scoped
+    return _TARGET_DENSITY.get(definition.step_builder_key, 60.0)
+
+
 def _prescription_fingerprint(payload: Mapping[str, Any]) -> str:
     raw = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
@@ -955,7 +976,7 @@ def _candidate_duration(
     estimated = int(round(float(estimated_duration_minutes or 0) / 5.0) * 5)
     if estimated > 0 and not _failed_bounds(definition, estimated, target_tss):
         return estimated
-    target_density = _TARGET_DENSITY.get(definition.step_builder_key, 60.0)
+    target_density = _resolve_target_density(definition)
     raw = target_tss * 60.0 / target_density if target_density > 0 else estimated
     resolved = int(round(raw / 5.0) * 5)
     resolved = max(definition.min_duration_minutes, min(definition.max_duration_minutes, resolved))
