@@ -14,6 +14,65 @@ PROTECTIVE_CONSTRAINT_KINDS = {
     "disabled_plan_day",
 }
 
+# Issue #473: constraint scope. ``None``/empty means the WHOLE day is protected;
+# a canonical sport means only the matching legs of that day are removed and
+# every other leg (sessions, TSS parts, their matched feedback) survives.
+CONSTRAINT_SPORT_ALIASES = {
+    "bike": "bike",
+    "cycling": "bike",
+    "velo": "bike",
+    "вело": "bike",
+    "велосипед": "bike",
+    "run": "run",
+    "running": "run",
+    "бег": "run",
+    "swim": "swim",
+    "swimming": "swim",
+    "плавание": "swim",
+    "плавания": "swim",
+}
+
+
+def normalize_constraint_sport(value: Any) -> str | None:
+    """Map a free-form sport mention to the canonical leg sport, or None.
+
+    ``None`` means WHOLE-DAY scope (the legacy behavior). Unknown non-empty
+    values are rejected with ValueError so a typo cannot silently widen an
+    athlete's day into a rest day (see issue #473 — that is exactly how a
+    cancelled swim once erased a completed bike leg of the same day).
+    """
+    text = str(value or "").strip().lower()
+    if not text:
+        return None
+    canonical = CONSTRAINT_SPORT_ALIASES.get(text)
+    if canonical is None:
+        allowed = sorted({alias for alias in CONSTRAINT_SPORT_ALIASES.values()})
+        raise ValueError(
+            f"sport must map to one of {allowed} (got {value!r}); "
+            "pass an empty sport for a whole-day constraint"
+        )
+    return canonical
+
+
+def _day_is_composite(template: Mapping[str, Any] | None) -> bool:
+    kind = str((template or {}).get("kind") or "").strip().lower()
+    return kind == "composite" or "brick" in str((template or {}).get("template_key") or "").lower()
+
+
+def _whole_day_constrained(constrained_sports: set[str], template: Mapping[str, Any] | None) -> bool:
+    """When the scoped removal leaves no executable leg, degrade to a full off-day."""
+    if _day_is_composite(template):
+        # Brick/composite legs share materialized steps across sports; there is
+        # no safe per-leg cut there yet, so stay conservative (whole day).
+        return True
+    remaining = [
+        session
+        for session in list((template or {}).get("sessions") or [])
+        if isinstance(session, dict)
+        and str(session.get("sport") or "").strip().lower() not in constrained_sports
+    ]
+    return not remaining
+
 
 def apply_constraints_to_goal_plan(
     goal_plan: Mapping[str, Any],
@@ -21,93 +80,75 @@ def apply_constraints_to_goal_plan(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Return a copied goal plan with active matching day constraints applied.
 
-    The helper is intentionally narrow: it protects exact dates by turning the
-    matching day into a zero-load day and annotating the matching session
-    template. It does not redistribute load or rebuild the full plan.
+    A constraint without ``sport`` zeroes the WHOLE day (legacy behavior, kept
+    for sickness/rest-style full-day protection). A constraint WITH ``sport``
+    removes only the matching legs of that day and keeps every other leg — its
+    session id, steps, TSS parts and any confirmed plan-vs-fact match untouched.
+    If removing the legs drains the day of all sessions (or the day is a
+    composite/brick), the day still becomes the classic constraint-off day.
+    This helper never redistributes load or rebuilds the full plan.
     """
     updated = deepcopy(dict(goal_plan or {}))
     daily_plan = list(updated.get("daily_plan") or [])
     session_templates = list(updated.get("session_templates") or [])
-    active_constraints = _active_constraints_by_date(constraints or [])
+    scoped_by_date = _constraints_with_scope_by_date(constraints or [])
 
     applied: list[dict[str, Any]] = []
-    protected_dates: list[str] = []
+    protected_dates: list[str] = []  # whole days only (rebalance/overlay semantics)
 
     for index, item in enumerate(daily_plan):
         if not isinstance(item, (list, tuple)) or len(item) < 3:
             continue
         day = _date_key(item[0])
-        if not day or day not in active_constraints:
+        if not day or day not in scoped_by_date:
             continue
 
-        constraint = active_constraints[day]
-        _dt, _total, parts = item
-        zero_parts = _zero_parts(parts)
-        daily_plan[index] = (item[0], 0, zero_parts)
-        protected_dates.append(day)
+        constraint_rows = scoped_by_date[day]
+        whole_sports = sorted({scope for _, scope in constraint_rows if scope is not None})
+        has_whole_day_scope = any(scope is None for _, scope in constraint_rows)
+        template = (
+            session_templates[index]
+            if index < len(session_templates) and isinstance(session_templates[index], dict)
+            else None
+        )
+
+        if has_whole_day_scope or _whole_day_constrained(set(whole_sports), template):
+            anchor = next(
+                (
+                    row
+                    for row, scope in constraint_rows
+                    if scope is None or not whole_sports
+                ),
+                constraint_rows[0][0],
+            )
+            _apply_whole_day_zeroing(daily_plan, index, session_templates, index, anchor)
+            protected_dates.append(day)
+            summary_sport: str | None = None
+        else:
+            # A partially drained day keeps its remaining legs verbatim; the
+            # full-drain case was routed to whole-day zeroing above.
+            _remove_legs(template, set(whole_sports))  # mutates copy; audit lands in canceled_legs
+            surviving = [s for s in list(template.get("sessions") or []) if isinstance(s, dict)]
+            new_total = round(sum(_float(s.get("total_tss")) for s in surviving), 1)
+            merged_parts = _zero_parts(item[2])
+            for session in surviving:
+                if session.get("sport"):
+                    sport_key = str(session["sport"]).strip().lower()
+                    merged_parts[sport_key] = round(_float(session.get("total_tss")), 1)
+            _dt, _old_total, _old_parts = item
+            daily_plan[index] = (_dt, float(new_total), merged_parts)
+            summary_sport = ",".join(whole_sports) or None
+
+        anchor_for_note = constraint_rows[0][0]
         applied.append(
             {
                 "date": day,
-                "constraint_id": constraint.get("id"),
-                "kind": constraint.get("kind"),
-                "source": constraint.get("source"),
+                "constraint_id": anchor_for_note.get("id"),
+                "kind": anchor_for_note.get("kind"),
+                "source": anchor_for_note.get("source"),
+                "sport": summary_sport,
             }
         )
-
-        if index < len(session_templates) and isinstance(session_templates[index], dict):
-            template = dict(session_templates[index])
-            note = _constraint_note(constraint)
-            # Issue #205: a constraint-off day carries no executable sessions.
-            # Record the displaced ids instead of leaving stale sessions behind.
-            replaced_session_ids = [
-                str(session.get("session_id") or "")
-                for session in list(template.get("sessions") or [])
-                if isinstance(session, dict) and session.get("session_id")
-            ]
-            for key in (
-                "definition_snapshot",
-                "parameter_snapshot",
-                "materialized_steps",
-                "target_provenance",
-                "selection_evidence",
-                "prescription_fingerprint",
-                "legs",
-                "transition_minutes",
-                "template_version",
-                "template_name",
-                "stimulus",
-                "fatigue_cost",
-                "expected_recovery_hours",
-                "mutation_evidence",
-                "allocated_parts",
-                "brick_status",
-                "brick_status_reason",
-            ):
-                template.pop(key, None)
-            template.update(
-                {
-                    "session_role": "off",
-                    "sport": "off",
-                    "sport_label": "отдых",
-                    "kind": "single",
-                    "template_key": f"constraint:{constraint.get('kind') or 'off'}",
-                    "materialization_status": "constraint_off",
-                    "protected_by_constraint": True,
-                    "constraint": {
-                        "id": constraint.get("id"),
-                        "kind": constraint.get("kind"),
-                        "source": constraint.get("source"),
-                        "note": constraint.get("note"),
-                    },
-                    "adjustment_note": note,
-                    "export_name": note,
-                    "duration_minutes": 0,
-                    "sessions": [],
-                }
-            )
-            if replaced_session_ids:
-                template["replaced_session_ids"] = replaced_session_ids
-            session_templates[index] = template
 
     updated["daily_plan"] = daily_plan
     updated["session_templates"] = session_templates
@@ -151,12 +192,83 @@ def apply_constraints_to_goal_plan(
     }
 
 
-def _active_constraints_by_date(
+def _apply_whole_day_zeroing(
+    daily_plan: list[Any],
+    index: int,
+    session_templates: list[Any],
+    template_index: int,
+    constraint: Mapping[str, Any],
+) -> None:
+    """Turn one day into the classic zero-load constraint-off day (legacy shape)."""
+    item = daily_plan[index]
+    _dt, _total, parts = item
+    daily_plan[index] = (item[0], 0, _zero_parts(parts))
+
+    if template_index >= len(session_templates) or not isinstance(session_templates[template_index], dict):
+        return
+    template = dict(session_templates[template_index])
+    note = _constraint_note(constraint)
+    # Issue #205: a constraint-off day carries no executable sessions.
+    # Record the displaced ids instead of leaving stale sessions behind.
+    replaced_session_ids = [
+        str(session.get("session_id") or "")
+        for session in list(template.get("sessions") or [])
+        if isinstance(session, dict) and session.get("session_id")
+    ]
+    for key in (
+        "definition_snapshot",
+        "parameter_snapshot",
+        "materialized_steps",
+        "target_provenance",
+        "selection_evidence",
+        "prescription_fingerprint",
+        "legs",
+        "transition_minutes",
+        "template_version",
+        "template_name",
+        "stimulus",
+        "fatigue_cost",
+        "expected_recovery_hours",
+        "mutation_evidence",
+        "allocated_parts",
+        "brick_status",
+        "brick_status_reason",
+    ):
+        template.pop(key, None)
+    template.update(
+        {
+            "session_role": "off",
+            "sport": "off",
+            "sport_label": "отдых",
+            "kind": "single",
+            "template_key": f"constraint:{constraint.get('kind') or 'off'}",
+            "materialization_status": "constraint_off",
+            "protected_by_constraint": True,
+            "constraint": {
+                "id": constraint.get("id"),
+                "kind": constraint.get("kind"),
+                "source": constraint.get("source"),
+                "note": constraint.get("note"),
+            },
+            "adjustment_note": note,
+            "export_name": note,
+            "duration_minutes": 0,
+            "sessions": [],
+        }
+    )
+    if replaced_session_ids:
+        template["replaced_session_ids"] = replaced_session_ids
+    session_templates[template_index] = template
+
+
+def _constraints_with_scope_by_date(
     constraints: list[Mapping[str, Any]],
-) -> dict[str, Mapping[str, Any]]:
-    by_date: dict[str, Mapping[str, Any]] = {}
+) -> dict[str, list[tuple[Mapping[str, Any], str | None]]]:
+    """Active protective constraints grouped by day with their resolved sport scope."""
+    by_date: dict[str, list[tuple[Mapping[str, Any], str | None]]] = {}
     for constraint in constraints:
-        if str(constraint.get("status") or "active") != "active":
+        status = str(constraint.get("status") or "active")
+        if status != "active":
             continue
         kind = str(constraint.get("kind") or "")
         if kind not in PROTECTIVE_CONSTRAINT_KINDS:
@@ -164,8 +276,44 @@ def _active_constraints_by_date(
         day = _date_key(constraint.get("date"))
         if not day:
             continue
-        by_date.setdefault(day, constraint)
+        raw_sport = constraint.get("sport")
+        scope = None if raw_sport in (None, "") else normalize_constraint_sport(raw_sport)
+        by_date.setdefault(day, []).append((constraint, scope))
     return by_date
+
+
+def _remove_legs(
+    template: Mapping[str, Any] | None,
+    constrained_sports: set[str],
+) -> list[dict[str, Any]]:
+    """Remove constrained legs from the template (mutates the copy), returns audit rows."""
+    if not isinstance(template, dict):
+        return []
+    sessions = list(template.get("sessions") or [])
+    kept: list[Any] = []
+    removed: list[dict[str, Any]] = []
+    for session in sessions:
+        if isinstance(session, dict) and str(session.get("sport") or "").strip().lower() in constrained_sports:
+            removed.append(
+                {
+                    "session_id": str(session.get("session_id") or ""),
+                    "sport": str(session.get("sport") or "").strip().lower(),
+                    "duration_minutes": _float(session.get("duration_minutes")),
+                    "total_tss": _float(session.get("total_tss")),
+                    "reason": "constraint",
+                }
+            )
+        else:
+            kept.append(session)
+    template["sessions"] = kept
+    if removed:
+        canceled = list(template.get("canceled_legs") or [])
+        template["canceled_legs"] = canceled + removed
+    allocated_parts = template.get("allocated_parts")
+    if isinstance(allocated_parts, dict):
+        for sport_key in [key for key in allocated_parts if str(key).strip().lower() in constrained_sports]:
+            allocated_parts[sport_key] = 0.0
+    return removed
 
 
 def _date_key(value: Any) -> str | None:

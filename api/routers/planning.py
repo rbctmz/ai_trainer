@@ -10,7 +10,7 @@ from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api import planning_service
 from api.deps import get_database
@@ -86,6 +86,25 @@ class ConstraintRequest(BaseModel):
     plan_id: Optional[str] = None
     session_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    sport: Optional[str] = Field(
+        default=None,
+        description=(
+            "Скоуп ограничения (#473): пусто = весь день, или bike/run/swim "
+            "(алиасы вело/бег/плавание) = только эта дисциплина дня"
+        ),
+    )
+
+    @field_validator("sport")
+    @classmethod
+    def _validate_sport_scope(cls, value: Optional[str]) -> Optional[str]:
+        # API-level validation → 422 on unknown sport (review #474); aliases map
+        # to the canonical name. The DB-layer normalizer stays as second line of
+        # defense for direct callers.
+        from models.coach_constraints import normalize_constraint_sport
+
+        if value in (None, ""):
+            return None
+        return normalize_constraint_sport(value)
 
 
 def _parse_available_days(value: Optional[str]) -> Optional[List[str]]:
@@ -134,16 +153,27 @@ def list_constraints(days: int = 30, db: Database = Depends(get_database)) -> di
 
 @router.post("/constraints")
 def create_constraint(req: ConstraintRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
+    """Create a durable constraint and apply it to the active plan immediately.
+
+    Pydantic validation on ``sport`` yields 422 for unknown scopes (review #474);
+    deeper ``ValueError`` layers map to 422 as well, stale base → 409.
+    """
     try:
-        return db.save_coach_constraint(
-            date=req.date,
-            kind=req.kind,
-            source=req.source,
-            note=req.note,
+        return planning_service.apply_constraint_to_active_plan(
+            db,
+            {
+                "date": req.date,
+                "kind": req.kind,
+                "source": req.source,
+                "note": req.note,
+                "sport": req.sport,
+                "metadata": req.metadata or {},
+            },
             plan_id=req.plan_id,
             session_id=req.session_id,
-            metadata=req.metadata or {},
         )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 

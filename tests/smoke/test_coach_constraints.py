@@ -214,8 +214,8 @@ def _two_leg_plan() -> dict:
         "distance": "Олимпийка",
         "daily_plan": [
             (today, 30.0, {"run": 30.0}),
-            (target_day, 64.0, {"bike": 36.5, "swim": 27.5}),
             (today + timedelta(days=1), 25.0, {"run": 25.0}),
+            (target_day, 64.0, {"bike": 36.5, "swim": 27.5}),
         ],
         "session_templates": [
             {
@@ -235,17 +235,6 @@ def _two_leg_plan() -> dict:
                 ],
             },
             {
-                "date": target_day.strftime("%Y-%m-%d"),
-                "week_index": 0,
-                "day_index": 2,
-                "phase": "Base",
-                "session_role": "easy",
-                "sport": "bike",
-                "duration_minutes": 40,
-                "allocated_parts": {"bike": 36.5, "swim": 27.5},
-                "sessions": [deepcopy(bike_session), deepcopy(swim_session)],
-            },
-            {
                 "date": (today + timedelta(days=1)).strftime("%Y-%m-%d"),
                 "session_role": "easy",
                 "sport": "run",
@@ -260,6 +249,17 @@ def _two_leg_plan() -> dict:
                         "materialized_steps": [],
                     }
                 ],
+            },
+            {
+                "date": target_day.strftime("%Y-%m-%d"),
+                "week_index": 0,
+                "day_index": 2,
+                "phase": "Base",
+                "session_role": "easy",
+                "sport": "bike",
+                "duration_minutes": 40,
+                "allocated_parts": {"bike": 36.5, "swim": 27.5},
+                "sessions": [deepcopy(bike_session), deepcopy(swim_session)],
             },
         ],
         "weekly_summary": [
@@ -276,7 +276,7 @@ def test_per_sport_constraint_kills_only_that_leg():
     from models.coach_constraints import apply_constraints_to_goal_plan
 
     plan = _two_leg_plan()
-    target_date = plan["session_templates"][1]["date"]
+    target_date = plan["session_templates"][2]["date"]
     planned = deepcopy(plan)
     constraint = {
         "id": 21,
@@ -334,7 +334,7 @@ def test_whole_day_constraint_still_zeros_everything_regression():
     from models.coach_constraints import apply_constraints_to_goal_plan
 
     plan = _two_leg_plan()
-    target_date = plan["session_templates"][1]["date"]
+    target_date = plan["session_templates"][2]["date"]
     constraint = {
         "id": 22,
         "date": target_date,
@@ -360,7 +360,7 @@ def test_two_per_sport_constraints_collapse_day_to_off():
     from models.coach_constraints import apply_constraints_to_goal_plan
 
     plan = _two_leg_plan()
-    target_date = plan["session_templates"][1]["date"]
+    target_date = plan["session_templates"][2]["date"]
     constraints = [
         {"id": 31, "date": target_date, "kind": "unavailable", "source": "coach", "status": "active", "sport": "swim"},
         {"id": 32, "date": target_date, "kind": "unavailable", "source": "coach", "status": "active", "sport": "bike"},
@@ -382,7 +382,7 @@ def test_composite_day_falls_back_to_whole_day_zeroing():
     from models.coach_constraints import apply_constraints_to_goal_plan
 
     plan = _two_leg_plan()
-    target_date = plan["session_templates"][1]["date"]
+    target_date = plan["session_templates"][2]["date"]
     target_template = next(t for t in plan["session_templates"] if str(t.get("date"))[:10] == target_date)
     target_template["kind"] = "composite"
     target_template["template_key"] = "brick_endurance"
@@ -430,3 +430,44 @@ def test_save_coach_constraint_rejects_unknown_sport(tmp_path):
     except ValueError:
         return
     raise AssertionError("unknown sport must be rejected with ValueError")
+
+
+def test_per_sport_constraint_does_not_block_rebalance_day(tmp_path):
+    """BDD (#473): ограничение одной ноги не закрывает день от ребаланса нагрузки."""
+    from api.planning_service import _rebalance_protected_dates
+
+    db = Database(str(tmp_path / "rebalance_scope.db"))
+    today = datetime.now().date()
+    scope_day = (today + timedelta(days=3)).isoformat()
+    whole_day = (today + timedelta(days=4)).isoformat()
+    db.save_coach_constraint(date=scope_day, kind="unavailable", source="coach", sport="swim")
+    db.save_coach_constraint(date=whole_day, kind="sick", source="coach")
+
+    goal_plan = {"protected_dates": [], "constraint_summary": {}}
+    protected = _rebalance_protected_dates(db, goal_plan, as_of=today)
+
+    assert whole_day in protected
+    assert scope_day not in protected
+
+
+def test_constraint_request_validates_sport_at_api_layer():
+    """Безизвестный спорт падает валидацией запроса (HTTP 422), алиас мапится в канон."""
+    import pydantic
+
+    from api.routers import planning as planning_router
+
+    try:
+        planning_router.ConstraintRequest(
+            date=_date(), kind="sick", source="user", sport="flying"
+        )
+    except pydantic.ValidationError:
+        pass
+    else:
+        raise AssertionError("unknown sport must fail request validation (422)")
+
+    aliased = planning_router.ConstraintRequest(
+        date=_date(), kind="unavailable", source="user", sport="плавание"
+    )
+    assert aliased.sport == "swim"
+    whole = planning_router.ConstraintRequest(date=_date(), kind="sick", source="user")
+    assert whole.sport is None

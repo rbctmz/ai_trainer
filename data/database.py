@@ -706,7 +706,8 @@ class Database:
                 session_id TEXT,
                 metadata_json TEXT,
                 resolved_at TEXT,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                sport TEXT
             )
         ''')
         # ADR-0008 (#269): multi-source activity ingestion. One canonical activity
@@ -790,6 +791,7 @@ class Database:
         self._ensure_coach_decision_columns(conn)
         self._ensure_coach_proposal_columns(conn)
         self._ensure_session_feedback_prompt_columns(conn)
+        self._ensure_coach_constraint_columns(conn)
         conn.execute('''
             CREATE UNIQUE INDEX IF NOT EXISTS idx_coach_proposals_source_key
             ON coach_proposals(source_key)
@@ -881,6 +883,20 @@ class Database:
                 # once. If the other process won the migration race, the schema
                 # is already in the desired state and initialization remains
                 # idempotent. Do not swallow unrelated migration failures.
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+        conn.commit()
+
+    @classmethod
+    def _ensure_coach_constraint_columns(cls, conn: sqlite3.Connection) -> None:
+        """Issue #473: scoped (per-sport) coach constraints — nullable scope column."""
+        cursor = conn.cursor()
+        cursor.execute("PRAGMA table_info(coach_constraints)")
+        existing_columns = {row[1] for row in cursor.fetchall()}
+        if "sport" not in existing_columns:
+            try:
+                cursor.execute("ALTER TABLE coach_constraints ADD COLUMN sport TEXT")
+            except sqlite3.OperationalError as exc:
                 if "duplicate column name" not in str(exc).lower():
                     raise
         conn.commit()
@@ -3060,8 +3076,14 @@ class Database:
         plan_id=None,
         session_id=None,
         metadata=None,
+        sport=None,
     ):
-        """Сохраняет durable-ограничение, которое должен учитывать replan."""
+        """Сохраняет durable-ограничение, которое должен учитывать replan.
+
+        ``sport`` задаёт скоуп ограничения (#473): пусто = весь день,
+        канонический спорт (bike/run/swim) = только соответствующие ноги дня.
+        Свободные формулировки нормализуются алиасами; неизвестный спорт — ValueError.
+        """
         allowed_kinds = {
             "sick",
             "unavailable",
@@ -3072,6 +3094,12 @@ class Database:
         kind = str(kind or "").strip()
         if kind not in allowed_kinds:
             raise ValueError(f"kind must be one of {sorted(allowed_kinds)}")
+
+        # Lazy import keeps data/ free of top-level models/ coupling while sharing
+        # the canonical alias map with the planning application layer (#473).
+        from models.coach_constraints import normalize_constraint_sport
+
+        normalized_sport = normalize_constraint_sport(sport)
 
         source = str(source or "coach").strip()
         if not source:
@@ -3091,8 +3119,8 @@ class Database:
         cursor.execute(
             '''
             INSERT INTO coach_constraints
-                (date, kind, status, source, note, plan_id, session_id, metadata_json)
-            VALUES (?, ?, 'active', ?, ?, ?, ?, ?)
+                (date, kind, status, source, note, plan_id, session_id, metadata_json, sport)
+            VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?)
             ''',
             (
                 self.clean_value(date_value),
@@ -3102,13 +3130,14 @@ class Database:
                 self.clean_value(plan_id),
                 self.clean_value(session_id),
                 json.dumps(metadata, ensure_ascii=False, default=str),
+                self.clean_value(normalized_sport),
             ),
         )
         constraint_id = cursor.lastrowid
         cursor.execute(
             '''
             SELECT id, date, kind, status, source, note, plan_id, session_id,
-                   metadata_json, resolved_at, created_at
+                   metadata_json, resolved_at, created_at, sport
             FROM coach_constraints
             WHERE id = ?
             ''',
@@ -3128,7 +3157,7 @@ class Database:
         cursor.execute(
             '''
             SELECT id, date, kind, status, source, note, plan_id, session_id,
-                   metadata_json, resolved_at, created_at
+                   metadata_json, resolved_at, created_at, sport
             FROM coach_constraints
             WHERE id = ?
             LIMIT 1
@@ -3164,7 +3193,7 @@ class Database:
         cursor.execute(
             f'''
             SELECT id, date, kind, status, source, note, plan_id, session_id,
-                   metadata_json, resolved_at, created_at
+                   metadata_json, resolved_at, created_at, sport
             FROM coach_constraints
             {where}
             ORDER BY date ASC, id ASC
@@ -3192,7 +3221,7 @@ class Database:
         cursor.execute(
             '''
             SELECT id, date, kind, status, source, note, plan_id, session_id,
-                   metadata_json, resolved_at, created_at
+                   metadata_json, resolved_at, created_at, sport
             FROM coach_constraints
             WHERE id = ?
             ''',
@@ -3225,6 +3254,7 @@ class Database:
             'metadata': metadata,
             'resolved_at': row[9],
             'created_at': row[10],
+            'sport': row[11],
         }
     
     def get_activities(self, days=30):

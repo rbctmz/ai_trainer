@@ -403,10 +403,18 @@ class AITools:
                 "description": (
                     "Сохранить durable-ограничение на дату и сразу применить его к активному плану, "
                     "если он есть. Используй только при явной фразе пользователя вроде 'я болею завтра', "
-                    "'не могу тренироваться 2026-07-10', 'удали тренировку в этот день'. "
+                    "'не могу тренироваться 2026-07-10', 'удали тренировку в этот день', "
+                    "'плавание сегодня отменяется'. "
                     "Параметры: date (YYYY-MM-DD/today/tomorrow/сегодня/завтра), "
                     "kind (sick/unavailable/forced_rest/manual_delete/disabled_plan_day или русские синонимы), "
-                    "note (необязательно)."
+                    "note (необязательно), "
+                    "sport (необязательно; bike/run/swim или вел/бег/плавание). "
+                    "sport задает скоуп: пусто = защищён ЦЕЛЫЙ день, а название спорта — только эту дисциплину. "
+                    "Если пользователь отменяет/отменил ОДНУ дисциплину в многодисциплинарном дне "
+                    "(например 'плавание не будет'), ОБЯЗАТЕЛЬНО укажи sport этой дисциплины, "
+                    "чтобы остальные ноги дня (вело/бег) сохранились. "
+                    "Дата должна быть тем днём, КАСАТЕЛЬНО КОТОРОГО действует ограничение: "
+                    "для факта о прошедшем дне используй ту же (прошедшую) дату, а не today."
                 ),
                 "parameters": _params(
                     {
@@ -425,6 +433,13 @@ class AITools:
                         "note": {
                             "type": "string",
                             "description": "Необязательная заметка",
+                        },
+                        "sport": {
+                            "type": "string",
+                            "description": (
+                                "Скоуп ограничения: пусто = весь день, или bike/run/swim "
+                                "(вел/бег/плавание) = только эта дисциплина дня"
+                            ),
                         },
                     },
                     required=["date", "kind"],
@@ -1241,11 +1256,15 @@ class AITools:
         date: str = "",
         kind: str = "unavailable",
         note: str = "",
+        sport: str = "",
     ) -> Dict[str, Any]:
         """Persist an explicit user/coach day constraint and apply it to the active plan."""
         try:
             resolved_date = _normalize_constraint_date(date)
             resolved_kind = _normalize_constraint_kind(kind)
+            from models.coach_constraints import normalize_constraint_sport
+
+            resolved_sport = normalize_constraint_sport(sport)  # None = весь день
         except ValueError as exc:
             return {"success": False, "error": str(exc)}
 
@@ -1256,6 +1275,7 @@ class AITools:
                 source="coach",
                 note=str(note or "").strip() or None,
                 metadata={"created_by_tool": "create_plan_constraint"},
+                sport=resolved_sport,
             )
         except Exception as exc:
             return {"success": False, "error": str(exc)}
@@ -2021,6 +2041,11 @@ def _constraint_tool_message(
 ) -> str:
     date_text = constraint.get("date")
     kind = constraint.get("kind")
+    sport = constraint.get("sport")
+    scope_text = f" (только {sport})" if sport else ""
     if int(application.get("applied_count") or 0) > 0:
-        return f"Ограничение {kind} на {date_text} сохранено и применено к активному плану."
-    return f"Ограничение {kind} на {date_text} сохранено; активный план не изменён."
+        return (
+            f"Ограничение {kind} на {date_text}{scope_text} сохранено "
+            "и применено к активному плану."
+        )
+    return f"Ограничение {kind} на {date_text}{scope_text} сохранено; активный план не изменён."

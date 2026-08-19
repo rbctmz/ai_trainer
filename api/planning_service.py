@@ -2260,7 +2260,14 @@ def _rebalance_protected_dates(
         active_only=True,
         limit=100,
     )
-    protected.update(str(item.get("date") or "")[:10] for item in constraints)
+    # #473: a per-sport constraint (``sport`` set) cancels one leg, not the whole
+    # day — only whole-day constraints remove the date from rebalance, so load
+    # can still be redistributed into the surviving legs of that day.
+    protected.update(
+        str(item.get("date") or "")[:10]
+        for item in constraints
+        if not item.get("sport")
+    )
     near_term = dict((goal_plan.get("constraint_summary") or {}).get("near_term_edit") or {})
     edited_dates = {str(value)[:10] for value in near_term.get("edited_dates", []) or []}
     protected.update(edited_dates)
@@ -2900,4 +2907,62 @@ def restore_history_version(
         "base_checkpoint_id": latest_id,
         "checkpoint_source": "restore_version",
         "restored_from_checkpoint_id": wanted,
+    }
+
+
+def apply_constraint_to_active_plan(
+    db: Database,
+    constraint: Dict[str, Any],
+    *,
+    base_checkpoint_id: Optional[int] = None,
+    plan_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Apply an already-saved constraint to the active plan as a new child checkpoint.
+
+    Issue #473: creating a scoped (per-sport) constraint must take effect on the
+    live plan immediately, not only at the next build/rebuild — otherwise the
+    day keeps showing cancelled legs and the "Сегодня" feedback loop goes blind.
+    The active checkpoint is never mutated in place; we restore it, apply only
+    this constraint's scope delta and save a ``coach_constraint``-provenanced
+    child (same shape the AI tool uses), so the change stays reversible through
+    history. A stale ``base_checkpoint_id`` raises StalePlanningCheckpointError.
+    """
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else 0
+    if base_checkpoint_id is not None and latest_id != int(base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id or 'none'} no longer matches request base "
+            f"#{int(base_checkpoint_id) or 'none'}"
+        )
+    goal_plan = restore_goal_plan_from_checkpoint(latest) if latest_id else None
+    application = {"applied_count": 0, "protected_dates": [], "constraints": []}
+    saved_row = db.save_coach_constraint(
+        date=str(constraint.get("date") or "")[:10],
+        kind=str(constraint.get("kind") or ""),
+        source=str(constraint.get("source") or "coach"),
+        note=constraint.get("note"),
+        plan_id=plan_id,
+        session_id=session_id,
+        metadata=constraint.get("metadata") or {},
+        sport=constraint.get("sport"),
+    )
+    saved_checkpoint_id = None
+    if goal_plan and goal_plan.get("daily_plan"):
+        updated_plan, application = apply_constraints_to_goal_plan(goal_plan, [saved_row])
+        if int(application.get("applied_count") or 0) > 0:
+            updated_plan["plan_revision"] = datetime.now().isoformat()
+            updated_plan = with_checkpoint_provenance(
+                updated_plan,
+                source="coach_constraint",
+                parent_checkpoint_id=latest_id,
+            )
+            saved = db.save_planning_checkpoint(build_planning_checkpoint(updated_plan))
+            saved_checkpoint_id = int((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or 0)
+    return {
+        **saved_row,
+        "active_plan_present": bool(goal_plan and goal_plan.get("daily_plan")),
+        "active_plan_updated": int(application.get("applied_count") or 0) > 0,
+        "saved_checkpoint_id": saved_checkpoint_id,
+        "constraint_application": application,
     }
