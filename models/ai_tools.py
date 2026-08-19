@@ -18,7 +18,7 @@ from models.planning_checkpoints import (
     restore_goal_plan_from_checkpoint,
     with_checkpoint_provenance,
 )
-from models.coach_constraints import apply_constraints_to_goal_plan
+from models.coach_constraints import apply_constraints_to_goal_plan, normalize_constraint_sport
 from models.readiness import LOAD_METRICS_WINDOW_DAYS as COACH_LOAD_METRICS_WINDOW_DAYS
 from models.readiness import compute_readiness_today
 from models.signals_engine import assemble_signals
@@ -134,6 +134,9 @@ class AITools:
             "propose_plan_build": self.propose_plan_build,
             "propose_plan_adjustment": self.propose_plan_adjustment,
             "create_plan_constraint": self.create_plan_constraint,
+            "get_coach_constraints": self.get_coach_constraints,
+            "retract_plan_constraint": self.retract_plan_constraint,
+            "repair_plan_day": self.repair_plan_day,
             "get_readiness_today": self.get_readiness_today,
             "get_pending_proposals": self.get_pending_proposals,
         }
@@ -443,6 +446,76 @@ class AITools:
                         },
                     },
                     required=["date", "kind"],
+                ),
+            },
+            {
+                "name": "get_coach_constraints",
+                "description": (
+                    "Список активных ограничений на дни (с id, датой, видом и скоупом sport): "
+                    "последние 14 дней + ближайшие N дней (days). Вызывай прежде чем отменить "
+                    "ограничение через retract_plan_constraint — в том числе когда речь о недавнем "
+                    "прошедшем дне, — или если пользователь спрашивает про текущие ограничения."
+                ),
+                "parameters": _params(
+                    {
+                        "days": {
+                            "type": "integer",
+                            "default": 30,
+                            "description": "Сколько дней вперёд искать ограничения",
+                        }
+                    }
+                ),
+            },
+            {
+                "name": "retract_plan_constraint",
+                "description": (
+                    "Отменить ранее сохранённое ограничение на день и вернуть в план удалённую тренировку "
+                    "(например 'забудь про плавание', 'я всё-таки поплаваю завтра', 'верни velo во вторник'). "
+                    "Ограничение деактивируется (строка остаётся как аудит), а день восстанавливается из "
+                    "ближайшей родительской версии плана; для ограничения по одному спорту в восстановленный "
+                    "день НЕ возвращается только этот спорт. "
+                    "Параметры: id (id ограничения из get_coach_constraints) ИЛИ "
+                    "date+sport (найти активное подходящее ограничение); sport необязателен при date."
+                ),
+                "parameters": _params(
+                    {
+                        "id": {
+                            "type": "integer",
+                            "description": "Номер ограничения (из списка ограничений)",
+                        },
+                        "date": {
+                            "type": "string",
+                            "description": "YYYY-MM-DD или today/tomorrow/сегодня/завтра",
+                        },
+                        "sport": {
+                            "type": "string",
+                            "description": "bike/run/swim или вел/бег/плавание; узкий поиск ограничения",
+                        },
+                    }
+                ),
+            },
+            {
+                "name": "repair_plan_day",
+                "description": (
+                    "Разовое восстановление дня в активном плане после ошибки (инцидент-инструмент): "
+                    "дни без исполняемых сессий восстанавливаются из ближайшей родительской версии плана, "
+                    "исключая указанные виды спорта. Используйте только если пользователь явно просит "
+                    "восстановить конкретный день, и когда нет активного ограничения для отмены через "
+                    "retract_plan_constraint. Параметры: date (обязательная), exclude_sports (необязательно)."
+                ),
+                "parameters": _params(
+                    {
+                        "date": {
+                            "type": "string",
+                            "description": "Дата YYYY-MM-DD (прошедшая/будущее)",
+                        },
+                        "exclude_sports": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Спорты, которые НЕ возвращать в день",
+                        },
+                    },
+                    required=["date"],
                 ),
             },
             {
@@ -1307,6 +1380,195 @@ class AITools:
             "message": _constraint_tool_message(constraint, application),
         }
 
+    def get_coach_constraints(
+        self,
+        days: int = 30,
+    ) -> Dict[str, Any]:
+        """List durable day constraints (the ids used by retract_plan_constraint).
+
+        The window deliberately looks BACK two weeks as well: an over-broad or
+        mis-dated stop on a recent past day (#473-shaped) is exactly the row a
+        user wants to find before retracting it.
+        """
+        try:
+            from datetime import timedelta as _td
+
+            today = datetime.now().date()
+            rows = self.db.get_coach_constraints(
+                start_date=(today - _td(days=14)).isoformat(),
+                end_date=(today + _td(days=max(1, int(days or 30)))).isoformat(),
+                active_only=True,
+                limit=200,
+            )
+        except Exception as exc:
+            return {"success": False, "error": str(exc)}
+        return {
+            "success": True,
+            "action": "get_coach_constraints",
+            "count": len(rows),
+            "constraints": rows,
+        }
+
+    def _find_constraint_to_retract(
+        self,
+        constraint_id: Optional[int],
+        the_date: str,
+        sport: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Locate one ACTIVE constraint for retraction by id or date+sport."""
+        if constraint_id is not None:
+            matches = [c for c in self._active_constraint_rows() if int(c.get("id") or 0) == int(constraint_id)]
+            return matches[0] if matches else None
+        if not the_date:
+            return None
+        candidates = [
+            c
+            for c in self._active_constraint_rows()
+            if str(c.get("date"))[:10] == the_date
+        ]
+        if sport:
+            scoped = [c for c in candidates if (c.get("sport") or "") == sport]
+            if scoped:
+                candidates = scoped
+            else:
+                # A row covering ANOTHER sport is not the one asked about — reject
+                # rather than guess. Only whole-day rows may stand in for a
+                # discipline ask ('забудь про плавание' against a whole-day stop).
+                candidates = [c for c in candidates if not c.get("sport")]
+        # Then the newest matching row.
+        candidates.sort(key=lambda c: -(int(c.get("id") or 0)))
+        return candidates[0] if candidates else None
+
+    def _active_constraint_rows(self) -> List[Dict[str, Any]]:
+        from datetime import timedelta as _td
+
+        today = datetime.now().date()
+        return self.db.get_coach_constraints(
+            start_date=None,
+            end_date=(today + _td(days=180)).isoformat(),
+            active_only=True,
+            limit=400,
+        )
+
+    def retract_plan_constraint(
+        self,
+        id: Optional[int] = None,
+        date: str = "",
+        sport: str = "",
+    ) -> Dict[str, Any]:
+        """Deactivate an earlier constraint and restore its day from plan history (#473)."""
+        try:
+            resolved_date = _normalize_constraint_date(date) if str(date or "").strip() else ""
+            resolved_sport = normalize_constraint_sport(sport) if str(sport or "").strip() else None
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+
+        constraint = self._find_constraint_to_retract(id, resolved_date, resolved_sport)
+        if constraint is None:
+            hint = f" (поиск по id={id})" if id is not None else ""
+            hint += f" (дата {resolved_date}" + (f", спорт {resolved_sport}" if resolved_sport else "") + ")" if resolved_date else ""
+            return {
+                "success": False,
+                "error": f"Не найдено активного ограничения{hint}. Вызови get_coach_constraints, чтобы увидеть список.",
+            }
+
+        retracted_row = self.db.deactivate_coach_constraint(int(constraint["id"]))
+        if retracted_row is None:
+            return {"success": False, "error": "не удалось деактивировать ограничение"}
+
+        row_sport = str(retracted_row.get("sport") or "").strip().lower() or None
+        # A per-sport constraint keeps only its own sport out of the recovered day.
+        # When the matched row is whole-day but the user asked about ONE discipline
+        # ('забудь про плавание'), that discipline stays off and the siblings come back.
+        if row_sport:
+            exclude_sports = [row_sport]
+        elif resolved_sport:
+            exclude_sports = [resolved_sport]
+        else:
+            exclude_sports = []
+        try:
+            recovery = planning_service.recover_day_after_constraint_retraction(
+                self.db,
+                base_checkpoint_id=self._active_checkpoint_id_or_zero(),
+                date=str(retracted_row.get("date") or ""),
+                exclude_sports=exclude_sports,
+            )
+        except planning_service.NoDonorCheckpointError as exc:
+            return {"success": False, "error": str(exc), "constraint": retracted_row}
+        except planning_service.StalePlanningCheckpointError as exc:
+            return {"success": False, "error": str(exc), "constraint": retracted_row}
+        except ValueError as exc:
+            return {"success": False, "error": str(exc), "constraint": retracted_row}
+
+        changed = bool(recovery.get("changed"))
+        message = (
+            f"Ограничение на {retracted_row.get('date')}"
+            + (" (спорт {})".format(retracted_row.get("sport")) if retracted_row.get("sport") else "")
+            + " снято."
+        )
+        if changed:
+            message += (
+                f" День восстановлен из версии плана #{recovery.get('donor_checkpoint_id')}; "
+                f"новые session id: {', '.join(recovery.get('restored_session_ids') or [])}."
+            )
+        else:
+            message += " План уже содержал этот день в полном виде — ничего менять не пришлось."
+        return {
+            "success": True,
+            "action": "retract_plan_constraint",
+            "constraint": retracted_row,
+            "recover": recovery,
+            "message": message,
+        }
+
+    def _active_checkpoint_id_or_zero(self) -> int:
+        latest = self.db.get_latest_planning_checkpoint()
+        if isinstance(latest, dict) and latest.get("id") is not None:
+            return int(latest.get("id"))
+        return 0
+
+    def repair_plan_day(
+        self,
+        date: str,
+        exclude_sports: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """One-off day restoration after an incident (execplans M1-style tooling)."""
+        try:
+            resolved_date = _normalize_constraint_date(date)
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+        excluded = [
+            normalize_constraint_sport(s) or str(s).strip().lower()
+            for s in (exclude_sports or [])
+            if str(s or "").strip()
+        ]
+        latest = self._active_checkpoint_id_or_zero()
+        if not latest:
+            return {"success": False, "error": "нет активного плана для восстановления"}
+        try:
+            recovery = planning_service.recover_day_after_constraint_retraction(
+                self.db,
+                base_checkpoint_id=latest,
+                date=resolved_date,
+                exclude_sports=excluded,
+            )
+        except planning_service.NoDonorCheckpointError as exc:
+            return {"success": False, "error": str(exc)}
+        except planning_service.StalePlanningCheckpointError as exc:
+            return {"success": False, "error": str(exc)}
+        except ValueError as exc:
+            return {"success": False, "error": str(exc)}
+        return {
+            "success": True,
+            "action": "repair_plan_day",
+            "recover": recovery,
+            "message": (
+                f"День {resolved_date} восстановлен."
+                if recovery.get("changed")
+                else f"День {resolved_date} уже содержал исполняемые сессии — без изменений."
+            ),
+        }
+
     def format_tool_descriptions_for_ai(self) -> str:
         """Форматирует описания инструментов для AI"""
         tools_desc = "ДОСТУПНЫЕ ИНСТРУМЕНТЫ:\n\n"
@@ -1332,7 +1594,9 @@ class AITools:
 - [TOOL: get_upcoming_workouts, days=7] - тренировки на ближайшие 7 дней из плана
 - [TOOL: propose_plan_build, goal_type=Триатлон, distance=Half, event_date=2026-10-01, available_hours=10] - предложить новый план
 - [TOOL: propose_plan_adjustment, weeks=1] - предложить корректировку активного плана
-- [TOOL: create_plan_constraint, date=tomorrow, kind=sick, note=Температура] - отметить день как защищённый и убрать нагрузку из активного плана
+- [TOOL: create_plan_constraint, date=tomorrow, kind=sick, sport=swim, note=Бассейн закрыт] - убрать только плавание из дня; остальные ноги сохранятся
+- [TOOL: get_coach_constraints] - список активных ограничений с их id
+- [TOOL: retract_plan_constraint, id=1] - снять ограничение (или по date+sport) и вернуть тренировку в план
 
 ВАЖНО: Используй инструменты для получения точных, актуальных данных вместо общих предположений.
 """

@@ -74,6 +74,12 @@ class HistoryRestoreRequest(BaseModel):
     base_checkpoint_id: int
 
 
+class RepairDayRequest(BaseModel):
+    date: str
+    exclude_sports: Optional[List[str]] = None
+    base_checkpoint_id: Optional[int] = None
+
+
 class IntervalsDeliveryRequest(BaseModel):
     days: int = Field(7, ge=7, le=14)
 
@@ -184,6 +190,63 @@ def deactivate_constraint(constraint_id: int, db: Database = Depends(get_databas
     if row is None:
         raise HTTPException(status_code=404, detail="constraint not found")
     return row
+
+
+@router.post("/constraints/{constraint_id}/retract")
+def retract_constraint(constraint_id: int, db: Database = Depends(get_database)) -> dict[str, Any]:
+    """Deactivate a constraint AND restore its day from the closest usable ancestor (#473).
+
+    Per-sport constraints strip only their own sport from the recovered legs;
+    whole-day constraints recover every leg the donor had.
+    """
+    row = db.deactivate_coach_constraint(constraint_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="constraint not found")
+    exclude_sports = [row["sport"]] if row.get("sport") else []
+    try:
+        recovery = planning_service.recover_day_after_constraint_retraction(
+            db,
+            base_checkpoint_id=_active_checkpoint_id(db),
+            date=str(row.get("date") or ""),
+            exclude_sports=exclude_sports,
+        )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except planning_service.NoDonorCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"constraint": row, "recover": recovery}
+
+
+@router.post("/repair-day")
+def repair_day(req: RepairDayRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
+    """One-off day recovery (incident tooling); no constraint row involved."""
+    try:
+        return planning_service.recover_day_after_constraint_retraction(
+            db,
+            base_checkpoint_id=_active_checkpoint_id(db, required=req.base_checkpoint_id),
+            date=req.date,
+            exclude_sports=list(req.exclude_sports or []),
+        )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except planning_service.NoDonorCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+def _active_checkpoint_id(db: Database, *, required: Optional[int] = None) -> int:
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = (
+        int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else None
+    )
+    if required is not None and latest_id == int(required):
+        return int(latest_id)
+    if latest_id is None:
+        raise ValueError("no active planning checkpoint to repair from")
+    return int(latest_id)
 
 
 @router.get("/target-preview")

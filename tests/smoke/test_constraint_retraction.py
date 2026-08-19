@@ -2,13 +2,16 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date, timedelta
 
 import pytest
 
 from data.database import Database
 from models.coach_constraints import apply_constraints_to_goal_plan
-from models.planning_checkpoints import build_planning_checkpoint, restore_goal_plan_from_checkpoint
+from models.planning_checkpoints import (
+    build_planning_checkpoint,
+    restore_goal_plan_from_checkpoint,
+    with_checkpoint_provenance,
+)
 
 
 pytestmark = pytest.mark.smoke
@@ -54,7 +57,7 @@ def _goal_plan() -> dict:
                 "allocated_parts": {"bike": 36.5, "swim": 27.5},
                 "sessions": [
                     {
-                        "session_id": "atts_bike_orig",
+                        "session_id": "atts_bike_seed",
                         "sport": "bike",
                         "total_tss": 36.5,
                         "duration_minutes": 40,
@@ -64,7 +67,7 @@ def _goal_plan() -> dict:
                         "definition_snapshot": {"template_key": "bike_aerobic_endurance"},
                     },
                     {
-                        "session_id": "atts_swim_orig",
+                        "session_id": "atts_swim_seed",
                         "sport": "swim",
                         "total_tss": 27.5,
                         "duration_minutes": 35,
@@ -114,11 +117,30 @@ def _collapsed_plan() -> dict:
 
 
 def _day_template(goal_plan: dict, the_date: str) -> dict:
-    return next(t for t in goal_plan["session_templates"] if str(t.get("date"))[:10] == the_date)
+    templates = list(goal_plan.get("session_templates") or [])
+    rows = list(goal_plan.get("daily_plan") or [])
+    for index, item in enumerate(rows):
+        if isinstance(item, (list, tuple)) and len(item) >= 3 and str(item[0])[:10] == the_date:
+            return templates[index]
+    for template in templates:
+        if isinstance(template, dict) and str(template.get("date"))[:10] == the_date:
+            return template
+    raise LookupError(f"day {the_date} not found")
 
 
 def _day_row(goal_plan: dict, the_date: str):
     return next(item for item in goal_plan["daily_plan"] if str(item[0])[:10] == the_date)
+
+
+def _stamped_leg_ids(checkpoint: dict) -> dict:
+    """Сессии дня как их заставили в этом сохранённом чекпоинте (правило #205)."""
+    plan = restore_goal_plan_from_checkpoint(checkpoint)
+    template = _day_template(plan, TARGET)
+    return {
+        str(s.get("sport")): str(s.get("session_id"))
+        for s in list(template.get("sessions") or [])
+        if isinstance(s, dict) and s.get("session_id")
+    }
 
 
 @pytest.fixture()
@@ -126,19 +148,26 @@ def db(tmp_path):
     return Database(str(tmp_path / "retract.db"))
 
 
-def test_recover_restores_original_legs_with_donor_provenance(db):
-    from api.planning_service import recover_day_after_constraint_retraction
-
-    # A: исходный план с двумя ногами; B: потомок, где день схлопнут ограничением.
+@pytest.fixture()
+def chained(db):
+    """A: исходный план; B: потомок, где день схлопнут ограничением."""
     a_saved = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
-    from models.planning_checkpoints import with_checkpoint_provenance
-
     b_plan = with_checkpoint_provenance(
         _collapsed_plan(),
         source="coach_constraint",
         parent_checkpoint_id=a_saved["id"],
     )
     b_saved = db.save_planning_checkpoint(build_planning_checkpoint(b_plan))
+    return a_saved, b_saved
+
+
+def test_recover_restores_original_legs_with_donor_provenance(db, chained):
+    from api.planning_service import recover_day_after_constraint_retraction
+
+    a_saved, b_saved = chained
+    # Идентичность ног — та, что заставлена в донорском чекпоинте A.
+    leg_ids = _stamped_leg_ids(a_saved)
+    bike_id = leg_ids["bike"]
 
     result = recover_day_after_constraint_retraction(
         db,
@@ -148,7 +177,15 @@ def test_recover_restores_original_legs_with_donor_provenance(db):
     )
 
     assert result["changed"] is True
-    assert sorted(result["restored_session_ids"]) == ["atts_bike_orig"]
+    restored = sorted(result["restored_session_ids"])
+    assert len(restored) == 1
+    # Вело-нога вернулась (контент идентичен донору); при схлопывании дня с двух
+    # ног до одной движок идентичностей (#205) переставляет её на день-идентичность,
+    # и переход фиксируется явно.
+    if restored[0] == bike_id:
+        assert not result["session_id_handoffs"]
+    else:
+        assert result["session_id_handoffs"].get(bike_id) == restored[0]
     assert result["donor_checkpoint_id"] == a_saved["id"]
     assert result["applied_checkpoint_id"]
 
@@ -159,11 +196,11 @@ def test_recover_restores_original_legs_with_donor_provenance(db):
     child_plan = restore_goal_plan_from_checkpoint(child)
     template = _day_template(child_plan, TARGET)
     legs = list(template.get("sessions") or [])
-    # Вело-нога вернулась с оригинальными идентичностью и шагами; плавание отсутствует.
-    assert [s["session_id"] for s in legs] == ["atts_bike_orig"]
+    # Вело-нога одна, плавание отсутствует; контентный fingerprint сохранён от донора.
+    assert [str(s.get("sport")) for s in legs] == ["bike"]
     assert legs[0]["materialized_steps"] == [{"name": "steady"}]
     assert float(template["allocated_parts"]["bike"]) == 36.5
-    assert "swim" not in template.get("allocated_parts") or float(template["allocated_parts"].get("swim") or 0) == 0.0
+    assert float(template.get("allocated_parts", {}).get("swim") or 0) == 0.0
     evidence = template.get("repair_evidence")
     assert evidence and evidence.get("donor_checkpoint_id") == a_saved["id"]
     assert evidence.get("excluded_sports") == ["swim"]
@@ -175,23 +212,59 @@ def test_recover_restores_original_legs_with_donor_provenance(db):
     # Соседние дни не задеты.
     assert float(_day_row(child_plan, "2026-08-17")[1]) == 30.0
     assert float(_day_row(child_plan, "2026-08-19")[1]) == 25.0
+    # Недельные суммы пересчитаны: 30 + 36.5 + 25 = 91.5 -> 92.
+    weekly_rows = list(child_plan.get("weekly_summary") or [])
+    assert int(round(float(weekly_rows[0]["weekly_tss"]))) == 92
 
 
-def test_recover_without_exclusions_restores_all_legs(db):
+def test_rerecover_rebinds_preserved_plan_fact_matches(db, chained):
+    """Подтверждённый матч возвращённой ноги переупутывается на ставшийся id (#473/M1)."""
+    import hashlib
+
     from api.planning_service import recover_day_after_constraint_retraction
 
-    a_saved = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
-    from models.planning_checkpoints import with_checkpoint_provenance
+    a_saved, b_saved = chained
+    bike_id = _stamped_leg_ids(a_saved)["bike"]
 
-    b_saved = db.save_planning_checkpoint(
-        build_planning_checkpoint(
-            with_checkpoint_provenance(
-                _collapsed_plan(),
-                source="coach_constraint",
-                parent_checkpoint_id=a_saved["id"],
-            )
-        )
+    fingerprint = hashlib.sha256(b"test-match-a").hexdigest()
+    db.save_plan_actual_match(
+        {
+            "fingerprint": fingerprint,
+            "target_key": f"session:{bike_id}",
+            "base_checkpoint_id": int(b_saved["id"]),
+            "session_date": TARGET,
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "confidence": 1.0,
+            "planned_snapshot": {"session_id": bike_id, "date": TARGET, "sport": "indoor_cycling", "tss": 36.5},
+            "actual_activity_ids": ["24026706443"],
+            "actual_snapshot": {"activity_id": "24026706443", "tss": 28.2},
+            "evidence": [],
+            "rule_version": "plan_actual_match_v1",
+            "session_id": bike_id,
+        }
     )
+
+    result = recover_day_after_constraint_retraction(
+        db,
+        base_checkpoint_id=b_saved["id"],
+        date=TARGET,
+        exclude_sports=("swim",),
+    )
+    stamped_id = result["restored_session_ids"][0]
+
+    ledger = db.get_latest_plan_actual_matches(start_date=TARGET, end_date=TARGET)
+    rebound = next((r for r in ledger if str(r.get("target_key")) == f"session:{stamped_id}"), None)
+    assert rebound, "confirming mat ch was not re-point to re-stamped id"
+    assert "24026706443" in list(rebound.get("actual_activity_ids") or [])
+    assert rebound.get("supersedes_match_id")
+
+
+def test_recover_without_exclusions_restores_all_legs(db, chained):
+    from api.planning_service import recover_day_after_constraint_retraction
+
+    a_saved, b_saved = chained
+    leg_ids = _stamped_leg_ids(a_saved)
 
     result = recover_day_after_constraint_retraction(
         db,
@@ -200,24 +273,13 @@ def test_recover_without_exclusions_restores_all_legs(db):
     )
 
     assert result["changed"] is True
-    assert sorted(result["restored_session_ids"]) == ["atts_bike_orig", "atts_swim_orig"]
+    assert sorted(result["restored_session_ids"]) == sorted([leg_ids["bike"], leg_ids["swim"]])
 
 
-def test_recover_on_repaired_day_is_noop(db):
+def test_recover_on_repaired_day_is_noop(db, chained):
     from api.planning_service import recover_day_after_constraint_retraction
 
-    a_saved = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
-    from models.planning_checkpoints import with_checkpoint_provenance
-
-    b_saved = db.save_planning_checkpoint(
-        build_planning_checkpoint(
-            with_checkpoint_provenance(
-                _collapsed_plan(),
-                source="coach_constraint",
-                parent_checkpoint_id=a_saved["id"],
-            )
-        )
-    )
+    _a_saved, b_saved = chained
     first = recover_day_after_constraint_retraction(
         db,
         base_checkpoint_id=b_saved["id"],
@@ -235,27 +297,18 @@ def test_recover_on_repaired_day_is_noop(db):
     )
     assert repeat["changed"] is False
     assert repeat["applied_checkpoint_id"] is None
+    assert repeat["reason"]
 
 
-def test_recover_rejects_stale_base(db):
+def test_recover_rejects_stale_base(db, chained):
     from api.planning_service import StalePlanningCheckpointError, recover_day_after_constraint_retraction
 
-    a_saved = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
-    from models.planning_checkpoints import with_checkpoint_provenance
+    _a_saved, b_saved = chained
 
-    b_saved = db.save_planning_checkpoint(
-        build_planning_checkpoint(
-            with_checkpoint_provenance(
-                _collapsed_plan(),
-                source="coach_constraint",
-                parent_checkpoint_id=a_saved["id"],
-            )
-        )
-    )
     with pytest.raises(StalePlanningCheckpointError):
         recover_day_after_constraint_retraction(
             db,
-            base_checkpoint_id=b_saved["id"] + 99,
+            base_checkpoint_id=b_saved["id"] + 999,
             date=TARGET,
             exclude_sports=("swim",),
         )
@@ -264,12 +317,9 @@ def test_recover_rejects_stale_base(db):
 def test_recover_raises_when_no_executable_ancestor_exists(db):
     from api.planning_service import NoDonorCheckpointError, recover_day_after_constraint_retraction
 
-    # Корень и потомок несут день уже в офф-состоянии (план построен до ограничения):
-    # исполняемой версии дня ни у кого нет — только явная ошибка.
+    # Корень и потомок несут день уже в офф-состоянии: исполняемой версии ни у кого нет.
     root = _collapsed_plan()
     root_saved = db.save_planning_checkpoint(build_planning_checkpoint(root))
-    from models.planning_checkpoints import with_checkpoint_provenance
-
     child_saved = db.save_planning_checkpoint(
         build_planning_checkpoint(
             with_checkpoint_provenance(
@@ -287,30 +337,24 @@ def test_recover_raises_when_no_executable_ancestor_exists(db):
             exclude_sports=("swim",),
         )
     assert TARGET in str(excinfo.value)
+    # Ничего не сохранено.
+    assert db.get_latest_planning_checkpoint()["id"] == child_saved["id"]
 
 
-def test_retract_route_deactivates_constraint_and_repairs_day(db):
+def test_retract_route_deactivates_constraint_and_repairs_day(db, chained):
     """POST /api/planning/constraints/{id}/retract: деактивация + примитив одним вызовом."""
     from api.routers import planning as planning_router
-    from models.planning_checkpoints import with_checkpoint_provenance
 
-    a_saved = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan()))
-    b_saved = db.save_planning_checkpoint(
-        build_planning_checkpoint(
-            with_checkpoint_provenance(
-                _collapsed_plan(),
-                source="coach_constraint",
-                parent_checkpoint_id=a_saved["id"],
-            )
-        )
-    )
+    a_saved, b_saved = chained
+    leg_ids = _stamped_leg_ids(a_saved)
     constraint = db.save_coach_constraint(date=TARGET, kind="unavailable", source="coach")
 
     payload = planning_router.retract_constraint(constraint_id=int(constraint["id"]), db=db)
 
     assert payload["constraint"]["status"] == "inactive"
     assert payload["recover"]["applied_checkpoint_id"]
-    assert payload["recover"]["restored_session_ids"] == ["atts_bike_orig"]
+    # Whole-day ограничение (без sport) → восстановление обеих ног донора.
+    assert sorted(payload["recover"]["restored_session_ids"]) == sorted([leg_ids["bike"], leg_ids["swim"]])
 
 
 def test_retract_route_unknown_constraint_404(tmp_path):

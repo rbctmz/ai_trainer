@@ -345,10 +345,13 @@ def _constraint_note(constraint: Mapping[str, Any]) -> str:
     return f"{kind_label}: {note}" if note else kind_label
 
 
-def _refresh_weekly_totals(goal_plan: dict[str, Any], applied: list[dict[str, Any]]) -> None:
-    if not applied:
-        return
+def recalc_goal_plan_weekly_totals(goal_plan: dict[str, Any]) -> None:
+    """Pure numeric recompute of `weekly_tss_plan` and `weekly_summary` from `daily_plan`.
 
+    Never touches `adjustment_note` — annotation is the caller's concern.
+    Used both by constraint application and by constraint-retraction repairs
+    so both paths share one arithmetic implementation (#473).
+    """
     daily_plan = list(goal_plan.get("daily_plan") or [])
     if not daily_plan:
         return
@@ -373,7 +376,6 @@ def _refresh_weekly_totals(goal_plan: dict[str, Any], applied: list[dict[str, An
 
     goal_plan["weekly_tss_plan"] = [int(round(value)) for value in weekly_tss]
 
-    note = _constraint_application_note(applied)
     for index, total in enumerate(weekly_tss):
         if index >= len(weekly_summary):
             weekly_summary.append({})
@@ -381,10 +383,24 @@ def _refresh_weekly_totals(goal_plan: dict[str, Any], applied: list[dict[str, An
         row["weekly_tss"] = int(round(total))
         for sport, value in weekly_parts[index].items():
             row[sport] = round(value, 1)
-        row["adjustment_note"] = _append_note(row.get("adjustment_note"), note)
         weekly_summary[index] = row
 
     goal_plan["weekly_summary"] = weekly_summary
+
+
+def _refresh_weekly_totals(goal_plan: dict[str, Any], applied: list[dict[str, Any]]) -> None:
+    if not applied:
+        return
+
+    daily_plan = list(goal_plan.get("daily_plan") or [])
+    if not daily_plan:
+        return
+
+    recalc_goal_plan_weekly_totals(goal_plan)
+
+    note = _constraint_application_note(applied)
+    for row in list(goal_plan.get("weekly_summary") or []):
+        row["adjustment_note"] = _append_note(row.get("adjustment_note"), note)
 
 
 def _float(value: Any) -> float:
