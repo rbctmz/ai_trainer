@@ -11,14 +11,14 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 import hashlib
 import json
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 import pandas as pd
 
 from api.readiness_snapshot import build_readiness_snapshot
 from data.database import Database
 from models.banister import BanisterModel, tsb_zone
-from models.coach_constraints import apply_constraints_to_goal_plan
+from models.coach_constraints import apply_constraints_to_goal_plan, normalize_constraint_sport, recalc_goal_plan_weekly_totals
 from models.fit_export import build_steps_for_sport, generate_fit_csv
 from models.plan_events import (
     build_primary_event,
@@ -109,6 +109,10 @@ PLANNING_DEMAND_SETTING_KEY = "planning_demand_level"
 
 class StalePlanningCheckpointError(ValueError):
     """A stored preview no longer matches the active planning checkpoint."""
+
+
+class NoDonorCheckpointError(ValueError):
+    """No checkpoint in the lineage carries an executable version of the day (#473)."""
 
 def _internal_goal_type(value: str) -> str:
     return GOAL_TYPE_MAP.get((value or "").strip().lower(), value)
@@ -2260,7 +2264,14 @@ def _rebalance_protected_dates(
         active_only=True,
         limit=100,
     )
-    protected.update(str(item.get("date") or "")[:10] for item in constraints)
+    # #473: a per-sport constraint (``sport`` set) cancels one leg, not the whole
+    # day — only whole-day constraints remove the date from rebalance, so load
+    # can still be redistributed into the surviving legs of that day.
+    protected.update(
+        str(item.get("date") or "")[:10]
+        for item in constraints
+        if not item.get("sport")
+    )
     near_term = dict((goal_plan.get("constraint_summary") or {}).get("near_term_edit") or {})
     edited_dates = {str(value)[:10] for value in near_term.get("edited_dates", []) or []}
     protected.update(edited_dates)
@@ -2901,3 +2912,376 @@ def restore_history_version(
         "checkpoint_source": "restore_version",
         "restored_from_checkpoint_id": wanted,
     }
+
+
+def apply_constraint_to_active_plan(
+    db: Database,
+    constraint: Dict[str, Any],
+    *,
+    base_checkpoint_id: Optional[int] = None,
+    plan_id: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Apply an already-saved constraint to the active plan as a new child checkpoint.
+
+    Issue #473: creating a scoped (per-sport) constraint must take effect on the
+    live plan immediately, not only at the next build/rebuild — otherwise the
+    day keeps showing cancelled legs and the "Сегодня" feedback loop goes blind.
+    The active checkpoint is never mutated in place; we restore it, apply only
+    this constraint's scope delta and save a ``coach_constraint``-provenanced
+    child (same shape the AI tool uses), so the change stays reversible through
+    history. A stale ``base_checkpoint_id`` raises StalePlanningCheckpointError.
+    """
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else 0
+    if base_checkpoint_id is not None and latest_id != int(base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id or 'none'} no longer matches request base "
+            f"#{int(base_checkpoint_id) or 'none'}"
+        )
+    goal_plan = restore_goal_plan_from_checkpoint(latest) if latest_id else None
+    application = {"applied_count": 0, "protected_dates": [], "constraints": []}
+    saved_row = db.save_coach_constraint(
+        date=str(constraint.get("date") or "")[:10],
+        kind=str(constraint.get("kind") or ""),
+        source=str(constraint.get("source") or "coach"),
+        note=constraint.get("note"),
+        plan_id=plan_id,
+        session_id=session_id,
+        metadata=constraint.get("metadata") or {},
+        sport=constraint.get("sport"),
+    )
+    saved_checkpoint_id = None
+    if goal_plan and goal_plan.get("daily_plan"):
+        updated_plan, application = apply_constraints_to_goal_plan(goal_plan, [saved_row])
+        if int(application.get("applied_count") or 0) > 0:
+            updated_plan["plan_revision"] = datetime.now().isoformat()
+            updated_plan = with_checkpoint_provenance(
+                updated_plan,
+                source="coach_constraint",
+                parent_checkpoint_id=latest_id,
+            )
+            saved = db.save_planning_checkpoint(build_planning_checkpoint(updated_plan))
+            saved_checkpoint_id = int((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or 0)
+    return {
+        **saved_row,
+        "active_plan_present": bool(goal_plan and goal_plan.get("daily_plan")),
+        "active_plan_updated": int(application.get("applied_count") or 0) > 0,
+        "saved_checkpoint_id": saved_checkpoint_id,
+        "constraint_application": application,
+    }
+
+
+# --- Constraint retraction / day repair (issue #473, M3) -------------------
+
+
+def _goal_plan_day_index(goal_plan: Dict[str, Any], the_date: str) -> Optional[int]:
+    """Locate the (row, template) index pair of a single date inside a goal plan.
+
+    ``daily_plan`` and ``session_templates`` share positional alignment by build
+    convention — we prefer the row whose own date matches and fall back to the
+    template index so legacy misaligned snapshots still resolve.
+    """
+    daily_rows = list(goal_plan.get("daily_plan") or [])
+    for index, item in enumerate(daily_rows):
+        if isinstance(item, (list, tuple)) and len(item) >= 3 and str(item[0])[:10] == the_date:
+            return index
+    templates = list(goal_plan.get("session_templates") or [])
+    for index, item in enumerate(templates):
+        if isinstance(item, dict) and str(item.get("date") or "")[:10] == the_date:
+            if index < len(daily_rows):
+                return index
+    return None
+
+
+def _template_executable_legs(template: Optional[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    if not isinstance(template, dict):
+        return []
+    if str(template.get("materialization_status") or "") == "constraint_off":
+        return []
+    return [
+        session
+        for session in list(template.get("sessions") or [])
+        if isinstance(session, dict) and session.get("session_id")
+    ]
+
+
+def recover_day_after_constraint_retraction(
+    db: Database,
+    *,
+    base_checkpoint_id: int,
+    date: str,
+    exclude_sports: Sequence[str] = (),
+) -> Dict[str, Any]:
+    """Restore one day from the newest ancestor that carried it as executable (#473).
+
+    Walks ``checkpoint_parent_id`` from the base parent upward looking for a
+    donor whose template for the date has at least one session. That single
+    template plus its daily row are spliced into a deep copy of the base plan;
+    every session whose sport is in ``exclude_sports`` stays removed (its audit
+    trail already lives as ``canceled_legs`` in older snapshots), while ALL
+    other donor legs come back with their original ``session_id``/steps so plan-vs-fact
+    matches bind again automatically (matches key off the session id).
+    No donor anywhere in the chain → :class:`NoDonorCheckpointError`, nothing
+    persisted. Idempotent: a day that already carries a donor-lineage session
+    is returned untouched (``changed=False``).
+    """
+    the_date = str(date or "").strip()[:10]
+    if not the_date:
+        raise ValueError("date must be YYYY-MM-DD")
+    excluded = {normalize_constraint_sport(sport) for sport in (exclude_sports or [])}
+
+    # Stale base FIRST (same order as restore_history_version): a request pinning
+    # an outdated lineage must fail fast on its own terms, whatever else holds.
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else 0
+    if latest_id != int(base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id or 'none'} no longer matches repair base #{int(base_checkpoint_id)}"
+        )
+    base_row = db.get_planning_checkpoint(int(base_checkpoint_id))
+    if not isinstance(base_row, dict) or not base_row.get("goal_plan_snapshot"):
+        raise ValueError("base checkpoint not found")
+
+    base_plan = restore_goal_plan_from_checkpoint(base_row)
+    if base_plan is None:
+        raise ValueError("base checkpoint cannot be restored")
+    base_idx = _goal_plan_day_index(base_plan, the_date)
+    if base_idx is None:
+        raise ValueError(f"day {the_date} is absent from the base checkpoint")
+
+    # Idempotence (ExecPlan M3): a day that already carries an executable leg
+    # OUTSIDE the excluded set (e.g. repaired before) is left untouched — a
+    # re-run must be a no-op. A day holding ONLY excluded-sport legs still gets
+    # its other legs restored from a donor.
+    existing_template = base_plan["session_templates"][base_idx]  # type: ignore[index]
+    non_excluded_legs = [
+        s
+        for s in _template_executable_legs(existing_template)
+        if str(s.get("sport") or "").strip().lower() not in excluded
+    ]
+    if non_excluded_legs:
+        return {
+            "changed": False,
+            "reason": "day already carries executably-materialized sessions",
+            "applied_checkpoint_id": None,
+            "donor_checkpoint_id": None,
+            "restored_session_ids": sorted(
+                {str(s.get("session_id")) for s in _template_executable_legs(existing_template)}
+            ),
+            "changed_date": the_date,
+        }
+
+    donor_row = _find_day_donor(db, base_row, the_date)
+    if donor_row is None:
+        raise NoDonorCheckpointError(
+            f"{the_date}: no executable ancestor found in the checkpoint lineage"
+        )
+    donor_plan = restore_goal_plan_from_checkpoint(donor_row)
+    assert donor_plan is not None
+    donor_idx = _goal_plan_day_index(donor_plan, the_date)
+    if donor_idx is None:
+        raise NoDonorCheckpointError(
+            f"{the_date}: donor checkpoint #{int(donor_row.get('id') or 0)} lacks the day"
+        )
+
+    from copy import deepcopy
+
+    updated = deepcopy(base_plan)
+    donor_template = deepcopy(donor_plan["session_templates"][donor_idx])  # type: ignore[index]
+    kept_sessions = [
+        dict(session)
+        for session in list(donor_template.get("sessions") or [])
+        if isinstance(session, dict)
+        and str(session.get("sport") or "").strip().lower() not in excluded
+    ]
+    donor_template["sessions"] = kept_sessions
+    donor_template.pop("constraint", None)
+    donor_template.pop("protected_by_constraint", None)
+    donor_parts_tmpl = donor_template.get("allocated_parts")
+    if isinstance(donor_parts_tmpl, Mapping):
+        for sport_key in [k for k in list(donor_parts_tmpl.keys()) if str(k).strip().lower() in excluded]:
+            donor_parts_tmpl[sport_key] = 0.0
+    donor_template["repair_evidence"] = {
+        "donor_checkpoint_id": int(donor_row.get("id") or 0),
+        "recovered_date": the_date,
+        "excluded_sports": sorted(excluded),
+    }
+    updated["session_templates"][base_idx] = donor_template  # type: ignore[call-overload]
+
+    donor_totals = donor_plan["daily_plan"][donor_idx]  # type: ignore[index]
+    donor_parts = donor_totals[2] if isinstance(donor_totals[2], Mapping) else {}
+    merged_parts = {str(key): 0.0 for key in donor_parts.keys()} if donor_parts else {}
+    for session in kept_sessions:
+        sport_key = str(session.get("sport") or "").strip().lower()
+        if sport_key:
+            merged_parts[sport_key] = round(merged_parts.get(sport_key, 0.0) + _float_total(session), 1)
+    new_total = round(sum(merged_parts.values()), 1)
+    base_dt = updated["daily_plan"][base_idx][0]  # type: ignore[index]
+    updated["daily_plan"][base_idx] = (base_dt, float(new_total), merged_parts)  # type: ignore[call-overload]
+    recalc_goal_plan_weekly_totals(updated)
+
+    restored_source_ids = sorted(
+        {str(s.get("session_id")) for s in kept_sessions if s.get("session_id")}
+    )
+    updated = with_checkpoint_provenance(
+        updated,
+        source="constraint_repair",
+        parent_checkpoint_id=int(base_checkpoint_id),
+    )
+    updated["plan_revision"] = datetime.now().isoformat()
+    saved = db.save_planning_checkpoint(build_planning_checkpoint(updated))
+    saved_id = int((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or 0)
+
+    # Authoritative answer: the finally stamped identities, read back. The #205
+    # engine stamps every persisted plan, so a leg-shrunk (2->1) day gets a fresh
+    # day-based id while whole-day restorations keep their original content ids.
+    saved_row = db.get_planning_checkpoint(saved_id)
+    saved_plan = restore_goal_plan_from_checkpoint(saved_row)
+    final_legs_by_sport: Dict[str, str] = {}
+    final_idx_check = _goal_plan_day_index(saved_plan, the_date) if saved_plan is not None else None
+    if saved_plan is not None and final_idx_check is not None:
+        for s in list(
+            saved_plan["session_templates"][final_idx_check].get("sessions") or []  # type: ignore[arg-type,index]
+        ):
+            if isinstance(s, dict) and s.get("session_id"):
+                final_legs_by_sport[str(s.get("sport") or "").strip().lower()] = str(s.get("session_id"))
+    final_ids = sorted(final_legs_by_sport.values()) or list(restored_source_ids)
+    # Identity hand-offs: donor leg id -> finally-stamped id. The #205 engine
+    # re-stamps every persisted plan, so a leg that shrank its day (2->1) gets a
+    # new id while whole-day restorations keep theirs. Always reported so the
+    # lineage is visible even when no historical match needed re-pointing.
+    handoffs: Dict[str, str] = {}
+    for src in kept_sessions:
+        donor_sid = str(src.get("session_id") or "").strip()
+        if not donor_sid:
+            continue
+        stamped = final_legs_by_sport.get(str(src.get("sport") or "").strip().lower())
+        if stamped and stamped != donor_sid:
+            handoffs[donor_sid] = stamped
+    # Side effect: re-point any SAVED plan-vs-fact matches onto the new ids so
+    # previously confirmed activities stop showing «вне плана» again (#473/M1).
+    _rebind_restored_leg_matches(
+        db,
+        the_date=the_date,
+        pairs=list(handoffs.items()),
+        repair_checkpoint_id=saved_id,
+    )
+    return {
+        "changed": True,
+        "applied_checkpoint_id": saved_id,
+        "donor_checkpoint_id": int(donor_row.get("id") or 0),
+        "restored_session_ids": final_ids,
+        "session_id_handoffs": handoffs,
+        "changed_date": the_date,
+        "excluded_sports": sorted(excluded),
+    }
+
+
+def _rebind_restored_leg_matches(
+    db: Database,
+    *,
+    the_date: str,
+    pairs: List[tuple],
+    repair_checkpoint_id: int,
+) -> Dict[str, str]:
+    """Repoint preserved plan-vs-fact matches onto repaired legs' re-stamped ids.
+
+    Reconciliation binds by ``target_key=session:{id}``; when leg shrinkage
+    re-stamps a survivor (#205: a single-session day inherits the DAY identity),
+    its historical confirmed matches would dangle and the session would show up
+    as «вне плана» again. Each such ledger row gets one NEW immutable revision
+    under the new id (``supersedes_match_id`` links the lineage) so user
+    confirmations and activity links survive intact — append-only, same
+    discipline as the checkpoint tree.
+    Returns ``{new_id: old_id}`` for every leg whose matches were rebound.
+    """
+    import hashlib
+
+    changed = {old: new for old, new in pairs}
+    if not changed:
+        return {}
+    rebindings: Dict[str, str] = {}
+    rows = db.get_latest_plan_actual_matches(start_date=the_date, end_date=the_date)
+    for row in rows:
+        target_key = str(row.get("target_key") or "")
+        old_id = target_key.split(":", 1)[-1] if ":" in target_key else target_key
+        new_id = changed.get(old_id)
+        if not new_id:
+            continue
+        planned = dict(row.get("planned_snapshot") or {})
+        planned["session_id"] = new_id
+        evidence = [dict(e) for e in (row.get("evidence") or []) if isinstance(e, Mapping)]
+        evidence.append(
+            {
+                "type": "constraint_repair_rebind",
+                "from_session": old_id,
+                "to_session": new_id,
+                "repair_checkpoint": int(repair_checkpoint_id),
+                "note": f"leg re-stamped after constraint retraction ({the_date}); matched activity preserved",
+            }
+        )
+        fingerprint_src = f"repair-rebind:{int(row.get('id') or 0)}:{new_id}:{int(repair_checkpoint_id)}"
+        fingerprint = hashlib.sha256(fingerprint_src.encode("utf-8")).hexdigest()
+        try:
+            db.save_plan_actual_match(
+                {
+                    "fingerprint": fingerprint,
+                    "target_key": f"session:{new_id}",
+                    "base_checkpoint_id": int(row.get("base_checkpoint_id") or 0),
+                    "session_date": str(row.get("session_date") or the_date)[:10],
+                    "match_status": str(row.get("match_status") or "matched"),
+                    "match_method": str(row.get("match_method") or "user_confirmed"),
+                    "confidence": float(row.get("confidence") or 0.0),
+                    "planned_snapshot": planned,
+                    "actual_activity_ids": list(row.get("actual_activity_ids") or []),
+                    "actual_snapshot": dict(row.get("actual_snapshot") or {}),
+                    "evidence": evidence,
+                    "rule_version": str(row.get("rule_version") or MATCH_RULE_VERSION),
+                    "supersedes_match_id": int(row.get("id") or 0),
+                    "session_id": new_id,
+                }
+            )
+        except (ValueError, TypeError):
+            continue
+        rebindings[new_id] = old_id
+    return rebindings
+
+
+def _find_day_donor(
+    db: Database,
+    base_row: Dict[str, Any],
+    the_date: str,
+) -> Optional[Dict[str, Any]]:
+    """First ancestor above the base whose day carried >=1 executable session."""
+    seen = {int(base_row.get("id") or 0)}
+    cursor_id = _coerce_base_parent(base_row)
+    while cursor_id is not None and cursor_id not in seen:
+        seen.add(cursor_id)
+        candidate = db.get_planning_checkpoint(cursor_id)
+        if not isinstance(candidate, dict) or not candidate.get("goal_plan_snapshot"):
+            return None
+        plan = restore_goal_plan_from_checkpoint(candidate)
+        if plan is not None:
+            idx = _goal_plan_day_index(plan, the_date)
+            if idx is not None and _template_executable_legs(plan["session_templates"][idx]):  # type: ignore[arg-type]
+                return candidate
+        cursor_id = _coerce_base_parent(candidate)
+    return None
+
+
+def _coerce_base_parent(checkpoint_row: Optional[Dict[str, Any]]) -> Optional[int]:
+    if not isinstance(checkpoint_row, dict):
+        return None
+    try:
+        value = checkpoint_row.get("checkpoint_parent_id")
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def _float_total(session: Dict[str, Any]) -> float:
+    try:
+        return float(session.get("total_tss") or 0.0)
+    except (TypeError, ValueError):
+        return 0.0

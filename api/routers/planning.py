@@ -10,7 +10,7 @@ from typing import Annotated, Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from api import planning_service
 from api.deps import get_database
@@ -74,6 +74,12 @@ class HistoryRestoreRequest(BaseModel):
     base_checkpoint_id: int
 
 
+class RepairDayRequest(BaseModel):
+    date: str
+    exclude_sports: Optional[List[str]] = None
+    base_checkpoint_id: Optional[int] = None
+
+
 class IntervalsDeliveryRequest(BaseModel):
     days: int = Field(7, ge=7, le=14)
 
@@ -86,6 +92,25 @@ class ConstraintRequest(BaseModel):
     plan_id: Optional[str] = None
     session_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    sport: Optional[str] = Field(
+        default=None,
+        description=(
+            "Скоуп ограничения (#473): пусто = весь день, или bike/run/swim "
+            "(алиасы вело/бег/плавание) = только эта дисциплина дня"
+        ),
+    )
+
+    @field_validator("sport")
+    @classmethod
+    def _validate_sport_scope(cls, value: Optional[str]) -> Optional[str]:
+        # API-level validation → 422 on unknown sport (review #474); aliases map
+        # to the canonical name. The DB-layer normalizer stays as second line of
+        # defense for direct callers.
+        from models.coach_constraints import normalize_constraint_sport
+
+        if value in (None, ""):
+            return None
+        return normalize_constraint_sport(value)
 
 
 def _parse_available_days(value: Optional[str]) -> Optional[List[str]]:
@@ -134,16 +159,27 @@ def list_constraints(days: int = 30, db: Database = Depends(get_database)) -> di
 
 @router.post("/constraints")
 def create_constraint(req: ConstraintRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
+    """Create a durable constraint and apply it to the active plan immediately.
+
+    Pydantic validation on ``sport`` yields 422 for unknown scopes (review #474);
+    deeper ``ValueError`` layers map to 422 as well, stale base → 409.
+    """
     try:
-        return db.save_coach_constraint(
-            date=req.date,
-            kind=req.kind,
-            source=req.source,
-            note=req.note,
+        return planning_service.apply_constraint_to_active_plan(
+            db,
+            {
+                "date": req.date,
+                "kind": req.kind,
+                "source": req.source,
+                "note": req.note,
+                "sport": req.sport,
+                "metadata": req.metadata or {},
+            },
             plan_id=req.plan_id,
             session_id=req.session_id,
-            metadata=req.metadata or {},
         )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
@@ -154,6 +190,68 @@ def deactivate_constraint(constraint_id: int, db: Database = Depends(get_databas
     if row is None:
         raise HTTPException(status_code=404, detail="constraint not found")
     return row
+
+
+@router.post("/constraints/{constraint_id}/retract")
+def retract_constraint(constraint_id: int, db: Database = Depends(get_database)) -> dict[str, Any]:
+    """Deactivate a constraint AND restore its day from the closest usable ancestor (#473).
+
+    Per-sport constraints strip only their own sport from the recovered legs;
+    whole-day constraints recover every leg the donor had.
+    """
+    row = db.deactivate_coach_constraint(constraint_id)
+    if row is None:
+        raise HTTPException(status_code=404, detail="constraint not found")
+    exclude_sports = [row["sport"]] if row.get("sport") else []
+    try:
+        recovery = planning_service.recover_day_after_constraint_retraction(
+            db,
+            base_checkpoint_id=_active_checkpoint_id(db),
+            date=str(row.get("date") or ""),
+            exclude_sports=exclude_sports,
+        )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except planning_service.NoDonorCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return {"constraint": row, "recover": recovery}
+
+
+@router.post("/repair-day")
+def repair_day(req: RepairDayRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
+    """One-off day recovery (incident tooling); no constraint row involved."""
+    try:
+        return planning_service.recover_day_after_constraint_retraction(
+            db,
+            base_checkpoint_id=_active_checkpoint_id(db, required=req.base_checkpoint_id),
+            date=req.date,
+            exclude_sports=list(req.exclude_sports or []),
+        )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except planning_service.NoDonorCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+def _active_checkpoint_id(db: Database, *, required: Optional[int] = None) -> int:
+    """Active checkpoint id, or fail fast when the caller pinned a stale base (#473)."""
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = (
+        int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else None
+    )
+    if required is not None and latest_id != int(required):
+        # The repair primitive checks staleness itself, but the route must not
+        # silently substitute the latest base when a client pinned an older one.
+        raise planning_service.StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id or 'none'} no longer matches repair base #{int(required)}"
+        )
+    if latest_id is None:
+        raise ValueError("no active planning checkpoint to repair from")
+    return int(latest_id)
 
 
 @router.get("/target-preview")
