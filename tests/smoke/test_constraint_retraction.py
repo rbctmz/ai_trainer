@@ -314,6 +314,25 @@ def test_recover_rejects_stale_base(db, chained):
         )
 
 
+def test_repair_day_route_rejects_stale_base(db, chained):
+    """POST /api/planning/repair-day: запрошенный base не подменяется молча latest (#473)."""
+    from fastapi import HTTPException
+
+    from api.routers import planning as planning_router
+
+    _a_saved, b_saved = chained
+    req = planning_router.RepairDayRequest(
+        date=TARGET,
+        exclude_sports=["swim"],
+        base_checkpoint_id=b_saved["id"] + 999,
+    )
+    with pytest.raises(HTTPException) as excinfo:
+        planning_router.repair_day(req, db=db)
+    assert excinfo.value.status_code == 409
+    # База не изменена: новых чекпоинтов не появилось.
+    assert db.get_latest_planning_checkpoint()["id"] == b_saved["id"]
+
+
 def test_recover_raises_when_no_executable_ancestor_exists(db):
     from api.planning_service import NoDonorCheckpointError, recover_day_after_constraint_retraction
 
