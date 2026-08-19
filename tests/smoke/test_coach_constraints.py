@@ -257,7 +257,9 @@ def _two_leg_plan() -> dict:
                 "phase": "Base",
                 "session_role": "easy",
                 "sport": "bike",
-                "duration_minutes": 40,
+                # Общая длительность дня = сумма ног (40 вело + 35 плавание),
+                # чтобы в partial-пути было видно пересчёт после удаления ноги.
+                "duration_minutes": 75,
                 "allocated_parts": {"bike": 36.5, "swim": 27.5},
                 "sessions": [deepcopy(bike_session), deepcopy(swim_session)],
             },
@@ -306,12 +308,19 @@ def test_per_sport_constraint_kills_only_that_leg():
     assert float(target_row[2]["swim"]) == 0.0
     assert float(template["allocated_parts"]["swim"]) == 0.0
     assert float(template["allocated_parts"]["bike"]) == 36.5
-    # Аудит вычеркнутой ноги: id/спорт/груз видны из метаданных шаблона.
+    # Дневная длительность пересчитана по выжившим ногам (75 -> 40), иначе карточка
+    # дня показывает груз несуществующего плавания (review #2 к M2 GREEN).
+    assert float(template.get("duration_minutes") or 0) == 40.0
+    # Аудит вычеркнутой ноги: id/спорт/груз и причина (какое ограничение) видны
+    # из метаданных шаблона — по дате восстанавливать «чем вызвано» не нужно.
     canceled = template.get("canceled_legs")
     assert canceled and len(canceled) == 1, f"canceled_legs missing: {canceled}"
     assert canceled[0]["session_id"] == "atts_swim_1"
     assert canceled[0]["sport"] == "swim"
     assert float(canceled[0]["total_tss"]) == 27.5
+    assert canceled[0]["constraint_id"] == 21
+    assert canceled[0]["kind"] == "unavailable"
+    assert canceled[0]["note"] == "Плавание отменено пользователем"
     # Недельные суммы пересчитаны по обновлённому дневному плану.
     expected_total = int(round(sum(float(item[1]) for item in updated["daily_plan"])))
     assert expected_total == int(round(30.0 + 36.5 + 25.0))

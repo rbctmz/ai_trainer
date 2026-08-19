@@ -127,8 +127,12 @@ def apply_constraints_to_goal_plan(
         else:
             # A partially drained day keeps its remaining legs verbatim; the
             # full-drain case was routed to whole-day zeroing above.
-            _remove_legs(template, set(whole_sports))  # mutates copy; audit lands in canceled_legs
+            # Audit rows name the exact constraint row behind each canceled leg.
+            _remove_legs(template, set(whole_sports), constraint_rows)  # mutates copy; audit lands in canceled_legs
             surviving = [s for s in list(template.get("sessions") or []) if isinstance(s, dict)]
+            if isinstance(template, dict):
+                total_minutes = round(sum(_float(s.get("duration_minutes")) for s in surviving), 1)
+                template["duration_minutes"] = total_minutes
             new_total = round(sum(_float(s.get("total_tss")) for s in surviving), 1)
             merged_parts = _zero_parts(item[2])
             for session in surviving:
@@ -285,22 +289,36 @@ def _constraints_with_scope_by_date(
 def _remove_legs(
     template: Mapping[str, Any] | None,
     constrained_sports: set[str],
+    caused_by: Mapping[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     """Remove constrained legs from the template (mutates the copy), returns audit rows."""
     if not isinstance(template, dict):
         return []
+    candidates: list[tuple[Mapping[str, Any], str | None]] = []
+    if isinstance(caused_by, Mapping):
+        candidates = [(caused_by, None)]
+    elif isinstance(caused_by, (list, tuple)):
+        candidates = [item for item in caused_by if isinstance(item, tuple) and len(item) >= 2]
     sessions = list(template.get("sessions") or [])
     kept: list[Any] = []
     removed: list[dict[str, Any]] = []
     for session in sessions:
         if isinstance(session, dict) and str(session.get("sport") or "").strip().lower() in constrained_sports:
+            sport_key = str(session.get("sport") or "").strip().lower()
+            cause = next(
+                ((row, _)[0] for row, _ in candidates if _ == sport_key),
+                candidates[0][0] if candidates else {},
+            )
             removed.append(
                 {
                     "session_id": str(session.get("session_id") or ""),
-                    "sport": str(session.get("sport") or "").strip().lower(),
+                    "sport": sport_key,
                     "duration_minutes": _float(session.get("duration_minutes")),
                     "total_tss": _float(session.get("total_tss")),
                     "reason": "constraint",
+                    "constraint_id": cause.get("id"),
+                    "kind": cause.get("kind"),
+                    "note": cause.get("note"),
                 }
             )
         else:
