@@ -1,6 +1,7 @@
 """Smoke tests for durable coach/planning constraints."""
 from __future__ import annotations
 
+from copy import deepcopy
 from datetime import datetime, timedelta
 
 from data.database import Database
@@ -173,3 +174,259 @@ def test_apply_constraints_to_goal_plan_marks_matching_days_protected():
     assert "prescription_fingerprint" not in protected_template
     assert protected_template["protected_by_constraint"] is True
     assert protected_template["constraint"]["kind"] == "sick"
+
+
+# --- Scoped (per-sport) constraints — issue #473 ---------------------------
+
+
+def _two_leg_plan() -> dict:
+    """Два дня: цель с двумя ногами (вело + плавание) и соседний день-контроль."""
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    target_day = today + timedelta(days=2)
+    bike_session = {
+        "session_id": "atts_bike_1",
+        "sport": "bike",
+        "sport_label": "вело",
+        "session_role": "easy",
+        "session_focus": "Aerobic Endurance Ride",
+        "total_tss": 36.5,
+        "duration_minutes": 40,
+        "template_key": "bike_aerobic_endurance",
+        "materialization_status": "materialized",
+        "materialized_steps": [{"name": "a"}],
+        "definition_snapshot": {"template_key": "bike_aerobic_endurance"},
+    }
+    swim_session = {
+        "session_id": "atts_swim_1",
+        "sport": "swim",
+        "sport_label": "плавание",
+        "session_role": "easy",
+        "session_focus": "Swim Endurance",
+        "total_tss": 27.5,
+        "duration_minutes": 35,
+        "template_key": "swim_endurance",
+        "materialization_status": "materialized",
+        "materialized_steps": [{"name": "a"}],
+        "definition_snapshot": {"template_key": "swim_endurance"},
+    }
+    return {
+        "goal_type": "Триатлон",
+        "distance": "Олимпийка",
+        "daily_plan": [
+            (today, 30.0, {"run": 30.0}),
+            (target_day, 64.0, {"bike": 36.5, "swim": 27.5}),
+            (today + timedelta(days=1), 25.0, {"run": 25.0}),
+        ],
+        "session_templates": [
+            {
+                "date": today.strftime("%Y-%m-%d"),
+                "session_role": "easy",
+                "sport": "run",
+                "duration_minutes": 45,
+                "sessions": [
+                    {
+                        "session_id": "atts_run_x",
+                        "sport": "run",
+                        "total_tss": 30.0,
+                        "duration_minutes": 45,
+                        "materialization_status": "materialized",
+                        "materialized_steps": [],
+                    }
+                ],
+            },
+            {
+                "date": target_day.strftime("%Y-%m-%d"),
+                "week_index": 0,
+                "day_index": 2,
+                "phase": "Base",
+                "session_role": "easy",
+                "sport": "bike",
+                "duration_minutes": 40,
+                "allocated_parts": {"bike": 36.5, "swim": 27.5},
+                "sessions": [deepcopy(bike_session), deepcopy(swim_session)],
+            },
+            {
+                "date": (today + timedelta(days=1)).strftime("%Y-%m-%d"),
+                "session_role": "easy",
+                "sport": "run",
+                "duration_minutes": 40,
+                "sessions": [
+                    {
+                        "session_id": "atts_run_y",
+                        "sport": "run",
+                        "total_tss": 25.0,
+                        "duration_minutes": 40,
+                        "materialization_status": "materialized",
+                        "materialized_steps": [],
+                    }
+                ],
+            },
+        ],
+        "weekly_summary": [
+            {"week_start": today.strftime("%Y-%m-%d"), "weekly_tss": 119, "bike": 36.5, "swim": 27.5, "run": 55.0}
+        ],
+    }
+
+
+def _leg_sessions(template: dict) -> list[dict]:
+    return list(template.get("sessions") or [])
+
+
+def test_per_sport_constraint_kills_only_that_leg():
+    from models.coach_constraints import apply_constraints_to_goal_plan
+
+    plan = _two_leg_plan()
+    target_date = plan["session_templates"][1]["date"]
+    planned = deepcopy(plan)
+    constraint = {
+        "id": 21,
+        "date": target_date,
+        "kind": "unavailable",
+        "source": "coach",
+        "note": "Плавание отменено пользователем",
+        "status": "active",
+        "sport": "swim",
+    }
+
+    updated, summary = apply_constraints_to_goal_plan(planned, [constraint])
+
+    target_row = next(
+        (item for item in updated["daily_plan"] if str(item[0])[:10] == target_date),
+        None,
+    )
+    template = next(t for t in updated["session_templates"] if str(t.get("date"))[:10] == target_date)
+    # Вело-нога жива с сохранённым идентификатором и шагами.
+    kept = _leg_sessions(template)
+    assert [s["session_id"] for s in kept] == ["atts_bike_1"]
+    assert kept[0]["materialization_status"] == "materialized"
+    assert kept[0].get("materialized_steps") == [{"name": "a"}]
+    # Дневной груз пересчитан только по вело.
+    assert float(target_row[1]) == 36.5
+    assert float(target_row[2]["bike"]) == 36.5
+    assert float(target_row[2]["swim"]) == 0.0
+    assert float(template["allocated_parts"]["swim"]) == 0.0
+    assert float(template["allocated_parts"]["bike"]) == 36.5
+    # Аудит вычеркнутой ноги: id/спорт/груз видны из метаданных шаблона.
+    canceled = template.get("canceled_legs")
+    assert canceled and len(canceled) == 1, f"canceled_legs missing: {canceled}"
+    assert canceled[0]["session_id"] == "atts_swim_1"
+    assert canceled[0]["sport"] == "swim"
+    assert float(canceled[0]["total_tss"]) == 27.5
+    # Недельные суммы пересчитаны по обновлённому дневному плану.
+    expected_total = int(round(sum(float(item[1]) for item in updated["daily_plan"])))
+    assert expected_total == int(round(30.0 + 36.5 + 25.0))
+    week_rows = list(updated["weekly_summary"])
+    assert week_rows
+    assert int(round(float(week_rows[0]["weekly_tss"]))) == expected_total
+    assert float(week_rows[0].get("swim", 0.0)) == 0.0
+    assert float(week_rows[0].get("bike", 0.0)) == 36.5
+    # Соседние дни не тронуты.
+    other_rows = [
+        item for item in updated["daily_plan"] if str(item[0])[:10] != target_date
+    ]
+    assert sorted(float(item[1]) for item in other_rows) == [25.0, 30.0]
+    # Неизменный входной план не мутирован.
+    input_template = next(t for t in planned["session_templates"] if str(t.get("date"))[:10] == target_date)
+    assert len(_leg_sessions(input_template)) == 2
+
+
+def test_whole_day_constraint_still_zeros_everything_regression():
+    from models.coach_constraints import apply_constraints_to_goal_plan
+
+    plan = _two_leg_plan()
+    target_date = plan["session_templates"][1]["date"]
+    constraint = {
+        "id": 22,
+        "date": target_date,
+        "kind": "sick",
+        "source": "user",
+        "note": "Болею",
+        "status": "active",
+    }
+
+    updated, summary = apply_constraints_to_goal_plan(plan, [constraint])
+
+    template = next(t for t in updated["session_templates"] if str(t.get("date"))[:10] == target_date)
+    target_row = next(
+        (item for item in updated["daily_plan"] if str(item[0])[:10] == target_date),
+        None,
+    )
+    assert _leg_sessions(template) == []
+    assert template["materialization_status"] == "constraint_off"
+    assert float(target_row[1]) == 0.0
+
+
+def test_two_per_sport_constraints_collapse_day_to_off():
+    from models.coach_constraints import apply_constraints_to_goal_plan
+
+    plan = _two_leg_plan()
+    target_date = plan["session_templates"][1]["date"]
+    constraints = [
+        {"id": 31, "date": target_date, "kind": "unavailable", "source": "coach", "status": "active", "sport": "swim"},
+        {"id": 32, "date": target_date, "kind": "unavailable", "source": "coach", "status": "active", "sport": "bike"},
+    ]
+
+    updated, _ = apply_constraints_to_goal_plan(plan, constraints)
+
+    template = next(t for t in updated["session_templates"] if str(t.get("date"))[:10] == target_date)
+    target_row = next(
+        (item for item in updated["daily_plan"] if str(item[0])[:10] == target_date),
+        None,
+    )
+    assert _leg_sessions(template) == []
+    assert template["materialization_status"] == "constraint_off"
+    assert float(target_row[1]) == 0.0
+
+
+def test_composite_day_falls_back_to_whole_day_zeroing():
+    from models.coach_constraints import apply_constraints_to_goal_plan
+
+    plan = _two_leg_plan()
+    target_date = plan["session_templates"][1]["date"]
+    target_template = next(t for t in plan["session_templates"] if str(t.get("date"))[:10] == target_date)
+    target_template["kind"] = "composite"
+    target_template["template_key"] = "brick_endurance"
+    constraint = {
+        "id": 33,
+        "date": target_date,
+        "kind": "unavailable",
+        "source": "coach",
+        "status": "active",
+        "sport": "swim",
+    }
+
+    updated, _ = apply_constraints_to_goal_plan(plan, [constraint])
+
+    rebuilt = next(t for t in updated["session_templates"] if str(t.get("date"))[:10] == target_date)
+    target_row = next(
+        (item for item in updated["daily_plan"] if str(item[0])[:10] == target_date),
+        None,
+    )
+    assert _leg_sessions(rebuilt) == []
+    assert rebuilt["materialization_status"] == "constraint_off"
+    assert float(target_row[1]) == 0.0
+
+
+def test_database_persists_and_normalizes_constraint_sport(tmp_path):
+    db = Database(str(tmp_path / "constraints_sport.db"))
+    row = db.save_coach_constraint(
+        date=_date(), kind="unavailable", source="coach", note="Закрытие бассейна", sport="плавание"
+    )
+    assert row["sport"] == "swim", f"sport normalization broken: {row['sport']!r}"
+
+    empty = db.save_coach_constraint(date=_date(1), kind="sick", source="coach")
+    assert empty["sport"] in (None, ""), f"whole-day sport must stay empty: {empty['sport']!r}"
+
+    listed = db.get_coach_constraints(start_date=_date(-1), end_date=_date(3))
+    by_id = {r["id"]: r for r in listed}
+    assert by_id[row["id"]]["sport"] == "swim"
+    assert by_id[empty["id"]]["sport"] in (None, "")
+
+
+def test_save_coach_constraint_rejects_unknown_sport(tmp_path):
+    db = Database(str(tmp_path / "constraints_bad_sport.db"))
+    try:
+        db.save_coach_constraint(date=_date(), kind="sick", source="coach", sport="flying")
+    except ValueError:
+        return
+    raise AssertionError("unknown sport must be rejected with ValueError")
