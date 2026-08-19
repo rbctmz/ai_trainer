@@ -1,43 +1,78 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-AI Trainer is in an active web migration. The main product development path is `api/` + `web/`: `api/` exposes FastAPI contracts over the existing Python logic, and `web/` contains the Next.js UI. The legacy Streamlit entry point is `app.py`, which remains a thin fallback shell for page configuration, navigation dispatch, Garmin sync callbacks, and theme bootstrap while migration is still in progress. Configuration constants and environment lookups sit in `config/settings.py`; keep defaults centralized there. Data ingestion and persistence live under `data/` (Garmin clients, SQLite helpers) and `services/` (sync, demo, acceptance, and integration orchestration). AI logic is grouped in `models/`. Reusable Streamlit pages/components, themes, and assets live in `ui/` and `utils/`; treat them as maintenance/fallback surfaces unless a task explicitly targets Streamlit. Long-running state helpers reside in `state/`, but `state/manager.py` is Streamlit-specific and should not become the contract for new product flows. `tests/` houses pytest suites plus utility scripts; ignore `debug/` and `examples/` unless you need manual experiments.
+AI Trainer is in an active web migration. The main product development path is `api/` + `web/`: `api/` exposes FastAPI contracts over shared Python logic, `web/` is the Next.js UI. Legacy Streamlit entry point is `app.py` — a thin fallback shell (page dispatch, sync callbacks, theme) while migration continues; Streamlit stays supported until parity, so never describe the project as already migrated.
 
-## Build, Test, and Development Commands
-Create or activate the virtualenv via `source ai_trainer_env/bin/activate` (macOS/Linux) or the Windows `Scripts` path. Install base dependencies with `pip install -r requirements.txt` and `pip install -r requirements-dev.txt` for tests. When working on API/web runtime, also install `pip install -r requirements-web.txt`. Launch the web stack with `./run_web.sh` when working on FastAPI/Next.js flows; the script starts FastAPI on `:8000`, Next.js on `:3000`, and reconciles missing web dependencies. Use `./run.sh` or `streamlit run app.py` for legacy Streamlit flows that have not been fully migrated yet. For runtime dependency issues, prefer `python scripts/doctor_env.py check --runtime` and `python scripts/doctor_env.py repair --runtime`. Use `python -m pytest tests/smoke -q` for the contributor-safe pass, and `python -m pytest -m "not live and not debug" tests/` for a broader local pass. Use `python -m pytest tests/test_ai_coach.py` (swap the filename) for focused checks. Pytest markers are defined in `pytest.ini` (`smoke`, `live`, `debug`). Any change under `web/` must be verified with `npm --prefix web run lint` and `npm --prefix web run build` before pushing. Bootstrap a fresh environment with `./setup_env.sh`; containerized API deployment is packaged via `Dockerfile.api`, `docker-compose.yml`, and `deploy/Caddyfile` (reverse proxy). The api↔web contract is mirrored in `web/lib/types.ts` with scenarios in `tests/contracts/registry.json`; when either changes, regenerate the artifact with `npm --prefix web run contract:extract` (CI job `web-contract` fails stale artifacts), and `python -m pytest tests/smoke/test_web_contract_drift.py tests/smoke/test_api_call_inventory.py -q` must stay green; call inventory is `npm --prefix web run contract:inventory`.
+- Intervals.icu is the recommended PRIMARY data source (`PRIMARY_ACTIVITY_SOURCE=intervals`, `services/intervals_icu.py`); Garmin Connect is the compatible optional second source (`data/garmin_client.py`). Route new ingestion through the service boundary in `services/` (sync, demo, acceptance orchestration) plus `config/settings.py` for all defaults/env lookups.
+- `models/` = AI providers, coach runtime, planning, readiness/Banister metrics. `utils/` = shared helpers (metrics, Plotly/theme).
+- `ui/pages/`, `ui/components/`, `state/` are legacy Streamlit surfaces; `state/manager.py` is Streamlit-specific and must not become the contract for new product flows. Treat them as maintenance/fallback unless the task explicitly targets Streamlit.
+- Ignore `archived/`, `backups/`, `spikes/`, `debug/`, `examples/`, `research/`, `output/` (ruff-excluded experiment areas). `ai_trainer.db` at root is the local SQLite cache.
+
+## Development Commands
+```bash
+source ai_trainer_env/bin/activate          # venv (Windows: Scripts\activate)
+pip install -r requirements.txt -r requirements-dev.txt   # base + tests
+pip install -r requirements-web.txt         # only for API/web runtime work
+./setup_env.sh                              # bootstrap fresh environment
+
+./run_web.sh        # FastAPI :8000 + Next.js :3000; auto-installs missing deps; override API_PORT=/WEB_PORT= if busy
+./run.sh            # legacy Streamlit (:8501)
+ACCEPTANCE_PORT=8510 ./run_acceptance.sh    # isolated temp-DB/demo-mode surface for browser checks
+python scripts/doctor_env.py check|repair --runtime|--dev    # dependency diagnostics
+```
+
+Python lint and tests (mirrors CI `.github/workflows/ci.yml` exactly):
+```bash
+python -m ruff check .                                              # must be green (CI job)
+python -m pytest -m "not live and not debug and not e2e" tests/     # contributor-safe pass
+python -m pytest tests/smoke -q                                     # smoke subset
+python -m pytest tests/test_ai_coach.py                             # focused module (swap filename)
+python -m pytest -m e2e tests/e2e -q                                # Playwright web E2E, needs chromium
+```
+Pytest markers (`pytest.ini`): `smoke`, `live` (needs credentials/network/AI runtimes), `debug`, `e2e`. Do not treat bare `python -m pytest tests/` as the normal command.
+
+Web changes MUST be verified before pushing:
+```bash
+npm --prefix web run lint && npm --prefix web run build
+```
+
+api↔web contract: mirrored in `web/lib/types.ts`, scenarios in `tests/contracts/registry.json`, artifact `tests/contracts/ts_contract.json`. When either side changes, regenerate: `npm --prefix web run contract:extract` (CI gates freshness via `contract:extract -- --check` in job `web-contract`, then runs `tests/smoke/test_contract_extractor.py` + `tests/smoke/test_api_call_inventory.py`; inventory script: `npm --prefix web run contract:inventory`).
+
+Self-hosted deployment: `Dockerfile.api` + `docker-compose.yml` + `deploy/Caddyfile` (Caddy auth+proxy, only Caddy exposed). Details in `docs/self_hosted_deployment_execplan.md`, `docs/sqlite_backup_restore.md`.
 
 ## Product Surface Policy
-New product-facing behavior should go through shared Python logic plus explicit API contracts in `api/`, then be consumed from `web/`. Streamlit changes are acceptable for bug fixes, acceptance/admin tooling, compatibility bridges, or extracting reusable logic out of legacy UI code. Do not ship new product features only in `ui/pages/*` unless the task is explicitly legacy-only, and do not duplicate business logic between Streamlit and API/web paths.
+New product-facing behavior goes through shared Python logic + explicit API contracts in `api/`, consumed by `web/`. Streamlit changes are acceptable only for bug fixes, acceptance/admin tooling, compatibility bridges, or extracting reusable logic out of legacy UI code. Never ship a new product feature only in `ui/pages/*`, and never duplicate business logic between the Streamlit and api/web paths.
 
 ## Architecture Context (ADD 3.0)
-Before starting significant architecture or planning work, read `docs/architecture/asr_catalog.md` (the living single source of truth for quality attributes and the ADR registry) and `docs/architecture/architecture_analysis_add3.md`. They document:
-- Explicit Quality Attribute Scenarios (ASR) for performance, reliability, modifiability, security, deployability
-- Architectural tactics already used and gaps to fill
-- Risk/tradeoff heatmap (ATAM-style) — know what you might break
-- Missing ADRs that should be written alongside new decisions
-- Map of `ASR → Module → Tactic` for traceability
+Before significant architecture/planning work, read `docs/architecture/asr_catalog.md` (ASR catalog + ADR registry — the living single source of truth for quality attributes) and `docs/architecture/architecture_analysis_add3.md` (tactics, ATAM-style risk heatmap, ASR→Module→Tactic map). UI/backend migration policy lives in `docs/architecture/adr_0001_web_primary_ui.md`; keep plans and PR scope aligned with it.
 
-## Coding Style & Naming Conventions
-Use 4-space indentation and follow PEP 8; type hints are expected for public functions, as seen across `models/`. Module and package names stay lowercase with underscores (`ai_coach_universal.py`). Keep docstrings concise and in the language already used within the file (many core modules are Russian-first). For new product UX/backend flows, prefer shared Python services/models plus API contracts over adding logic to Streamlit pages. When touching Streamlit components, prefer existing helpers in `utils/modern_ui.py` and page/component helpers under `ui/` instead of inline HTML.
+## Coding Style
+- Type hints expected on public functions (see `models/`); keep docstrings in the language the file already uses (many core modules are Russian-first — match the file, don't translate).
+- For legacy Streamlit work prefer existing helpers in `utils/modern_ui.py` and `ui/components/*` over inline HTML; keep data clients UI-agnostic (return structured status/errors).
 
-## Testing Guidelines
-Python lint is `python -m ruff check .` (config in `ruff.toml`, first slice: default E4/E7/E9/F rules); it runs in the CI contributor-safe job and must stay green. Pytest is the standard runner, and tests rely on fixtures under `tests/`—many integration suites expect populated SQLite data, so favor targeted modules unless you have synced Garmin credentials. Name new tests `test_*.py` and co-locate helper scripts next to them. Update or generate sample data via scripts like `tests/add_test_data.py` when coverage requires fresh fixtures.
+## Testing Quirks
+Many integration suites expect populated SQLite data; favor targeted modules unless you have synced Intervals/Garmin credentials. Generate sample data via `tests/add_test_data.py`. Wipe the cache with `tests/clean_database.py`.
 
-## Commit & Pull Request Guidelines
-Recent history follows Conventional Commits (`feat:`, `refactor:`, `chore:`); use the same prefixes and keep subjects under 72 characters. Provide descriptive bodies when the change spans multiple modules or alters data flow. Pull requests should link the relevant issue, list the manual or automated tests you ran, and include UI screenshots or GIFs whenever you adjust web or Streamlit surfaces.
+## Commits, PRs
+Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`), subjects <72 chars. PR body lists tests run; link the issue; include screenshots/GIFs when touching any UI surface.
 
-## Environment & Security Tips
-Store secrets only in `.env`, never in version control. The SQLite cache `ai_trainer.db` is local-only; wipe it with `tests/clean_database.py` before sharing datasets. Logs under `logs/` might contain personal metrics—purge or redact them before publishing branches.
+## Environment & Security Gotchas
+- Secrets only in `.env` (never tracked); keys come from env — empty provider fields in the UI mean "fall back to `.env`", keep that behavior.
+- Back up/migrate `ai_trainer.db` with `scripts/sqlite_backup_restore.py` (`backup ... --confirm-stopped` / `restore ...`) — a plain copy misses committed pages in the `-wal` file.
+- `logs/` may contain personal training metrics — redact before publishing branches.
+
+## Web Dev Surfaces
+`/decisions`, `/recovery`, and the shadow `/today` module are hidden behind build-time flag `NEXT_PUBLIC_SHOW_DEV_TOOLS=true` (inlined at build — restarting the dev server after the change is required).
 
 ## Development Workflow
-Use `docs/AI_Feature_Development_Workflow.md` as the canonical workflow for non-trivial feature and architecture work: SpecDD, BDD, TDD, Contract First, Self-Review, and Minimal Complexity. Use `docs/loop_engineering_instruction.md` for the current issue-first agent loop and GitHub automation model. Repo-level UI/backend migration policy lives in `docs/architecture/adr_0001_web_primary_ui.md`; keep plans, specs, and PR scope aligned with that document. Keep the process lightweight for small docs-only or one-line fixes, but start significant work from a spec, acceptance criteria, and the repo's existing contracts.
+Canonical workflow for non-trivial features: `docs/AI_Feature_Development_Workflow.md` (SpecDD → BDD → TDD → Contract First → Self-Review → Minimal Complexity). Issue-first agent loop and GitHub automation model: `docs/loop_engineering_instruction.md`. Lightweight for docs-only/one-line fixes; start significant work from a spec + acceptance criteria + existing contracts.
 
-# ExecPlans
-When writing complex features or significant refactors, use an ExecPlan (as described in `.agent/PLANS.md`) from design to implementation.
+## ExecPlans
+Complex features and significant refactors use an ExecPlan from design to implementation, per `.agent/PLANS.md`.
 
 ## Claude GitHub Action Norms
-The interactive `@claude` workflow (`.github/workflows/claude.yml`) runs in a bounded sandbox (turn budget, 30-minute timeout, shared Claude usage quota). Norms that keep restarts cheap:
-- **One milestone per @claude mention.** Milestone-sized, self-contained tasks (a RED→GREEN pair or one review round) reliably finish in a single run; larger asks exhaust the budget mid-flight. Split multi-milestone tracks into one mention per milestone.
-- **Commit and push every completed RED/GREEN slice immediately.** A restart after budget or quota exhaustion then costs at most one slice, never a milestone. Near exhaustion, stop at a clean boundary (a pushed RED gate or a pushed GREEN fix) and update the progress checklist.
-- **Web changes are verified inside the run** (`npm --prefix web run lint`, `npm --prefix web run build`) before pushing; CI is the second line, not the first.
-- **Draft PRs open automatically** for action branches (`claude/issue-N-YYYYMMDD-HHMM`) via `claude-auto-draft-pr.yml`; failures are reported back to the thread with a classified cause via `claude-failure-notify.yml`. If Claude quota is exhausted mid-track, another agent (Codex or local Claude Code) picks up from the last pushed slice.
+The `@claude` workflow (`.github/workflows/claude.yml`) runs in a bounded sandbox (turn budget, 30-min timeout, shared quota). Norms that keep restarts cheap:
+- **One milestone per @claude mention.** Milestone-sized self-contained tasks (a RED→GREEN pair or one review round) finish in a single run; split larger tracks.
+- **Commit and push every completed RED/GREEN slice immediately.** A restart then costs at most one slice. Near exhaustion, stop at a clean pushed boundary and update the progress checklist.
+- **Verify web changes inside the run** (`lint` + `build`) before pushing; CI is the second line.
+- Draft PRs open automatically for action branches (`claude/issue-N-YYYYMMDD-HHMM`) via `claude-auto-draft-pr.yml`; failures report back classified via `claude-failure-notify.yml`. If quota exhausts mid-track, another agent picks up from the last pushed slice.
