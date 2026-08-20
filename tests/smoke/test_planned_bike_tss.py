@@ -215,11 +215,46 @@ def test_rebalanced_export_and_delivery_share_persisted_duration_and_identity():
         int(value)
         for value in re.findall(r"<Seconds>(\d+)</Seconds>", tcx["content"])
     ] == expected_seconds
-    assert all(
-        f"duration_time,{seconds},s" in fit["content"]
-        for seconds in expected_seconds
-    )
-    assert "target_type,4" in fit["content"]
+    fit_steps = [
+        (int(index), int(seconds), float(target))
+        for index, seconds, target in re.findall(
+            r"^Data,2,workout_step,message_index,(\d+),,.*?,"
+            r"duration_type,0,,duration_time,(\d+),s,"
+            r"target_type,4,,target_value,([\d.]+),watts,",
+            fit["content"],
+            flags=re.MULTILINE,
+        )
+    ]
+    expected_fit_steps = [
+        (
+            index,
+            seconds,
+            round(
+                (float(step["target"]["low"]) + float(step["target"]["high"]))
+                / 2.0,
+                1,
+            ),
+        )
+        for index, (step, seconds) in enumerate(
+            zip(session["materialized_steps"], expected_seconds)
+        )
+    ]
+    assert fit_steps == expected_fit_steps
+
+    provider_steps = [
+        line.strip()
+        for line in event["description"].splitlines()[1:]
+        if line.strip()
+    ]
+    expected_provider_steps = []
+    for step, seconds in zip(session["materialized_steps"], expected_seconds):
+        duration = f"{seconds // 60}m" if seconds % 60 == 0 else f"{seconds}s"
+        target = step["target"]
+        expected_provider_steps.append(
+            f"- {step['name']} {duration} "
+            f"{float(target['low']):g}-{float(target['high']):g}w"
+        )
+    assert provider_steps == expected_provider_steps
     assert "AI Trainer target evidence: power" in tcx["content"]
     assert event["external_id"] == f"ai_trainer:{session['delivery_session_id']}"
     assert event["moving_time"] == sum(expected_seconds)
