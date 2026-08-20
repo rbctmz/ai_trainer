@@ -678,6 +678,9 @@ def test_feedback_without_forecast_is_stored_without_synthetic_prediction(
     assert result["feedback"]["source"] == "user_web"
     assert result["feedback"]["provenance_label"] == "athlete-entered"
     assert result["evaluations"] == []
+    fact = db.get_latest_athlete_feedback_fact("ats_quality")
+    assert fact["feedback_id"] == result["feedback"]["id"]
+    assert fact["provenance"]["label"] == "athlete-entered"
     assert db.get_session_quality_predictions(days=36500) == []
 
 

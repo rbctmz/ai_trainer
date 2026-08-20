@@ -12,6 +12,10 @@ from data.athlete_profile_store import (
     create_athlete_profile_table,
     ensure_athlete_profile_columns,
 )
+from data.athlete_feedback_fact_store import (
+    AthleteFeedbackFactStore,
+    create_athlete_feedback_facts_table,
+)
 from data.activity_store import (
     ACTIVITY_COLUMN_ORDER,
     ActivityStore,
@@ -596,6 +600,11 @@ class Database:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
+
+        # M0 durable athlete-entered feedback fact. This is an append-only
+        # provenance projection of new session_feedback revisions; it is not a
+        # TSS/planning input and deliberately has no historical backfill.
+        create_athlete_feedback_facts_table(conn)
 
         conn.execute('''
             CREATE TABLE IF NOT EXISTS session_quality_evaluations (
@@ -2225,6 +2234,9 @@ class Database:
             row_id = int(cursor.lastrowid)
             cursor.execute("SELECT * FROM session_feedback WHERE id = ?", (row_id,))
             row = cursor.fetchone()
+            AthleteFeedbackFactStore(conn, self.clean_value).append_from_feedback(
+                self._deserialize_session_feedback(row)
+            )
             conn.commit()
             return {
                 "feedback": self._deserialize_session_feedback(row),
@@ -2321,6 +2333,26 @@ class Database:
         ).fetchall()
         conn.close()
         return [self._deserialize_session_feedback(row) for row in rows]
+
+    def get_latest_athlete_feedback_fact(self, session_id):
+        """Return the newest durable feedback fact for one planned session."""
+        conn = self._connect()
+        try:
+            return AthleteFeedbackFactStore(conn, self.clean_value).get_latest(
+                f"session:{session_id}"
+            )
+        finally:
+            conn.close()
+
+    def get_athlete_feedback_fact_history(self, session_id):
+        """Return durable feedback facts in append order for one session."""
+        conn = self._connect()
+        try:
+            return AthleteFeedbackFactStore(conn, self.clean_value).get_history(
+                f"session:{session_id}"
+            )
+        finally:
+            conn.close()
 
     @staticmethod
     def _deserialize_session_feedback(row):
@@ -4242,6 +4274,7 @@ class Database:
 
         for table in (
             'session_feedback',
+            'athlete_feedback_facts',
             'session_feedback_prompt_events',
             'session_quality_evaluations',
             'readiness_snapshots',
@@ -4447,6 +4480,7 @@ class Database:
         journal_counts = {}
         for table in (
             'session_feedback',
+            'athlete_feedback_facts',
             'session_feedback_prompt_events',
             'session_quality_evaluations',
             'readiness_snapshots',
