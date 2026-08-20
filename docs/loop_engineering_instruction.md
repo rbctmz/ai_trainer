@@ -68,7 +68,10 @@ When a PR opens, the workflow finds linked issues through explicit
 `Closes/Fixes/Resolves #<issue>` references in PR body/title or through an
 issue marker in the branch name, then moves them to `status: in progress`.
 
-When a linked PR is merged, it closes the issue and removes agent/status labels.
+When a PR is merged, the workflow closes only issues named by an explicit
+`Closes/Fixes/Resolves #<issue>` reference in the PR body/title and removes
+their agent/status labels. A branch marker links milestone work for progress
+tracking but cannot close a larger epic by itself.
 
 ### Watchdog
 

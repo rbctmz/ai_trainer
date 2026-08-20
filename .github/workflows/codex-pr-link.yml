@@ -23,19 +23,26 @@ jobs:
             const action = context.payload.action;
             const merged = pr.merged;
 
-            const issueNums = new Set();
+            const linkedIssueNums = new Set();
+            // Only explicit closing keywords prove that the whole issue is done.
+            // A branch marker may identify one milestone of a larger epic.
+            const closingIssueNums = new Set();
             for (const match of body.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
-              issueNums.add(parseInt(match[1], 10));
+              const issueNumber = parseInt(match[1], 10);
+              linkedIssueNums.add(issueNumber);
+              closingIssueNums.add(issueNumber);
             }
             for (const match of title.matchAll(/(?:closes|fixes|resolves)\s+#(\d+)/gi)) {
-              issueNums.add(parseInt(match[1], 10));
+              const issueNumber = parseInt(match[1], 10);
+              linkedIssueNums.add(issueNumber);
+              closingIssueNums.add(issueNumber);
             }
             for (const match of branch.matchAll(/(?:^|[\/_-])issue[\/_-]?(\d+)(?:$|[\/_-])/gi)) {
-              issueNums.add(parseInt(match[1], 10));
+              linkedIssueNums.add(parseInt(match[1], 10));
             }
 
-            for (const num of issueNums) {
-              if (action === 'opened') {
+            if (action === 'opened') {
+              for (const num of linkedIssueNums) {
                 await github.rest.issues.addLabels({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
@@ -58,8 +65,9 @@ jobs:
                   issue_number: num,
                   body: `🔗 PR #${context.payload.pull_request.number} opened — moving to **in progress**.`,
                 });
-
-              } else if (action === 'closed' && merged) {
+              }
+            } else if (action === 'closed' && merged) {
+              for (const num of closingIssueNums) {
                 for (const name of ['status: in progress', 'status: queued', 'status: blocked', 'agent: codex']) {
                   try {
                     await github.rest.issues.removeLabel({

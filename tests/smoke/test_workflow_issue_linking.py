@@ -35,3 +35,27 @@ def test_title_issue_links_require_explicit_keywords() -> None:
             offenders.append(str(path))
 
     assert offenders == []
+
+
+def test_branch_marker_links_but_does_not_close_issue() -> None:
+    workflow = (WORKFLOW_DIR / "codex-pr-link.yml").read_text()
+
+    branch_match_start = workflow.index("for (const match of branch.matchAll")
+    branch_match_end = workflow.index("if (action === 'opened')", branch_match_start)
+    branch_match_block = workflow[branch_match_start:branch_match_end]
+
+    assert "linkedIssueNums.add" in branch_match_block
+    assert "closingIssueNums.add" not in branch_match_block
+    assert "for (const num of linkedIssueNums)" in workflow
+    assert "for (const num of closingIssueNums)" in workflow
+
+
+def test_only_explicit_closing_keywords_populate_closing_issue_set() -> None:
+    workflow = (WORKFLOW_DIR / "codex-pr-link.yml").read_text()
+
+    closing_additions = [
+        line.strip() for line in workflow.splitlines() if "closingIssueNums.add" in line
+    ]
+
+    assert len(closing_additions) == 2
+    assert workflow.count("/(?:closes|fixes|resolves)\\s+#(\\d+)/gi") == 2
