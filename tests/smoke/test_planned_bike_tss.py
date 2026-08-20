@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
+import re
 
 import pytest
 
@@ -171,6 +172,57 @@ def test_rebalanced_delivery_uses_old_provider_id_and_new_step_duration():
     legacy_event = build_delivery_events(legacy, ["2026-08-21"])[0]
     assert legacy_event["external_id"] == f"ai_trainer:{old_id}"
     assert legacy_event["moving_time"] == event["moving_time"]
+
+
+def test_rebalanced_export_and_delivery_share_persisted_duration_and_identity():
+    from api.planning_service import export_workout
+    from models.intervals_workout_delivery import build_delivery_events
+
+    plan = _plan()
+    old_id = plan["session_templates"][1]["sessions"][0]["session_id"]
+    preview = build_bike_tss_rebalance_preview(
+        plan,
+        as_of=datetime(2026, 8, 20).date(),
+        base_checkpoint_id=7,
+    )
+    updated = apply_bike_tss_rebalance_preview(plan, preview)
+    session = updated["session_templates"][1]["sessions"][0]
+    expected_seconds = [
+        int(step["duration_seconds"])
+        for step in session["materialized_steps"]
+    ]
+
+    tcx = export_workout(
+        updated,
+        1,
+        "tcx",
+        session_id=str(session["session_id"]),
+    )
+    fit = export_workout(
+        updated,
+        1,
+        "fit_csv",
+        session_id=str(session["session_id"]),
+    )
+    events = build_delivery_events(updated, ["2026-08-21"])
+    event = next(
+        item
+        for item in events
+        if item["external_id"] == f"ai_trainer:{old_id}"
+    )
+
+    assert [
+        int(value)
+        for value in re.findall(r"<Seconds>(\d+)</Seconds>", tcx["content"])
+    ] == expected_seconds
+    assert all(
+        f"duration_time,{seconds},s" in fit["content"]
+        for seconds in expected_seconds
+    )
+    assert "target_type,4" in fit["content"]
+    assert "AI Trainer target evidence: power" in tcx["content"]
+    assert event["external_id"] == f"ai_trainer:{session['delivery_session_id']}"
+    assert event["moving_time"] == sum(expected_seconds)
 
 
 def test_preview_is_idempotent_when_checkpoint_has_legacy_stale_steps():

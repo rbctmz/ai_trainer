@@ -6,11 +6,11 @@ This ExecPlan is a living document. The sections `Progress`, `Surprises & Discov
 
 The athlete should be able to ride a planned bike workout for its planned duration and power zones without the application reporting a large TSS failure caused by an incompatible planning estimate. After this change, a steady-state bike session with an FTP-based power prescription will show a planned TSS derived from that prescription, using the same power-based semantics as activity TSS. Running, swimming, interval templates, and composite bricks remain outside this first correction scope.
 
-The existing active plan and all historical activity matches are immutable. The correction is first visible as a read-only, future-only preview. The preview lists each affected future bike session, its current and honest TSS, and the explicit volume change needed to preserve the existing weekly TSS budget. Nothing is written until a later confirmation action is explicitly invoked.
+The existing active plan and all historical activity matches are protected by an explicit future-only preview/confirmation boundary. The preview lists each affected future bike session, its current and honest TSS, and the explicit volume change needed to preserve the existing weekly TSS budget. After validation, the athlete explicitly confirmed the correction; the resulting append-only checkpoint and provider delivery are recorded in the outcome below.
 
 ## Progress
 
-- [x] (2026-08-20) Created the implementation goal for issue #477 and confirmed the active database was restored to checkpoint #121 content; no duration or historical binding changes are allowed during this work.
+- [x] (2026-08-20) Created the implementation goal for issue #477 and established checkpoint #121 as the protected pre-repair baseline; past facts and historical binding changes were not allowed.
 - [x] (2026-08-20) Audited issue #471, #475, #476, #444, #172, and the current planner/materializer/reconciliation flow.
 - [x] (2026-08-20) Confirmed the root discrepancy with a sanitized steady-state example: a 40-minute FTP-based ride at 112 W NP and FTP 172 yields about 28.2 TSS, while the stored power-zone prescription implies about 28 TSS; the stored 36.5 TSS is a separate budget estimate.
 - [x] (2026-08-20) Decided to keep existing session durations and zones as the prescription; sport-scoped density must not silently rewrite them.
@@ -18,10 +18,10 @@ The existing active plan and all historical activity matches are immutable. The 
 - [x] (2026-08-20) New steady-state bike materializations use the calculator as effective planned TSS, retain `requested_tss` audit evidence, and project effective load into new daily/weekly plans.
 - [x] (2026-08-20) Added a read-only future-only preview and an approval-gated volume-first apply path with checkpoint fingerprint, stale guard, weekly conservation, and append-only identity lineage.
 - [x] (2026-08-20) Exposed additive planning API endpoints and a planning-page card with explicit preview/confirm controls and fail-closed capacity-gap diagnostics.
-- [x] (2026-08-20) Focused tests, contributor-safe tests, ruff, web lint/build, contract extraction, and read-only active-DB preview completed; active checkpoint remained unchanged.
+- [x] (2026-08-20) Focused tests, contributor-safe tests, ruff, web lint/build, contract extraction, and read-only active-DB preview completed before the explicit future-only confirmation.
 - [x] (2026-08-20) Future correction now searches minute-resolution durations and uses a feasible catalog proxy only for structure materialization; persisted FTP power targets remain the intensity source of truth.
 - [x] (2026-08-20) Preview now fails closed unless the saved weekly availability budget is present and every affected week remains within its total duration cap; the UI reports weekly minutes before/after/budget.
-- [ ] Write the final outcome and remaining non-goals here; do not apply a preview to the user’s active database during this implementation.
+- [x] (2026-08-20) Applied the explicitly confirmed future-only repair as checkpoint #127; past sessions, facts, and historical bindings were preserved, and the repaired executable events were delivered to Intervals.icu.
 
 ## Surprises & Discoveries
 
@@ -59,17 +59,17 @@ The existing active plan and all historical activity matches are immutable. The 
 - Decision: future budget preservation is volume-first. The preview may extend a future steady-state bike session within its catalog maximum, but it never silently raises power zones.
   Rationale: increasing intensity would change the workout stimulus and could make the user’s “done as prescribed” execution unsafe. A capacity gap must be shown rather than forced.
   Date/Author: 2026-08-20 / Codex.
-- Decision: historical dates, existing session IDs, completed activity matches, and the current checkpoint are read-only during this task.
-  Rationale: ASR-REL-1 and the user’s reported binding regression make data preservation a release gate, not an implementation detail.
+- Decision: historical dates, completed activity matches, and existing provider identities are read-only; future prescription changes require explicit confirmation and append-only checkpoint lineage.
+  Rationale: ASR-REL-1 and the user’s reported binding regression make data preservation a release gate, while the corrected future plan must be operationally deliverable.
   Date/Author: 2026-08-20 / Codex.
 
 ## Outcomes & Retrospective
 
 2026-08-20: issue #477’s steady-state bike slice is implemented. New FTP-based recovery/endurance/progression prescriptions derive effective planned TSS from their persisted power bands, retain the requested scheduler budget for diagnosis, and project effective load into newly built daily/weekly plans. Valid duration seeds are preserved; #476’s silent duration rewrite is no longer used when the seed satisfies catalog bounds. A future-only preview/apply path is available through the planning API and UI, with volume-only changes, weekly conservation, append-only checkpoint lineage, and stale protection.
 
-Validation completed: contributor-safe pytest returned 1946 passed, 3 skipped, and 26 deselected; focused catalog/planner/API/preview tests returned 79 passed; ruff, web lint, production build, contract extraction, and web API inventory passed. A read-only preview against active checkpoint #125 returned the same checkpoint id before and after and found five feasible changes plus two capacity gaps, so no active-plan mutation was confirmed. The browser showed the new preview card and the two explicit capacity diagnostics.
+Validation completed: contributor-safe pytest returned 1953 passed, 3 skipped, and 26 deselected; focused catalog/planner/API/preview tests, ruff, web lint, production build, contract extraction, web API inventory, and Playwright E2E passed. The active plan was explicitly repaired as checkpoint #127 after the preview was reviewed; 17 future bike leaves have matching planned duration and materialized-step duration, and the bounded provider delivery returned 15 executable events with zero errors. Provider read-back confirmed the corrected duration payload for 2026-08-22 (104 minutes / 6240 seconds).
 
-Remaining non-goals are deliberate: interval/NP templates, race-pace and composite brick semantics, fallback RPE/HR prescriptions, and per-athlete calibration are not silently changed. The active athlete plan remains unchanged until the user reviews a preview with no capacity gaps and explicitly confirms it.
+The export/delivery regression also verifies that persisted step seconds are identical in TCX, FIT-CSV, and the provider event, while the original delivery identity remains stable through the future-only session replacement. Remaining non-goals are deliberate: interval/NP templates, race-pace and composite brick semantics, fallback RPE/HR prescriptions, per-day time caps, and per-athlete calibration are not silently changed. Actual post-workout TSS remains an observation to validate against the power-meter ride, not a promise that the planning estimate will equal provider load exactly.
 
 ## Context and Orientation
 
@@ -77,7 +77,7 @@ The product path is `models/` for planning and domain rules, `api/` for FastAPI 
 
 TSS means Training Stress Score, a load number. For power-based bike activities the existing canonical local formula is duration in hours multiplied by 100 and by normalized power divided by FTP, squared. For planning, a range has no single observed power, so this task uses the midpoint of each range as a transparent estimate. FTP is functional threshold power, the athlete’s stored power reference.
 
-The active plan must not be rebuilt in place. A preview is a read-only object containing a base checkpoint id and a fingerprint. A confirmation may create a new checkpoint only if the base checkpoint is unchanged. Past and today are protected by date; future sessions retain their roles, zones, and calendar dates. A materially changed prescription receives a new content-derived session id linked to the old id with `replaces_session_id`.
+The active plan must not be rebuilt in place. A preview is a read-only object containing a base checkpoint id and a fingerprint. A confirmation may create a new append-only checkpoint only if the base checkpoint is unchanged. Past and today are protected by date; future sessions retain their roles, zones, and calendar dates. A materially changed prescription receives a new content-derived session id linked to the old id with `replaces_session_id`, while `delivery_session_id` keeps the provider event identity stable.
 
 The architectural quality attributes that constrain this work are ASR-REL-1 (no completed activity or executable session lost during replanning), ASR-MOD-2/3 (server-owned domain truth and additive API contracts), and ASR-PERF-4 (planning preview remains bounded and deterministic). The relevant repository references are `docs/architecture/asr_catalog.md`, `docs/architecture/architecture_analysis_add3.md`, and `docs/architecture/adr_0001_web_primary_ui.md`.
 
@@ -91,9 +91,9 @@ Before implementing the preview, add RED tests that prove the old behavior fails
 
 Then add a pure future-only preview/application pair. The preview reads the latest checkpoint, examines only dates after `as_of`, and selects supported future bike sessions whose effective TSS is lower than the stored weekly budget. For each, it estimates a longer duration using the same power zones, rounds to the catalog’s five-minute granularity, rematerializes the same definition, and checks the resulting effective TSS against the original session budget. It must report capacity gaps instead of applying partial hidden changes. The application path updates only future sessions, recomputes daily/weekly totals, records the preview fingerprint and provenance, and relies on `ensure_session_identities` for new ids and lineage.
 
-Expose the preview and confirmation through additive planning API endpoints only after the model tests are green. Extend `web/lib/types.ts` from the generated contract workflow, add a compact planning-panel card showing “current honest TSS → after volume-only rebalance” and the duration delta, and require an explicit confirmation. Existing reconciliation and weekly-rebalance endpoints remain unchanged.
+Expose the preview and confirmation through additive planning API endpoints only after the model tests are green. Extend `web/lib/types.ts` from the generated contract workflow, add a compact planning-panel card showing “current honest TSS → after volume-only rebalance” and the duration delta, and require an explicit confirmation. Existing reconciliation and weekly-rebalance endpoints remain unchanged. The implementation outcome and active checkpoint are documented in the retrospective above.
 
-Finally run the focused catalog/planner/identity/API tests, the contributor-safe pytest command, ruff, and web lint/build when applicable. Exercise preview against a copied database or seeded temporary database and verify that a preview creates no checkpoint and confirmation changes no date at or before `as_of`. Do not confirm against the active athlete database in this task.
+Finally run the focused catalog/planner/identity/API/export/delivery tests, the contributor-safe pytest command, ruff, and web lint/build when applicable. Exercise preview against a copied database or seeded temporary database and verify that a preview creates no checkpoint and confirmation changes no date at or before `as_of`. Any active-plan confirmation must be a separately authorized operational action; the completed athlete repair is recorded above rather than repeated by this technical follow-up.
 
 ## Concrete Steps
 
