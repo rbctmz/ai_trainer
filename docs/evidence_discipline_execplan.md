@@ -36,29 +36,43 @@ behavior; it makes the engineering process use the same evidence boundary.
 - [x] (2026-08-20) Completed file-scoped self-review; clarified that the filled
   example is illustrative and strengthened the rot-guard to require the
   falsifying check before the causal claim.
+- [x] (2026-08-20) Addressed PR review P1/P2 locally: every discovery now names
+  its cheapest falsifying check, the reference plan has its own rot-guard, and
+  executable instructions use a checkout-independent repository root. The
+  post-review contributor-safe suite passed 1993 tests with 3 skips and 26
+  deselections.
 
 ## Surprises & Discoveries
 
-- Observed: `.agent/PLANS.md` currently asks for `Observation` plus `Evidence`
-  in `Surprises & Discoveries`, without an explicit hypothesis or verification
+- **Observed**: before the #464 edits, `.agent/PLANS.md` asked for
+  `Observation` plus `Evidence` without an explicit hypothesis or verification
   status.
-  Inferred: an agent can make evidence sound causal even when it only supports
-  an observation.
-  Verified by: source inspection of `.agent/PLANS.md`; no `Inferred`,
-  `Verified by`, or `NOT YET` contract is present.
-- Observed: issue #465 already added prompt-level separation of “Наблюдение”
-  and “Вывод” to every primary coach prompt path.
-  Inferred: #464 should link process discipline to that runtime boundary rather
-  than edit `models/ai_coach_runtime.py` again.
-  Verified by: `models/ai_coach_runtime.py` and
-  `tests/smoke/test_ai_coach_runtime.py` on merge commit `5967678`.
-- Observed: the first rot-guard version checked vocabulary but did not pin the
-  ordering requirement, and the filled example used a hypothetical test path
-  without explicitly saying it was illustrative.
-  Inferred: future edits could preserve the words while weakening “disproof
-  before claim”, or a novice could mistake the example for current repo state.
-  Verified by: self-review added explicit timing assertions and an illustrative
-  disclaimer; the focused 16-test suite and full contributor-safe suite passed.
+  **Inferred**: the baseline process did not enforce a separate, falsifiable
+  hypothesis or visible verification state. The cheapest falsifying check was
+  to run a docs test requiring all three fields against the preimplementation
+  tree; a pass would have rejected this inference.
+  **Verified by**: `test_evidence_discipline_docs.py` produced five expected
+  failures before the docs changed, including the missing canonical form,
+  example, workflow section, and entry-point links.
+- **Observed**: issue #465 added prompt-level separation of “Наблюдение” and
+  “Вывод” to every primary coach prompt path on merge commit `5967678`.
+  **Inferred**: #464 can remain docs-only without weakening that runtime
+  boundary. The cheapest falsifying check is to run the existing all-prompts
+  guardrail test after the docs change and inspect the branch file list; a test
+  failure or a runtime-file diff would reject this inference.
+  **Verified by**:
+  `test_all_runtime_prompts_include_cognitive_guardrails` passed, and
+  `git diff --name-only main...HEAD` listed only the six #464 docs/test files.
+- **Observed**: PR review found that this ExecPlan's first three `Inferred`
+  entries omitted falsifying checks even though the new repository rule
+  required them; the existing five docs tests still passed.
+  **Inferred**: the reference plan could normalize violating its own evidence
+  contract. The cheapest falsifying check is a rot-guard that parses every
+  discovery in this ExecPlan and requires the three fields plus an explicit
+  falsifying check.
+  **Verified by**: the new self-referential test first failed with
+  `reference ExecPlan has no structured discoveries`, then passed after all
+  three entries were rewritten with the required fields and checks.
 
 ## Decision Log
 
@@ -94,6 +108,12 @@ full contributor-safe tests, Ruff, and diff checks are green. The intentional
 limitation remains: documentation and a rot-guard cannot prove that the cited
 evidence is scientifically or logically sufficient; human/agent review must
 still evaluate evidence quality.
+
+PR review exposed and locally fixed two gaps in this plan itself: its discovery
+entries did not name falsifying checks, and its commands assumed the author's
+absolute checkout path. A new self-referential rot-guard prevents the first gap
+from recurring; the commands now start from a portable repository-root
+definition.
 
 ## Context and Orientation
 
@@ -165,7 +185,8 @@ file-scoped self-review.
 
 ## Concrete Steps
 
-Run from `/Users/gregkisel/Developer/ai_trainer`:
+Run from the repository root, meaning the directory that contains `AGENTS.md`,
+`.agent/`, `docs/`, and `tests/`:
 
     ai_trainer_env/bin/python -m pytest \
       tests/smoke/test_evidence_discipline_docs.py -q
@@ -213,6 +234,13 @@ passed, 3 skipped, 26 deselected in 66.48 seconds; the three warnings are
 pre-existing Starlette and Pydantic deprecations outside this scope. Ruff
 reported `All checks passed!` and `git diff --check` was clean.
 
+Review-fix RED/GREEN evidence: the new reference-plan test failed once with
+`reference ExecPlan has no structured discoveries`, then passed in 0.02
+seconds after the discovery records were corrected. Final post-review evidence:
+18 focused tests passed in 0.75 seconds; 1993 contributor-safe tests passed, 3
+skipped, and 26 were deselected in 66.17 seconds; Ruff and `git diff --check`
+were clean.
+
 ## Interfaces and Dependencies
 
 No runtime interface or dependency changes. The process interface added to
@@ -228,3 +256,7 @@ inspection, before documentation edits began.
 Revision note (2026-08-20): implementation completed; exact RED/GREEN,
 focused/broad validation, illustrative-example clarification, and self-review
 evidence were recorded.
+
+Revision note (2026-08-20): PR review fixes added falsifying checks to this
+plan's own discoveries, introduced a self-referential rot-guard, and replaced
+the author-specific working directory with a portable repository-root rule.

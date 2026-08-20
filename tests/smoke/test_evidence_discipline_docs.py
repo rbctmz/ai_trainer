@@ -10,6 +10,7 @@ pytestmark = pytest.mark.smoke
 PLANS_PATH = Path(".agent/PLANS.md")
 WORKFLOW_PATH = Path("docs/AI_Feature_Development_Workflow.md")
 ENTRY_POINT_PATHS = (Path("AGENTS.md"), Path("CLAUDE.md"))
+REFERENCE_EXECPLAN_PATH = Path("docs/evidence_discipline_execplan.md")
 
 
 def test_execplan_contract_separates_observation_inference_and_verification() -> None:
@@ -34,6 +35,20 @@ def test_execplan_contract_contains_a_filled_three_field_example() -> None:
     assert "**Inferred**:" in example
     assert "**Verified by**:" in example
     assert "pytest" in example
+
+
+def test_reference_execplan_applies_discipline_to_its_own_discoveries() -> None:
+    plan = REFERENCE_EXECPLAN_PATH.read_text(encoding="utf-8")
+    discoveries = plan.split("## Surprises & Discoveries", 1)[1].split(
+        "## Decision Log", 1
+    )[0]
+    entries = discoveries.split("- **Observed**:")[1:]
+
+    assert entries, "reference ExecPlan has no structured discoveries"
+    for entry in entries:
+        assert "**Inferred**:" in entry
+        assert "cheapest falsifying check" in entry.lower()
+        assert "**Verified by**:" in entry
 
 
 def test_canonical_workflow_requires_minimal_disproof_before_causal_claim() -> None:
