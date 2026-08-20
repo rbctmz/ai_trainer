@@ -168,9 +168,14 @@ export function PostWorkoutFeedbackCard({
     <section className="rounded-card border border-accent/30 bg-surface p-4 shadow-card">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h2 className="text-sm font-semibold text-ink">Как прошла сессия?</h2>
+          <h2 className="text-sm font-semibold text-ink">
+            {prompt.capture_mode === "immediate"
+              ? "Оцени тренировку сейчас"
+              : "Как прошла сессия?"}
+          </h2>
           <p className="mt-1 text-xs text-ink-faint">
             {prompt.name} · совпадение {matchLabel(prompt.match_status)}
+            {prompt.capture_mode === "immediate" ? " · только что загружена" : ""}
           </p>
         </div>
         <span className="rounded-full bg-accent/10 px-2 py-0.5 text-[11px] font-medium text-accent">

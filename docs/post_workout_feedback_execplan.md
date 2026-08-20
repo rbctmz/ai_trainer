@@ -75,6 +75,10 @@ The user-visible proof is a compact post-session card under the existing “Yest
   Rationale: an observation, a UI prompt lifecycle, and a model evaluation have different lifetimes. Keeping them separate prevents a dismissed prompt from masquerading as feedback and prevents a corrected observation from rewriting a historical forecast.
   Date/Author: 2026-07-13 / Codex.
 
+- Decision (M0 follow-up): keep `session_feedback` as the canonical event journal and append a separate `athlete_feedback_facts` row for each new feedback revision.
+  Rationale: the future athlete-file/Preferences layer needs a durable provenance boundary, but raw feedback must not be copied into `athlete_profile` or mutable `user_settings`. The fact ledger is storage-only and is not read by TSS, planning, readiness, or provider delivery.
+  Date/Author: 2026-08-20 / Codex. See `docs/durable_rpe_feedback_fact_execplan.md`.
+
 - Decision: derive “current” state by the highest revision per target instead of updating a `current` flag.
   Rationale: a mutable current marker would weaken the append-only guarantee and create a two-row race. Transactional monotonic revisions plus `supersedes_*_id` retain lineage and make current state a query result.
   Date/Author: 2026-07-13 / Codex.

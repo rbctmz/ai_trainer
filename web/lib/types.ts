@@ -1596,6 +1596,7 @@ export interface SessionFeedbackPrompt {
     | "dismissed"
     | string;
   reason: string;
+  capture_mode?: "immediate" | "fallback" | string;
   is_primary: boolean;
   match_status: string;
   match_method: string;

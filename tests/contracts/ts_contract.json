@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "3c368c68cad0e48dbaf2753d86a0189beb1c40c060355c38b293c660f73d25a4",
+    "source_sha256": "5ded1ed4cc945582860a794156bfedb22041a3d67dd89f849de0df4c7f87d7a2",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "a8b1bf6dfe79c12d94a8e1ddab9697db93f2304b0714facfeeefebe0c6848a5e"
   },
@@ -15744,6 +15744,26 @@
               "record_values": null,
               "array_length": null
             },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "capture_mode": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "fallback",
+              "immediate"
+            ],
+            "widened": true,
+            "items": null,
             "fields": null,
             "ref": null,
             "wildcard": false,

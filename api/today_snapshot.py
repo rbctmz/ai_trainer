@@ -111,6 +111,10 @@ def build_today_decision_snapshot(
     feedback = _feedback_block(
         db,
         yesterday=yesterday,
+        current_day={
+            "status": yesterday.get("status"),
+            "rows": yesterday.get("current_day_rows") or [],
+        },
         goal_plan=goal_plan,
         forecast=forecast,
         now_utc=generated_at_utc,
@@ -201,6 +205,7 @@ def _feedback_block(
     db: Database,
     *,
     yesterday: Mapping[str, Any],
+    current_day: Mapping[str, Any],
     goal_plan: Mapping[str, Any] | None,
     forecast: Mapping[str, Any],
     now_utc: datetime,
@@ -212,6 +217,7 @@ def _feedback_block(
         return feedback_from_today_evidence(
             db,
             yesterday=yesterday,
+            current_day=current_day,
             goal_plan=goal_plan,
             forecasts=forecasts,
             now_utc=now_utc,
@@ -558,7 +564,7 @@ def _yesterday_reconciliation(
         payload = reconciliation_at(
             db,
             weeks=1,
-            as_of=target,
+            as_of=anchor,
             include_provider=False,
         )
     except Exception as exc:
@@ -566,10 +572,14 @@ def _yesterday_reconciliation(
     if not payload.get("has_plan"):
         return empty
     target_text = target.isoformat()
-    rows = [
+    all_rows = [
         dict(row)
         for row in payload.get("rows") or []
-        if isinstance(row, Mapping) and str(row.get("date") or "")[:10] == target_text
+        if isinstance(row, Mapping)
+    ]
+    rows = [row for row in all_rows if str(row.get("date") or "")[:10] == target_text]
+    current_day_rows = [
+        row for row in all_rows if str(row.get("date") or "")[:10] == anchor.isoformat()
     ]
     unplanned = [
         dict(row)
@@ -602,6 +612,7 @@ def _yesterday_reconciliation(
         "unplanned_tss": unplanned_tss,
         "total_actual_tss": round(matched_actual_tss + unplanned_tss, 1),
         "rows": rows,
+        "current_day_rows": current_day_rows,
         "unplanned_activities": unplanned,
         "data_quality": payload.get("data_quality") or {},
         "rule_version": payload.get("rule_version"),
@@ -626,6 +637,7 @@ def _empty_yesterday(target: date) -> dict[str, Any]:
         "unplanned_tss": 0.0,
         "total_actual_tss": 0.0,
         "rows": [],
+        "current_day_rows": [],
         "unplanned_activities": [],
         "data_quality": {},
         "rule_version": None,
