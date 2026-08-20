@@ -473,12 +473,17 @@ legacy fallback без записи, web-контракт).
 bounded proposal и DDA-confirm. «Согласен», «ок» и другие vague-assent фразы не
 считаются авторизацией; LLM tool call также не заменяет действие пользователя.
 
-Аудит #466 подтвердил, что `create_plan_constraint`,
-`retract_plan_constraint` и `repair_plan_day` обходят proposal boundary, а
-retract может оставить partial state при ошибке recovery. Поведенческое
-исправление вынесено в #483; до него архитектурный статус этой границы 🟡.
+#483 закрыл найденный аудитом обход: `create_plan_constraint`,
+`retract_plan_constraint` и `repair_plan_day` теперь только строят bounded
+proposal. Approval повторно проверяет base/fingerprint и под одним
+`BEGIN IMMEDIATE` меняет constraint ledger вместе с child checkpoint; stale,
+missing donor, validation/insert failure и replay не оставляют partial state.
+Native и marker tool-calling используют один и тот же gate. Внешняя доставка
+плана остаётся отдельным A4-действием. Архитектурный статус границы 🟢.
 
-Проверка: `test_coach_autonomy_boundary_docs.py`; runtime RED→GREEN — #483.
+Проверка: `test_coach_autonomy_boundary_docs.py`,
+`test_coach_constraint_mutation_gate.py` и
+`test_coach_constraint_mutation_product_surface_web.py`.
 
 ## Реестр ADR
 

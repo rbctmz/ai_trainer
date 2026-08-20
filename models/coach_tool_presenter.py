@@ -610,23 +610,42 @@ def format_tool_result(tool_name: str, data: Any) -> str:
 Подтверди карточку ниже, если хочешь применить именно эту корректировку.
 """
 
-    elif tool_name == "create_plan_constraint":
-        constraint = data.get("constraint", {}) if isinstance(data, dict) else {}
-        application = data.get("constraint_application", {}) if isinstance(data, dict) else {}
-        applied_count = int(application.get("applied_count") or 0)
-        status = (
-            "сохранено и применено к активному плану"
-            if applied_count > 0
-            else "сохранено; активный план не изменён"
-        )
+    elif tool_name in {
+        "create_plan_constraint",
+        "retract_plan_constraint",
+        "repair_plan_day",
+    }:
+        preview = data.get("preview", {}) if isinstance(data, dict) else {}
+        params = data.get("params", {}) if isinstance(data, dict) else {}
+        labels = {
+            "create_plan_constraint": "Новое ограничение",
+            "retract_plan_constraint": "Снятие ограничения",
+            "repair_plan_day": "Восстановление дня",
+        }
+        details = []
+        if tool_name == "create_plan_constraint":
+            details.extend(
+                [
+                    f"• Тип: {preview.get('kind') or params.get('kind') or 'н/д'}",
+                    f"• Скоуп: {preview.get('sport') or params.get('sport') or 'весь день'}",
+                    f"• Заметка: {preview.get('note') or params.get('note') or '—'}",
+                ]
+            )
+        else:
+            details.append(
+                f"• Тренировок к восстановлению: {len(preview.get('restored_session_ids') or [])}"
+            )
+            if preview.get("donor_checkpoint_id"):
+                details.append(f"• Версия-источник: #{preview.get('donor_checkpoint_id')}")
 
         return f"""
-## 🧩 Ограничение плана
+## 🧩 {labels[tool_name]}
 
-• Дата: {constraint.get('date', 'н/д')}
-• Тип: {constraint.get('kind', 'н/д')}
-• Заметка: {constraint.get('note') or '—'}
-• Статус: {status}
+• Дата: {preview.get('date') or params.get('date') or 'н/д'}
+{chr(10).join(details)}
+
+### ✅ Дальше:
+Пока ничего не изменено. Подтверди карточку ниже, чтобы применить именно это действие.
 """
 
     elif tool_name == "get_activities_by_date_range":

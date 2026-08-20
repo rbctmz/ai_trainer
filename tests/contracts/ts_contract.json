@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "5ded1ed4cc945582860a794156bfedb22041a3d67dd89f849de0df4c7f87d7a2",
+    "source_sha256": "9a1462dce89633a80690875def51dadfef8585e1e0d8c7697859d9f82cd11fa6",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "a8b1bf6dfe79c12d94a8e1ddab9697db93f2304b0714facfeeefebe0c6848a5e"
   },
@@ -3259,7 +3259,10 @@
             "literals": [
               "adjust_plan",
               "build_plan",
-              "recovery_replan"
+              "create_plan_constraint",
+              "recovery_replan",
+              "repair_plan_day",
+              "retract_plan_constraint"
             ],
             "widened": false,
             "items": null,
@@ -3536,7 +3539,10 @@
       "literals": [
         "adjust_plan",
         "build_plan",
-        "recovery_replan"
+        "create_plan_constraint",
+        "recovery_replan",
+        "repair_plan_day",
+        "retract_plan_constraint"
       ],
       "widened": false,
       "items": null,

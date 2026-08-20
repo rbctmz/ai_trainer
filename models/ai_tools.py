@@ -14,11 +14,9 @@ from models.hrv_analyzer import HRVAnalyzer
 from models.plan_events import normalized_events
 from models.planning_checkpoints import (
     NON_ACTIONABLE_PLAN_ADJUSTMENTS,
-    build_planning_checkpoint,
     restore_goal_plan_from_checkpoint,
-    with_checkpoint_provenance,
 )
-from models.coach_constraints import apply_constraints_to_goal_plan, normalize_constraint_sport
+from models.coach_constraints import normalize_constraint_sport
 from models.readiness import LOAD_METRICS_WINDOW_DAYS as COACH_LOAD_METRICS_WINDOW_DAYS
 from models.readiness import compute_readiness_today
 from models.signals_engine import assemble_signals
@@ -404,8 +402,9 @@ class AITools:
             {
                 "name": "create_plan_constraint",
                 "description": (
-                    "Сохранить durable-ограничение на дату и сразу применить его к активному плану, "
-                    "если он есть. Используй только при явной фразе пользователя вроде 'я болею завтра', "
+                    "Подготовить предложение durable-ограничения на дату БЕЗ изменения БД или плана. "
+                    "Фактическое применение возможно только после явного нажатия пользователя «Применить». "
+                    "Используй при фразе пользователя вроде 'я болею завтра', "
                     "'не могу тренироваться 2026-07-10', 'удали тренировку в этот день', "
                     "'плавание сегодня отменяется'. "
                     "Параметры: date (YYYY-MM-DD/today/tomorrow/сегодня/завтра), "
@@ -469,7 +468,8 @@ class AITools:
             {
                 "name": "retract_plan_constraint",
                 "description": (
-                    "Отменить ранее сохранённое ограничение на день и вернуть в план удалённую тренировку "
+                    "Подготовить предложение отменить ранее сохранённое ограничение и вернуть тренировку, "
+                    "не меняя БД или план до явного нажатия пользователя «Применить» "
                     "(например 'забудь про плавание', 'я всё-таки поплаваю завтра', 'верни velo во вторник'). "
                     "Ограничение деактивируется (строка остаётся как аудит), а день восстанавливается из "
                     "ближайшей родительской версии плана; для ограничения по одному спорту в восстановленный "
@@ -497,7 +497,9 @@ class AITools:
             {
                 "name": "repair_plan_day",
                 "description": (
-                    "Разовое восстановление дня в активном плане после ошибки (инцидент-инструмент): "
+                    "Подготовить предложение разового восстановления дня после ошибки БЕЗ изменения плана; "
+                    "применение требует явного нажатия пользователя «Применить». "
+                    "Инцидент-инструмент: "
                     "дни без исполняемых сессий восстанавливаются из ближайшей родительской версии плана, "
                     "исключая указанные виды спорта. Используйте только если пользователь явно просит "
                     "восстановить конкретный день, и когда нет активного ограничения для отмены через "
@@ -1331,7 +1333,7 @@ class AITools:
         note: str = "",
         sport: str = "",
     ) -> Dict[str, Any]:
-        """Persist an explicit user/coach day constraint and apply it to the active plan."""
+        """Preview an explicit day constraint without mutating the ledger or plan."""
         try:
             resolved_date = _normalize_constraint_date(date)
             resolved_kind = _normalize_constraint_kind(kind)
@@ -1342,43 +1344,23 @@ class AITools:
             return {"success": False, "error": str(exc)}
 
         try:
-            constraint = self.db.save_coach_constraint(
-                date=resolved_date,
-                kind=resolved_kind,
-                source="coach",
-                note=str(note or "").strip() or None,
-                metadata={"created_by_tool": "create_plan_constraint"},
-                sport=resolved_sport,
+            proposal = planning_service.preview_coach_constraint_mutation(
+                self.db,
+                action="create_plan_constraint",
+                params={
+                    "date": resolved_date,
+                    "kind": resolved_kind,
+                    "source": "coach",
+                    "note": str(note or "").strip() or None,
+                    "metadata": {"created_by_tool": "create_plan_constraint"},
+                    "sport": resolved_sport,
+                },
             )
         except Exception as exc:
             return {"success": False, "error": str(exc)}
-
-        checkpoint = self.db.get_latest_planning_checkpoint()
-        goal_plan = restore_goal_plan_from_checkpoint(checkpoint)
-        application = {"applied_count": 0, "protected_dates": [], "constraints": []}
-        saved_checkpoint_id = None
-
-        if goal_plan and goal_plan.get("daily_plan"):
-            updated_plan, application = apply_constraints_to_goal_plan(goal_plan, [constraint])
-            if int(application.get("applied_count") or 0) > 0:
-                updated_plan["plan_revision"] = datetime.now().isoformat()
-                updated_plan = with_checkpoint_provenance(
-                    updated_plan,
-                    source="coach_constraint",
-                    parent_checkpoint_id=(checkpoint or {}).get("id"),
-                )
-                saved = self.db.save_planning_checkpoint(build_planning_checkpoint(updated_plan))
-                saved_checkpoint_id = (saved or {}).get("id") or (saved or {}).get("checkpoint_id")
-
-        return {
-            "action": "create_plan_constraint",
-            "constraint": constraint,
-            "active_plan_present": bool(goal_plan and goal_plan.get("daily_plan")),
-            "active_plan_updated": int(application.get("applied_count") or 0) > 0,
-            "saved_checkpoint_id": saved_checkpoint_id,
-            "constraint_application": application,
-            "message": _constraint_tool_message(constraint, application),
-        }
+        proposal.pop("_checkpoint_data", None)
+        proposal.pop("_session_id_handoffs", None)
+        return proposal
 
     def get_coach_constraints(
         self,
@@ -1456,7 +1438,7 @@ class AITools:
         date: str = "",
         sport: str = "",
     ) -> Dict[str, Any]:
-        """Deactivate an earlier constraint and restore its day from plan history (#473)."""
+        """Preview retraction and day recovery without changing durable state."""
         try:
             resolved_date = _normalize_constraint_date(date) if str(date or "").strip() else ""
             resolved_sport = normalize_constraint_sport(sport) if str(sport or "").strip() else None
@@ -1472,54 +1454,20 @@ class AITools:
                 "error": f"Не найдено активного ограничения{hint}. Вызови get_coach_constraints, чтобы увидеть список.",
             }
 
-        retracted_row = self.db.deactivate_coach_constraint(int(constraint["id"]))
-        if retracted_row is None:
-            return {"success": False, "error": "не удалось деактивировать ограничение"}
-
-        row_sport = str(retracted_row.get("sport") or "").strip().lower() or None
-        # A per-sport constraint keeps only its own sport out of the recovered day.
-        # When the matched row is whole-day but the user asked about ONE discipline
-        # ('забудь про плавание'), that discipline stays off and the siblings come back.
-        if row_sport:
-            exclude_sports = [row_sport]
-        elif resolved_sport:
-            exclude_sports = [resolved_sport]
-        else:
-            exclude_sports = []
         try:
-            recovery = planning_service.recover_day_after_constraint_retraction(
+            proposal = planning_service.preview_coach_constraint_mutation(
                 self.db,
-                base_checkpoint_id=self._active_checkpoint_id_or_zero(),
-                date=str(retracted_row.get("date") or ""),
-                exclude_sports=exclude_sports,
+                action="retract_plan_constraint",
+                params={
+                    "constraint_id": int(constraint["id"]),
+                    "sport": resolved_sport,
+                },
             )
-        except planning_service.NoDonorCheckpointError as exc:
-            return {"success": False, "error": str(exc), "constraint": retracted_row}
-        except planning_service.StalePlanningCheckpointError as exc:
-            return {"success": False, "error": str(exc), "constraint": retracted_row}
-        except ValueError as exc:
-            return {"success": False, "error": str(exc), "constraint": retracted_row}
-
-        changed = bool(recovery.get("changed"))
-        message = (
-            f"Ограничение на {retracted_row.get('date')}"
-            + (" (спорт {})".format(retracted_row.get("sport")) if retracted_row.get("sport") else "")
-            + " снято."
-        )
-        if changed:
-            message += (
-                f" День восстановлен из версии плана #{recovery.get('donor_checkpoint_id')}; "
-                f"новые session id: {', '.join(recovery.get('restored_session_ids') or [])}."
-            )
-        else:
-            message += " План уже содержал этот день в полном виде — ничего менять не пришлось."
-        return {
-            "success": True,
-            "action": "retract_plan_constraint",
-            "constraint": retracted_row,
-            "recover": recovery,
-            "message": message,
-        }
+        except Exception as exc:
+            return {"success": False, "error": str(exc), "constraint": constraint}
+        proposal.pop("_checkpoint_data", None)
+        proposal.pop("_session_id_handoffs", None)
+        return proposal
 
     def _active_checkpoint_id_or_zero(self) -> int:
         latest = self.db.get_latest_planning_checkpoint()
@@ -1532,7 +1480,7 @@ class AITools:
         date: str,
         exclude_sports: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
-        """One-off day restoration after an incident (execplans M1-style tooling)."""
+        """Preview one-off day restoration without writing a checkpoint."""
         try:
             resolved_date = _normalize_constraint_date(date)
         except ValueError as exc:
@@ -1542,32 +1490,17 @@ class AITools:
             for s in (exclude_sports or [])
             if str(s or "").strip()
         ]
-        latest = self._active_checkpoint_id_or_zero()
-        if not latest:
-            return {"success": False, "error": "нет активного плана для восстановления"}
         try:
-            recovery = planning_service.recover_day_after_constraint_retraction(
+            proposal = planning_service.preview_coach_constraint_mutation(
                 self.db,
-                base_checkpoint_id=latest,
-                date=resolved_date,
-                exclude_sports=excluded,
+                action="repair_plan_day",
+                params={"date": resolved_date, "exclude_sports": excluded},
             )
-        except planning_service.NoDonorCheckpointError as exc:
+        except Exception as exc:
             return {"success": False, "error": str(exc)}
-        except planning_service.StalePlanningCheckpointError as exc:
-            return {"success": False, "error": str(exc)}
-        except ValueError as exc:
-            return {"success": False, "error": str(exc)}
-        return {
-            "success": True,
-            "action": "repair_plan_day",
-            "recover": recovery,
-            "message": (
-                f"День {resolved_date} восстановлен."
-                if recovery.get("changed")
-                else f"День {resolved_date} уже содержал исполняемые сессии — без изменений."
-            ),
-        }
+        proposal.pop("_checkpoint_data", None)
+        proposal.pop("_session_id_handoffs", None)
+        return proposal
 
     def format_tool_descriptions_for_ai(self) -> str:
         """Форматирует описания инструментов для AI"""

@@ -3053,43 +3053,34 @@ def apply_constraint_to_active_plan(
     child (same shape the AI tool uses), so the change stays reversible through
     history. A stale ``base_checkpoint_id`` raises StalePlanningCheckpointError.
     """
-    latest = db.get_latest_planning_checkpoint()
-    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") is not None else 0
-    if base_checkpoint_id is not None and latest_id != int(base_checkpoint_id):
-        raise StalePlanningCheckpointError(
-            f"active checkpoint #{latest_id or 'none'} no longer matches request base "
-            f"#{int(base_checkpoint_id) or 'none'}"
-        )
-    goal_plan = restore_goal_plan_from_checkpoint(latest) if latest_id else None
-    application = {"applied_count": 0, "protected_dates": [], "constraints": []}
-    saved_row = db.save_coach_constraint(
-        date=str(constraint.get("date") or "")[:10],
-        kind=str(constraint.get("kind") or ""),
-        source=str(constraint.get("source") or "coach"),
-        note=constraint.get("note"),
-        plan_id=plan_id,
-        session_id=session_id,
-        metadata=constraint.get("metadata") or {},
-        sport=constraint.get("sport"),
+    params = {
+        **dict(constraint or {}),
+        "plan_id": plan_id,
+        "session_id": session_id,
+    }
+    if base_checkpoint_id is not None:
+        params["base_checkpoint_id"] = int(base_checkpoint_id)
+    proposal = preview_coach_constraint_mutation(
+        db,
+        action="create_plan_constraint",
+        params=params,
     )
-    saved_checkpoint_id = None
-    if goal_plan and goal_plan.get("daily_plan"):
-        updated_plan, application = apply_constraints_to_goal_plan(goal_plan, [saved_row])
-        if int(application.get("applied_count") or 0) > 0:
-            updated_plan["plan_revision"] = datetime.now().isoformat()
-            updated_plan = with_checkpoint_provenance(
-                updated_plan,
-                source="coach_constraint",
-                parent_checkpoint_id=latest_id,
-            )
-            saved = db.save_planning_checkpoint(build_planning_checkpoint(updated_plan))
-            saved_checkpoint_id = int((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or 0)
+    result = confirm_coach_constraint_mutation(
+        db,
+        action="create_plan_constraint",
+        params=proposal["params"],
+        preview_fingerprint=str(proposal["preview"]["preview_fingerprint"]),
+    )
+    saved_row = dict(result.get("constraint") or {})
     return {
         **saved_row,
-        "active_plan_present": bool(goal_plan and goal_plan.get("daily_plan")),
-        "active_plan_updated": int(application.get("applied_count") or 0) > 0,
-        "saved_checkpoint_id": saved_checkpoint_id,
-        "constraint_application": application,
+        "active_plan_present": bool(result.get("active_plan_present")),
+        "active_plan_updated": bool(result.get("active_plan_updated")),
+        "saved_checkpoint_id": result.get("applied_checkpoint_id"),
+        "constraint_application": {
+            "applied_count": int(result.get("applied_count") or 0),
+            "protected_dates": list(result.get("protected_dates") or []),
+        },
     }
 
 
@@ -3133,6 +3124,7 @@ def recover_day_after_constraint_retraction(
     base_checkpoint_id: int,
     date: str,
     exclude_sports: Sequence[str] = (),
+    persist: bool = True,
 ) -> Dict[str, Any]:
     """Restore one day from the newest ancestor that carried it as executable (#473).
 
@@ -3251,13 +3243,14 @@ def recover_day_after_constraint_retraction(
         parent_checkpoint_id=int(base_checkpoint_id),
     )
     updated["plan_revision"] = datetime.now().isoformat()
-    saved = db.save_planning_checkpoint(build_planning_checkpoint(updated))
-    saved_id = int((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or 0)
+    checkpoint_data = build_planning_checkpoint(updated)
+    saved = db.save_planning_checkpoint(checkpoint_data) if persist else checkpoint_data
+    saved_id = int((saved or {}).get("id") or (saved or {}).get("checkpoint_id") or 0) if persist else 0
 
     # Authoritative answer: the finally stamped identities, read back. The #205
     # engine stamps every persisted plan, so a leg-shrunk (2->1) day gets a fresh
     # day-based id while whole-day restorations keep their original content ids.
-    saved_row = db.get_planning_checkpoint(saved_id)
+    saved_row = db.get_planning_checkpoint(saved_id) if persist else checkpoint_data
     saved_plan = restore_goal_plan_from_checkpoint(saved_row)
     final_legs_by_sport: Dict[str, str] = {}
     final_idx_check = _goal_plan_day_index(saved_plan, the_date) if saved_plan is not None else None
@@ -3282,21 +3275,281 @@ def recover_day_after_constraint_retraction(
             handoffs[donor_sid] = stamped
     # Side effect: re-point any SAVED plan-vs-fact matches onto the new ids so
     # previously confirmed activities stop showing «вне плана» again (#473/M1).
-    _rebind_restored_leg_matches(
-        db,
-        the_date=the_date,
-        pairs=list(handoffs.items()),
-        repair_checkpoint_id=saved_id,
-    )
-    return {
+    if persist:
+        _rebind_restored_leg_matches(
+            db,
+            the_date=the_date,
+            pairs=list(handoffs.items()),
+            repair_checkpoint_id=saved_id,
+        )
+    result = {
         "changed": True,
-        "applied_checkpoint_id": saved_id,
+        "applied_checkpoint_id": saved_id or None,
         "donor_checkpoint_id": int(donor_row.get("id") or 0),
         "restored_session_ids": final_ids,
         "session_id_handoffs": handoffs,
         "changed_date": the_date,
         "excluded_sports": sorted(excluded),
     }
+    if not persist:
+        result["_checkpoint_data"] = checkpoint_data
+    return result
+
+
+_CONSTRAINT_ID_SENTINEL = "__coach_constraint_id__"
+_COACH_MUTATION_ACTIONS = {
+    "create_plan_constraint",
+    "retract_plan_constraint",
+    "repair_plan_day",
+}
+
+
+def _coach_mutation_fingerprint(
+    action: str,
+    params: Mapping[str, Any],
+    preview: Mapping[str, Any],
+) -> str:
+    stable_params = {
+        key: value
+        for key, value in params.items()
+        if key not in {"preview_fingerprint"}
+    }
+    stable_preview = {
+        key: value
+        for key, value in preview.items()
+        if not str(key).startswith("_") and key != "preview_fingerprint"
+    }
+    encoded = json.dumps(
+        {"action": action, "params": stable_params, "preview": stable_preview},
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def preview_coach_constraint_mutation(
+    db: Database,
+    *,
+    action: str,
+    params: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Build a bounded, write-free proposal for a coach plan mutation."""
+    action = str(action or "").strip()
+    if action not in _COACH_MUTATION_ACTIONS:
+        raise ValueError(f"unsupported coach mutation action: {action}")
+    raw = dict(params or {})
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if isinstance(latest, dict) and latest.get("id") else 0
+    requested_base = raw.get("base_checkpoint_id")
+    if requested_base is not None and int(requested_base or 0) != latest_id:
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id or 'none'} no longer matches request base "
+            f"#{int(requested_base or 0) or 'none'}"
+        )
+    base_checkpoint_id = latest_id
+    checkpoint_data = None
+    session_id_handoffs: Dict[str, str] = {}
+
+    if action == "create_plan_constraint":
+        constraint = {
+            "id": _CONSTRAINT_ID_SENTINEL,
+            "date": str(raw.get("date") or "").strip()[:10],
+            "kind": str(raw.get("kind") or "").strip(),
+            "status": "active",
+            "source": str(raw.get("source") or "coach").strip() or "coach",
+            "note": str(raw.get("note") or "").strip() or None,
+            "sport": normalize_constraint_sport(raw.get("sport")),
+            "metadata": dict(raw.get("metadata") or {}),
+            "plan_id": raw.get("plan_id"),
+            "session_id": raw.get("session_id"),
+        }
+        if not constraint["date"]:
+            raise ValueError("date must be non-empty")
+        if constraint["kind"] not in {
+            "sick",
+            "unavailable",
+            "forced_rest",
+            "manual_delete",
+            "disabled_plan_day",
+        }:
+            raise ValueError("unknown constraint kind")
+        goal_plan = restore_goal_plan_from_checkpoint(latest) if latest_id else None
+        application = {"applied_count": 0, "protected_dates": [], "constraints": []}
+        if goal_plan and goal_plan.get("daily_plan"):
+            updated, application = apply_constraints_to_goal_plan(goal_plan, [constraint])
+            if int(application.get("applied_count") or 0) > 0:
+                updated["plan_revision"] = datetime.now().isoformat()
+                updated = with_checkpoint_provenance(
+                    updated,
+                    source="coach_constraint",
+                    parent_checkpoint_id=latest_id,
+                )
+                checkpoint_data = build_planning_checkpoint(updated)
+        normalized_params = {
+            "date": constraint["date"],
+            "kind": constraint["kind"],
+            "source": constraint["source"],
+            "note": constraint["note"],
+            "sport": constraint["sport"],
+            "metadata": constraint["metadata"],
+            "plan_id": constraint["plan_id"],
+            "session_id": constraint["session_id"],
+            "base_checkpoint_id": base_checkpoint_id,
+        }
+        preview = {
+            "date": constraint["date"],
+            "kind": constraint["kind"],
+            "sport": constraint["sport"],
+            "note": constraint["note"],
+            "active_plan_present": bool(goal_plan and goal_plan.get("daily_plan")),
+            "active_plan_updated": int(application.get("applied_count") or 0) > 0,
+            "applied_count": int(application.get("applied_count") or 0),
+            "protected_dates": list(application.get("protected_dates") or []),
+        }
+
+    else:
+        if action == "retract_plan_constraint":
+            constraint_id = int(raw.get("constraint_id") or raw.get("id") or 0)
+            constraint = db.get_coach_constraint(constraint_id) if constraint_id else None
+            if not constraint or constraint.get("status") != "active":
+                raise ValueError("active constraint not found")
+            row_sport = str(constraint.get("sport") or "").strip().lower() or None
+            requested_sport = normalize_constraint_sport(raw.get("sport"))
+            excluded = [row_sport] if row_sport else ([requested_sport] if requested_sport else [])
+            the_date = str(constraint.get("date") or "")[:10]
+            normalized_params = {
+                "constraint_id": constraint_id,
+                "date": the_date,
+                "sport": requested_sport,
+                "exclude_sports": excluded,
+                "base_checkpoint_id": base_checkpoint_id,
+            }
+        else:
+            if not base_checkpoint_id:
+                raise ValueError("нет активного плана для восстановления")
+            the_date = str(raw.get("date") or "").strip()[:10]
+            if not the_date:
+                raise ValueError("date must be YYYY-MM-DD")
+            excluded = [
+                normalize_constraint_sport(sport)
+                for sport in list(raw.get("exclude_sports") or [])
+                if normalize_constraint_sport(sport)
+            ]
+            normalized_params = {
+                "date": the_date,
+                "exclude_sports": sorted(set(excluded)),
+                "base_checkpoint_id": base_checkpoint_id,
+            }
+
+        if base_checkpoint_id:
+            recovery = recover_day_after_constraint_retraction(
+                db,
+                base_checkpoint_id=base_checkpoint_id,
+                date=the_date,
+                exclude_sports=excluded,
+                persist=False,
+            )
+            checkpoint_data = recovery.pop("_checkpoint_data", None)
+            session_id_handoffs = dict(recovery.get("session_id_handoffs") or {})
+        else:
+            recovery = {
+                "changed": False,
+                "reason": "no active plan; constraint ledger only",
+                "changed_date": the_date,
+                "restored_session_ids": [],
+                "donor_checkpoint_id": None,
+            }
+        preview = {
+            "date": the_date,
+            "exclude_sports": list(excluded),
+            "changed": bool(recovery.get("changed")),
+            "donor_checkpoint_id": recovery.get("donor_checkpoint_id"),
+            "restored_session_ids": list(recovery.get("restored_session_ids") or []),
+            "reason": recovery.get("reason"),
+        }
+        if action == "retract_plan_constraint":
+            preview["constraint"] = {
+                "id": constraint.get("id"),
+                "date": constraint.get("date"),
+                "kind": constraint.get("kind"),
+                "sport": constraint.get("sport"),
+                "note": constraint.get("note"),
+            }
+
+    fingerprint = _coach_mutation_fingerprint(action, normalized_params, preview)
+    normalized_params["preview_fingerprint"] = fingerprint
+    return {
+        "is_proposal": True,
+        "action": action,
+        "params": normalized_params,
+        "preview": {**preview, "preview_fingerprint": fingerprint},
+        "_checkpoint_data": checkpoint_data,
+        "_session_id_handoffs": session_id_handoffs,
+    }
+
+
+def confirm_coach_constraint_mutation(
+    db: Database,
+    *,
+    action: str,
+    params: Mapping[str, Any],
+    preview_fingerprint: str,
+) -> Dict[str, Any]:
+    """Recompute and atomically apply an explicitly approved mutation proposal."""
+    proposal = preview_coach_constraint_mutation(db, action=action, params=params)
+    actual_fingerprint = str(proposal["preview"].get("preview_fingerprint") or "")
+    if not preview_fingerprint or actual_fingerprint != str(preview_fingerprint):
+        raise StalePlanningCheckpointError("coach mutation preview is stale")
+    normalized = proposal["params"]
+    try:
+        committed = db.commit_coach_plan_mutation(
+            action=action,
+            base_checkpoint_id=int(normalized.get("base_checkpoint_id") or 0),
+            checkpoint_data=proposal.get("_checkpoint_data"),
+            constraint_payload=normalized if action == "create_plan_constraint" else None,
+            constraint_id=normalized.get("constraint_id"),
+        )
+    except ValueError as exc:
+        if "active checkpoint" in str(exc) and "request base" in str(exc):
+            raise StalePlanningCheckpointError(str(exc)) from exc
+        raise
+
+    saved = committed.get("checkpoint") or {}
+    checkpoint_id = int(saved.get("id") or saved.get("checkpoint_id") or 0) or None
+    result = {
+        "action": action,
+        "base_checkpoint_id": int(normalized.get("base_checkpoint_id") or 0),
+        "applied_checkpoint_id": checkpoint_id,
+        "changed": checkpoint_id is not None or action in {
+            "create_plan_constraint",
+            "retract_plan_constraint",
+        },
+    }
+    if committed.get("constraint") is not None:
+        result["constraint"] = committed["constraint"]
+    result.update({key: value for key, value in proposal["preview"].items() if key != "constraint"})
+    result["applied_checkpoint_id"] = checkpoint_id
+    result["changed"] = bool(
+        checkpoint_id
+        or action in {"create_plan_constraint", "retract_plan_constraint"}
+    )
+
+    if checkpoint_id and action in {"retract_plan_constraint", "repair_plan_day"}:
+        preview = proposal["preview"]
+        handoffs = dict(proposal.get("_session_id_handoffs") or {})
+        if handoffs:
+            try:
+                _rebind_restored_leg_matches(
+                    db,
+                    the_date=str(preview.get("date") or "")[:10],
+                    pairs=list(handoffs.items()),
+                    repair_checkpoint_id=checkpoint_id,
+                )
+            except Exception as exc:  # append-only evidence must not falsify apply status
+                result["warnings"] = [f"plan/fact rebind deferred: {exc}"]
+    return result
 
 
 def _rebind_restored_leg_matches(
