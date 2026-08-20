@@ -60,10 +60,44 @@ Each milestone must be independently verifiable and incrementally implement the 
  
 * ExecPlans are living documents. As you make key design decisions, update the plan to record both the decision and the thinking behind it. Record all decisions in the `Decision Log` section.
 * ExecPlans must contain and maintain a `Progress` section, a `Surprises & Discoveries` section, a `Decision Log`, and an `Outcomes & Retrospective` section. These are not optional.
-* When you discover optimizer behavior, performance tradeoffs, unexpected bugs, or inverse/unapply semantics that shaped your approach, capture those observations in the `Surprises & Discoveries` section with short evidence snippets (test output is ideal).
+* When you discover optimizer behavior, performance tradeoffs, unexpected bugs, or inverse/unapply semantics that shaped your approach, capture them in `Surprises & Discoveries` with the `Observed` / `Inferred` / `Verified by` form below.
 * If you change course mid-implementation, document why in the `Decision Log` and reflect the implications in `Progress`. Plans are guides for the next contributor as much as checklists for you.
 * At completion of a major task or the full plan, write an `Outcomes & Retrospective` entry summarizing what was achieved, what remains, and lessons learned.
- 
+
+## Evidence Discipline
+
+Every causal claim in an ExecPlan must distinguish a fact from a proposed
+explanation and from the check that was actually run. Use this three-field form:
+
+* **Observed**: state the fact or measurement and name its source, such as a
+  command output, file and line, test failure, trace, or user-visible behavior.
+* **Inferred**: state the hypothesis that could explain the observation and name
+  the cheapest check that could falsify it. Do not write the hypothesis with the
+  grammar of an established fact.
+* **Verified by**: name the check that was actually executed and its result. If
+  no check has run, write **Verified by: NOT YET**.
+
+**Minimal disproof before claim:** before calling something a bug, root cause,
+or causal mechanism, identify and run one cheap check that could disprove the
+hypothesis. Record a rejected hypothesis as rejected; do not rewrite it as a
+confirmed explanation. Before closing the work, rerun the relevant check on the
+final tree and record that runtime evidence.
+
+Filled example:
+
+The following example is illustrative; it demonstrates the required record and
+does not claim to describe the current repository state.
+
+* **Observed**: `pytest tests/smoke/test_replay.py::test_same_key -q` reports
+  `expected 1 row, got 2`; the source is the captured test output.
+* **Inferred**: replay with the same idempotency key may create a duplicate. The
+  cheapest falsifying check is to call the operation twice against one temporary
+  SQLite database and count rows for that exact key.
+* **Verified by**: the temporary-database probe returned two rows for the same
+  key, and the focused pytest reproduced it; the duplicate-write hypothesis is
+  supported within that fixture. After the fix, the same commands must return
+  one row and pass before the issue can close.
+
 # Prototyping milestones and parallel implementations
  
 It is acceptable—-and often encouraged—-to include explicit prototyping milestones when they de-risk a larger change. Examples: adding a low-level operator to a dependency to validate feasibility, or exploring two composition orders while measuring optimizer effects. Keep prototypes additive and testable. Clearly label the scope as “prototyping”; describe how to run and observe results; and state the criteria for promoting or discarding the prototype.
@@ -94,11 +128,12 @@ Use a list with checkboxes to summarize granular steps. Every stopping point mus
 Use timestamps to measure rates of progress.
  
 ## Surprises & Discoveries
- 
-Document unexpected behaviors, bugs, optimizations, or insights discovered during implementation. Provide concise evidence.
- 
-- Observation: …
-  Evidence: …
+
+Document unexpected behaviors, bugs, optimizations, or insights discovered during implementation. Use the mandatory Evidence Discipline form:
+
+- **Observed**: <fact and source>
+- **Inferred**: <hypothesis and the cheapest check that could falsify it>
+- **Verified by**: <executed check and result, or NOT YET>
  
 ## Decision Log
  
