@@ -115,15 +115,28 @@ def test_zone_implied_inside_declared_bounds(template_key):
     )
 
 
-def test_estimator_uses_scoped_density():
-    """The duration estimator honours `_TARGET_DENSITY_BY_SPORT` over the generic map."""
-    definition = _definition("bike_aerobic_endurance")
-    scoped = _scoped("endurance")
+@pytest.mark.parametrize(
+    "builder_key,template_key,target_tss,estimated,expected_duration",
+    [
+        ("recovery", "bike_recovery_spin", 20.0, 45, 55),
+        ("endurance", "bike_aerobic_endurance", 60.0, 120, 90),
+        ("progression", "bike_aerobic_progression", 60.0, 105, 80),
+    ],
+)
+def test_estimator_uses_scoped_density_over_valid_generic_seed(
+    builder_key,
+    template_key,
+    target_tss,
+    estimated,
+    expected_duration,
+):
+    """A valid generic seed must not bypass a validated sport-scoped density."""
+    definition = _definition(template_key)
+    scoped = _scoped(builder_key)
     assert scoped is not None, "sport-scoped table absent (RED until #475 is implemented)"
-    target_tss = round(scoped * 90 / 60, 1)
-    duration = _candidate_duration(definition, target_tss, estimated_duration_minutes=0)
-    assert duration is not None, "estimator could not find a feasible duration with scoped density"
+
+    duration = _candidate_duration(definition, target_tss, estimated)
+
+    assert duration == expected_duration
     realized = target_tss * 60.0 / duration
-    assert abs(realized - scoped) / scoped <= 0.02, (
-        f"estimator landed on {realized:.1f} TSS/h, far from scoped {scoped}"
-    )
+    assert abs(realized - scoped) / scoped <= 0.10

@@ -974,9 +974,23 @@ def _candidate_duration(
     estimated_duration_minutes: int,
 ) -> int | None:
     estimated = int(round(float(estimated_duration_minutes or 0) / 5.0) * 5)
-    if estimated > 0 and not _failed_bounds(definition, estimated, target_tss):
+    scoped_density = _TARGET_DENSITY_BY_SPORT.get(
+        (definition.sport, definition.step_builder_key)
+    )
+    # The planner's estimate is a generic seed, not an explicit duration
+    # constraint. For validated sport-scoped definitions, derive duration from
+    # the zone-implied density even when that generic seed passes broad bounds.
+    if (
+        scoped_density is None
+        and estimated > 0
+        and not _failed_bounds(definition, estimated, target_tss)
+    ):
         return estimated
-    target_density = _resolve_target_density(definition)
+    target_density = (
+        scoped_density
+        if scoped_density is not None
+        else _resolve_target_density(definition)
+    )
     raw = target_tss * 60.0 / target_density if target_density > 0 else estimated
     resolved = int(round(raw / 5.0) * 5)
     resolved = max(definition.min_duration_minutes, min(definition.max_duration_minutes, resolved))
