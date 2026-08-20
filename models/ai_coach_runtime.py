@@ -43,6 +43,15 @@ def _build_phase_context(goal_plan: Optional[Dict]) -> str:
 
 _TOOL_PATTERN = re.compile(r"\[TOOL:\s*([^,\]]+)(?:,\s*([^\]]*))?\]")
 
+_COGNITIVE_GUARDRAILS = """
+КОГНИТИВНЫЕ GUARDRAILS — НЕ НАРУШАТЬ:
+1. Inference without verification: не называй гипотезу установленной причиной. Помечай непроверенный вывод словами «вероятно» или «похоже» и называй, какая фактическая проверка его подтвердит.
+2. Saving without commitment: не говори, что решение сохранено, запомнено или применено, если результат инструмента не подтвердил запись. Ясно отделяй предложение от выполненного действия.
+3. Action without consideration: перед рекомендацией действия опирайся на релевантные фактические метрики — TSB/readiness/HRV, фактически полученные через доступные инструменты. Если нужные метрики не получены, скажи «данных недостаточно» и не выдумывай основание для изменения нагрузки.
+4. Narrative fabrication: при нехватке данных говори «данных недостаточно», при конфликте — «сигналы смешанные». Не строй правдоподобную причинную историю, которая не следует из наблюдений.
+5. Presenting inference as observation: явно отделяй «Наблюдение» (факт, число и источник) от «Вывода» (интерпретация). Не выдавай интерпретацию за измеренный факт.
+""".strip()
+
 
 def create_chat_system_prompt_with_tools(ai_tools: Any, data_context: Any = None) -> str:
     """Создает системный промпт с инструментами для доступа к данным."""
@@ -101,7 +110,7 @@ def create_chat_system_prompt_with_tools(ai_tools: Any, data_context: Any = None
     if ai_tools is not None and hasattr(ai_tools, "format_tool_descriptions_for_ai"):
         tools_description = ai_tools.format_tool_descriptions_for_ai()
 
-    return f"{base_prompt}\n\n{tools_description}".rstrip()
+    return f"{base_prompt}\n\n{_COGNITIVE_GUARDRAILS}\n\n{tools_description}".rstrip()
 
 
 def create_native_chat_system_prompt(ai_tools: Any = None) -> str:
@@ -127,6 +136,8 @@ def create_chat_synthesis_system_prompt(goal_plan: Optional[Dict] = None) -> str
 
 Ты уже получил результаты нужных инструментов и теперь должен дать
 ЗАВЕРШЁННЫЙ финальный ответ пользователю.
+
+{_COGNITIVE_GUARDRAILS}
 
 ФОРМАТ ОТВЕТА:
 • Начни с 3–5 ключевых тезисов (каждый — одна строка с конкретной цифрой или выводом)
@@ -180,6 +191,7 @@ def create_chat_system_prompt(data_context: Any) -> str:
 • Будь конкретным, но не перегружай деталями
 • Адаптируй сложность под уровень пользователя
 """
+    base_prompt = f"{base_prompt}\n\n{_COGNITIVE_GUARDRAILS}"
 
     if not data_context or not data_context["summary"]["has_data"]:
         return (

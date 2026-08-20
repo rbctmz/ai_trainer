@@ -102,6 +102,33 @@ def test_prompts_warn_that_todays_data_row_may_be_partial():
     assert "НЕ считай спадом активности" in synthesis
 
 
+def test_all_runtime_prompts_include_cognitive_guardrails():
+    prompts = {
+        "tools": ai_coach_runtime.create_chat_system_prompt_with_tools(None),
+        "native": ai_coach_runtime.create_native_chat_system_prompt(None),
+        "synthesis": ai_coach_runtime.create_chat_synthesis_system_prompt(),
+        "full_context": ai_coach_runtime.create_chat_system_prompt(None),
+    }
+    required_contract = (
+        "КОГНИТИВНЫЕ GUARDRAILS",
+        "Inference without verification",
+        "Saving without commitment",
+        "Action without consideration",
+        "Narrative fabrication",
+        "Presenting inference as observation",
+        "вероятно",
+        "похоже",
+        "данных недостаточно",
+        "сигналы смешанные",
+        "TSB/readiness/HRV",
+        "доступные инструменты",
+    )
+
+    for prompt_name, prompt in prompts.items():
+        for rule in required_contract:
+            assert rule in prompt, f"{prompt_name} prompt misses: {rule}"
+
+
 def test_synthesis_prompt_forbids_hrv_absent_without_tool():
     system_prompt = ai_coach_runtime.create_chat_synthesis_system_prompt()
     assert "НЕЛЬЗЯ" in system_prompt
@@ -148,6 +175,8 @@ def test_runtime_builds_prompt_from_history_and_tools():
     assert len(provider.calls) == 1
     prompt = provider.calls[0]
     prompt = prompt["prompt"]
+    assert "КОГНИТИВНЫЕ GUARDRAILS" in prompt
+    assert "Action without consideration" in prompt
     assert "TEST TOOL" in prompt
     assert "USER: Как форма сегодня?" in prompt
     assert "ASSISTANT: Форма стабильная." in prompt
