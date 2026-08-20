@@ -465,6 +465,21 @@ legacy fallback без записи, web-контракт).
 - PERF-2 → [TD-007](../technical_debt_register.md#td-007--детерминированный-latency-гейт-коуча);
 - SEC-1 → [TD-008](../technical_debt_register.md#td-008--политика-для-отозванного-credential-в-git-history).
 
+## Граница автономии коуча (ADR-0010; ASR-REL-1/3, ASR-MOD-2/3; #466)
+
+Действия коуча классифицируются по Reversibility, Blast radius и Agency creep;
+самая рискованная ось задаёт gate. Обратимая локальная non-executable
+заметка/node может быть автономной, но mutation исполнимого плана требует
+bounded proposal и DDA-confirm. «Согласен», «ок» и другие vague-assent фразы не
+считаются авторизацией; LLM tool call также не заменяет действие пользователя.
+
+Аудит #466 подтвердил, что `create_plan_constraint`,
+`retract_plan_constraint` и `repair_plan_day` обходят proposal boundary, а
+retract может оставить partial state при ошибке recovery. Поведенческое
+исправление вынесено в #483; до него архитектурный статус этой границы 🟡.
+
+Проверка: `test_coach_autonomy_boundary_docs.py`; runtime RED→GREEN — #483.
+
 ## Реестр ADR
 
 | ADR | Тема |
@@ -478,3 +493,4 @@ legacy fallback без записи, web-контракт).
 | [ADR-0007](adr_0007_mock_ai_demo_acceptance.md) | Mock AI для demo/acceptance |
 | [ADR-0008](adr_0008_intervals_activity_ingestion.md) | Multi-provider ingest, provider links и provenance |
 | [ADR-0009](adr_0009_versioned_scientific_plan_policy.md) | Версионированная научная проверка плана без runtime-зависимости от Blocks |
+| [ADR-0010](adr_0010_coach_autonomy_boundary.md) | Три оси автономии коуча и DDA для мутаций |
