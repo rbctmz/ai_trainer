@@ -511,6 +511,37 @@ def planning_rebalance_confirm(
         raise HTTPException(status_code=422, detail=str(exc))
 
 
+@router.post("/bike-tss/preview")
+def planning_bike_tss_preview(
+    req: RebalanceRequest,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    try:
+        return planning_service.preview_bike_tss_rebalance(db, as_of=req.as_of)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
+@router.post("/bike-tss/confirm")
+def planning_bike_tss_confirm(
+    req: RebalanceRequest,
+    db: Database = Depends(get_database),
+) -> dict[str, Any]:
+    if req.base_checkpoint_id is None or not req.preview_fingerprint:
+        raise HTTPException(status_code=422, detail="base_checkpoint_id and preview_fingerprint are required")
+    try:
+        return planning_service.confirm_bike_tss_rebalance(
+            db,
+            base_checkpoint_id=req.base_checkpoint_id,
+            preview_fingerprint=req.preview_fingerprint,
+            as_of=req.as_of,
+        )
+    except planning_service.StalePlanningCheckpointError as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 @router.post("/adjust")
 def planning_adjust(req: AdjustRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     try:

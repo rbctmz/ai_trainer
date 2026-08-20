@@ -338,8 +338,16 @@ def build_reconciliation(
                     continue
                 external_id = str(paired_event.get("external_id") or "").strip()
                 expected_external_id = f"ai_trainer:{planned['session_id']}"
-                if external_id == expected_external_id or external_id.startswith(
-                    f"{expected_external_id}:leg:"
+                delivery_session_id = str(
+                    planned.get("delivery_session_id")
+                    or planned["session_id"]
+                ).strip()
+                expected_delivery_external_id = f"ai_trainer:{delivery_session_id}"
+                if (
+                    external_id == expected_external_id
+                    or external_id.startswith(f"{expected_external_id}:leg:")
+                    or external_id == expected_delivery_external_id
+                    or external_id.startswith(f"{expected_delivery_external_id}:leg:")
                 ):
                     stable.append(item)
                 else:

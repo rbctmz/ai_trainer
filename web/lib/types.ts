@@ -1301,6 +1301,57 @@ export interface RebalanceConfirmResult {
   preview: RebalancePreview;
 }
 
+export interface BikeTssRebalanceChange {
+  date: string;
+  session_id: string;
+  template_key: string;
+  session_role: string;
+  before_tss: number;
+  honest_tss: number;
+  after_tss: number;
+  delta_tss: number;
+  before_duration_minutes: number;
+  after_duration_minutes: number;
+  delta_duration_minutes: number;
+  method: string;
+}
+
+export interface BikeTssRebalancePreview {
+  rule_version: string;
+  base_checkpoint_id: number;
+  as_of: string;
+  status: "proposal" | "no_change";
+  reason: string;
+  preview_fingerprint: string;
+  changes: BikeTssRebalanceChange[];
+  capacity_gaps: Array<Record<string, unknown>>;
+  weekly_budget_preserved: boolean;
+  time_budget_status: "available" | "data_gap";
+  time_budget_reason: string | null;
+  time_budget_preserved: boolean;
+  time_budget_gaps: Array<Record<string, unknown>>;
+  future_tss_delta: number;
+  future_duration_delta_minutes: number;
+  weekly_before_tss: Record<string, number>;
+  weekly_after_tss: Record<string, number>;
+  weekly_duration_before_minutes: Record<string, number>;
+  weekly_duration_after_minutes: Record<string, number>;
+  weekly_duration_budget_minutes: Record<string, number>;
+}
+
+export interface BikeTssRebalancePreviewResult {
+  has_plan: boolean;
+  preview: BikeTssRebalancePreview | null;
+}
+
+export interface BikeTssRebalanceConfirmResult {
+  plan_id: string;
+  applied_checkpoint_id: number;
+  base_checkpoint_id: number;
+  checkpoint_source: "bike_tss_rebalance";
+  preview: BikeTssRebalancePreview;
+}
+
 // Compatibility result for existing Coach `adjust_plan` proposals. The Planning
 // Adjust tab uses RebalancePreviewResult/RebalanceConfirmResult instead.
 export interface AdjustResult {

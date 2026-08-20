@@ -24,7 +24,12 @@ from __future__ import annotations
 import pytest
 
 import models.workout_catalog as _catalog_module
-from models.workout_catalog import _candidate_duration, catalog_definitions, materialize_workout
+from models.workout_catalog import (
+    _candidate_duration,
+    catalog_definitions,
+    materialize_workout,
+    planned_bike_tss_from_steps,
+)
 
 pytestmark = pytest.mark.smoke
 
@@ -115,15 +120,59 @@ def test_zone_implied_inside_declared_bounds(template_key):
     )
 
 
-def test_estimator_uses_scoped_density():
-    """The duration estimator honours `_TARGET_DENSITY_BY_SPORT` over the generic map."""
+@pytest.mark.parametrize(
+    "builder_key,template_key,target_tss,estimated,expected_duration",
+    [
+        ("recovery", "bike_recovery_spin", 20.0, 45, 55),
+        ("endurance", "bike_aerobic_endurance", 80.0, 120, 90),
+        ("progression", "bike_aerobic_progression", 80.0, 105, 80),
+    ],
+)
+def test_estimator_preserves_valid_duration_seed_until_explicit_rebalance(
+    builder_key,
+    template_key,
+    target_tss,
+    estimated,
+    expected_duration,
+):
+    """A valid schedule duration is not silently rewritten by density metadata."""
+    definition = _definition(template_key)
+    duration = _candidate_duration(definition, target_tss, estimated)
+
+    assert duration == estimated
+
+
+def test_planned_bike_tss_uses_the_same_power_semantics_as_activity_tss():
     definition = _definition("bike_aerobic_endurance")
-    scoped = _scoped("endurance")
-    assert scoped is not None, "sport-scoped table absent (RED until #475 is implemented)"
-    target_tss = round(scoped * 90 / 60, 1)
-    duration = _candidate_duration(definition, target_tss, estimated_duration_minutes=0)
-    assert duration is not None, "estimator could not find a feasible duration with scoped density"
-    realized = target_tss * 60.0 / duration
-    assert abs(realized - scoped) / scoped <= 0.02, (
-        f"estimator landed on {realized:.1f} TSS/h, far from scoped {scoped}"
+    result = materialize_workout(
+        definition,
+        {"duration_minutes": 40, "target_tss": 36.5},
+        {"ftp": 172},
     )
+
+    assert result["materialization_status"] == "materialized"
+    planned = planned_bike_tss_from_steps(
+        result["steps"], result["target_provenance"]
+    )
+    assert planned["status"] == "derived"
+    assert planned["planned_tss"] == pytest.approx(26.7, abs=0.2)
+    assert result["parameter_snapshot"]["requested_tss"] == 36.5
+    assert result["parameter_snapshot"]["planned_tss"] == pytest.approx(26.7, abs=0.2)
+    assert result["parameter_snapshot"]["target_tss"] == pytest.approx(26.7, abs=0.2)
+    assert sum(step["tss"] for step in result["steps"]) == pytest.approx(26.7, abs=0.1)
+
+
+def test_planned_bike_tss_fails_closed_without_explicit_ftp_power():
+    definition = _definition("bike_aerobic_endurance")
+    result = materialize_workout(
+        definition,
+        {"duration_minutes": 40, "target_tss": 36.5},
+        {},
+    )
+
+    planned = planned_bike_tss_from_steps(
+        result["steps"], result["target_provenance"]
+    )
+    assert planned["status"] == "data_gap"
+    assert planned["reason"] == "missing_ftp"
+    assert "planned_tss" not in result["parameter_snapshot"]

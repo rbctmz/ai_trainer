@@ -38,15 +38,16 @@ def _assert_exact(result: dict, *, seconds: int, tss: float) -> None:
     assert all(step["duration_seconds"] > 0 for step in steps)
     assert [step["index"] for step in steps] == list(range(len(steps)))
     assert sum(step["duration_seconds"] for step in steps) == seconds
-    assert sum(step["tss"] for step in steps) == pytest.approx(tss, abs=0.01)
+    effective_tss = float((result.get("parameter_snapshot") or {}).get("target_tss") or tss)
+    assert sum(step["tss"] for step in steps) == pytest.approx(effective_tss, abs=0.01)
 
 
-def test_catalog_versions_pin_v3_addition_and_v2_materializer() -> None:
+def test_catalog_versions_pin_v3_addition_and_v3_materializer() -> None:
     definitions = {item.template_key: item for item in catalog_definitions()}
 
     assert CATALOG_VERSION == "workout_catalog_v3"
     assert SELECTOR_RULE_VERSION == "workout_selector_v1"
-    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v2"
+    assert MATERIALIZER_RULE_VERSION == "workout_materializer_v3"
     assert len(definitions) == 23
     assert definitions["bike_threshold_intervals"].version == 2
     assert definitions["run_tempo_threshold"].version == 2

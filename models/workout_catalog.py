@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 
 CATALOG_VERSION = "workout_catalog_v3"
 SELECTOR_RULE_VERSION = "workout_selector_v1"
-MATERIALIZER_RULE_VERSION = "workout_materializer_v2"
+MATERIALIZER_RULE_VERSION = "workout_materializer_v3"
 STRUCTURE_RULE_VERSION = "workout_structure_v2"
 
 
@@ -867,6 +867,95 @@ def _exact_distribution(total: float, shares: Sequence[float], decimals: int) ->
     return [value / multiplier for value in distributed]
 
 
+def planned_bike_tss_from_steps(
+    steps: Sequence[Mapping[str, Any]],
+    target_provenance: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Estimate planned bike TSS from persisted FTP power targets.
+
+    A target range is not an observed power stream, so the midpoint is used as
+    an explicit planning estimate. This is deliberately fail-closed when FTP
+    or a power target is unavailable; callers must not substitute current
+    athlete settings for an older prescription.
+    """
+    provenance = dict(target_provenance or {})
+    if str(provenance.get("kind") or "") != "ftp":
+        return {
+            "status": "data_gap",
+            "planned_tss": None,
+            "method": "power_zone_midpoint_v1",
+            "reason": "missing_ftp",
+        }
+    try:
+        ftp = float(provenance.get("value"))
+    except (TypeError, ValueError):
+        ftp = 0.0
+    if ftp <= 0:
+        return {
+            "status": "data_gap",
+            "planned_tss": None,
+            "method": "power_zone_midpoint_v1",
+            "reason": "missing_ftp",
+        }
+    if not steps:
+        return {
+            "status": "data_gap",
+            "planned_tss": None,
+            "method": "power_zone_midpoint_v1",
+            "reason": "missing_steps",
+        }
+
+    total = 0.0
+    evidence: list[dict[str, Any]] = []
+    for index, raw_step in enumerate(steps):
+        step = dict(raw_step or {})
+        target = dict(step.get("target") or {})
+        if str(target.get("type") or "") != "power":
+            return {
+                "status": "data_gap",
+                "planned_tss": None,
+                "method": "power_zone_midpoint_v1",
+                "reason": "non_power_target",
+            }
+        try:
+            low = float(target["low"])
+            high = float(target["high"])
+            seconds = float(step.get("duration_seconds") or 0.0)
+        except (KeyError, TypeError, ValueError):
+            return {
+                "status": "data_gap",
+                "planned_tss": None,
+                "method": "power_zone_midpoint_v1",
+                "reason": "invalid_power_target",
+            }
+        if low < 0 or high < low or seconds < 0:
+            return {
+                "status": "data_gap",
+                "planned_tss": None,
+                "method": "power_zone_midpoint_v1",
+                "reason": "invalid_power_target",
+            }
+        midpoint = (low + high) / 2.0
+        step_tss = seconds / 3600.0 * 100.0 * (midpoint / ftp) ** 2
+        total += step_tss
+        evidence.append(
+            {
+                "index": index,
+                "duration_seconds": round(seconds, 3),
+                "midpoint_watts": round(midpoint, 3),
+                "tss": round(step_tss, 4),
+            }
+        )
+    return {
+        "status": "derived",
+        "planned_tss": round(total, 1),
+        "method": "power_zone_midpoint_v1",
+        "ftp": ftp,
+        "step_count": len(steps),
+        "evidence": evidence,
+    }
+
+
 def materialize_workout(
     definition: WorkoutTemplateDefinition,
     parameters: Mapping[str, Any],
@@ -902,8 +991,8 @@ def materialize_workout(
         spec.duration_seconds / (duration * 60)
         for spec in specs
     ]
-    tss_values = _exact_distribution(target_tss, duration_shares, 1)
     provenance = _resolve_provenance(definition, zone_snapshot)
+    tss_values = _exact_distribution(target_tss, duration_shares, 1)
     steps = []
     for index, spec in enumerate(specs):
         step = {
@@ -922,6 +1011,28 @@ def materialize_workout(
         if spec.repeat_index is not None:
             step["repeat_index"] = spec.repeat_index
         steps.append(step)
+    planned_evidence = None
+    if definition.sport == "bike" and definition.step_builder_key in {
+        "recovery",
+        "endurance",
+        "progression",
+    }:
+        planned_evidence = planned_bike_tss_from_steps(steps, provenance)
+        if planned_evidence.get("status") == "derived":
+            effective_tss = float(planned_evidence["planned_tss"])
+            tss_values = _exact_distribution(effective_tss, duration_shares, 1)
+            for index, value in enumerate(tss_values):
+                steps[index]["tss"] = value
+            parameter_snapshot = {
+                "duration_minutes": duration,
+                "requested_tss": target_tss,
+                "target_tss": effective_tss,
+                "tss_per_hour": round(effective_tss * 60.0 / duration, 1) if duration > 0 else 0.0,
+                "planned_tss": effective_tss,
+                "planned_tss_method": planned_evidence["method"],
+                "planned_tss_evidence": planned_evidence,
+            }
+            base["parameter_snapshot"] = parameter_snapshot
     base["steps"] = steps
     base["target_provenance"] = provenance
     base["structure_status"] = structure_status
@@ -974,6 +1085,10 @@ def _candidate_duration(
     estimated_duration_minutes: int,
 ) -> int | None:
     estimated = int(round(float(estimated_duration_minutes or 0) / 5.0) * 5)
+    # The supplied estimate is the schedule's duration prescription. Density
+    # is used only as a fallback when that explicit duration cannot satisfy the
+    # catalog bounds; future volume changes go through an approval-gated
+    # preview instead of silently changing the workout here.
     if estimated > 0 and not _failed_bounds(definition, estimated, target_tss):
         return estimated
     target_density = _resolve_target_density(definition)
@@ -1603,6 +1718,7 @@ __all__ = [
     "catalog_definitions",
     "definition_snapshot",
     "select_workout_template",
+    "planned_bike_tss_from_steps",
     "materialize_workout",
     "materialize_session_template",
     "materialize_brick_session",

@@ -7,7 +7,11 @@ from typing import Any, Mapping, Sequence
 
 from models.fit_export import build_steps_for_sport
 from models.session_identity import ensure_session_identities
-from models.workout_catalog import require_executable_planned_session
+from models.workout_catalog import (
+    catalog_definitions,
+    materialize_workout,
+    require_executable_planned_session,
+)
 
 
 AI_TRAINER_EXTERNAL_ID_PREFIX = "ai_trainer:"
@@ -232,6 +236,58 @@ def _event_payload(
     }
 
 
+def _delivery_session_id(session: Mapping[str, Any]) -> str:
+    """Return the provider identity, distinct from plan reconciliation id."""
+    parameters = dict(session.get("parameter_snapshot") or {})
+    rebalance_lineage = None
+    if str(parameters.get("requested_tss_source") or "") == "bike_tss_rebalance":
+        rebalance_lineage = session.get("replaces_session_id")
+    return str(
+        session.get("delivery_session_id")
+        or rebalance_lineage
+        or session.get("session_id")
+        or ""
+    ).strip()
+
+
+def _delivery_steps(
+    session: Mapping[str, Any],
+    *,
+    sport: str,
+    session_tss: float,
+) -> list[dict[str, Any]]:
+    """Resolve executable steps, repairing pre-fix rebalance checkpoints."""
+    steps = [dict(step or {}) for step in list(session.get("materialized_steps") or [])]
+    parameters = dict(session.get("parameter_snapshot") or {})
+    if sport != "bike" or str(parameters.get("requested_tss_source") or "") != "bike_tss_rebalance":
+        return steps
+    try:
+        expected_seconds = int(round(float(session.get("duration_minutes") or 0) * 60))
+        actual_seconds = sum(int(round(float(step.get("duration_seconds") or 0))) for step in steps)
+        duration_minutes = int(round(float(session.get("duration_minutes") or 0)))
+        requested_tss = float(parameters.get("requested_tss") or session_tss)
+        ftp = float((session.get("target_provenance") or {}).get("value"))
+    except (TypeError, ValueError):
+        return steps
+    if expected_seconds <= 0 or actual_seconds == expected_seconds or duration_minutes <= 0 or ftp <= 0:
+        return steps
+    template_key = str(session.get("template_key") or "")
+    definition = next(
+        (item for item in catalog_definitions() if item.template_key == template_key),
+        None,
+    )
+    if definition is None:
+        return steps
+    repaired = materialize_workout(
+        definition,
+        {"duration_minutes": duration_minutes, "target_tss": requested_tss},
+        {"ftp": ftp},
+    )
+    if repaired.get("materialization_status") != "materialized":
+        return steps
+    return [dict(step or {}) for step in list(repaired.get("steps") or [])]
+
+
 def build_delivery_events(
     goal_plan: Mapping[str, Any],
     dates: Sequence[str],
@@ -270,6 +326,9 @@ def build_delivery_events(
             session_id = str(session.get("session_id") or "").strip()
             if not session_id:
                 raise ValueError(f"planned session {day} has no stable session_id")
+            delivery_session_id = _delivery_session_id(session)
+            if not delivery_session_id:
+                raise ValueError(f"planned session {day} has no delivery identity")
             require_executable_planned_session(session)
             phase = str(session.get("phase") or template.get("phase") or "")
             role = str(session.get("session_role") or "easy")
@@ -290,7 +349,7 @@ def build_delivery_events(
                     )
                     payload = _event_payload(
                         session_date=day,
-                        session_id=session_id,
+                        session_id=delivery_session_id,
                         sport=sport,
                         name=f"{name} · leg {leg_index}",
                         tss=leg_tss,
@@ -313,12 +372,12 @@ def build_delivery_events(
                 if session.get("total_tss") is not None
                 else float(total_tss or 0.0)
             )
-            steps = list(session.get("materialized_steps") or [])
+            steps = _delivery_steps(session, sport=sport, session_tss=session_tss)
             if not steps:
                 steps = build_steps_for_sport(session_tss, sport, role, phase)
             payload = _event_payload(
                 session_date=day,
-                session_id=session_id,
+                session_id=delivery_session_id,
                 sport=sport,
                 name=str(
                     session.get("export_name")
