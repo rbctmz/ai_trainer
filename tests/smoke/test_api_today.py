@@ -655,16 +655,22 @@ def test_today_composes_feedback_from_existing_yesterday_without_second_reconcil
     from api import today_snapshot as snapshot_module
     from api.routers.today import today_view
 
-    today = date(2026, 7, 13)
+    today = date(2026, 7, 14)
     yesterday = today - timedelta(days=1)
     db = Database(str(tmp_path / "today-feedback.db"))
     checkpoint = db.save_planning_checkpoint(
         build_planning_checkpoint(_goal_plan(yesterday, target_role="quality"))
     )
-    plan = checkpoint["goal_plan_snapshot"]
+    from models.session_identity import ensure_session_identities
+
+    plan = ensure_session_identities(checkpoint["goal_plan_snapshot"])
     template = next(
         item for item in plan["session_templates"] if item["date"] == yesterday.isoformat()
     )
+    current_template = next(
+        item for item in plan["session_templates"] if item["date"] == today.isoformat()
+    )
+    current_session_id = current_template["sessions"][0]["session_id"]
     calls: list[dict] = []
 
     def fake_reconciliation(_db, **kwargs):
@@ -703,7 +709,37 @@ def test_today_composes_feedback_from_existing_yesterday_without_second_reconcil
                     "actual_sport": "bike",
                     "actual_role": "quality",
                     "evidence": ["stable local match"],
-                }
+                },
+                {
+                    "session_id": current_session_id,
+                    "target_key": f"session:{current_session_id}",
+                    "date": today.isoformat(),
+                    "name": "Easy run today",
+                    "role": "easy",
+                    "sport": "run",
+                    "tss": 20.0,
+                    "duration_minutes": 30,
+                    "match_status": "matched",
+                    "match_method": "date_sport_heuristic",
+                    "confidence": 0.75,
+                    "adherence": "exact",
+                    "actual_activity_ids": ["run-today"],
+                    "actual_activities": [
+                        {
+                            "activity_id": "run-today",
+                            "date": today.isoformat(),
+                            "started_at_utc": f"{today.isoformat()}T08:00:00Z",
+                            "duration_minutes": 30,
+                            "sport": "run",
+                            "tss": 20.0,
+                        }
+                    ],
+                    "actual_total_tss": 20.0,
+                    "actual_duration_minutes": 30.0,
+                    "actual_sport": "run",
+                    "actual_role": "easy",
+                    "evidence": ["stable local match"],
+                },
             ],
             "unplanned_activities": [],
             "data_quality": {},
@@ -718,8 +754,13 @@ def test_today_composes_feedback_from_existing_yesterday_without_second_reconcil
     assert len(calls) == 1
     assert calls[0]["include_provider"] is False
     assert payload["feedback"]["status"] == "available"
-    assert payload["feedback"]["primary"]["session_id"] == template["session_id"]
+    assert payload["feedback"]["primary"]["session_id"] == current_session_id
     assert payload["feedback"]["primary"]["state"] == "ready"
+    assert payload["feedback"]["primary"]["capture_mode"] == "immediate"
+    assert any(
+        prompt["session_id"] == template["session_id"]
+        for prompt in payload["feedback"]["prompts"]
+    )
     assert db.get_database_stats()["session_feedback"] == 0
 
 

@@ -60,8 +60,15 @@ def feedback_from_today_evidence(
     forecasts: list[Mapping[str, Any]],
     now_utc: datetime,
     as_of: str,
+    current_day: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compose feedback prompts from evidence Today already calculated."""
+    """Compose feedback prompts from evidence Today already calculated.
+
+    ``current_day`` is deliberately an additive surface: a newly synced,
+    completed and stably matched activity may be rated immediately. The
+    existing ``yesterday`` rows remain the fallback for sessions not rated at
+    upload time. No timing score or downstream load adjustment is derived.
+    """
     if yesterday.get("status") == "unavailable":
         return {
             "status": "unavailable",
@@ -77,8 +84,11 @@ def feedback_from_today_evidence(
     prompt_events = {
         row["session_id"]: row for row in db.get_latest_session_feedback_prompt_events()
     }
-    return build_feedback_prompts(
-        list(yesterday.get("rows") or []),
+    projection = build_feedback_prompts(
+        [
+            *list(yesterday.get("rows") or []),
+            *list((current_day or {}).get("rows") or []),
+        ],
         templates=list((goal_plan or {}).get("session_templates") or []),
         latest_feedback_by_session=latest_feedback,
         prompt_events_by_session=prompt_events,
@@ -86,6 +96,25 @@ def feedback_from_today_evidence(
         now_utc=_now(now_utc),
         as_of=as_of,
     )
+    # Immediate feedback wins over the older fallback prompt even when the
+    # newly completed session is not a key/forecast session.
+    current_ids = {
+        str(row.get("session_id") or "")
+        for row in list((current_day or {}).get("rows") or [])
+        if isinstance(row, Mapping)
+    }
+    current_primary = next(
+        (
+            prompt
+            for prompt in projection.get("prompts") or []
+            if prompt.get("session_id") in current_ids and prompt.get("state") == "ready"
+        ),
+        None,
+    )
+    if current_primary is not None:
+        current_primary["capture_mode"] = "immediate"
+        projection["primary"] = current_primary
+    return projection
 
 
 def _feedback_evidence_for_session(
