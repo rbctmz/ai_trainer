@@ -52,6 +52,11 @@ from models.plan_actual_reconciliation import (
     build_weekly_rebalance_preview,
     find_planned_session,
 )
+from models.planned_bike_tss import (
+    apply_bike_tss_rebalance_preview,
+    build_bike_tss_rebalance_preview,
+    repair_bike_tss_materialization,
+)
 from models.planning_targets import (
     DEFAULT_DEMAND_LEVEL,
     DEMAND_PROFILES,
@@ -74,6 +79,7 @@ from models.training_planner import (
     derive_weekly_sport_buckets_from_sessions,
     expand_weekly_to_daily_triathlon,
     flatten_daily_total,
+    project_daily_plan_from_session_templates,
     SESSION_ROLE_LABELS_RU,
     synchronize_microcycle_changes,
     WEEKDAY_LABELS_RU,
@@ -1394,6 +1400,21 @@ def build_plan(
                 }
             )
 
+    # The scheduler allocates a budget first, but supported steady-state bike
+    # prescriptions may expose a lower, power-derived effective TSS. Project
+    # that executable truth back before building the persisted plan; historical
+    # checkpoints are never modified by this path.
+    daily_plan = project_daily_plan_from_session_templates(daily_plan, session_templates)
+    for week_index, week_row in enumerate(weekly_summary):
+        week_days = daily_plan[week_index * 7 : week_index * 7 + 7]
+        week_row["weekly_tss"] = int(round(sum(float(item[1] or 0.0) for item in week_days)))
+        for sport in ("bike", "run", "swim"):
+            week_row[sport] = round(
+                sum(float((item[2] or {}).get(sport, 0.0) or 0.0) for item in week_days),
+                1,
+            )
+    weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
+
     microcycle_changes = synchronize_microcycle_changes(
         event_overlay["microcycle_changes"],
         daily_plan,
@@ -2353,6 +2374,106 @@ def confirm_weekly_rebalance(
         "base_checkpoint_id": latest_id,
         "checkpoint_source": "weekly_rebalance",
         "preview": preview,
+    }
+
+
+def preview_bike_tss_rebalance(
+    db: Database,
+    *,
+    as_of: date | str | None = None,
+) -> Dict[str, Any]:
+    """Preview future-only bike volume corrections without saving a checkpoint."""
+    latest = db.get_latest_planning_checkpoint()
+    if not latest:
+        return {"has_plan": False, "preview": None}
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    if goal_plan is None:
+        return {"has_plan": False, "preview": None}
+    resolved_as_of = _parse_as_of(as_of)
+    preview = build_bike_tss_rebalance_preview(
+        goal_plan,
+        as_of=resolved_as_of,
+        base_checkpoint_id=int(latest.get("id") or 0),
+    )
+    return {"has_plan": True, "preview": preview}
+
+
+def confirm_bike_tss_rebalance(
+    db: Database,
+    *,
+    base_checkpoint_id: int,
+    preview_fingerprint: str,
+    as_of: date | str | None = None,
+) -> Dict[str, Any]:
+    """Apply a previously previewed future-only bike correction."""
+    latest = db.get_latest_planning_checkpoint()
+    latest_id = int(latest.get("id")) if latest and latest.get("id") is not None else 0
+    if latest_id != int(base_checkpoint_id):
+        raise StalePlanningCheckpointError(
+            f"active checkpoint #{latest_id or 'none'} no longer matches preview base #{base_checkpoint_id}"
+        )
+    current = preview_bike_tss_rebalance(db, as_of=as_of)
+    preview = dict(current.get("preview") or {})
+    if preview.get("preview_fingerprint") != str(preview_fingerprint):
+        raise StalePlanningCheckpointError("active plan changed; request a fresh bike TSS preview")
+    if preview.get("status") != "proposal":
+        raise ValueError("bike TSS preview has no applicable changes")
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    assert goal_plan is not None
+    updated = apply_bike_tss_rebalance_preview(goal_plan, preview)
+    updated = with_checkpoint_provenance(
+        updated,
+        source="bike_tss_rebalance",
+        parent_checkpoint_id=latest_id,
+    )
+    saved = db.save_planning_checkpoint(build_planning_checkpoint(updated))
+    return {
+        "plan_id": str(saved.get("id")),
+        "applied_checkpoint_id": int(saved.get("id")),
+        "base_checkpoint_id": latest_id,
+        "checkpoint_source": "bike_tss_rebalance",
+        "preview": preview,
+    }
+
+
+def repair_active_bike_tss_materialization(
+    db: Database,
+    *,
+    as_of: date | str | None = None,
+    persist: bool = False,
+) -> Dict[str, Any]:
+    """Repair stale steps left by the pre-fix bike TSS checkpoint."""
+    latest = db.get_latest_planning_checkpoint()
+    if not latest:
+        raise ValueError("no active plan")
+    goal_plan = restore_goal_plan_from_checkpoint(latest)
+    if goal_plan is None:
+        raise ValueError("active plan cannot be restored")
+    resolved_as_of = _parse_as_of(as_of)
+    repaired, changed_dates = repair_bike_tss_materialization(
+        goal_plan,
+        as_of=resolved_as_of,
+    )
+    if not changed_dates:
+        return {
+            "plan_id": None,
+            "base_checkpoint_id": int(latest.get("id") or 0),
+            "changed_dates": [],
+            "confirmation_required": False,
+        }
+    repaired = with_checkpoint_provenance(
+        repaired,
+        source="bike_tss_materialization_repair",
+        parent_checkpoint_id=int(latest.get("id") or 0),
+    )
+    saved = None
+    if persist:
+        saved = db.save_planning_checkpoint(build_planning_checkpoint(repaired))
+    return {
+        "plan_id": str(saved["id"]) if saved else None,
+        "base_checkpoint_id": int(latest.get("id") or 0),
+        "changed_dates": changed_dates,
+        "confirmation_required": not persist,
     }
 
 

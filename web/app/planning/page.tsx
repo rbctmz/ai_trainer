@@ -17,6 +17,8 @@ import {
   PlanningStatus,
   RebalanceConfirmResult,
   RebalancePreviewResult,
+  BikeTssRebalanceConfirmResult,
+  BikeTssRebalancePreviewResult,
   ReconResponse,
   RestoreHistoryResult,
   WeekByWeekPlan,
@@ -1125,6 +1127,10 @@ function AdjustMode({
   );
   const [previewResult, setPreviewResult] = useState<RebalancePreviewResult | null>(null);
   const [result, setResult] = useState<RebalanceConfirmResult | null>(null);
+  const [bikePreviewResult, setBikePreviewResult] = useState<BikeTssRebalancePreviewResult | null>(null);
+  const [bikeResult, setBikeResult] = useState<BikeTssRebalanceConfirmResult | null>(null);
+  const [bikeBusy, setBikeBusy] = useState(false);
+  const [bikeError, setBikeError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const targetRowRef = useRef<HTMLTableRowElement | null>(null);
@@ -1188,6 +1194,49 @@ function AdjustMode({
       }
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function buildBikePreview() {
+    setBikeBusy(true);
+    setBikeError(null);
+    setBikeResult(null);
+    try {
+      const r = await postJSON<BikeTssRebalancePreviewResult>('/api/planning/bike-tss/preview', {});
+      setBikePreviewResult(r);
+    } catch (e) {
+      setBikeError(e instanceof ApiError ? e.message : 'Не удалось проверить плановый TSS вело');
+    } finally {
+      setBikeBusy(false);
+    }
+  }
+
+  async function confirmBikePreview() {
+    const preview = bikePreviewResult?.preview;
+    if (!preview || preview.status !== 'proposal') return;
+    setBikeBusy(true);
+    setBikeError(null);
+    try {
+      const confirmed = await postJSON<BikeTssRebalanceConfirmResult>('/api/planning/bike-tss/confirm', {
+        as_of: preview.as_of,
+        base_checkpoint_id: preview.base_checkpoint_id,
+        preview_fingerprint: preview.preview_fingerprint,
+      });
+      setBikeResult(confirmed);
+      setBikePreviewResult(null);
+      await mutate();
+      mutateGlobal('/api/planning/status');
+      mutateGlobal('/api/planning/history?limit=8');
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        setBikePreviewResult(null);
+        await mutate();
+        setBikeError('План изменился. Подготовьте новый preview.');
+      } else {
+        setBikeError(e instanceof ApiError ? e.message : 'Не удалось применить корректировку вело TSS');
+      }
+    } finally {
+      setBikeBusy(false);
     }
   }
 
@@ -1281,9 +1330,91 @@ function AdjustMode({
     no_eligible_future_sessions: "Нет будущих лёгких сессий, которые можно безопасно уменьшить.",
   };
   const preview = previewResult?.preview;
+  const bikePreview = bikePreviewResult?.preview;
 
   return (
     <>
+      <section className="rounded-card border border-tone-warning/30 bg-tone-warning/5 p-4 shadow-card">
+        <div className="text-sm font-medium text-ink">Проверка планового TSS вело</div>
+        <p className="mt-1 text-xs text-ink-soft">
+          Для будущих steady-state вело-сессий TSS сверяется с сохранёнными power-зонами и FTP. Прошлое и привязки не меняются.
+        </p>
+        <button
+          type="button"
+          onClick={buildBikePreview}
+          disabled={bikeBusy}
+          className="mt-3 rounded-lg border border-tone-warning/40 px-3 py-2 text-sm font-medium text-tone-warning disabled:opacity-40"
+        >
+          {bikeBusy ? "Проверяю…" : "Подготовить preview вело TSS"}
+        </button>
+        {bikeError ? <div className="mt-2 text-sm text-tone-danger">{bikeError}</div> : null}
+        {bikeResult ? (
+          <div className="mt-2 text-sm text-tone-success">
+            Future-only корректировка применена, checkpoint #{bikeResult.applied_checkpoint_id}.
+          </div>
+        ) : null}
+        {bikePreview ? (
+          <div className="mt-3 rounded-lg border border-surface-border bg-surface px-3 py-3">
+            <div className="text-sm font-medium text-ink">
+              {bikePreview.status === "proposal" ? "Предложение: сохранить недельный бюджет объёмом" : "План остаётся без изменений"}
+            </div>
+            {bikePreview.status === "proposal" ? (
+              <>
+                <div className="mt-2 space-y-1.5 text-sm text-ink-soft">
+                  {bikePreview.changes.map((item) => (
+                    <div key={item.session_id} className="flex flex-wrap justify-between gap-2 rounded bg-surface-muted px-2 py-1.5">
+                      <span>{item.date} · {item.before_duration_minutes} → {item.after_duration_minutes} мин</span>
+                      <span className="tabular-nums">{item.honest_tss} → {item.after_tss} TSS (бюджет {item.before_tss})</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-2 text-xs text-ink-faint">
+                  Интенсивность и power-зоны не повышаются. Изменяются только будущие сессии; прошлые и текущий день защищены.
+                </div>
+                <div className="mt-1 text-xs text-ink-faint">
+                  Время по неделям: {Object.entries(bikePreview.weekly_duration_after_minutes).sort(([left], [right]) => left.localeCompare(right)).map(([week, minutes]) => `${week} — ${minutes}/${bikePreview.weekly_duration_budget_minutes[week]} мин`).join(" · ")}.
+                </div>
+                <button
+                  type="button"
+                  onClick={confirmBikePreview}
+                  disabled={bikeBusy}
+                  className="mt-3 rounded-lg bg-accent px-4 py-2 text-sm font-medium text-accent-foreground disabled:opacity-40"
+                >
+                  {bikeBusy ? "Применяю…" : "Подтвердить future-only корректировку"}
+                </button>
+              </>
+            ) : (
+              <div className="mt-1 text-sm text-ink-soft">
+                {bikePreview.reason === "capacity_gap"
+                  ? `Найдены ограничения: ${bikePreview.capacity_gaps.length} сессии нельзя безопасно выровнять в рамках каталога. Изменения не применяются частично.`
+                  : bikePreview.reason === "time_budget_gap"
+                  ? "Изменения превышают сохранённый недельный бюджет времени. Подтверждение заблокировано."
+                  : bikePreview.reason === "time_budget_data_gap"
+                  ? "В checkpoint не найден недельный бюджет времени. Подтверждение заблокировано до уточнения доступности."
+                  : "Несогласованных будущих steady-state вело-сессий не найдено."}
+                {bikePreview.reason === "capacity_gap" && bikePreview.capacity_gaps.length ? (
+                  <div className="mt-2 space-y-1 text-xs text-ink-faint">
+                    {bikePreview.capacity_gaps.map((gap, index) => (
+                      <div key={`${String(gap.session_id ?? index)}-${String(gap.date ?? "")}`}>
+                        {String(gap.date ?? "—")} · {gap.reason === "tss_unreachable_within_catalog" ? "TSS недостижим в рамках каталога" : gap.reason === "duration_outside_catalog_bounds" ? "длительность вне границ каталога" : String(gap.reason ?? "ограничение")} · честно {String(gap.honest_tss ?? "—")} TSS при бюджете {String(gap.before_tss ?? "—")}.
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+                {bikePreview.reason === "time_budget_gap" && bikePreview.time_budget_gaps.length ? (
+                  <div className="mt-2 space-y-1 text-xs text-ink-faint">
+                    {bikePreview.time_budget_gaps.map((gap, index) => (
+                      <div key={`${String(gap.week_start ?? index)}-time-gap`}>
+                        {String(gap.week_start ?? "—")} · {String(gap.before_minutes ?? "—")} → {String(gap.after_minutes ?? "—")} мин при лимите {String(gap.budget_minutes ?? "—")} мин.
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </div>
+            )}
+          </div>
+        ) : null}
+      </section>
       <section className="overflow-x-auto rounded-card border border-surface-border bg-surface shadow-card">
         <div className="border-b border-surface-border p-4">
           <div className="text-sm font-medium text-ink">План и факт · {data.window?.start}–{data.window?.end}</div>

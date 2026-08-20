@@ -2082,6 +2082,14 @@ def materialize_day_sessions(
     from models.workout_catalog import materialize_brick_session, materialize_session_template
 
     def _finalize(sport: str, role: str, tss: float, catalog: Dict[str, Any]) -> Dict[str, Any]:
+        effective_tss = round(
+            float(
+                (catalog.get("parameter_snapshot") or {}).get("target_tss")
+                if catalog.get("materialization_status") == "materialized"
+                else tss
+            ),
+            1,
+        )
         duration = int(catalog.get("duration_minutes") or _estimate_session_duration_minutes(tss, sport, role))
         name = str(catalog.get("template_name") or "").strip() or day_focus
         export_name = _build_session_export_name(goal_type, distance, name)
@@ -2092,8 +2100,8 @@ def materialize_day_sessions(
             session_role=role,
             session_focus=name,
             sport=sport,
-            total_tss=tss,
-            parts={sport: tss},
+            total_tss=effective_tss,
+            parts={sport: effective_tss},
             duration_minutes=duration,
         )
         return {
@@ -2102,7 +2110,7 @@ def materialize_day_sessions(
             "session_role": role,
             "session_focus": name,
             "duration_minutes": duration,
-            "total_tss": round(float(tss or 0.0), 1),
+            "total_tss": effective_tss,
             "template_key": f"{phase.lower()}:{role}:{sport}",
             "export_name": export_name,
             "description": description,
@@ -2164,7 +2172,9 @@ def materialize_day_sessions(
         )
         if catalog.get("materialization_status") == "materialized":
             recent_template_keys.append(str(catalog.get("template_key") or ""))
-        sessions.append(_finalize(discipline, role, discipline_tss, catalog))
+        session = _finalize(discipline, role, discipline_tss, catalog)
+        allocated[discipline] = float(session.get("total_tss") or discipline_tss)
+        sessions.append(session)
     return sessions, allocated, brick_meta
 
 
@@ -2284,6 +2294,40 @@ def build_daily_session_templates(
         )
 
     return templates
+
+
+def project_daily_plan_from_session_templates(
+    daily: Sequence[Tuple[datetime, float, Dict[str, float]]],
+    session_templates: Sequence[Mapping[str, Any]],
+) -> List[Tuple[datetime, float, Dict[str, float]]]:
+    """Project effective materialized session load back onto daily plan rows."""
+    projected: List[Tuple[datetime, float, Dict[str, float]]] = []
+    for index, item in enumerate(daily):
+        if not isinstance(item, (list, tuple)) or len(item) < 3:
+            continue
+        dt, original_total, original_parts = item
+        template = session_templates[index] if index < len(session_templates) else {}
+        if str((template or {}).get("session_role") or "") in {"off", "race"} or (template or {}).get("is_race_event"):
+            projected.append((dt, round(float(original_total or 0.0), 1), dict(original_parts or {})))
+            continue
+        parts: Dict[str, float] = {}
+        for session in list((template or {}).get("sessions") or []):
+            if not isinstance(session, Mapping):
+                continue
+            if str(session.get("kind") or "single") == "composite":
+                for leg in list(session.get("legs") or []):
+                    sport = str(leg.get("sport") or "")
+                    if sport in {"bike", "run", "swim"}:
+                        parts[sport] = round(parts.get(sport, 0.0) + float(leg.get("target_tss") or 0.0), 1)
+            else:
+                sport = str(session.get("sport") or "")
+                if sport in {"bike", "run", "swim"}:
+                    parts[sport] = round(parts.get(sport, 0.0) + float(session.get("total_tss") or 0.0), 1)
+        if parts:
+            projected.append((dt, round(sum(parts.values()), 1), parts))
+        else:
+            projected.append((dt, round(float(original_total or 0.0), 1), dict(original_parts or {})))
+    return projected
 
 
 def iter_leaf_sessions(template: Mapping[str, Any]) -> List[Dict[str, Any]]:

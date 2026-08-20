@@ -179,6 +179,22 @@ def test_build_persists_catalog_prescriptions_and_one_brick_per_eligible_week(tm
     assert materialized
     assert all(item.get("definition_snapshot") for item in materialized)
     assert all(item.get("prescription_fingerprint") for item in materialized)
+    steady_bike = [
+        item
+        for item in materialized
+        if item.get("sport") == "bike"
+        and item.get("template_key") in {
+            "bike_recovery_spin",
+            "bike_aerobic_endurance",
+            "bike_aerobic_progression",
+        }
+    ]
+    assert steady_bike
+    assert all(
+        item["parameter_snapshot"]["planned_tss"] == pytest.approx(item["sessions"][0]["total_tss"], abs=0.1)
+        for item in steady_bike
+    )
+    assert all("requested_tss" in item["parameter_snapshot"] for item in steady_bike)
 
     eligible_week_indices = {
         index
@@ -578,6 +594,8 @@ def test_planning_export_and_adjust_routes_registered():
         "/api/planning/reconciliation/matches",
         "/api/planning/rebalance/preview",
         "/api/planning/rebalance/confirm",
+        "/api/planning/bike-tss/preview",
+        "/api/planning/bike-tss/confirm",
         "/api/planning/adjust",
     } <= paths
 

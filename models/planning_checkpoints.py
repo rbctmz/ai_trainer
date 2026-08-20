@@ -27,6 +27,8 @@ CHECKPOINT_SOURCE_LABELS = {
     "coach_constraint": "Ограничение Коуча",
     "recovery_replan": "Recovery Replan",
     "weekly_rebalance": "Недельная пересборка по факту",
+    "bike_tss_rebalance": "Согласование планового TSS вело",
+    "bike_tss_materialization_repair": "Исправление шагов вело после согласования TSS",
     "materialization_repair": "Восстановление исполнимых тренировок",
     "restore_version": "Восстановленная версия",
     "legacy_checkpoint": "Сохранённая версия",
