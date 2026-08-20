@@ -5,6 +5,7 @@ Demo is exercised against a temp DB so the real cache is never touched.
 from __future__ import annotations
 
 import importlib
+from datetime import date, timedelta
 
 import pytest
 
@@ -30,12 +31,15 @@ def test_demo_seed_isolated(tmp_path):
     from api.deps import make_headless_state
     from services import demo_mode as demo_service
 
+    # Относительная дата: get_activities(60) фильтрует `date >= today-60d`,
+    # хардкод уехал бы из окна через ~4 месяца и тест упал бы сам по себе (#475-CI).
+    recent = (date.today() - timedelta(days=5)).isoformat()
     real = Database(str(tmp_path / "real.db"))
     real.save_activities(
         [
             {
                 "activity_id": "real1",
-                "date": "2026-06-20",
+                "date": recent,
                 "sport": "cycling",
                 "duration_minutes": 60,
                 "distance_km": 30.0,
