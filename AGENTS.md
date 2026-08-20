@@ -67,6 +67,8 @@ Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`), subjects <72 char
 ## Development Workflow
 Canonical workflow for non-trivial features: `docs/AI_Feature_Development_Workflow.md` (SpecDD → BDD → TDD → Contract First → Self-Review → Minimal Complexity). Issue-first agent loop and GitHub automation model: `docs/loop_engineering_instruction.md`. Lightweight for docs-only/one-line fixes; start significant work from a spec + acceptance criteria + existing contracts.
 
+- **Evidence Discipline:** causal claims must use `Observed` / `Inferred` / `Verified by` and run one cheap falsifying check before naming a bug or cause; follow `.agent/PLANS.md` and `docs/AI_Feature_Development_Workflow.md`.
+
 ## ExecPlans
 Complex features and significant refactors use an ExecPlan from design to implementation, per `.agent/PLANS.md`.
 

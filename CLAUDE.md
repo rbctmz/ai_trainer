@@ -131,6 +131,7 @@ path (`docs/activity_tss_methodology.md`). See `docs/athlete_profile_sync_execpl
 - Keep data clients UI-agnostic; return structured status/errors and let the UI render them.
 - Many docs and strings are Russian-first; keep the language style already used in the file.
 - Large planning/dashboard/API changes should use an ExecPlan per `.agent/PLANS.md`.
+- Apply **Evidence Discipline** to causal claims: use `Observed` / `Inferred` / `Verified by`, run one cheap falsifying check before naming a bug or cause, and follow `.agent/PLANS.md` plus `docs/AI_Feature_Development_Workflow.md`.
 - Keep smoke tests green after each coherent slice.
 
 ## Troubleshooting
