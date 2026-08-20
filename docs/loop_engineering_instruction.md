@@ -12,6 +12,20 @@ The loop is intentionally not full auto-merge. Agents may implement, test, push,
 and open PRs, but code still lands through GitHub checks and an explicit merge
 decision.
 
+## Tried And Rejected
+
+AI Trainer does not use a background "consciousness worker" that continuously
+creates review work, or an autonomous self-improvement loop in which an agent
+rewrites its own identity, skills, or notes. These mechanisms were tried and
+rejected: roughly 40 edits across more than 20 sessions produced no measurable
+improvement, while the review queue accumulated stale state.
+
+This rejection does not apply to the active engineering loop. The validated
+path remains issue-first and PR-gated: an issue defines scope, an agent may
+implement and verify it, GitHub checks review the result, and a human makes the
+merge decision. Future automation must strengthen that evidence chain rather
+than recreate unattended self-evolution.
+
 ## Source Of Truth
 
 - `AGENTS.md`: repository rules for coding agents.
