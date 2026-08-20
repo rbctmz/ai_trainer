@@ -287,7 +287,13 @@ export interface ChatMessage {
   timestamp?: string | null;
 }
 
-export type CoachProposalAction = "build_plan" | "adjust_plan" | "recovery_replan";
+export type CoachProposalAction =
+  | "build_plan"
+  | "adjust_plan"
+  | "recovery_replan"
+  | "create_plan_constraint"
+  | "retract_plan_constraint"
+  | "repair_plan_day";
 
 export interface CoachProposalEvent {
   type: "proposal";

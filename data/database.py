@@ -1346,6 +1346,177 @@ class Database:
         conn.close()
         return self._deserialize_planning_checkpoint_row(row)
 
+    def commit_coach_plan_mutation(
+        self,
+        *,
+        action,
+        base_checkpoint_id,
+        checkpoint_data=None,
+        constraint_payload=None,
+        constraint_id=None,
+    ):
+        """Commit one confirmed coach mutation without a partial-write window.
+
+        The active checkpoint is checked after ``BEGIN IMMEDIATE`` has acquired
+        the writer lock.  Constraint create/retract and the optional child
+        checkpoint therefore either commit together or roll back together.
+        Planning code prepares the immutable checkpoint payload before entering
+        this short transaction; provider delivery is deliberately outside it.
+        """
+        allowed_actions = {
+            "create_plan_constraint",
+            "retract_plan_constraint",
+            "repair_plan_day",
+        }
+        action = str(action or "").strip()
+        if action not in allowed_actions:
+            raise ValueError(f"action must be one of {sorted(allowed_actions)}")
+        expected_base = int(base_checkpoint_id or 0)
+        if checkpoint_data is not None and not isinstance(checkpoint_data, dict):
+            raise ValueError("checkpoint_data must be a dict or None")
+
+        conn = self._connect()
+        conn.row_factory = sqlite3.Row
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            latest = conn.execute(
+                "SELECT id FROM planning_checkpoints ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            latest_id = int(latest["id"]) if latest is not None else 0
+            if latest_id != expected_base:
+                raise ValueError(
+                    f"active checkpoint #{latest_id or 'none'} no longer matches "
+                    f"request base #{expected_base or 'none'}"
+                )
+
+            constraint_row = None
+            if action == "create_plan_constraint":
+                payload = dict(constraint_payload or {})
+                allowed_kinds = {
+                    "sick",
+                    "unavailable",
+                    "forced_rest",
+                    "manual_delete",
+                    "disabled_plan_day",
+                }
+                kind = str(payload.get("kind") or "").strip()
+                if kind not in allowed_kinds:
+                    raise ValueError(f"kind must be one of {sorted(allowed_kinds)}")
+                date_value = str(payload.get("date") or "").strip()[:10]
+                if not date_value:
+                    raise ValueError("date must be non-empty")
+                from models.coach_constraints import normalize_constraint_sport
+
+                sport = normalize_constraint_sport(payload.get("sport"))
+                metadata = payload.get("metadata") or {}
+                if not isinstance(metadata, dict):
+                    raise ValueError("metadata must be a dict")
+                cursor = conn.execute(
+                    '''
+                    INSERT INTO coach_constraints
+                        (date, kind, status, source, note, plan_id, session_id,
+                         metadata_json, sport)
+                    VALUES (?, ?, 'active', ?, ?, ?, ?, ?, ?)
+                    ''',
+                    (
+                        self.clean_value(date_value),
+                        self.clean_value(kind),
+                        self.clean_value(str(payload.get("source") or "coach").strip() or "coach"),
+                        self.clean_value(payload.get("note")),
+                        self.clean_value(payload.get("plan_id")),
+                        self.clean_value(payload.get("session_id")),
+                        json.dumps(metadata, ensure_ascii=False, default=str),
+                        self.clean_value(sport),
+                    ),
+                )
+                created_id = int(cursor.lastrowid)
+                constraint_row = conn.execute(
+                    '''
+                    SELECT id, date, kind, status, source, note, plan_id, session_id,
+                           metadata_json, resolved_at, created_at, sport
+                    FROM coach_constraints WHERE id = ?
+                    ''',
+                    (created_id,),
+                ).fetchone()
+                if checkpoint_data is not None:
+                    checkpoint_data = self._replace_json_value(
+                        checkpoint_data,
+                        "__coach_constraint_id__",
+                        created_id,
+                    )
+
+            elif action == "retract_plan_constraint":
+                if constraint_id is None:
+                    raise ValueError("constraint_id is required")
+                existing = conn.execute(
+                    '''
+                    SELECT id, date, kind, status, source, note, plan_id, session_id,
+                           metadata_json, resolved_at, created_at, sport
+                    FROM coach_constraints WHERE id = ? AND status = 'active'
+                    ''',
+                    (int(constraint_id),),
+                ).fetchone()
+                if existing is None:
+                    raise ValueError("active constraint not found")
+                resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                conn.execute(
+                    "UPDATE coach_constraints SET status = 'inactive', resolved_at = ? "
+                    "WHERE id = ? AND status = 'active'",
+                    (resolved_at, int(constraint_id)),
+                )
+                constraint_row = conn.execute(
+                    '''
+                    SELECT id, date, kind, status, source, note, plan_id, session_id,
+                           metadata_json, resolved_at, created_at, sport
+                    FROM coach_constraints WHERE id = ?
+                    ''',
+                    (int(constraint_id),),
+                ).fetchone()
+
+            saved_checkpoint = None
+            if checkpoint_data is not None:
+                payload_json = json.dumps(checkpoint_data, ensure_ascii=False)
+                cursor = conn.execute(
+                    '''
+                    INSERT INTO planning_checkpoints
+                        (goal_type, distance, weeks_to_race, checkpoint_data)
+                    VALUES (?, ?, ?, ?)
+                    ''',
+                    (
+                        self.clean_value(checkpoint_data.get("goal_type")),
+                        self.clean_value(checkpoint_data.get("distance")),
+                        self.clean_value(checkpoint_data.get("weeks_to_race")),
+                        payload_json,
+                    ),
+                )
+                saved_checkpoint = conn.execute(
+                    '''
+                    SELECT id, goal_type, distance, weeks_to_race, checkpoint_data, created_at
+                    FROM planning_checkpoints WHERE id = ?
+                    ''',
+                    (int(cursor.lastrowid),),
+                ).fetchone()
+
+            conn.commit()
+            return {
+                "constraint": self._deserialize_coach_constraint_row(constraint_row),
+                "checkpoint": self._deserialize_planning_checkpoint_row(saved_checkpoint),
+            }
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    @classmethod
+    def _replace_json_value(cls, value, old, new):
+        """Return a JSON-shaped copy with one sentinel value replaced."""
+        if isinstance(value, dict):
+            return {key: cls._replace_json_value(item, old, new) for key, item in value.items()}
+        if isinstance(value, list):
+            return [cls._replace_json_value(item, old, new) for item in value]
+        return new if value == old else value
+
     def get_latest_planning_checkpoint(self):
         """Возвращает последний planning checkpoint или None."""
         conn = self._connect()
@@ -2606,7 +2777,14 @@ class Database:
         active_key=None,
     ):
         """Сохраняет pending-предложение коуча, требующее approve/reject."""
-        allowed_actions = {"build_plan", "adjust_plan", "recovery_replan"}
+        allowed_actions = {
+            "build_plan",
+            "adjust_plan",
+            "recovery_replan",
+            "create_plan_constraint",
+            "retract_plan_constraint",
+            "repair_plan_day",
+        }
         action = str(action or "").strip()
         if action not in allowed_actions:
             raise ValueError(f"action must be one of {sorted(allowed_actions)}")
@@ -2835,6 +3013,7 @@ class Database:
         allowed = {
             ("pending", "applying"),
             ("applying", "pending"),
+            ("pending", "rejected"),
             ("approved", "rolling_back"),
             ("rolling_back", "approved"),
         }

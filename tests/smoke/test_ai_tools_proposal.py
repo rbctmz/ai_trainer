@@ -210,7 +210,9 @@ def test_noop_plan_adjustment_formatter_does_not_request_confirmation() -> None:
     assert "Подтверди карточку" not in text
 
 
-def test_create_plan_constraint_without_active_plan_persists_ledger_row(tmp_path) -> None:
+def test_create_plan_constraint_without_active_plan_requires_approval(tmp_path) -> None:
+    from api.routers.decisions import approve_proposal
+
     db = Database(str(tmp_path / "constraint_tool_empty.db"))
     tools = AITools(db)
 
@@ -223,18 +225,29 @@ def test_create_plan_constraint_without_active_plan_persists_ledger_row(tmp_path
 
     assert result["success"] is True, result.get("error")
     payload = result["result"]
-    constraint = payload["constraint"]
     expected_date = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
 
+    assert payload["is_proposal"] is True
     assert payload["action"] == "create_plan_constraint"
-    assert payload["active_plan_updated"] is False
+    assert payload["preview"]["active_plan_updated"] is False
+    assert payload["params"]["date"] == expected_date
+    assert db.get_coach_constraints(start_date=expected_date, end_date=expected_date) == []
+
+    saved = db.save_coach_proposal(
+        action=payload["action"],
+        params=payload["params"],
+        preview=payload["preview"],
+    )
+    approved = approve_proposal(int(saved["id"]), db=db)
+    constraint = approved["result"]["constraint"]
     assert constraint["date"] == expected_date
     assert constraint["kind"] == "sick"
     assert constraint["status"] == "active"
-    assert db.get_coach_constraints(start_date=expected_date, end_date=expected_date)[0]["id"] == constraint["id"]
 
 
-def test_create_plan_constraint_applies_to_active_plan_checkpoint(tmp_path) -> None:
+def test_create_plan_constraint_applies_exact_preview_after_approval(tmp_path) -> None:
+    from api.routers.decisions import approve_proposal
+
     db = _seeded_db(tmp_path)
     _build_active_triathlon_plan(db)
     active_plan = planning_service.get_active_plan(db)
@@ -246,6 +259,7 @@ def test_create_plan_constraint_applies_to_active_plan_checkpoint(tmp_path) -> N
         if item[0].date() >= datetime.now().date() and float(item[1] or 0) > 0
     )
     protected_date = active_plan["daily_plan"][protected_index][0].strftime("%Y-%m-%d")
+    before_checkpoint_id = int(db.get_latest_planning_checkpoint()["id"])
 
     result = AITools(db).execute_tool(
         "create_plan_constraint",
@@ -256,9 +270,20 @@ def test_create_plan_constraint_applies_to_active_plan_checkpoint(tmp_path) -> N
 
     assert result["success"] is True, result.get("error")
     payload = result["result"]
-    assert payload["active_plan_updated"] is True
-    assert payload["constraint_application"]["applied_count"] == 1
-    assert payload["constraint_application"]["protected_dates"] == [protected_date]
+    assert payload["is_proposal"] is True
+    assert payload["preview"]["active_plan_updated"] is True
+    assert payload["preview"]["applied_count"] == 1
+    assert payload["preview"]["protected_dates"] == [protected_date]
+    assert db.get_latest_planning_checkpoint()["id"] == before_checkpoint_id
+    assert db.get_coach_constraints(start_date=protected_date, end_date=protected_date) == []
+
+    saved = db.save_coach_proposal(
+        action=payload["action"],
+        params=payload["params"],
+        preview=payload["preview"],
+    )
+    approved = approve_proposal(int(saved["id"]), db=db)
+    assert approved["result"]["applied_checkpoint_id"] > before_checkpoint_id
 
     updated_plan = planning_service.get_active_plan(db)
     assert updated_plan

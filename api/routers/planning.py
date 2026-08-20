@@ -91,6 +91,7 @@ class ConstraintRequest(BaseModel):
     note: Optional[str] = None
     plan_id: Optional[str] = None
     session_id: Optional[str] = None
+    base_checkpoint_id: Optional[int] = None
     metadata: Optional[Dict[str, Any]] = None
     sport: Optional[str] = Field(
         default=None,
@@ -177,6 +178,7 @@ def create_constraint(req: ConstraintRequest, db: Database = Depends(get_databas
             },
             plan_id=req.plan_id,
             session_id=req.session_id,
+            base_checkpoint_id=req.base_checkpoint_id,
         )
     except planning_service.StalePlanningCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -199,16 +201,19 @@ def retract_constraint(constraint_id: int, db: Database = Depends(get_database))
     Per-sport constraints strip only their own sport from the recovered legs;
     whole-day constraints recover every leg the donor had.
     """
-    row = db.deactivate_coach_constraint(constraint_id)
-    if row is None:
+    if db.get_coach_constraint(constraint_id) is None:
         raise HTTPException(status_code=404, detail="constraint not found")
-    exclude_sports = [row["sport"]] if row.get("sport") else []
     try:
-        recovery = planning_service.recover_day_after_constraint_retraction(
+        proposal = planning_service.preview_coach_constraint_mutation(
             db,
-            base_checkpoint_id=_active_checkpoint_id(db),
-            date=str(row.get("date") or ""),
-            exclude_sports=exclude_sports,
+            action="retract_plan_constraint",
+            params={"constraint_id": constraint_id},
+        )
+        result = planning_service.confirm_coach_constraint_mutation(
+            db,
+            action="retract_plan_constraint",
+            params=proposal["params"],
+            preview_fingerprint=str(proposal["preview"]["preview_fingerprint"]),
         )
     except planning_service.StalePlanningCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
@@ -216,18 +221,27 @@ def retract_constraint(constraint_id: int, db: Database = Depends(get_database))
         raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-    return {"constraint": row, "recover": recovery}
+    return {"constraint": result.get("constraint"), "recover": result}
 
 
 @router.post("/repair-day")
 def repair_day(req: RepairDayRequest, db: Database = Depends(get_database)) -> dict[str, Any]:
     """One-off day recovery (incident tooling); no constraint row involved."""
     try:
-        return planning_service.recover_day_after_constraint_retraction(
+        proposal = planning_service.preview_coach_constraint_mutation(
             db,
-            base_checkpoint_id=_active_checkpoint_id(db, required=req.base_checkpoint_id),
-            date=req.date,
-            exclude_sports=list(req.exclude_sports or []),
+            action="repair_plan_day",
+            params={
+                "base_checkpoint_id": _active_checkpoint_id(db, required=req.base_checkpoint_id),
+                "date": req.date,
+                "exclude_sports": list(req.exclude_sports or []),
+            },
+        )
+        return planning_service.confirm_coach_constraint_mutation(
+            db,
+            action="repair_plan_day",
+            params=proposal["params"],
+            preview_fingerprint=str(proposal["preview"]["preview_fingerprint"]),
         )
     except planning_service.StalePlanningCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))

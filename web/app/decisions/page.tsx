@@ -182,7 +182,13 @@ function ProposalEntry({
       ? "Новый план"
       : proposal.action === "recovery_replan"
         ? "Recovery Replan"
-        : "Корректировка плана";
+        : proposal.action === "create_plan_constraint" /* label */
+          ? "Новое ограничение"
+          : proposal.action === "retract_plan_constraint" /* label */
+            ? "Снятие ограничения"
+            : proposal.action === "repair_plan_day" /* label */
+              ? "Восстановление дня"
+              : "Корректировка плана";
   const goal = proposal.preview?.goal as Record<string, unknown> | undefined;
   const recommended = proposal.preview?.recommended_session as
     | Record<string, unknown>
@@ -230,7 +236,17 @@ function ProposalEntry({
           .join(" • ")
       : proposal.action === "recovery_replan"
         ? recoverySummary
-        : String(proposal.preview.adjustment_label ?? proposal.preview.adjustment_status ?? "");
+        : proposal.action === "create_plan_constraint"
+          ? [
+              String(proposal.preview.date ?? proposal.params.date ?? ""),
+              String(proposal.preview.sport ?? proposal.params.sport ?? "весь день"),
+              String(proposal.preview.note ?? proposal.params.note ?? ""),
+            ].filter(Boolean).join(" • ")
+          : proposal.action === "retract_plan_constraint"
+            ? `${String(proposal.preview.date ?? proposal.params.date ?? "")} • constraint #${String(proposal.params.constraint_id ?? "—")}`
+            : proposal.action === "repair_plan_day"
+              ? `${String(proposal.preview.date ?? proposal.params.date ?? "")} • восстановление из версии #${String(proposal.preview.donor_checkpoint_id ?? "—")}`
+              : String(proposal.preview.adjustment_label ?? proposal.preview.adjustment_status ?? "");
 
   async function handleRollback() {
     setLoading(true);

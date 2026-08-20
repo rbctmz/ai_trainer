@@ -42,7 +42,13 @@ interface ProposalCardProps {
 
 interface ProposalApprovalResponse {
   proposal: { id: number; status: string };
-  result: BuiltPlan | AdjustResult | RebalanceConfirmResult | RecoveryReplanResult;
+  result: BuiltPlan | AdjustResult | RebalanceConfirmResult | RecoveryReplanResult | CoachMutationResult;
+}
+
+interface CoachMutationResult {
+  action: "create_plan_constraint" | "retract_plan_constraint" | "repair_plan_day";
+  applied_checkpoint_id?: number | null;
+  warnings?: string[];
 }
 
 type RecoveryVariantKind = "keep" | "downgrade_today" | "transfer_1_3d";
@@ -438,6 +444,16 @@ export function ProposalCard({
   const [error, setError] = useState<string | null>(null);
   const [showEvidence, setShowEvidence] = useState(false);
 
+  const isCreateConstraint = action === "create_plan_constraint";
+  const isRetractConstraint = action === "retract_plan_constraint";
+  const isRepairPlanDay = action === "repair_plan_day";
+  const isConstraintMutation = isCreateConstraint || isRetractConstraint || isRepairPlanDay;
+  const constraintMutationLabel = isCreateConstraint
+    ? "Новое ограничение"
+    : isRetractConstraint
+      ? "Снять ограничение"
+      : "Восстановить день плана";
+
   const goal = (preview.goal as Record<string, unknown> | undefined) ?? {};
   const buildParams = action === "build_plan" ? buildPlanParams(params) : null;
   const adjustParams = action === "adjust_plan" ? adjustPlanParams(params) : null;
@@ -504,6 +520,27 @@ export function ProposalCard({
         return;
       }
 
+      if (isConstraintMutation) {
+        const response = await postJSON<ProposalApprovalResponse>(
+          `/api/decisions/proposals/${proposalId}/approve`,
+          {},
+        );
+        const mutationResult = asRecord(response.result);
+        const checkpointId = asNumber(mutationResult.applied_checkpoint_id, 0);
+        const confirmation = checkpointId > 0
+          ? `${constraintMutationLabel} применено · версия плана #${checkpointId}`
+          : `${constraintMutationLabel} применено`;
+        const warnings = Array.isArray(mutationResult.warnings)
+          ? mutationResult.warnings.map(asString).filter(Boolean)
+          : [];
+        onConfirmed(
+          warnings.length > 0
+            ? `${confirmation}. Внимание: ${warnings.join("; ")}`
+            : confirmation,
+        );
+        return;
+      }
+
       const response = await postJSON<ProposalApprovalResponse>(
         `/api/decisions/proposals/${proposalId}/approve`,
         {},
@@ -542,7 +579,9 @@ export function ProposalCard({
               ? "Предложение нового плана"
               : action === "recovery_replan"
                 ? "Recovery Replan"
-                : "Предложение корректировки"}
+                : isConstraintMutation
+                  ? constraintMutationLabel
+                  : "Предложение корректировки"}
           </div>
           <p className="mt-1 text-xs text-ink-soft">
             Изменение попадёт в активный план только после подтверждения.
@@ -698,6 +737,42 @@ export function ProposalCard({
             Никакой вариант не применяется автоматически. Подтверждение относится только к выбранному варианту.
           </p>
         </>
+      ) : isConstraintMutation ? (
+        <section className="mt-3 rounded-lg bg-surface/60 px-3 py-3">
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-ink-soft">
+            Что изменится после подтверждения
+          </h3>
+          <ul className="mt-2 space-y-1 text-sm text-ink-soft">
+            <li>Дата: {asString(preview.date ?? params.date) || "—"}</li>
+            <li>Базовая версия плана: #{asString(params.base_checkpoint_id || 0)}</li>
+            {isCreateConstraint ? (
+              <>
+                <li>Тип: {asString(preview.kind ?? params.kind) || "—"}</li>
+                <li>Скоуп: {asString(preview.sport ?? params.sport) || "весь день"}</li>
+                {preview.note || params.note ? (
+                  <li>Причина: {asString(preview.note ?? params.note)}</li>
+                ) : null}
+              </>
+            ) : null}
+            {isRetractConstraint ? (
+              <li>
+                Ограничение #{asString(asRecord(preview.constraint).id ?? params.constraint_id)} будет снято
+              </li>
+            ) : null}
+            {isRetractConstraint || isRepairPlanDay ? (
+              <li>
+                Восстановленные тренировки:{" "}
+                {Array.isArray(preview.restored_session_ids) ? preview.restored_session_ids.length : 0}
+              </li>
+            ) : null}
+            {preview.donor_checkpoint_id ? (
+              <li>Источник восстановления: версия #{asString(preview.donor_checkpoint_id)}</li>
+            ) : null}
+          </ul>
+          <p className="mt-3 text-xs text-ink-faint">
+            До подтверждения constraint ledger и активная версия плана не меняются.
+          </p>
+        </section>
       ) : (
         <>
           <ul className="mt-3 space-y-1 text-sm text-ink-soft">

@@ -193,13 +193,13 @@ def approve_proposal(
             # can immediately choose an offered variant; no plan/provider
             # mutation has started.
             raise HTTPException(status_code=422, detail=str(exc))
-        proposal = db.transition_coach_proposal_status(
-            proposal_id,
-            "pending",
-            "applying",
-        )
-        if proposal is None:
-            raise HTTPException(status_code=409, detail="proposal is already being applied")
+    proposal = db.transition_coach_proposal_status(
+        proposal_id,
+        "pending",
+        "applying",
+    )
+    if proposal is None:
+        raise HTTPException(status_code=409, detail="proposal is already being applied")
     try:
         result = _apply_proposal(db, proposal, variant_kind=variant_kind)
     except planning_service.StalePlanningCheckpointError as exc:
@@ -235,6 +235,9 @@ def reject_proposal(
     db: Database = Depends(get_database),
 ) -> dict[str, Any]:
     _pending_proposal_or_error(db, proposal_id)
+    updated = db.transition_coach_proposal_status(proposal_id, "pending", "rejected")
+    if updated is None:
+        raise HTTPException(status_code=409, detail="proposal is already being resolved")
     updated = db.update_coach_proposal_status(
         proposal_id,
         "rejected",
@@ -444,6 +447,23 @@ def _apply_proposal(
 
     if action == "recovery_replan":
         return _apply_recovery_replan_proposal(db, proposal, params, variant_kind)
+
+    if action in {
+        "create_plan_constraint",
+        "retract_plan_constraint",
+        "repair_plan_day",
+    }:
+        fingerprint = str(
+            params.get("preview_fingerprint")
+            or (proposal.get("preview") or {}).get("preview_fingerprint")
+            or ""
+        )
+        return planning_service.confirm_coach_constraint_mutation(
+            db,
+            action=str(action),
+            params=params,
+            preview_fingerprint=fingerprint,
+        )
 
     raise ValueError(f"unsupported proposal action: {action}")
 
