@@ -923,15 +923,20 @@ def test_today_snapshot_carries_device_sync_hint_for_recovery_replan(tmp_path) -
 
     from api.today_snapshot import build_today_decision_snapshot
 
-    today = date.today()  # created_at чекпоинта = реальная дата (CURRENT_TIMESTAMP)
+    today = date.today()
     goal_plan = _goal_plan(today)
     goal_plan["checkpoint_source"] = "recovery_replan"
     db = Database(str(tmp_path / "sync-hint.db"))
     db.save_planning_checkpoint(build_planning_checkpoint(goal_plan))
     # Успешная доставка этого же дня из чекпоинта 1 (первый сохранённый).
     today_iso = today.isoformat()
+    # Пиним created_at на 09:00 UTC дня: дефолт CURRENT_TIMESTAMP брал реальный
+    # UTC-час старта теста, а грейдер сравнивает athlete-local дату чека с UTC-днём —
+    # в окно 21:00-24:00 UTC (+3 часа Мск = уже завтра) подсказка гасла детерминированно (#476).
+    pinned_at = f"{today_iso} 09:00:00"
     conn = sqlite3.connect(db.db_path)
     try:
+        conn.execute("UPDATE planning_checkpoints SET created_at = ? WHERE id = 1", (pinned_at,))
         conn.execute(
             """INSERT INTO coach_proposals
                (date, action, status, params_json, preview_json, result_json, created_at)
