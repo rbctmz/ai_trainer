@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime
+import re
 
 import pytest
 
@@ -171,6 +172,92 @@ def test_rebalanced_delivery_uses_old_provider_id_and_new_step_duration():
     legacy_event = build_delivery_events(legacy, ["2026-08-21"])[0]
     assert legacy_event["external_id"] == f"ai_trainer:{old_id}"
     assert legacy_event["moving_time"] == event["moving_time"]
+
+
+def test_rebalanced_export_and_delivery_share_persisted_duration_and_identity():
+    from api.planning_service import export_workout
+    from models.intervals_workout_delivery import build_delivery_events
+
+    plan = _plan()
+    old_id = plan["session_templates"][1]["sessions"][0]["session_id"]
+    preview = build_bike_tss_rebalance_preview(
+        plan,
+        as_of=datetime(2026, 8, 20).date(),
+        base_checkpoint_id=7,
+    )
+    updated = apply_bike_tss_rebalance_preview(plan, preview)
+    session = updated["session_templates"][1]["sessions"][0]
+    expected_seconds = [
+        int(step["duration_seconds"])
+        for step in session["materialized_steps"]
+    ]
+
+    tcx = export_workout(
+        updated,
+        1,
+        "tcx",
+        session_id=str(session["session_id"]),
+    )
+    fit = export_workout(
+        updated,
+        1,
+        "fit_csv",
+        session_id=str(session["session_id"]),
+    )
+    events = build_delivery_events(updated, ["2026-08-21"])
+    event = next(
+        item
+        for item in events
+        if item["external_id"] == f"ai_trainer:{old_id}"
+    )
+
+    assert [
+        int(value)
+        for value in re.findall(r"<Seconds>(\d+)</Seconds>", tcx["content"])
+    ] == expected_seconds
+    fit_steps = [
+        (int(index), int(seconds), float(target))
+        for index, seconds, target in re.findall(
+            r"^Data,2,workout_step,message_index,(\d+),,.*?,"
+            r"duration_type,0,,duration_time,(\d+),s,"
+            r"target_type,4,,target_value,([\d.]+),watts,",
+            fit["content"],
+            flags=re.MULTILINE,
+        )
+    ]
+    expected_fit_steps = [
+        (
+            index,
+            seconds,
+            round(
+                (float(step["target"]["low"]) + float(step["target"]["high"]))
+                / 2.0,
+                1,
+            ),
+        )
+        for index, (step, seconds) in enumerate(
+            zip(session["materialized_steps"], expected_seconds)
+        )
+    ]
+    assert fit_steps == expected_fit_steps
+
+    provider_steps = [
+        line.strip()
+        for line in event["description"].splitlines()[1:]
+        if line.strip()
+    ]
+    expected_provider_steps = []
+    for step, seconds in zip(session["materialized_steps"], expected_seconds):
+        duration = f"{seconds // 60}m" if seconds % 60 == 0 else f"{seconds}s"
+        target = step["target"]
+        expected_provider_steps.append(
+            f"- {step['name']} {duration} "
+            f"{float(target['low']):g}-{float(target['high']):g}w"
+        )
+    assert provider_steps == expected_provider_steps
+    assert "AI Trainer target evidence: power" in tcx["content"]
+    assert event["external_id"] == f"ai_trainer:{session['delivery_session_id']}"
+    assert event["moving_time"] == sum(expected_seconds)
 
 
 def test_preview_is_idempotent_when_checkpoint_has_legacy_stale_steps():
