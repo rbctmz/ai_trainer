@@ -96,6 +96,40 @@ def test_pair_upserted_on_resync(tmp_path, monkeypatch):
     assert pairs[0]["normalized_power"] == pytest.approx(140.0)
 
 
+def test_provider_copy_does_not_strip_canonical_pair_features(tmp_path, monkeypatch):
+    """A poorer provider copy must not overwrite the projected canonical pair."""
+    monkeypatch.setattr(Settings, "USER_FTP", 250)
+    monkeypatch.setattr(Settings, "PRIMARY_ACTIVITY_SOURCE", "garmin")
+    db = Database(str(tmp_path / "provider_merge.db"))
+    db.save_athlete_profile({"ftp": 159.0, "lthr": 163.0, "source": "intervals_icu"})
+
+    activity_id = "bike-provider-merge"
+    _sync_activities(db, [_garmin_ride(activity_id)])
+    assert _pairs(db)[0]["normalized_power"] == pytest.approx(134.6)
+
+    intervals_copy = normalize_provider_activity(
+        {
+            "id": "i_provider_copy",
+            "external_id": activity_id,
+            "source": "GARMIN_CONNECT",
+            "type": "Ride",
+            "start_date_local": _recent_iso(),
+            "moving_time": 8205,
+            "elapsed_time": 8414,
+            "average_heartrate": 128,
+            "icu_average_watts": 111,
+        },
+        "intervals",
+    )
+    ingest_provider_activity(db, intervals_copy, primary_source="garmin")
+
+    pairs = _pairs(db)
+    assert len(pairs) == 1
+    assert pairs[0]["activity_id"] == activity_id
+    assert pairs[0]["normalized_power"] == pytest.approx(134.6)
+    assert pairs[0]["zone_coverage_pct"] == pytest.approx(102.5, abs=0.5)
+
+
 def test_pair_ftp_follows_profile_history(tmp_path, monkeypatch):
     monkeypatch.setattr(Settings, "USER_FTP", 250)
     db = Database(str(tmp_path / "ftp_history.db"))
@@ -159,4 +193,3 @@ def test_pair_failure_does_not_break_ingest(tmp_path, monkeypatch):
 
     assert result == {"new": 1, "updated": 0, "skipped": 0}
     assert _pairs(db) == []
-

@@ -303,7 +303,9 @@ def ingest_provider_activity(
     # failure must never fail or roll back the canonical ingest; a missing pair
     # self-heals on the next sync of the same activity (idempotent upsert).
     try:
-        record_bike_hr_pair(db, candidate.canonical)
+        canonical = db.get_activity(result["canonical_activity_id"])
+        if canonical:
+            record_bike_hr_pair(db, canonical)
     except Exception:
         pass
     return result
