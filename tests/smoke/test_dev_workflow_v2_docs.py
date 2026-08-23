@@ -117,8 +117,9 @@ def test_process_metrics_have_definitions_place_and_two_real_baselines() -> None
     assert "Verified by: NOT YET" in text
     # Class A пилот завершён (#496); Class C остаётся открытым до своего пилота.
     assert "Class A architecture-changing PR: **done — PR #496**" in text
-    assert "Class C UI/docs PR: `NOT YET`" in text
+    assert "Class C UI/docs PR: **done — PR #497**" in text
     assert "PR #496" in text
+    assert "PR #497" in text
 
 
 def test_agent_entrypoint_links_policy_template_and_metrics() -> None:
