@@ -42,6 +42,8 @@ def test_canonical_workflow_defines_three_change_classes_and_escalation() -> Non
     assert "merge с открытым P0/P1 или blocking P2" in text
     assert "pure behavior-preserving refactor" in text
     assert "characterization/equivalence baseline" in text
+    assert "Class C пропускает отдельные SpecDD, BDD и TDD" in text
+    assert "Для Class C без изменения поведения TDD не применяется" in text
 
 
 def test_loop_requires_one_review_bundle_and_owned_merge_cleanup() -> None:
@@ -151,7 +153,9 @@ def test_agent_issue_and_queue_contracts_are_change_class_aware() -> None:
     assert "requiredSections.some(value => !value)" in queue_workflow
     assert "changeClass === 'Class A — Full'" in queue_workflow
     assert "isNA(execplan) || isNA(nonGoals)" in queue_workflow
-    assert "isBareNA(execplan) || isBareNA(nonGoals)" in queue_workflow
+    assert "^N\\s*\\/?\\s*A\\b(.*)$" in queue_workflow
+    assert "hasNARationale" in queue_workflow
+    assert "!hasNARationale(execplan) || !hasNARationale(nonGoals)" in queue_workflow
     assert "**Change class:**" in queue_workflow
     assert "Class B/C may use N/A" in queue_workflow
     assert "extract('Non-goals')" in queue_workflow

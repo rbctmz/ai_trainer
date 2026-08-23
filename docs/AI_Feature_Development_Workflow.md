@@ -103,6 +103,18 @@
 существенной неизвестности нет, переходи от краткой постановки проблемы сразу к
 SPEC.
 
+Этот pipeline — default для Class A и для Class B с intentional behavior
+change. Pure behavior-preserving refactor использует characterization baseline
+вместо искусственного RED. Class C использует сокращённый pipeline:
+
+```text
+ПРОБЛЕМА И SCOPE → TARGETED DOCS/VISUAL/CONTRACT CHECK → SELF-REVIEW → FINAL CHECK
+```
+
+Class C пропускает отдельные SpecDD, BDD и TDD, если не меняет наблюдаемое
+поведение или public contract. При таком изменении задача должна быть
+переклассифицирована либо применить соответствующие BDD/TDD stages.
+
 ---
 
 # CHANGE CLASSES AND REVIEW POLICY
@@ -141,8 +153,10 @@ test. Отдельный spec/docs PR не нужен: короткая спец
 Ускоренный контур подходит для локальных docs/UI/cosmetic/mechanical изменений,
 которые обратимы и не меняют доменные инварианты. Достаточны ясный scope,
 минимальный diff, targeted docs/visual/contract check и self-review. ExecPlan не
-нужен. Fast track не отменяет branch protection, обязательный CI, проверку
-контракта или screenshot/GIF для затронутой UI-поверхности.
+нужен; отдельные SpecDD, BDD и TDD тоже не нужны без изменения наблюдаемого
+поведения или public contract. Fast track не отменяет branch protection,
+обязательный CI, проверку контракта или screenshot/GIF для затронутой
+UI-поверхности.
 
 ## Automatic escalation triggers
 
@@ -318,10 +332,13 @@ Then ...
 
 # ШАГ 3 — TDD
 
-Сначала создай/обнови тесты.
+Для intentional behavior change сначала создай/обнови тесты. Для pure
+behavior-preserving refactor используй characterization/equivalence baseline.
+Для Class C без изменения поведения TDD не применяется; выполни targeted check,
+указанный в политике класса.
 
 Правила:
-- тесты должны падать до реализации
+- тесты intentional behavior change должны падать до реализации
 - тесты должны проверять поведение, а не внутренности
 - не писать хрупкие тесты
 - покрывать основные сценарии

@@ -44,15 +44,20 @@ jobs:
             const requiredSections = [execplan, nonGoals, acceptance, smoke];
             if (requiredSections.some(value => !value)) return;
 
-            const isNA = (value) => /^N\/A(?:\s|$)/i.test(value);
-            const isBareNA = (value) => /^N\/A\s*$/i.test(value);
+            const naMatch = (value) => value.match(/^N\s*\/?\s*A\b(.*)$/i);
+            const isNA = (value) => Boolean(naMatch(value));
+            const hasNARationale = (value) => {
+              const match = naMatch(value);
+              if (!match) return true;
+              return match[1].replace(/^[\s:;,.—–-]+/, '').trim().length > 0;
+            };
             if (
               changeClass === 'Class A — Full' &&
               (isNA(execplan) || isNA(nonGoals))
             ) return;
             if (
               changeClass !== 'Class A — Full' &&
-              (isBareNA(execplan) || isBareNA(nonGoals))
+              (!hasNARationale(execplan) || !hasNARationale(nonGoals))
             ) return;
 
             const isIssueEvent = context.eventName === 'issues';
