@@ -72,6 +72,17 @@ body:
       required: true
 
   - type: textarea
+    id: non_goals
+    attributes:
+      label: Non-goals
+      description: "Explicit scope boundaries. Class A must list them; Class B / Class C may write 'N/A' with a short reason."
+      placeholder: |
+        - No live-provider writes
+        - No schema migration or historical backfill
+    validations:
+      required: true
+
+  - type: textarea
     id: acceptance
     attributes:
       label: Acceptance criteria

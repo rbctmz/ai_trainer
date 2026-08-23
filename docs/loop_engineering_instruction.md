@@ -46,12 +46,15 @@ Automation expects tracked agent tasks to be GitHub issues with:
 
 - `### Change Class`
 - `### ExecPlan`
+- `### Non-goals`
 - `### Acceptance criteria`
 - `### Smoke baseline`
 
 Class A must provide the ExecPlan path or state that it will be created. Class B
 and Class C keep the heading for a stable automation contract but may write
-`N/A` plus a short rationale. An issue with that shape can be queued
+`N/A` plus a short rationale. Class A must list explicit non-goals; Class B/C
+may use `N/A` with a reason. Only the three recognized Change Class values are
+queued. An issue with that shape can be queued
 automatically on open/reopen, or by a trusted collaborator comment that mentions
 `@codex`.
 

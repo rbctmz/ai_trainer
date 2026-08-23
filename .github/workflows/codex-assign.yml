@@ -23,6 +23,17 @@ jobs:
             const body = issue.body || '';
             if (!body.includes('### ExecPlan')) return;
 
+            const recognizedChangeClasses = new Set([
+              'Class A — Full',
+              'Class B — Standard',
+              'Class C — Fast track',
+            ]);
+            const changeClassMatch = body.match(
+              /### Change Class\n+([\s\S]+?)(?=\n###|$)/
+            );
+            const changeClass = changeClassMatch ? changeClassMatch[1].trim() : '';
+            if (!recognizedChangeClasses.has(changeClass)) return;
+
             const isIssueEvent = context.eventName === 'issues';
             const isCommentEvent = context.eventName === 'issue_comment';
             const action = context.payload.action;
@@ -52,8 +63,8 @@ jobs:
             };
 
             const title = issue.title;
-            const changeClass = extract('Change Class');
             const execplan   = extract('ExecPlan');
+            const nonGoals   = extract('Non-goals');
             const acceptance = extract('Acceptance criteria');
             const smoke      = extract('Smoke baseline');
             const issueNumber = issue.number;
@@ -70,6 +81,9 @@ jobs:
                 `Class A requires an ExecPlan. Class B/C may use N/A with a short rationale; reclassify if scope grows.`,
                 ``,
                 `**ExecPlan:** ${execplan}`,
+                ``,
+                `**Non-goals:**`,
+                nonGoals,
                 ``,
                 `**Acceptance criteria:**`,
                 acceptance,

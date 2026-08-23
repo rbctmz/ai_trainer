@@ -134,7 +134,18 @@ def test_agent_issue_and_queue_contracts_are_change_class_aware() -> None:
         assert change_class in issue_template
     assert "Class B / Class C" in issue_template
     assert "N/A" in issue_template
+    assert "label: Non-goals" in issue_template
+    assert "Class A must list them" in issue_template
 
-    assert "extract('Change Class')" in queue_workflow
+    assert "recognizedChangeClasses" in queue_workflow
+    for change_class in (
+        "Class A — Full",
+        "Class B — Standard",
+        "Class C — Fast track",
+    ):
+        assert change_class in queue_workflow
+    assert "if (!recognizedChangeClasses.has(changeClass)) return" in queue_workflow
     assert "**Change class:**" in queue_workflow
     assert "Class B/C may use N/A" in queue_workflow
+    assert "extract('Non-goals')" in queue_workflow
+    assert "**Non-goals:**" in queue_workflow
