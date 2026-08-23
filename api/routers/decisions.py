@@ -9,6 +9,7 @@ from api import planning_service
 from api.deps import get_database
 from api.operational_state import build_operational_state
 from data.database import Database
+from services.coach_drift import build_coach_drift_report
 from services.intervals_plan_delivery import safe_deliver_active_plan
 
 router = APIRouter(prefix="/api/decisions", tags=["decisions"])
@@ -101,6 +102,11 @@ def list_decisions(
         if group
     ]
     latest_data_at = max(latest_dates) if latest_dates else None
+    drift_report = build_coach_drift_report(
+        rows,
+        proposal_rows,
+        db.get_planning_checkpoint,
+    )
     return {
         "has_data": has_data,
         "count": len(rows),
@@ -111,6 +117,7 @@ def list_decisions(
         "pending_proposal_days": pending_proposal_grouped,
         "recovery_count": len(recovery_rows),
         "recovery_days": recovery_grouped,
+        "drift_report": drift_report,
         "operational_state": build_operational_state(
             db,
             demo=demo,
@@ -423,6 +430,11 @@ def _apply_proposal(
             available_hours=float(params.get("available_hours") or 10.0),
             available_days=available_days,
             demand=params.get("demand"),
+            expected_base_checkpoint_id=(
+                int(params["base_checkpoint_id"])
+                if params.get("base_checkpoint_id") is not None
+                else None
+            ),
             persist=True,
         )
 

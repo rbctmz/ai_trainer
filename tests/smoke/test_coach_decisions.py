@@ -5,6 +5,8 @@ import asyncio
 import json
 from datetime import date, datetime, timedelta
 
+import pytest
+
 from data.database import Database
 
 
@@ -332,6 +334,58 @@ def test_approve_build_plan_proposal_persists_checkpoint(tmp_path):
     assert active_plan["event_date"] == event_date
 
 
+def test_coach_build_proposal_records_and_guards_its_preview_base(tmp_path):
+    from fastapi import HTTPException
+
+    from api import planning_service
+    from api.routers.decisions import approve_proposal
+    from models.ai_tools import AITools
+
+    db = _seeded_db(tmp_path, "stale_build.db")
+    initial = planning_service.build_plan(
+        db,
+        goal_type="Триатлон",
+        distance="Olympic",
+        event_date=_future_event_date(weeks=10),
+        available_hours=10,
+        available_days=["mon", "wed", "sat", "sun"],
+        persist=True,
+    )
+    raw = AITools(db).propose_plan_build(
+        goal_type="Триатлон",
+        distance="Olympic",
+        event_date=_future_event_date(weeks=12),
+        available_hours=10,
+        available_days="mon,wed,sat,sun",
+    )
+    assert raw["params"]["base_checkpoint_id"] == int(initial["plan_id"])
+    proposal = db.save_coach_proposal(
+        action=raw["action"],
+        params=raw["params"],
+        preview=raw["preview"],
+        decision_event_id="event-stale-build",
+    )
+    assert proposal["base_checkpoint_id"] == int(initial["plan_id"])
+
+    # Another append-only plan version wins before approval. The old preview
+    # must fail closed instead of producing misleading drift lineage.
+    planning_service.build_plan(
+        db,
+        goal_type="Триатлон",
+        distance="Olympic",
+        event_date=_future_event_date(weeks=11),
+        available_hours=10,
+        available_days=["mon", "wed", "sat", "sun"],
+        persist=True,
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        approve_proposal(proposal["id"], db=db)
+
+    assert exc_info.value.status_code == 409
+    assert db.get_coach_proposal(proposal["id"])["status"] == "failed"
+
+
 def test_reject_plan_proposal_does_not_mutate_active_plan(tmp_path):
     from api.routers.decisions import reject_proposal
 
@@ -410,6 +464,7 @@ def test_coach_completion_writes_decision_record(tmp_path, monkeypatch):
     assert "\n" not in decision["reason"]
     assert decision["chat_id"] == events[0]["chat_id"]
     assert decision["message_id"] == events[-1]["message_id"]
+    assert decision["decision_event_id"]
 
 
 def test_coach_stream_persists_proposal_and_emits_id(tmp_path, monkeypatch):
@@ -456,8 +511,12 @@ def test_coach_stream_persists_proposal_and_emits_id(tmp_path, monkeypatch):
     saved = db.get_coach_proposal(proposals[0]["proposal_id"])
     assert saved["action"] == "build_plan"
     assert saved["status"] == "pending"
+    assert saved["source"] == "coach_tool"
     assert saved["chat_id"] == events[0]["chat_id"]
     assert saved["message_id"] == events[-1]["message_id"]
+    decision = db.get_coach_decisions(days=30)[0]
+    assert saved["decision_event_id"]
+    assert saved["decision_event_id"] == decision["decision_event_id"]
 
 
 def test_routes_register_decisions_endpoint():

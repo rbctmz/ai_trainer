@@ -309,6 +309,7 @@ def run_recovery_replan_loop(
     db: Database,
     *,
     today: date | None = None,
+    decision_event_id: str | None = None,
 ) -> dict[str, Any]:
     """Evaluate, audit, and optionally create one idempotent recovery proposal."""
     today = today or datetime.now().date()
@@ -382,6 +383,7 @@ def run_recovery_replan_loop(
                 source_key=fingerprint,
                 active_key=_active_proposal_key(report, variant, int(checkpoint_id)),
                 date=f"{str(report.get('as_of') or today.isoformat())[:10]}T00:00:00",
+                decision_event_id=decision_event_id,
             )
             if proposal["status"] == "pending" and proposal.get("preview") != preview:
                 proposal = db.update_coach_proposal_preview(proposal["id"], preview)

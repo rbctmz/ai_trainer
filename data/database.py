@@ -200,12 +200,17 @@ class Database:
     _COACH_DECISION_COLUMN_TYPES = {
         'metrics_window_days': 'INTEGER',
         'as_of_date': 'TEXT',
+        'decision_event_id': 'TEXT',
     }
 
     _COACH_PROPOSAL_COLUMN_TYPES = {
         'source': 'TEXT',
         'source_key': 'TEXT',
         'active_key': 'TEXT',
+        'decision_event_id': 'TEXT',
+        'base_checkpoint_id': 'INTEGER',
+        'applied_checkpoint_id': 'INTEGER',
+        'rollback_checkpoint_id': 'INTEGER',
     }
 
     def __init__(self, db_path=None):
@@ -439,6 +444,7 @@ class Database:
                 message_id TEXT,
                 metrics_window_days INTEGER,
                 as_of_date TEXT,
+                decision_event_id TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -459,6 +465,10 @@ class Database:
                 source TEXT,
                 source_key TEXT,
                 active_key TEXT,
+                decision_event_id TEXT,
+                base_checkpoint_id INTEGER,
+                applied_checkpoint_id INTEGER,
+                rollback_checkpoint_id INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -1071,6 +1081,16 @@ class Database:
         return json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
 
     @staticmethod
+    def _optional_int(value):
+        """Return an integer lineage id or None without treating zero as absent."""
+        if value is None or value == "":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+
+    @staticmethod
     def _json_load(value, fallback):
         if value is None:
             return fallback
@@ -1603,6 +1623,7 @@ class Database:
         message_id=None,
         metrics_window_days=None,
         as_of_date=None,
+        decision_event_id=None,
         date=None,
     ):
         """Сохраняет решение коуча для audit trail."""
@@ -1627,8 +1648,9 @@ class Database:
         cursor.execute(
             '''
             INSERT INTO coach_decisions
-                (date, decision_type, reason, workout_id, chat_id, message_id, metrics_window_days, as_of_date)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (date, decision_type, reason, workout_id, chat_id, message_id,
+                 metrics_window_days, as_of_date, decision_event_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 self.clean_value(date),
@@ -1639,13 +1661,14 @@ class Database:
                 self.clean_value(message_id),
                 self.clean_value(metrics_window_days),
                 self.clean_value(as_of_date),
+                self.clean_value(decision_event_id),
             ),
         )
         decision_id = cursor.lastrowid
         cursor.execute(
             '''
             SELECT id, date, decision_type, reason, workout_id, chat_id, message_id,
-                   metrics_window_days, as_of_date, created_at
+                   metrics_window_days, as_of_date, created_at, decision_event_id
             FROM coach_decisions
             WHERE id = ?
             ''',
@@ -1664,7 +1687,7 @@ class Database:
         cursor.execute(
             '''
             SELECT id, date, decision_type, reason, workout_id, chat_id, message_id,
-                   metrics_window_days, as_of_date, created_at
+                   metrics_window_days, as_of_date, created_at, decision_event_id
             FROM coach_decisions
             WHERE substr(date, 1, 10) >= ?
             ORDER BY date DESC, id DESC
@@ -1690,6 +1713,7 @@ class Database:
             'metrics_window_days': row[7] if len(row) > 8 else None,
             'as_of_date': row[8] if len(row) > 8 else None,
             'created_at': row[9] if len(row) > 9 else row[7],
+            'decision_event_id': row[10] if len(row) > 10 else None,
         }
 
     def save_recovery_decision(
@@ -2775,6 +2799,7 @@ class Database:
         source=None,
         source_key=None,
         active_key=None,
+        decision_event_id=None,
     ):
         """Сохраняет pending-предложение коуча, требующее approve/reject."""
         allowed_actions = {
@@ -2802,6 +2827,9 @@ class Database:
 
         conn = self._connect()
         cursor = conn.cursor()
+        base_checkpoint_id = self._optional_int(
+            params.get("base_checkpoint_id", preview.get("base_checkpoint_id"))
+        )
         values = (
             self.clean_value(date),
             self.clean_value(action),
@@ -2812,14 +2840,16 @@ class Database:
             self.clean_value(source),
             self.clean_value(source_key),
             self.clean_value(active_key),
+            self.clean_value(decision_event_id),
+            base_checkpoint_id,
         )
         if source_key or active_key:
             cursor.execute(
                 '''
                 INSERT OR IGNORE INTO coach_proposals
                     (date, action, status, params_json, preview_json, chat_id, message_id,
-                     source, source_key, active_key)
-                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+                     source, source_key, active_key, decision_event_id, base_checkpoint_id)
+                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 values,
             )
@@ -2855,8 +2885,8 @@ class Database:
                 '''
                 INSERT INTO coach_proposals
                     (date, action, status, params_json, preview_json, chat_id, message_id,
-                     source, source_key, active_key)
-                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)
+                     source, source_key, active_key, decision_event_id, base_checkpoint_id)
+                VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
                 values,
             )
@@ -2865,7 +2895,8 @@ class Database:
             '''
             SELECT id, date, action, status, params_json, preview_json, result_json,
                    error, chat_id, message_id, resolved_at, created_at, source, source_key,
-                   active_key
+                   active_key, decision_event_id, base_checkpoint_id,
+                   applied_checkpoint_id, rollback_checkpoint_id
             FROM coach_proposals
             WHERE id = ?
             ''',
@@ -2895,7 +2926,8 @@ class Database:
             '''
             SELECT id, date, action, status, params_json, preview_json, result_json,
                    error, chat_id, message_id, resolved_at, created_at, source, source_key,
-                   active_key
+                   active_key, decision_event_id, base_checkpoint_id,
+                   applied_checkpoint_id, rollback_checkpoint_id
             FROM coach_proposals
             WHERE id = ?
             ''',
@@ -2916,7 +2948,8 @@ class Database:
             '''
             SELECT id, date, action, status, params_json, preview_json, result_json,
                    error, chat_id, message_id, resolved_at, created_at, source, source_key,
-                   active_key
+                   active_key, decision_event_id, base_checkpoint_id,
+                   applied_checkpoint_id, rollback_checkpoint_id
             FROM coach_proposals
             WHERE id = ?
             LIMIT 1
@@ -2937,7 +2970,8 @@ class Database:
                 '''
                 SELECT id, date, action, status, params_json, preview_json, result_json,
                        error, chat_id, message_id, resolved_at, created_at, source, source_key,
-                       active_key
+                       active_key, decision_event_id, base_checkpoint_id,
+                       applied_checkpoint_id, rollback_checkpoint_id
                 FROM coach_proposals
                 WHERE substr(date, 1, 10) >= ? AND status = ?
                 ORDER BY date DESC, id DESC
@@ -2950,7 +2984,8 @@ class Database:
                 '''
                 SELECT id, date, action, status, params_json, preview_json, result_json,
                        error, chat_id, message_id, resolved_at, created_at, source, source_key,
-                       active_key
+                       active_key, decision_event_id, base_checkpoint_id,
+                       applied_checkpoint_id, rollback_checkpoint_id
                 FROM coach_proposals
                 WHERE substr(date, 1, 10) >= ?
                 ORDER BY date DESC, id DESC
@@ -2977,12 +3012,24 @@ class Database:
         if result is not None:
             result_json = json.dumps(result, ensure_ascii=False, default=str)
 
+        lineage_result = result if status == "approved" and isinstance(result, dict) else {}
+        base_checkpoint_id = self._optional_int(lineage_result.get("base_checkpoint_id"))
+        applied_checkpoint_id = self._optional_int(
+            lineage_result.get("applied_checkpoint_id", lineage_result.get("plan_id"))
+        )
+        rollback_checkpoint_id = self._optional_int(
+            lineage_result.get("rollback_checkpoint_id")
+        )
+
         conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
             UPDATE coach_proposals
-            SET status = ?, result_json = ?, error = ?, resolved_at = ?
+            SET status = ?, result_json = ?, error = ?, resolved_at = ?,
+                base_checkpoint_id = COALESCE(base_checkpoint_id, ?),
+                applied_checkpoint_id = COALESCE(applied_checkpoint_id, ?),
+                rollback_checkpoint_id = COALESCE(rollback_checkpoint_id, ?)
             WHERE id = ?
             ''',
             (
@@ -2990,6 +3037,9 @@ class Database:
                 result_json,
                 self.clean_value(error),
                 self.clean_value(resolved_at),
+                base_checkpoint_id,
+                applied_checkpoint_id,
+                rollback_checkpoint_id,
                 int(proposal_id),
             ),
         )
@@ -2997,7 +3047,8 @@ class Database:
             '''
             SELECT id, date, action, status, params_json, preview_json, result_json,
                    error, chat_id, message_id, resolved_at, created_at, source, source_key,
-                   active_key
+                   active_key, decision_event_id, base_checkpoint_id,
+                   applied_checkpoint_id, rollback_checkpoint_id
             FROM coach_proposals
             WHERE id = ?
             ''',
@@ -3036,7 +3087,8 @@ class Database:
             '''
             SELECT id, date, action, status, params_json, preview_json, result_json,
                    error, chat_id, message_id, resolved_at, created_at, source, source_key,
-                   active_key
+                   active_key, decision_event_id, base_checkpoint_id,
+                   applied_checkpoint_id, rollback_checkpoint_id
             FROM coach_proposals
             WHERE id = ?
             ''',
@@ -3276,6 +3328,10 @@ class Database:
             'source': row[12] if len(row) > 12 else None,
             'source_key': row[13] if len(row) > 13 else None,
             'active_key': row[14] if len(row) > 14 else None,
+            'decision_event_id': row[15] if len(row) > 15 else None,
+            'base_checkpoint_id': row[16] if len(row) > 16 else None,
+            'applied_checkpoint_id': row[17] if len(row) > 17 else None,
+            'rollback_checkpoint_id': row[18] if len(row) > 18 else None,
         }
 
     def save_coach_constraint(

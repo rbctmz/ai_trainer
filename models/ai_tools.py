@@ -1260,6 +1260,7 @@ class AITools:
                 "event_date": str(event_date).strip(),
                 "available_hours": float(available_hours),
                 "available_days": days_list,
+                "base_checkpoint_id": preview.get("base_checkpoint_id"),
             },
             "preview": {
                 "goal": preview.get("goal", {}),
@@ -1268,6 +1269,7 @@ class AITools:
                 "total_tss": preview.get("totals", {}).get("total_tss"),
                 "target_weekly_tss": preview.get("weekly_target", {}).get("target_weekly_tss"),
                 "forecast_message": preview.get("forecast", {}).get("message"),
+                "base_checkpoint_id": preview.get("base_checkpoint_id"),
             },
         }
 

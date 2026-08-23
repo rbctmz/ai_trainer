@@ -74,6 +74,7 @@ def coach_chat(
 
     chat_manager = _chat_manager()
     chat_id = req.chat_id or chat_manager.create_new_chat()
+    decision_event_id = str(uuid.uuid4())
     chat_manager.add_message(chat_id, "user", message)
     history = chat_manager.get_chat_messages(chat_id)[:-1]
     ai_tools = AITools(db)
@@ -83,7 +84,10 @@ def coach_chat(
     has_data = latest_data_at is not None
     readiness_snapshot = build_readiness_snapshot(db)
     try:
-        recovery_replan = run_recovery_replan_loop(db)
+        recovery_replan = run_recovery_replan_loop(
+            db,
+            decision_event_id=decision_event_id,
+        )
         readiness_conflicts = recovery_replan["readiness_conflicts"]
     except Exception as exc:
         # Audit persistence must never block a coach answer.
@@ -173,6 +177,8 @@ def coach_chat(
                         preview=raw_result.get("preview", {}),
                         chat_id=chat_id,
                         message_id=message_id,
+                        decision_event_id=decision_event_id,
+                        source="coach_tool",
                     )
                     yield _sse(
                         {
@@ -235,6 +241,7 @@ def coach_chat(
                 final,
                 chat_id=chat_id,
                 message_id=message_id,
+                decision_event_id=decision_event_id,
                 load_metrics_context=load_metrics_context,
             )
             chat_manager.add_message(chat_id, "assistant", final)
@@ -435,6 +442,7 @@ def _save_decision(
     *,
     chat_id: str,
     message_id: str,
+    decision_event_id: str,
     load_metrics_context: dict[str, Any] | None = None,
 ) -> None:
     try:
@@ -446,6 +454,7 @@ def _save_decision(
             workout_id=decision.workout_id,
             chat_id=chat_id,
             message_id=message_id,
+            decision_event_id=decision_event_id,
             metrics_window_days=load_metrics_context.get("metrics_window_days"),
             as_of_date=load_metrics_context.get("as_of_date"),
         )
