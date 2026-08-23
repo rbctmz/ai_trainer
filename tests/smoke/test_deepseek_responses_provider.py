@@ -226,8 +226,9 @@ def test_adapter_sdk_error_returns_error_text_and_empty_calls():
 def test_adapter_client_none_returns_not_configured():
     from models.ai_providers import DeepSeekResponsesProvider
 
+    # Контракт не зависит от наличия ключа в окружении: явно гасим клиент.
     provider = DeepSeekResponsesProvider(api_key=None)
-    assert provider.client is None
+    provider.client = None
     result = provider.generate_with_tools([{"role": "user", "content": "q"}], [])
     assert result == {"text": "DeepSeekResponsesProvider: клиент не настроен", "tool_calls": []}
 

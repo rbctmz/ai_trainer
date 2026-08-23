@@ -14,9 +14,9 @@ How to see it working: `python -m pytest tests/smoke/test_deepseek_responses_pro
 
 - [x] (2026-08-23) Spike #441: вердикт PARTIAL, формат зафиксирован таблицей отличий; решение «отдельный адаптер, не подмена base_url».
 - [x] (2026-08-23) M0: ExecPlan + slice-spec созданы; класс A подтверждён триггерами live-provider write + новый public contract.
-- [ ] (pending) M1 RED: контрактные тесты адаптера падают до реализации.
-- [ ] (pending) M2 GREEN: парсер + mixin + провайдер + регистрация в фабрике/UI-picker.
-- [ ] (pending) M3: verification bundle + PR + запись метрик Class A pilot.
+- [x] (2026-08-23) M1 RED: 14/15 новых сценариев падали до реализации (ImportError/AttributeError).
+- [x] (2026-08-23) M2 GREEN: парсер + mixin + провайдер + реестр + пикер; focused 15/15, регрессия #190 без правок.
+- [ ] (pending) M3: verification bundle (готов: ruff green, smoke 2003 passed, contract-артефакт актуален) + PR + запись метрик Class A pilot.
 
 ## Surprises & Discoveries
 

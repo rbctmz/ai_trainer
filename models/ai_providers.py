@@ -5,7 +5,7 @@
 
 import json
 from abc import ABC, abstractmethod
-from typing import Any, Optional, Dict, List, Type
+from typing import Any, Optional, Dict, List, Mapping, Type
 import os
 from config.settings import Settings
 
@@ -524,6 +524,246 @@ class DeepSeekProvider(OpenAICompatibleToolsMixin, AIProvider):
         ]
 
 
+class DeepSeekResponsesToolsMixin:
+    """Адаптер инструментов через DeepSeek Responses API (spike #441).
+
+    Переводит OpenAI-стиль истории рантайма коуча в input-элементы Responses
+    (function_call / function_call_output) и нормализует output-элементы в тот
+    же контракт {text, tool_calls}, что и остальные нативные провайдеры (#190).
+    """
+
+    def supports_native_tools(self) -> bool:
+        return True
+
+    def generate_with_tools(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: List[Dict[str, Any]],
+        system_prompt: str = "",
+    ) -> Dict[str, Any]:
+        if not getattr(self, "client", None):
+            return {"text": f"{type(self).__name__}: клиент не настроен", "tool_calls": []}
+
+        request: Dict[str, Any] = {
+            "model": self.model,
+            "input": _messages_to_responses_input(messages),
+            "instructions": system_prompt or None,
+            "max_output_tokens": self.settings.AI_RESPONSE_MAX_TOKENS,
+            # Tool selection/arguments must be deterministic (issue #440).
+            "temperature": self.settings.AI_TOOLS_TEMPERATURE,
+        }
+        payload = [
+            {
+                "type": "function",
+                "name": schema["name"],
+                "description": schema["description"],
+                "parameters": schema["parameters"],
+            }
+            for schema in tools or []
+        ]
+        if payload:
+            request["tools"] = payload
+
+        try:
+            response = self.client.responses.create(**request)
+        except Exception as exc:
+            return {"text": f"Ошибка {type(self).__name__}: {exc}", "tool_calls": []}
+
+        result = responses_output_to_result(getattr(response, "output", None))
+        # Spike #441: на финальном шаге output_text может быть None — но когда
+        # в output нет message-элементов, честный fallback лучше пустой строки.
+        if not result["text"]:
+            fallback = getattr(response, "output_text", None)
+            if isinstance(fallback, str) and fallback:
+                result["text"] = fallback
+        return result
+
+
+def _item_value(item: Any, key: str, default: Any = None) -> Any:
+    """Читает поле из dict-элемента или SDK-объекта (duck typing)."""
+    if isinstance(item, Mapping):
+        return item.get(key, default)
+    return getattr(item, key, default)
+
+
+def _message_text_from_content_parts(content: Any) -> str:
+    """Склеивает text-части content (список {text: str} или объекты .text)."""
+    parts: List[str] = []
+    for part in content or []:
+        value = part.get("text") if isinstance(part, Mapping) else getattr(part, "text", None)
+        if isinstance(value, str):
+            parts.append(value)
+    return "".join(parts)
+
+
+def responses_output_to_result(output_items: Any) -> Dict[str, Any]:
+    """Нормализует output-элементы Responses API в {text, tool_calls} (#441).
+
+    Дискриминатор type: message → текст, function_call → {id, name, arguments},
+    reasoning и прочие типы пропускаются (spike #441).
+    """
+    text_parts: List[str] = []
+    tool_calls: List[Dict[str, Any]] = []
+    for item in output_items or []:
+        item_type = str(_item_value(item, "type") or "").strip()
+        if item_type == "message":
+            text_parts.append(_message_text_from_content_parts(_item_value(item, "content")))
+        elif item_type == "function_call":
+            arguments = _item_value(item, "arguments") or {}
+            if not isinstance(arguments, dict):
+                arguments = {}
+            tool_calls.append(
+                {
+                    "id": str(_item_value(item, "call_id") or _item_value(item, "id") or ""),
+                    "name": str(_item_value(item, "name") or ""),
+                    "arguments": dict(arguments),
+                }
+            )
+    return {"text": "".join(text_parts), "tool_calls": tool_calls}
+
+
+def _messages_to_responses_input(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Проекция OpenAI-истории рантайма на input-элементы Responses (#441).
+
+    assistant с tool_calls → assistant-item + function_call-items;
+    tool-сообщение → function_call_output с tool_call_id;
+    остальные роли — как есть (системный промпт передаётся instructions).
+    """
+    items: List[Dict[str, Any]] = []
+    for message in messages or []:
+        if not isinstance(message, Mapping):
+            continue
+        role = str(message.get("role") or "")
+        if role == "tool":
+            items.append(
+                {
+                    "type": "function_call_output",
+                    "call_id": str(message.get("tool_call_id") or ""),
+                    "output": str(message.get("content") or ""),
+                }
+            )
+            continue
+        tool_calls = message.get("tool_calls")
+        if role == "assistant" and tool_calls:
+            items.append({"role": "assistant", "content": str(message.get("content") or "")})
+            for call in tool_calls:
+                if not isinstance(call, Mapping):
+                    continue
+                arguments = call.get("arguments") or {}
+                if not isinstance(arguments, dict):
+                    arguments = {}
+                items.append(
+                    {
+                        "type": "function_call",
+                        "call_id": str(call.get("id") or call.get("call_id") or ""),
+                        "name": str(call.get("name") or ""),
+                        "arguments": dict(arguments),
+                    }
+                )
+            continue
+        items.append(
+            {
+                "role": role if role in {"user", "assistant", "system"} else "user",
+                "content": str(message.get("content") or ""),
+            }
+        )
+    return items
+
+
+class DeepSeekResponsesProvider(DeepSeekResponsesToolsMixin, AIProvider):
+    """Провайдер DeepSeek через Responses API (формат Codex, spike #441).
+
+    Отдельный адаптер поверх того же клиента OpenAI SDK: формат ответа
+    Responses API структурно отличается от chat.completions, поэтому этот
+    класс НЕ переиспользует OpenAICompatibleToolsMixin и не подменяет base_url
+    у обычного DeepSeekProvider (тот продолжает ходить в chat.completions).
+    """
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
+        settings: Type[Settings] = Settings,
+    ) -> None:
+        self.settings = settings
+        self.api_key = api_key or settings.DEEPSEEK_API_KEY
+        self.model = model or settings.DEEPSEEK_MODEL
+        self.base_url = base_url or settings.DEEPSEEK_BASE_URL
+        self.client = None
+
+        if self.api_key:
+            try:
+                from openai import OpenAI
+                self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+            except ImportError:
+                print("OpenAI библиотека не установлена")
+            except Exception as e:
+                print(f"Ошибка инициализации DeepSeekResponsesProvider: {e}")
+
+    def generate_response(self, prompt: str, system_prompt: str = "") -> str:
+        if not self.client:
+            return "DeepSeek Responses провайдер не настроен"
+
+        try:
+            input_items: List[Dict[str, Any]] = []
+            if system_prompt:
+                input_items.append({"role": "system", "content": system_prompt})
+            input_items.append({"role": "user", "content": prompt})
+
+            response = self.client.responses.create(
+                model=self.model,
+                input=input_items,
+                max_output_tokens=self.settings.AI_RESPONSE_MAX_TOKENS,
+            )
+            result = responses_output_to_result(getattr(response, "output", None))
+            text = result["text"] or str(getattr(response, "output_text", None) or "")
+            return text
+
+        except Exception as e:
+            return f"Ошибка DeepSeekResponsesProvider: {e}"
+
+    def is_available(self) -> bool:
+        return self.client is not None and self.api_key is not None
+
+    def get_model_name(self) -> str:
+        return f"DeepSeek Responses {self.model}"
+
+    def test_connection(self) -> Dict[str, Any]:
+        if not self.client:
+            return {
+                'success': False,
+                'error': 'Клиент не инициализирован. Проверьте API ключ.'
+            }
+
+        try:
+            response = self.client.responses.create(
+                model=self.model,
+                input=[{"role": "user", "content": "Test"}],
+                max_output_tokens=5,
+            )
+            return {
+                'success': True,
+                'message': 'Подключение успешно',
+                'model': self.model,
+                'base_url': self.base_url,
+                'response_length': len(str(getattr(response, "output_text", None) or "")),
+            }
+        except Exception as e:
+            return {
+                'success': False,
+                'error': f'Ошибка подключения: {str(e)}'
+            }
+
+    def get_available_models(self) -> List[str]:
+        return [
+            "deepseek-v4-flash",
+            "deepseek-v4-pro",
+            "deepseek-chat",
+            "deepseek-reasoner",
+        ]
+
+
 class GoogleGeminiProvider(AIProvider):
     """Провайдер Google Gemini через актуальный Google Gen AI SDK."""
     
@@ -778,6 +1018,7 @@ class AIProviderFactory:
             'openai': OpenAIProvider,
             'anthropic': AnthropicProvider,
             'deepseek': DeepSeekProvider,
+            'deepseek_responses': DeepSeekResponsesProvider,
             'google': GoogleGeminiProvider,
             'ollama': OllamaProvider
         }
@@ -811,6 +1052,7 @@ class AIProviderFactory:
             'OpenAI': OpenAIProvider(),
             'Anthropic': AnthropicProvider(),
             'DeepSeek': DeepSeekProvider(),
+            'DeepSeek (Responses API)': DeepSeekResponsesProvider(),
             'Google Gemini': AIProviderFactory._google_probe_provider(),
             'Ollama': OllamaProvider(host=Settings.OLLAMA_HOST, model=Settings.OLLAMA_MODEL)
         }
