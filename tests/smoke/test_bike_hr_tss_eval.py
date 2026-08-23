@@ -151,6 +151,29 @@ def test_same_day_activities_beyond_contiguity_window_stay_independent():
     assert len(episodes) == 2
 
 
+def test_contiguous_activity_parts_across_midnight_form_one_episode():
+    before_midnight = _pair(
+        activity_id="before-midnight",
+        date="2026-08-22",
+        started_at_utc="2026-08-22T20:59:00Z",
+        duration_minutes=2.0,
+    )
+    after_midnight = _pair(
+        activity_id="after-midnight",
+        date="2026-08-23",
+        started_at_utc="2026-08-22T21:01:30Z",
+        duration_minutes=5.0,
+    )
+
+    episodes = group_dependent_bike_pairs([after_midnight, before_midnight])
+
+    assert len(episodes) == 1
+    assert [row["activity_id"] for row in episodes[0]] == [
+        "before-midnight",
+        "after-midnight",
+    ]
+
+
 def test_reorder_gate_counts_and_splits_independent_episodes():
     pairs = _series(19)
     pairs.extend(

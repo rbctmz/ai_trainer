@@ -60,31 +60,29 @@ def group_dependent_bike_pairs(
     """
     gap = timedelta(minutes=max(0.0, float(max_gap_minutes)))
 
-    def sort_key(pair: dict) -> tuple[str, datetime, str]:
+    def sort_key(pair: dict) -> tuple[int, datetime, str, str]:
         started_at = _started_at_utc(pair)
         return (
-            str(pair.get("date") or ""),
+            0 if started_at is not None else 1,
             started_at or datetime.max.replace(tzinfo=timezone.utc),
+            str(pair.get("date") or ""),
             str(pair.get("activity_id") or ""),
         )
 
     episodes: list[list[dict]] = []
     current: list[dict] = []
-    current_date = ""
     current_end: datetime | None = None
 
     def flush() -> None:
-        nonlocal current, current_date, current_end
+        nonlocal current, current_end
         if current:
             episodes.append(current)
         current = []
-        current_date = ""
         current_end = None
 
     for pair in sorted(pairs, key=sort_key):
         started_at = _started_at_utc(pair)
         duration = _elapsed_minutes(pair)
-        pair_date = str(pair.get("date") or "")
         if started_at is None or duration is None:
             flush()
             episodes.append([pair])
@@ -93,7 +91,6 @@ def group_dependent_bike_pairs(
         ended_at = started_at + timedelta(minutes=duration)
         if (
             current
-            and pair_date == current_date
             and current_end is not None
             and started_at <= current_end + gap
         ):
@@ -103,7 +100,6 @@ def group_dependent_bike_pairs(
 
         flush()
         current = [pair]
-        current_date = pair_date
         current_end = ended_at
 
     flush()
