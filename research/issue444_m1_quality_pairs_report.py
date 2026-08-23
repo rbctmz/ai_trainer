@@ -19,13 +19,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np  # noqa: E402
 
-from services.bike_hr_tss_candidates import (  # noqa: E402
-    avg_hr_tss,
-    hrss_tss,
-    power_tss_target,
-    zones_tss,
+from services.bike_hr_tss_eval import (  # noqa: E402
+    build_episode_candidate_rows,
+    by_intensity,
+    evaluate_reorder,
+    group_dependent_bike_pairs,
+    metrics,
 )
-from services.bike_hr_tss_eval import by_intensity, evaluate_reorder, metrics  # noqa: E402
 
 
 def main() -> None:
@@ -37,7 +37,15 @@ def main() -> None:
     conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     rows = conn.execute(
-        "SELECT * FROM bike_hr_quality_pairs ORDER BY date, activity_id"
+        "SELECT q.*, "
+        "(SELECT a.started_at_utc FROM activities AS a "
+        " WHERE CAST(a.activity_id AS TEXT) = q.activity_id "
+        " ORDER BY a.rowid DESC LIMIT 1) AS started_at_utc, "
+        "(SELECT a.duration_minutes FROM activities AS a "
+        " WHERE CAST(a.activity_id AS TEXT) = q.activity_id "
+        " ORDER BY a.rowid DESC LIMIT 1) AS duration_minutes "
+        "FROM bike_hr_quality_pairs AS q "
+        "ORDER BY q.date, q.activity_id"
     ).fetchall()
     conn.close()
     pairs = [dict(row) for row in rows]
@@ -50,21 +58,15 @@ def main() -> None:
     print(f"  с HR-зонами: {sum(1 for p in pairs if p['zone_coverage_pct'] is not None)}")
     print(f"  с RHR: {sum(1 for p in pairs if p['rhr'] is not None)}")
 
-    rows_out = []
-    for pair in pairs:
-        target = power_tss_target(pair)
-        if target is None:
-            continue
-        rows_out.append(
-            {
-                "pair": pair,
-                "target": target,
-                "hrss": hrss_tss(pair),
-                "zones": zones_tss(pair),
-                "avg_hr": avg_hr_tss(pair),
-            }
-        )
-    rows_out.sort(key=lambda r: r["pair"]["date"])
+    episodes = group_dependent_bike_pairs(pairs)
+    multi_part = [episode for episode in episodes if len(episode) > 1]
+    print(f"  независимых эпизодов: {len(episodes)}")
+    for episode in multi_part:
+        activity_ids = ", ".join(str(pair["activity_id"]) for pair in episode)
+        print(f"    зависимый составной эпизод: {activity_ids}")
+
+    rows_out = build_episode_candidate_rows(pairs)
+    rows_out.sort(key=lambda row: (row["date"], row["activity_ids"]))
 
     names = {"hrss": "1.HRSS(Karvonen)", "zones": "2.zones(fixed)", "avg_hr": "3.avgHR(current)"}
 
@@ -87,7 +89,12 @@ def main() -> None:
 
     holdout_n = max(1, int(round(len(rows_out) * args.holdout_frac)))
     holdout = rows_out[-holdout_n:] if rows_out else []
-    print(f"\nХронологический holdout: train={len(rows_out) - len(holdout)} / holdout={len(holdout)}")
+    holdout_activity_n = sum(len(row["activity_ids"]) for row in holdout)
+    print(
+        f"\nХронологический holdout: train={len(rows_out) - len(holdout)} / "
+        f"holdout={len(holdout)} независимых эпизодов "
+        f"({holdout_activity_n} активностей)"
+    )
     for key, label in names.items():
         subset = [r for r in holdout if r[key] is not None]
         if len(subset) < 2:
