@@ -185,11 +185,19 @@ def test_reconciliation_uses_relative_lookback_and_preserves_full_actual_load() 
     }
 
     july_8 = next(row for row in result["rows"] if row["date"] == "2026-07-08")
-    assert july_8["match_status"] == "matched"
+    assert july_8["match_status"] == "ambiguous"
     assert july_8["match_method"] == "date_sport_heuristic"
-    assert july_8["actual_total_tss"] == pytest.approx(64.2)
-    assert july_8["actual_activity_ids"] == ["ride-a", "ride-b"]
-    assert july_8["adherence"] == "major_deviation"
+    assert july_8["actual_total_tss"] == 0
+    assert july_8["actual_activity_ids"] == []
+    assert [item["activity_id"] for item in july_8["candidate_activities"]] == [
+        "ride-a",
+        "ride-b",
+    ]
+    assert july_8["adherence"] == "unknown"
+    assert july_8["evidence"][0] == (
+        "Несколько активностей одного вида спорта требуют явного выбора "
+        "для плановой сессии"
+    )
 
     july_9 = next(row for row in result["rows"] if row["date"] == "2026-07-09")
     assert july_9["match_status"] == "ambiguous"
@@ -200,9 +208,14 @@ def test_reconciliation_uses_relative_lookback_and_preserves_full_actual_load() 
     july_12 = next(row for row in result["rows"] if row["date"] == "2026-07-12")
     assert july_12["actual_total_tss"] == pytest.approx(30.2)
     assert set(july_12["actual_activity_ids"]) == {"paired-ride"}
-    assert {item["activity_id"] for item in result["unplanned_activities"]} >= {"swim-a", "swim-b"}
+    assert {item["activity_id"] for item in result["unplanned_activities"]} >= {
+        "ride-a",
+        "ride-b",
+        "swim-a",
+        "swim-b",
+    }
     assert result["metrics"]["total_actual_tss"] == pytest.approx(144.7)
-    assert result["metrics"]["unplanned_tss"] == pytest.approx(50.3)
+    assert result["metrics"]["unplanned_tss"] == pytest.approx(114.5)
 
 
 def test_heuristic_same_sport_match_without_role_stays_unknown() -> None:
@@ -228,7 +241,8 @@ def test_heuristic_same_sport_match_without_role_stays_unknown() -> None:
     assert row["adherence"] == "unknown"
     # локализованный evidence (#399)
     assert row["evidence"][0] == (
-        "Единственная плановая сессия сопоставлена со всеми активностями того же дня и вида спорта"
+        "Единственная плановая сессия сопоставлена с единственной активностью "
+        "того же дня и вида спорта"
     )
 
 
