@@ -3,7 +3,11 @@ from __future__ import annotations
 import pytest
 
 from services.bike_hr_tss_candidates import avg_hr_tss, hrss_tss, power_tss_target, zones_tss
-from services.bike_hr_tss_eval import evaluate_reorder
+from services.bike_hr_tss_eval import (
+    build_episode_candidate_rows,
+    evaluate_reorder,
+    group_dependent_bike_pairs,
+)
 
 
 pytestmark = pytest.mark.smoke
@@ -56,15 +60,16 @@ def test_candidate_formulas_on_known_pair():
 def test_reorder_gate_passes_when_avg_hr_clearly_better():
     verdict = evaluate_reorder(_series(20))
     assert verdict["passed"] is True
-    assert verdict["checks"][0]["passed"] is True  # n пар
+    assert verdict["checks"][0]["passed"] is True  # n независимых эпизодов
     assert verdict["n_pairs"] == 20
+    assert verdict["n_episodes"] == 20
 
 
 def test_reorder_gate_fails_with_insufficient_pairs():
     verdict = evaluate_reorder(_series(10))
     assert verdict["passed"] is False
     reasons = [check["id"] for check in verdict["checks"] if not check["passed"]]
-    assert "n_pairs" in reasons
+    assert "n_episodes" in reasons
 
 
 def test_reorder_gate_fails_when_zones_win():
@@ -92,3 +97,83 @@ def test_reorder_gate_fails_when_avg_hr_biased_positive():
     reasons = [check["id"] for check in verdict["checks"] if not check["passed"]]
     assert "full_bias" in reasons
     assert "full_mae" not in reasons  # MAE avg (≈8) < MAE зон (≈27) — этот чек проходит
+
+
+def test_contiguous_activity_parts_form_one_evaluation_episode():
+    main = _pair(
+        activity_id="main",
+        date="2026-08-22",
+        started_at_utc="2026-08-22T08:15:18Z",
+        duration_minutes=106.79,
+    )
+    ride_home = _pair(
+        activity_id="ride-home",
+        date="2026-08-22",
+        started_at_utc="2026-08-22T10:02:57Z",
+        duration_minutes=14.08,
+    )
+
+    episodes = group_dependent_bike_pairs([ride_home, main])
+
+    assert len(episodes) == 1
+    assert [row["activity_id"] for row in episodes[0]] == ["main", "ride-home"]
+    candidate_rows = build_episode_candidate_rows([ride_home, main])
+    assert candidate_rows[0]["target"] == pytest.approx(100.0, abs=0.4)
+    assert candidate_rows[0]["avg_hr"] == pytest.approx(100.0, abs=0.4)
+    assert candidate_rows[0]["zones"] == pytest.approx(45.5, abs=0.1)
+
+
+def test_same_day_without_time_evidence_does_not_merge_activities():
+    first = _pair(activity_id="first", date="2026-08-22")
+    second = _pair(activity_id="second", date="2026-08-22")
+
+    episodes = group_dependent_bike_pairs([first, second])
+
+    assert len(episodes) == 2
+
+
+def test_same_day_activities_beyond_contiguity_window_stay_independent():
+    first = _pair(
+        activity_id="first",
+        date="2026-08-22",
+        started_at_utc="2026-08-22T08:00:00Z",
+        duration_minutes=60.0,
+    )
+    second = _pair(
+        activity_id="second",
+        date="2026-08-22",
+        started_at_utc="2026-08-22T09:31:00Z",
+        duration_minutes=60.0,
+    )
+
+    episodes = group_dependent_bike_pairs([first, second])
+
+    assert len(episodes) == 2
+
+
+def test_reorder_gate_counts_and_splits_independent_episodes():
+    pairs = _series(19)
+    pairs.extend(
+        [
+            _pair(
+                activity_id="main",
+                date="2026-08-22",
+                started_at_utc="2026-08-22T08:15:18Z",
+                duration_minutes=106.79,
+            ),
+            _pair(
+                activity_id="ride-home",
+                date="2026-08-22",
+                started_at_utc="2026-08-22T10:02:57Z",
+                duration_minutes=14.08,
+            ),
+        ]
+    )
+
+    verdict = evaluate_reorder(pairs)
+
+    assert verdict["n_pairs"] == 21
+    assert verdict["n_episodes"] == 20
+    assert verdict["holdout_n"] == 6
+    assert verdict["holdout_activity_n"] == 7
+    assert verdict["passed"] is True

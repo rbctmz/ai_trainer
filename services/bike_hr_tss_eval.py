@@ -7,9 +7,11 @@
 """
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import numpy as np
 
-from services.bike_hr_tss_candidates import avg_hr_tss, power_tss_target, zones_tss
+from services.bike_hr_tss_candidates import avg_hr_tss, hrss_tss, power_tss_target, zones_tss
 
 
 HOLD_FRAC = 0.30
@@ -17,6 +19,125 @@ MIN_PAIRS_WITH_ZONES = 20
 MIN_HOLDOUT = 6
 MAX_ABS_FULL_BIAS = 5.0
 MAX_ABS_HARD_BIAS = 5.0
+DEPENDENT_ACTIVITY_MAX_GAP_MINUTES = 30.0
+
+
+def _started_at_utc(pair: dict) -> datetime | None:
+    value = str(pair.get("started_at_utc") or "").strip()
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _elapsed_minutes(pair: dict) -> float | None:
+    for key in ("duration_minutes", "moving_minutes"):
+        try:
+            value = float(pair.get(key))
+        except (TypeError, ValueError):
+            continue
+        if np.isfinite(value) and value > 0:
+            return value
+    return None
+
+
+def group_dependent_bike_pairs(
+    pairs: list[dict],
+    *,
+    max_gap_minutes: float = DEPENDENT_ACTIVITY_MAX_GAP_MINUTES,
+) -> list[list[dict]]:
+    """Group contiguous recordings from one ride into evaluation episodes.
+
+    Product activities remain separate. This grouping is used only to keep
+    dependent activity parts together in the #444 statistical split. A pair
+    without a trustworthy start and duration is fail-closed as a singleton;
+    sharing a calendar date alone is never enough to merge two activities.
+    """
+    gap = timedelta(minutes=max(0.0, float(max_gap_minutes)))
+
+    def sort_key(pair: dict) -> tuple[str, datetime, str]:
+        started_at = _started_at_utc(pair)
+        return (
+            str(pair.get("date") or ""),
+            started_at or datetime.max.replace(tzinfo=timezone.utc),
+            str(pair.get("activity_id") or ""),
+        )
+
+    episodes: list[list[dict]] = []
+    current: list[dict] = []
+    current_date = ""
+    current_end: datetime | None = None
+
+    def flush() -> None:
+        nonlocal current, current_date, current_end
+        if current:
+            episodes.append(current)
+        current = []
+        current_date = ""
+        current_end = None
+
+    for pair in sorted(pairs, key=sort_key):
+        started_at = _started_at_utc(pair)
+        duration = _elapsed_minutes(pair)
+        pair_date = str(pair.get("date") or "")
+        if started_at is None or duration is None:
+            flush()
+            episodes.append([pair])
+            continue
+
+        ended_at = started_at + timedelta(minutes=duration)
+        if (
+            current
+            and pair_date == current_date
+            and current_end is not None
+            and started_at <= current_end + gap
+        ):
+            current.append(pair)
+            current_end = max(current_end, ended_at)
+            continue
+
+        flush()
+        current = [pair]
+        current_date = pair_date
+        current_end = ended_at
+
+    flush()
+    return episodes
+
+
+def build_episode_candidate_rows(pairs: list[dict]) -> list[dict]:
+    """Aggregate additive TSS candidates for independent ride episodes."""
+    rows: list[dict] = []
+    candidates = {
+        "target": power_tss_target,
+        "hrss": hrss_tss,
+        "zones": zones_tss,
+        "avg_hr": avg_hr_tss,
+    }
+    for episode in group_dependent_bike_pairs(pairs):
+        values: dict[str, float | None] = {}
+        for name, candidate in candidates.items():
+            component_values = [candidate(pair) for pair in episode]
+            values[name] = (
+                float(sum(component_values))
+                if all(value is not None for value in component_values)
+                else None
+            )
+        if values["target"] is None:
+            continue
+        rows.append(
+            {
+                "date": str(episode[0].get("date") or ""),
+                "activity_ids": [str(pair.get("activity_id") or "") for pair in episode],
+                **values,
+            }
+        )
+    return rows
 
 
 def metrics(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
@@ -48,34 +169,27 @@ def by_intensity(y_true: np.ndarray, y_pred: np.ndarray) -> dict:
 
 
 def evaluate_reorder(pairs: list[dict]) -> dict:
-    """Вердикт гейта перестановки зон/avgHR по теневым парам."""
-    rows = []
-    for pair in pairs:
-        target = power_tss_target(pair)
-        zones = zones_tss(pair)
-        avg = avg_hr_tss(pair)
-        if target is None or zones is None or avg is None:
-            continue
-        rows.append(
-            {
-                "date": str(pair.get("date") or ""),
-                "activity_id": str(pair.get("activity_id") or ""),
-                "target": target,
-                "zones": zones,
-                "avg": avg,
-            }
-        )
-    rows.sort(key=lambda r: (r["date"], r["activity_id"]))
+    """Вердикт гейта перестановки зон/avgHR по независимым эпизодам."""
+    candidate_rows = build_episode_candidate_rows(pairs)
+    rows = [
+        {**row, "avg": row["avg_hr"]}
+        for row in candidate_rows
+        if row["zones"] is not None and row["avg_hr"] is not None
+    ]
+    rows.sort(key=lambda r: (r["date"], r["activity_ids"]))
+    n_pairs = sum(len(row["activity_ids"]) for row in rows)
     n = len(rows)
     if n == 0:
         return {
             "n_pairs": 0,
+            "n_episodes": 0,
             "holdout_n": 0,
+            "holdout_activity_n": 0,
             "full": None,
             "hard_tercile": None,
             "holdout": None,
             "checks": [
-                {"id": "n_pairs", "label": f"пар с зонами ≥ {MIN_PAIRS_WITH_ZONES}",
+                {"id": "n_episodes", "label": f"независимых эпизодов с зонами ≥ {MIN_PAIRS_WITH_ZONES}",
                  "passed": False, "detail": "0/20"},
             ],
             "passed": False,
@@ -111,9 +225,9 @@ def evaluate_reorder(pairs: list[dict]) -> dict:
         return "—" if value is None else f"{value:+.1f}"
 
     checks = [
-        {"id": "n_pairs", "label": f"пар с зонами ≥ {MIN_PAIRS_WITH_ZONES}",
+        {"id": "n_episodes", "label": f"независимых эпизодов с зонами ≥ {MIN_PAIRS_WITH_ZONES}",
          "passed": n >= MIN_PAIRS_WITH_ZONES, "detail": f"{n}/{MIN_PAIRS_WITH_ZONES}"},
-        {"id": "holdout_n", "label": f"хрон. holdout ≥ {MIN_HOLDOUT} точек",
+        {"id": "holdout_n", "label": f"хрон. holdout ≥ {MIN_HOLDOUT} эпизодов",
          "passed": len(holdout) >= MIN_HOLDOUT, "detail": f"{len(holdout)}/{MIN_HOLDOUT}"},
         {"id": "full_mae", "label": "full-set: MAE(avgHR) ≤ MAE(зоны)",
          "passed": full_avg["mae"] <= full_zones["mae"],
@@ -133,8 +247,10 @@ def evaluate_reorder(pairs: list[dict]) -> dict:
     ]
 
     return {
-        "n_pairs": n,
+        "n_pairs": n_pairs,
+        "n_episodes": n,
         "holdout_n": len(holdout),
+        "holdout_activity_n": sum(len(row["activity_ids"]) for row in holdout),
         "full": {"zones": full_zones, "avg": full_avg},
         "hard_tercile": {
             "n": len(hard),
