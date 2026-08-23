@@ -22,7 +22,7 @@ jobs:
     timeout-minutes: 5
     steps:
       - name: Classify the failure and comment on the source thread
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           script: |
             const run = context.payload.workflow_run;

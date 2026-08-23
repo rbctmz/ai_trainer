@@ -85,7 +85,7 @@ def test_claude_action_can_edit_and_run_only_contributor_safe_pytest() -> None:
     assert "Bash(bash:*)" not in workflow
     assert "Bash(sh:*)" not in workflow
 
-    setup_index = workflow.index("actions/setup-python@v5")
+    setup_index = workflow.index("actions/setup-python@v6")
     install_index = workflow.index("python -m pip install -r requirements.txt")
     claude_index = workflow.index("anthropics/claude-code-action@")
     assert setup_index < install_index < claude_index
