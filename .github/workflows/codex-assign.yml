@@ -21,7 +21,10 @@ jobs:
             if (!issue || issue.pull_request) return;
 
             const body = issue.body || '';
-            if (!body.includes('### ExecPlan')) return;
+            const extract = (label) => {
+              const m = body.match(new RegExp(`### ${label}\\n+([\\s\\S]+?)(?=\\n###|$)`));
+              return m ? m[1].trim() : '';
+            };
 
             const recognizedChangeClasses = new Set([
               'Class A — Full',
@@ -33,6 +36,24 @@ jobs:
             );
             const changeClass = changeClassMatch ? changeClassMatch[1].trim() : '';
             if (!recognizedChangeClasses.has(changeClass)) return;
+
+            const execplan   = extract('ExecPlan');
+            const nonGoals   = extract('Non-goals');
+            const acceptance = extract('Acceptance criteria');
+            const smoke      = extract('Smoke baseline');
+            const requiredSections = [execplan, nonGoals, acceptance, smoke];
+            if (requiredSections.some(value => !value)) return;
+
+            const isNA = (value) => /^N\/A(?:\s|$)/i.test(value);
+            const isBareNA = (value) => /^N\/A\s*$/i.test(value);
+            if (
+              changeClass === 'Class A — Full' &&
+              (isNA(execplan) || isNA(nonGoals))
+            ) return;
+            if (
+              changeClass !== 'Class A — Full' &&
+              (isBareNA(execplan) || isBareNA(nonGoals))
+            ) return;
 
             const isIssueEvent = context.eventName === 'issues';
             const isCommentEvent = context.eventName === 'issue_comment';
@@ -57,16 +78,7 @@ jobs:
 
             if (!shouldQueue) return;
 
-            const extract = (label) => {
-              const m = body.match(new RegExp(`### ${label}\\n+([\\s\\S]+?)(?=\\n###|$)`));
-              return m ? m[1].trim() : '_see issue body_';
-            };
-
             const title = issue.title;
-            const execplan   = extract('ExecPlan');
-            const nonGoals   = extract('Non-goals');
-            const acceptance = extract('Acceptance criteria');
-            const smoke      = extract('Smoke baseline');
             const issueNumber = issue.number;
             const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}.git`;
 

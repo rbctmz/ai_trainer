@@ -127,11 +127,14 @@ live-sync/provider integration, security, identity/provenance и значите�
 ## Class B — Standard
 
 Стандартный контур предназначен для обычной feature/bug работы без триггеров
-Class A. Нужны issue, acceptance criteria, RED→GREEN, актуальные public
-contracts, self-review и релевантная проверка. Отдельный spec/docs PR не нужен:
-короткая спецификация и реализация могут идти одним PR. Независимый checker
-обязателен, если реализация раскрыла риск корректности, надёжности или новый
-архитектурный стык.
+Class A. Нужны issue, acceptance criteria, актуальные public contracts,
+self-review и релевантная проверка. Для intentional behavior change нужен
+RED→GREEN. Для pure behavior-preserving refactor допустима уже зелёная
+characterization/equivalence baseline с доказательством неизменности
+наблюдаемого поведения; нельзя выдумывать failure или implementation-coupled
+test. Отдельный spec/docs PR не нужен: короткая спецификация и реализация могут
+идти одним PR. Независимый checker обязателен, если реализация раскрыла риск
+корректности, надёжности или новый архитектурный стык.
 
 ## Class C — Fast track
 

@@ -40,6 +40,8 @@ def test_canonical_workflow_defines_three_change_classes_and_escalation() -> Non
     assert "two spec-review rounds" in text
     assert "review budget никогда не понижает severity" in text
     assert "merge с открытым P0/P1 или blocking P2" in text
+    assert "pure behavior-preserving refactor" in text
+    assert "characterization/equivalence baseline" in text
 
 
 def test_loop_requires_one_review_bundle_and_owned_merge_cleanup() -> None:
@@ -97,6 +99,7 @@ def test_process_metrics_have_definitions_place_and_two_real_baselines() -> None
         "PR cycle time",
         "Review rounds",
         "Pre-merge P0/P1",
+        "Pre-merge blocking P2",
         "Escaped defects",
         "CI reruns/flakes",
         "Follow-up P2",
@@ -145,6 +148,10 @@ def test_agent_issue_and_queue_contracts_are_change_class_aware() -> None:
     ):
         assert change_class in queue_workflow
     assert "if (!recognizedChangeClasses.has(changeClass)) return" in queue_workflow
+    assert "requiredSections.some(value => !value)" in queue_workflow
+    assert "changeClass === 'Class A — Full'" in queue_workflow
+    assert "isNA(execplan) || isNA(nonGoals)" in queue_workflow
+    assert "isBareNA(execplan) || isBareNA(nonGoals)" in queue_workflow
     assert "**Change class:**" in queue_workflow
     assert "Class B/C may use N/A" in queue_workflow
     assert "extract('Non-goals')" in queue_workflow
