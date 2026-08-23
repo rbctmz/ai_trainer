@@ -10,11 +10,12 @@ from services import demo_mode as demo_mode_service
 from state import StateManager
 
 
-REAL_PROVIDER_TYPES = ("openai", "anthropic", "deepseek", "google", "ollama")
+REAL_PROVIDER_TYPES = ("openai", "anthropic", "deepseek", "deepseek_responses", "google", "ollama")
 PROVIDER_CLASS_NAMES = {
     "openai": "OpenAIProvider",
     "anthropic": "AnthropicProvider",
     "deepseek": "DeepSeekProvider",
+    "deepseek_responses": "DeepSeekResponsesProvider",
     "google": "GoogleGeminiProvider",
     "ollama": "OllamaProvider",
     "mock": "MockAIProvider",
@@ -40,6 +41,7 @@ def _build_provider_options(demo_mode: bool) -> Dict[str, str]:
         "OpenAI (GPT)": "openai",
         "Anthropic (Claude)": "anthropic",
         "DeepSeek": "deepseek",
+        "DeepSeek (Responses API)": "deepseek_responses",
         "Google (Gemini)": "google",
         "Ollama (Локально)": "ollama",
         "Mock AI (Demo)": "mock",
@@ -51,6 +53,7 @@ def _build_provider_options(demo_mode: bool) -> Dict[str, str]:
         "OpenAI (GPT)": "openai",
         "Anthropic (Claude)": "anthropic",
         "DeepSeek": "deepseek",
+        "DeepSeek (Responses API)": "deepseek_responses",
         "Google (Gemini)": "google",
         "Ollama (Локально)": "ollama",
     }
@@ -288,7 +291,7 @@ def render_ai_provider_setup(state: StateManager) -> Dict[str, Any]:
             )
             provider_kwargs = {"api_key": api_key, "model": model}
 
-        elif selected_provider == "deepseek":
+        elif selected_provider in ("deepseek", "deepseek_responses"):
             api_key = _render_hidden_api_key_input(
                 "API Key:",
                 "deepseek_api_key_override",
