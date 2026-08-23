@@ -38,12 +38,24 @@ body:
     validations:
       required: true
 
+  - type: dropdown
+    id: change_class
+    attributes:
+      label: Change Class
+      description: Choose the highest-risk class that applies. Reclassify if scope grows.
+      options:
+        - Class A — Full
+        - Class B — Standard
+        - Class C — Fast track
+    validations:
+      required: true
+
   - type: textarea
     id: execplan
     attributes:
       label: ExecPlan
-      description: Path to the ExecPlan file in the repo, or write "to be created" and describe the scope.
-      placeholder: "docs/coach_approval_mutations_execplan.md (commit abc1234)"
+      description: "Class A: path to the ExecPlan or 'to be created'. Class B / Class C: write 'N/A' and a short rationale."
+      placeholder: "docs/coach_approval_mutations_execplan.md (commit abc1234), or N/A — Class C docs-only change"
     validations:
       required: true
 

@@ -11,6 +11,8 @@ LOOP = Path("docs/loop_engineering_instruction.md")
 TEMPLATE = Path("docs/templates/slice_spec_review_template.md")
 METRICS = Path("docs/engineering_process_metrics.md")
 AGENTS = Path("AGENTS.md")
+ISSUE_TEMPLATE = Path(".github/ISSUE_TEMPLATE/agent_task.yml")
+CODEX_ASSIGN = Path(".github/workflows/codex-assign.yml")
 
 
 def test_canonical_workflow_defines_three_change_classes_and_escalation() -> None:
@@ -108,3 +110,22 @@ def test_agent_entrypoint_links_policy_template_and_metrics() -> None:
     assert "Change Class" in text
     assert "docs/templates/slice_spec_review_template.md" in text
     assert "docs/engineering_process_metrics.md" in text
+
+
+def test_agent_issue_and_queue_contracts_are_change_class_aware() -> None:
+    issue_template = ISSUE_TEMPLATE.read_text(encoding="utf-8")
+    queue_workflow = CODEX_ASSIGN.read_text(encoding="utf-8")
+
+    assert "label: Change Class" in issue_template
+    for change_class in (
+        "Class A — Full",
+        "Class B — Standard",
+        "Class C — Fast track",
+    ):
+        assert change_class in issue_template
+    assert "Class B / Class C" in issue_template
+    assert "N/A" in issue_template
+
+    assert "extract('Change Class')" in queue_workflow
+    assert "**Change class:**" in queue_workflow
+    assert "Class B/C may use N/A" in queue_workflow

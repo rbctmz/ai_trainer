@@ -52,6 +52,7 @@ jobs:
             };
 
             const title = issue.title;
+            const changeClass = extract('Change Class');
             const execplan   = extract('ExecPlan');
             const acceptance = extract('Acceptance criteria');
             const smoke      = extract('Smoke baseline');
@@ -64,6 +65,9 @@ jobs:
               issue_number: issueNumber,
               body: [
                 `@codex Please implement this task: **${title}**`,
+                ``,
+                `**Change class:** ${changeClass}`,
+                `Class A requires an ExecPlan. Class B/C may use N/A with a short rationale; reclassify if scope grows.`,
                 ``,
                 `**ExecPlan:** ${execplan}`,
                 ``,

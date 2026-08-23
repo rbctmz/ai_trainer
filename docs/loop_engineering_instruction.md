@@ -42,14 +42,18 @@ work is done, delete the handoff.
 
 ## Issue Contract
 
-Automation expects non-trivial agent tasks to be GitHub issues with:
+Automation expects tracked agent tasks to be GitHub issues with:
 
+- `### Change Class`
 - `### ExecPlan`
 - `### Acceptance criteria`
 - `### Smoke baseline`
 
-An issue with that shape can be queued automatically on open/reopen, or by a
-trusted collaborator comment that mentions `@codex`.
+Class A must provide the ExecPlan path or state that it will be created. Class B
+and Class C keep the heading for a stable automation contract but may write
+`N/A` plus a short rationale. An issue with that shape can be queued
+automatically on open/reopen, or by a trusted collaborator comment that mentions
+`@codex`.
 
 Small docs-only fixes and tiny local cleanups may skip the full issue ceremony,
 but should still keep the same discipline: clear scope, minimal diff, explicit
