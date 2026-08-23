@@ -16,7 +16,7 @@ How to see it working: `python -m pytest tests/smoke/test_deepseek_responses_pro
 - [x] (2026-08-23) M0: ExecPlan + slice-spec созданы; класс A подтверждён триггерами live-provider write + новый public contract.
 - [x] (2026-08-23) M1 RED: 14/15 новых сценариев падали до реализации (ImportError/AttributeError).
 - [x] (2026-08-23) M2 GREEN: парсер + mixin + провайдер + реестр + пикер; focused 15/15, регрессия #190 без правок.
-- [ ] (pending) M3: verification bundle (готов: ruff green, smoke 2003 passed, contract-артефакт актуален) + PR + запись метрик Class A pilot.
+- [x] (2026-08-23) M3: verification bundle (ruff green, smoke 2003 passed, contract-артефакт актуален); PR #496 merged (squash 5680009); метрики Class A pilot записаны в docs/engineering_process_metrics.md (PR #497, Class C пилот).
 
 ## Surprises & Discoveries
 
@@ -45,7 +45,7 @@ How to see it working: `python -m pytest tests/smoke/test_deepseek_responses_pro
 
 ## Outcomes & Retrospective
 
-(заполняется по завершении)
+**Итог (2026-08-23):** адаптер DeepSeek Responses API принят в main (PR #496, squash 5680009). Класс A пилот #277 отработал полный контур: ExecPlan + slice-spec → RED (14/15) → GREEN (18/18) → независимая проверка (working-session checker + native Codex review: 1 P1 и 2 P2 найдены ДО merge и исправлены). Аддитивность подтверждена: chat-путь deepseek не тронут, реестр расширен без изменений существующих типов. Метрики процесса записаны в docs/engineering_process_metrics.md (prospective row).
 
 ## Context and Orientation
 

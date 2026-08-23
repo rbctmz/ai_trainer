@@ -115,7 +115,10 @@ def test_process_metrics_have_definitions_place_and_two_real_baselines() -> None
     assert "Retrospective class proxy" in text
     assert "Escaped defects" in text.split("## Baseline Retrospective", 1)[1]
     assert "Verified by: NOT YET" in text
-    assert "Class A architecture-changing PR: `NOT YET`" in text
+    # Class A пилот завершён (#496); Class C остаётся открытым до своего пилота.
+    assert "Class A architecture-changing PR: **done — PR #496**" in text
+    assert "Class C UI/docs PR: `NOT YET`" in text
+    assert "PR #496" in text
 
 
 def test_agent_entrypoint_links_policy_template_and_metrics() -> None:
