@@ -114,14 +114,14 @@ effort remain planning inputs and are not overwritten by automation.
 
 ### Review And CI
 
-Workflows:
-
-- `.github/workflows/ci.yml`
-- `.github/workflows/codex-review.yml`
-
-CI runs the contributor-safe test contour. The Codex review workflow requests
-review on PRs. A PR is mergeable only after checks are green and the maintainer
-accepts the result.
+CI runs the contributor-safe test contour through `.github/workflows/ci.yml`.
+Codex review uses the native GitHub integration configured at
+`https://chatgpt.com/codex/settings/code-review`, with **Code review** and
+**Automatic reviews** enabled for this repository. Do not create an Actions
+workflow that posts `@codex review`: its author is `github-actions[bot]`, not the
+connected maintainer account. A maintainer can still request a one-off review by
+posting the exact command from the connected GitHub account. A PR is mergeable
+only after checks are green and the maintainer accepts the result.
 
 ### Claude Code Tag Mode
 
