@@ -124,8 +124,11 @@ checkpoint where the agent workflow requires it.
 
 ## Review Findings
 
-(заполняется checker'ом)
+- Покрытие RED-матрицы: все 13 строк — зелёное evidence (focused 15 passed + CI).
+- Интеграционные поверхности проверены отдельно: REAL_PROVIDER_TYPES/state (строковый passthrough), отсутствие web-списка провайдеров, рантайм порождает только dict-arguments (ai_coach_runtime.py:418).
+- P3 (robustness): _messages_to_responses_input молча заменяет не-dict arguments на {} — недостижимо в текущем рантайме; follow-up не обязателен.
+- P3 (cosmetic): instructions=None явным null при пустом system_prompt — принимается API; можно опускать ключ.
 
 ## Final Verdict
 
-(заполняется checker'ом)
+READY TO MERGE — P0/P1/blocking-P2 не найдено. Оба P3 не блокируют; после merge — запись метрик Class A в docs/engineering_process_metrics.md.
