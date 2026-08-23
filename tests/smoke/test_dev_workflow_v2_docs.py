@@ -38,6 +38,8 @@ def test_canonical_workflow_defines_three_change_classes_and_escalation() -> Non
     for severity in ("P0", "P1", "P2", "P3"):
         assert severity in text
     assert "two spec-review rounds" in text
+    assert "review budget никогда не понижает severity" in text
+    assert "merge с открытым P0/P1 или blocking P2" in text
 
 
 def test_loop_requires_one_review_bundle_and_owned_merge_cleanup() -> None:
@@ -54,7 +56,8 @@ def test_loop_requires_one_review_bundle_and_owned_merge_cleanup() -> None:
     assert "one bundle" in text
     assert "## Merge And Cleanup Ownership" in text
     assert "merge owner" in text
-    assert "mergeState=CLEAN" in text
+    assert "mergeStateStatus=CLEAN" in text
+    assert "broad tests marked `N/A`" in text
     assert "sync local `main`" in text
     assert "Never use `--admin`" in text
     assert "## Process Metrics" in text
@@ -82,6 +85,8 @@ def test_slice_spec_review_template_covers_required_state_and_review_contracts()
     assert "new persistent state" in text.lower()
     assert "full reset" in text.lower()
     assert "P0/P1/P2/P3" in text
+    assert "separate working spec" in text
+    assert "behavior-preserving refactor" in text
 
 
 def test_process_metrics_have_definitions_place_and_two_real_baselines() -> None:
@@ -102,6 +107,10 @@ def test_process_metrics_have_definitions_place_and_two_real_baselines() -> None
     assert "PR #486" in text
     assert "2026-08-23" in text
     assert "not captured" in text
+    assert "Retrospective class proxy" in text
+    assert "Escaped defects" in text.split("## Baseline Retrospective", 1)[1]
+    assert "Verified by: NOT YET" in text
+    assert "Class A architecture-changing PR: `NOT YET`" in text
 
 
 def test_agent_entrypoint_links_policy_template_and_metrics() -> None:

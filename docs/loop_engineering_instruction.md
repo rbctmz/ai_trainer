@@ -220,18 +220,19 @@ proof across status comments. It contains:
 
 - PR number, branch, and exact **head SHA**;
 - change class, scope, non-goals, and **changed invariants**;
-- commands and outcomes for **focused and broad tests**;
+- commands and outcomes for **focused and broad tests**, or for Class C the
+  targeted verification with broad tests marked `N/A` and a reason;
 - CI checks for the same head SHA, including reruns or flakes;
 - lifecycle/probe evidence for new state, cursor, reset, rollback, or idempotency;
 - changed public contracts and compatibility decision;
 - findings by P0/P1/P2/P3 and the **unresolved review-thread count**;
 - residual risks, owned follow-ups, and the proposed verdict.
 
-The bundle is class-aware: Class C does not invent persistence probes, while
-Class A cannot omit them when persistence is changed. A checker validates the
-bundle against the diff and acceptance criteria, not merely against the author's
-summary. If the head SHA changes materially, refresh the affected evidence and
-state what was not rerun.
+The bundle is class-aware: Class C does not invent broad suites or persistence
+probes that its change does not warrant, while Class A cannot omit them when its
+risk requires them. A checker validates the bundle against the diff and
+acceptance criteria, not merely against the author's summary. If the head SHA
+changes materially, refresh the affected evidence and state what was not rerun.
 
 ## Merge And Cleanup Ownership
 
@@ -239,7 +240,8 @@ state what was not rerun.
   threads after each finding has been addressed or explicitly deferred.
 - The checker owns a severity-labelled verdict and confirms that blocking
   findings are closed on the current head.
-- The **merge owner** performs the last gate: linked issue, `mergeState=CLEAN`,
+- The **merge owner** performs the last gate: linked issue,
+  `mergeStateStatus=CLEAN` from `gh pr view`,
   required checks green on the current SHA, zero unresolved blocking threads,
   and an explicit human merge decision.
 - Never use `--admin` to bypass checks, reviews, or branch protection.

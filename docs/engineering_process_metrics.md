@@ -11,8 +11,10 @@ time.
 - **Issue lead time** — issue creation to linked PR merge/issue close. Includes
   queue and human wait; report it as calendar time.
 - **PR cycle time** — PR creation to merge/close. It is not active review time.
-- **Review rounds** — consolidated finding batches followed by author changes;
-  distinguish GitHub review objects from recorded working-session reviews.
+- **Review rounds** — every consolidated reviewer pass, including a clean
+  verification or a pass whose findings are disproved without author changes;
+  record separately whether the pass triggered changes and distinguish GitHub
+  review objects from recorded working-session reviews.
 - **Pre-merge P0/P1** — blocking findings discovered and fixed before merge,
   with a source link or labelled session evidence.
 - **Escaped defects** — post-merge defects causally linked to the PR. Absence at
@@ -25,33 +27,41 @@ time.
 
 ## Baseline Retrospective — 2026-08-23
 
-| PR | Class | Issue lead time | PR cycle time | Review rounds | Pre-merge P0/P1 | CI reruns/flakes | Follow-up P2 | Agent wait time |
-| --- | --- | ---: | ---: | --- | --- | --- | --- | --- |
-| [PR #493](https://github.com/rbctmz/ai_trainer/pull/493) / [issue #468](https://github.com/rbctmz/ai_trainer/issues/468) | A — Full | 115h 46m 35s | 18m 44s | 2 labelled working-session checker rounds; 0 formal GitHub reviews | 2 P1 fixed before PR: orphan proposal retention and event-level causal attribution gate | 0 observed; 8 current-head checks green | 0; same-scope findings fixed | not captured |
-| [PR #486](https://github.com/rbctmz/ai_trainer/pull/486) / [issue #469](https://github.com/rbctmz/ai_trainer/issues/469) | C — Fast track | 48h 53m 51s | 43m 49s | 0 corrective rounds visible in GitHub | 0 observed | 0 observed; 8 current-head checks green | 0 observed | not captured |
+| PR | Retrospective class proxy | Issue lead time | PR cycle time | Review rounds | Pre-merge P0/P1 | Escaped defects | CI reruns/flakes | Follow-up P2 | Agent wait time |
+| --- | --- | ---: | ---: | --- | --- | --- | --- | --- | --- |
+| [PR #493](https://github.com/rbctmz/ai_trainer/pull/493) / [issue #468](https://github.com/rbctmz/ai_trainer/issues/468) | Proxy A — Full | 115h 46m 35s | 18m 44s | 2 labelled working-session checker passes, both triggered changes; 0 formal GitHub reviews | 2 P1 fixed before PR: orphan proposal retention and event-level causal attribution gate | 0 linked defects observed as of 2026-08-23; observation remains open | 0 observed; 8 current-head checks green | 0; same-scope findings fixed | not captured |
+| [PR #486](https://github.com/rbctmz/ai_trainer/pull/486) / [issue #469](https://github.com/rbctmz/ai_trainer/issues/469) | Proxy C — Fast track | 48h 53m 51s | 43m 49s | 0 reviewer passes visible in GitHub | 0 observed | 0 linked defects observed as of 2026-08-23; observation remains open | 0 observed; 8 current-head checks green | 0 observed | not captured |
 
 ### Interpretation
 
-**Observed:** PR #493 used the full architecture review path and its independent
-checker found two P1 defects before publication. PR #486 was a one-file docs
-change and completed without a separate ExecPlan or visible corrective review
-round. Both had green current-head checks before merge. Timestamps, check counts,
-and formal-review counts come from the linked GitHub records as observed on
-2026-08-23; the two P1 findings come from the labelled working-session review,
-not from formal GitHub review objects.
+**Observed:** both proxy PRs predate this policy. PR #493 used a pre-policy deep
+architecture review whose independent checker found two P1 defects before
+publication. PR #486 was a pre-policy one-file docs change and completed without
+a separate ExecPlan or visible reviewer pass. Both had green current-head checks
+before merge. Timestamps, check counts, and formal-review counts come from the
+linked GitHub records as observed on 2026-08-23; the two P1 findings come from
+the labelled working-session review, not from formal GitHub review objects.
 
-**Inferred:** class-based ceremony preserves deep review where state and causal
-correctness require it while avoiding the same documentation burden for a small
-docs change.
+**Inferred:** the proxies illustrate where class-based ceremony would preserve
+deep review and where it could avoid unnecessary documentation burden. They do
+not show that contributors can apply the new routing, budget, and bundle in
+practice.
 
-**Verified by:** the two cases verify that the routing is usable and retained
-P0/P1 scrutiny for the Class A case. They do **not** yet verify reduced lead time:
-issue/PR timestamps include unknown queue, human, and agent wait, and active time
-is `not captured`.
+**Verified by: NOT YET** for routing usability or reduced lead time. The proxies
+only confirm that the proposed class labels fit two historical shapes and that
+pre-policy deep review retained P0/P1 scrutiny. Issue/PR timestamps include
+unknown queue, human, and agent wait, and active time is `not captured`.
+
+## Prospective Validation Status
+
+- Class A architecture-changing PR: `NOT YET`.
+- Class C UI/docs PR: `NOT YET`.
+- Routing/lead-time verdict: remains open until both pilots complete, then the
+  broader 5–10 PR revisit evaluates thresholds and trend.
 
 ## Revisit Gate
 
-After 5–10 classified PRs, compare medians within similar change types and
+After 5–10 **prospectively classified** PRs, compare medians within similar change types and
 inspect P0/P1 coverage, escaped defects, follow-up P2, CI reruns/flakes, and wait
 time. Keep, tighten, or change the class boundaries and two-round review budget
 from that evidence; do not optimize from the two-case baseline alone.

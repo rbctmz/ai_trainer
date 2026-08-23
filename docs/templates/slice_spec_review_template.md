@@ -1,7 +1,9 @@
 # Slice Spec And Review Template
 
-Copy this file into the task's ExecPlan or working spec. Delete prompts that are
-not applicable only after writing `N/A` and the reason.
+Keep this as a separate working spec linked from the task's ExecPlan; do not copy
+its checklists or tables into the strict ExecPlan format defined by
+`.agent/PLANS.md`. Delete prompts that are not applicable only after writing
+`N/A` and the reason.
 
 - Issue / PR:
 - Author / checker / merge owner:
@@ -60,7 +62,11 @@ the corresponding extractor/test/migration.
 | | | | |
 
 Include happy path, boundary, failure, retry, compatibility, and reset rows when
-they are relevant. A test that was already green is not evidence of a new RED.
+they are relevant. For an intentional behavior change, a test that was already
+green is not evidence of a new RED. For a pure behavior-preserving refactor, use
+already-green characterization/equivalence evidence as the baseline and prove
+the observable behavior remains unchanged; do not invent a failing behavior or
+an implementation-coupled test.
 
 ## ASR / ADR Traceability
 
@@ -75,7 +81,7 @@ For every slice, keep one reviewable behavior boundary and a clean pushed
 checkpoint where the agent workflow requires it.
 
 1. Slice:
-   - RED:
+   - RED, or characterization baseline for a behavior-preserving refactor:
    - GREEN:
    - Refactor/contract refresh:
    - Verification:
