@@ -44,12 +44,20 @@ jobs:
             const requiredSections = [execplan, nonGoals, acceptance, smoke];
             if (requiredSections.some(value => !value)) return;
 
-            const naMatch = (value) => value.match(/^N\s*\/?\s*A\b(.*)$/i);
+            const stripLeadingMarkdown = (value) => value
+              .trim()
+              .replace(/^(?:(?:[-*+>]|\d+[.)])\s+)*/, '')
+              .replace(/^[*_`~]+/, '');
+            const naMatch = (value) => stripLeadingMarkdown(value)
+              .match(/^N\s*\/?\s*A\b(.*)$/i);
             const isNA = (value) => Boolean(naMatch(value));
             const hasNARationale = (value) => {
               const match = naMatch(value);
               if (!match) return true;
-              return match[1].replace(/^[\s:;,.—–-]+/, '').trim().length > 0;
+              return match[1]
+                .replace(/^[\s:;,.—–\-*_`~]+/, '')
+                .trim()
+                .length > 0;
             };
             if (
               changeClass === 'Class A — Full' &&

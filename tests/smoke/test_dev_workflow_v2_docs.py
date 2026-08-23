@@ -154,9 +154,15 @@ def test_agent_issue_and_queue_contracts_are_change_class_aware() -> None:
     assert "changeClass === 'Class A — Full'" in queue_workflow
     assert "isNA(execplan) || isNA(nonGoals)" in queue_workflow
     assert "^N\\s*\\/?\\s*A\\b(.*)$" in queue_workflow
+    assert "stripLeadingMarkdown" in queue_workflow
+    assert "[-*+>]|\\d+[.)]" in queue_workflow
     assert "hasNARationale" in queue_workflow
     assert "!hasNARationale(execplan) || !hasNARationale(nonGoals)" in queue_workflow
     assert "**Change class:**" in queue_workflow
     assert "Class B/C may use N/A" in queue_workflow
     assert "extract('Non-goals')" in queue_workflow
     assert "**Non-goals:**" in queue_workflow
+
+    metrics = METRICS.read_text(encoding="utf-8")
+    assert "fixed, removed by" in metrics
+    assert "narrowing scope, or canceled" in metrics

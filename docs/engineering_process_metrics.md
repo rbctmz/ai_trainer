@@ -15,10 +15,12 @@ time.
   verification or a pass whose findings are disproved without author changes;
   record separately whether the pass triggered changes and distinguish GitHub
   review objects from recorded working-session reviews.
-- **Pre-merge P0/P1** — blocking findings discovered and fixed before merge,
-  with a source link or labelled session evidence.
+- **Pre-merge P0/P1** — every blocking finding discovered before merge, with a
+  source link or labelled session evidence and disposition: fixed, removed by
+  narrowing scope, or canceled.
 - **Pre-merge blocking P2** — correctness-, reliability-, data-, security-, or
-  contract-related P2 findings discovered and fixed before merge.
+  contract-related P2 findings discovered before merge, with the same explicit
+  disposition.
 - **Escaped defects** — post-merge defects causally linked to the PR. Absence at
   snapshot time is not proof that none will appear.
 - **CI reruns/flakes** — rerun count and failures classified as flaky rather than
