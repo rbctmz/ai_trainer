@@ -21,7 +21,52 @@ jobs:
             if (!issue || issue.pull_request) return;
 
             const body = issue.body || '';
-            if (!body.includes('### ExecPlan')) return;
+            const extract = (label) => {
+              const m = body.match(new RegExp(`### ${label}\\n+([\\s\\S]+?)(?=\\n###|$)`));
+              return m ? m[1].trim() : '';
+            };
+
+            const recognizedChangeClasses = new Set([
+              'Class A — Full',
+              'Class B — Standard',
+              'Class C — Fast track',
+            ]);
+            const changeClassMatch = body.match(
+              /### Change Class\n+([\s\S]+?)(?=\n###|$)/
+            );
+            const changeClass = changeClassMatch ? changeClassMatch[1].trim() : '';
+            if (!recognizedChangeClasses.has(changeClass)) return;
+
+            const execplan   = extract('ExecPlan');
+            const nonGoals   = extract('Non-goals');
+            const acceptance = extract('Acceptance criteria');
+            const smoke      = extract('Smoke baseline');
+            const requiredSections = [execplan, nonGoals, acceptance, smoke];
+            if (requiredSections.some(value => !value)) return;
+
+            const stripLeadingMarkdown = (value) => value
+              .trim()
+              .replace(/^(?:(?:[-*+>]|\d+[.)])\s+)*/, '')
+              .replace(/^[*_`~]+/, '');
+            const naMatch = (value) => stripLeadingMarkdown(value)
+              .match(/^N\s*\/?\s*A\b(.*)$/i);
+            const isNA = (value) => Boolean(naMatch(value));
+            const hasNARationale = (value) => {
+              const match = naMatch(value);
+              if (!match) return true;
+              return match[1]
+                .replace(/^[\s:;,.—–\-*_`~]+/, '')
+                .trim()
+                .length > 0;
+            };
+            if (
+              changeClass === 'Class A — Full' &&
+              (isNA(execplan) || isNA(nonGoals))
+            ) return;
+            if (
+              changeClass !== 'Class A — Full' &&
+              (!hasNARationale(execplan) || !hasNARationale(nonGoals))
+            ) return;
 
             const isIssueEvent = context.eventName === 'issues';
             const isCommentEvent = context.eventName === 'issue_comment';
@@ -46,15 +91,7 @@ jobs:
 
             if (!shouldQueue) return;
 
-            const extract = (label) => {
-              const m = body.match(new RegExp(`### ${label}\\n+([\\s\\S]+?)(?=\\n###|$)`));
-              return m ? m[1].trim() : '_see issue body_';
-            };
-
             const title = issue.title;
-            const execplan   = extract('ExecPlan');
-            const acceptance = extract('Acceptance criteria');
-            const smoke      = extract('Smoke baseline');
             const issueNumber = issue.number;
             const repoUrl = `https://github.com/${context.repo.owner}/${context.repo.repo}.git`;
 
@@ -65,7 +102,13 @@ jobs:
               body: [
                 `@codex Please implement this task: **${title}**`,
                 ``,
+                `**Change class:** ${changeClass}`,
+                `Class A requires an ExecPlan. Class B/C may use N/A with a short rationale; reclassify if scope grows.`,
+                ``,
                 `**ExecPlan:** ${execplan}`,
+                ``,
+                `**Non-goals:**`,
+                nonGoals,
                 ``,
                 `**Acceptance criteria:**`,
                 acceptance,

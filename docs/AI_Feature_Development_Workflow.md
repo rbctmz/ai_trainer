@@ -103,6 +103,103 @@
 существенной неизвестности нет, переходи от краткой постановки проблемы сразу к
 SPEC.
 
+Этот pipeline — default для Class A и для Class B с intentional behavior
+change. Pure behavior-preserving refactor использует characterization baseline
+вместо искусственного RED. Class C использует сокращённый pipeline:
+
+```text
+ПРОБЛЕМА И SCOPE → TARGETED DOCS/VISUAL/CONTRACT CHECK → SELF-REVIEW → FINAL CHECK
+```
+
+Class C пропускает отдельные SpecDD, BDD и TDD, если не меняет наблюдаемое
+поведение или public contract. При таком изменении задача должна быть
+переклассифицирована либо применить соответствующие BDD/TDD stages.
+
+---
+
+# CHANGE CLASSES AND REVIEW POLICY
+
+До начала реализации назначь изменению один `Change Class`. Если классы
+пересекаются, выбирай самый строгий. Повтори классификацию при расширении scope:
+fast track нельзя использовать как постоянное исключение для выросшей задачи.
+
+## Class A — Full
+
+Полный контур нужен для изменений архитектуры, модели данных, persistent state,
+live-sync/provider integration, security, identity/provenance и значительных
+рефакторингов. Обязательны:
+
+- issue с acceptance criteria и явными non-goals;
+- ExecPlan по `.agent/PLANS.md` и, где применимо, ASR/ADR traceability;
+- заполненный `docs/templates/slice_spec_review_template.md`;
+- contract-first BDD/TDD и небольшие RED→GREEN slices;
+- независимый checker и один итоговый evidence bundle;
+- focused и broad tests, а для состояния — lifecycle/reset/rollback probes.
+
+## Class B — Standard
+
+Стандартный контур предназначен для обычной feature/bug работы без триггеров
+Class A. Нужны issue, acceptance criteria, актуальные public contracts,
+self-review и релевантная проверка. Для intentional behavior change нужен
+RED→GREEN. Для pure behavior-preserving refactor допустима уже зелёная
+characterization/equivalence baseline с доказательством неизменности
+наблюдаемого поведения; нельзя выдумывать failure или implementation-coupled
+test. Отдельный spec/docs PR не нужен: короткая спецификация и реализация могут
+идти одним PR. Независимый checker обязателен, если реализация раскрыла риск
+корректности, надёжности или новый архитектурный стык.
+
+## Class C — Fast track
+
+Ускоренный контур подходит для локальных docs/UI/cosmetic/mechanical изменений,
+которые обратимы и не меняют доменные инварианты. Достаточны ясный scope,
+минимальный diff, targeted docs/visual/contract check и self-review. ExecPlan не
+нужен; отдельные SpecDD, BDD и TDD тоже не нужны без изменения наблюдаемого
+поведения или public contract. Fast track не отменяет branch protection,
+обязательный CI, проверку контракта или screenshot/GIF для затронутой
+UI-поверхности.
+
+## Automatic escalation triggers
+
+Любой из следующих признаков автоматически переводит изменение в Class A,
+даже если первоначально оно казалось маленьким:
+
+- data migration или изменение schema/persistence semantics;
+- identity or provenance, cursor ownership либо deduplication rules;
+- live-provider write, платный внешний вызов или destructive synchronization;
+- security boundary, permissions, secrets или personal-data handling;
+- irreversible action или rollback, который нельзя доказать дешёвой проверкой;
+- новый cross-module public contract или новая архитектурная граница.
+
+## Review severity
+
+Checker обязан назвать severity, evidence и конкретный gate для каждого
+finding:
+
+- **P0** — критическая потеря/раскрытие данных, security breach или неуправляемая
+  live-запись; всегда блокирует merge.
+- **P1** — нарушение корректности, ключевого инварианта, надёжности или public
+  contract; блокирует merge.
+- **P2** — существенный риск. Блокирует merge, если затрагивает correctness,
+  reliability, data, security или contract; иначе допускается только как явно
+  назначенный follow-up issue с owner.
+- **P3** — cosmetic/maintainability замечание без риска поведения; merge не
+  блокирует.
+
+Формат finding: `Severity → Observed → Inferred → Verified by → merge/follow-up
+gate`. Предпочтение reviewer не является blocking finding без нарушенного
+инварианта или acceptance criterion.
+
+## Review budget
+
+Бюджет — не более **two spec-review rounds**: один консолидированный первичный
+review и одна проверка исправлений. Новый раунд допустим, если найден новый
+architecture boundary или новые доказательства меняют риск. Иначе после бюджета
+нужно явно выбрать исход: исправить blocking finding до merge, сузить scope так,
+чтобы нарушение исчезло, либо принять **только non-blocking** риск/создать для
+него follow-up issue. Исчерпание review budget никогда не понижает severity и не
+разрешает merge с открытым P0/P1 или blocking P2. Бесконечная полировка
+non-blocking формулировок не должна задерживать проверяемую реализацию.
+
 ---
 
 # ШАГ 0 — EVIDENCE-FIRST SPIKE (НЕОБЯЗАТЕЛЬНО)
@@ -235,10 +332,13 @@ Then ...
 
 # ШАГ 3 — TDD
 
-Сначала создай/обнови тесты.
+Для intentional behavior change сначала создай/обнови тесты. Для pure
+behavior-preserving refactor используй characterization/equivalence baseline.
+Для Class C без изменения поведения TDD не применяется; выполни targeted check,
+указанный в политике класса.
 
 Правила:
-- тесты должны падать до реализации
+- тесты intentional behavior change должны падать до реализации
 - тесты должны проверять поведение, а не внутренности
 - не писать хрупкие тесты
 - покрывать основные сценарии
