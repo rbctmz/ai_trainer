@@ -105,6 +105,84 @@ SPEC.
 
 ---
 
+# CHANGE CLASSES AND REVIEW POLICY
+
+До начала реализации назначь изменению один `Change Class`. Если классы
+пересекаются, выбирай самый строгий. Повтори классификацию при расширении scope:
+fast track нельзя использовать как постоянное исключение для выросшей задачи.
+
+## Class A — Full
+
+Полный контур нужен для изменений архитектуры, модели данных, persistent state,
+live-sync/provider integration, security, identity/provenance и значительных
+рефакторингов. Обязательны:
+
+- issue с acceptance criteria и явными non-goals;
+- ExecPlan по `.agent/PLANS.md` и, где применимо, ASR/ADR traceability;
+- заполненный `docs/templates/slice_spec_review_template.md`;
+- contract-first BDD/TDD и небольшие RED→GREEN slices;
+- независимый checker и один итоговый evidence bundle;
+- focused и broad tests, а для состояния — lifecycle/reset/rollback probes.
+
+## Class B — Standard
+
+Стандартный контур предназначен для обычной feature/bug работы без триггеров
+Class A. Нужны issue, acceptance criteria, RED→GREEN, актуальные public
+contracts, self-review и релевантная проверка. Отдельный spec/docs PR не нужен:
+короткая спецификация и реализация могут идти одним PR. Независимый checker
+обязателен, если реализация раскрыла риск корректности, надёжности или новый
+архитектурный стык.
+
+## Class C — Fast track
+
+Ускоренный контур подходит для локальных docs/UI/cosmetic/mechanical изменений,
+которые обратимы и не меняют доменные инварианты. Достаточны ясный scope,
+минимальный diff, targeted docs/visual/contract check и self-review. ExecPlan не
+нужен. Fast track не отменяет branch protection, обязательный CI, проверку
+контракта или screenshot/GIF для затронутой UI-поверхности.
+
+## Automatic escalation triggers
+
+Любой из следующих признаков автоматически переводит изменение в Class A,
+даже если первоначально оно казалось маленьким:
+
+- data migration или изменение schema/persistence semantics;
+- identity or provenance, cursor ownership либо deduplication rules;
+- live-provider write, платный внешний вызов или destructive synchronization;
+- security boundary, permissions, secrets или personal-data handling;
+- irreversible action или rollback, который нельзя доказать дешёвой проверкой;
+- новый cross-module public contract или новая архитектурная граница.
+
+## Review severity
+
+Checker обязан назвать severity, evidence и конкретный gate для каждого
+finding:
+
+- **P0** — критическая потеря/раскрытие данных, security breach или неуправляемая
+  live-запись; всегда блокирует merge.
+- **P1** — нарушение корректности, ключевого инварианта, надёжности или public
+  contract; блокирует merge.
+- **P2** — существенный риск. Блокирует merge, если затрагивает correctness,
+  reliability, data, security или contract; иначе допускается только как явно
+  назначенный follow-up issue с owner.
+- **P3** — cosmetic/maintainability замечание без риска поведения; merge не
+  блокирует.
+
+Формат finding: `Severity → Observed → Inferred → Verified by → merge/follow-up
+gate`. Предпочтение reviewer не является blocking finding без нарушенного
+инварианта или acceptance criterion.
+
+## Review budget
+
+Бюджет — не более **two spec-review rounds**: один консолидированный первичный
+review и одна проверка исправлений. Новый раунд допустим, если найден новый
+architecture boundary или новые доказательства меняют риск. Иначе после бюджета
+нужно явно выбрать одно из трёх: принять записанный риск, сузить scope или
+создать follow-up issue. Бесконечная полировка формулировок не должна задерживать
+проверяемую реализацию.
+
+---
+
 # ШАГ 0 — EVIDENCE-FIRST SPIKE (НЕОБЯЗАТЕЛЬНО)
 
 Spike — это короткий воспроизводимый эксперимент, который отвечает на один

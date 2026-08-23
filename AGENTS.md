@@ -65,7 +65,7 @@ Conventional Commits (`feat:`, `fix:`, `refactor:`, `chore:`), subjects <72 char
 `/decisions`, `/recovery`, and the shadow `/today` module are hidden behind build-time flag `NEXT_PUBLIC_SHOW_DEV_TOOLS=true` (inlined at build — restarting the dev server after the change is required).
 
 ## Development Workflow
-Canonical workflow for non-trivial features: `docs/AI_Feature_Development_Workflow.md` (SpecDD → BDD → TDD → Contract First → Self-Review → Minimal Complexity). Issue-first agent loop and GitHub automation model: `docs/loop_engineering_instruction.md`. Lightweight for docs-only/one-line fixes; start significant work from a spec + acceptance criteria + existing contracts.
+Canonical workflow: assign a `Change Class` using `docs/AI_Feature_Development_Workflow.md` (Full / Standard / Fast track, then SpecDD → BDD → TDD → Contract First → Self-Review → Minimal Complexity). Class A work uses `docs/templates/slice_spec_review_template.md`; docs-only/one-line fixes normally use Class C unless an automatic escalation trigger applies. Issue-first agent loop and GitHub automation model: `docs/loop_engineering_instruction.md`. Record tracked post-merge outcomes in `docs/engineering_process_metrics.md`.
 
 - **Evidence Discipline:** causal claims must use `Observed` / `Inferred` / `Verified by` and run one cheap falsifying check before naming a bug or cause; follow `.agent/PLANS.md` and `docs/AI_Feature_Development_Workflow.md`.
 

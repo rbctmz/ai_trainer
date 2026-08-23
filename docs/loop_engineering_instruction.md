@@ -209,6 +209,51 @@ Do not ask the same agent to be the only reviewer of its own work for risky
 changes. At minimum, run the contributor-safe tests and inspect the diff against
 the acceptance criteria.
 
+## Review Evidence Bundle
+
+The author publishes **one bundle** for the current head instead of scattering
+proof across status comments. It contains:
+
+- PR number, branch, and exact **head SHA**;
+- change class, scope, non-goals, and **changed invariants**;
+- commands and outcomes for **focused and broad tests**;
+- CI checks for the same head SHA, including reruns or flakes;
+- lifecycle/probe evidence for new state, cursor, reset, rollback, or idempotency;
+- changed public contracts and compatibility decision;
+- findings by P0/P1/P2/P3 and the **unresolved review-thread count**;
+- residual risks, owned follow-ups, and the proposed verdict.
+
+The bundle is class-aware: Class C does not invent persistence probes, while
+Class A cannot omit them when persistence is changed. A checker validates the
+bundle against the diff and acceptance criteria, not merely against the author's
+summary. If the head SHA changes materially, refresh the affected evidence and
+state what was not rerun.
+
+## Merge And Cleanup Ownership
+
+- The author owns implementation, evidence, responses, and resolution of review
+  threads after each finding has been addressed or explicitly deferred.
+- The checker owns a severity-labelled verdict and confirms that blocking
+  findings are closed on the current head.
+- The **merge owner** performs the last gate: linked issue, `mergeState=CLEAN`,
+  required checks green on the current SHA, zero unresolved blocking threads,
+  and an explicit human merge decision.
+- Never use `--admin` to bypass checks, reviews, or branch protection.
+- After merge, the merge owner or delegated author must sync local `main`, delete
+  only the known task branch/worktree after confirming it has no dependent work,
+  and update the issue/ExecPlan progress record.
+
+Cleanup is part of the task, not permission to remove unrelated branches,
+worktrees, local changes, or persisted athlete data.
+
+## Process Metrics
+
+Definitions and the append-only retrospective table live in
+`docs/engineering_process_metrics.md`. Record the metrics after tracked Class A
+and Class B work plus representative Class C work. Revisit thresholds and the
+review budget after 5–10 PRs; do not claim faster delivery from timestamps that
+mix active work with human or quota wait.
+
 ## Definition Of Done For Agent Work
 
 An agent task is not complete until:
