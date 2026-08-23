@@ -59,16 +59,20 @@ function ConfirmMatchControl({
   //
   // Candidate selection: confirming must never silently attach every activity
   // of the day to one session. A matched row confirms its existing activities;
-  // rows without a match pre-check same-sport candidates and let the athlete
-  // adjust the exact set. The click must always carry a non-empty set — the
-  // API rejects confirm without activities — so an empty selection disables
-  // the button instead of sending a doomed request.
+  // rows without a match pre-check the candidate only when it is unique. When
+  // several same-sport activities exist, require the athlete to select the
+  // exact set explicitly. The click must always carry a non-empty set — the API
+  // rejects confirm without activities — so an empty selection disables the
+  // button instead of sending a doomed request.
   const [role, setRole] = useState<string>(row.role ?? "");
+  const sameSportCandidateIds = row.candidate_activities
+    .filter((item) => item.sport === row.sport)
+    .map((item) => item.activity_id);
   const initiallySelectedIds = row.actual_activity_ids.length
     ? row.actual_activity_ids
-    : row.candidate_activities
-        .filter((item) => item.sport === row.sport)
-        .map((item) => item.activity_id);
+    : sameSportCandidateIds.length === 1
+      ? sameSportCandidateIds
+      : [];
   const [selectedIds, setSelectedIds] = useState<string[]>(initiallySelectedIds);
   const showCandidatePicker =
     row.actual_activity_ids.length === 0 && row.candidate_activities.length > 0;

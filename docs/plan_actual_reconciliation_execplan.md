@@ -68,9 +68,16 @@ This replaces the optimistic legacy behavior that labels missing or cross-sport 
   Rationale: an explicit correction must be able to override automation. Intervals-created or manual events are not AI Trainer identity, and the matcher must not silently claim that another product's workout fulfilled this plan.
   Date/Author: 2026-07-13 / Codex.
 
-- Decision: heuristic matching may attach all same-date, same-sport activities to the single eligible planned session; other same-day activities remain unplanned. If more than one planned session or conflicting candidate can claim an activity, the result is ambiguous.
-  Rationale: this represents split rides such as 08.07 without discarding load and remains composite-safe. Choosing one of multiple candidates would manufacture certainty.
-  Date/Author: 2026-07-13 / Codex.
+- Decision: the date-and-sport heuristic may auto-match only one same-date,
+  same-sport activity to one eligible planned session. Multiple same-sport
+  activities are ambiguous until the athlete explicitly selects one or more;
+  stable AI Trainer external IDs and user-confirmed composite matches keep
+  their higher precedence.
+  Rationale: separate recordings can represent either one split workout or a
+  planned workout plus incidental travel. Automatically attaching all of them
+  manufactures intent; fail-closed ambiguity preserves total load while
+  leaving the exact plan match to explicit evidence.
+  Date/Author: 2026-08-23 / Codex (supersedes the 2026-07-13 heuristic).
 
 - Decision: never infer actual role by copying planned role. When a stable match exists but role is unknown, adherence is `unknown`, except that actual/planned load outside 0.60–1.40 is necessarily `major_deviation`. Exact/substituted classification otherwise reuses `models/session_quality_forecast.py::classify_plan_adherence`.
   Rationale: a same-sport activity is not proof that the intended stimulus was executed. A load ratio outside the outer boundary cannot be exact or substituted under any role.
@@ -190,7 +197,7 @@ In `models/session_identity.py` provide:
 
 In `models/plan_actual_reconciliation.py` provide pure entry points resembling:
 
-    MATCH_RULE_VERSION = "plan_actual_match_v1"
+    MATCH_RULE_VERSION = "plan_actual_match_v2"
     REBALANCE_RULE_VERSION = "weekly_rebalance_v1"
     def build_reconciliation(goal_plan, activities, *, as_of, weeks, base_checkpoint_id, provider_activities=None, provider_events=None, ledger_rows=None) -> dict[str, Any]
     def build_weekly_rebalance_preview(goal_plan, reconciliation, *, as_of, protected_dates=()) -> dict[str, Any]
@@ -206,3 +213,8 @@ In `services/intervals_icu.py` add bounded GET methods that reject reversed or e
 In `api/planning_service.py`, reconciliation accepts explicit `as_of`; preview and confirm return the same versioned contract. `StalePlanningCheckpointError` maps to HTTP 409. Request DTOs in `api/routers/planning.py` include base checkpoint and preview fingerprint. TypeScript interfaces in `web/lib/types.ts` mirror the API without reimplementing matching or load rules.
 
 Revision note (2026-07-13 / Codex): created the initial self-contained ExecPlan after source audit and pre-registered all identity, evidence-threshold and load-response decisions before writing tests.
+
+Revision note (2026-08-23 / Codex): live evidence showed that a planned ride
+and a deliberately separate ride home were auto-merged solely by date and
+sport. Version 2 now fails closed when multiple same-sport activities exist and
+requires explicit activity selection without discarding their total load.

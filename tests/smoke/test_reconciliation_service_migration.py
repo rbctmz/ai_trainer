@@ -54,11 +54,15 @@ _PRE_REFACTOR_PAYLOAD_SHA256 = {
     # Re-pinned 2026-08-08 (#399): evidence локализован; adherence для матчей
     # без actual_role остаётся unknown (P1 review) — байты payload'ов
     # изменились, digest'ы обновлены.
+    # Re-pinned 2026-08-23: match rule v2 fails closed when several same-sport
+    # activities compete for one planned session; single-match evidence names
+    # the unique actual explicitly. The service boundary remains byte-pinned to
+    # the new intentional domain contract.
     "no_plan": "e91c4897f1de495c9564da88f8a9fdeaba02f0439e7fb5c2f7aa1148833bd9dd",
-    "local_disabled": "2ebdb8606c71011d7efb9fff9f6557f538e3c087234c63f2a431f245ad478e47",
-    "provider_available": "e110258d804791452ff0697e23e80b9ba4e4e62d21cbfb515c772310b44d2ccc",
-    "provider_unavailable": "5d185def2d9afecf98b4b9c7a9ecb1d7ed041e114c0e0e3436f08ee1a0a2b477",
-    "nested_ledger": "eacb6fdd625b6d5018b531f33b53dadba49b76a137fbf9d5e324507ea4bc8e14",
+    "local_disabled": "6cb35e3e3bc6e8c7bd26c56686820b797def7cf7927f68ff417bac21ce3e3e04",
+    "provider_available": "52a29a93ab9fa0305f0ee34c9f2ccb515d830039c76cca4fad028c5f93bd421d",
+    "provider_unavailable": "3532f3c2f4941a8329d8a5934c7f3b869ab7ef346324131a621b848bddb05018",
+    "nested_ledger": "4b4573927f15ba48e90bc91e0c80c7e48fd1b2674dc67439e900b4ae16d4ec6c",
 }
 
 

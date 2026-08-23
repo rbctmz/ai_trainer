@@ -561,10 +561,11 @@ def test_today_summarizes_yesterday_fact(tmp_path, monkeypatch) -> None:
     assert payload["yesterday"]["tss"] == 37
     assert payload["yesterday"]["sports"] == ["cycling"]
     assert payload["yesterday"]["status"] == "available"
-    assert payload["yesterday"]["matched_actual_tss"] == 37.0
-    assert payload["yesterday"]["unplanned_tss"] == 0.0
+    assert payload["yesterday"]["matched_actual_tss"] == 0.0
+    assert payload["yesterday"]["unplanned_tss"] == 37.0
     assert payload["yesterday"]["rows"]
-    assert payload["yesterday"]["rule_version"] == "plan_actual_match_v1"
+    assert payload["yesterday"]["rows"][0]["match_status"] == "ambiguous"
+    assert payload["yesterday"]["rule_version"] == "plan_actual_match_v2"
 
 
 def test_today_selects_latest_shadow_revision_without_changing_decision(

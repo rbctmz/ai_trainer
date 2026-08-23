@@ -20,7 +20,7 @@ from models.session_quality_forecast import (
 from utils.product_semantics import normalize_sport_key
 
 
-MATCH_RULE_VERSION = "plan_actual_match_v1"
+MATCH_RULE_VERSION = "plan_actual_match_v2"
 REBALANCE_RULE_VERSION = "weekly_rebalance_v1"
 MIN_MATCHED_SESSIONS = 3
 MIN_MATCH_COVERAGE = 0.70
@@ -361,18 +361,26 @@ def build_reconciliation(
             else:
                 same_sport = [item for item in day_activities if item.get("sport") == planned.get("sport")]
                 signature_count = planned_signature_counts.get((planned["date"], planned["sport"]), 0)
-                if same_sport and signature_count == 1:
+                if len(same_sport) == 1 and signature_count == 1:
                     matched = same_sport
                     match_status = "matched"
                     match_method = "date_sport_heuristic"
                     confidence = 0.75
-                    evidence.append("Единственная плановая сессия сопоставлена со всеми активностями того же дня и вида спорта")
+                    evidence.append(
+                        "Единственная плановая сессия сопоставлена с единственной "
+                        "активностью того же дня и вида спорта"
+                    )
                     evidence.extend(provider_pair_notes)
                 elif day_activities:
                     candidates = list(day_activities)
                     match_status = "ambiguous"
                     confidence = 0.35
-                    if same_sport:
+                    if len(same_sport) > 1 and signature_count == 1:
+                        evidence.append(
+                            "Несколько активностей одного вида спорта требуют "
+                            "явного выбора для плановой сессии"
+                        )
+                    elif same_sport:
                         evidence.append("Несколько плановых сессий претендуют на активность того же дня и вида спорта")
                     else:
                         evidence.append("Есть активности за эту дату, но вид спорта не совпадает с плановой сессией")
