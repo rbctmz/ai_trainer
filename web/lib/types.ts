@@ -334,6 +334,7 @@ export interface CoachDecision {
   workout_id?: string | null;
   chat_id?: string | null;
   message_id?: string | null;
+  decision_event_id?: string | null;
   created_at?: string | null;
 }
 
@@ -353,6 +354,44 @@ export interface CoachProposal {
   created_at?: string | null;
   source?: string | null;
   source_key?: string | null;
+  decision_event_id?: string | null;
+  base_checkpoint_id?: number | null;
+  applied_checkpoint_id?: number | null;
+  rollback_checkpoint_id?: number | null;
+}
+
+export interface CoachDriftMismatch {
+  decision_id: number;
+  decision_type: CoachDecisionType;
+  proposal_id: number;
+  action: CoachProposalAction;
+  base_checkpoint_id: number;
+  applied_checkpoint_id: number;
+  total_tss_before: number;
+  total_tss_after: number;
+  total_tss_delta: number;
+  actual_direction: "increase" | "decrease";
+}
+
+export interface CoachDriftDataGap {
+  decision_id?: number | null;
+  decision_type?: CoachDecisionType | null;
+  proposal_id?: number | null;
+  action?: CoachProposalAction | null;
+  reason: string;
+  evidence?: Record<string, unknown>;
+}
+
+export interface CoachDriftReport {
+  state: "ready" | "data_gap";
+  decision_count: number;
+  linked_proposal_count: number;
+  compared_count: number;
+  no_change_count: number;
+  mismatch_count: number;
+  mismatches: CoachDriftMismatch[];
+  data_gap_count: number;
+  data_gaps: CoachDriftDataGap[];
 }
 
 export interface RecoveryConflictRule {
@@ -401,6 +440,7 @@ export interface CoachDecisionsResponse {
   pending_proposal_days?: CoachProposalDay[];
   recovery_count?: number;
   recovery_days?: RecoveryDecisionDay[];
+  drift_report?: CoachDriftReport;
   operational_state?: Record<string, unknown>;
 }
 

@@ -13,11 +13,11 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-PERF-3 | Инкрементальный provider-sync, дельта дня < 10 сек | Medium | Garmin incremental window; Intervals per-provider/per-domain cursors | smoke sync/cursor-сьюты | ✅ |
 | ASR-PERF-4 | Planning preview 16 недель < 10 сек | Medium | детерминированный scheduler без БД внутри цикла (#205); week-by-week reader делает один provider-free reconciliation read на bounded 16-недельном окне (#303) | референс-сборки в smoke; `test_planning_week_by_week.py` пинует cap, isolated browser acceptance — отсутствие disclosure N+1 | ✅ |
 | ASR-REL-1 | Reconciliation: ни одна активность или исполнимая тренировка не теряется при перепланировании | High | content-derived session identity + lineage (`replaces_session_id`, #206/#209), append-only match/feedback/delivery ledgers; recovery/near-term мутации повторно материализуют точный catalog prescription; user unmatch retire-ит активный feedback всей superseded match-линии; reader сохраняет leaf/composite IDs и покрывает факт всех 16 отображаемых недель без расширения provider-I/O (#303); multisport read-проекция сохраняет envelope и все provider-linked этапы без двойного агрегата (#433); modern broken sessions fail closed | `test_recovery_transfer_identity_handoff.py`, twin-матрица identity, `test_recovery_replan_materialization_p1.py`, `test_planning_week_by_week.py`, `test_reconciliation_service_migration.py`, `test_api_planning.py`, `test_intervals_plan_delivery.py`, `test_api_activities_multisport.py` | ✅ |
-| ASR-REL-2 | Отсутствие данных → data gap, не падение | High | gate-исходы silence/data_gap (#154), `has_plan=false` пробросы (#228/#301–#303); readiness salience учитывает persisted fatigue/recovery и legacy-safe fallback (#315); power-curve enrichment сохраняет кэш при provider failure; неполный multisport lineage оставляет envelope авторитетным и не теряет полученные этапы (#433); execution-role принимает только закрытый planner vocabulary; cognitive guardrails коуча требуют `данных недостаточно`/`сигналы смешанные` вместо выдуманной причинной истории (#465) | smoke-гейты loop/ribbon + `test_readiness_conflicts.py`, `test_planning_active_plan_overview.py`, `test_planning_phase_roadmap.py`, `test_planning_week_by_week.py`, `test_best_efforts.py`, `test_actual_role_contract.py`, `test_api_activities_multisport.py`, `test_ai_coach_runtime.py` | ✅ |
+| ASR-REL-2 | Отсутствие данных → data gap, не падение | High | gate-исходы silence/data_gap (#154), `has_plan=false` пробросы (#228/#301–#303); readiness salience учитывает persisted fatigue/recovery и legacy-safe fallback (#315); power-curve enrichment сохраняет кэш при provider failure; неполный multisport lineage оставляет envelope авторитетным и не теряет полученные этапы (#433); execution-role принимает только закрытый planner vocabulary; cognitive guardrails коуча требуют `данных недостаточно`/`сигналы смешанные` вместо выдуманной причинной истории (#465); directional drift использует только explicit event/checkpoint lineage, legacy и неполные связи остаются `data_gap` (#468) | smoke-гейты loop/ribbon + `test_readiness_conflicts.py`, `test_planning_active_plan_overview.py`, `test_planning_phase_roadmap.py`, `test_planning_week_by_week.py`, `test_best_efforts.py`, `test_actual_role_contract.py`, `test_api_activities_multisport.py`, `test_ai_coach_runtime.py`, `test_coach_drift.py` | ✅ |
 | ASR-REL-3 | Обрыв sync/maintenance не портит частичные данные | Medium | атомарный common-ingest; cursor-after-clean-batch; независимые activity/wellness cursors; SQLite restore через validated temp + atomic replace + pre-restore rollback; единая WAL/busy-timeout политика с race-гейтом (TD-003, #347) | M0/M1 ingest/cursor, M4 wellness rollback, `test_sqlite_backup_restore.py` fail-before-replace и `test_sqlite_concurrency_policy.py` writer+reader | ✅ |
 | ASR-MOD-1 | Новый AI-провайдер без правки основного кода | High | `AIProvider` ABC + фабрика; capability-флаги (`supports_native_tools`, #190) делают расширения аддитивными | capability-матрица в `test_coach_native_tools.py` | ✅ |
 | ASR-MOD-2 | Новый компонент дашборда без регрессии | Medium | canonical snapshot проекции (#152/#153); `/planning` читает server-owned overview/week DTO без расчёта доменных метрик в TypeScript (#301–#303); `/activities` получает server-owned multisport group DTO вместо lineage-логики в React (#433) | trust-alignment smoke + planning reader browser/API gates + `test_activities_multisport_ui_contract.py` | ✅ |
-| ASR-MOD-3 | Смена схемы — обратная совместимость | Medium | аддитивные поля чекпойнтов, migrate-on-read (#206), append-only журналы; `intervals_plan_deliveries` добавлен через idempotent DDL и читается вместе с legacy proposal evidence; planning reader добавлен отдельными GET-контрактами без изменения checkpoint schema (#301–#303) | legacy-byte-equivalence + planning router/service contracts + `test_intervals_plan_delivery.py` | ✅ |
+| ASR-MOD-3 | Смена схемы — обратная совместимость | Medium | аддитивные поля чекпойнтов, migrate-on-read (#206), append-only журналы; `intervals_plan_deliveries` добавлен через idempotent DDL и читается вместе с legacy proposal evidence; planning reader добавлен отдельными GET-контрактами без изменения checkpoint schema (#301–#303); coach decision/proposal lineage добавляется nullable migrate-on-start колонками (#468) | legacy-byte-equivalence + planning router/service contracts + `test_intervals_plan_delivery.py` + `test_coach_drift.py` | ✅ |
 | ASR-SEC-1 | Ключи не в логах/UI/git | High | `.env` вне git, UI скрывает поля, env-fallback; contributor-safe Gitleaks блокирует event range и текущее дерево, runtime probe проверяет detector | `test_secret_scanning_ci.py`; live `Secret scan` в PR #296; revoked historical finding требует отдельной policy ([TD-008](../technical_debt_register.md#td-008--политика-для-отозванного-credential-в-git-history)) | 🟡 |
 | ASR-SEC-2 | Basic Auth перед публичным доступом | High | Caddy + Basic Auth в self-hosted стеке | деплой-чеклист | ✅ |
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
@@ -402,7 +402,7 @@ FastAPI отклонит до хендлера). Настоящий HTTP-round-t
 | `athlete_profile.py` | `test_api_athlete_profile_contract.py` |
 | `coach.py` | `test_api_operational_states.py`, `test_api_phase1.py`, `test_coach_decisions.py`, `test_coach_native_tools.py`, `test_readiness_snapshot_contract.py`, `test_readiness_conflicts.py`, `test_coach_load_metrics_window.py` |
 | `dashboard.py` | `test_api_dashboard.py`, `test_api_operational_states.py`, `test_readiness_snapshot_contract.py`, `test_signals_engine.py`, `test_dashboard_tsb_zones.py` |
-| `decisions.py` | `test_coach_decisions.py`, `test_recovery_replan_loop.py`, `test_recovery_transfer_product_surface_web.py` |
+| `decisions.py` | `test_coach_decisions.py`, `test_coach_drift.py`, `test_recovery_replan_loop.py`, `test_recovery_transfer_product_surface_web.py` |
 | `hrv.py` | `test_api_operational_states.py`, `test_api_phase1.py` |
 | `planning.py` | `test_api_planning.py`, `test_coach_constraints.py`, `test_planning_target_demand_history.py`, `test_planning_active_plan_overview.py`, `test_planning_phase_roadmap.py`, `test_planning_week_by_week.py`, `test_api_planning_router_contract.py`, `test_api_planning_router_http_contract.py` |
 | `recovery_analytics.py` | `test_api_recovery_analytics.py` |
@@ -484,6 +484,25 @@ Native и marker tool-calling используют один и тот же gate.
 Проверка: `test_coach_autonomy_boundary_docs.py`,
 `test_coach_constraint_mutation_gate.py` и
 `test_coach_constraint_mutation_product_surface_web.py`.
+
+## Directional drift коуча (ASR-REL-1/2, ASR-MOD-2/3; #468)
+
+Один coach-turn получает explicit `decision_event_id`, который сохраняется в
+его final decision и во всех созданных им proposals, включая recovery loop.
+Только proposal с explicit origin `source=coach_tool` относится к финальной
+рекомендации; recovery gate остаётся `unattributed`. Применённая mutation сохраняет immutable checkpoint lineage
+`base → applied`; rollback не стирает исходный edge. Read-only отчёт сравнивает
+TSS только когда applied checkpoint прямо называет base своим parent.
+
+Legacy rows, отсутствие checkpoint, неверный parent и неполная TSS-форма —
+`data_gap`; time/date/chat proximity не используется. Отсутствие proposal не
+считается drift: отчёт фиксирует только явные противоречия уже применённой
+мутации (`Push + decrease`, `Moderate/Recovery + increase`, `Monitor +
+non-neutral`). Семантика принадлежит Python DTO; `/decisions` только показывает
+готовые IDs и TSS-факты.
+
+Проверка: `test_coach_drift.py`, `test_coach_decisions.py`,
+`test_recovery_replan_loop.py`, contract extractor и web lint/build.
 
 ## Реестр ADR
 

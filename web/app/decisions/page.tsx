@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import { showDevTools } from "@/lib/flags";
 import type {
   CoachDecisionsResponse,
+  CoachDriftReport,
   CoachProposal,
   RecoveryConflictRule,
   RecoveryDecision,
@@ -54,6 +55,8 @@ export default function DecisionsPage() {
           {notice}
         </div>
       ) : null}
+
+      {data?.drift_report ? <DriftReportCard report={data.drift_report} /> : null}
 
       {data?.has_data ? (
         <div className="space-y-4">
@@ -165,6 +168,50 @@ export default function DecisionsPage() {
         </div>
       ) : null}
     </main>
+  );
+}
+
+function DriftReportCard({ report }: { report: CoachDriftReport }) {
+  const ready = report.state === "ready";
+  return (
+    <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-faint">
+            Directional drift
+          </h2>
+          <p className="mt-1 text-sm text-ink-soft">
+            {ready
+              ? `Проверено связанных изменений: ${report.compared_count}. Противоречий: ${report.mismatch_count}.`
+              : `Недостаточно явно связанных применённых изменений для сверки. Подтверждённых no-op: ${report.no_change_count}.`}
+          </p>
+        </div>
+        <span className="rounded-full border border-surface-border px-2 py-1 text-xs font-medium text-ink-soft">
+          {ready ? `${report.mismatch_count} drift` : "data gap"}
+        </span>
+      </div>
+
+      {report.mismatches.length > 0 ? (
+        <div className="mt-3 divide-y divide-surface-border border-t border-surface-border">
+          {report.mismatches.map((item) => (
+            <div key={`${item.decision_id}-${item.proposal_id}`} className="py-3 text-sm">
+              <div className="font-medium text-ink">
+                Decision #{item.decision_id} {item.decision_type} · proposal #{item.proposal_id} {item.action}
+              </div>
+              <div className="mt-1 text-ink-soft">
+                Checkpoint #{item.base_checkpoint_id} → #{item.applied_checkpoint_id} · {item.total_tss_before} → {item.total_tss_after} TSS ({item.total_tss_delta > 0 ? "+" : ""}{item.total_tss_delta})
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : null}
+
+      {report.data_gap_count > 0 ? (
+        <div className="mt-2 text-xs text-ink-faint">
+          Непроверяемых записей: {report.data_gap_count}
+        </div>
+      ) : null}
+    </section>
   );
 }
 

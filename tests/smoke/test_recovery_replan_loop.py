@@ -472,11 +472,21 @@ def test_loop_creates_one_recovery_proposal_and_exposes_it_in_decisions_api(
     db = Database(str(tmp_path / "loop-conflict.db"))
     checkpoint = _save_plan(db, _goal_plan(today, conflict_days_until=4))
 
-    first = run_recovery_replan_loop(db, today=today)
-    second = run_recovery_replan_loop(db, today=today)
+    first = run_recovery_replan_loop(
+        db,
+        today=today,
+        decision_event_id="recovery-event-first",
+    )
+    second = run_recovery_replan_loop(
+        db,
+        today=today,
+        decision_event_id="recovery-event-second",
+    )
 
     assert first["outcome"] == "conflict"
     assert first["proposal"]["action"] == "recovery_replan"
+    assert first["proposal"]["decision_event_id"] == "recovery-event-first"
+    assert second["proposal"]["decision_event_id"] == "recovery-event-first"
     assert first["proposal"]["params"]["base_checkpoint_id"] == checkpoint["id"]
     assert first["proposal"]["preview"]["options"][0]["key"] == "keep"
     preview = first["proposal"]["preview"]

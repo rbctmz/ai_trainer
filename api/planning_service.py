@@ -1515,6 +1515,7 @@ def build_plan(
 
     return {
         "plan_id": plan_id,
+        "base_checkpoint_id": latest_checkpoint_id,
         "planning_mode": mode,
         "confirmation_required": not persist,
         "preview": preview,
