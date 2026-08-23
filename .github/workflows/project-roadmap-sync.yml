@@ -18,7 +18,7 @@ jobs:
       - name: Sync roadmap project status
         env:
           ROADMAP_PROJECT_TOKEN: ${{ secrets.ROADMAP_PROJECT_TOKEN }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.ROADMAP_PROJECT_TOKEN || github.token }}
           script: |
