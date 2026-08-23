@@ -8,7 +8,7 @@ its checklists or tables into the strict ExecPlan format defined by
 - Issue / PR: #441 (PR: TBD)
 - Author / checker / merge owner: opencode / независимый checker на PR / opencode
 - Date: 2026-08-23
-- Candidate head SHA: TBD (заполняется перед ревью)
+- Candidate head SHA: c3d2b6d
 
 ## Change Class
 
@@ -112,7 +112,15 @@ checkpoint where the agent workflow requires it.
 
 ## Evidence Bundle
 
-(заполняется в PR: head SHA, изменённые инварианты, focused/broad tests, CI, lifecycle/probe, изменённые контракты, unresolved threads)
+- head SHA: c3d2b6d (ветка feat/issue-441-deepseek-responses).
+- Изменённые инварианты: добавлен аддитивный provider type deepseek_responses; существующие инварианты (#190 capability-матрица, контракт {text, tool_calls}, реестр openai/anthropic/deepseek/google/ollama) не меняются.
+- Focused: python -m pytest tests/smoke/test_deepseek_responses_provider.py -q — 15 passed.
+- Broad: python -m pytest tests/smoke -q — 2003 passed; регрессия test_coach_native_tools.py без правок — зелёная.
+- Lint: python -m ruff check (затронутые файлы) — All checks passed.
+- CI: после открытия PR (Contributor-safe pytest, web-contract, Web E2E, Gitleaks, link, ready-to-merge).
+- Lifecycle/probe: N/A — новый persistent state не добавляется (адаптер stateless); провайдер-слой не имеет курсоров/таблиц.
+- Намеренно изменённые контракты: AIProviderFactory.create_provider принимает 'deepseek_responses'; get_available_providers + Streamlit-пикер получили опцию «DeepSeek (Responses API)». api/web контракт и ts_contract.json — без изменений (contract:extract -- --check зелёный).
+- Unresolved review-thread count: 0 на момент открытия PR.
 
 ## Review Findings
 
