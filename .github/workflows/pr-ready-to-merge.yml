@@ -4,7 +4,7 @@ on:
   pull_request:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited, closed]
   workflow_run:
-    workflows: ["CI", "Codex Review", "Link PR to issue", "Project roadmap sync"]
+    workflows: ["CI", "Link PR to issue", "Project roadmap sync"]
     types: [completed]
   workflow_dispatch:
     inputs:

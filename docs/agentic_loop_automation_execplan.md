@@ -66,7 +66,7 @@ Validation completed:
 
 ## Context and Orientation
 
-The repo's current agent loop is described in `docs/loop_engineering_instruction.md`. Structured GitHub issues are queued by `.github/workflows/codex-assign.yml`, linked PRs move issues to in-progress via `.github/workflows/codex-pr-link.yml`, and `.github/workflows/codex-watchdog.yml` re-pings queued issues when no PR appears. `.github/workflows/ci.yml` runs contributor-safe pytest on PRs, and `.github/workflows/codex-review.yml` asks Codex for review on new ready PRs.
+The repo's current agent loop is described in `docs/loop_engineering_instruction.md`. Structured GitHub issues are queued by `.github/workflows/codex-assign.yml`, linked PRs move issues to in-progress via `.github/workflows/codex-pr-link.yml`, and `.github/workflows/codex-watchdog.yml` re-pings queued issues when no PR appears. `.github/workflows/ci.yml` runs contributor-safe pytest on PRs. Codex review is now requested by the native GitHub integration; the former Actions workflow posted as `github-actions[bot]` and was removed after a connected-account probe showed that native review works.
 
 This plan adds two new files under `.github/workflows/`. A workflow is a GitHub Actions YAML file. It reacts to repository events and can call GitHub APIs through `actions/github-script`. The first workflow projects PR state into labels. The second workflow turns failed CI runs into actionable PR comments.
 
