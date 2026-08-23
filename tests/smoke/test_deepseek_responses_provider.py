@@ -263,3 +263,39 @@ def test_picker_exposes_responses_option():
 
     options = _build_provider_options(demo_mode=False)
     assert options.get("DeepSeek (Responses API)") == "deepseek_responses"
+
+
+# ---------------------------------------------------------------------------
+# Codex review fixes (#496): SDK capability gate, connection diagnostics
+# ---------------------------------------------------------------------------
+
+
+def test_client_supports_responses_helper():
+    from models.ai_providers import _client_supports_responses
+
+    assert _client_supports_responses(None) is False
+    assert _client_supports_responses(SimpleNamespace()) is False
+    assert _client_supports_responses(SimpleNamespace(responses=True)) is True
+
+
+def test_provider_degrades_honestly_when_sdk_has_no_responses_resource():
+    """Gate-обход (старый SDK): вызов деградирует в error-text, а не падает."""
+    from models.ai_providers import DeepSeekResponsesProvider
+
+    provider = DeepSeekResponsesProvider(api_key=None)
+    provider.client = SimpleNamespace()  # у клиента нет .responses
+    result = provider.generate_with_tools([{"role": "user", "content": "q"}], [])
+    assert result["tool_calls"] == []
+    assert "Ошибка" in result["text"]
+
+
+def test_connection_measures_text_from_output_items():
+    from models.ai_providers import DeepSeekResponsesProvider
+
+    client = _StubResponsesClient(output=[_message_item("12345")])
+    provider = DeepSeekResponsesProvider(api_key=None)
+    provider.client = client
+
+    probe = provider.test_connection()
+    assert probe["success"] is True
+    assert probe["response_length"] == 5

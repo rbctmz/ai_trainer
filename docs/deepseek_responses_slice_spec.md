@@ -128,7 +128,10 @@ checkpoint where the agent workflow requires it.
 - Интеграционные поверхности проверены отдельно: REAL_PROVIDER_TYPES/state (строковый passthrough), отсутствие web-списка провайдеров, рантайм порождает только dict-arguments (ai_coach_runtime.py:418).
 - P3 (robustness): _messages_to_responses_input молча заменяет не-dict arguments на {} — недостижимо в текущем рантайме; follow-up не обязателен.
 - P3 (cosmetic): instructions=None явным null при пустом system_prompt — принимается API; можно опускать ключ.
+- Native Codex review: P1 «openai>=1.0.0 допускает SDK без responses» — исправлено (requirements openai>=1.59.0 + capability-gate `_client_supports_responses` в __init__, тесты добавлены).
+- Native Codex review: P2 «опция пикера не даёт полей конфигурации» — исправлено (условие `selected_provider in ("deepseek", "deepseek_responses")` в render_ai_provider_setup).
+- Native Codex review: P2 «test_connection мерит только output_text (всегда 0 при тексте в output)» — исправлено (длина считается по responses_output_to_result + fallback; тест `test_connection_measures_text_from_output_items`).
 
 ## Final Verdict
 
-READY TO MERGE — P0/P1/blocking-P2 не найдено. Оба P3 не блокируют; после merge — запись метрик Class A в docs/engineering_process_metrics.md.
+READY TO MERGE после фиксов Codex P1/P2 (срез fix: capability-gate + picker-условие + диагностика). P3-замечания не блокируют; после merge — запись метрик Class A в docs/engineering_process_metrics.md.

@@ -291,7 +291,7 @@ def render_ai_provider_setup(state: StateManager) -> Dict[str, Any]:
             )
             provider_kwargs = {"api_key": api_key, "model": model}
 
-        elif selected_provider == "deepseek":
+        elif selected_provider in ("deepseek", "deepseek_responses"):
             api_key = _render_hidden_api_key_input(
                 "API Key:",
                 "deepseek_api_key_override",

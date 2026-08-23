@@ -579,6 +579,11 @@ class DeepSeekResponsesToolsMixin:
         return result
 
 
+def _client_supports_responses(client: Any) -> bool:
+    """True, когда SDK-клиент имеет ресурс responses (openai>=1.59.0)."""
+    return client is not None and hasattr(client, "responses")
+
+
 def _item_value(item: Any, key: str, default: Any = None) -> Any:
     """Читает поле из dict-элемента или SDK-объекта (duck typing)."""
     if isinstance(item, Mapping):
@@ -695,7 +700,13 @@ class DeepSeekResponsesProvider(DeepSeekResponsesToolsMixin, AIProvider):
         if self.api_key:
             try:
                 from openai import OpenAI
-                self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+                client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+                # Codex P1 (#496): ранние 1.x-версии SDK не имеют ресурса responses —
+                # провайдер обязан не врать про доступность в таком окружении.
+                if _client_supports_responses(client):
+                    self.client = client
+                else:
+                    print("Установленный openai SDK не поддерживает Responses API; обновите до openai>=1.59.0")
             except ImportError:
                 print("OpenAI библиотека не установлена")
             except Exception as e:
@@ -742,12 +753,16 @@ class DeepSeekResponsesProvider(DeepSeekResponsesToolsMixin, AIProvider):
                 input=[{"role": "user", "content": "Test"}],
                 max_output_tokens=5,
             )
+            # Codex P2 (#496): текст живёт в output-элементах, output_text может
+            # быть None — меряем нормализованный текст, а не сырое поле.
+            parsed = responses_output_to_result(getattr(response, "output", None))
+            response_text = parsed["text"] or str(getattr(response, "output_text", None) or "")
             return {
                 'success': True,
                 'message': 'Подключение успешно',
                 'model': self.model,
                 'base_url': self.base_url,
-                'response_length': len(str(getattr(response, "output_text", None) or "")),
+                'response_length': len(response_text),
             }
         except Exception as e:
             return {
