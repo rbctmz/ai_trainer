@@ -95,10 +95,10 @@
 - Head SHA: pending until commit.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
 - Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; first native-review RED 8 failed / 10 passed and GREEN 19 passed; second native-review RED 4 failed / 18 passed and GREEN 22 passed; focused integration 95 passed; smoke 2086 passed / 1 skipped; contributor-safe 2132 passed / 3 skipped / 26 deselected.
-- CI checks/reruns/flakes: targeted Ruff clean; web lint/build green; contract artifact current and contract smoke 23 passed; `fa97bdc` GitHub CI green, final review-fix head pending push.
+- CI checks/reruns/flakes: full Ruff clean; web lint/build green; contract artifact current and contract smoke 23 passed; every GitHub CI check green on `11c4b78`.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: 0 from round one; 3 from round two pending pushed replies/resolution.
+- Unresolved review-thread count: 0 across both review rounds.
 - Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated.
 
 ## Review Findings
@@ -122,8 +122,8 @@
 
 ## Final Verdict
 
-- Verdict: **READY** after second review-fix push, thread resolution, and CI on the new head.
-- Blocking findings remaining: none in code; publication/thread/CI bookkeeping remains.
+- Verdict: **READY**.
+- Blocking findings remaining: none.
 - Review rounds used: 2.
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: user.

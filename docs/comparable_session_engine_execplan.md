@@ -26,7 +26,7 @@ After this change, post-workout feedback can show one prior session that is genu
 - [x] (2026-08-24) Pushed `fa97bdc`, replied to and resolved all 8 first-round threads, and confirmed GitHub CI green on that head.
 - [x] (2026-08-24) Second native Codex Review reported 3 P2 findings; captured an exact RED of 4 failed / 18 passed and fixed all three with regression coverage (22 passed).
 - [x] (2026-08-24) Completed second-round local verification: 22 comparable-session tests, 95 focused tests, smoke 2086 passed / 1 skipped, contributor-safe 2132 passed / 3 skipped / 26 deselected, targeted Ruff, web lint/build, contract freshness, and 23 contract tests green.
-- [ ] Push the second review-fix commit, resolve its 3 threads, and confirm GitHub CI on the final head.
+- [x] (2026-08-24) Pushed `11c4b78`, replied to and resolved all 3 second-round threads, and confirmed every GitHub CI check green.
 
 ## Surprises & Discoveries
 
@@ -58,7 +58,7 @@ After this change, post-workout feedback can show one prior session that is genu
 
 ## Outcomes & Retrospective
 
-The engine now selects one prior same-sport, exact-stimulus session by transparent duration, TSS-per-hour, and provider-compatible interval-structure evidence. NP is preferred for bike, average power is explicitly a fallback, and run/swim pace carries a versioned source-backed threshold. Feedback, coach, and web surfaces expose neutral facts; split targets/comparators, stale feedback identity, ambiguous match lineage, and weak/incompatible evidence fail closed. Same-day ordering uses UTC start time, historical targets restore their immutable checkpoint, rebind chains retain their original stimulus evidence, and the default coach target follows workout time rather than late feedback time. No schema, TSS, provider, plan, or history behavior changed. Both native review rounds are fixed locally; final broad verification, push, thread resolution, and CI remain before merge.
+The engine now selects one prior same-sport, exact-stimulus session by transparent duration, TSS-per-hour, and provider-compatible interval-structure evidence. NP is preferred for bike, average power is explicitly a fallback, and run/swim pace carries a versioned source-backed threshold. Feedback, coach, and web surfaces expose neutral facts; split targets/comparators, stale feedback identity, ambiguous match lineage, and weak/incompatible evidence fail closed. Same-day ordering uses UTC start time, historical targets restore their immutable checkpoint, rebind chains retain their original stimulus evidence, and the default coach target follows workout time rather than late feedback time. No schema, TSS, provider, plan, or history behavior changed. Both native review rounds are resolved and all local and GitHub checks are green.
 
 ## Context and Orientation
 
