@@ -20,7 +20,10 @@ After this change, post-workout feedback can show one prior session that is genu
 - [x] (2026-08-24) Integrated additive feedback, coach-tool, presenter, TypeScript, and neutral web contracts.
 - [x] (2026-08-24) Completed root self-review and local CI: combined focused 145 passed; smoke 2075 passed / 1 skipped; contributor-safe 2121 passed / 3 skipped / 26 deselected; Ruff, web lint/build, contract check, and 23 contract smoke tests green.
 - [x] (2026-08-24) Committed implementation as `aac0ff1`, pushed the issue branch, and opened draft PR #505 with `Closes #500`.
-- [ ] Post the final pushed SHA/evidence to the issue and complete native Codex Review before merge.
+- [x] (2026-08-24) Posted the pushed SHA/evidence to #500; GitHub CI completed green and the PR moved to Ready for review.
+- [x] (2026-08-24) Native Codex Review reported 8 findings (3 P1, 5 P2); captured an exact RED of 8 failed / 10 passed and fixed every finding with regression coverage.
+- [x] (2026-08-24) Re-verified the review slice: 19 comparable-session tests, 76 focused tests, smoke 2083 passed / 1 skipped, contributor-safe 2129 passed / 3 skipped / 26 deselected, Ruff, web lint/build, contract freshness, and 23 contract tests green.
+- [ ] Push the review-fix commit, reply to and resolve all 8 threads, then confirm GitHub CI on the new head.
 
 ## Surprises & Discoveries
 
@@ -29,6 +32,10 @@ After this change, post-workout feedback can show one prior session that is genu
 - **Observed**: canonical activities store `normalized_power`, `avg_power`, `tss_ftp_used`, and `tss_pace_used`, while compact interval structure is local and provider-independent after sync. **Inferred**: v1 needs no provider call or schema change. The cheapest falsifying check is a temporary database containing only these persisted fields and interval rows. **Verified by**: pure fixtures and bounded fake-store service test pass without provider clients or new tables; contract/build suites remain green.
 
 - **Observed**: one plan/fact target may intentionally reference multiple split activities. **Inferred**: silently aggregating normalized power or pace across those activities would create unsupported physiology and would undo split activity semantics. The cheapest falsifying check is a target with two actual ids. **Verified by**: `test_service_refuses_to_aggregate_split_target_activities` returns `TARGET_ACTIVITY_COUNT_UNSUPPORTED`.
+
+- **Observed**: native review proved the same split risk also existed on the comparator side and that late feedback/rematches could detach subjective evidence from its immutable match revision. **Inferred**: comparison identity must bind both sides to exactly one canonical activity and restore historical targets from the saved match checkpoint. **Verified by**: the 8-case review RED and the final 19-test matrix, including split comparator, superseded feedback, immutable checkpoint, and workout-time ordering cases.
+
+- **Observed**: run TSS rows deliberately do not persist `tss_pace_used`, while athlete-profile pace thresholds are already append-only and source-labelled. **Inferred**: run pace evidence should resolve the newest threshold snapshot known at each activity time without changing TSS or schema. **Verified by**: store timeline and service tests select distinct 300/285 s/km threshold contexts for historical/current runs.
 
 ## Decision Log
 
@@ -44,7 +51,7 @@ After this change, post-workout feedback can show one prior session that is genu
 
 ## Outcomes & Retrospective
 
-The engine now selects one prior same-sport, exact-stimulus session by transparent duration, TSS-per-hour, and interval-structure evidence. NP is preferred for bike, average power is explicitly a fallback, and run/swim pace carries each activity's stored pace threshold. Feedback, coach, and web surfaces expose neutral facts; split targets and weak/incompatible evidence fail closed. No schema, TSS, provider, plan, or history behavior changed. The implementation is published in draft PR #505; native Codex Review and GitHub CI remain before merge.
+The engine now selects one prior same-sport, exact-stimulus session by transparent duration, TSS-per-hour, and interval-structure evidence. NP is preferred for bike, average power is explicitly a fallback, and run/swim pace carries a versioned source-backed threshold. Feedback, coach, and web surfaces expose neutral facts; split targets/comparators, stale feedback identity, and weak/incompatible evidence fail closed. Same-day ordering uses UTC start time, historical targets restore their immutable checkpoint, and the default coach target follows workout time rather than late feedback time. No schema, TSS, provider, plan, or history behavior changed. Native review findings are fixed locally; push, thread resolution, and CI on the new head remain before merge.
 
 ## Context and Orientation
 
@@ -92,7 +99,7 @@ Every comparison call is read-only and deterministic. It can be retried after a 
 
 ## Artifacts and Notes
 
-The initial cheap falsifier was repository search plus the #499 gate fixture: no comparable-session model/tool/DTO existed and a session-comparison claim received `TREND_COMPARATOR_MISSING`. Initial pytest failed at missing module import. After the pure slice, the product-boundary run was 3 failed / 8 passed; final new matrix is 12 passed. Local verification is focused 145 passed, smoke 2075 passed / 1 skipped, contributor-safe 2121 passed / 3 skipped / 26 deselected, repository Ruff clean, web lint/build green, contract artifact current, and contract smoke 23 passed.
+The initial cheap falsifier was repository search plus the #499 gate fixture: no comparable-session model/tool/DTO existed and a session-comparison claim received `TREND_COMPARATOR_MISSING`. Initial pytest failed at missing module import. After the pure slice, the product-boundary run was 3 failed / 8 passed; the first published matrix was 12 passed. Native review then produced an exact 8 failed / 10 passed RED. The review-fixed matrix is 19 passed; focused integration is 76 passed; smoke is 2083 passed / 1 skipped; contributor-safe is 2129 passed / 3 skipped / 26 deselected; repository Ruff, web lint/build, contract freshness, and 23 contract tests are green.
 
 ## Interfaces and Dependencies
 

@@ -355,6 +355,174 @@ def test_service_refuses_to_aggregate_split_target_activities() -> None:
     assert result["reason_code"] == "TARGET_ACTIVITY_COUNT_UNSUPPORTED"
 
 
+def test_service_rejects_split_comparator_matches() -> None:
+    class SplitComparatorDb(_ComparableDb):
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            assert start_date == "2024-08-24"
+            assert end_date == "2026-08-24"
+            return [
+                {
+                    "session_id": "prior-session",
+                    "base_checkpoint_id": 3,
+                    "match_status": "matched",
+                    "actual_activity_ids": ["candidate", "ride-home"],
+                }
+            ]
+
+    result = project_comparable_session(
+        SplitComparatorDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "data_gap"
+    assert result["reason_code"] == "NO_ELIGIBLE_CANDIDATE"
+
+
+def test_service_does_not_attach_feedback_from_a_superseded_activity() -> None:
+    result = project_comparable_session(
+        _ComparableDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+            "match_revision_id": 22,
+        },
+        feedback={
+            "status": "active",
+            "match_revision_id": 21,
+            "actual_activity_ids": ["old-target"],
+            "session_rpe_1_10": 9,
+            "source": "user_web",
+        },
+    )
+
+    assert result["status"] == "available"
+    assert result["comparison"]["subjective_evidence"]["target"] is None
+
+
+def test_earlier_same_day_activity_can_be_selected() -> None:
+    target = _features("target", "2026-08-24")
+    target["started_at_utc"] = "2026-08-24T18:00:00Z"
+    earlier = _features("earlier", "2026-08-24", duration=58, tss=68)
+    earlier["started_at_utc"] = "2026-08-24T08:00:00Z"
+
+    result = select_comparable_session(target, [earlier])
+
+    assert result["status"] == "available"
+    assert result["comparator"]["activity_id"] == "earlier"
+
+
+def test_run_pace_uses_versioned_profile_threshold_when_tss_has_none() -> None:
+    activity = _activity(
+        "run",
+        "2026-08-24",
+        sport="run",
+        duration=50,
+        distance_km=10,
+        normalized_power=None,
+        avg_power=None,
+        tss_pace_used=None,
+    )
+    activity.update(
+        {
+            "pace_threshold_used": 285.0,
+            "pace_threshold_source": "intervals_icu",
+            "pace_threshold_observed_at": "2026-08-20T06:00:00Z",
+        }
+    )
+
+    projected = project_activity_features(
+        activity,
+        stimulus_family="threshold",
+        intervals=_intervals(4, minutes=50),
+    )
+
+    assert projected["sport_metric"] == {
+        "kind": "pace_seconds_per_km",
+        "value": 300.0,
+        "source": "distance_duration",
+        "threshold_value": 285.0,
+        "threshold_source": "intervals_icu",
+        "threshold_observed_at": "2026-08-20T06:00:00Z",
+        "relative_to_threshold": 0.95,
+    }
+
+
+def test_service_reads_run_threshold_snapshot_at_each_activity_time() -> None:
+    class RunComparableDb(_ComparableDb):
+        def __init__(self) -> None:
+            self.target = _activity(
+                "target",
+                "2026-08-24",
+                sport="run",
+                duration=50,
+                tss=70,
+                normalized_power=None,
+                avg_power=None,
+                distance_km=10,
+            )
+            self.candidate = _activity(
+                "candidate",
+                "2026-08-01",
+                sport="run",
+                duration=49,
+                tss=68,
+                normalized_power=None,
+                avg_power=None,
+                distance_km=10,
+            )
+
+        def get_athlete_pace_threshold_history(self, sport):
+            assert sport == "run"
+            return [
+                {
+                    "snapshot_at": "2026-07-01T06:00:00Z",
+                    "observed_at": "2026-07-01T06:00:00Z",
+                    "value": 300.0,
+                    "source": "intervals_icu",
+                },
+                {
+                    "snapshot_at": "2026-08-20T06:00:00Z",
+                    "observed_at": "2026-08-20T06:00:00Z",
+                    "value": 285.0,
+                    "source": "intervals_icu",
+                },
+            ]
+
+    result = project_comparable_session(
+        RunComparableDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    metric = result["comparison"]["sport_metric"]
+    assert metric["target"]["threshold_value"] == 285.0
+    assert metric["comparator"]["threshold_value"] == 300.0
+    assert metric["target"]["threshold_source"] == "intervals_icu"
+
+
 def test_feedback_primary_prompt_exposes_the_bounded_comparison(monkeypatch) -> None:
     from api import session_feedback
 
@@ -422,6 +590,124 @@ def test_feedback_primary_prompt_exposes_the_bounded_comparison(monkeypatch) -> 
     assert observed["template"]["definition_snapshot"]["step_builder_key"] == "threshold"
 
 
+def test_saved_feedback_restores_target_from_immutable_match_checkpoint() -> None:
+    from api.session_feedback import _evidence_from_saved_feedback
+
+    feedback = {
+        "session_id": "historical-session",
+        "match_revision_id": 41,
+        "actual_activity_ids": ["historical-activity"],
+        "match_snapshot": {
+            "planned": {"date": "2026-08-01", "sport": "bike"},
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "confidence": 1.0,
+            "actual_activities": [_activity("historical-activity", "2026-08-01")],
+        },
+    }
+
+    class SavedFeedbackDb:
+        def get_plan_actual_match(self, match_revision_id):
+            assert match_revision_id == 41
+            return {
+                "id": 41,
+                "session_id": "historical-session",
+                "session_date": "2026-08-01",
+                "base_checkpoint_id": 7,
+                "match_status": "matched",
+                "match_method": "user_confirmed",
+                "confidence": 1.0,
+                "actual_activity_ids": ["historical-activity"],
+                "planned_snapshot": {"date": "2026-08-01", "sport": "bike"},
+            }
+
+        def get_planning_checkpoint(self, checkpoint_id):
+            assert checkpoint_id == 7
+            return {
+                "id": 7,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-01",
+                            "total_tss": 70,
+                            "parts": {"bike": 70},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-01",
+                            "sessions": [
+                                {
+                                    "session_id": "historical-session",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "threshold"
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+
+        def get_latest_planning_checkpoint(self):
+            raise AssertionError("latest checkpoint must not be used")
+
+    evidence = _evidence_from_saved_feedback(
+        SavedFeedbackDb(), feedback, as_of="2026-08-24"
+    )
+
+    assert evidence is not None
+    assert evidence["row"]["actual_activity_ids"] == ["historical-activity"]
+    assert evidence["template"]["definition_snapshot"]["step_builder_key"] == "threshold"
+
+
+def test_default_coach_target_uses_latest_workout_time_not_feedback_time(
+    monkeypatch,
+) -> None:
+    from api import session_feedback
+
+    older_late_feedback = {
+        "id": 2,
+        "session_id": "older-session",
+        "status": "active",
+        "actual_activity_ids": ["older"],
+        "session_end_at_utc": "2026-08-01T09:00:00Z",
+        "submitted_at": "2026-08-25T09:00:00Z",
+    }
+    latest_workout = {
+        "id": 1,
+        "session_id": "latest-session",
+        "status": "active",
+        "actual_activity_ids": ["latest"],
+        "session_end_at_utc": "2026-08-24T09:00:00Z",
+        "submitted_at": "2026-08-24T09:01:00Z",
+    }
+
+    class LatestDb:
+        def get_latest_session_feedbacks(self):
+            return [older_late_feedback, latest_workout]
+
+    monkeypatch.setattr(
+        session_feedback,
+        "_evidence_from_saved_feedback",
+        lambda _db, feedback, as_of=None: {
+            "row": {"session_id": feedback["session_id"]},
+            "template": {},
+        },
+    )
+    monkeypatch.setattr(
+        session_feedback,
+        "_comparison_for_evidence",
+        lambda _db, evidence, feedback=None: {
+            "selected_session_id": evidence["row"]["session_id"]
+        },
+    )
+
+    result = session_feedback.comparable_session_for_session(LatestDb())
+
+    assert result["selected_session_id"] == "latest-session"
+
+
 def test_coach_tool_and_presenter_expose_neutral_bounded_comparison(monkeypatch) -> None:
     from models.ai_tools import AITools
     from models.coach_tool_presenter import format_tool_result
@@ -438,7 +724,18 @@ def test_coach_tool_and_presenter_expose_neutral_bounded_comparison(monkeypatch)
             "tss_delta": 3.0,
             "overall_intensity_tss_per_hour_delta": 1.0,
             "sport_metric": None,
-            "subjective_evidence": {"target": None, "comparator": None},
+            "subjective_evidence": {
+                "target": {
+                    "kind": "session_rpe_1_10",
+                    "value": 7,
+                    "provenance": "athlete-entered",
+                },
+                "comparator": {
+                    "kind": "athlete_note",
+                    "value": "ровно и контролируемо",
+                    "provenance": "athlete-entered",
+                },
+            },
         },
         "guardrails": {
             "one_comparison_only": True,
@@ -458,6 +755,9 @@ def test_coach_tool_and_presenter_expose_neutral_bounded_comparison(monkeypatch)
 
     assert raw == expected
     assert "2026-08-01" in rendered
+    assert "RPE 7" in rendered
+    assert "ровно и контролируемо" in rendered
+    assert "athlete-entered" in rendered
     assert "не доказывает тренд" in rendered.lower()
     assert "лучше" not in rendered.lower()
     schemas = {schema["name"]: schema for schema in tools.get_tool_schemas()}
@@ -477,3 +777,6 @@ def test_web_contract_has_neutral_comparison_surface() -> None:
     assert "comparison?: ComparableSessionProjection | null" in types
     assert "Сравнение с похожей сессией" in card
     assert "Одно сравнение не доказывает тренд" in card
+    assert '"с/км"' in card
+    assert '"с/100 м"' in card
+    assert "threshold_source" in card

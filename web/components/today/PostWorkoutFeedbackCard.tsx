@@ -348,10 +348,22 @@ function ComparableSessionEvidence({
   const sportMetric = comparison.comparison?.sport_metric as
     | {
         kind?: string;
-        target?: { value?: number; source?: string; threshold_value?: number };
-        comparator?: { value?: number; source?: string; threshold_value?: number };
+        target?: {
+          value?: number;
+          source?: string;
+          threshold_value?: number;
+          threshold_source?: string;
+        };
+        comparator?: {
+          value?: number;
+          source?: string;
+          threshold_value?: number;
+          threshold_source?: string;
+        };
       }
     | null;
+  const paceUnit =
+    sportMetric?.kind === "pace_seconds_per_km" ? "с/км" : "с/100 м";
   if (!target || !prior) return null;
   return (
     <div className="mt-3 rounded-lg border border-surface-border bg-surface-muted px-3 py-2 text-xs text-ink-soft">
@@ -370,7 +382,7 @@ function ComparableSessionEvidence({
       ) : null}
       {sportMetric?.kind?.startsWith("pace_seconds_") ? (
         <p className="mt-1">
-          Темп: {sportMetric.target?.value ?? "—"} · ранее {sportMetric.comparator?.value ?? "—"}; порог {sportMetric.target?.threshold_value ?? "—"}
+          Темп: {sportMetric.target?.value ?? "—"} {paceUnit} · ранее {sportMetric.comparator?.value ?? "—"} {paceUnit}; порог сейчас {sportMetric.target?.threshold_value ?? "—"} ({sportMetric.target?.threshold_source ?? "источник неизвестен"}), ранее {sportMetric.comparator?.threshold_value ?? "—"} ({sportMetric.comparator?.threshold_source ?? "источник неизвестен"})
         </p>
       ) : null}
       <p className="mt-1 text-ink-faint">Одно сравнение не доказывает тренд или причину.</p>

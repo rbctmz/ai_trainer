@@ -5,7 +5,7 @@ It never infers adaptation, recalculates load, or mutates source data.
 """
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, time, timezone
 from typing import Any, Mapping, Sequence
 
 from utils.product_semantics import normalize_sport_key
@@ -43,6 +43,19 @@ def _day(value: Any) -> date | None:
         return date.fromisoformat(str(value or "")[:10])
     except ValueError:
         return None
+
+
+def _instant(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
 
 
 def _ratio_similarity(first: float, second: float) -> float:
@@ -103,7 +116,9 @@ def _sport_metric(activity: Mapping[str, Any], sport: str) -> dict[str, Any] | N
 
     duration = _positive(activity.get("duration_minutes"))
     distance_km = _positive(activity.get("distance_km"))
-    threshold = _positive(activity.get("tss_pace_used"))
+    tss_threshold = _positive(activity.get("tss_pace_used"))
+    profile_threshold = _positive(activity.get("pace_threshold_used"))
+    threshold = tss_threshold or profile_threshold
     if duration is None or distance_km is None or threshold is None:
         return None
     if sport == "run":
@@ -114,12 +129,27 @@ def _sport_metric(activity: Mapping[str, Any], sport: str) -> dict[str, Any] | N
         kind = "pace_seconds_per_100m"
     else:
         return None
+    threshold_source = (
+        "tss_pace_used"
+        if tss_threshold is not None
+        else _text(activity.get("pace_threshold_source")) or "athlete_profile"
+    )
+    threshold_observed_at = (
+        None
+        if tss_threshold is not None
+        else _text(activity.get("pace_threshold_observed_at"))
+    )
     return {
         "kind": kind,
         "value": round(pace, 1),
         "source": "distance_duration",
         "threshold_value": round(threshold, 1),
-        "threshold_source": "tss_pace_used",
+        "threshold_source": threshold_source,
+        **(
+            {"threshold_observed_at": threshold_observed_at}
+            if threshold_observed_at
+            else {}
+        ),
         "relative_to_threshold": round(threshold / pace, 4),
     }
 
@@ -233,6 +263,7 @@ def _metric_comparison(
                 "source",
                 "threshold_value",
                 "threshold_source",
+                "threshold_observed_at",
                 "relative_to_threshold",
             )
             if target_metric.get(key) is not None
@@ -244,6 +275,7 @@ def _metric_comparison(
                 "source",
                 "threshold_value",
                 "threshold_source",
+                "threshold_observed_at",
                 "relative_to_threshold",
             )
             if candidate_metric.get(key) is not None
@@ -277,12 +309,20 @@ def select_comparable_session(
         "structure_incompatible": 0,
         "eligible": 0,
     }
-    ranked: list[tuple[float, int, str, dict[str, Any], list[dict[str, Any]]]] = []
+    target_instant = _instant(frozen_target.get("started_at_utc"))
+    ranked: list[tuple[float, float, str, dict[str, Any], list[dict[str, Any]]]] = []
     for raw in candidates:
         candidate = dict(raw)
         counts["considered"] += 1
         candidate_day = _day(candidate.get("date"))
-        if candidate_day is None or target_day is None or candidate_day >= target_day:
+        if candidate_day is None or target_day is None or candidate_day > target_day:
+            continue
+        candidate_instant = _instant(candidate.get("started_at_utc"))
+        if candidate_day == target_day and not (
+            candidate_instant is not None
+            and target_instant is not None
+            and candidate_instant < target_instant
+        ):
             continue
         if candidate.get("sport") != frozen_target.get("sport"):
             continue
@@ -364,7 +404,13 @@ def select_comparable_session(
         ranked.append(
             (
                 round(score, 6),
-                candidate_day.toordinal(),
+                (
+                    candidate_instant.timestamp()
+                    if candidate_instant is not None
+                    else datetime.combine(
+                        candidate_day, time.min, tzinfo=timezone.utc
+                    ).timestamp()
+                ),
                 str(candidate.get("activity_id") or ""),
                 candidate,
                 evidence,

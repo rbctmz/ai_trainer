@@ -1,7 +1,7 @@
 """Bounded local-data projection for comparable-session evidence (#500)."""
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any, Mapping
 
 from models.comparable_sessions import (
@@ -11,6 +11,7 @@ from models.comparable_sessions import (
 )
 from models.plan_actual_reconciliation import find_planned_session
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
+from utils.product_semantics import normalize_sport_key
 
 
 DEFAULT_LOOKBACK_DAYS = 730
@@ -59,8 +60,13 @@ def _feedback_by_activity(database: Any) -> dict[str, dict[str, Any]]:
         if not isinstance(raw, Mapping) or raw.get("status") == "tombstone":
             continue
         row = dict(raw)
-        for activity_id in row.get("actual_activity_ids") or []:
-            result[str(activity_id)] = row
+        activity_ids = [
+            str(value)
+            for value in row.get("actual_activity_ids") or []
+            if str(value or "").strip()
+        ]
+        if len(activity_ids) == 1:
+            result[activity_ids[0]] = row
     return result
 
 
@@ -71,8 +77,13 @@ def _match_by_activity(
     for match in matches:
         if not isinstance(match, Mapping) or match.get("match_status") != "matched":
             continue
-        for activity_id in match.get("actual_activity_ids") or []:
-            grouped.setdefault(str(activity_id), []).append(match)
+        activity_ids = [
+            str(value)
+            for value in match.get("actual_activity_ids") or []
+            if str(value or "").strip()
+        ]
+        if len(activity_ids) == 1:
+            grouped.setdefault(activity_ids[0], []).append(match)
     return {
         activity_id: rows[0] if len(rows) == 1 else None
         for activity_id, rows in grouped.items()
@@ -98,6 +109,83 @@ def _stimulus_for_match(
         str(match.get("session_id") or ""),
     )
     return _stimulus_family(session)
+
+
+def _instant(value: Any) -> datetime | None:
+    text_value = str(value or "").strip()
+    if not text_value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text_value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _with_profile_pace_threshold(
+    database: Any, activity: Mapping[str, Any]
+) -> dict[str, Any]:
+    """Attach the newest source-backed pace threshold known at activity time."""
+    projected = dict(activity)
+    if projected.get("tss_pace_used") is not None:
+        return projected
+    sport = normalize_sport_key(projected.get("sport"))
+    if sport not in {"run", "swim"}:
+        return projected
+    history_reader = getattr(database, "get_athlete_pace_threshold_history", None)
+    if not callable(history_reader):
+        return projected
+    activity_day = _day(projected.get("date"))
+    activity_instant = _instant(projected.get("started_at_utc"))
+    if activity_instant is None and activity_day is not None:
+        activity_instant = datetime.combine(
+            activity_day, time.max, tzinfo=timezone.utc
+        )
+    if activity_instant is None:
+        return projected
+    eligible: list[tuple[datetime, Mapping[str, Any]]] = []
+    for raw in history_reader(sport) or []:
+        if not isinstance(raw, Mapping):
+            continue
+        snapshot_at = _instant(raw.get("snapshot_at"))
+        if snapshot_at is not None and snapshot_at <= activity_instant:
+            eligible.append((snapshot_at, raw))
+    if not eligible:
+        return projected
+    _snapshot_at, selected = max(eligible, key=lambda item: item[0])
+    projected["pace_threshold_used"] = selected.get("value")
+    projected["pace_threshold_source"] = str(
+        selected.get("source") or "athlete_profile"
+    )
+    projected["pace_threshold_observed_at"] = (
+        selected.get("observed_at") or selected.get("snapshot_at")
+    )
+    return projected
+
+
+def _feedback_matches_target(
+    feedback: Mapping[str, Any] | None,
+    *,
+    activity_ids: list[str],
+    match_revision_id: Any,
+) -> bool:
+    if not isinstance(feedback, Mapping) or feedback.get("status") == "tombstone":
+        return False
+    feedback_ids = [
+        str(value)
+        for value in feedback.get("actual_activity_ids") or []
+        if str(value or "").strip()
+    ]
+    if feedback_ids != activity_ids:
+        return False
+    feedback_revision = feedback.get("match_revision_id")
+    return not (
+        feedback_revision is not None
+        and match_revision_id is not None
+        and str(feedback_revision) != str(match_revision_id)
+    )
 
 
 def project_comparable_session(
@@ -127,9 +215,20 @@ def project_comparable_session(
         return build_comparison_data_gap("TARGET_ACTIVITY_INCOMPLETE")
     stimulus = _stimulus_family(template)
     feedbacks = _feedback_by_activity(database)
-    target_feedback = dict(feedback) if isinstance(feedback, Mapping) else feedbacks.get(target_ids[0])
+    proposed_feedback = (
+        dict(feedback) if isinstance(feedback, Mapping) else feedbacks.get(target_ids[0])
+    )
+    target_feedback = (
+        proposed_feedback
+        if _feedback_matches_target(
+            proposed_feedback,
+            activity_ids=target_ids,
+            match_revision_id=evidence.get("match_revision_id"),
+        )
+        else None
+    )
     target = project_activity_features(
-        target_activity,
+        _with_profile_pace_threshold(database, target_activity),
         stimulus_family=stimulus,
         intervals=database.get_activity_intervals(target_ids[0]),
         subjective_evidence=_subjective_evidence(target_feedback),
@@ -160,10 +259,18 @@ def project_comparable_session(
             continue
         candidates.append(
             project_activity_features(
-                activity,
+                _with_profile_pace_threshold(database, activity),
                 stimulus_family=candidate_stimulus,
                 intervals=database.get_activity_intervals(activity_id),
-                subjective_evidence=_subjective_evidence(feedbacks.get(activity_id)),
+                subjective_evidence=_subjective_evidence(
+                    feedbacks.get(activity_id)
+                    if _feedback_matches_target(
+                        feedbacks.get(activity_id),
+                        activity_ids=[activity_id],
+                        match_revision_id=match.get("id"),
+                    )
+                    else None
+                ),
             )
         )
     return select_comparable_session(target, candidates)

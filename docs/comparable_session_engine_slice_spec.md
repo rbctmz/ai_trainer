@@ -25,7 +25,7 @@
 ## Definition of Done
 
 - [x] Acceptance criteria are observable.
-- [ ] Focused, broad, Ruff, web, and contract checks are green; independent native review remains pending on the PR.
+- [x] Focused, broad, Ruff, web, and contract checks are green; native review completed with an exact RED and all findings have regression fixes.
 - [ ] User remains merge owner; Codex owns draft PR and post-merge sync.
 
 ## Public Contracts
@@ -94,11 +94,11 @@
 
 - Head SHA: pending until commit.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
-- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; final new matrix 12 passed; combined feedback/coach 145 passed; smoke 2075 passed / 1 skipped; contributor-safe 2121 passed / 3 skipped / 26 deselected.
-- CI checks/reruns/flakes: repository Ruff clean; web lint/build green; contract artifact current and contract smoke 23 passed; GitHub CI pending.
+- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; native-review RED 8 failed / 10 passed; review-fixed matrix 19 passed; focused integration 76 passed; smoke 2083 passed / 1 skipped; contributor-safe 2129 passed / 3 skipped / 26 deselected.
+- CI checks/reruns/flakes: repository Ruff clean; web lint/build green; contract artifact current and contract smoke 23 passed; initial-head GitHub CI green, review-fix head CI pending push.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: N/A before PR/native review.
+- Unresolved review-thread count: 8 before the review-fix slice; target 0 after pushed replies/resolution.
 - Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated.
 
 ## Review Findings
@@ -108,12 +108,20 @@
 | P2 | **Observed**: the first service draft accepted legacy `template.stimulus` when versioned `step_builder_key` was absent. **Inferred**: legacy text could create a false exact-stimulus match. **Verified by**: self-review trace and final code requiring only `definition_snapshot.step_builder_key`. | Remove name/text fallback; missing versioned stimulus is a data gap. | Codex / resolved. |
 | P2 | **Observed**: the first selector counted duration and intensity incompatibility under one reason. **Inferred**: evidence would be less falsifiable. **Verified by**: separate counters/reasons and the final 12-test matrix. | Preserve dimension-specific rejection evidence. | Codex / resolved. |
 | P2 | **Observed**: sport-specific provenance existed in the DTO but the initial UI/tool presenter showed only TSS/duration. **Inferred**: NP/pace acceptance would not be observable to users. **Verified by**: final coach/UI projection plus lint/build. | Render source-labelled power or pace without evaluative wording. | Codex / resolved. |
+| P1 | **Observed**: split comparator matches mapped each activity independently. **Inferred**: a commute/continuation could inherit whole-session stimulus and feedback. **Verified by**: dedicated split-comparator RED. | Require exactly one actual id on comparator matches. | Codex / resolved. |
+| P1 | **Observed**: historical coach targets re-read the latest checkpoint. **Inferred**: a plan rollover could erase valid immutable stimulus evidence. **Verified by**: historical-checkpoint RED. | Restore the feedback's saved match revision and referenced checkpoint. | Codex / resolved. |
+| P1 | **Observed**: supplied feedback was not bound to current actual ids/revision. **Inferred**: rematched activity B could receive activity A's RPE/note. **Verified by**: superseded-feedback RED. | Require exact singleton ids and compatible match revision before attaching subjective evidence. | Codex / resolved. |
+| P2 | **Observed**: run TSS does not persist `tss_pace_used`. **Inferred**: fixture-only pace evidence would not work on real runs. **Verified by**: profile-timeline and service RED/GREEN tests. | Resolve the append-only source-backed threshold snapshot known at each activity time. | Codex / resolved. |
+| P2 | **Observed**: default target used feedback submission time. **Inferred**: a late note could make an old workout look latest. **Verified by**: late-feedback ordering RED. | Sort by session end/activity time, using submission/id only as tie-breakers. | Codex / resolved. |
+| P2 | **Observed**: same-day candidates were rejected by date alone. **Inferred**: an earlier compatible two-a-day session was invisible. **Verified by**: 08:00 vs 18:00 RED. | Compare UTC starts on the same date and fail closed when timestamps are missing. | Codex / resolved. |
+| P2 | **Observed**: web pace output omitted units and comparator threshold provenance. **Inferred**: run/swim values were ambiguous. **Verified by**: static UI contract plus build. | Render sport-specific units and both threshold sources. | Codex / resolved. |
+| P2 | **Observed**: coach presenter dropped projected RPE/notes. **Inferred**: preserved subjective evidence never reached the model. **Verified by**: presenter RED. | Add bounded provenance-labelled subjective lines outside the similarity score. | Codex / resolved. |
 
 ## Final Verdict
 
-- Verdict: **READY** for draft PR and CI; independent native review remains a merge gate.
-- Blocking findings remaining: none from root self-review; native review pending.
-- Review rounds used: 0.
+- Verdict: **READY** after review-fix push, thread resolution, and CI on the new head.
+- Blocking findings remaining: none in code; publication/thread/CI bookkeeping remains.
+- Review rounds used: 1.
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: Codex.

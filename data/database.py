@@ -2333,6 +2333,20 @@ class Database:
         conn.close()
         return self._deserialize_plan_actual_match(row)
 
+    def get_plan_actual_match(self, match_id):
+        """Return one immutable plan-actual match revision by primary key."""
+        if match_id is None:
+            return None
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM plan_actual_matches WHERE id = ? LIMIT 1",
+                (int(match_id),),
+            ).fetchone()
+        finally:
+            conn.close()
+        return self._deserialize_plan_actual_match(row)
+
     def get_checkpoint_data(self, checkpoint_id):
         """Return parsed ``checkpoint_data`` for one planning checkpoint (#383).
 
@@ -4634,6 +4648,16 @@ class Database:
         conn = self._connect()
         try:
             return AthleteProfileStore(conn, self.clean_value).get()
+        finally:
+            conn.close()
+
+    def get_athlete_pace_threshold_history(self, sport):
+        """Return append-only pace-threshold snapshots for run or swim."""
+        conn = self._connect()
+        try:
+            return AthleteProfileStore(conn, self.clean_value).pace_threshold_timeline(
+                str(sport)
+            )
         finally:
             conn.close()
 

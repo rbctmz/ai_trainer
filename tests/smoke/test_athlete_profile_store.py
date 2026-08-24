@@ -121,6 +121,51 @@ def test_save_preserves_explicit_synced_at(tmp_path):
     conn.close()
 
 
+def test_pace_threshold_timeline_preserves_snapshot_and_source(tmp_path):
+    conn = _connect(tmp_path)
+    create_athlete_profile_table(conn)
+    conn.executemany(
+        """
+        INSERT INTO athlete_profile (
+            threshold_pace_seconds_per_km,
+            threshold_pace_source,
+            threshold_pace_synced_at,
+            source,
+            synced_at
+        ) VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            (
+                300.0,
+                "intervals_icu",
+                "2026-07-01 06:00:00",
+                "intervals_icu",
+                "2026-07-01 06:00:00",
+            ),
+            (
+                285.0,
+                "intervals_icu",
+                "2026-08-20 06:00:00",
+                "intervals_icu",
+                "2026-08-20 06:00:00",
+            ),
+        ],
+    )
+
+    store = AthleteProfileStore(conn, _clean)
+    timeline = store.pace_threshold_timeline("run")
+
+    assert [row["value"] for row in timeline] == [300.0, 285.0]
+    assert timeline[-1] == {
+        "snapshot_at": "2026-08-20 06:00:00",
+        "value": 285.0,
+        "source": "intervals_icu",
+        "observed_at": "2026-08-20 06:00:00",
+    }
+    assert store.pace_threshold_timeline("bike") == []
+    conn.close()
+
+
 def test_legacy_schema_migrates_additively(tmp_path):
     conn = _connect(tmp_path)
     conn.execute(

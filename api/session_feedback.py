@@ -160,32 +160,107 @@ def _comparison_for_evidence(
 
 
 def _evidence_from_saved_feedback(
-    db: Database, feedback: Mapping[str, Any]
+    db: Database,
+    feedback: Mapping[str, Any],
+    *,
+    as_of: date | str | None = None,
 ) -> dict[str, Any] | None:
     """Rebuild read-only comparison input without re-running reconciliation."""
-    checkpoint = db.get_latest_planning_checkpoint()
+    match_revision_id = feedback.get("match_revision_id")
+    match_reader = getattr(db, "get_plan_actual_match", None)
+    match = (
+        match_reader(match_revision_id)
+        if callable(match_reader) and match_revision_id is not None
+        else None
+    )
+    checkpoint = (
+        db.get_planning_checkpoint(match.get("base_checkpoint_id"))
+        if isinstance(match, Mapping)
+        else db.get_latest_planning_checkpoint()
+    )
     plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
     session_id = str(feedback.get("session_id") or "")
-    template = _session_template(
+    day_template, template = find_planned_session(
         list(plan.get("session_templates") or []), session_id
     )
     if template is None:
         return None
     snapshot = dict(feedback.get("match_snapshot") or {})
-    planned = dict(snapshot.get("planned") or {})
+    planned = dict(
+        snapshot.get("planned") or (match or {}).get("planned_snapshot") or {}
+    )
+    session_date_text = str(
+        (match or {}).get("session_date")
+        or (day_template or {}).get("date")
+        or planned.get("date")
+        or ""
+    )[:10]
+    if as_of and session_date_text:
+        try:
+            resolved_as_of = (
+                as_of
+                if isinstance(as_of, date)
+                else date.fromisoformat(str(as_of)[:10])
+            )
+            session_date = date.fromisoformat(session_date_text)
+        except ValueError:
+            return None
+        if session_date > resolved_as_of:
+            return None
     return {
         "row": {
             **planned,
             "session_id": session_id,
-            "match_status": snapshot.get("match_status"),
-            "match_method": snapshot.get("match_method"),
-            "confidence": snapshot.get("confidence"),
+            "date": session_date_text or planned.get("date"),
+            "match_status": snapshot.get("match_status")
+            or (match or {}).get("match_status"),
+            "match_method": snapshot.get("match_method")
+            or (match or {}).get("match_method"),
+            "confidence": (
+                snapshot.get("confidence")
+                if snapshot.get("confidence") is not None
+                else (match or {}).get("confidence")
+            ),
             "actual_activity_ids": list(feedback.get("actual_activity_ids") or []),
             "actual_activities": list(snapshot.get("actual_activities") or []),
         },
         "template": dict(template),
-        "match_revision_id": feedback.get("match_revision_id"),
+        "match_revision_id": match_revision_id,
     }
+
+
+def _feedback_workout_sort_key(feedback: Mapping[str, Any]) -> tuple[float, float, int]:
+    """Sort feedback by completed workout time, never by late entry alone."""
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+    def rank(value: datetime | None) -> float:
+        return (value - epoch).total_seconds() if value is not None else float("-inf")
+
+    workout_time = _utc(feedback.get("session_end_at_utc"))
+    snapshot = dict(feedback.get("match_snapshot") or {})
+    if workout_time is None:
+        actual_times = [
+            _utc(item.get("started_at_utc"))
+            for item in snapshot.get("actual_activities") or []
+            if isinstance(item, Mapping)
+        ]
+        workout_time = max(
+            (item for item in actual_times if item is not None), default=None
+        )
+    if workout_time is None:
+        raw_planned = snapshot.get("planned")
+        planned = dict(raw_planned) if isinstance(raw_planned, Mapping) else {}
+        planned_date = str(planned.get("date") or "")[:10]
+        try:
+            workout_time = datetime.combine(
+                date.fromisoformat(planned_date),
+                datetime.min.time(),
+                tzinfo=timezone.utc,
+            )
+        except ValueError:
+            workout_time = None
+    submitted = _utc(feedback.get("submitted_at") or feedback.get("created_at"))
+    return rank(workout_time), rank(submitted), int(feedback.get("id") or 0)
 
 
 def _attach_primary_comparison(
@@ -445,7 +520,7 @@ def submit_session_feedback(
             raise StaleFeedbackError(
                 "client_submission_fingerprint is already used for another session"
             )
-        evidence = _evidence_from_saved_feedback(db, existing)
+        evidence = _evidence_from_saved_feedback(db, existing, as_of=now.date())
         comparison = (
             _comparison_for_evidence(db, evidence, feedback=existing)
             if evidence is not None
@@ -883,20 +958,20 @@ def comparable_session_for_session(
         ]
         if not candidates:
             return build_comparison_data_gap("NO_COMPLETED_SESSION")
-        feedback = max(
-            candidates,
-            key=lambda row: (
-                str(row.get("submitted_at") or row.get("created_at") or ""),
-                int(row.get("id") or 0),
-            ),
-        )
+        feedback = max(candidates, key=_feedback_workout_sort_key)
         target_session_id = str(feedback.get("session_id") or "")
     if not target_session_id:
         return build_comparison_data_gap("NO_COMPLETED_SESSION")
-    try:
-        evidence = _feedback_evidence_for_session(db, target_session_id, as_of=as_of)
-    except (LookupError, ValueError):
-        return build_comparison_data_gap("TARGET_SESSION_EVIDENCE_MISSING")
+    evidence = (
+        _evidence_from_saved_feedback(db, feedback, as_of=as_of)
+        if isinstance(feedback, Mapping)
+        else None
+    )
+    if evidence is None:
+        try:
+            evidence = _feedback_evidence_for_session(db, target_session_id, as_of=as_of)
+        except (LookupError, ValueError):
+            return build_comparison_data_gap("TARGET_SESSION_EVIDENCE_MISSING")
     return _comparison_for_evidence(db, evidence, feedback=feedback)
 
 

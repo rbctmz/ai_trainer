@@ -15,6 +15,22 @@ from utils.product_semantics import (
 )
 
 
+def _subjective_evidence_line(label: str, evidence: Any) -> str:
+    if not isinstance(evidence, dict):
+        return ""
+    provenance = str(evidence.get("provenance") or "unknown-source")
+    kind = str(evidence.get("kind") or "")
+    value = evidence.get("value")
+    note = " ".join(str(evidence.get("note") or "").split())[:300]
+    if kind == "session_rpe_1_10" and value is not None:
+        detail = f"RPE {value}" + (f'; заметка «{note}»' if note else "")
+    elif kind == "athlete_note" and value:
+        detail = f'заметка «{" ".join(str(value).split())[:300]}»'
+    else:
+        return ""
+    return f"- Субъективно ({label}, {provenance}): {detail}."
+
+
 def format_tool_result(tool_name: str, data: Any) -> str:
     """Форматирует результат инструмента для красивого отображения."""
     if tool_name == "get_performance_metrics":
@@ -63,6 +79,15 @@ def format_tool_result(tool_name: str, data: Any) -> str:
         sport_metric = comparison.get("sport_metric") or {}
         metric_target = sport_metric.get("target") or {}
         metric_comparator = sport_metric.get("comparator") or {}
+        subjective = comparison.get("subjective_evidence") or {}
+        subjective_lines = [
+            line
+            for line in (
+                _subjective_evidence_line("текущая", subjective.get("target")),
+                _subjective_evidence_line("сравнимая", subjective.get("comparator")),
+            )
+            if line
+        ]
         metric_line = ""
         if sport_metric.get("kind") == "power_watts":
             metric_line = (
@@ -78,8 +103,10 @@ def format_tool_result(tool_name: str, data: Any) -> str:
             metric_line = (
                 f"- Темп: {metric_target.get('value')} {unit} vs "
                 f"{metric_comparator.get('value')} {unit}; пороги "
-                f"{metric_target.get('threshold_value')} / "
-                f"{metric_comparator.get('threshold_value')} ({metric_target.get('threshold_source')})."
+                f"{metric_target.get('threshold_value')} "
+                f"({metric_target.get('threshold_source')}) / "
+                f"{metric_comparator.get('threshold_value')} "
+                f"({metric_comparator.get('threshold_source')})."
             )
         return "\n".join(
             [
@@ -95,6 +122,7 @@ def format_tool_result(tool_name: str, data: Any) -> str:
                 f"Δ длительности {float(comparison.get('duration_minutes_delta') or 0.0):+.1f} мин; "
                 f"Δ TSS {float(comparison.get('tss_delta') or 0.0):+.1f}.",
                 *([metric_line] if metric_line else []),
+                *subjective_lines,
                 "",
                 "_Одно сравнение не доказывает тренд, адаптацию или причину._",
             ]

@@ -193,6 +193,50 @@ class AthleteProfileStore:
             history.append((sync_date, ftp_value))
         return history
 
+    def pace_threshold_timeline(self, sport: str) -> list[dict[str, Any]]:
+        """Return versioned source-backed pace thresholds in snapshot order."""
+        columns = {
+            "run": (
+                "threshold_pace_seconds_per_km",
+                "threshold_pace_source",
+                "threshold_pace_synced_at",
+            ),
+            "swim": (
+                "swim_threshold_pace_seconds_per_100m",
+                "swim_threshold_pace_source",
+                "swim_threshold_pace_synced_at",
+            ),
+        }
+        selected = columns.get(str(sport).strip().lower())
+        if selected is None:
+            return []
+        value_column, source_column, observed_column = selected
+        rows = self._conn.execute(
+            f'''
+            SELECT synced_at, {value_column}, {source_column}, {observed_column}
+            FROM athlete_profile
+            WHERE {value_column} IS NOT NULL
+            ORDER BY synced_at, id
+            '''
+        ).fetchall()
+        result: list[dict[str, Any]] = []
+        for snapshot_at, value, source, observed_at in rows:
+            try:
+                parsed_value = float(value)
+            except (TypeError, ValueError):
+                continue
+            if parsed_value <= 0 or not snapshot_at:
+                continue
+            result.append(
+                {
+                    "snapshot_at": str(snapshot_at),
+                    "value": parsed_value,
+                    "source": str(source or "athlete_profile"),
+                    "observed_at": str(observed_at or snapshot_at),
+                }
+            )
+        return result
+
     def ftp_timeline(self) -> list[tuple]:
         """Return ``(synced_at_utc, ftp)`` entries for absolute provenance.
 
