@@ -49,6 +49,57 @@ def format_tool_result(tool_name: str, data: Any) -> str:
 
         return activities_text
 
+    elif tool_name == "get_comparable_session":
+        if not isinstance(data, dict) or data.get("status") != "available":
+            reason = data.get("reason_code") if isinstance(data, dict) else "READ_FAILED"
+            return (
+                "## Сравнение с похожей сессией\n\n"
+                f"Данных недостаточно для корректного сравнения (`{reason or 'UNKNOWN'}`)."
+            )
+        target = data.get("target") or {}
+        comparator = data.get("comparator") or {}
+        comparison = data.get("comparison") or {}
+        similarity = data.get("similarity") or {}
+        sport_metric = comparison.get("sport_metric") or {}
+        metric_target = sport_metric.get("target") or {}
+        metric_comparator = sport_metric.get("comparator") or {}
+        metric_line = ""
+        if sport_metric.get("kind") == "power_watts":
+            metric_line = (
+                f"- Мощность: {metric_target.get('value')} Вт "
+                f"({metric_target.get('source')}) vs {metric_comparator.get('value')} Вт "
+                f"({metric_comparator.get('source')})."
+            )
+        elif sport_metric.get("kind") in {
+            "pace_seconds_per_km",
+            "pace_seconds_per_100m",
+        }:
+            unit = "с/км" if sport_metric.get("kind") == "pace_seconds_per_km" else "с/100 м"
+            metric_line = (
+                f"- Темп: {metric_target.get('value')} {unit} vs "
+                f"{metric_comparator.get('value')} {unit}; пороги "
+                f"{metric_target.get('threshold_value')} / "
+                f"{metric_comparator.get('threshold_value')} ({metric_target.get('threshold_source')})."
+            )
+        return "\n".join(
+            [
+                "## Сравнение с похожей сессией",
+                "",
+                f"- Текущая: {target.get('date') or '—'} · "
+                f"{target.get('duration_minutes') or '—'} мин · "
+                f"{target.get('tss') or '—'} TSS",
+                f"- Сравнимая: {comparator.get('date') or '—'} · "
+                f"{comparator.get('duration_minutes') or '—'} мин · "
+                f"{comparator.get('tss') or '—'} TSS",
+                f"- Сходство: {float(similarity.get('score') or 0.0):.2f}; "
+                f"Δ длительности {float(comparison.get('duration_minutes_delta') or 0.0):+.1f} мин; "
+                f"Δ TSS {float(comparison.get('tss_delta') or 0.0):+.1f}.",
+                *([metric_line] if metric_line else []),
+                "",
+                "_Одно сравнение не доказывает тренд, адаптацию или причину._",
+            ]
+        )
+
     elif tool_name == "get_activities":
         count = data.get("count", 0)
         period = data.get("period_days")

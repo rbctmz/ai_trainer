@@ -19,6 +19,8 @@ from models.post_workout_feedback import (
     validate_feedback_values,
 )
 from models.session_quality_forecast import ACTUAL_SESSION_ROLES, classify_plan_adherence
+from models.comparable_sessions import build_comparison_data_gap
+from services.comparable_sessions import project_comparable_session
 from utils.product_semantics import normalize_sport_key
 
 
@@ -114,7 +116,111 @@ def feedback_from_today_evidence(
     if current_primary is not None:
         current_primary["capture_mode"] = "immediate"
         projection["primary"] = current_primary
+    _attach_primary_comparison(
+        db,
+        projection,
+        rows=[
+            *list(yesterday.get("rows") or []),
+            *list((current_day or {}).get("rows") or []),
+        ],
+        templates=list((goal_plan or {}).get("session_templates") or []),
+        feedback_by_session=latest_feedback,
+    )
     return projection
+
+
+def _session_template(
+    templates: list[Mapping[str, Any]], session_id: str
+) -> Mapping[str, Any] | None:
+    _day_template, session = find_planned_session(templates, session_id)
+    if session is not None:
+        return session
+    return next(
+        (
+            item
+            for item in templates
+            if isinstance(item, Mapping)
+            and str(item.get("session_id") or "") == str(session_id)
+        ),
+        None,
+    )
+
+
+def _comparison_for_evidence(
+    db: Database,
+    evidence: Mapping[str, Any],
+    *,
+    feedback: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        return project_comparable_session(db, evidence=evidence, feedback=feedback)
+    except Exception:
+        # Comparison enrichment must never break feedback capture or coach chat.
+        return build_comparison_data_gap("COMPARISON_READ_FAILED")
+
+
+def _evidence_from_saved_feedback(
+    db: Database, feedback: Mapping[str, Any]
+) -> dict[str, Any] | None:
+    """Rebuild read-only comparison input without re-running reconciliation."""
+    checkpoint = db.get_latest_planning_checkpoint()
+    plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+    session_id = str(feedback.get("session_id") or "")
+    template = _session_template(
+        list(plan.get("session_templates") or []), session_id
+    )
+    if template is None:
+        return None
+    snapshot = dict(feedback.get("match_snapshot") or {})
+    planned = dict(snapshot.get("planned") or {})
+    return {
+        "row": {
+            **planned,
+            "session_id": session_id,
+            "match_status": snapshot.get("match_status"),
+            "match_method": snapshot.get("match_method"),
+            "confidence": snapshot.get("confidence"),
+            "actual_activity_ids": list(feedback.get("actual_activity_ids") or []),
+            "actual_activities": list(snapshot.get("actual_activities") or []),
+        },
+        "template": dict(template),
+        "match_revision_id": feedback.get("match_revision_id"),
+    }
+
+
+def _attach_primary_comparison(
+    db: Database,
+    projection: dict[str, Any],
+    *,
+    rows: list[Mapping[str, Any]],
+    templates: list[Mapping[str, Any]],
+    feedback_by_session: Mapping[str, Mapping[str, Any]],
+) -> None:
+    """Attach at most one bounded comparison to the primary prompt."""
+    primary = projection.get("primary")
+    if not isinstance(primary, dict):
+        return
+    session_id = str(primary.get("session_id") or "")
+    row = next(
+        (
+            dict(item)
+            for item in rows
+            if isinstance(item, Mapping)
+            and str(item.get("session_id") or "") == session_id
+        ),
+        None,
+    )
+    template = _session_template(templates, session_id)
+    if row is None or template is None:
+        primary["comparison"] = build_comparison_data_gap(
+            "TARGET_SESSION_EVIDENCE_MISSING"
+        )
+        return
+    primary["comparison"] = _comparison_for_evidence(
+        db,
+        {"row": row, "template": dict(template)},
+        feedback=feedback_by_session.get(session_id),
+    )
 
 
 def _feedback_evidence_for_session(
@@ -310,7 +416,13 @@ def _append_feedback(
     refresh_recovery_episodes_best_effort(
         db, as_of=now_utc.date(), target_session_ids=[session_id]
     )
-    return {"feedback": feedback, "created": saved["created"], "evaluations": evaluations}
+    comparison = _comparison_for_evidence(db, evidence, feedback=feedback)
+    return {
+        "feedback": feedback,
+        "created": saved["created"],
+        "evaluations": evaluations,
+        "comparison": comparison,
+    }
 
 
 def submit_session_feedback(
@@ -333,12 +445,19 @@ def submit_session_feedback(
             raise StaleFeedbackError(
                 "client_submission_fingerprint is already used for another session"
             )
+        evidence = _evidence_from_saved_feedback(db, existing)
+        comparison = (
+            _comparison_for_evidence(db, evidence, feedback=existing)
+            if evidence is not None
+            else build_comparison_data_gap("TARGET_SESSION_EVIDENCE_MISSING")
+        )
         return {
             "feedback": existing,
             "created": False,
             "evaluations": db.get_session_quality_evaluations(
                 feedback_ids=[existing["id"]]
             ),
+            "comparison": comparison,
         }
     latest = db.get_latest_session_feedback(session_id)
     if latest is not None and latest.get("status") == "active":
@@ -743,6 +862,44 @@ def list_feedback_prompts(
     )
 
 
+def comparable_session_for_session(
+    db: Database,
+    session_id: str | None = None,
+    *,
+    as_of: date | str | None = None,
+) -> dict[str, Any]:
+    """Return one read-only comparison for an explicit or latest feedback session."""
+    target_session_id = str(session_id or "").strip()
+    feedback: Mapping[str, Any] | None = None
+    if target_session_id:
+        feedback = db.get_latest_session_feedback(target_session_id)
+    else:
+        candidates = [
+            row
+            for row in db.get_latest_session_feedbacks()
+            if isinstance(row, Mapping)
+            and row.get("status") != "tombstone"
+            and row.get("actual_activity_ids")
+        ]
+        if not candidates:
+            return build_comparison_data_gap("NO_COMPLETED_SESSION")
+        feedback = max(
+            candidates,
+            key=lambda row: (
+                str(row.get("submitted_at") or row.get("created_at") or ""),
+                int(row.get("id") or 0),
+            ),
+        )
+        target_session_id = str(feedback.get("session_id") or "")
+    if not target_session_id:
+        return build_comparison_data_gap("NO_COMPLETED_SESSION")
+    try:
+        evidence = _feedback_evidence_for_session(db, target_session_id, as_of=as_of)
+    except (LookupError, ValueError):
+        return build_comparison_data_gap("TARGET_SESSION_EVIDENCE_MISSING")
+    return _comparison_for_evidence(db, evidence, feedback=feedback)
+
+
 def feedback_history(db: Database, session_id: str) -> dict[str, Any]:
     rows = db.get_session_feedback_history(session_id)
     feedback_ids = {row["id"] for row in rows}
@@ -779,6 +936,7 @@ def feedback_summary(db: Database) -> dict[str, Any]:
 
 
 __all__ = [
+    "comparable_session_for_session",
     "StaleFeedbackError",
     "correct_session_feedback",
     "dismiss_feedback_prompt",

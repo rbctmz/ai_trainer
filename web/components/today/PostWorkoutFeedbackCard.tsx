@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import useSWR from "swr";
 import { fetcher, postJSON } from "@/lib/api";
 import type {
+  ComparableSessionProjection,
   SessionFeedbackHistoryResponse,
   SessionFeedbackPrompt,
 } from "@/lib/types";
@@ -193,6 +194,10 @@ export function PostWorkoutFeedbackCard({
         </p>
       )}
 
+      {prompt.comparison?.status === "available" ? (
+        <ComparableSessionEvidence comparison={prompt.comparison} />
+      ) : null}
+
       {confirmedSubstitution ? (
         <p className="mt-2 text-xs font-medium text-accent">
           Подтверждённая замена: {actualSportLabel} вместо {sportLabel(prompt.planned_sport)}
@@ -329,6 +334,47 @@ export function PostWorkoutFeedbackCard({
         </div>
       )}
     </section>
+  );
+}
+
+function ComparableSessionEvidence({
+  comparison,
+}: {
+  comparison: ComparableSessionProjection;
+}) {
+  const target = comparison.target;
+  const prior = comparison.comparator;
+  const score = comparison.similarity?.score;
+  const sportMetric = comparison.comparison?.sport_metric as
+    | {
+        kind?: string;
+        target?: { value?: number; source?: string; threshold_value?: number };
+        comparator?: { value?: number; source?: string; threshold_value?: number };
+      }
+    | null;
+  if (!target || !prior) return null;
+  return (
+    <div className="mt-3 rounded-lg border border-surface-border bg-surface-muted px-3 py-2 text-xs text-ink-soft">
+      <p className="font-semibold text-ink">Сравнение с похожей сессией</p>
+      <p className="mt-1">
+        Сейчас: {Math.round(Number(target.duration_minutes ?? 0))} мин · {Math.round(Number(target.tss ?? 0))} TSS
+      </p>
+      <p>
+        {prior.date ?? "Прошлая дата неизвестна"}: {Math.round(Number(prior.duration_minutes ?? 0))} мин · {Math.round(Number(prior.tss ?? 0))} TSS
+      </p>
+      {score != null ? <p className="mt-1">Сходство по фактам: {Math.round(score * 100)}%</p> : null}
+      {sportMetric?.kind === "power_watts" ? (
+        <p className="mt-1">
+          Мощность: {sportMetric.target?.value ?? "—"} Вт ({sportMetric.target?.source ?? "—"}) · ранее {sportMetric.comparator?.value ?? "—"} Вт ({sportMetric.comparator?.source ?? "—"})
+        </p>
+      ) : null}
+      {sportMetric?.kind?.startsWith("pace_seconds_") ? (
+        <p className="mt-1">
+          Темп: {sportMetric.target?.value ?? "—"} · ранее {sportMetric.comparator?.value ?? "—"}; порог {sportMetric.target?.threshold_value ?? "—"}
+        </p>
+      ) : null}
+      <p className="mt-1 text-ink-faint">Одно сравнение не доказывает тренд или причину.</p>
+    </div>
   );
 }
 

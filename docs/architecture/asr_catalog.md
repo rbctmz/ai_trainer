@@ -23,6 +23,29 @@ ASR в секции «ASR / risk traceability» и обновить здесь �
 | ASR-DEP-1 | `docker compose up` поднимает весь стек | High | compose + `/api/health` + healthcheck (уже реализованы) | самопроверка compose | ✅ |
 | ASR-DEP-2 | Обновление без потери данных | High | SQLite в named volume; append-only чекпойнты; stopped-service Backup API snapshot, integrity check, atomic restore и pre-restore rollback (#293) | `test_sqlite_backup_restore.py`: clean-volume domain drill + rollback/failure gates | ✅ |
 
+## Comparable-session engine (ASR-REL-1/2, ASR-PERF-2, ASR-MOD-2/3; #500)
+
+The post-workout surface and AI coach share one server-owned, read-only
+comparison projection. Candidate identity comes from canonical activities and
+latest plan/fact matches; exact stimulus comes only from the matched immutable
+checkpoint's versioned `definition_snapshot.step_builder_key`. Missing stimulus,
+split/composite actuals, incompatible duration/intensity/structure, or weak
+source rows become stable data gaps instead of a plausible nearest workout.
+
+- **ASR-REL-1**: canonical activity ids and checkpoint-linked session ids retain
+  split activity and plan lineage; v1 never aggregates multiple actual ids.
+- **ASR-REL-2**: no cross-sport fallback, no name-based stimulus inference, and
+  no trend/causal permission. One comparison carries explicit guardrails.
+- **ASR-PERF-2**: the coach tool performs only bounded local SQLite reads over a
+  capped 730-day default window and never calls a provider.
+- **ASR-MOD-2/3**: pure selection lives in `models/comparable_sessions.py`; the
+  service joins existing persistence, while API/TypeScript fields are additive
+  and no schema or backfill is introduced.
+
+Verification: `tests/smoke/test_comparable_sessions.py`, post-workout feedback
+and native coach-tool suites, contract extractor, web lint/build, full smoke,
+and contributor-safe pytest.
+
 ## Active Planning reader (ASR-REL-1/2, ASR-PERF-4, ASR-MOD-2/3; #301–#303)
 
 `/planning` разделяет чтение и мутации: активный append-only checkpoint

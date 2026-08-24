@@ -113,6 +113,7 @@ class AITools:
             "get_activity_stats": self.get_activity_stats,
             "get_performance_metrics": self.get_performance_metrics,
             "get_recent_activities": self.get_recent_activities,
+            "get_comparable_session": self.get_comparable_session,
             "analyze_training_load": self.analyze_training_load,
             "analyze_hrv_trends": self.analyze_hrv_trends,
             "compare_periods": self.compare_periods,
@@ -201,6 +202,24 @@ class AITools:
                             "type": "integer",
                             "default": 10,
                             "description": "Сколько последних активностей вернуть",
+                        }
+                    }
+                ),
+            },
+            {
+                "name": "get_comparable_session",
+                "description": (
+                    "Сравнить одну завершённую сессию с лучшей совместимой прошлой "
+                    "сессией того же спорта и точного стимула. Возвращает прозрачные "
+                    "duration/intensity/structure evidence или data_gap; одно сравнение "
+                    "не доказывает тренд или причину. session_id необязателен: без него "
+                    "используется последняя сессия с активным фидбеком."
+                ),
+                "parameters": _params(
+                    {
+                        "session_id": {
+                            "type": "string",
+                            "description": "Необязательный content-derived id плановой сессии",
                         }
                     }
                 ),
@@ -810,6 +829,17 @@ class AITools:
             "count": len(activities),
             "activities": activities
         }
+
+    def get_comparable_session(
+        self, session_id: str | None = None
+    ) -> Dict[str, Any]:
+        """Read one evidence-bounded comparable-session projection."""
+        from api.session_feedback import comparable_session_for_session
+
+        return comparable_session_for_session(
+            self.db,
+            session_id=str(session_id or "").strip() or None,
+        )
     
     def analyze_training_load(self, days: int = 30) -> Dict[str, Any]:
         """Анализ тренировочной нагрузки"""
@@ -1518,6 +1548,7 @@ class AITools:
 
 Примеры:
 - [TOOL: get_recent_activities, limit=5] - последние 5 тренировок
+- [TOOL: get_comparable_session] - сравнить последнюю завершённую сессию с одной совместимой прошлой
 - [TOOL: get_performance_metrics, days=30] - CTL/ATL/TSB на стабильном окне + тренд за 30 дней
 - [TOOL: analyze_hrv_trends, days=14] - анализ HRV за 2 недели
 - [TOOL: get_activity_by_sport, sport=cycling, days=30] - велотренировки
