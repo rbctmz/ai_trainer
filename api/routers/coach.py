@@ -28,7 +28,7 @@ from models.ai_coach_runtime import (
     resolve_turn_tool_results,
     synthesize_ai_chat_response,
 )
-from models.coach_decisions import build_coach_decision
+from models.coach_decisions import CoachDecision, build_coach_decision
 from models.coach_narrative_evidence import (
     build_coach_narrative_evidence,
     fail_closed_coach_narrative,
@@ -504,7 +504,15 @@ def _save_decision(
     evidence_gate: dict[str, Any] | None = None,
 ) -> None:
     try:
-        decision = build_coach_decision(final, db=db)
+        gate = dict(evidence_gate or {})
+        if gate.get("outcome") in {"replaced", "data_gap"}:
+            codes = ", ".join(str(code) for code in gate.get("reason_codes") or [])
+            decision = CoachDecision(
+                "Monitor",
+                f"Evidence gate отклонил вывод коуча: {codes or 'reason unavailable'}.",
+            )
+        else:
+            decision = build_coach_decision(final, db=db)
         load_metrics_context = load_metrics_context or {}
         db.save_coach_decision(
             decision_type=decision.decision_type,

@@ -1,6 +1,6 @@
 # Coach Narrative Evidence Gate — Class A Slice Spec
 
-- Issue / PR: [#499](https://github.com/rbctmz/ai_trainer/issues/499); PR TBD
+- Issue / PR: [#499](https://github.com/rbctmz/ai_trainer/issues/499); [PR #504](https://github.com/rbctmz/ai_trainer/pull/504)
 - Author / checker / merge owner: Codex / independent checker / user
 - Date: 2026-08-24
 - Candidate head SHA: base `e23d344f075fc664f8f00cbb0c43701b27043c77`; immutable candidate SHA is recorded in the issue/PR after commit
@@ -10,7 +10,7 @@
 - Class: **A**
 - Rationale: athlete-facing AI safety behavior crosses synthesis, streaming delivery, canonical health evidence, persistence, and additive API/web contracts.
 - Automatic escalation triggers checked: health evidence/provenance — yes; persistence semantics — yes; external writes — no; plan mutation — no; live provider — no; destructive migration — no.
-- Review budget used: 2 / 2 independent audits; the boundary checker then performed five bounded fix/recheck passes
+- Review budget used: 2 / 2 independent audits; five bounded checker passes; one manual Codex Review with six resolved findings
 
 ## Scope
 
@@ -97,7 +97,7 @@
 
 - Head SHA: recorded in the issue/PR after commit.
 - Changed invariants: final athlete-facing narrative is untrusted until the versioned gate passes; one evidence bundle/date anchor is frozen per turn; delivered, persisted, and classified text are identical.
-- Focused and broad tests: initial RED 7 failed / 2 passed; final focused 177 passed; smoke 2055 passed / 1 skipped; contributor-safe 2101 passed / 3 skipped / 26 deselected.
+- Focused and broad tests: initial RED 7 failed / 2 passed; initial GREEN focused 177 passed. Manual-review RED 7 failed / 43 passed; final focused 185 passed; smoke 2063 passed / 1 skipped; contributor-safe 2109 passed / 3 skipped / 26 deselected.
 - CI checks/reruns/flakes: Ruff clean; web lint/build green; contract artifact current; contract smoke 23 passed; PR CI pending.
 - Lifecycle/probe evidence: all tests use temporary DB/chat paths; no live data.
 - Changed contracts: additive SSE/decision/TypeScript/SQLite gate metadata; contract extractor refreshed and checked.
@@ -111,12 +111,13 @@
 | P1 | **Observed**: raw streaming delta was rendered before final validation. **Inferred**: post-stream filtering could not meet acceptance. **Verified by**: scripted route test. | Buffer and gate complete narrative before first `token`. | Root / resolved. |
 | P1 | **Observed**: initial policy missed Russian comparator directions and common recovery/trend forms; sentence-wide advice/conditional/negation guards hid valid assertions. **Inferred**: the narrow taxonomy needed per-assertion guards and normalized structured directions. **Verified by**: independent falsifying probes across five bounded rechecks. | Add explicit regression matrix and normalize only admitted comparator domains. | Root / resolved. |
 | P2 | **Observed**: legacy runtime and recovery loop could derive server-local dates; builder exceptions and internal first-token telemetry did not cover the whole route boundary. **Inferred**: evidence could drift or fail open around setup. **Verified by**: captured date anchors, injected builder exception, and external timing test. | Freeze one athlete-local date, fail closed, and start timing at route entry. | Root / resolved. |
+| P1/P2 | **Observed**: manual Codex Review found six bypass/integrity cases: intent clauses, inline Markdown, global missed-session support, stale enclosing HRV evidence, yesterday weekday, and replacement-to-`Recovery` inversion. **Inferred**: presentation must be normalized only for validation, while evidence and audit decisions retain structured identity. **Verified by**: seven RED failures and final 50/50 policy tests plus the route audit assertion. | Preserve original pass bytes; validate normalized clauses; retain missed date/sport/session rows; force gated audit to `Monitor`. | Root / resolved locally; threads close after push. |
 
 ## Final Verdict
 
 - Verdict: **READY** for draft PR and CI.
 - Blocking findings remaining: none in the bounded taxonomy.
-- Review rounds used: 2 independent audits plus five bounded checker passes; final checker verdict READY.
+- Review rounds used: 2 independent audits, five bounded checker passes, and one manual Codex Review; all findings resolved locally.
 - Accepted risk or follow-up issue: complete-response safety buffering increases live first-narrative-token latency; incremental safe streaming is deferred until measured latency justifies it.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: root agent.

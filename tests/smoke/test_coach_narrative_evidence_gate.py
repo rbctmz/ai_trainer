@@ -167,6 +167,13 @@ def test_invalid_timezone_fails_closed_for_relative_date_claim():
     assert result.reason_codes == ("INVALID_ATHLETE_TIMEZONE",)
 
 
+def test_yesterday_weekday_must_match_athlete_calendar():
+    result = validate_coach_narrative("Вчера был понедельник.", _evidence())
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == ("CALENDAR_REFERENCE_MISMATCH",)
+
+
 def test_missed_session_without_canonical_plan_fact_evidence_is_refused():
     result = validate_coach_narrative(
         "Вчерашняя тренировка пропущена.",
@@ -193,6 +200,37 @@ def test_explicit_did_not_start_fact_supports_missed_session_claim():
 
     assert result.outcome == "pass"
     assert result.delivered_text == raw
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Сегодняшняя тренировка пропущена.",
+        "Вчерашняя плавательная тренировка пропущена.",
+    ],
+)
+def test_missed_session_evidence_must_match_claimed_date_and_sport(raw: str):
+    session_evidence = {
+        "status": "available",
+        "date": "2026-08-23",
+        "rule_version": "plan_fact_v1",
+        "rows": [
+            {
+                "date": "2026-08-23",
+                "session_id": "yesterday-run",
+                "sport": "run",
+                "completion_status": "did_not_start",
+            }
+        ],
+    }
+
+    result = validate_coach_narrative(
+        raw,
+        _evidence(session_evidence=session_evidence),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("SESSION_MISSED_UNSUPPORTED",)
 
 
 def test_today_projection_joins_real_feedback_completion_status(monkeypatch):
@@ -242,6 +280,43 @@ def test_negation_intent_and_quoted_text_do_not_trigger_material_claims():
 
     assert result.outcome == "pass"
     assert result.delivered_text == raw
+
+
+def test_intent_clause_does_not_hide_a_following_factual_claim():
+    result = validate_coach_narrative(
+        "Планирую снизить нагрузку, потому что восстановление плохое.",
+        _evidence(),
+    )
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == ("READINESS_CLAIM_CONTRADICTED",)
+
+
+@pytest.mark.parametrize(
+    "raw,reason_code",
+    [
+        ("**Восстановление** плохое.", "READINESS_CLAIM_CONTRADICTED"),
+        ("HRV **подавлен**.", "HRV_CLAIM_CONTRADICTED"),
+    ],
+)
+def test_inline_markdown_cannot_hide_a_material_claim(raw: str, reason_code: str):
+    result = validate_coach_narrative(raw, _evidence())
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == (reason_code,)
+
+
+def test_hrv_claim_rejects_stale_enclosing_readiness_snapshot():
+    snapshot = _snapshot(status="limited", hrv_score=40.0)
+    snapshot.update({"stale": True, "is_provisional": True})
+
+    result = validate_coach_narrative(
+        "HRV подавлен.",
+        _evidence(readiness_snapshot=snapshot),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("READINESS_EVIDENCE_STALE",)
 
 
 @pytest.mark.parametrize(
@@ -369,6 +444,16 @@ def test_reason_codes_have_stable_policy_order():
     )
 
 
+def test_replacement_text_cannot_invert_the_decision_classifier():
+    from models.coach_decisions import build_coach_decision
+
+    gate_result = validate_coach_narrative("Восстановление плохое.", _evidence())
+    decision = build_coach_decision(gate_result.delivered_text)
+
+    assert gate_result.outcome == "replaced"
+    assert decision.decision_type == "Monitor"
+
+
 def test_shared_finalizer_fails_closed_when_evidence_builder_raises(monkeypatch):
     from models import ai_coach_runtime
 
@@ -479,6 +564,7 @@ def test_streaming_route_never_emits_unsafe_provider_text_and_audits_gate(
     saved_messages = ChatManager().get_chat_messages(done["chat_id"])
     assert saved_messages[-1]["content"] == delivered
     decision = db.get_coach_decisions(days=30)[0]
+    assert decision["decision_type"] == "Monitor"
     assert decision["narrative_gate_outcome"] == "replaced"
     assert decision["narrative_gate_reason_codes"] == done["evidence_gate"]["reason_codes"]
     assert decision["narrative_evidence_fingerprint"] == done["evidence_gate"][

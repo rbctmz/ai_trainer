@@ -16,8 +16,10 @@ After this change, an athlete sees only a coach narrative whose bounded material
 - [x] (2026-08-24) Recorded deterministic pure-policy RED: 7 failed, 2 characterization tests passed; the existing streaming trace also exposed raw provider deltas before validation.
 - [x] (2026-08-24) Implemented the pure evidence bundle, stable reason policy, deterministic safe replacement, and shared final delivery wrapper.
 - [x] (2026-08-24) Persisted additive gate metadata in the existing coach decision audit and exposed the same metadata in the final SSE event.
-- [x] (2026-08-24) Completed focused (177 passed), smoke (2055 passed, 1 skipped), contributor-safe (2101 passed, 3 skipped, 26 deselected), Ruff, web lint/build, contract (23 passed), and independent checker gates.
-- [ ] Commit, push, open a draft PR with `Closes #499`, and post the final evidence to the issue.
+- [x] (2026-08-24) Completed initial focused (177 passed), smoke (2055 passed, 1 skipped), contributor-safe (2101 passed, 3 skipped, 26 deselected), Ruff, web lint/build, contract (23 passed), and independent checker gates.
+- [x] (2026-08-24) Manual Codex Review produced six actionable findings. Review RED was 7 failed / 43 passed; review GREEN is focused 185 passed, smoke 2063 passed / 1 skipped, contributor-safe 2109 passed / 3 skipped / 26 deselected, with Ruff, web lint/build, and contract freshness green.
+- [x] (2026-08-24) Committed and pushed the initial slice, opened PR #504 with `Closes #499`, and posted the evidence bundle to the issue.
+- [ ] Publish the manual-review fix and resolve all six review threads after CI reruns.
 
 ## Surprises & Discoveries
 
@@ -30,6 +32,8 @@ After this change, an athlete sees only a coach narrative whose bounded material
 - **Observed**: no canonical comparable-session DTO exists. **Inferred**: claims such as “this session is better than the previous one” must be a data gap even when unrelated activity rows exist. **Verified by**: audit of tool raw results and plan/fact reconciliation contracts.
 
 - **Observed**: independent adversarial probes found that sentence-wide negation, advice, and conditional shortcuts could hide a second assertion, while common Russian forms such as `HRV просел` and `Нагрузка выросла` escaped the initial taxonomy. **Inferred**: guards must be evaluated per matched assertion, not per complete response or sentence. **Verified by**: added regression fixtures for mixed negated/asserted misses, assertion-plus-advice clauses, bare-`при` conditions, and production-natural recovery/trend wording; final checker verdict READY.
+
+- **Observed**: manual Codex Review found that inline Markdown and sentence-wide intent suppression could still bypass a claim, a global missed-session boolean lost date/sport identity, enclosing readiness staleness was ignored for HRV, yesterday weekday was unchecked, and replacement wording could invert the legacy decision classifier. **Inferred**: validation needs a normalized projection while audit and session support must remain structured. **Verified by**: seven deterministic RED failures followed by per-claim Markdown/intent normalization, identity-preserving missed rows, enclosing snapshot freshness, yesterday weekday evidence, and forced `Monitor` classification for gated responses.
 
 ## Decision Log
 
@@ -47,7 +51,7 @@ After this change, an athlete sees only a coach narrative whose bounded material
 
 The bounded gate now freezes one canonical evidence bundle per turn, validates the complete provider narrative before any narrative token is emitted, and uses exactly the delivered text for persistence and decision classification. Unsupported claims fail closed with stable codes and an evidence fingerprint; supported prose stays byte-identical. Legacy decision rows migrate additively, and both web and legacy runtime paths use the athlete-local date from one UTC instant.
 
-Independent review materially improved the policy: five bounded passes closed server-local date drift, comparator normalization gaps, builder exception leakage, internal first-token telemetry drift, sentence-wide false negatives, common Russian-language bypasses, and negation/advice false positives. The final checker verdict is READY. The intentional residual trade-off is that complete narrative buffering delays the first narrative token; meta/tool/proposal events still stream, and any incremental sentence-safe optimization is deferred until live latency measurement justifies the additional state machine.
+Independent review materially improved the policy: five bounded passes closed server-local date drift, comparator normalization gaps, builder exception leakage, internal first-token telemetry drift, sentence-wide false negatives, common Russian-language bypasses, and negation/advice false positives. A subsequent manual Codex Review closed six more concrete Markdown, intent, session-identity, freshness, calendar, and audit-classification findings. The intentional residual trade-off is that complete narrative buffering delays the first narrative token; meta/tool/proposal events still stream, and any incremental sentence-safe optimization is deferred until live latency measurement justifies the additional state machine.
 
 ## Context and Orientation
 

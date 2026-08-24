@@ -111,6 +111,11 @@ _ADVICE_VERB = re.compile(
     r"оставь|оставьте|выбери|выберите|отдохн\w*|отдыхай\w*|лучше|пусть)\b",
     re.IGNORECASE,
 )
+_INTENT_MARKER = re.compile(r"\b(?:хочу|планирую|цель\s*[-—:]?)\b", re.IGNORECASE)
+_CAUSAL_TAIL = re.compile(
+    r"\b(?:потому\s+что|так\s+как|поскольку)\b\s*(.+)$",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -166,6 +171,7 @@ def resolve_calendar_evidence(
             "observed_at_utc": _utc_text(observed),
             "local_date": None,
             "yesterday_date": None,
+            "yesterday_weekday_ru": None,
             "iso_weekday": None,
             "weekday_ru": None,
             "race_date": _date_text(event_date),
@@ -173,6 +179,7 @@ def resolve_calendar_evidence(
         }
 
     local_date = observed.astimezone(zone).date()
+    yesterday_date = local_date - timedelta(days=1)
     race_date = _as_date(event_date)
     return {
         "status": "available",
@@ -180,7 +187,8 @@ def resolve_calendar_evidence(
         "athlete_timezone": timezone_name,
         "observed_at_utc": _utc_text(observed),
         "local_date": local_date.isoformat(),
-        "yesterday_date": (local_date - timedelta(days=1)).isoformat(),
+        "yesterday_date": yesterday_date.isoformat(),
+        "yesterday_weekday_ru": _RU_WEEKDAYS[yesterday_date.weekday()],
         "iso_weekday": local_date.isoweekday(),
         "weekday_ru": _RU_WEEKDAYS[local_date.weekday()],
         "race_date": race_date.isoformat() if race_date else None,
@@ -253,7 +261,9 @@ def validate_coach_narrative(
         hrv = dict((readiness.get("factors_by_key") or {}).get("hrv") or {})
         if not hrv:
             found.add(HRV_EVIDENCE_MISSING)
-        elif hrv.get("stale_input"):
+        elif readiness.get("stale") or readiness.get("is_provisional") or hrv.get(
+            "stale_input"
+        ):
             found.add(READINESS_EVIDENCE_STALE)
         elif _hrv_is_not_suppressed(hrv):
             found.add(HRV_CLAIM_CONTRADICTED)
@@ -270,14 +280,8 @@ def validate_coach_narrative(
         elif _calendar_mismatch(claim_text, calendar):
             found.add(CALENDAR_REFERENCE_MISMATCH)
 
-    if _has_asserted_claim(
-        claim_text,
-        _MISSED_SESSION,
-        negated_prefix=_NEGATED_MISS_PREFIX,
-        negated_match=_NEGATED_MISS_MATCH,
-    ):
-        if not sessions.get("missed_supported"):
-            found.add(SESSION_MISSED_UNSUPPORTED)
+    if _missed_session_claim_unsupported(claim_text, sessions, calendar):
+        found.add(SESSION_MISSED_UNSUPPORTED)
 
     reason_codes = tuple(code for code in _REASON_ORDER if code in found)
     if not reason_codes:
@@ -354,11 +358,36 @@ def _session_evidence(source: Mapping[str, Any] | None) -> dict[str, Any]:
         if row.get("completion_status") == "did_not_start"
         or row.get("execution_state") == "missed_confirmed"
     ]
+    confirmed_missed = [
+        {
+            "date": str(row.get("date") or value.get("date") or "")[:10] or None,
+            "session_id": str(row.get("session_id") or "") or None,
+            "sport": _canonical_sport(row.get("sport")),
+            "name": str(
+                row.get("name")
+                or row.get("planned_name")
+                or row.get("session_name")
+                or ""
+            )
+            or None,
+        }
+        for row in confirmed_rows
+    ]
+    if value.get("missed_confirmed") and not confirmed_missed:
+        confirmed_missed.append(
+            {
+                "date": str(value.get("date") or "")[:10] or None,
+                "session_id": None,
+                "sport": None,
+                "name": None,
+            }
+        )
     return {
         "status": value.get("status") or "unavailable",
         "rule_version": value.get("rule_version"),
         "date": value.get("date"),
-        "missed_supported": bool(value.get("missed_confirmed") or confirmed_rows),
+        "missed_supported": bool(confirmed_missed),
+        "confirmed_missed": confirmed_missed,
     }
 
 
@@ -508,6 +537,88 @@ def _has_asserted_claim(
     return False
 
 
+def _missed_session_claim_unsupported(
+    text: str,
+    sessions: Mapping[str, Any],
+    calendar: Mapping[str, Any],
+) -> bool:
+    confirmed = [
+        dict(row)
+        for row in sessions.get("confirmed_missed") or []
+        if isinstance(row, Mapping)
+    ]
+    for segment in _claim_segments(text):
+        if not _has_asserted_claim(
+            segment,
+            _MISSED_SESSION,
+            negated_prefix=_NEGATED_MISS_PREFIX,
+            negated_match=_NEGATED_MISS_MATCH,
+        ):
+            continue
+        candidates = confirmed
+        claimed_dates = _claimed_session_dates(segment, calendar)
+        if len(claimed_dates) > 1:
+            return True
+        if claimed_dates:
+            claimed_date = next(iter(claimed_dates))
+            candidates = [row for row in candidates if row.get("date") == claimed_date]
+        claimed_sport = _claim_sport(segment)
+        if claimed_sport:
+            candidates = [row for row in candidates if row.get("sport") == claimed_sport]
+        lowered = segment.lower()
+        mentioned_ids = {
+            str(row.get("session_id"))
+            for row in confirmed
+            if row.get("session_id") and str(row.get("session_id")).lower() in lowered
+        }
+        if mentioned_ids:
+            candidates = [
+                row for row in candidates if str(row.get("session_id")) in mentioned_ids
+            ]
+        mentioned_names = {
+            str(row.get("name"))
+            for row in confirmed
+            if row.get("name") and str(row.get("name")).lower() in lowered
+        }
+        if mentioned_names:
+            candidates = [row for row in candidates if str(row.get("name")) in mentioned_names]
+        if not candidates:
+            return True
+    return False
+
+
+def _claimed_session_dates(text: str, calendar: Mapping[str, Any]) -> set[str]:
+    dates = set(re.findall(r"\b\d{4}-\d{2}-\d{2}\b", text))
+    if re.search(r"\bсегодня\w*", text, re.IGNORECASE):
+        dates.add(str(calendar.get("local_date") or ""))
+    if re.search(r"\bвчера\w*", text, re.IGNORECASE):
+        dates.add(str(calendar.get("yesterday_date") or ""))
+    dates.discard("")
+    return dates
+
+
+def _claim_sport(text: str) -> str | None:
+    lowered = text.lower()
+    if re.search(r"\b(?:swim\w*|плав\w*)", lowered):
+        return "swim"
+    if re.search(r"\b(?:bike\w*|cycling\w*|вело\w*)", lowered):
+        return "bike"
+    if re.search(r"\b(?:run\w*|running\w*|бег\w*)", lowered):
+        return "run"
+    return None
+
+
+def _canonical_sport(value: Any) -> str | None:
+    text = str(value or "").strip().lower()
+    if text in {"swim", "swimming", "плавание"}:
+        return "swim"
+    if text in {"bike", "cycling", "велосипед", "вело"}:
+        return "bike"
+    if text in {"run", "running", "бег"}:
+        return "run"
+    return text or None
+
+
 def _asserted_trend_matches(segment: str) -> list[re.Match[str]]:
     matches: list[re.Match[str]] = []
     for match in _TREND_WORD.finditer(segment):
@@ -530,16 +641,39 @@ def _claim_segments(text: str) -> list[str]:
             cleaned = re.sub(r"«[^»]*»|\"[^\"]*\"", "", segment).strip()
             if not cleaned:
                 continue
-            if re.search(r"\b(?:хочу|планирую|цель\s*[-—:]?)\b", cleaned, re.IGNORECASE):
-                continue
-            segments.append(cleaned)
+            cleaned = _normalize_inline_markdown(cleaned)
+            segments.extend(_intent_free_claim_parts(cleaned))
     return segments
+
+
+def _normalize_inline_markdown(text: str) -> str:
+    projected = re.sub(r"!\[[^\]]*\]\([^)]*\)", "", text)
+    projected = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", projected)
+    return re.sub(r"(?<!\\)[*_~`]+", "", projected)
+
+
+def _intent_free_claim_parts(text: str) -> list[str]:
+    if not _INTENT_MARKER.search(text):
+        return [text]
+    parts: list[str] = []
+    for part in re.split(r"\s*[,;]\s*", text):
+        cleaned = part.strip()
+        if not cleaned:
+            continue
+        if not _INTENT_MARKER.search(cleaned):
+            parts.append(cleaned)
+            continue
+        tail = _CAUSAL_TAIL.search(cleaned)
+        if tail and tail.group(1).strip():
+            parts.append(tail.group(1).strip())
+    return parts
 
 
 def _calendar_mismatch(text: str, calendar: Mapping[str, Any]) -> bool:
     today = str(calendar.get("local_date") or "")
     yesterday = str(calendar.get("yesterday_date") or "")
     weekday = str(calendar.get("weekday_ru") or "")
+    yesterday_weekday = str(calendar.get("yesterday_weekday_ru") or "")
     days_to_race = calendar.get("days_to_race")
 
     for match in re.finditer(rf"сегодня[^.\n]{{0,40}}?{_ISO_DATE}", text, re.IGNORECASE):
@@ -554,6 +688,17 @@ def _calendar_mismatch(text: str, calendar: Mapping[str, Any]) -> bool:
         re.IGNORECASE,
     )
     if weekday_match and weekday_match.group(1).lower() != weekday:
+        return True
+    yesterday_weekday_match = re.search(
+        r"вчера\s+(?:(?:был|была|было)\s+)?"
+        r"(понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)",
+        text,
+        re.IGNORECASE,
+    )
+    if (
+        yesterday_weekday_match
+        and yesterday_weekday_match.group(1).lower() != yesterday_weekday
+    ):
         return True
     race_match = re.search(
         r"до\s+старта\D{0,20}(\d{1,4})\s*(?:дн(?:ей|я|ь)?|день|дня)",
@@ -572,8 +717,8 @@ def _replacement_text(reason_codes: tuple[str, ...], payload: Mapping[str, Any])
     calendar = dict(payload.get("calendar") or {})
     if READINESS_CLAIM_CONTRADICTED in reason_codes:
         lines.append(
-            f"- Канонический снимок не подтверждает плохое восстановление: "
-            f"readiness {_format_number(readiness.get('score'))} ({readiness.get('status')})."
+            f"- Канонический снимок: readiness {_format_number(readiness.get('score'))} "
+            f"({readiness.get('status')}); исходный тезис о низком состоянии отклонён."
         )
     if HRV_CLAIM_CONTRADICTED in reason_codes:
         lines.append("- Фактор HRV не подтверждает утверждение о подавлении HRV.")
