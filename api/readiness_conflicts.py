@@ -9,7 +9,7 @@
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from typing import Any
 
 from api.planning_service import get_active_plan
@@ -29,8 +29,9 @@ def build_readiness_conflict_report(
     *,
     horizon_days: int = DEFAULT_HORIZON_DAYS,
     max_quality_lookahead_days: int = MAX_QUALITY_LOOKAHEAD_DAYS,
+    today: date | None = None,
 ) -> dict[str, Any]:
-    today = datetime.now().date()
+    today = today or datetime.now().date()
 
     try:
         sleep_df = db.get_sleep_data(36500)

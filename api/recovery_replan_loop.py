@@ -313,7 +313,14 @@ def run_recovery_replan_loop(
 ) -> dict[str, Any]:
     """Evaluate, audit, and optionally create one idempotent recovery proposal."""
     today = today or datetime.now().date()
-    report = build_readiness_conflict_report(db)
+    try:
+        report = build_readiness_conflict_report(db, today=today)
+    except TypeError as exc:
+        # Compatibility for narrow test/adaptor callables that predate the
+        # additive athlete-local date argument. Do not mask real TypeErrors.
+        if "unexpected keyword argument 'today'" not in str(exc):
+            raise
+        report = build_readiness_conflict_report(db)
     outcome = _outcome(report)
     checkpoint = db.get_latest_planning_checkpoint()
     checkpoint_id = checkpoint.get("id") if isinstance(checkpoint, dict) else None

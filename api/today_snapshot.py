@@ -624,6 +624,37 @@ def _yesterday_reconciliation(
     }
 
 
+def build_coach_session_evidence(
+    db: Database,
+    *,
+    as_of: date,
+) -> dict[str, Any]:
+    """Reuse the bounded read-only yesterday projection for coach validation."""
+    evidence = _yesterday_reconciliation(
+        db,
+        as_of.isoformat(),
+        _latest_checkpoint(db) is not None,
+    )
+    rows = [dict(row) for row in evidence.get("rows") or [] if isinstance(row, Mapping)]
+    try:
+        feedback_rows = db.get_latest_session_feedbacks()
+    except Exception:
+        feedback_rows = []
+    feedback_by_session = {
+        str(row.get("session_id")): dict(row)
+        for row in feedback_rows
+        if isinstance(row, Mapping)
+        and row.get("session_id")
+        and row.get("status") != "tombstone"
+    }
+    for row in rows:
+        feedback = feedback_by_session.get(str(row.get("session_id") or ""))
+        if feedback is not None:
+            row["completion_status"] = feedback.get("completion_status")
+            row["feedback_rule_version"] = feedback.get("rule_version")
+    return {**evidence, "rows": rows}
+
+
 def _empty_yesterday(target: date) -> dict[str, Any]:
     return {
         "status": "empty",
@@ -799,4 +830,8 @@ def _compact_steps(value: Any) -> list[dict[str, Any]]:
     ]
 
 
-__all__ = ["TODAY_SNAPSHOT_VERSION", "build_today_decision_snapshot"]
+__all__ = [
+    "TODAY_SNAPSHOT_VERSION",
+    "build_coach_session_evidence",
+    "build_today_decision_snapshot",
+]

@@ -20,8 +20,7 @@ from data.database import Database
 pytestmark = pytest.mark.smoke
 
 
-async def _first_token_elapsed_ms(response) -> float:
-    started = time.monotonic()
+async def _first_token_elapsed_ms(response, *, started: float) -> float:
     async for raw in response.body_iterator:
         text = raw if isinstance(raw, str) else raw.decode()
         if not text.startswith("data:"):
@@ -41,8 +40,9 @@ def test_coach_first_token_arrives_within_budget(tmp_path, monkeypatch):
     from api.routers import coach as coach_mod
 
     req = coach_mod.ChatRequest(message="Привет", provider="mock")
+    started = time.monotonic()
     response = coach_mod.coach_chat(req, Database(str(tmp_path / "c.db")))
 
-    elapsed_ms = asyncio.run(_first_token_elapsed_ms(response))
+    elapsed_ms = asyncio.run(_first_token_elapsed_ms(response, started=started))
 
     assert elapsed_ms < COACH_FIRST_TOKEN_BUDGET_MS

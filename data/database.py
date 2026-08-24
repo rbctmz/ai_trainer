@@ -201,6 +201,11 @@ class Database:
         'metrics_window_days': 'INTEGER',
         'as_of_date': 'TEXT',
         'decision_event_id': 'TEXT',
+        'narrative_gate_outcome': 'TEXT',
+        'narrative_gate_reason_codes_json': 'TEXT',
+        'narrative_gate_rule_version': 'TEXT',
+        'narrative_evidence_version': 'TEXT',
+        'narrative_evidence_fingerprint': 'TEXT',
     }
 
     _COACH_PROPOSAL_COLUMN_TYPES = {
@@ -445,6 +450,11 @@ class Database:
                 metrics_window_days INTEGER,
                 as_of_date TEXT,
                 decision_event_id TEXT,
+                narrative_gate_outcome TEXT,
+                narrative_gate_reason_codes_json TEXT,
+                narrative_gate_rule_version TEXT,
+                narrative_evidence_version TEXT,
+                narrative_evidence_fingerprint TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -1636,6 +1646,7 @@ class Database:
         metrics_window_days=None,
         as_of_date=None,
         decision_event_id=None,
+        narrative_gate=None,
         date=None,
     ):
         """Сохраняет решение коуча для audit trail."""
@@ -1655,14 +1666,20 @@ class Database:
         else:
             date = str(date)
 
+        gate = dict(narrative_gate or {})
+        gate_reason_codes = [str(code) for code in gate.get("reason_codes") or []]
+
         conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
             INSERT INTO coach_decisions
                 (date, decision_type, reason, workout_id, chat_id, message_id,
-                 metrics_window_days, as_of_date, decision_event_id)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 metrics_window_days, as_of_date, decision_event_id,
+                 narrative_gate_outcome, narrative_gate_reason_codes_json,
+                 narrative_gate_rule_version, narrative_evidence_version,
+                 narrative_evidence_fingerprint)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 self.clean_value(date),
@@ -1674,13 +1691,21 @@ class Database:
                 self.clean_value(metrics_window_days),
                 self.clean_value(as_of_date),
                 self.clean_value(decision_event_id),
+                self.clean_value(gate.get("outcome")),
+                json.dumps(gate_reason_codes, ensure_ascii=False),
+                self.clean_value(gate.get("rule_version")),
+                self.clean_value(gate.get("evidence_version")),
+                self.clean_value(gate.get("evidence_fingerprint")),
             ),
         )
         decision_id = cursor.lastrowid
         cursor.execute(
             '''
             SELECT id, date, decision_type, reason, workout_id, chat_id, message_id,
-                   metrics_window_days, as_of_date, created_at, decision_event_id
+                   metrics_window_days, as_of_date, created_at, decision_event_id,
+                   narrative_gate_outcome, narrative_gate_reason_codes_json,
+                   narrative_gate_rule_version, narrative_evidence_version,
+                   narrative_evidence_fingerprint
             FROM coach_decisions
             WHERE id = ?
             ''',
@@ -1699,7 +1724,10 @@ class Database:
         cursor.execute(
             '''
             SELECT id, date, decision_type, reason, workout_id, chat_id, message_id,
-                   metrics_window_days, as_of_date, created_at, decision_event_id
+                   metrics_window_days, as_of_date, created_at, decision_event_id,
+                   narrative_gate_outcome, narrative_gate_reason_codes_json,
+                   narrative_gate_rule_version, narrative_evidence_version,
+                   narrative_evidence_fingerprint
             FROM coach_decisions
             WHERE substr(date, 1, 10) >= ?
             ORDER BY date DESC, id DESC
@@ -1714,6 +1742,10 @@ class Database:
     def _deserialize_coach_decision_row(self, row):
         if not row:
             return None
+        try:
+            gate_reason_codes = json.loads(row[12]) if len(row) > 12 and row[12] else []
+        except (TypeError, json.JSONDecodeError):
+            gate_reason_codes = []
         return {
             'id': row[0],
             'date': row[1],
@@ -1726,6 +1758,11 @@ class Database:
             'as_of_date': row[8] if len(row) > 8 else None,
             'created_at': row[9] if len(row) > 9 else row[7],
             'decision_event_id': row[10] if len(row) > 10 else None,
+            'narrative_gate_outcome': row[11] if len(row) > 11 else None,
+            'narrative_gate_reason_codes': gate_reason_codes,
+            'narrative_gate_rule_version': row[13] if len(row) > 13 else None,
+            'narrative_evidence_version': row[14] if len(row) > 14 else None,
+            'narrative_evidence_fingerprint': row[15] if len(row) > 15 else None,
         }
 
     def save_recovery_decision(

@@ -2,10 +2,18 @@
 from __future__ import annotations
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Callable, Dict, Iterable, Optional
 
+from config.settings import Settings
 from models.ai_data_context import AIDataContext
+from models.coach_narrative_evidence import (
+    CoachNarrativeEvidence,
+    build_coach_narrative_evidence,
+    fail_closed_coach_narrative,
+    resolve_calendar_evidence,
+    validate_coach_narrative,
+)
 from utils.product_semantics import format_date_label
 
 
@@ -16,8 +24,17 @@ def _today_context_line() -> str:
     row can lag behind the real day if Garmin sync hasn't caught up), so
     without this the model has to guess "today" from data rows and drifts.
     """
-    today = datetime.now().date()
-    return f"Сегодня: {today.isoformat()} ({format_date_label(today, 'weekday_short')})"
+    calendar = resolve_calendar_evidence(
+        athlete_timezone=Settings.ATHLETE_TIMEZONE,
+        observed_at_utc=datetime.now(timezone.utc),
+    )
+    if calendar.get("status") != "available":
+        return "Сегодня: не определено (неверный ATHLETE_TIMEZONE)"
+    today = datetime.fromisoformat(str(calendar["local_date"])).date()
+    return (
+        f"Сегодня: {today.isoformat()} ({format_date_label(today, 'weekday_short')}); "
+        f"часовой пояс спортсмена: {calendar['athlete_timezone']}"
+    )
 
 
 def _build_phase_context(goal_plan: Optional[Dict]) -> str:
@@ -553,6 +570,7 @@ def finalize_ai_chat_response(
     provider: Any = None,
     user_input: Optional[str] = None,
     history_messages: Iterable[Dict[str, Any]] = (),
+    narrative_evidence: CoachNarrativeEvidence | None = None,
 ) -> str:
     """Превращает сырой ответ AI в финальный пользовательский ответ."""
     rendered_response, tool_results = collect_tool_results(
@@ -580,7 +598,49 @@ def finalize_ai_chat_response(
 
     if response_post_processor is not None:
         final_response = response_post_processor(final_response)
-    return apply_response_contract_to_final_response(final_response, response_contract)
+    final_response = apply_response_contract_to_final_response(final_response, response_contract)
+    try:
+        evidence = narrative_evidence or _runtime_narrative_evidence(ai_tools, tool_results)
+        return validate_coach_narrative(final_response, evidence).delivered_text
+    except Exception:
+        fingerprint = narrative_evidence.fingerprint if narrative_evidence is not None else "unavailable"
+        return fail_closed_coach_narrative(fingerprint).delivered_text
+
+
+def _runtime_narrative_evidence(
+    ai_tools: Any,
+    tool_results: Iterable[Dict[str, Any]],
+) -> CoachNarrativeEvidence:
+    """Best bounded evidence for non-API consumers of the shared finalizer."""
+    observed_at_utc = datetime.now(timezone.utc)
+    calendar = resolve_calendar_evidence(
+        athlete_timezone=Settings.ATHLETE_TIMEZONE,
+        observed_at_utc=observed_at_utc,
+    )
+    local_date = (
+        datetime.fromisoformat(str(calendar["local_date"])).date()
+        if calendar.get("status") == "available"
+        else None
+    )
+    readiness_snapshot: Dict[str, Any] = {}
+    db = getattr(ai_tools, "db", None)
+    if db is not None and local_date is not None:
+        try:
+            from services.readiness_snapshot import build_readiness_snapshot
+
+            readiness_snapshot = build_readiness_snapshot(
+                db,
+                as_of=local_date,
+                observed_at_utc=observed_at_utc,
+            )
+        except Exception:
+            readiness_snapshot = {}
+    return build_coach_narrative_evidence(
+        readiness_snapshot=readiness_snapshot,
+        tool_results=tool_results,
+        athlete_timezone=Settings.ATHLETE_TIMEZONE,
+        observed_at_utc=observed_at_utc,
+    )
 
 
 def apply_response_contract_to_final_response(

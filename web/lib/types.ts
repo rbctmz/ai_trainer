@@ -304,6 +304,14 @@ export interface CoachProposalEvent {
   preview: Record<string, unknown>;
 }
 
+export interface CoachNarrativeEvidenceGate {
+  rule_version: string;
+  outcome: "pass" | "replaced" | "data_gap" | string;
+  reason_codes: string[];
+  evidence_version: string;
+  evidence_fingerprint: string;
+}
+
 // Event protocol (after the agentic finalize refactor): meta → tool_call(s) →
 // streamed token(s) of the final synthesized answer → done. No `replace`.
 export type CoachEvent =
@@ -317,7 +325,13 @@ export type CoachEvent =
   | { type: "tool_call"; name: string; tool_name?: string; status: string }
   | CoachProposalEvent
   | { type: "token"; content: string }
-  | { type: "done"; message_id: string; chat_id: string }
+  | {
+      type: "done";
+      message_id: string;
+      chat_id: string;
+      first_token_ms?: number | null;
+      evidence_gate?: CoachNarrativeEvidenceGate;
+    }
   | { type: "error"; message: string; readiness_snapshot?: ReadinessSnapshot };
 
 // --- Decisions ---
@@ -335,6 +349,11 @@ export interface CoachDecision {
   chat_id?: string | null;
   message_id?: string | null;
   decision_event_id?: string | null;
+  narrative_gate_outcome?: string | null;
+  narrative_gate_reason_codes?: string[];
+  narrative_gate_rule_version?: string | null;
+  narrative_evidence_version?: string | null;
+  narrative_evidence_fingerprint?: string | null;
   created_at?: string | null;
 }
 
