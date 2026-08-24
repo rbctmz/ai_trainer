@@ -85,9 +85,54 @@ def _match_by_activity(
         if len(activity_ids) == 1:
             grouped.setdefault(activity_ids[0], []).append(match)
     return {
-        activity_id: rows[0] if len(rows) == 1 else None
+        activity_id: _collapse_match_lineage(rows)
         for activity_id, rows in grouped.items()
     }
+
+
+def _collapse_match_lineage(
+    rows: list[Mapping[str, Any]],
+) -> Mapping[str, Any] | None:
+    """Collapse one connected immutable rebind chain; reject true ambiguity."""
+    if len(rows) == 1:
+        return rows[0]
+    by_id: dict[int, Mapping[str, Any]] = {}
+    for row in rows:
+        try:
+            row_id = int(row.get("id"))
+        except (TypeError, ValueError):
+            return None
+        by_id[row_id] = row
+    if len(by_id) != len(rows):
+        return None
+    superseded_ids: set[int] = set()
+    for row in rows:
+        try:
+            parent_id = int(row.get("supersedes_match_id"))
+        except (TypeError, ValueError):
+            continue
+        if parent_id in by_id:
+            superseded_ids.add(parent_id)
+    leaves = [row for row_id, row in by_id.items() if row_id not in superseded_ids]
+    if len(leaves) != 1:
+        return None
+    lineage: list[Mapping[str, Any]] = []
+    seen: set[int] = set()
+    current: Mapping[str, Any] | None = leaves[0]
+    while current is not None:
+        current_id = int(current.get("id"))
+        if current_id in seen:
+            return None
+        seen.add(current_id)
+        lineage.append(current)
+        try:
+            parent_id = int(current.get("supersedes_match_id"))
+        except (TypeError, ValueError):
+            break
+        current = by_id.get(parent_id)
+    if seen != set(by_id):
+        return None
+    return {**dict(leaves[0]), "_stimulus_lineage": lineage}
 
 
 def _stimulus_for_match(
@@ -95,20 +140,30 @@ def _stimulus_for_match(
     match: Mapping[str, Any],
     checkpoint_cache: dict[int, Mapping[str, Any] | None],
 ) -> str | None:
-    try:
-        checkpoint_id = int(match.get("base_checkpoint_id"))
-    except (TypeError, ValueError):
-        return None
-    if checkpoint_id not in checkpoint_cache:
-        checkpoint_cache[checkpoint_id] = restore_goal_plan_from_checkpoint(
-            database.get_planning_checkpoint(checkpoint_id)
-        )
-    plan = checkpoint_cache[checkpoint_id] or {}
-    _day_template, session = find_planned_session(
-        list(plan.get("session_templates") or []),
-        str(match.get("session_id") or ""),
+    raw_lineage = match.get("_stimulus_lineage")
+    lineage = (
+        [row for row in raw_lineage if isinstance(row, Mapping)]
+        if isinstance(raw_lineage, list)
+        else [match]
     )
-    return _stimulus_family(session)
+    for lineage_match in lineage:
+        try:
+            checkpoint_id = int(lineage_match.get("base_checkpoint_id"))
+        except (TypeError, ValueError):
+            continue
+        if checkpoint_id not in checkpoint_cache:
+            checkpoint_cache[checkpoint_id] = restore_goal_plan_from_checkpoint(
+                database.get_planning_checkpoint(checkpoint_id)
+            )
+        plan = checkpoint_cache[checkpoint_id] or {}
+        _day_template, session = find_planned_session(
+            list(plan.get("session_templates") or []),
+            str(lineage_match.get("session_id") or ""),
+        )
+        stimulus = _stimulus_family(session)
+        if stimulus:
+            return stimulus
+    return None
 
 
 def _instant(value: Any) -> datetime | None:
@@ -181,11 +236,17 @@ def _feedback_matches_target(
     if feedback_ids != activity_ids:
         return False
     feedback_revision = feedback.get("match_revision_id")
-    return not (
-        feedback_revision is not None
-        and match_revision_id is not None
-        and str(feedback_revision) != str(match_revision_id)
+    if feedback_revision is None:
+        return True
+    raw_compatible = (
+        match_revision_id
+        if isinstance(match_revision_id, (list, tuple, set))
+        else [match_revision_id]
     )
+    compatible = {
+        str(value) for value in raw_compatible if value is not None
+    }
+    return bool(compatible) and str(feedback_revision) in compatible
 
 
 def project_comparable_session(
@@ -267,7 +328,11 @@ def project_comparable_session(
                     if _feedback_matches_target(
                         feedbacks.get(activity_id),
                         activity_ids=[activity_id],
-                        match_revision_id=match.get("id"),
+                        match_revision_id=[
+                            row.get("id")
+                            for row in match.get("_stimulus_lineage") or [match]
+                            if isinstance(row, Mapping)
+                        ],
                     )
                     else None
                 ),

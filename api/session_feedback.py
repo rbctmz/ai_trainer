@@ -291,11 +291,48 @@ def _attach_primary_comparison(
             "TARGET_SESSION_EVIDENCE_MISSING"
         )
         return
+    match_revision_id = _match_revision_id_for_prompt(db, row, session_id)
     primary["comparison"] = _comparison_for_evidence(
         db,
-        {"row": row, "template": dict(template)},
+        {
+            "row": row,
+            "template": dict(template),
+            "match_revision_id": match_revision_id,
+        },
         feedback=feedback_by_session.get(session_id),
     )
+
+
+def _match_revision_id_for_prompt(
+    db: Database,
+    row: Mapping[str, Any],
+    session_id: str,
+) -> Any:
+    """Resolve the immutable match revision backing a feedback prompt."""
+    if row.get("match_revision_id") is not None:
+        return row.get("match_revision_id")
+    session_date = str(row.get("date") or "")[:10]
+    reader = getattr(db, "get_latest_plan_actual_matches", None)
+    if not session_date or not callable(reader):
+        return None
+    try:
+        matches = reader(start_date=session_date, end_date=session_date)
+    except Exception:
+        return None
+    target_key = f"session:{session_id}"
+    match_revision = next(
+        (
+            item
+            for item in matches or []
+            if isinstance(item, Mapping)
+            and (
+                str(item.get("target_key") or "") == target_key
+                or str(item.get("session_id") or "") == session_id
+            )
+        ),
+        None,
+    )
+    return (match_revision or {}).get("id")
 
 
 def _feedback_evidence_for_session(

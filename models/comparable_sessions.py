@@ -344,9 +344,15 @@ def select_comparable_session(
 
         target_structure = dict(frozen_target.get("structure") or {})
         candidate_structure = dict(candidate.get("structure") or {})
+        target_structure_source = _text(target_structure.get("source"))
+        candidate_structure_source = _text(candidate_structure.get("source"))
         structure_similarity: float | None = None
         structure_status = "missing"
-        if target_structure.get("available") and candidate_structure.get("available"):
+        if (
+            target_structure.get("available")
+            and candidate_structure.get("available")
+            and target_structure_source == candidate_structure_source
+        ):
             target_count = int(target_structure.get("segment_count") or 0)
             candidate_count = int(candidate_structure.get("segment_count") or 0)
             if target_count > 0 and candidate_count > 0:
@@ -398,6 +404,8 @@ def select_comparable_session(
                 ),
                 "target_segments": target_structure.get("segment_count") or 0,
                 "comparator_segments": candidate_structure.get("segment_count") or 0,
+                "target_source": target_structure_source,
+                "comparator_source": candidate_structure_source,
             },
         ]
         counts["eligible"] += 1

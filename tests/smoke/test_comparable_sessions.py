@@ -246,6 +246,25 @@ def test_selection_is_deterministic_for_any_candidate_order() -> None:
     }
 
 
+def test_cross_provider_structure_counts_are_not_hard_compared() -> None:
+    target = _features("target", "2026-08-24", interval_count=3)
+    candidate = _features("candidate", "2026-08-01", interval_count=10)
+    target["structure"]["source"] = "intervals"
+    candidate["structure"]["source"] = "garmin"
+
+    result = select_comparable_session(target, [candidate])
+
+    assert result["status"] == "available"
+    structure = next(
+        row
+        for row in result["similarity"]["evidence"]
+        if row["dimension"] == "structure"
+    )
+    assert structure["status"] == "missing"
+    assert structure["target_source"] == "intervals"
+    assert structure["comparator_source"] == "garmin"
+
+
 class _ComparableDb:
     def __init__(self) -> None:
         self.target = _activity("target", "2026-08-24")
@@ -387,6 +406,47 @@ def test_service_rejects_split_comparator_matches() -> None:
     assert result["reason_code"] == "NO_ELIGIBLE_CANDIDATE"
 
 
+def test_service_follows_constraint_rebind_match_lineage() -> None:
+    class ReboundComparatorDb(_ComparableDb):
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            assert start_date == "2024-08-24"
+            assert end_date == "2026-08-24"
+            return [
+                {
+                    "id": 10,
+                    "session_id": "prior-session",
+                    "base_checkpoint_id": 3,
+                    "match_status": "matched",
+                    "actual_activity_ids": ["candidate"],
+                },
+                {
+                    "id": 11,
+                    "session_id": "restamped-prior-session",
+                    "base_checkpoint_id": 3,
+                    "supersedes_match_id": 10,
+                    "match_status": "matched",
+                    "actual_activity_ids": ["candidate"],
+                },
+            ]
+
+    result = project_comparable_session(
+        ReboundComparatorDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "available"
+    assert result["comparator"]["activity_id"] == "candidate"
+
+
 def test_service_does_not_attach_feedback_from_a_superseded_activity() -> None:
     result = project_comparable_session(
         _ComparableDb(),
@@ -405,6 +465,32 @@ def test_service_does_not_attach_feedback_from_a_superseded_activity() -> None:
             "status": "active",
             "match_revision_id": 21,
             "actual_activity_ids": ["old-target"],
+            "session_rpe_1_10": 9,
+            "source": "user_web",
+        },
+    )
+
+    assert result["status"] == "available"
+    assert result["comparison"]["subjective_evidence"]["target"] is None
+
+
+def test_service_requires_current_revision_for_versioned_feedback() -> None:
+    result = project_comparable_session(
+        _ComparableDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+        feedback={
+            "status": "active",
+            "match_revision_id": 21,
+            "actual_activity_ids": ["target"],
             "session_rpe_1_10": 9,
             "source": "user_web",
         },
@@ -533,6 +619,17 @@ def test_feedback_primary_prompt_exposes_the_bounded_comparison(monkeypatch) -> 
         def get_latest_session_feedback_prompt_events(self):
             return []
 
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            assert start_date == "2026-08-24"
+            assert end_date == "2026-08-24"
+            return [
+                {
+                    "id": 22,
+                    "target_key": "session:target-session",
+                    "session_id": "target-session",
+                }
+            ]
+
     expected = {
         "status": "available",
         "rule_version": COMPARABLE_SESSION_RULE_VERSION,
@@ -588,6 +685,7 @@ def test_feedback_primary_prompt_exposes_the_bounded_comparison(monkeypatch) -> 
     assert result["primary"]["comparison"] == expected
     assert observed["row"]["session_id"] == "target-session"
     assert observed["template"]["definition_snapshot"]["step_builder_key"] == "threshold"
+    assert observed["match_revision_id"] == 22
 
 
 def test_saved_feedback_restores_target_from_immutable_match_checkpoint() -> None:

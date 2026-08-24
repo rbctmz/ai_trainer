@@ -10,7 +10,7 @@
 - Class: **A**
 - Rationale: a new cross-module evidence contract joins activity lineage, plan stimulus, interval structure, athlete feedback, API/web presentation, and AI-coach tools.
 - Automatic escalation triggers checked: new public contract — yes; provenance/identity — yes; persistence/schema — no; provider write — no; destructive sync — no; paid call — no.
-- Review budget used: 0 / 2 independent rounds; one root self-review completed
+- Review budget used: 2 / 2 native Codex Review rounds; one root self-review completed
 
 ## Scope
 
@@ -94,11 +94,11 @@
 
 - Head SHA: pending until commit.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
-- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; native-review RED 8 failed / 10 passed; review-fixed matrix 19 passed; focused integration 76 passed; smoke 2083 passed / 1 skipped; contributor-safe 2129 passed / 3 skipped / 26 deselected.
-- CI checks/reruns/flakes: repository Ruff clean; web lint/build green; contract artifact current and contract smoke 23 passed; initial-head GitHub CI green, review-fix head CI pending push.
+- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; first native-review RED 8 failed / 10 passed and GREEN 19 passed; second native-review RED 4 failed / 18 passed and GREEN 22 passed; focused integration 95 passed; smoke 2086 passed / 1 skipped; contributor-safe 2132 passed / 3 skipped / 26 deselected.
+- CI checks/reruns/flakes: targeted Ruff clean; web lint/build green; contract artifact current and contract smoke 23 passed; `fa97bdc` GitHub CI green, final review-fix head pending push.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: 8 before the review-fix slice; target 0 after pushed replies/resolution.
+- Unresolved review-thread count: 0 from round one; 3 from round two pending pushed replies/resolution.
 - Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated.
 
 ## Review Findings
@@ -116,12 +116,15 @@
 | P2 | **Observed**: same-day candidates were rejected by date alone. **Inferred**: an earlier compatible two-a-day session was invisible. **Verified by**: 08:00 vs 18:00 RED. | Compare UTC starts on the same date and fail closed when timestamps are missing. | Codex / resolved. |
 | P2 | **Observed**: web pace output omitted units and comparator threshold provenance. **Inferred**: run/swim values were ambiguous. **Verified by**: static UI contract plus build. | Render sport-specific units and both threshold sources. | Codex / resolved. |
 | P2 | **Observed**: coach presenter dropped projected RPE/notes. **Inferred**: preserved subjective evidence never reached the model. **Verified by**: presenter RED. | Add bounded provenance-labelled subjective lines outside the similarity score. | Codex / resolved. |
+| P2 | **Observed**: immediate prompt comparison omitted its current match revision. **Inferred**: versioned feedback could pass without proving revision compatibility. **Verified by**: second-round prompt and fail-closed feedback RED/GREEN tests. | Resolve the current immutable match revision and reject versioned feedback when compatible revision evidence is absent. | Codex / resolved locally. |
+| P2 | **Observed**: constraint rebinds create multiple connected immutable match rows for one activity. **Inferred**: treating every duplicate row as ambiguity hides valid historical comparators. **Verified by**: two-revision lineage RED/GREEN test. | Collapse exactly one connected lineage, use the leaf identity, and recover stimulus through its ancestors; reject disconnected rows. | Codex / resolved locally. |
+| P2 | **Observed**: Intervals and Garmin can segment the same workout differently. **Inferred**: raw cross-provider segment-count comparison can falsely reject a valid comparator. **Verified by**: cross-provider structure RED/GREEN test. | Compare structure only for equal provider sources; otherwise label the dimension missing and preserve both sources. | Codex / resolved locally. |
 
 ## Final Verdict
 
-- Verdict: **READY** after review-fix push, thread resolution, and CI on the new head.
+- Verdict: **READY** after second review-fix push, thread resolution, and CI on the new head.
 - Blocking findings remaining: none in code; publication/thread/CI bookkeeping remains.
-- Review rounds used: 1.
+- Review rounds used: 2.
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: Codex.
