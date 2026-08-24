@@ -938,7 +938,11 @@ class Database:
         append-only истории athlete_profile (#451): смена FTP не переписывает
         прошлые TSS молча.
         """
-        from data.data_processor import ActivityProcessor, ftp_at, resolve_athlete_tss_profile
+        from data.data_processor import (
+            ActivityProcessor,
+            resolve_athlete_tss_profile,
+            resolve_ftp_for_activity,
+        )
 
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
@@ -952,7 +956,9 @@ class Database:
         if not rows:
             return
 
-        ftp_history = AthleteProfileStore(conn, self.clean_value).ftp_history()
+        profile_store = AthleteProfileStore(conn, self.clean_value)
+        ftp_history = profile_store.ftp_history()
+        ftp_timeline = profile_store.ftp_timeline()
 
         ftp, lthr, swim_css = resolve_athlete_tss_profile(self)
 
@@ -967,7 +973,13 @@ class Database:
                 except (TypeError, ValueError):
                     activity_date = None
                 if activity_date is not None:
-                    row_ftp = ftp_at(ftp_history, activity_date) or ftp
+                    row_ftp, _ftp_verified = resolve_ftp_for_activity(
+                        ftp_history,
+                        ftp_timeline,
+                        activity_date,
+                        activity_started_at_utc=activity.get("started_at_utc"),
+                    )
+                    row_ftp = row_ftp or ftp
             resolved = ActivityProcessor.resolve_tss(
                 activity,
                 ftp=row_ftp,
@@ -4593,6 +4605,14 @@ class Database:
         conn = self._connect()
         try:
             return AthleteProfileStore(conn, self.clean_value).ftp_history()
+        finally:
+            conn.close()
+
+    def get_athlete_ftp_timeline(self):
+        """Return UTC-aware FTP profile snapshot instants."""
+        conn = self._connect()
+        try:
+            return AthleteProfileStore(conn, self.clean_value).ftp_timeline()
         finally:
             conn.close()
 

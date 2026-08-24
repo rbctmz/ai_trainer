@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional
 
 from config.settings import Settings
-from data.data_processor import ftp_at
+from data.data_processor import resolve_ftp_for_activity
 from utils.product_semantics import normalize_sport_key
 
 
@@ -98,11 +98,17 @@ def record_bike_hr_pair(database, row: dict) -> bool:
         activity_day = None
 
     history = database.get_athlete_ftp_history()
+    get_timeline = getattr(database, "get_athlete_ftp_timeline", None)
+    timeline = get_timeline() if callable(get_timeline) else []
     ftp_on_date = None
     ftp_verified = False
     if history and activity_day is not None:
-        ftp_on_date = ftp_at(history, activity_day)
-        ftp_verified = any(sync_day <= activity_day for sync_day, _ in history)
+        ftp_on_date, ftp_verified = resolve_ftp_for_activity(
+            history,
+            timeline,
+            activity_day,
+            activity_started_at_utc=row.get("started_at_utc"),
+        )
 
     profile = database.get_athlete_profile() or {}
     lthr = profile.get("lthr") or Settings.USER_LTHR
@@ -113,4 +119,3 @@ def record_bike_hr_pair(database, row: dict) -> bool:
         return False
     database.upsert_bike_hr_pair(pair)
     return True
-

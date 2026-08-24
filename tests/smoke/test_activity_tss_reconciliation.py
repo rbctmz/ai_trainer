@@ -12,14 +12,31 @@ from services.sync import _sync_activities
 
 pytestmark = pytest.mark.smoke
 
+_FIXED_NOW = datetime(2026, 8, 24, 12, 0, 0)
+
 
 def _recent_iso(days_ago: int = 1) -> str:
-    return (datetime.now() - timedelta(days=days_ago)).strftime("%Y-%m-%dT08:00:00")
+    return (_FIXED_NOW - timedelta(days=days_ago)).strftime("%Y-%m-%dT08:00:00")
+
+
+def _recent_gmt(days_ago: int = 1) -> str:
+    return (_FIXED_NOW - timedelta(days=days_ago)).strftime("%Y-%m-%dT12:00:00Z")
+
+
+def _set_profile_synced_at(db: Database, profile_id: int, synced_at: str) -> None:
+    conn = db._connect()
+    conn.execute(
+        "UPDATE athlete_profile SET synced_at = ? WHERE id = ?",
+        (synced_at, profile_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 def _activity_row(db: Database, activity_id: str):
-    df = db.get_activities(30)
-    return df[df["activity_id"] == activity_id].iloc[0]
+    rows = db.get_activities_by_ids([activity_id])
+    assert len(rows) == 1
+    return rows[0]
 
 
 def test_garmin_load_is_persisted_separately_from_walk_tss(tmp_path):
@@ -542,7 +559,7 @@ def test_legacy_garmin_load_rows_are_backfilled_to_computed_tss(tmp_path):
         ''',
         (
             "legacy-swim-1",
-            (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+            (_FIXED_NOW - timedelta(days=1)).strftime("%Y-%m-%d"),
             "open_water_swimming",
             62.0,
             57.9,
@@ -557,8 +574,7 @@ def test_legacy_garmin_load_rows_are_backfilled_to_computed_tss(tmp_path):
     conn.close()
 
     db = Database(str(db_path))
-    df = db.get_activities(30)
-    row = df[df["activity_id"] == "legacy-swim-1"].iloc[0]
+    row = db.get_activities_by_ids(["legacy-swim-1"])[0]
 
     assert row["garmin_training_load"] == 155.7
     assert row["source_tss"] == 155.7
@@ -613,7 +629,7 @@ def test_existing_zone_based_rows_are_recalibrated_on_database_open(tmp_path):
         ''',
         (
             "existing-swim-zone-1",
-            (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+            (_FIXED_NOW - timedelta(days=1)).strftime("%Y-%m-%d"),
             "open_water_swimming",
             61.9509,
             57.8833,
@@ -653,11 +669,7 @@ def test_repair_keeps_ftp_of_activity_date_when_profile_changes(tmp_path, monkey
     db.save_athlete_profile({"ftp": 159.0, "weight_kg": 93.9, "lthr": 163.0, "source": "intervals_icu"})
     # Pin the first snapshot two days in the past: it is the FTP that was
     # current when the activity below was ridden.
-    two_days_ago = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
-    conn = db._connect()
-    conn.execute("UPDATE athlete_profile SET synced_at = ?", (two_days_ago,))
-    conn.commit()
-    conn.close()
+    _set_profile_synced_at(db, 1, "2026-08-22T12:00:00Z")
 
     _sync_activities(
         db,
@@ -665,6 +677,7 @@ def test_repair_keeps_ftp_of_activity_date_when_profile_changes(tmp_path, monkey
             {
                 "activityId": "bike-451-keep",
                 "startTimeLocal": _recent_iso(days_ago=1),
+                "startTimeGMT": _recent_gmt(days_ago=1),
                 "activityType": {"typeKey": "cycling"},
                 "duration": 8414.07,
                 "movingDuration": 8205.007,
@@ -681,6 +694,7 @@ def test_repair_keeps_ftp_of_activity_date_when_profile_changes(tmp_path, monkey
 
     # FTP improves after the ride: a newer snapshot becomes the current profile.
     db.save_athlete_profile({"ftp": 172.0, "weight_kg": 95.4, "lthr": 163.0, "source": "intervals_icu"})
+    _set_profile_synced_at(db, 2, "2026-08-24T12:00:00Z")
 
     reopened = Database(db_path)
     after = _activity_row(reopened, "bike-451-keep")
@@ -704,13 +718,10 @@ def test_repair_restores_date_accurate_ftp_for_mismatched_rows(tmp_path, monkeyp
 
     db = Database(db_path)
     db.save_athlete_profile({"ftp": 159.0, "weight_kg": 93.9, "lthr": 163.0, "source": "intervals_icu"})
-    two_days_ago = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d %H:%M:%S")
-    conn = db._connect()
-    conn.execute("UPDATE athlete_profile SET synced_at = ?", (two_days_ago,))
-    conn.commit()
-    conn.close()
+    _set_profile_synced_at(db, 1, "2026-08-22T12:00:00Z")
 
     db.save_athlete_profile({"ftp": 172.0, "weight_kg": 95.4, "lthr": 163.0, "source": "intervals_icu"})
+    _set_profile_synced_at(db, 2, "2026-08-24T12:00:00Z")
 
     # Sync resolves against the CURRENT profile (172) while the ride happened
     # before the change: mismatched provenance, exactly like the July data.
@@ -720,6 +731,7 @@ def test_repair_restores_date_accurate_ftp_for_mismatched_rows(tmp_path, monkeyp
             {
                 "activityId": "bike-451-restore",
                 "startTimeLocal": _recent_iso(days_ago=1),
+                "startTimeGMT": _recent_gmt(days_ago=1),
                 "activityType": {"typeKey": "cycling"},
                 "duration": 8414.07,
                 "movingDuration": 8205.007,
@@ -737,3 +749,63 @@ def test_repair_restores_date_accurate_ftp_for_mismatched_rows(tmp_path, monkeyp
     repaired = _activity_row(reopened, "bike-451-restore")
     assert repaired["tss_ftp_used"] == pytest.approx(159.0)
     assert repaired["tss"] == pytest.approx(163.3, abs=0.5)
+
+
+@pytest.mark.parametrize(
+    ("label", "start_time_local"),
+    [
+        ("utc", "2026-08-23T23:59:00+00:00"),
+        ("europe_moscow", "2026-08-24T02:59:00+03:00"),
+    ],
+)
+def test_repair_uses_profile_before_same_absolute_activity_across_timezones(
+    tmp_path, monkeypatch, label, start_time_local
+):
+    """Issue #502: profile chronology must use absolute instants, not dates.
+
+    Both rows describe the same activity instant (2026-08-23 23:59 UTC). The
+    172-W profile becomes valid two minutes later (2026-08-24 00:01 UTC), so
+    reopening must retain the 159-W snapshot for either athlete timezone. The
+    resolver must produce the same historical FTP for both local date forms.
+    """
+    monkeypatch.setattr(Settings, "USER_FTP", 250)
+    db_path = str(tmp_path / f"ftp_timezone_{label}.db")
+    db = Database(db_path)
+    db.save_athlete_profile(
+        {"ftp": 159.0, "weight_kg": 93.9, "lthr": 163.0, "source": "intervals_icu"}
+    )
+    db.save_athlete_profile(
+        {"ftp": 172.0, "weight_kg": 95.4, "lthr": 163.0, "source": "intervals_icu"}
+    )
+    conn = db._connect()
+    conn.execute(
+        "UPDATE athlete_profile SET synced_at = ? WHERE id = 1",
+        ("2026-08-23T00:01:00Z",),
+    )
+    conn.execute(
+        "UPDATE athlete_profile SET synced_at = ? WHERE id = 2",
+        ("2026-08-24T00:01:00Z",),
+    )
+    conn.commit()
+    conn.close()
+
+    _sync_activities(
+        db,
+        [
+            {
+                "activityId": f"bike-502-{label}",
+                "startTimeLocal": start_time_local,
+                "startTimeGMT": "2026-08-23T23:59:00Z",
+                "activityType": {"typeKey": "cycling"},
+                "duration": 3600,
+                "movingDuration": 3600,
+                "distance": 30000,
+                "avgPower": 111.0,
+                "normPower": 134.6,
+            }
+        ],
+    )
+
+    reopened = Database(db_path)
+    repaired = _activity_row(reopened, f"bike-502-{label}")
+    assert repaired["tss_ftp_used"] == pytest.approx(159.0)
