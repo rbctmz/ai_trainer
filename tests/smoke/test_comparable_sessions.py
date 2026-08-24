@@ -447,6 +447,47 @@ def test_service_follows_constraint_rebind_match_lineage() -> None:
     assert result["comparator"]["activity_id"] == "candidate"
 
 
+def test_service_honors_unmatched_leaf_across_rebind_lineage() -> None:
+    class UnmatchedReboundDb(_ComparableDb):
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            assert start_date == "2024-08-24"
+            assert end_date == "2026-08-24"
+            return [
+                {
+                    "id": 10,
+                    "session_id": "prior-session",
+                    "base_checkpoint_id": 3,
+                    "match_status": "matched",
+                    "actual_activity_ids": ["candidate"],
+                },
+                {
+                    "id": 11,
+                    "session_id": "restamped-prior-session",
+                    "base_checkpoint_id": 3,
+                    "supersedes_match_id": 10,
+                    "match_status": "unmatched",
+                    "actual_activity_ids": [],
+                },
+            ]
+
+    result = project_comparable_session(
+        UnmatchedReboundDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "data_gap"
+    assert result["reason_code"] == "NO_ELIGIBLE_CANDIDATE"
+
+
 def test_service_does_not_attach_feedback_from_a_superseded_activity() -> None:
     result = project_comparable_session(
         _ComparableDb(),
@@ -546,6 +587,28 @@ def test_run_pace_uses_versioned_profile_threshold_when_tss_has_none() -> None:
         "threshold_observed_at": "2026-08-20T06:00:00Z",
         "relative_to_threshold": 0.95,
     }
+
+
+def test_run_pace_prefers_moving_duration_with_elapsed_fallback() -> None:
+    activity = _activity(
+        "run",
+        "2026-08-24",
+        sport="run",
+        duration=60,
+        distance_km=10,
+        normalized_power=None,
+        avg_power=None,
+        tss_pace_used=300,
+    )
+    activity["moving_duration_minutes"] = 40
+
+    projected = project_activity_features(
+        activity,
+        stimulus_family="threshold",
+    )
+
+    assert projected["sport_metric"]["value"] == 240.0
+    assert projected["sport_metric"]["relative_to_threshold"] == 1.25
 
 
 def test_service_reads_run_threshold_snapshot_at_each_activity_time() -> None:
@@ -759,6 +822,81 @@ def test_saved_feedback_restores_target_from_immutable_match_checkpoint() -> Non
     assert evidence["template"]["definition_snapshot"]["step_builder_key"] == "threshold"
 
 
+def test_saved_feedback_restores_rebound_session_through_match_lineage() -> None:
+    from api.session_feedback import _evidence_from_saved_feedback
+
+    feedback = {
+        "session_id": "restamped-session",
+        "match_revision_id": 42,
+        "actual_activity_ids": ["historical-activity"],
+        "match_snapshot": {
+            "planned": {"date": "2026-08-01", "sport": "bike"},
+            "match_status": "matched",
+            "match_method": "constraint_repair_rebind",
+            "confidence": 1.0,
+        },
+    }
+
+    class ReboundFeedbackDb:
+        def get_plan_actual_match(self, match_revision_id):
+            return {
+                42: {
+                    "id": 42,
+                    "session_id": "restamped-session",
+                    "session_date": "2026-08-01",
+                    "base_checkpoint_id": 7,
+                    "supersedes_match_id": 41,
+                    "match_status": "matched",
+                },
+                41: {
+                    "id": 41,
+                    "session_id": "historical-session",
+                    "session_date": "2026-08-01",
+                    "base_checkpoint_id": 7,
+                    "match_status": "matched",
+                },
+            }.get(match_revision_id)
+
+        def get_planning_checkpoint(self, checkpoint_id):
+            assert checkpoint_id == 7
+            return {
+                "id": 7,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-01",
+                            "total_tss": 70,
+                            "parts": {"bike": 70},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-01",
+                            "sessions": [
+                                {
+                                    "session_id": "historical-session",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "threshold"
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+
+        def get_latest_planning_checkpoint(self):
+            raise AssertionError("latest checkpoint must not be used")
+
+    evidence = _evidence_from_saved_feedback(
+        ReboundFeedbackDb(), feedback, as_of="2026-08-24"
+    )
+
+    assert evidence is not None
+    assert evidence["row"]["session_id"] == "restamped-session"
+    assert evidence["template"]["definition_snapshot"]["step_builder_key"] == "threshold"
+
+
 def test_default_coach_target_uses_latest_workout_time_not_feedback_time(
     monkeypatch,
 ) -> None:
@@ -768,6 +906,7 @@ def test_default_coach_target_uses_latest_workout_time_not_feedback_time(
         "id": 2,
         "session_id": "older-session",
         "status": "active",
+        "completion_status": "completed",
         "actual_activity_ids": ["older"],
         "session_end_at_utc": "2026-08-01T09:00:00Z",
         "submitted_at": "2026-08-25T09:00:00Z",
@@ -776,6 +915,7 @@ def test_default_coach_target_uses_latest_workout_time_not_feedback_time(
         "id": 1,
         "session_id": "latest-session",
         "status": "active",
+        "completion_status": "completed",
         "actual_activity_ids": ["latest"],
         "session_end_at_utc": "2026-08-24T09:00:00Z",
         "submitted_at": "2026-08-24T09:01:00Z",
@@ -804,6 +944,78 @@ def test_default_coach_target_uses_latest_workout_time_not_feedback_time(
     result = session_feedback.comparable_session_for_session(LatestDb())
 
     assert result["selected_session_id"] == "latest-session"
+
+
+def test_default_coach_target_excludes_sessions_not_started(monkeypatch) -> None:
+    from api import session_feedback
+
+    did_not_start = {
+        "id": 2,
+        "session_id": "dns-session",
+        "status": "active",
+        "completion_status": "did_not_start",
+        "actual_activity_ids": ["dns"],
+        "session_end_at_utc": "2026-08-24T10:00:00Z",
+    }
+    completed = {
+        "id": 1,
+        "session_id": "completed-session",
+        "status": "active",
+        "completion_status": "completed",
+        "actual_activity_ids": ["completed"],
+        "session_end_at_utc": "2026-08-23T10:00:00Z",
+    }
+
+    class LatestDb:
+        def get_latest_session_feedbacks(self):
+            return [did_not_start, completed]
+
+    monkeypatch.setattr(
+        session_feedback,
+        "_evidence_from_saved_feedback",
+        lambda _db, feedback, as_of=None: {
+            "row": {"session_id": feedback["session_id"]},
+            "template": {},
+        },
+    )
+    monkeypatch.setattr(
+        session_feedback,
+        "_comparison_for_evidence",
+        lambda _db, evidence, feedback=None: {
+            "selected_session_id": evidence["row"]["session_id"]
+        },
+    )
+
+    result = session_feedback.comparable_session_for_session(LatestDb())
+
+    assert result["selected_session_id"] == "completed-session"
+
+
+def test_service_returns_target_gap_before_history_reads() -> None:
+    class MissingStimulusDb(_ComparableDb):
+        def get_latest_session_feedbacks(self):
+            raise AssertionError("feedback history must not be read")
+
+        def get_activity_intervals(self, activity_id):
+            raise AssertionError("interval history must not be read")
+
+        def get_activities_between(self, _start, _end):
+            raise AssertionError("candidate history must not be read")
+
+    result = project_comparable_session(
+        MissingStimulusDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {"definition_snapshot": {}},
+        },
+    )
+
+    assert result["status"] == "data_gap"
+    assert result["reason_code"] == "TARGET_STIMULUS_MISSING"
 
 
 def test_coach_tool_and_presenter_expose_neutral_bounded_comparison(monkeypatch) -> None:

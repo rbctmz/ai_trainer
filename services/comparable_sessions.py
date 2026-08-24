@@ -73,8 +73,58 @@ def _feedback_by_activity(database: Any) -> dict[str, dict[str, Any]]:
 def _match_by_activity(
     matches: list[Mapping[str, Any]],
 ) -> dict[str, Mapping[str, Any] | None]:
-    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    """Resolve effective lineage leaves before indexing matched activities."""
+    identified: dict[int, Mapping[str, Any]] = {}
+    standalone: list[Mapping[str, Any]] = []
+    duplicate_ids: set[int] = set()
     for match in matches:
+        if not isinstance(match, Mapping):
+            continue
+        try:
+            match_id = int(match.get("id"))
+        except (TypeError, ValueError):
+            standalone.append(match)
+            continue
+        if match_id in identified:
+            duplicate_ids.add(match_id)
+            standalone.extend([identified.pop(match_id), match])
+            continue
+        if match_id not in duplicate_ids:
+            identified[match_id] = match
+
+    superseded_ids: set[int] = set()
+    for match in identified.values():
+        try:
+            parent_id = int(match.get("supersedes_match_id"))
+        except (TypeError, ValueError):
+            continue
+        if parent_id in identified:
+            superseded_ids.add(parent_id)
+
+    effective: list[Mapping[str, Any]] = list(standalone)
+    for match_id, leaf in identified.items():
+        if match_id in superseded_ids:
+            continue
+        lineage: list[Mapping[str, Any]] = []
+        seen: set[int] = set()
+        current: Mapping[str, Any] | None = leaf
+        while current is not None:
+            current_id = int(current.get("id"))
+            if current_id in seen:
+                lineage = []
+                break
+            seen.add(current_id)
+            lineage.append(current)
+            try:
+                parent_id = int(current.get("supersedes_match_id"))
+            except (TypeError, ValueError):
+                break
+            current = identified.get(parent_id)
+        if lineage:
+            effective.append({**dict(leaf), "_stimulus_lineage": lineage})
+
+    grouped: dict[str, list[Mapping[str, Any]]] = {}
+    for match in effective:
         if not isinstance(match, Mapping) or match.get("match_status") != "matched":
             continue
         activity_ids = [
@@ -85,54 +135,9 @@ def _match_by_activity(
         if len(activity_ids) == 1:
             grouped.setdefault(activity_ids[0], []).append(match)
     return {
-        activity_id: _collapse_match_lineage(rows)
+        activity_id: rows[0] if len(rows) == 1 else None
         for activity_id, rows in grouped.items()
     }
-
-
-def _collapse_match_lineage(
-    rows: list[Mapping[str, Any]],
-) -> Mapping[str, Any] | None:
-    """Collapse one connected immutable rebind chain; reject true ambiguity."""
-    if len(rows) == 1:
-        return rows[0]
-    by_id: dict[int, Mapping[str, Any]] = {}
-    for row in rows:
-        try:
-            row_id = int(row.get("id"))
-        except (TypeError, ValueError):
-            return None
-        by_id[row_id] = row
-    if len(by_id) != len(rows):
-        return None
-    superseded_ids: set[int] = set()
-    for row in rows:
-        try:
-            parent_id = int(row.get("supersedes_match_id"))
-        except (TypeError, ValueError):
-            continue
-        if parent_id in by_id:
-            superseded_ids.add(parent_id)
-    leaves = [row for row_id, row in by_id.items() if row_id not in superseded_ids]
-    if len(leaves) != 1:
-        return None
-    lineage: list[Mapping[str, Any]] = []
-    seen: set[int] = set()
-    current: Mapping[str, Any] | None = leaves[0]
-    while current is not None:
-        current_id = int(current.get("id"))
-        if current_id in seen:
-            return None
-        seen.add(current_id)
-        lineage.append(current)
-        try:
-            parent_id = int(current.get("supersedes_match_id"))
-        except (TypeError, ValueError):
-            break
-        current = by_id.get(parent_id)
-    if seen != set(by_id):
-        return None
-    return {**dict(leaves[0]), "_stimulus_lineage": lineage}
 
 
 def _stimulus_for_match(
@@ -275,6 +280,13 @@ def project_comparable_session(
     if target_day is None:
         return build_comparison_data_gap("TARGET_ACTIVITY_INCOMPLETE")
     stimulus = _stimulus_family(template)
+    preflight_target = project_activity_features(
+        target_activity,
+        stimulus_family=stimulus,
+    )
+    preflight = select_comparable_session(preflight_target, [])
+    if preflight.get("reason_code") != "NO_ELIGIBLE_CANDIDATE":
+        return preflight
     feedbacks = _feedback_by_activity(database)
     proposed_feedback = (
         dict(feedback) if isinstance(feedback, Mapping) else feedbacks.get(target_ids[0])

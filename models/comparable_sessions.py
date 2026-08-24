@@ -114,7 +114,9 @@ def _sport_metric(activity: Mapping[str, Any], sport: str) -> dict[str, Any] | N
             }
         return None
 
-    duration = _positive(activity.get("duration_minutes"))
+    duration = _positive(activity.get("moving_duration_minutes")) or _positive(
+        activity.get("duration_minutes")
+    )
     distance_km = _positive(activity.get("distance_km"))
     tss_threshold = _positive(activity.get("tss_pace_used"))
     profile_threshold = _positive(activity.get("pace_threshold_used"))

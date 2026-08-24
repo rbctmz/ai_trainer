@@ -27,6 +27,9 @@ After this change, post-workout feedback can show one prior session that is genu
 - [x] (2026-08-24) Second native Codex Review reported 3 P2 findings; captured an exact RED of 4 failed / 18 passed and fixed all three with regression coverage (22 passed).
 - [x] (2026-08-24) Completed second-round local verification: 22 comparable-session tests, 95 focused tests, smoke 2086 passed / 1 skipped, contributor-safe 2132 passed / 3 skipped / 26 deselected, targeted Ruff, web lint/build, contract freshness, and 23 contract tests green.
 - [x] (2026-08-24) Pushed `11c4b78`, replied to and resolved all 3 second-round threads, and confirmed every GitHub CI check green.
+- [x] (2026-08-24) A docs-only outcome push triggered an unplanned third native review with 5 fresh findings (1 P1, 4 P2); captured the exact RED of 5 failed / 22 passed and fixed all findings with a 27-test GREEN and 100 focused tests.
+- [x] (2026-08-24) Completed third-round verification: 27 comparable-session tests, 100 focused tests, smoke 2091 passed / 1 skipped, contributor-safe 2137 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
+- [ ] Push the third review-fix commit, resolve its 5 threads, and reconfirm final GitHub merge state.
 
 ## Surprises & Discoveries
 
@@ -58,7 +61,7 @@ After this change, post-workout feedback can show one prior session that is genu
 
 ## Outcomes & Retrospective
 
-The engine now selects one prior same-sport, exact-stimulus session by transparent duration, TSS-per-hour, and provider-compatible interval-structure evidence. NP is preferred for bike, average power is explicitly a fallback, and run/swim pace carries a versioned source-backed threshold. Feedback, coach, and web surfaces expose neutral facts; split targets/comparators, stale feedback identity, ambiguous match lineage, and weak/incompatible evidence fail closed. Same-day ordering uses UTC start time, historical targets restore their immutable checkpoint, rebind chains retain their original stimulus evidence, and the default coach target follows workout time rather than late feedback time. No schema, TSS, provider, plan, or history behavior changed. Both native review rounds are resolved and all local and GitHub checks are green.
+The engine now selects one prior same-sport, exact-stimulus session by transparent duration, TSS-per-hour, and provider-compatible interval-structure evidence. NP is preferred for bike, average power is explicitly a fallback, and run/swim pace uses moving time with a versioned source-backed threshold. Feedback, coach, and web surfaces expose neutral facts; split targets/comparators, stale feedback identity, unmatched or ambiguous match lineage, unstarted sessions, and weak/incompatible evidence fail closed. Same-day ordering uses UTC start time, historical and rebound targets restore their immutable checkpoint lineage, and the default coach target follows workout time rather than late feedback time. Detectable target gaps return before candidate-history reads. No schema, TSS, provider, plan, or history behavior changed. Third-round fixes are local; broad verification and publication remain.
 
 ## Context and Orientation
 
@@ -106,7 +109,7 @@ Every comparison call is read-only and deterministic. It can be retried after a 
 
 ## Artifacts and Notes
 
-The initial cheap falsifier was repository search plus the #499 gate fixture: no comparable-session model/tool/DTO existed and a session-comparison claim received `TREND_COMPARATOR_MISSING`. Initial pytest failed at missing module import. After the pure slice, the product-boundary run was 3 failed / 8 passed; the first published matrix was 12 passed. First native review produced an exact 8 failed / 10 passed RED and a 19-test GREEN. Second native review produced an exact 4 failed / 18 passed RED and a 22-test GREEN. Final local verification is 95 focused tests, smoke 2086 passed / 1 skipped, contributor-safe 2132 passed / 3 skipped / 26 deselected, web lint/build, contract freshness, and 23 contract tests green.
+The initial cheap falsifier was repository search plus the #499 gate fixture: no comparable-session model/tool/DTO existed and a session-comparison claim received `TREND_COMPARATOR_MISSING`. Initial pytest failed at missing module import. After the pure slice, the product-boundary run was 3 failed / 8 passed; the first published matrix was 12 passed. First native review produced an exact 8 failed / 10 passed RED and a 19-test GREEN. Second native review produced an exact 4 failed / 18 passed RED and a 22-test GREEN. The unplanned third review produced an exact 5 failed / 22 passed RED and a 27-test GREEN. Final local verification is 100 focused tests, smoke 2091 passed / 1 skipped, contributor-safe 2137 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green. Parallel broad runs first collided on local socket allocation (`Errno 55`); the isolated falsifier passed/skipped as designed and both suites then passed sequentially.
 
 ## Interfaces and Dependencies
 

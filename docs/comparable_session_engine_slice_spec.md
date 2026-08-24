@@ -10,7 +10,7 @@
 - Class: **A**
 - Rationale: a new cross-module evidence contract joins activity lineage, plan stimulus, interval structure, athlete feedback, API/web presentation, and AI-coach tools.
 - Automatic escalation triggers checked: new public contract — yes; provenance/identity — yes; persistence/schema — no; provider write — no; destructive sync — no; paid call — no.
-- Review budget used: 2 / 2 native Codex Review rounds; one root self-review completed
+- Review budget used: 3 native Codex Review rounds (third auto-triggered by the outcome push); one root self-review completed
 
 ## Scope
 
@@ -94,11 +94,11 @@
 
 - Head SHA: pending until commit.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
-- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; first native-review RED 8 failed / 10 passed and GREEN 19 passed; second native-review RED 4 failed / 18 passed and GREEN 22 passed; focused integration 95 passed; smoke 2086 passed / 1 skipped; contributor-safe 2132 passed / 3 skipped / 26 deselected.
-- CI checks/reruns/flakes: full Ruff clean; web lint/build green; contract artifact current and contract smoke 23 passed; every GitHub CI check green on `11c4b78`.
+- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; first native-review RED 8 failed / 10 passed and GREEN 19 passed; second native-review RED 4 failed / 18 passed and GREEN 22 passed; third native-review RED 5 failed / 22 passed and GREEN 27 passed; focused integration 100 passed; smoke 2091 passed / 1 skipped; contributor-safe 2137 passed / 3 skipped / 26 deselected.
+- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests green; parallel local suites hit one socket-allocation collision, isolated probe and sequential full reruns were green; final third-review head pending push.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: 0 across both review rounds.
+- Unresolved review-thread count: 0 from rounds one and two; 5 from round three pending pushed replies/resolution.
 - Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated.
 
 ## Review Findings
@@ -119,12 +119,17 @@
 | P2 | **Observed**: immediate prompt comparison omitted its current match revision. **Inferred**: versioned feedback could pass without proving revision compatibility. **Verified by**: second-round prompt and fail-closed feedback RED/GREEN tests. | Resolve the current immutable match revision and reject versioned feedback when compatible revision evidence is absent. | Codex / resolved locally. |
 | P2 | **Observed**: constraint rebinds create multiple connected immutable match rows for one activity. **Inferred**: treating every duplicate row as ambiguity hides valid historical comparators. **Verified by**: two-revision lineage RED/GREEN test. | Collapse exactly one connected lineage, use the leaf identity, and recover stimulus through its ancestors; reject disconnected rows. | Codex / resolved locally. |
 | P2 | **Observed**: Intervals and Garmin can segment the same workout differently. **Inferred**: raw cross-provider segment-count comparison can falsely reject a valid comparator. **Verified by**: cross-provider structure RED/GREEN test. | Compare structure only for equal provider sources; otherwise label the dimension missing and preserve both sources. | Codex / resolved locally. |
+| P1 | **Observed**: an unmatched rebind leaf has no activity ids and was filtered before lineage resolution. **Inferred**: its matched ancestor could still be selected after explicit removal. **Verified by**: unmatched-leaf RED/GREEN service test. | Resolve effective lineage leaves before status/activity indexing; an unmatched leaf invalidates the ancestor. | Codex / resolved locally. |
+| P2 | **Observed**: pace used elapsed duration although canonical moving duration exists. **Inferred**: pauses distort pace and threshold-relative intensity. **Verified by**: 60 elapsed / 40 moving / 10 km RED/GREEN fixture. | Prefer positive moving duration with elapsed fallback for run/swim pace only. | Codex / resolved locally. |
+| P2 | **Observed**: a rebound feedback session id is absent from its preserved old checkpoint. **Inferred**: later coach comparison loses valid immutable stimulus. **Verified by**: rebound feedback RED/GREEN fixture. | Follow saved match ancestry and resolve the first checkpoint/session identity that contains the template. | Codex / resolved locally. |
+| P2 | **Observed**: default coach selection admitted did-not-start and unknown feedback rows. **Inferred**: an unstarted item can replace the latest completed workout. **Verified by**: completion-filter RED/GREEN fixture. | Default only to completed, partial, or stopped-early feedback; explicit session lookup remains available. | Codex / resolved locally. |
+| P2 | **Observed**: known target gaps still triggered candidate-history reads. **Inferred**: latency and unrelated read failures could hide the stable target reason. **Verified by**: history methods that raise after missing-stimulus evidence. | Preflight target-only evidence before feedback, intervals, matches, or candidate reads. | Codex / resolved locally. |
 
 ## Final Verdict
 
-- Verdict: **READY**.
-- Blocking findings remaining: none.
-- Review rounds used: 2.
+- Verdict: **READY after third-round push, thread resolution, and final CI**.
+- Blocking findings remaining: none in local code; publication gates remain.
+- Review rounds used: 3 (third auto-triggered).
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: Codex.

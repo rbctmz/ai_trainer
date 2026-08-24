@@ -28,6 +28,9 @@ class StaleFeedbackError(RuntimeError):
     """Raised when a correction targets a superseded feedback revision."""
 
 
+_STARTED_COMPLETION_STATUSES = {"completed", "partial", "stopped_early"}
+
+
 def _now(value: datetime | None = None) -> datetime:
     current = value or datetime.now(timezone.utc)
     if current.tzinfo is None:
@@ -173,16 +176,45 @@ def _evidence_from_saved_feedback(
         if callable(match_reader) and match_revision_id is not None
         else None
     )
-    checkpoint = (
-        db.get_planning_checkpoint(match.get("base_checkpoint_id"))
-        if isinstance(match, Mapping)
-        else db.get_latest_planning_checkpoint()
-    )
-    plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
     session_id = str(feedback.get("session_id") or "")
-    day_template, template = find_planned_session(
-        list(plan.get("session_templates") or []), session_id
-    )
+    day_template: Mapping[str, Any] | None = None
+    template: Mapping[str, Any] | None = None
+    if isinstance(match, Mapping):
+        lineage: list[Mapping[str, Any]] = []
+        seen: set[int] = set()
+        current: Mapping[str, Any] | None = match
+        while current is not None:
+            try:
+                current_id = int(current.get("id"))
+            except (TypeError, ValueError):
+                break
+            if current_id in seen:
+                break
+            seen.add(current_id)
+            lineage.append(current)
+            try:
+                parent_id = int(current.get("supersedes_match_id"))
+            except (TypeError, ValueError):
+                break
+            parent = match_reader(parent_id) if callable(match_reader) else None
+            current = parent if isinstance(parent, Mapping) else None
+        for lineage_match in lineage:
+            checkpoint = db.get_planning_checkpoint(
+                lineage_match.get("base_checkpoint_id")
+            )
+            plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+            candidate_session_id = str(lineage_match.get("session_id") or session_id)
+            day_template, template = find_planned_session(
+                list(plan.get("session_templates") or []), candidate_session_id
+            )
+            if template is not None:
+                break
+    else:
+        checkpoint = db.get_latest_planning_checkpoint()
+        plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+        day_template, template = find_planned_session(
+            list(plan.get("session_templates") or []), session_id
+        )
     if template is None:
         return None
     snapshot = dict(feedback.get("match_snapshot") or {})
@@ -991,6 +1023,7 @@ def comparable_session_for_session(
             for row in db.get_latest_session_feedbacks()
             if isinstance(row, Mapping)
             and row.get("status") != "tombstone"
+            and row.get("completion_status") in _STARTED_COMPLETION_STATUSES
             and row.get("actual_activity_ids")
         ]
         if not candidates:
