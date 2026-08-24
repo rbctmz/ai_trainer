@@ -19,7 +19,8 @@ After this change, post-workout feedback can show one prior session that is genu
 - [x] (2026-08-24) Implemented the pure model and bounded local projection; final new matrix is 12 passed.
 - [x] (2026-08-24) Integrated additive feedback, coach-tool, presenter, TypeScript, and neutral web contracts.
 - [x] (2026-08-24) Completed root self-review and local CI: combined focused 145 passed; smoke 2075 passed / 1 skipped; contributor-safe 2121 passed / 3 skipped / 26 deselected; Ruff, web lint/build, contract check, and 23 contract smoke tests green.
-- [ ] Commit, push, open the draft PR, post issue evidence, and complete native Codex Review before merge.
+- [x] (2026-08-24) Committed implementation as `aac0ff1`, pushed the issue branch, and opened draft PR #505 with `Closes #500`.
+- [ ] Post the final pushed SHA/evidence to the issue and complete native Codex Review before merge.
 
 ## Surprises & Discoveries
 
@@ -43,7 +44,7 @@ After this change, post-workout feedback can show one prior session that is genu
 
 ## Outcomes & Retrospective
 
-The engine now selects one prior same-sport, exact-stimulus session by transparent duration, TSS-per-hour, and interval-structure evidence. NP is preferred for bike, average power is explicitly a fallback, and run/swim pace carries each activity's stored pace threshold. Feedback, coach, and web surfaces expose neutral facts; split targets and weak/incompatible evidence fail closed. No schema, TSS, provider, plan, or history behavior changed. Native Codex Review and GitHub CI remain before merge.
+The engine now selects one prior same-sport, exact-stimulus session by transparent duration, TSS-per-hour, and interval-structure evidence. NP is preferred for bike, average power is explicitly a fallback, and run/swim pace carries each activity's stored pace threshold. Feedback, coach, and web surfaces expose neutral facts; split targets and weak/incompatible evidence fail closed. No schema, TSS, provider, plan, or history behavior changed. The implementation is published in draft PR #505; native Codex Review and GitHub CI remain before merge.
 
 ## Context and Orientation
 
@@ -104,3 +105,5 @@ The initial cheap falsifier was repository search plus the #499 gate fixture: no
 Revision note (2026-08-24): initial Class A plan created after architecture and contract inspection. The key scope decision is to fail closed for split/composite actuals rather than inventing aggregate power or pace.
 
 Revision note (2026-08-24): implementation and local verification completed. Self-review removed legacy stimulus inference, split duration/intensity rejection evidence, and made sport-specific provenance visible in coach/UI output.
+
+Revision note (2026-08-24): publication state recorded after draft PR #505 was created; implementation behavior did not change.

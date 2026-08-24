@@ -1,6 +1,6 @@
 # Comparable Session Engine v1 — Class A Slice Spec
 
-- Issue / PR: [#500](https://github.com/rbctmz/ai_trainer/issues/500); PR pending
+- Issue / PR: [#500](https://github.com/rbctmz/ai_trainer/issues/500); [draft PR #505](https://github.com/rbctmz/ai_trainer/pull/505)
 - Author / checker / merge owner: Codex / native Codex Review / user
 - Date: 2026-08-24
 - Candidate head SHA: base `dbc8ccae321a9040878336fa8c4fab2c9d803953`; immutable candidate SHA is recorded after commit
