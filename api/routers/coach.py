@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from datetime import datetime, timezone
 from typing import Any, Iterator, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,6 +17,8 @@ from api.operational_state import build_operational_state, latest_iso_from_datab
 from api.readiness_conflicts import build_readiness_conflict_report
 from api.readiness_snapshot import build_readiness_snapshot
 from api.recovery_replan_loop import run_recovery_replan_loop
+from api.today_snapshot import build_coach_session_evidence
+from config.settings import Settings
 from data.database import Database
 from models.ai_coach_runtime import (
     apply_response_contract_to_final_response,
@@ -25,11 +28,17 @@ from models.ai_coach_runtime import (
     resolve_turn_tool_results,
     synthesize_ai_chat_response,
 )
-from models.coach_decisions import build_coach_decision
+from models.coach_decisions import CoachDecision, build_coach_decision
+from models.coach_narrative_evidence import (
+    build_coach_narrative_evidence,
+    fail_closed_coach_narrative,
+    validate_coach_narrative,
+)
 from models.ai_tools import AITools
 from models.chat_manager import ChatManager
 from api.planning_service import get_active_plan
 from models.coach_tool_presenter import format_tool_result
+from services.intervals_plan_delivery import athlete_local_date
 from utils.product_semantics import tool_label
 
 router = APIRouter(prefix="/api/coach", tags=["coach"])
@@ -61,6 +70,7 @@ def coach_chat(
     db: Database = Depends(get_database),
     demo: bool = False,
 ) -> StreamingResponse:
+    request_started_at = time.monotonic()
     message = (req.message or "").strip()
     if not message:
         raise HTTPException(status_code=422, detail="message is empty")
@@ -75,6 +85,11 @@ def coach_chat(
     chat_manager = _chat_manager()
     chat_id = req.chat_id or chat_manager.create_new_chat()
     decision_event_id = str(uuid.uuid4())
+    observed_at_utc = datetime.now(timezone.utc)
+    try:
+        local_today = athlete_local_date(observed_at_utc)
+    except Exception:
+        local_today = None
     chat_manager.add_message(chat_id, "user", message)
     history = chat_manager.get_chat_messages(chat_id)[:-1]
     ai_tools = AITools(db)
@@ -82,16 +97,46 @@ def coach_chat(
     goal_plan = get_active_plan(db)
     latest_data_at = latest_iso_from_database(db)
     has_data = latest_data_at is not None
-    readiness_snapshot = build_readiness_snapshot(db)
+    readiness_snapshot = (
+        build_readiness_snapshot(
+            db,
+            as_of=local_today,
+            observed_at_utc=observed_at_utc,
+        )
+        if local_today is not None
+        else {
+            "score": None,
+            "status": "unknown",
+            "reason": "ATHLETE_TIMEZONE is invalid.",
+            "missing_inputs": ["sleep", "hrv", "resting_hr"],
+        }
+    )
+    if local_today is not None:
+        try:
+            session_evidence = build_coach_session_evidence(
+                db,
+                as_of=local_today,
+            )
+        except Exception:
+            session_evidence = {"status": "unavailable", "rows": []}
+    else:
+        session_evidence = {"status": "unavailable", "rows": []}
     try:
+        if local_today is None:
+            raise ValueError("ATHLETE_TIMEZONE is invalid")
         recovery_replan = run_recovery_replan_loop(
             db,
+            today=local_today,
             decision_event_id=decision_event_id,
         )
         readiness_conflicts = recovery_replan["readiness_conflicts"]
     except Exception as exc:
         # Audit persistence must never block a coach answer.
-        readiness_conflicts = build_readiness_conflict_report(db)
+        readiness_conflicts = (
+            build_readiness_conflict_report(db, today=local_today)
+            if local_today is not None
+            else {"data_gap": True, "reason": str(exc), "conflicts": []}
+        )
         recovery_replan = {
             "outcome": "error",
             "decision": None,
@@ -104,7 +149,6 @@ def coach_chat(
         message_id = str(uuid.uuid4())[:8]
         # ASR-PERF-2 (Issue #241): time-to-first-token, observation not a
         # gate — provider latency isn't deterministic even across live runs.
-        stream_started_at = time.monotonic()
         first_token_ms: Optional[float] = None
         yield _sse(
             {
@@ -205,9 +249,6 @@ def coach_chat(
                     system_prompt=synthesis_system_prompt,
                 ):
                     streamed_final += delta
-                    if first_token_ms is None:
-                        first_token_ms = (time.monotonic() - stream_started_at) * 1000
-                    yield _sse({"type": "token", "content": delta})
 
                 final = (
                     apply_response_contract_to_final_response(streamed_final, None)
@@ -231,10 +272,24 @@ def coach_chat(
                 else:
                     final = _rendered_response
                 final = apply_response_contract_to_final_response(final, None)
-                for chunk in _chunk(final):
-                    if first_token_ms is None:
-                        first_token_ms = (time.monotonic() - stream_started_at) * 1000
-                    yield _sse({"type": "token", "content": chunk})
+
+            try:
+                evidence = build_coach_narrative_evidence(
+                    readiness_snapshot=readiness_snapshot,
+                    tool_results=tool_results,
+                    session_evidence=session_evidence,
+                    goal_plan=goal_plan,
+                    athlete_timezone=Settings.ATHLETE_TIMEZONE,
+                    observed_at_utc=observed_at_utc,
+                )
+                gate_result = validate_coach_narrative(final, evidence)
+            except Exception:
+                gate_result = fail_closed_coach_narrative()
+            final = gate_result.delivered_text
+            for chunk in _chunk(final):
+                if first_token_ms is None:
+                    first_token_ms = (time.monotonic() - request_started_at) * 1000
+                yield _sse({"type": "token", "content": chunk})
 
             _save_decision(
                 db,
@@ -243,6 +298,7 @@ def coach_chat(
                 message_id=message_id,
                 decision_event_id=decision_event_id,
                 load_metrics_context=load_metrics_context,
+                evidence_gate=gate_result.metadata(),
             )
             chat_manager.add_message(chat_id, "assistant", final)
 
@@ -252,6 +308,7 @@ def coach_chat(
                     "message_id": message_id,
                     "chat_id": chat_id,
                     "first_token_ms": first_token_ms,
+                    "evidence_gate": gate_result.metadata(),
                 }
             )
         except Exception as exc:  # surface errors to the client instead of hanging
@@ -444,9 +501,18 @@ def _save_decision(
     message_id: str,
     decision_event_id: str,
     load_metrics_context: dict[str, Any] | None = None,
+    evidence_gate: dict[str, Any] | None = None,
 ) -> None:
     try:
-        decision = build_coach_decision(final, db=db)
+        gate = dict(evidence_gate or {})
+        if gate.get("outcome") in {"replaced", "data_gap"}:
+            codes = ", ".join(str(code) for code in gate.get("reason_codes") or [])
+            decision = CoachDecision(
+                "Monitor",
+                f"Evidence gate отклонил вывод коуча: {codes or 'reason unavailable'}.",
+            )
+        else:
+            decision = build_coach_decision(final, db=db)
         load_metrics_context = load_metrics_context or {}
         db.save_coach_decision(
             decision_type=decision.decision_type,
@@ -457,6 +523,7 @@ def _save_decision(
             decision_event_id=decision_event_id,
             metrics_window_days=load_metrics_context.get("metrics_window_days"),
             as_of_date=load_metrics_context.get("as_of_date"),
+            narrative_gate=evidence_gate,
         )
     except Exception:
         # Decision logging must not block the coach answer delivery.
