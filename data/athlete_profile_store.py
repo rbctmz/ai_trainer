@@ -192,3 +192,33 @@ class AthleteProfileStore:
                 continue
             history.append((sync_date, ftp_value))
         return history
+
+    def ftp_timeline(self) -> list[tuple]:
+        """Return ``(synced_at_utc, ftp)`` entries for absolute provenance.
+
+        SQLite's naive ``CURRENT_TIMESTAMP`` is interpreted as UTC by the
+        shared parser. Rows without a parseable timestamp or numeric FTP are
+        omitted; callers retain :meth:`ftp_history` for legacy date fallback.
+        """
+        from data.data_processor import parse_utc_instant
+
+        cursor = self._conn.cursor()
+        cursor.execute(
+            '''
+            SELECT synced_at, ftp
+            FROM athlete_profile
+            WHERE ftp IS NOT NULL
+            ORDER BY synced_at, id
+            '''
+        )
+        timeline = []
+        for synced_at, ftp in cursor.fetchall():
+            sync_at_utc = parse_utc_instant(synced_at)
+            try:
+                ftp_value = float(ftp)
+            except (TypeError, ValueError):
+                continue
+            if sync_at_utc is not None:
+                timeline.append((sync_at_utc, ftp_value))
+        timeline.sort(key=lambda entry: entry[0])
+        return timeline

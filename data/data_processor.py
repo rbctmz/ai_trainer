@@ -32,6 +32,34 @@ def resolve_athlete_tss_profile(database):
     return ftp, lthr, swim_css
 
 
+def parse_utc_instant(value) -> Optional[datetime]:
+    """Parse a stored/provider timestamp as a UTC-aware instant.
+
+    SQLite's ``CURRENT_TIMESTAMP`` is UTC but has historically been stored
+    without an offset, while Garmin commonly sends an explicit ``Z`` suffix.
+    Treat a naive timestamp from that column as UTC and normalize every valid
+    input to one comparable representation. Invalid or empty values return
+    ``None`` so legacy date-only fallbacks can remain explicit.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        raw = str(value).strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        except (TypeError, ValueError):
+            return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    else:
+        parsed = parsed.astimezone(timezone.utc)
+    return parsed
+
+
 def ftp_at(history: list, activity_date: date) -> Optional[float]:
     """Return the FTP that was current on ``activity_date`` (#451).
 
@@ -40,15 +68,80 @@ def ftp_at(history: list, activity_date: date) -> Optional[float]:
     date. For dates that predate the first snapshot, the earliest known value
     is returned (unverified); None when the history is empty.
     """
+    return resolve_ftp_for_activity(history, [], activity_date)[0]
+
+
+def resolve_ftp_for_activity(
+    history: list,
+    timeline: list,
+    activity_date: date,
+    *,
+    activity_started_at_utc=None,
+) -> tuple[Optional[float], bool]:
+    """Resolve FTP and whether its chronology is proven for one activity.
+
+    ``history`` is the legacy ``(sync_date, ftp)`` list and ``timeline`` is the
+    parsed ``(synced_at_utc, ftp)`` list. When both the activity and at least one
+    profile snapshot have parseable UTC instants, the latest snapshot at or before
+    the activity instant wins and the boolean is ``True`` only when such a
+    snapshot exists. Otherwise the resolver falls back to the established
+    date-based selection and returns ``False`` so callers do not claim verified
+    provenance without absolute evidence.
+    """
     if not history:
-        return None
-    ftp = None
-    for sync_date, value in history:
-        if sync_date <= activity_date:
-            ftp = value
+        return None, False
+
+    normalized = []
+    for index, entry in enumerate(history):
+        if not isinstance(entry, (tuple, list)) or len(entry) < 2:
+            continue
+        raw_sync_date, raw_ftp = entry[0], entry[1]
+        if isinstance(raw_sync_date, datetime):
+            sync_date = raw_sync_date.date()
+        elif isinstance(raw_sync_date, date):
+            sync_date = raw_sync_date
         else:
-            break
-    return ftp if ftp is not None else history[0][1]
+            try:
+                sync_date = datetime.strptime(str(raw_sync_date)[:10], "%Y-%m-%d").date()
+            except (TypeError, ValueError):
+                sync_date = None
+        try:
+            ftp = float(raw_ftp)
+        except (TypeError, ValueError):
+            continue
+        if sync_date is None:
+            continue
+        normalized.append((sync_date, ftp, index))
+
+    if not normalized:
+        return None, False
+
+    activity_at = parse_utc_instant(activity_started_at_utc)
+    parsed_timeline = []
+    for index, entry in enumerate(timeline or []):
+        if not isinstance(entry, (tuple, list)) or len(entry) < 2:
+            continue
+        sync_at = parse_utc_instant(entry[0])
+        try:
+            ftp = float(entry[1])
+        except (TypeError, ValueError):
+            continue
+        if sync_at is not None:
+            parsed_timeline.append((sync_at, ftp, index))
+    if activity_at is not None and parsed_timeline:
+        parsed_timeline.sort(key=lambda entry: (entry[0], entry[2]))
+        eligible = [entry for entry in parsed_timeline if entry[0] <= activity_at]
+        if eligible:
+            return eligible[-1][1], True
+        # The activity predates the earliest known snapshot. Keep the existing
+        # conservative earliest-value behavior, but explicitly mark it unverified.
+        return parsed_timeline[0][1], False
+
+    # Legacy date-only fallback: preserve ftp_at's established selection while
+    # refusing to claim absolute chronology was proven.
+    normalized.sort(key=lambda entry: (entry[0], entry[2]))
+    eligible = [entry for entry in normalized if entry[0] <= activity_date]
+    return (eligible[-1][1] if eligible else normalized[0][1]), False
 
 
 class ActivityProcessor:
