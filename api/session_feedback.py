@@ -169,6 +169,8 @@ def _evidence_from_saved_feedback(
     as_of: date | str | None = None,
 ) -> dict[str, Any] | None:
     """Rebuild read-only comparison input without re-running reconciliation."""
+    if feedback.get("status") == "tombstone":
+        return None
     match_revision_id = feedback.get("match_revision_id")
     match_reader = getattr(db, "get_plan_actual_match", None)
     match = (
@@ -210,11 +212,30 @@ def _evidence_from_saved_feedback(
             if template is not None:
                 break
     else:
-        checkpoint = db.get_latest_planning_checkpoint()
-        plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
-        day_template, template = find_planned_session(
-            list(plan.get("session_templates") or []), session_id
+        checkpoints: list[Mapping[str, Any]] = []
+        latest_checkpoint = db.get_latest_planning_checkpoint()
+        if isinstance(latest_checkpoint, Mapping):
+            checkpoints.append(latest_checkpoint)
+        checkpoint_reader = getattr(
+            db,
+            "get_planning_checkpoints_for_session",
+            None,
         )
+        if callable(checkpoint_reader):
+            latest_id = (latest_checkpoint or {}).get("id")
+            checkpoints.extend(
+                checkpoint
+                for checkpoint in checkpoint_reader(session_id) or []
+                if isinstance(checkpoint, Mapping)
+                and checkpoint.get("id") != latest_id
+            )
+        for checkpoint in checkpoints:
+            plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+            day_template, template = find_planned_session(
+                list(plan.get("session_templates") or []), session_id
+            )
+            if template is not None:
+                break
     if template is None:
         return None
     snapshot = dict(feedback.get("match_snapshot") or {})
@@ -1070,9 +1091,14 @@ def comparable_session_for_session(
         target_session_id = str(feedback.get("session_id") or "")
     if not target_session_id:
         return build_comparison_data_gap("NO_COMPLETED_SESSION")
+    active_feedback = (
+        feedback
+        if isinstance(feedback, Mapping) and feedback.get("status") != "tombstone"
+        else None
+    )
     evidence = (
-        _evidence_from_saved_feedback(db, feedback, as_of=as_of)
-        if isinstance(feedback, Mapping)
+        _evidence_from_saved_feedback(db, active_feedback, as_of=as_of)
+        if isinstance(active_feedback, Mapping)
         else None
     )
     if evidence is None:
@@ -1080,7 +1106,7 @@ def comparable_session_for_session(
             evidence = _feedback_evidence_for_session(db, target_session_id, as_of=as_of)
         except (LookupError, ValueError):
             return build_comparison_data_gap("TARGET_SESSION_EVIDENCE_MISSING")
-    return _comparison_for_evidence(db, evidence, feedback=feedback)
+    return _comparison_for_evidence(db, evidence, feedback=active_feedback)
 
 
 def feedback_history(db: Database, session_id: str) -> dict[str, Any]:

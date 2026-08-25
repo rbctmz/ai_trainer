@@ -202,7 +202,8 @@ def _match_by_activity(
         for activity_id, rows in grouped.items()
     }
     for activity_id in blocked_activity_ids:
-        result[activity_id] = None
+        if activity_id not in result:
+            result[activity_id] = None
     return result
 
 
@@ -331,7 +332,7 @@ def _auto_matches_by_activity(
     ledger_rows: list[Mapping[str, Any]],
     target_day: date,
     lookback_days: int,
-    latest_plan_cache: dict[str, Mapping[str, Any] | None],
+    latest_plan_cache: dict[str, Any],
 ) -> dict[str, Mapping[str, Any]]:
     """Rebuild stable local auto-matches once, without provider I/O or writes."""
     if "checkpoint" not in latest_plan_cache:
@@ -387,7 +388,7 @@ def _auto_reconciled_stimulus(
     *,
     activity: Mapping[str, Any],
     feedback: Mapping[str, Any] | None,
-    latest_plan_cache: dict[str, Mapping[str, Any] | None],
+    latest_plan_cache: dict[str, Any],
 ) -> str | None:
     """Resolve a persisted stable auto-match without inventing a ledger row."""
     if (
@@ -428,20 +429,44 @@ def _auto_reconciled_stimulus(
             dict(checkpoint) if isinstance(checkpoint, Mapping) else None
         )
         latest_plan_cache["plan"] = restore_goal_plan_from_checkpoint(checkpoint)
-    plan = latest_plan_cache.get("plan") or {}
-    day_template, template = find_planned_session(
-        list(plan.get("session_templates") or []),
-        session_id,
+    activity_date = str(activity.get("date") or "")[:10]
+
+    def stimulus_from_plan(plan: Mapping[str, Any] | None) -> str | None:
+        if not isinstance(plan, Mapping):
+            return None
+        day_template, template = find_planned_session(
+            list(plan.get("session_templates") or []),
+            session_id,
+        )
+        if not isinstance(template, Mapping):
+            return None
+        if str((day_template or {}).get("date") or "")[:10] != activity_date:
+            return None
+        if normalize_sport_key(template.get("sport")) != activity_sport:
+            return None
+        return _stimulus_family(template)
+
+    current_stimulus = stimulus_from_plan(latest_plan_cache.get("plan"))
+    if current_stimulus:
+        return current_stimulus
+    cache_key = f"historical_stimulus:{session_id}:{activity_date}:{activity_sport}"
+    if cache_key in latest_plan_cache:
+        cached = latest_plan_cache[cache_key]
+        return str(cached) if cached else None
+    checkpoint_reader = getattr(
+        database,
+        "get_planning_checkpoints_for_session",
+        None,
     )
-    if not isinstance(template, Mapping):
-        return None
-    if str((day_template or {}).get("date") or "")[:10] != str(
-        activity.get("date") or ""
-    )[:10]:
-        return None
-    if normalize_sport_key(template.get("sport")) != activity_sport:
-        return None
-    return _stimulus_family(template)
+    checkpoints = checkpoint_reader(session_id) if callable(checkpoint_reader) else []
+    for checkpoint in checkpoints or []:
+        plan = restore_goal_plan_from_checkpoint(checkpoint)
+        historical_stimulus = stimulus_from_plan(plan)
+        if historical_stimulus:
+            latest_plan_cache[cache_key] = historical_stimulus
+            return historical_stimulus
+    latest_plan_cache[cache_key] = None
+    return None
 
 
 def _feedback_matches_target(
@@ -544,7 +569,7 @@ def project_comparable_session(
     )
     matches_by_activity = _match_by_activity(database, list(matches or []))
     checkpoint_cache: dict[int, Mapping[str, Any] | None] = {}
-    latest_plan_cache: dict[str, Mapping[str, Any] | None] = {}
+    latest_plan_cache: dict[str, Any] = {}
     auto_matches_by_activity = _auto_matches_by_activity(
         database,
         activities=activities,

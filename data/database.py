@@ -1612,6 +1612,39 @@ class Database:
         conn.close()
         return [item for item in (self._deserialize_planning_checkpoint_row(row) for row in rows) if item]
 
+    def get_planning_checkpoints_for_session(self, session_id):
+        """Return checkpoints containing one immutable planned session id."""
+        target = str(session_id or "").strip()
+        if not target:
+            return []
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT pc.id, pc.goal_type, pc.distance, pc.weeks_to_race,
+                   pc.checkpoint_data, pc.created_at
+            FROM planning_checkpoints AS pc
+            WHERE json_valid(pc.checkpoint_data)
+              AND EXISTS (
+                SELECT 1
+                FROM json_tree(pc.checkpoint_data) AS node
+                WHERE node.key = 'session_id'
+                  AND CAST(node.value AS TEXT) = ?
+            )
+            ORDER BY pc.id DESC
+            ''',
+            (target,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [
+            item
+            for item in (
+                self._deserialize_planning_checkpoint_row(row) for row in rows
+            )
+            if item
+        ]
+
     def _deserialize_planning_checkpoint_row(self, row):
         if not row:
             return None

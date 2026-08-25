@@ -386,6 +386,83 @@ def test_service_includes_stable_auto_reconciled_history_without_ledger() -> Non
     assert result["comparator"]["activity_id"] == "candidate"
 
 
+def test_service_restores_auto_match_stimulus_after_plan_rollover() -> None:
+    class RolledOverAutoDb(_ComparableDb):
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            return []
+
+        def get_latest_planning_checkpoint(self):
+            return {
+                "id": 4,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-24",
+                            "total_tss": 40,
+                            "parts": {"bike": 40},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-24",
+                            "sessions": [
+                                {
+                                    "session_id": "replacement-plan-session",
+                                    "sport": "bike",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "endurance"
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+
+        def get_planning_checkpoints_for_session(self, session_id):
+            assert session_id == "prior-session"
+            return [self.get_planning_checkpoint(3)]
+
+        def get_latest_session_feedbacks(self):
+            return [
+                {
+                    "status": "active",
+                    "session_id": "prior-session",
+                    "match_revision_id": None,
+                    "actual_activity_ids": ["candidate"],
+                    "match_snapshot": {
+                        "planned": {
+                            "session_id": "prior-session",
+                            "date": "2026-08-01",
+                            "sport": "bike",
+                        },
+                        "match_status": "matched",
+                        "match_method": "date_sport_heuristic",
+                        "confidence": 0.75,
+                        "actual_activity_ids": ["candidate"],
+                    },
+                    "source": "user_web",
+                }
+            ]
+
+    result = project_comparable_session(
+        RolledOverAutoDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "available"
+    assert result["comparator"]["activity_id"] == "candidate"
+
+
 def test_service_prefilters_incompatible_candidates_before_interval_reads() -> None:
     class IncompatibleHistoryDb(_ComparableDb):
         def __init__(self) -> None:
@@ -808,6 +885,36 @@ def test_service_honors_unmatched_leaf_across_rebind_lineage() -> None:
     assert result["reason_code"] == "NO_ELIGIBLE_CANDIDATE"
 
 
+def test_match_index_allows_new_owner_after_old_lineage_is_unmatched() -> None:
+    from services.comparable_sessions import _match_by_activity
+
+    matches = [
+        {
+            "id": 10,
+            "session_id": "old-session",
+            "match_status": "matched",
+            "actual_activity_ids": ["candidate"],
+        },
+        {
+            "id": 11,
+            "session_id": "old-session",
+            "supersedes_match_id": 10,
+            "match_status": "unmatched",
+            "actual_activity_ids": [],
+        },
+        {
+            "id": 20,
+            "session_id": "new-session",
+            "match_status": "matched",
+            "actual_activity_ids": ["candidate"],
+        },
+    ]
+
+    result = _match_by_activity(object(), matches)
+
+    assert result["candidate"]["id"] == 20
+
+
 def test_service_does_not_attach_feedback_from_a_superseded_activity() -> None:
     result = project_comparable_session(
         _ComparableDb(),
@@ -1154,6 +1261,94 @@ def test_saved_feedback_restores_target_from_immutable_match_checkpoint() -> Non
     assert evidence["template"]["definition_snapshot"]["step_builder_key"] == "threshold"
 
 
+def test_saved_auto_feedback_finds_historical_checkpoint_after_rollover() -> None:
+    from api.session_feedback import _evidence_from_saved_feedback
+
+    feedback = {
+        "status": "active",
+        "session_id": "historical-session",
+        "match_revision_id": None,
+        "actual_activity_ids": ["historical-activity"],
+        "match_snapshot": {
+            "planned": {
+                "session_id": "historical-session",
+                "date": "2026-08-01",
+                "sport": "bike",
+            },
+            "match_status": "matched",
+            "match_method": "date_sport_heuristic",
+            "confidence": 0.75,
+        },
+    }
+    historical = {
+        "id": 7,
+        "goal_plan_snapshot": {
+            "daily_plan": [
+                {
+                    "date": "2026-08-01",
+                    "total_tss": 70,
+                    "parts": {"bike": 70},
+                }
+            ],
+            "session_templates": [
+                {
+                    "date": "2026-08-01",
+                    "sessions": [
+                        {
+                            "session_id": "historical-session",
+                            "sport": "bike",
+                            "definition_snapshot": {
+                                "step_builder_key": "threshold"
+                            },
+                        }
+                    ],
+                }
+            ],
+        },
+    }
+
+    class RolledOverFeedbackDb:
+        def get_latest_planning_checkpoint(self):
+            return {
+                "id": 8,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-24",
+                            "total_tss": 40,
+                            "parts": {"bike": 40},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-24",
+                            "sessions": [
+                                {
+                                    "session_id": "replacement-session",
+                                    "sport": "bike",
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+
+        def get_planning_checkpoints_for_session(self, session_id):
+            assert session_id == "historical-session"
+            return [historical]
+
+    evidence = _evidence_from_saved_feedback(
+        RolledOverFeedbackDb(),
+        feedback,
+        as_of="2026-08-24",
+    )
+
+    assert evidence is not None
+    assert evidence["template"]["definition_snapshot"]["step_builder_key"] == (
+        "threshold"
+    )
+
+
 def test_saved_feedback_restores_rebound_session_through_match_lineage() -> None:
     from api.session_feedback import _evidence_from_saved_feedback
 
@@ -1368,6 +1563,64 @@ def test_default_coach_target_respects_historical_as_of(monkeypatch) -> None:
     )
 
     assert result["selected_session_id"] == "older-session"
+
+
+def test_explicit_tombstone_target_revalidates_current_match(monkeypatch) -> None:
+    from api import session_feedback
+
+    tombstone = {
+        "id": 8,
+        "session_id": "session-1",
+        "status": "tombstone",
+        "match_revision_id": 1,
+        "actual_activity_ids": ["removed-activity"],
+    }
+
+    class TombstoneDb:
+        def get_latest_session_feedback(self, session_id):
+            assert session_id == "session-1"
+            return tombstone
+
+    def reject_saved_evidence(*_args, **_kwargs):
+        raise AssertionError("tombstone evidence must not be restored")
+
+    monkeypatch.setattr(
+        session_feedback,
+        "_evidence_from_saved_feedback",
+        reject_saved_evidence,
+    )
+    monkeypatch.setattr(
+        session_feedback,
+        "_feedback_evidence_for_session",
+        lambda _db, session_id, as_of=None: {
+            "row": {
+                "session_id": session_id,
+                "match_status": "matched",
+                "actual_activity_ids": ["current-activity"],
+            },
+            "template": {},
+        },
+    )
+    monkeypatch.setattr(
+        session_feedback,
+        "_comparison_for_evidence",
+        lambda _db, evidence, feedback=None: {
+            "match_status": evidence["row"]["match_status"],
+            "activity_ids": evidence["row"]["actual_activity_ids"],
+            "feedback": feedback,
+        },
+    )
+
+    result = session_feedback.comparable_session_for_session(
+        TombstoneDb(),
+        session_id="session-1",
+    )
+
+    assert result == {
+        "match_status": "matched",
+        "activity_ids": ["current-activity"],
+        "feedback": None,
+    }
 
 
 def test_service_returns_target_gap_before_history_reads() -> None:
