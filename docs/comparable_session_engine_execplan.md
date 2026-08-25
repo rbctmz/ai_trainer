@@ -32,7 +32,10 @@ After this change, post-workout feedback can show one prior session that is genu
 - [x] (2026-08-24) Pushed `02edf32`, replied to and resolved all 5 third-round threads, and confirmed GitHub CI green on that head.
 - [x] (2026-08-24) A delayed fourth native review added 4 fresh findings (1 P1, 3 P2); captured the exact RED of 4 failed / 27 passed and fixed every finding with a 31-test GREEN.
 - [x] (2026-08-25) Completed fourth-round verification: 31 comparable-session tests, 104 focused tests, smoke 2095 passed / 1 skipped, contributor-safe 2141 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
-- [ ] Push the fourth review-fix commit, resolve its 4 threads, and wait for CI plus the delayed connector review before declaring CLEAN.
+- [x] (2026-08-25) Pushed `f20fa74`, replied to and resolved all 4 fourth-round threads, and confirmed GitHub CI green.
+- [x] (2026-08-25) Explicitly requested a current-head review instead of trusting the transient CLEAN state; the fifth native review added 2 fresh findings (1 P1, 1 P2). Captured the exact targeted RED of 2 failed / 31 deselected and fixed both findings with a 34-test GREEN.
+- [x] (2026-08-25) Completed fifth-round verification: 34 comparable-session tests, 100 focused integration tests, smoke 2098 passed / 1 skipped, contributor-safe 2144 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
+- [ ] Push the fifth review-fix commit, resolve its 2 threads, and wait for CI plus one final current-head connector result before declaring CLEAN.
 
 ## Surprises & Discoveries
 
@@ -112,11 +115,11 @@ Every comparison call is read-only and deterministic. It can be retried after a 
 
 ## Artifacts and Notes
 
-The initial cheap falsifier was repository search plus the #499 gate fixture: no comparable-session model/tool/DTO existed and a session-comparison claim received `TREND_COMPARATOR_MISSING`. Initial pytest failed at missing module import. After the pure slice, the product-boundary run was 3 failed / 8 passed; the first published matrix was 12 passed. First native review produced an exact 8 failed / 10 passed RED and a 19-test GREEN. Second native review produced an exact 4 failed / 18 passed RED and a 22-test GREEN. The unplanned third review produced an exact 5 failed / 22 passed RED and a 27-test GREEN. The delayed fourth review produced an exact 4 failed / 27 passed RED and a 31-test GREEN. Final local verification is 104 focused tests, smoke 2095 passed / 1 skipped, contributor-safe 2141 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
+The initial cheap falsifier was repository search plus the #499 gate fixture: no comparable-session model/tool/DTO existed and a session-comparison claim received `TREND_COMPARATOR_MISSING`. Initial pytest failed at missing module import. After the pure slice, the product-boundary run was 3 failed / 8 passed; the first published matrix was 12 passed. First native review produced an exact 8 failed / 10 passed RED and a 19-test GREEN. Second native review produced an exact 4 failed / 18 passed RED and a 22-test GREEN. The unplanned third review produced an exact 5 failed / 22 passed RED and a 27-test GREEN. The delayed fourth review produced an exact 4 failed / 27 passed RED and a 31-test GREEN. The explicit current-head fifth review produced a targeted 2-test RED and a 34-test GREEN. Final local verification is 100 focused integration tests, smoke 2098 passed / 1 skipped, contributor-safe 2144 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
 
 ## Interfaces and Dependencies
 
-`models/comparable_sessions.py` will export `COMPARABLE_SESSION_RULE_VERSION`, `project_activity_features(activity, stimulus_family, intervals=None, subjective_evidence=None)`, and `select_comparable_session(target, candidates)`. Inputs and outputs are JSON-shaped mappings; no external dependency is added.
+`models/comparable_sessions.py` exports `COMPARABLE_SESSION_RULE_VERSION`, `project_activity_features(activity, stimulus_family, intervals=None, subjective_evidence=None)`, `prefilter_comparable_candidates(target, candidates)`, and `select_comparable_session(target, candidates)`. Inputs and outputs are JSON-shaped mappings; no external dependency is added.
 
 `services/comparable_sessions.py` will export `project_comparable_session(database, evidence, feedback=None, lookback_days=730)`. It returns the same versioned `available` or `data_gap` DTO for API, web, and coach consumers.
 

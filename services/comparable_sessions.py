@@ -6,15 +6,20 @@ from typing import Any, Mapping
 
 from models.comparable_sessions import (
     build_comparison_data_gap,
+    prefilter_comparable_candidates,
     project_activity_features,
     select_comparable_session,
 )
-from models.plan_actual_reconciliation import find_planned_session
+from models.plan_actual_reconciliation import build_reconciliation, find_planned_session
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from utils.product_semantics import normalize_sport_key
 
 
 DEFAULT_LOOKBACK_DAYS = 730
+_AUTO_RECONCILED_MATCH_METHODS = {
+    "ai_trainer_external_id": 1.0,
+    "date_sport_heuristic": 0.75,
+}
 
 
 def _day(value: Any) -> date | None:
@@ -165,8 +170,25 @@ def _match_by_activity(
             effective.append({**dict(leaf), "_stimulus_lineage": lineage})
 
     grouped: dict[str, list[Mapping[str, Any]]] = {}
+    blocked_activity_ids: set[str] = set()
     for match in effective:
-        if not isinstance(match, Mapping) or match.get("match_status") != "matched":
+        if not isinstance(match, Mapping):
+            continue
+        raw_lineage = match.get("_stimulus_lineage")
+        lineage = (
+            [row for row in raw_lineage if isinstance(row, Mapping)]
+            if isinstance(raw_lineage, list)
+            else [match]
+        )
+        if match.get("match_status") != "matched":
+            for lineage_match in lineage:
+                lineage_ids = [
+                    str(value)
+                    for value in lineage_match.get("actual_activity_ids") or []
+                    if str(value or "").strip()
+                ]
+                if len(lineage_ids) == 1:
+                    blocked_activity_ids.add(lineage_ids[0])
             continue
         activity_ids = [
             str(value)
@@ -175,10 +197,13 @@ def _match_by_activity(
         ]
         if len(activity_ids) == 1:
             grouped.setdefault(activity_ids[0], []).append(match)
-    return {
+    result = {
         activity_id: rows[0] if len(rows) == 1 else None
         for activity_id, rows in grouped.items()
     }
+    for activity_id in blocked_activity_ids:
+        result[activity_id] = None
+    return result
 
 
 def _stimulus_for_match(
@@ -226,7 +251,9 @@ def _instant(value: Any) -> datetime | None:
 
 
 def _with_profile_pace_threshold(
-    database: Any, activity: Mapping[str, Any]
+    database: Any,
+    activity: Mapping[str, Any],
+    history_cache: dict[str, list[Mapping[str, Any]]] | None = None,
 ) -> dict[str, Any]:
     """Attach the newest source-backed pace threshold known at activity time."""
     projected = dict(activity)
@@ -246,8 +273,16 @@ def _with_profile_pace_threshold(
         )
     if activity_instant is None:
         return projected
+    if history_cache is not None and sport in history_cache:
+        history = history_cache[sport]
+    else:
+        history = [
+            raw for raw in history_reader(sport) or [] if isinstance(raw, Mapping)
+        ]
+        if history_cache is not None:
+            history_cache[sport] = history
     eligible: list[tuple[datetime, Mapping[str, Any]]] = []
-    for raw in history_reader(sport) or []:
+    for raw in history:
         if not isinstance(raw, Mapping):
             continue
         snapshot_at = _instant(raw.get("snapshot_at"))
@@ -264,6 +299,149 @@ def _with_profile_pace_threshold(
         selected.get("observed_at") or selected.get("snapshot_at")
     )
     return projected
+
+
+def _cached_activity_intervals(
+    database: Any,
+    activity_id: str,
+    cache: dict[str, Mapping[str, Any] | None],
+) -> Mapping[str, Any] | None:
+    if activity_id not in cache:
+        raw = database.get_activity_intervals(activity_id)
+        cache[activity_id] = raw if isinstance(raw, Mapping) else None
+    return cache[activity_id]
+
+
+def _stable_auto_match(snapshot: Mapping[str, Any]) -> bool:
+    if snapshot.get("match_status") != "matched":
+        return False
+    method = str(snapshot.get("match_method") or "")
+    minimum_confidence = _AUTO_RECONCILED_MATCH_METHODS.get(method)
+    try:
+        confidence = float(snapshot.get("confidence"))
+    except (TypeError, ValueError):
+        return False
+    return minimum_confidence is not None and confidence >= minimum_confidence
+
+
+def _auto_matches_by_activity(
+    database: Any,
+    *,
+    activities: list[Mapping[str, Any]],
+    ledger_rows: list[Mapping[str, Any]],
+    target_day: date,
+    lookback_days: int,
+    latest_plan_cache: dict[str, Mapping[str, Any] | None],
+) -> dict[str, Mapping[str, Any]]:
+    """Rebuild stable local auto-matches once, without provider I/O or writes."""
+    if "checkpoint" not in latest_plan_cache:
+        reader = getattr(database, "get_latest_planning_checkpoint", None)
+        checkpoint = reader() if callable(reader) else None
+        latest_plan_cache["checkpoint"] = (
+            dict(checkpoint) if isinstance(checkpoint, Mapping) else None
+        )
+        latest_plan_cache["plan"] = restore_goal_plan_from_checkpoint(checkpoint)
+    checkpoint = latest_plan_cache.get("checkpoint")
+    plan = latest_plan_cache.get("plan")
+    if not isinstance(checkpoint, Mapping) or not isinstance(plan, Mapping):
+        return {}
+    try:
+        checkpoint_id = int(checkpoint.get("id"))
+    except (TypeError, ValueError):
+        return {}
+    try:
+        reconciliation = build_reconciliation(
+            plan,
+            activities,
+            as_of=target_day,
+            weeks=max(1, (lookback_days + 6) // 7),
+            base_checkpoint_id=checkpoint_id,
+            ledger_rows=ledger_rows,
+        )
+    except (TypeError, ValueError):
+        return {}
+    result: dict[str, Mapping[str, Any]] = {}
+    for raw in reconciliation.get("rows") or []:
+        if not isinstance(raw, Mapping) or not _stable_auto_match(raw):
+            continue
+        activity_ids = [
+            str(value)
+            for value in raw.get("actual_activity_ids") or []
+            if str(value or "").strip()
+        ]
+        if len(activity_ids) != 1:
+            continue
+        result[activity_ids[0]] = {
+            "session_id": raw.get("session_id"),
+            "base_checkpoint_id": checkpoint_id,
+            "match_status": "matched",
+            "match_method": raw.get("match_method"),
+            "confidence": raw.get("confidence"),
+            "actual_activity_ids": activity_ids,
+        }
+    return result
+
+
+def _auto_reconciled_stimulus(
+    database: Any,
+    *,
+    activity: Mapping[str, Any],
+    feedback: Mapping[str, Any] | None,
+    latest_plan_cache: dict[str, Mapping[str, Any] | None],
+) -> str | None:
+    """Resolve a persisted stable auto-match without inventing a ledger row."""
+    if (
+        not isinstance(feedback, Mapping)
+        or feedback.get("match_revision_id") is not None
+    ):
+        return None
+    activity_id = str(activity.get("activity_id") or "").strip()
+    snapshot = dict(feedback.get("match_snapshot") or {})
+    if not _stable_auto_match(snapshot):
+        return None
+    feedback_ids = [
+        str(value)
+        for value in feedback.get("actual_activity_ids") or []
+        if str(value or "").strip()
+    ]
+    snapshot_ids = [
+        str(value)
+        for value in snapshot.get("actual_activity_ids") or []
+        if str(value or "").strip()
+    ]
+    if feedback_ids != [activity_id] or snapshot_ids != [activity_id]:
+        return None
+    planned = dict(snapshot.get("planned") or {})
+    session_id = str(planned.get("session_id") or feedback.get("session_id") or "")
+    if not session_id:
+        return None
+    if str(planned.get("date") or "")[:10] != str(activity.get("date") or "")[:10]:
+        return None
+    planned_sport = normalize_sport_key(planned.get("sport"))
+    activity_sport = normalize_sport_key(activity.get("sport"))
+    if not planned_sport or planned_sport != activity_sport:
+        return None
+    if "plan" not in latest_plan_cache:
+        reader = getattr(database, "get_latest_planning_checkpoint", None)
+        checkpoint = reader() if callable(reader) else None
+        latest_plan_cache["checkpoint"] = (
+            dict(checkpoint) if isinstance(checkpoint, Mapping) else None
+        )
+        latest_plan_cache["plan"] = restore_goal_plan_from_checkpoint(checkpoint)
+    plan = latest_plan_cache.get("plan") or {}
+    day_template, template = find_planned_session(
+        list(plan.get("session_templates") or []),
+        session_id,
+    )
+    if not isinstance(template, Mapping):
+        return None
+    if str((day_template or {}).get("date") or "")[:10] != str(
+        activity.get("date") or ""
+    )[:10]:
+        return None
+    if normalize_sport_key(template.get("sport")) != activity_sport:
+        return None
+    return _stimulus_family(template)
 
 
 def _feedback_matches_target(
@@ -341,10 +519,16 @@ def project_comparable_session(
         )
         else None
     )
+    threshold_history_cache: dict[str, list[Mapping[str, Any]]] = {}
+    interval_cache: dict[str, Mapping[str, Any] | None] = {}
     target = project_activity_features(
-        _with_profile_pace_threshold(database, target_activity),
+        _with_profile_pace_threshold(
+            database,
+            target_activity,
+            threshold_history_cache,
+        ),
         stimulus_family=stimulus,
-        intervals=database.get_activity_intervals(target_ids[0]),
+        intervals=_cached_activity_intervals(database, target_ids[0], interval_cache),
         subjective_evidence=_subjective_evidence(target_feedback),
     )
 
@@ -360,38 +544,117 @@ def project_comparable_session(
     )
     matches_by_activity = _match_by_activity(database, list(matches or []))
     checkpoint_cache: dict[int, Mapping[str, Any] | None] = {}
-    candidates: list[dict[str, Any]] = []
+    latest_plan_cache: dict[str, Mapping[str, Any] | None] = {}
+    auto_matches_by_activity = _auto_matches_by_activity(
+        database,
+        activities=activities,
+        ledger_rows=list(matches or []),
+        target_day=target_day,
+        lookback_days=bounded_lookback,
+        latest_plan_cache=latest_plan_cache,
+    )
+    latest_checkpoint = latest_plan_cache.get("checkpoint")
+    latest_plan = latest_plan_cache.get("plan")
+    if isinstance(latest_checkpoint, Mapping) and isinstance(latest_plan, Mapping):
+        try:
+            checkpoint_cache[int(latest_checkpoint.get("id"))] = latest_plan
+        except (TypeError, ValueError):
+            pass
+    candidate_sources: dict[
+        str,
+        tuple[dict[str, Any], str, Mapping[str, Any] | None],
+    ] = {}
+    cheap_candidates: list[dict[str, Any]] = []
     for activity in activities:
         activity_id = str(activity.get("activity_id") or "")
         if not activity_id or activity_id in target_ids:
             continue
-        match = matches_by_activity.get(activity_id)
-        if not isinstance(match, Mapping):
-            continue
-        candidate_stimulus = _stimulus_for_match(database, match, checkpoint_cache)
+        match: Mapping[str, Any] | None = None
+        if activity_id in matches_by_activity:
+            resolved_match = matches_by_activity[activity_id]
+            if not isinstance(resolved_match, Mapping):
+                continue
+            match = resolved_match
+            candidate_stimulus = _stimulus_for_match(
+                database,
+                match,
+                checkpoint_cache,
+            )
+        else:
+            auto_match = auto_matches_by_activity.get(activity_id)
+            if isinstance(auto_match, Mapping):
+                match = auto_match
+                candidate_stimulus = _stimulus_for_match(
+                    database,
+                    match,
+                    checkpoint_cache,
+                )
+            else:
+                candidate_stimulus = _auto_reconciled_stimulus(
+                    database,
+                    activity=activity,
+                    feedback=feedbacks.get(activity_id),
+                    latest_plan_cache=latest_plan_cache,
+                )
         if candidate_stimulus != stimulus:
             continue
+        candidate_sources[activity_id] = (activity, candidate_stimulus, match)
+        cheap_candidates.append(
+            project_activity_features(
+                activity,
+                stimulus_family=candidate_stimulus,
+            )
+        )
+
+    compatible_candidates, prefiltered_counts = prefilter_comparable_candidates(
+        preflight_target,
+        cheap_candidates,
+    )
+    candidates: list[dict[str, Any]] = []
+    for cheap_candidate in compatible_candidates:
+        activity_id = str(cheap_candidate.get("activity_id") or "")
+        source = candidate_sources.get(activity_id)
+        if source is None:
+            continue
+        activity, candidate_stimulus, match = source
+        compatible_revisions = (
+            [
+                row.get("id")
+                for row in match.get("_stimulus_lineage") or [match]
+                if isinstance(row, Mapping)
+            ]
+            if isinstance(match, Mapping)
+            else None
+        )
         candidates.append(
             project_activity_features(
-                _with_profile_pace_threshold(database, activity),
+                _with_profile_pace_threshold(
+                    database,
+                    activity,
+                    threshold_history_cache,
+                ),
                 stimulus_family=candidate_stimulus,
-                intervals=database.get_activity_intervals(activity_id),
+                intervals=_cached_activity_intervals(
+                    database,
+                    activity_id,
+                    interval_cache,
+                ),
                 subjective_evidence=_subjective_evidence(
                     feedbacks.get(activity_id)
                     if _feedback_matches_target(
                         feedbacks.get(activity_id),
                         activity_ids=[activity_id],
-                        match_revision_id=[
-                            row.get("id")
-                            for row in match.get("_stimulus_lineage") or [match]
-                            if isinstance(row, Mapping)
-                        ],
+                        match_revision_id=compatible_revisions,
                     )
                     else None
                 ),
             )
         )
-    return select_comparable_session(target, candidates)
+    return select_comparable_session(
+        target,
+        candidates,
+        prefiltered_counts=prefiltered_counts,
+    )
 
 
 __all__ = ["DEFAULT_LOOKBACK_DAYS", "project_comparable_session"]

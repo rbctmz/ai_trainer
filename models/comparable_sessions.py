@@ -243,6 +243,59 @@ def _target_gap(target: Mapping[str, Any]) -> str | None:
     return None
 
 
+def prefilter_comparable_candidates(
+    target: Mapping[str, Any],
+    candidates: Sequence[Mapping[str, Any]],
+) -> tuple[list[dict[str, Any]], dict[str, int]]:
+    """Apply compatibility gates that need no interval or threshold history."""
+    frozen_target = dict(target)
+    counts = {
+        "considered": 0,
+        "same_sport_stimulus": 0,
+        "duration_incompatible": 0,
+        "intensity_incompatible": 0,
+        "structure_incompatible": 0,
+        "eligible": 0,
+    }
+    if _target_gap(frozen_target):
+        return [], counts
+
+    target_day = _day(frozen_target.get("date"))
+    target_instant = _instant(frozen_target.get("started_at_utc"))
+    target_duration = float(frozen_target["duration_minutes"])
+    target_intensity = float(frozen_target["tss_per_hour"])
+    compatible: list[dict[str, Any]] = []
+    for raw in candidates:
+        candidate = dict(raw)
+        counts["considered"] += 1
+        candidate_day = _day(candidate.get("date"))
+        if candidate_day is None or target_day is None:
+            continue
+        candidate_instant = _instant(candidate.get("started_at_utc"))
+        if candidate_instant is not None and target_instant is not None:
+            if candidate_instant >= target_instant:
+                continue
+        elif candidate_day >= target_day:
+            continue
+        if candidate.get("sport") != frozen_target.get("sport"):
+            continue
+        if candidate.get("stimulus_family") != frozen_target.get("stimulus_family"):
+            continue
+        counts["same_sport_stimulus"] += 1
+        candidate_duration = _positive(candidate.get("duration_minutes"))
+        candidate_intensity = _positive(candidate.get("tss_per_hour"))
+        if candidate_duration is None or candidate_intensity is None:
+            continue
+        if _ratio_similarity(target_duration, candidate_duration) < MIN_DURATION_SIMILARITY:
+            counts["duration_incompatible"] += 1
+            continue
+        if _ratio_similarity(target_intensity, candidate_intensity) < MIN_INTENSITY_SIMILARITY:
+            counts["intensity_incompatible"] += 1
+            continue
+        compatible.append(candidate)
+    return compatible, counts
+
+
 def _metric_comparison(
     target: Mapping[str, Any], candidate: Mapping[str, Any]
 ) -> dict[str, Any] | None:
@@ -293,6 +346,8 @@ def _metric_comparison(
 def select_comparable_session(
     target: Mapping[str, Any],
     candidates: Sequence[Mapping[str, Any]],
+    *,
+    prefiltered_counts: Mapping[str, int] | None = None,
 ) -> dict[str, Any]:
     """Select one prior compatible candidate with transparent stable evidence."""
     frozen_target = dict(target)
@@ -300,48 +355,41 @@ def select_comparable_session(
     if gap:
         return build_comparison_data_gap(gap, target=frozen_target)
 
-    target_day = _day(frozen_target.get("date"))
     target_duration = float(frozen_target["duration_minutes"])
     target_intensity = float(frozen_target["tss_per_hour"])
-    counts = {
-        "considered": 0,
-        "same_sport_stimulus": 0,
-        "duration_incompatible": 0,
-        "intensity_incompatible": 0,
-        "structure_incompatible": 0,
-        "eligible": 0,
-    }
-    target_instant = _instant(frozen_target.get("started_at_utc"))
+    if prefiltered_counts is None:
+        compatible_candidates, counts = prefilter_comparable_candidates(
+            frozen_target,
+            candidates,
+        )
+    else:
+        compatible_candidates = [dict(candidate) for candidate in candidates]
+        counts = {
+            key: int(prefiltered_counts.get(key) or 0)
+            for key in (
+                "considered",
+                "same_sport_stimulus",
+                "duration_incompatible",
+                "intensity_incompatible",
+                "structure_incompatible",
+                "eligible",
+            )
+        }
     ranked: list[tuple[float, float, str, dict[str, Any], list[dict[str, Any]]]] = []
-    for raw in candidates:
+    for raw in compatible_candidates:
         candidate = dict(raw)
-        counts["considered"] += 1
         candidate_day = _day(candidate.get("date"))
-        if candidate_day is None or target_day is None:
-            continue
         candidate_instant = _instant(candidate.get("started_at_utc"))
-        if candidate_instant is not None and target_instant is not None:
-            if candidate_instant >= target_instant:
-                continue
-        elif candidate_day >= target_day:
-            continue
-        if candidate.get("sport") != frozen_target.get("sport"):
-            continue
-        if candidate.get("stimulus_family") != frozen_target.get("stimulus_family"):
-            continue
-        counts["same_sport_stimulus"] += 1
         candidate_duration = _positive(candidate.get("duration_minutes"))
         candidate_intensity = _positive(candidate.get("tss_per_hour"))
-        if candidate_duration is None or candidate_intensity is None:
+        if (
+            candidate_day is None
+            or candidate_duration is None
+            or candidate_intensity is None
+        ):
             continue
         duration_similarity = _ratio_similarity(target_duration, candidate_duration)
         intensity_similarity = _ratio_similarity(target_intensity, candidate_intensity)
-        if duration_similarity < MIN_DURATION_SIMILARITY:
-            counts["duration_incompatible"] += 1
-            continue
-        if intensity_similarity < MIN_INTENSITY_SIMILARITY:
-            counts["intensity_incompatible"] += 1
-            continue
 
         target_structure = dict(frozen_target.get("structure") or {})
         candidate_structure = dict(candidate.get("structure") or {})
@@ -476,6 +524,7 @@ def select_comparable_session(
 __all__ = [
     "COMPARABLE_SESSION_RULE_VERSION",
     "build_comparison_data_gap",
+    "prefilter_comparable_candidates",
     "project_activity_features",
     "select_comparable_session",
 ]

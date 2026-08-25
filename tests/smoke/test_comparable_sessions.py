@@ -355,6 +355,233 @@ def test_service_joins_checkpoint_stimulus_and_local_feedback() -> None:
     }
 
 
+def test_service_includes_stable_auto_reconciled_history_without_ledger() -> None:
+    class AutoReconciledDb(_ComparableDb):
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            assert start_date == "2024-08-24"
+            assert end_date == "2026-08-24"
+            return []
+
+        def get_latest_planning_checkpoint(self):
+            return self.get_planning_checkpoint(3)
+
+        def get_latest_session_feedbacks(self):
+            return []
+
+    result = project_comparable_session(
+        AutoReconciledDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "available"
+    assert result["comparator"]["activity_id"] == "candidate"
+
+
+def test_service_prefilters_incompatible_candidates_before_interval_reads() -> None:
+    class IncompatibleHistoryDb(_ComparableDb):
+        def __init__(self) -> None:
+            super().__init__()
+            self.candidates = [
+                _activity(f"candidate-{index}", "2026-08-01", duration=10, tss=68)
+                for index in range(100)
+            ]
+            self.interval_reads: list[str] = []
+
+        def get_activities_between(self, _start, _end):
+            return self.candidates
+
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            assert start_date == "2024-08-24"
+            assert end_date == "2026-08-24"
+            return [
+                {
+                    "session_id": f"prior-session-{index}",
+                    "base_checkpoint_id": 3,
+                    "match_status": "matched",
+                    "actual_activity_ids": [f"candidate-{index}"],
+                }
+                for index in range(100)
+            ]
+
+        def get_planning_checkpoint(self, checkpoint_id):
+            assert checkpoint_id == 3
+            return {
+                "id": 3,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-01",
+                            "total_tss": 6800,
+                            "parts": {"bike": 6800},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-01",
+                            "sessions": [
+                                {
+                                    "session_id": f"prior-session-{index}",
+                                    "sport": "bike",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "threshold"
+                                    },
+                                }
+                                for index in range(100)
+                            ],
+                        }
+                    ],
+                },
+            }
+
+        def get_activity_intervals(self, activity_id):
+            self.interval_reads.append(activity_id)
+            return _intervals(4)
+
+        def get_latest_session_feedbacks(self):
+            return []
+
+    database = IncompatibleHistoryDb()
+    result = project_comparable_session(
+        database,
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "data_gap"
+    assert result["reason_code"] == "NO_COMPATIBLE_DURATION"
+    assert result["candidate_counts"]["duration_incompatible"] == 100
+    assert database.interval_reads == ["target"]
+
+
+def test_service_caches_run_threshold_history_for_enriched_candidates() -> None:
+    class RunHistoryDb(_ComparableDb):
+        def __init__(self) -> None:
+            super().__init__()
+            self.target = _activity(
+                "target",
+                "2026-08-24",
+                sport="run",
+                normalized_power=None,
+                avg_power=None,
+                distance_km=10,
+            )
+            self.candidates = [
+                _activity(
+                    "candidate-1",
+                    "2026-08-01",
+                    sport="run",
+                    duration=58,
+                    tss=68,
+                    normalized_power=None,
+                    avg_power=None,
+                    distance_km=10,
+                ),
+                _activity(
+                    "candidate-2",
+                    "2026-08-02",
+                    sport="run",
+                    duration=59,
+                    tss=69,
+                    normalized_power=None,
+                    avg_power=None,
+                    distance_km=10,
+                ),
+            ]
+            self.threshold_reads: list[str] = []
+
+        def get_activities_between(self, _start, _end):
+            return self.candidates
+
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            return [
+                {
+                    "session_id": f"prior-session-{index}",
+                    "base_checkpoint_id": 3,
+                    "match_status": "matched",
+                    "actual_activity_ids": [f"candidate-{index}"],
+                }
+                for index in (1, 2)
+            ]
+
+        def get_planning_checkpoint(self, checkpoint_id):
+            assert checkpoint_id == 3
+            return {
+                "id": 3,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-01",
+                            "total_tss": 137,
+                            "parts": {"run": 137},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": f"2026-08-0{index}",
+                            "sessions": [
+                                {
+                                    "session_id": f"prior-session-{index}",
+                                    "sport": "run",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "threshold"
+                                    },
+                                }
+                            ],
+                        }
+                        for index in (1, 2)
+                    ],
+                },
+            }
+
+        def get_athlete_pace_threshold_history(self, sport):
+            self.threshold_reads.append(sport)
+            return [
+                {
+                    "snapshot_at": "2026-07-01T00:00:00Z",
+                    "value": 300,
+                    "source": "intervals_icu",
+                }
+            ]
+
+        def get_latest_session_feedbacks(self):
+            return []
+
+    database = RunHistoryDb()
+    result = project_comparable_session(
+        database,
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "available"
+    assert database.threshold_reads == ["run"]
+
+
 def test_service_keeps_newest_feedback_for_rebound_activity() -> None:
     class ReboundFeedbackDb(_ComparableDb):
         def get_latest_session_feedbacks(self):
