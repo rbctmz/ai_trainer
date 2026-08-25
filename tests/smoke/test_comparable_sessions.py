@@ -355,6 +355,47 @@ def test_service_joins_checkpoint_stimulus_and_local_feedback() -> None:
     }
 
 
+def test_service_keeps_newest_feedback_for_rebound_activity() -> None:
+    class ReboundFeedbackDb(_ComparableDb):
+        def get_latest_session_feedbacks(self):
+            return [
+                {
+                    "id": 20,
+                    "status": "active",
+                    "actual_activity_ids": ["candidate"],
+                    "note": "новая оценка",
+                    "source": "user_web",
+                    "submitted_at": "2026-08-02T10:00:00Z",
+                },
+                {
+                    "id": 10,
+                    "status": "active",
+                    "actual_activity_ids": ["candidate"],
+                    "note": "устаревшая оценка",
+                    "source": "user_web",
+                    "submitted_at": "2026-08-02T09:00:00Z",
+                },
+            ]
+
+    result = project_comparable_session(
+        ReboundFeedbackDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["comparison"]["subjective_evidence"]["comparator"]["value"] == (
+        "новая оценка"
+    )
+
+
 def test_service_refuses_to_aggregate_split_target_activities() -> None:
     result = project_comparable_session(
         _ComparableDb(),
@@ -431,6 +472,58 @@ def test_service_follows_constraint_rebind_match_lineage() -> None:
 
     result = project_comparable_session(
         ReboundComparatorDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "available"
+    assert result["comparator"]["activity_id"] == "candidate"
+
+
+def test_service_hydrates_missing_match_lineage_ancestors() -> None:
+    class MultiRevisionReboundDb(_ComparableDb):
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            assert start_date == "2024-08-24"
+            assert end_date == "2026-08-24"
+            return [
+                {
+                    "id": 1,
+                    "session_id": "prior-session",
+                    "base_checkpoint_id": 3,
+                    "match_status": "matched",
+                    "actual_activity_ids": ["candidate"],
+                },
+                {
+                    "id": 3,
+                    "session_id": "restamped-prior-session-v2",
+                    "base_checkpoint_id": 3,
+                    "supersedes_match_id": 2,
+                    "match_status": "matched",
+                    "actual_activity_ids": ["candidate"],
+                },
+            ]
+
+        def get_plan_actual_match(self, match_id):
+            assert match_id == 2
+            return {
+                "id": 2,
+                "session_id": "restamped-prior-session",
+                "base_checkpoint_id": 3,
+                "supersedes_match_id": 1,
+                "match_status": "matched",
+                "actual_activity_ids": ["candidate"],
+            }
+
+    result = project_comparable_session(
+        MultiRevisionReboundDb(),
         evidence={
             "row": {
                 "session_id": "target-session",
@@ -551,6 +644,18 @@ def test_earlier_same_day_activity_can_be_selected() -> None:
 
     assert result["status"] == "available"
     assert result["comparator"]["activity_id"] == "earlier"
+
+
+def test_utc_timestamp_precedes_conflicting_local_dates() -> None:
+    target = _features("target", "2026-08-24")
+    target["started_at_utc"] = "2026-08-23T22:00:00Z"
+    candidate = _features("candidate", "2026-08-23", duration=58, tss=68)
+    candidate["started_at_utc"] = "2026-08-24T01:00:00Z"
+
+    result = select_comparable_session(target, [candidate])
+
+    assert result["status"] == "data_gap"
+    assert result["reason_code"] == "NO_ELIGIBLE_CANDIDATE"
 
 
 def test_run_pace_uses_versioned_profile_threshold_when_tss_has_none() -> None:
@@ -989,6 +1094,53 @@ def test_default_coach_target_excludes_sessions_not_started(monkeypatch) -> None
     result = session_feedback.comparable_session_for_session(LatestDb())
 
     assert result["selected_session_id"] == "completed-session"
+
+
+def test_default_coach_target_respects_historical_as_of(monkeypatch) -> None:
+    from api import session_feedback
+
+    older = {
+        "id": 1,
+        "session_id": "older-session",
+        "status": "active",
+        "completion_status": "completed",
+        "actual_activity_ids": ["older"],
+        "session_end_at_utc": "2026-08-01T10:00:00Z",
+    }
+    future = {
+        "id": 2,
+        "session_id": "future-session",
+        "status": "active",
+        "completion_status": "completed",
+        "actual_activity_ids": ["future"],
+        "session_end_at_utc": "2026-08-24T10:00:00Z",
+    }
+
+    class HistoricalDb:
+        def get_latest_session_feedbacks(self):
+            return [future, older]
+
+    monkeypatch.setattr(
+        session_feedback,
+        "_evidence_from_saved_feedback",
+        lambda _db, feedback, as_of=None: {
+            "row": {"session_id": feedback["session_id"]},
+            "template": {},
+        },
+    )
+    monkeypatch.setattr(
+        session_feedback,
+        "_comparison_for_evidence",
+        lambda _db, evidence, feedback=None: {
+            "selected_session_id": evidence["row"]["session_id"]
+        },
+    )
+
+    result = session_feedback.comparable_session_for_session(
+        HistoricalDb(), as_of="2026-08-10"
+    )
+
+    assert result["selected_session_id"] == "older-session"
 
 
 def test_service_returns_target_gap_before_history_reads() -> None:

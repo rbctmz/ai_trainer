@@ -66,11 +66,26 @@ def _feedback_by_activity(database: Any) -> dict[str, dict[str, Any]]:
             if str(value or "").strip()
         ]
         if len(activity_ids) == 1:
-            result[activity_ids[0]] = row
+            activity_id = activity_ids[0]
+            current = result.get(activity_id)
+            if current is None or _feedback_recency_key(row) > _feedback_recency_key(
+                current
+            ):
+                result[activity_id] = row
     return result
 
 
+def _feedback_recency_key(feedback: Mapping[str, Any]) -> tuple[float, int, int]:
+    submitted = _instant(feedback.get("submitted_at") or feedback.get("created_at"))
+    return (
+        submitted.timestamp() if submitted is not None else float("-inf"),
+        int(feedback.get("id") or 0),
+        int(feedback.get("revision") or 0),
+    )
+
+
 def _match_by_activity(
+    database: Any,
     matches: list[Mapping[str, Any]],
 ) -> dict[str, Mapping[str, Any] | None]:
     """Resolve effective lineage leaves before indexing matched activities."""
@@ -91,6 +106,32 @@ def _match_by_activity(
             continue
         if match_id not in duplicate_ids:
             identified[match_id] = match
+
+    match_reader = getattr(database, "get_plan_actual_match", None)
+    if callable(match_reader):
+        pending = list(identified.values())
+        while pending:
+            match = pending.pop()
+            try:
+                parent_id = int(match.get("supersedes_match_id"))
+            except (TypeError, ValueError):
+                continue
+            if parent_id in identified or parent_id in duplicate_ids:
+                continue
+            try:
+                parent = match_reader(parent_id)
+            except Exception:
+                continue
+            if not isinstance(parent, Mapping):
+                continue
+            try:
+                hydrated_id = int(parent.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if hydrated_id != parent_id:
+                continue
+            identified[parent_id] = parent
+            pending.append(parent)
 
     superseded_ids: set[int] = set()
     for match in identified.values():
@@ -317,7 +358,7 @@ def project_comparable_session(
     matches = database.get_latest_plan_actual_matches(
         start_date=start.isoformat(), end_date=target_day.isoformat()
     )
-    matches_by_activity = _match_by_activity(list(matches or []))
+    matches_by_activity = _match_by_activity(database, list(matches or []))
     checkpoint_cache: dict[int, Mapping[str, Any] | None] = {}
     candidates: list[dict[str, Any]] = []
     for activity in activities:

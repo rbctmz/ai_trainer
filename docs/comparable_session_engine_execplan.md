@@ -29,7 +29,10 @@ After this change, post-workout feedback can show one prior session that is genu
 - [x] (2026-08-24) Pushed `11c4b78`, replied to and resolved all 3 second-round threads, and confirmed every GitHub CI check green.
 - [x] (2026-08-24) A docs-only outcome push triggered an unplanned third native review with 5 fresh findings (1 P1, 4 P2); captured the exact RED of 5 failed / 22 passed and fixed all findings with a 27-test GREEN and 100 focused tests.
 - [x] (2026-08-24) Completed third-round verification: 27 comparable-session tests, 100 focused tests, smoke 2091 passed / 1 skipped, contributor-safe 2137 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
-- [ ] Push the third review-fix commit, resolve its 5 threads, and reconfirm final GitHub merge state.
+- [x] (2026-08-24) Pushed `02edf32`, replied to and resolved all 5 third-round threads, and confirmed GitHub CI green on that head.
+- [x] (2026-08-24) A delayed fourth native review added 4 fresh findings (1 P1, 3 P2); captured the exact RED of 4 failed / 27 passed and fixed every finding with a 31-test GREEN.
+- [x] (2026-08-25) Completed fourth-round verification: 31 comparable-session tests, 104 focused tests, smoke 2095 passed / 1 skipped, contributor-safe 2141 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
+- [ ] Push the fourth review-fix commit, resolve its 4 threads, and wait for CI plus the delayed connector review before declaring CLEAN.
 
 ## Surprises & Discoveries
 
@@ -109,7 +112,7 @@ Every comparison call is read-only and deterministic. It can be retried after a 
 
 ## Artifacts and Notes
 
-The initial cheap falsifier was repository search plus the #499 gate fixture: no comparable-session model/tool/DTO existed and a session-comparison claim received `TREND_COMPARATOR_MISSING`. Initial pytest failed at missing module import. After the pure slice, the product-boundary run was 3 failed / 8 passed; the first published matrix was 12 passed. First native review produced an exact 8 failed / 10 passed RED and a 19-test GREEN. Second native review produced an exact 4 failed / 18 passed RED and a 22-test GREEN. The unplanned third review produced an exact 5 failed / 22 passed RED and a 27-test GREEN. Final local verification is 100 focused tests, smoke 2091 passed / 1 skipped, contributor-safe 2137 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green. Parallel broad runs first collided on local socket allocation (`Errno 55`); the isolated falsifier passed/skipped as designed and both suites then passed sequentially.
+The initial cheap falsifier was repository search plus the #499 gate fixture: no comparable-session model/tool/DTO existed and a session-comparison claim received `TREND_COMPARATOR_MISSING`. Initial pytest failed at missing module import. After the pure slice, the product-boundary run was 3 failed / 8 passed; the first published matrix was 12 passed. First native review produced an exact 8 failed / 10 passed RED and a 19-test GREEN. Second native review produced an exact 4 failed / 18 passed RED and a 22-test GREEN. The unplanned third review produced an exact 5 failed / 22 passed RED and a 27-test GREEN. The delayed fourth review produced an exact 4 failed / 27 passed RED and a 31-test GREEN. Final local verification is 104 focused tests, smoke 2095 passed / 1 skipped, contributor-safe 2141 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
 
 ## Interfaces and Dependencies
 

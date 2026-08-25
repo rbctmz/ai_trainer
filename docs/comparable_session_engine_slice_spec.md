@@ -10,7 +10,7 @@
 - Class: **A**
 - Rationale: a new cross-module evidence contract joins activity lineage, plan stimulus, interval structure, athlete feedback, API/web presentation, and AI-coach tools.
 - Automatic escalation triggers checked: new public contract — yes; provenance/identity — yes; persistence/schema — no; provider write — no; destructive sync — no; paid call — no.
-- Review budget used: 3 native Codex Review rounds (third auto-triggered by the outcome push); one root self-review completed
+- Review budget used: 4 native Codex Review rounds (third and fourth were delayed connector reviews); one root self-review completed
 
 ## Scope
 
@@ -94,11 +94,11 @@
 
 - Head SHA: pending until commit.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
-- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; first native-review RED 8 failed / 10 passed and GREEN 19 passed; second native-review RED 4 failed / 18 passed and GREEN 22 passed; third native-review RED 5 failed / 22 passed and GREEN 27 passed; focused integration 100 passed; smoke 2091 passed / 1 skipped; contributor-safe 2137 passed / 3 skipped / 26 deselected.
-- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests green; parallel local suites hit one socket-allocation collision, isolated probe and sequential full reruns were green; final third-review head pending push.
+- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31; focused integration 104 passed; smoke 2095 passed / 1 skipped; contributor-safe 2141 passed / 3 skipped / 26 deselected.
+- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests green; `02edf32` GitHub CI green; final fourth-review head pending push.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: 0 from rounds one and two; 5 from round three pending pushed replies/resolution.
+- Unresolved review-thread count: 0 from rounds one through three; 4 from round four pending pushed replies/resolution.
 - Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated.
 
 ## Review Findings
@@ -124,12 +124,16 @@
 | P2 | **Observed**: a rebound feedback session id is absent from its preserved old checkpoint. **Inferred**: later coach comparison loses valid immutable stimulus. **Verified by**: rebound feedback RED/GREEN fixture. | Follow saved match ancestry and resolve the first checkpoint/session identity that contains the template. | Codex / resolved locally. |
 | P2 | **Observed**: default coach selection admitted did-not-start and unknown feedback rows. **Inferred**: an unstarted item can replace the latest completed workout. **Verified by**: completion-filter RED/GREEN fixture. | Default only to completed, partial, or stopped-early feedback; explicit session lookup remains available. | Codex / resolved locally. |
 | P2 | **Observed**: known target gaps still triggered candidate-history reads. **Inferred**: latency and unrelated read failures could hide the stable target reason. **Verified by**: history methods that raise after missing-stimulus evidence. | Preflight target-only evidence before feedback, intervals, matches, or candidate reads. | Codex / resolved locally. |
+| P1 | **Observed**: latest feedback rows are newest-first, but the activity index overwrote each earlier assignment. **Inferred**: an obsolete RPE/note could replace a newer rebound feedback. **Verified by**: id 20 then id 10 RED/GREEN fixture. | Select by submitted timestamp, append-only id, and revision instead of iteration overwrite. | Codex / resolved locally. |
+| P2 | **Observed**: latest-per-target match reads can omit an intermediate rebound revision. **Inferred**: visible endpoints look disconnected and a valid comparator becomes ambiguous. **Verified by**: ids 1 and 3 with hydrated missing id 2 RED/GREEN fixture. | Hydrate absent immutable ancestors through `get_plan_actual_match` before resolving effective leaves. | Codex / resolved locally. |
+| P2 | **Observed**: local dates and UTC starts may disagree after timezone travel. **Inferred**: a later UTC activity could be accepted as historical. **Verified by**: date-line crossing RED/GREEN fixture. | Whenever both UTC starts exist, require strict UTC precedence; use local dates only as fallback. | Codex / resolved locally. |
+| P2 | **Observed**: default historical lookup selected max before applying `as_of`. **Inferred**: a future workout could hide the latest eligible historical one. **Verified by**: August 1 / August 24 with August 10 bound RED/GREEN fixture. | Filter completed feedback candidates by resolved session day before max selection. | Codex / resolved locally. |
 
 ## Final Verdict
 
-- Verdict: **READY after third-round push, thread resolution, and final CI**.
+- Verdict: **READY after fourth-round push, thread resolution, CI, and delayed connector review**.
 - Blocking findings remaining: none in local code; publication gates remain.
-- Review rounds used: 3 (third auto-triggered).
+- Review rounds used: 4 (two delayed connector reviews).
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: Codex.

@@ -317,14 +317,13 @@ def select_comparable_session(
         candidate = dict(raw)
         counts["considered"] += 1
         candidate_day = _day(candidate.get("date"))
-        if candidate_day is None or target_day is None or candidate_day > target_day:
+        if candidate_day is None or target_day is None:
             continue
         candidate_instant = _instant(candidate.get("started_at_utc"))
-        if candidate_day == target_day and not (
-            candidate_instant is not None
-            and target_instant is not None
-            and candidate_instant < target_instant
-        ):
+        if candidate_instant is not None and target_instant is not None:
+            if candidate_instant >= target_instant:
+                continue
+        elif candidate_day >= target_day:
             continue
         if candidate.get("sport") != frozen_target.get("sport"):
             continue

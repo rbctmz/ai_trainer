@@ -295,6 +295,35 @@ def _feedback_workout_sort_key(feedback: Mapping[str, Any]) -> tuple[float, floa
     return rank(workout_time), rank(submitted), int(feedback.get("id") or 0)
 
 
+def _feedback_session_day(feedback: Mapping[str, Any]) -> date | None:
+    """Resolve the local planned/activity day, with UTC workout fallback."""
+    snapshot = dict(feedback.get("match_snapshot") or {})
+    raw_planned = snapshot.get("planned")
+    planned = dict(raw_planned) if isinstance(raw_planned, Mapping) else {}
+    day_values = [planned.get("date")]
+    day_values.extend(
+        item.get("date")
+        for item in snapshot.get("actual_activities") or []
+        if isinstance(item, Mapping)
+    )
+    for value in day_values:
+        try:
+            return date.fromisoformat(str(value or "")[:10])
+        except ValueError:
+            continue
+    workout_time = _utc(feedback.get("session_end_at_utc"))
+    return workout_time.date() if workout_time is not None else None
+
+
+def _feedback_is_on_or_before(
+    feedback: Mapping[str, Any], resolved_as_of: date | None
+) -> bool:
+    if resolved_as_of is None:
+        return True
+    session_day = _feedback_session_day(feedback)
+    return session_day is not None and session_day <= resolved_as_of
+
+
 def _attach_primary_comparison(
     db: Database,
     projection: dict[str, Any],
@@ -1018,6 +1047,14 @@ def comparable_session_for_session(
     if target_session_id:
         feedback = db.get_latest_session_feedback(target_session_id)
     else:
+        if isinstance(as_of, datetime):
+            resolved_as_of = as_of.date()
+        elif isinstance(as_of, date):
+            resolved_as_of = as_of
+        elif as_of is not None:
+            resolved_as_of = date.fromisoformat(str(as_of)[:10])
+        else:
+            resolved_as_of = None
         candidates = [
             row
             for row in db.get_latest_session_feedbacks()
@@ -1025,6 +1062,7 @@ def comparable_session_for_session(
             and row.get("status") != "tombstone"
             and row.get("completion_status") in _STARTED_COMPLETION_STATUSES
             and row.get("actual_activity_ids")
+            and _feedback_is_on_or_before(row, resolved_as_of)
         ]
         if not candidates:
             return build_comparison_data_gap("NO_COMPLETED_SESSION")
