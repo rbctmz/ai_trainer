@@ -169,6 +169,56 @@ def test_comparable_session_guardrail_blocks_common_causal_phrasing(
     assert result.reason_codes == ("CAUSAL_CLAIM_UNSUPPORTED",)
 
 
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Причина боли пока неизвестна.",
+        "Причина прошлой травмы пока неизвестна.",
+        "Из-за боли лучше сегодня отдохнуть.",
+        "Благодаря отдыху самочувствие улучшилось.",
+    ],
+)
+def test_comparable_session_guardrail_allows_unrelated_coaching_causality(
+    claim: str,
+) -> None:
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(claim, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == claim
+
+
+def test_comparable_session_guardrail_blocks_causal_followup_sentence() -> None:
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "TSS вырос. Это произошло благодаря адаптации.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("CAUSAL_CLAIM_UNSUPPORTED",)
+
+
 def test_comparable_session_guardrail_allows_explicit_non_causal_disclaimer() -> None:
     tools = [
         {

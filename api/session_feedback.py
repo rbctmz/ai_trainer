@@ -262,7 +262,7 @@ def _evidence_from_saved_feedback(
     db: Database,
     feedback: Mapping[str, Any],
     *,
-    as_of: date | str | None = None,
+    as_of: date | datetime | str | None = None,
 ) -> dict[str, Any] | None:
     """Rebuild read-only comparison input without re-running reconciliation."""
     if feedback.get("status") == "tombstone":
@@ -396,7 +396,9 @@ def _evidence_from_saved_feedback(
     if as_of and session_date_text:
         try:
             resolved_as_of = (
-                as_of
+                as_of.date()
+                if isinstance(as_of, datetime)
+                else as_of
                 if isinstance(as_of, date)
                 else date.fromisoformat(str(as_of)[:10])
             )
@@ -584,7 +586,7 @@ def _feedback_evidence_for_session(
     db: Database,
     session_id: str,
     *,
-    as_of: date | str | None = None,
+    as_of: date | datetime | str | None = None,
 ) -> dict[str, Any]:
     """Revalidate one session from local facts without provider GET calls.
 
@@ -598,7 +600,13 @@ def _feedback_evidence_for_session(
     `services.recovery_analytics`'s targeted refresh uses for the same case.
     """
     resolved_as_of = (
-        as_of if isinstance(as_of, date) else date.fromisoformat(str(as_of)[:10]) if as_of else datetime.now().date()
+        as_of.date()
+        if isinstance(as_of, datetime)
+        else as_of
+        if isinstance(as_of, date)
+        else date.fromisoformat(str(as_of)[:10])
+        if as_of
+        else datetime.now().date()
     )
     checkpoint = db.get_latest_planning_checkpoint()
     goal_plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
@@ -1263,7 +1271,7 @@ def comparable_session_for_session(
     db: Database,
     session_id: str | None = None,
     *,
-    as_of: date | str | None = None,
+    as_of: date | datetime | str | None = None,
 ) -> dict[str, Any]:
     """Return one read-only comparison for an explicit or latest feedback session."""
     target_session_id = str(session_id or "").strip()

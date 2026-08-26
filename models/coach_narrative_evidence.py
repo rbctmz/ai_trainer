@@ -131,6 +131,12 @@ _CAUSAL_ASSERTION = re.compile(
     re.IGNORECASE,
 )
 _NEGATED_CAUSAL_PREFIX = re.compile(r"\bне\s*$", re.IGNORECASE)
+_COMPARISON_CAUSAL_SCOPE = re.compile(
+    r"(?:адаптаци\w*|сравнен\w*|сесси\w*|трениров\w*|tss|rpe|"
+    r"мощност\w*|темп\w*|скорост\w*|пульс\w*|"
+    r"интенсивност\w*|длительност\w*|нагрузк\w*|показател\w*)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -300,11 +306,7 @@ def validate_coach_narrative(
 
     if (
         comparators.get("causal_claim_allowed") is False
-        and _has_asserted_claim(
-            claim_text,
-            _CAUSAL_ASSERTION,
-            negated_prefix=_NEGATED_CAUSAL_PREFIX,
-        )
+        and _unsupported_comparison_causal_claim(claim_text)
     ):
         found.add(CAUSAL_CLAIM_UNSUPPORTED)
 
@@ -570,6 +572,19 @@ def _has_asserted_claim(
             if not is_negated and not is_conditional:
                 return True
     return False
+
+
+def _unsupported_comparison_causal_claim(text: str) -> bool:
+    """Reject causal claims derived from the comparison, not unrelated advice."""
+    return any(
+        _COMPARISON_CAUSAL_SCOPE.search(segment)
+        and _has_asserted_claim(
+            segment,
+            _CAUSAL_ASSERTION,
+            negated_prefix=_NEGATED_CAUSAL_PREFIX,
+        )
+        for segment in _claim_segments(text)
+    )
 
 
 def _missed_session_claim_unsupported(

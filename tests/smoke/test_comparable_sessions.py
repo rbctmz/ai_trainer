@@ -536,6 +536,7 @@ def test_service_restores_rollover_auto_match_without_feedback() -> None:
     class RolledOverPreFeedbackDb(_ComparableDb):
         def __init__(self) -> None:
             super().__init__()
+            self.candidate["started_at_utc"] = None
             self.historical_reads = 0
 
         def get_latest_plan_actual_matches(self, *, start_date, end_date):
@@ -569,9 +570,14 @@ def test_service_restores_rollover_auto_match_without_feedback() -> None:
                 },
             }
 
-        def get_latest_planning_checkpoints_for_dates(self, dates):
+        def get_latest_planning_checkpoints_for_dates(
+            self, dates, *, not_after_by_date
+        ):
             self.historical_reads += 1
             assert dates == ["2026-08-01"]
+            assert not_after_by_date == {
+                "2026-08-01": "2026-07-31T23:59:59.999999Z"
+            }
             return {"2026-08-01": self.get_planning_checkpoint(3)}
 
         def get_latest_session_feedbacks(self):
@@ -630,8 +636,11 @@ def test_historical_rollover_recovery_fails_closed_on_same_day_ambiguity() -> No
                 },
             }
 
-        def get_latest_planning_checkpoints_for_dates(self, dates):
+        def get_latest_planning_checkpoints_for_dates(
+            self, dates, *, not_after_by_date
+        ):
             assert dates == ["2026-08-01"]
+            assert not_after_by_date == {"2026-08-01": "2026-08-01T08:00:00Z"}
             historical = self.get_planning_checkpoint(3)
             historical["goal_plan_snapshot"]["session_templates"][0][
                 "sessions"
@@ -1555,6 +1564,78 @@ def test_saved_feedback_restores_target_from_immutable_match_checkpoint() -> Non
     assert evidence is not None
     assert evidence["row"]["actual_activity_ids"] == ["historical-activity"]
     assert evidence["template"]["definition_snapshot"]["step_builder_key"] == "threshold"
+
+    datetime_evidence = _evidence_from_saved_feedback(
+        SavedFeedbackDb(),
+        feedback,
+        as_of=datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc),
+    )
+    assert datetime_evidence is not None
+    assert datetime_evidence["row"]["actual_activity_ids"] == [
+        "historical-activity"
+    ]
+
+
+def test_explicit_target_without_feedback_accepts_datetime_as_of(monkeypatch) -> None:
+    from api import session_feedback
+
+    class ActiveTargetDb:
+        def get_latest_planning_checkpoint(self):
+            return {
+                "id": 9,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-01",
+                            "total_tss": 70,
+                            "parts": {"bike": 70},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-01",
+                            "sessions": [
+                                {
+                                    "session_id": "active-session",
+                                    "sport": "bike",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "threshold"
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            assert start_date == "2026-08-01"
+            assert end_date == "2026-08-01"
+            return []
+
+    def reconcile(_db, *, weeks, as_of, include_provider):
+        assert weeks == 1
+        assert as_of.isoformat() == "2026-08-01"
+        assert include_provider is False
+        return {
+            "rows": [
+                {
+                    "session_id": "active-session",
+                    "match_status": "matched",
+                    "actual_activity_ids": ["active-activity"],
+                }
+            ]
+        }
+
+    monkeypatch.setattr(session_feedback, "reconciliation_at", reconcile)
+
+    evidence = session_feedback._feedback_evidence_for_session(
+        ActiveTargetDb(),
+        "active-session",
+        as_of=datetime(2026, 8, 24, 12, 0, tzinfo=timezone.utc),
+    )
+
+    assert evidence["row"]["actual_activity_ids"] == ["active-activity"]
 
 
 def test_saved_auto_feedback_finds_historical_checkpoint_after_rollover() -> None:

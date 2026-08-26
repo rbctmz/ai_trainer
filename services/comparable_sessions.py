@@ -456,8 +456,33 @@ def _historical_auto_matches_by_activity(
             activities_by_date.setdefault(activity_date, []).append(activity)
     if not activities_by_date:
         return {}
+    not_after_by_date: dict[str, str] = {}
+    for activity_date, date_activities in activities_by_date.items():
+        activity_day = _day(activity_date)
+        if activity_day is None:
+            continue
+        cutoffs: list[datetime] = []
+        for activity in date_activities:
+            activity_instant = _instant(activity.get("started_at_utc"))
+            if activity_instant is None:
+                activity_instant = datetime.combine(
+                    activity_day,
+                    time.min,
+                    tzinfo=timezone.utc,
+                ) - timedelta(microseconds=1)
+            cutoffs.append(activity_instant)
+        if cutoffs:
+            not_after_by_date[activity_date] = (
+                min(cutoffs)
+                .astimezone(timezone.utc)
+                .isoformat()
+                .replace("+00:00", "Z")
+            )
     try:
-        by_date = reader(sorted(activities_by_date))
+        by_date = reader(
+            sorted(activities_by_date),
+            not_after_by_date=not_after_by_date,
+        )
     except Exception:
         return {}
     if not isinstance(by_date, Mapping):

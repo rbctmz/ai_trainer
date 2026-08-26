@@ -1693,8 +1693,13 @@ class Database:
                 result[session_id].append(checkpoint)
         return result
 
-    def get_latest_planning_checkpoints_for_dates(self, session_dates):
-        """Return the newest checkpoint containing session templates for each date."""
+    def get_latest_planning_checkpoints_for_dates(
+        self,
+        session_dates,
+        *,
+        not_after_by_date=None,
+    ):
+        """Return the newest qualifying checkpoint for each requested session date."""
         targets = sorted(
             {
                 str(value).strip()
@@ -1704,28 +1709,70 @@ class Database:
         )
         if not targets:
             return {}
+        bounded = not_after_by_date is not None
+        cutoffs = {}
+        if bounded:
+            raw_cutoffs = (
+                not_after_by_date if isinstance(not_after_by_date, Mapping) else {}
+            )
+            for session_date in targets:
+                raw_cutoff = str(raw_cutoffs.get(session_date) or "").strip()
+                if not raw_cutoff:
+                    continue
+                try:
+                    datetime.fromisoformat(raw_cutoff.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                cutoffs[session_date] = raw_cutoff
+            targets = sorted(cutoffs)
+            if not targets:
+                return {}
         conn = self._connect()
         cursor = conn.cursor()
-        cursor.execute(
-            '''
-            SELECT DISTINCT CAST(node.value AS TEXT) AS session_date,
-                   pc.id, pc.goal_type, pc.distance, pc.weeks_to_race,
-                   pc.checkpoint_data, pc.created_at
-            FROM planning_checkpoints AS pc
-            JOIN json_tree(
-                CASE
-                    WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data
-                    ELSE '{}'
-                END
-            ) AS node ON node.key = 'date'
-            WHERE CAST(node.value AS TEXT) IN (
-                SELECT CAST(value AS TEXT) FROM json_each(?)
+        if bounded:
+            cursor.execute(
+                '''
+                SELECT DISTINCT CAST(node.value AS TEXT) AS session_date,
+                       pc.id, pc.goal_type, pc.distance, pc.weeks_to_race,
+                       pc.checkpoint_data, pc.created_at
+                FROM planning_checkpoints AS pc
+                JOIN json_tree(
+                    CASE
+                        WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data
+                        ELSE '{}'
+                    END
+                ) AS node ON node.key = 'date'
+                JOIN json_each(?) AS requested
+                  ON CAST(node.value AS TEXT) = CAST(requested.key AS TEXT)
+                WHERE node.fullkey LIKE '%session_templates%'
+                  AND datetime(pc.created_at) <= datetime(
+                      CAST(requested.value AS TEXT)
+                  )
+                ORDER BY datetime(pc.created_at) DESC, pc.id DESC
+                ''',
+                (json.dumps(cutoffs),),
             )
-              AND node.fullkey LIKE '%session_templates%'
-            ORDER BY pc.id DESC
-            ''',
-            (json.dumps(targets),),
-        )
+        else:
+            cursor.execute(
+                '''
+                SELECT DISTINCT CAST(node.value AS TEXT) AS session_date,
+                       pc.id, pc.goal_type, pc.distance, pc.weeks_to_race,
+                       pc.checkpoint_data, pc.created_at
+                FROM planning_checkpoints AS pc
+                JOIN json_tree(
+                    CASE
+                        WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data
+                        ELSE '{}'
+                    END
+                ) AS node ON node.key = 'date'
+                WHERE CAST(node.value AS TEXT) IN (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                )
+                  AND node.fullkey LIKE '%session_templates%'
+                ORDER BY pc.id DESC
+                ''',
+                (json.dumps(targets),),
+            )
         rows = cursor.fetchall()
         conn.close()
         result = {}
