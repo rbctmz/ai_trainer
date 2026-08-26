@@ -238,9 +238,8 @@ def _stimulus_for_match(
             list(plan.get("session_templates") or []),
             str(lineage_match.get("session_id") or ""),
         )
-        stimulus = _stimulus_family(session)
-        if stimulus:
-            return stimulus
+        if session is not None:
+            return _stimulus_family(session)
     return None
 
 
@@ -459,20 +458,84 @@ def _auto_reconciled_stimulus(
     if cache_key in latest_plan_cache:
         cached = latest_plan_cache[cache_key]
         return str(cached) if cached else None
-    checkpoint_reader = getattr(
-        database,
-        "get_planning_checkpoints_for_session",
-        None,
+    if "historical_checkpoints_by_session" in latest_plan_cache:
+        historical_index = latest_plan_cache.get("historical_checkpoints_by_session")
+        checkpoints = (
+            historical_index.get(session_id, [])
+            if isinstance(historical_index, Mapping)
+            else []
+        )
+    else:
+        checkpoint_reader = getattr(
+            database,
+            "get_planning_checkpoints_for_session",
+            None,
+        )
+        checkpoints = (
+            checkpoint_reader(session_id) if callable(checkpoint_reader) else []
+        )
+    historical_plan_cache = latest_plan_cache.setdefault(
+        "historical_plan_by_checkpoint_id", {}
     )
-    checkpoints = checkpoint_reader(session_id) if callable(checkpoint_reader) else []
     for checkpoint in checkpoints or []:
-        plan = restore_goal_plan_from_checkpoint(checkpoint)
+        try:
+            checkpoint_id = int(checkpoint.get("id"))
+        except (AttributeError, TypeError, ValueError):
+            checkpoint_id = None
+        if (
+            checkpoint_id is not None
+            and isinstance(historical_plan_cache, dict)
+            and checkpoint_id in historical_plan_cache
+        ):
+            plan = historical_plan_cache[checkpoint_id]
+        else:
+            plan = restore_goal_plan_from_checkpoint(checkpoint)
+            if checkpoint_id is not None and isinstance(historical_plan_cache, dict):
+                historical_plan_cache[checkpoint_id] = plan
         historical_stimulus = stimulus_from_plan(plan)
         if historical_stimulus:
             latest_plan_cache[cache_key] = historical_stimulus
             return historical_stimulus
     latest_plan_cache[cache_key] = None
     return None
+
+
+def _preload_historical_checkpoints(
+    database: Any,
+    *,
+    activities: list[Mapping[str, Any]],
+    feedbacks: Mapping[str, Mapping[str, Any]],
+    latest_plan_cache: dict[str, Any],
+) -> None:
+    """Batch the bounded legacy-session checkpoint reads when supported."""
+    batch_reader = getattr(database, "get_planning_checkpoints_for_sessions", None)
+    if not callable(batch_reader):
+        return
+    session_ids: set[str] = set()
+    for activity in activities:
+        activity_id = str(activity.get("activity_id") or "").strip()
+        feedback = feedbacks.get(activity_id)
+        if (
+            not isinstance(feedback, Mapping)
+            or feedback.get("match_revision_id") is not None
+        ):
+            continue
+        snapshot = dict(feedback.get("match_snapshot") or {})
+        if not _stable_auto_match(snapshot):
+            continue
+        planned = dict(snapshot.get("planned") or {})
+        session_id = str(
+            planned.get("session_id") or feedback.get("session_id") or ""
+        ).strip()
+        if session_id:
+            session_ids.add(session_id)
+    try:
+        historical_index = batch_reader(sorted(session_ids)) if session_ids else {}
+    except Exception:
+        historical_index = {}
+    latest_plan_cache["historical_checkpoints_by_session"] = (
+        dict(historical_index) if isinstance(historical_index, Mapping) else {}
+    )
 
 
 def _feedback_matches_target(
@@ -639,6 +702,12 @@ def project_comparable_session(
             checkpoint_cache[int(latest_checkpoint.get("id"))] = latest_plan
         except (TypeError, ValueError):
             pass
+    _preload_historical_checkpoints(
+        database,
+        activities=activities,
+        feedbacks=feedbacks,
+        latest_plan_cache=latest_plan_cache,
+    )
     candidate_sources: dict[
         str,
         tuple[dict[str, Any], str, Mapping[str, Any] | None],

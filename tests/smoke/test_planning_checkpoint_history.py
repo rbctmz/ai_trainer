@@ -206,6 +206,9 @@ def test_database_roundtrips_planning_checkpoint(tmp_path):
         "session_id"
     ]
     matching = db.get_planning_checkpoints_for_session(session_id)
+    matching_batch = db.get_planning_checkpoints_for_sessions(
+        [session_id, "missing-session"]
+    )
 
     assert saved["id"]
     assert fetched["id"] == saved["id"]
@@ -215,6 +218,8 @@ def test_database_roundtrips_planning_checkpoint(tmp_path):
     assert latest["goal_plan_snapshot"]["weekly_summary"][0]["adjustment_note"].startswith("checkpoint:")
     assert len(history) == 1
     assert [item["id"] for item in matching] == [saved["id"]]
+    assert [item["id"] for item in matching_batch[session_id]] == [saved["id"]]
+    assert matching_batch["missing-session"] == []
 
 
 def test_checkpoint_helpers_restore_goal_plan_context():

@@ -10,12 +10,12 @@
 - Class: **A**
 - Rationale: a new cross-module evidence contract joins activity lineage, plan stimulus, interval structure, athlete feedback, API/web presentation, and AI-coach tools.
 - Automatic escalation triggers checked: new public contract — yes; provenance/identity — yes; persistence/schema — no; provider write — no; destructive sync — no; paid call — no.
-- Review budget used: 4 native Codex Review rounds (third and fourth were delayed connector reviews); one root self-review completed
+- Review budget used: 8 native Codex Review rounds (including delayed connector reviews); one root self-review and one bounded Luna read-only audit completed
 
 ## Scope
 
 - Behavior that changes: one completed, stably matched single-activity session can expose the best eligible prior session of the same canonical sport and exact stimulus family, with transparent similarity evidence and bounded metric deltas.
-- Files/modules in scope: `models/comparable_sessions.py`, `services/comparable_sessions.py`, `api/session_feedback.py`, `api/today_snapshot.py`, `models/ai_tools.py`, `models/coach_tool_presenter.py`, `web/lib/types.ts`, `web/components/today/PostWorkoutFeedbackCard.tsx`, smoke tests, contract artifact, this spec and the ExecPlan.
+- Files/modules in scope: `models/comparable_sessions.py`, `services/comparable_sessions.py`, `data/database.py` (read-only batch query), `api/session_feedback.py`, `api/today_snapshot.py`, `models/ai_tools.py`, `models/coach_tool_presenter.py`, `web/lib/types.ts`, `web/components/today/PostWorkoutFeedbackCard.tsx`, smoke tests, contract artifact, this spec and the ExecPlan.
 
 ## Non-goals
 
@@ -35,7 +35,7 @@
 - Session-feedback submit/correct result: changed compatibly with nullable `comparison`.
 - AI tool registry: changed compatibly with read-only `get_comparable_session`.
 - TypeScript: changed compatibly; extractor must be refreshed.
-- SQLite, provider, config, CLI, plan mutation, and TSS contracts: unchanged.
+- SQLite schema/write behavior, provider, config, CLI, plan mutation, and TSS contracts: unchanged; the internal database read surface gains a batched checkpoint lookup.
 
 ## Failure, Reset, Rollback, Idempotency
 
@@ -94,11 +94,11 @@
 
 - Head SHA: pending until commit.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
-- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38, targeted 2-test RED→40; smoke 2105 passed; contributor-safe 2151 passed / 4 skipped / 24 deselected.
-- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests green; `fca0cfc` (sixth-review head) GitHub CI green; seventh-review head pending push.
+- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38, targeted 2-test RED→40, targeted 4-failure / 1-control RED→44; 96 canonical focused tests; smoke 2108 passed / 1 skipped; contributor-safe 2154 passed / 3 skipped / 26 deselected.
+- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests green; `d20d00f` (seventh-review head) GitHub CI green; eighth-review head pending push.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: 0 from rounds one through six; 2 from round seven pending pushed replies/resolution.
+- Unresolved review-thread count: 5 — 2 seventh-round threads already fixed in `d20d00f`, plus 3 eighth-round threads fixed locally; all await pushed replies/resolution.
 - Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated.
 
 ## Review Findings
@@ -135,12 +135,15 @@
 | P2 | **Observed**: explicit lookup restored a tombstoned feedback's stale match revision. **Inferred**: an unmatch could still appear as a stable target comparison. **Verified by**: tombstone evidence is rejected and the endpoint revalidates current reconciliation with no subjective feedback attachment. | Treat tombstones as prompt/history state only; rebuild objective target evidence from current facts. | Codex / resolved locally. |
 | P2 | **Observed**: `tss_per_hour` divided stored TSS by elapsed duration, while the canonical TSS resolver derives load from positive moving time. **Inferred**: pauses could make equivalent workouts look intensity-incompatible and remove valid comparators. **Verified by**: `test_tss_density_uses_moving_duration_with_elapsed_fallback` — two 40-moving-minute / 70-TSS runs with 40 vs 75 elapsed minutes. | Compute density from positive moving duration with the established elapsed fallback. | DeepSeek Harness / resolved locally. |
 | P1 | **Observed**: the legacy auto-recovery branch restored a stimulus from revisionless auto-match feedback without checking the session's current manual ledger row. **Inferred**: after a manual S→B correction, the auto-matched A could still be selected as an exact-stimulus comparator. **Verified by**: `test_service_suppresses_legacy_auto_feedback_after_manual_rematch` — current `user_confirmed` S→B plus legacy S→A feedback. | Suppress legacy recovery whenever the current session ledger does not own the feedback's activity as its sole matched actual. | DeepSeek Harness / resolved locally. |
+| P1 | **Observed**: saved feedback reconstruction trusted its historical match revision after a later manual rematch. **Inferred**: explicit and default coach calls could compare stale activity A after S→B. **Verified by**: `test_saved_feedback_revalidates_against_current_match_leaf` RED/GREEN. | Revalidate against the current leaf and rebuild objective evidence when status or actual ids differ. | Codex / resolved locally. |
+| P2 | **Observed**: 100 distinct revisionless legacy sessions issued 100 per-session checkpoint scans. **Inferred**: plan rollovers create an avoidable N+1 full-history read. **Verified by**: `test_service_batches_historical_checkpoint_recovery` now observes one batch read and zero singular reads. | Add one read-only multi-session query and cache restored plans by checkpoint id. | Codex / resolved locally. |
+| P2 | **Observed**: a present current template with empty stimulus continued into an ancestor with `threshold`. **Inferred**: missing evidence could become a false exact-stimulus match. **Verified by**: paired present-empty and identity-absent lineage RED/GREEN tests. | Stop fail-closed when identity is present; traverse only when identity is absent. | Codex / resolved locally. |
 
 ## Final Verdict
 
-- Verdict: **READY after seventh-round push, thread resolution, CI, and final current-head connector review**.
+- Verdict: **READY after eighth-round push, thread resolution, CI, and final current-head connector review**.
 - Blocking findings remaining: none in local code; publication gates remain.
-- Review rounds used: 7 (five delayed/current-head connector reviews; 27 findings total).
+- Review rounds used: 8 (30 findings total).
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: Codex.

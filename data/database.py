@@ -1645,6 +1645,54 @@ class Database:
             if item
         ]
 
+    def get_planning_checkpoints_for_sessions(self, session_ids):
+        """Return newest-first checkpoints for many planned session ids at once."""
+        targets = sorted(
+            {
+                str(session_id).strip()
+                for session_id in session_ids or []
+                if str(session_id or '').strip()
+            }
+        )
+        result = {session_id: [] for session_id in targets}
+        if not targets:
+            return result
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT DISTINCT CAST(node.value AS TEXT) AS matched_session_id,
+                   pc.id, pc.goal_type, pc.distance, pc.weeks_to_race,
+                   pc.checkpoint_data, pc.created_at
+            FROM planning_checkpoints AS pc
+            JOIN json_tree(
+                CASE
+                    WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data
+                    ELSE '{}'
+                END
+            ) AS node ON node.key = 'session_id'
+            WHERE CAST(node.value AS TEXT) IN (
+                SELECT CAST(value AS TEXT) FROM json_each(?)
+            )
+            ORDER BY pc.id DESC
+            ''',
+            (json.dumps(targets),),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        checkpoint_cache = {}
+        for row in rows:
+            session_id = str(row[0])
+            checkpoint_id = int(row[1])
+            if checkpoint_id not in checkpoint_cache:
+                checkpoint_cache[checkpoint_id] = (
+                    self._deserialize_planning_checkpoint_row(row[1:])
+                )
+            checkpoint = checkpoint_cache[checkpoint_id]
+            if checkpoint is not None and session_id in result:
+                result[session_id].append(checkpoint)
+        return result
+
     def _deserialize_planning_checkpoint_row(self, row):
         if not row:
             return None

@@ -162,6 +162,43 @@ def _comparison_for_evidence(
         return build_comparison_data_gap("COMPARISON_READ_FAILED")
 
 
+def _current_match_leaf_for_session(
+    db: Database,
+    *,
+    session_id: str,
+    session_date: str,
+) -> tuple[bool, Mapping[str, Any] | None]:
+    """Return whether current-ledger revalidation ran and its matching leaf."""
+    reader = getattr(db, "get_latest_plan_actual_matches", None)
+    if not callable(reader):
+        return False, None
+    try:
+        matches = reader(start_date=session_date, end_date=session_date)
+    except Exception:
+        return True, None
+    target_key = f"session:{session_id}"
+    current = next(
+        (
+            item
+            for item in matches or []
+            if isinstance(item, Mapping)
+            and str(item.get("target_key") or "") == target_key
+        ),
+        None,
+    )
+    if current is None:
+        current = next(
+            (
+                item
+                for item in matches or []
+                if isinstance(item, Mapping)
+                and str(item.get("session_id") or "") == session_id
+            ),
+            None,
+        )
+    return True, current
+
+
 def _evidence_from_saved_feedback(
     db: Database,
     feedback: Mapping[str, Any],
@@ -179,6 +216,43 @@ def _evidence_from_saved_feedback(
         else None
     )
     session_id = str(feedback.get("session_id") or "")
+    raw_snapshot = feedback.get("match_snapshot")
+    snapshot = dict(raw_snapshot) if isinstance(raw_snapshot, Mapping) else {}
+    saved_planned = dict(snapshot.get("planned") or {})
+    saved_session_date = str(
+        (match or {}).get("session_date") or saved_planned.get("date") or ""
+    )[:10]
+    revalidated_to_current = False
+    if isinstance(match, Mapping) and saved_session_date:
+        revalidation_ran, current_match = _current_match_leaf_for_session(
+            db,
+            session_id=session_id,
+            session_date=saved_session_date,
+        )
+        if revalidation_ran and not isinstance(current_match, Mapping):
+            return None
+        if isinstance(current_match, Mapping):
+            saved_ids = [
+                str(value)
+                for value in (
+                    match.get("actual_activity_ids")
+                    or feedback.get("actual_activity_ids")
+                    or []
+                )
+                if str(value or "").strip()
+            ]
+            current_ids = [
+                str(value)
+                for value in current_match.get("actual_activity_ids") or []
+                if str(value or "").strip()
+            ]
+            if (
+                current_match.get("match_status") != match.get("match_status")
+                or current_ids != saved_ids
+            ):
+                match = current_match
+                match_revision_id = current_match.get("id")
+                revalidated_to_current = True
     day_template: Mapping[str, Any] | None = None
     template: Mapping[str, Any] | None = None
     if isinstance(match, Mapping):
@@ -238,9 +312,19 @@ def _evidence_from_saved_feedback(
                 break
     if template is None:
         return None
-    snapshot = dict(feedback.get("match_snapshot") or {})
+    raw_actual_snapshot = (match or {}).get("actual_snapshot")
+    current_actual_snapshot = (
+        dict(raw_actual_snapshot)
+        if isinstance(raw_actual_snapshot, Mapping)
+        else {}
+    )
     planned = dict(
-        snapshot.get("planned") or (match or {}).get("planned_snapshot") or {}
+        (
+            (match or {}).get("planned_snapshot") or snapshot.get("planned")
+            if revalidated_to_current
+            else snapshot.get("planned") or (match or {}).get("planned_snapshot")
+        )
+        or {}
     )
     session_date_text = str(
         (match or {}).get("session_date")
@@ -265,17 +349,35 @@ def _evidence_from_saved_feedback(
             **planned,
             "session_id": session_id,
             "date": session_date_text or planned.get("date"),
-            "match_status": snapshot.get("match_status")
-            or (match or {}).get("match_status"),
-            "match_method": snapshot.get("match_method")
-            or (match or {}).get("match_method"),
-            "confidence": (
-                snapshot.get("confidence")
-                if snapshot.get("confidence") is not None
-                else (match or {}).get("confidence")
+            "match_status": (
+                (match or {}).get("match_status")
+                if revalidated_to_current
+                else snapshot.get("match_status") or (match or {}).get("match_status")
             ),
-            "actual_activity_ids": list(feedback.get("actual_activity_ids") or []),
-            "actual_activities": list(snapshot.get("actual_activities") or []),
+            "match_method": (
+                (match or {}).get("match_method")
+                if revalidated_to_current
+                else snapshot.get("match_method") or (match or {}).get("match_method")
+            ),
+            "confidence": (
+                (match or {}).get("confidence")
+                if revalidated_to_current
+                else (
+                    snapshot.get("confidence")
+                    if snapshot.get("confidence") is not None
+                    else (match or {}).get("confidence")
+                )
+            ),
+            "actual_activity_ids": (
+                list((match or {}).get("actual_activity_ids") or [])
+                if revalidated_to_current
+                else list(feedback.get("actual_activity_ids") or [])
+            ),
+            "actual_activities": (
+                list(current_actual_snapshot.get("actual_activities") or [])
+                if revalidated_to_current
+                else list(snapshot.get("actual_activities") or [])
+            ),
         },
         "template": dict(template),
         "match_revision_id": match_revision_id,

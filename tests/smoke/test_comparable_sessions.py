@@ -1518,6 +1518,349 @@ def test_saved_feedback_restores_rebound_session_through_match_lineage() -> None
     assert evidence["template"]["definition_snapshot"]["step_builder_key"] == "threshold"
 
 
+def test_saved_feedback_revalidates_against_current_match_leaf() -> None:
+    from api.session_feedback import _evidence_from_saved_feedback
+
+    feedback = {
+        "status": "active",
+        "session_id": "rematched-session",
+        "match_revision_id": 1,
+        "actual_activity_ids": ["activity-a"],
+        "match_snapshot": {
+            "planned": {"date": "2026-08-01", "sport": "bike"},
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "confidence": 1.0,
+            "actual_activity_ids": ["activity-a"],
+        },
+    }
+
+    revision_one = {
+        "id": 1,
+        "target_key": "session:rematched-session",
+        "session_id": "rematched-session",
+        "session_date": "2026-08-01",
+        "base_checkpoint_id": 7,
+        "match_status": "matched",
+        "match_method": "user_confirmed",
+        "confidence": 1.0,
+        "actual_activity_ids": ["activity-a"],
+        "planned_snapshot": {"date": "2026-08-01", "sport": "bike"},
+    }
+    revision_two = {
+        **revision_one,
+        "id": 2,
+        "supersedes_match_id": 1,
+        "actual_activity_ids": ["activity-b"],
+    }
+
+    class RematchedFeedbackDb:
+        def get_plan_actual_match(self, match_revision_id):
+            return {1: revision_one, 2: revision_two}.get(match_revision_id)
+
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            assert start_date == "2026-08-01"
+            assert end_date == "2026-08-01"
+            return [revision_two]
+
+        def get_planning_checkpoint(self, checkpoint_id):
+            assert checkpoint_id == 7
+            return {
+                "id": 7,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-01",
+                            "total_tss": 70,
+                            "parts": {"bike": 70},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-01",
+                            "sessions": [
+                                {
+                                    "session_id": "rematched-session",
+                                    "sport": "bike",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "threshold"
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+
+    evidence = _evidence_from_saved_feedback(
+        RematchedFeedbackDb(), feedback, as_of="2026-08-24"
+    )
+
+    assert evidence is not None
+    assert evidence["row"]["actual_activity_ids"] == ["activity-b"]
+    assert evidence["match_revision_id"] == 2
+
+
+def test_stimulus_lineage_stops_at_present_template_without_stimulus() -> None:
+    from services.comparable_sessions import _stimulus_for_match
+
+    checkpoints = {
+        8: {
+            "id": 8,
+            "goal_plan_snapshot": {
+                "daily_plan": [
+                    {"date": "2026-08-01", "total_tss": 0, "parts": {}}
+                ],
+                "session_templates": [
+                    {
+                        "date": "2026-08-01",
+                        "sessions": [
+                            {
+                                "session_id": "current-session",
+                                "sport": "bike",
+                                "definition_snapshot": {},
+                            }
+                        ],
+                    }
+                ]
+            },
+        },
+        7: {
+            "id": 7,
+            "goal_plan_snapshot": {
+                "daily_plan": [
+                    {"date": "2026-08-01", "total_tss": 70, "parts": {"bike": 70}}
+                ],
+                "session_templates": [
+                    {
+                        "date": "2026-08-01",
+                        "sessions": [
+                            {
+                                "session_id": "historical-session",
+                                "sport": "bike",
+                                "definition_snapshot": {
+                                    "step_builder_key": "threshold"
+                                },
+                            }
+                        ],
+                    }
+                ]
+            },
+        },
+    }
+
+    class LineageDb:
+        def get_planning_checkpoint(self, checkpoint_id):
+            return checkpoints[checkpoint_id]
+
+    match = {
+        "_stimulus_lineage": [
+            {
+                "id": 2,
+                "session_id": "current-session",
+                "base_checkpoint_id": 8,
+            },
+            {
+                "id": 1,
+                "session_id": "historical-session",
+                "base_checkpoint_id": 7,
+            },
+        ]
+    }
+
+    assert _stimulus_for_match(LineageDb(), match, {}) is None
+
+
+def test_stimulus_lineage_walks_when_current_identity_is_absent() -> None:
+    from services.comparable_sessions import _stimulus_for_match
+
+    checkpoints = {
+        8: {
+            "id": 8,
+            "goal_plan_snapshot": {
+                "daily_plan": [
+                    {"date": "2026-08-01", "total_tss": 0, "parts": {}}
+                ],
+                "session_templates": [
+                    {
+                        "date": "2026-08-01",
+                        "sessions": [
+                            {
+                                "session_id": "different-session",
+                                "sport": "bike",
+                            }
+                        ],
+                    }
+                ]
+            },
+        },
+        7: {
+            "id": 7,
+            "goal_plan_snapshot": {
+                "daily_plan": [
+                    {"date": "2026-08-01", "total_tss": 70, "parts": {"bike": 70}}
+                ],
+                "session_templates": [
+                    {
+                        "date": "2026-08-01",
+                        "sessions": [
+                            {
+                                "session_id": "historical-session",
+                                "sport": "bike",
+                                "definition_snapshot": {
+                                    "step_builder_key": "threshold"
+                                },
+                            }
+                        ],
+                    }
+                ]
+            },
+        },
+    }
+
+    class LineageDb:
+        def get_planning_checkpoint(self, checkpoint_id):
+            return checkpoints[checkpoint_id]
+
+    match = {
+        "_stimulus_lineage": [
+            {
+                "id": 2,
+                "session_id": "current-session",
+                "base_checkpoint_id": 8,
+            },
+            {
+                "id": 1,
+                "session_id": "historical-session",
+                "base_checkpoint_id": 7,
+            },
+        ]
+    }
+
+    assert _stimulus_for_match(LineageDb(), match, {}) == "threshold"
+
+
+def test_service_batches_historical_checkpoint_recovery() -> None:
+    candidate_count = 100
+
+    class BatchedHistoryDb(_ComparableDb):
+        def __init__(self) -> None:
+            super().__init__()
+            self.candidates = [
+                _activity(
+                    f"candidate-{index}",
+                    "2026-08-01",
+                    duration=58,
+                    tss=68,
+                )
+                for index in range(candidate_count)
+            ]
+            self.batch_calls = 0
+            self.single_calls = 0
+
+        def get_activities_between(self, _start, _end):
+            return self.candidates
+
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            return []
+
+        def get_latest_planning_checkpoint(self):
+            return {
+                "id": 8,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {"date": "2026-08-24", "total_tss": 40, "parts": {"bike": 40}}
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-24",
+                            "sessions": [
+                                {
+                                    "session_id": "replacement-session",
+                                    "sport": "bike",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "endurance"
+                                    },
+                                }
+                            ],
+                        }
+                    ]
+                },
+            }
+
+        def get_latest_session_feedbacks(self):
+            return [
+                {
+                    "status": "active",
+                    "session_id": f"prior-session-{index}",
+                    "match_revision_id": None,
+                    "actual_activity_ids": [f"candidate-{index}"],
+                    "match_snapshot": {
+                        "planned": {
+                            "session_id": f"prior-session-{index}",
+                            "date": "2026-08-01",
+                            "sport": "bike",
+                        },
+                        "match_status": "matched",
+                        "match_method": "date_sport_heuristic",
+                        "confidence": 0.75,
+                        "actual_activity_ids": [f"candidate-{index}"],
+                    },
+                }
+                for index in range(candidate_count)
+            ]
+
+        def get_planning_checkpoints_for_sessions(self, session_ids):
+            self.batch_calls += 1
+            historical = {
+                "id": 7,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {"date": "2026-08-01", "total_tss": 70, "parts": {"bike": 70}}
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-01",
+                            "sessions": [
+                                {
+                                    "session_id": session_id,
+                                    "sport": "bike",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "threshold"
+                                    },
+                                }
+                                for session_id in session_ids
+                            ],
+                        }
+                    ]
+                },
+            }
+            return {session_id: [historical] for session_id in session_ids}
+
+        def get_planning_checkpoints_for_session(self, session_id):
+            self.single_calls += 1
+            raise AssertionError("per-session checkpoint reads must not be used")
+
+    database = BatchedHistoryDb()
+    result = project_comparable_session(
+        database,
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "available"
+    assert database.batch_calls == 1
+    assert database.single_calls == 0
+
+
 def test_default_coach_target_uses_latest_workout_time_not_feedback_time(
     monkeypatch,
 ) -> None:
