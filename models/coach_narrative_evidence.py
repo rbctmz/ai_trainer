@@ -1,8 +1,8 @@
 """Deterministic evidence boundary for athlete-facing coach narratives.
 
 The policy is intentionally narrow. It is not a generic factuality checker:
-only recovery/readiness, HRV suppression, bounded trends, missed sessions and
-calendar-relative claims are recognized.
+only recovery/readiness, HRV suppression, bounded trends, causal claims from a
+single-session comparison, missed sessions and calendar-relative claims are recognized.
 """
 from __future__ import annotations
 
@@ -28,6 +28,7 @@ READINESS_EVIDENCE_MISSING = "READINESS_EVIDENCE_MISSING"
 READINESS_EVIDENCE_STALE = "READINESS_EVIDENCE_STALE"
 HRV_EVIDENCE_MISSING = "HRV_EVIDENCE_MISSING"
 INVALID_ATHLETE_TIMEZONE = "INVALID_ATHLETE_TIMEZONE"
+CAUSAL_CLAIM_UNSUPPORTED = "CAUSAL_CLAIM_UNSUPPORTED"
 
 _REASON_ORDER = (
     READINESS_CLAIM_CONTRADICTED,
@@ -40,6 +41,7 @@ _REASON_ORDER = (
     READINESS_EVIDENCE_STALE,
     HRV_EVIDENCE_MISSING,
     INVALID_ATHLETE_TIMEZONE,
+    CAUSAL_CLAIM_UNSUPPORTED,
 )
 _DATA_GAP_CODES = {
     TREND_COMPARATOR_MISSING,
@@ -48,6 +50,7 @@ _DATA_GAP_CODES = {
     READINESS_EVIDENCE_STALE,
     HRV_EVIDENCE_MISSING,
     INVALID_ATHLETE_TIMEZONE,
+    CAUSAL_CLAIM_UNSUPPORTED,
 }
 
 _RU_WEEKDAYS = (
@@ -97,7 +100,7 @@ _TREND_SUBJECT = re.compile(
 _RELATIVE_DATE = re.compile(r"\b(?:сегодня|вчера|до\s+старта)\b", re.IGNORECASE)
 _ISO_DATE = r"(\d{4}-\d{2}-\d{2})"
 _NEGATED_ASSERTION = re.compile(
-    r"(?:не\s+подтвержда\w*|нельзя\s+сказать|нет\s+(?:данных|оснований)|"
+    r"(?:не\s+(?:подтвержда|доказыва)\w*|нельзя\s+сказать|нет\s+(?:данных|оснований)|"
     r"не\s+видно|не\s+похоже).{0,48}$",
     re.IGNORECASE,
 )
@@ -114,6 +117,24 @@ _ADVICE_VERB = re.compile(
 _INTENT_MARKER = re.compile(r"\b(?:хочу|планирую|цель\s*[-—:]?)\b", re.IGNORECASE)
 _CAUSAL_TAIL = re.compile(
     r"\b(?:потому\s+что|так\s+как|поскольку)\b\s*(.+)$",
+    re.IGNORECASE,
+)
+_CAUSAL_ASSERTION = re.compile(
+    r"(?:\b(?:вызван\w*|обусловлен\w*|из-за|благодаря|"
+    r"причин\w*|следстви\w*)\b|"
+    r"(?<!не\s)\b(?:доказыва\w*|подтвержда\w*|наблюда\w*|произошл\w*)"
+    r".{0,32}\bадаптаци\w*\b|\b(?:это|значит)\s+адаптаци\w*\b|"
+    r"\bадаптаци\w*(?:(?!\bне\b).){0,32}"
+    r"\b(?:привел\w*|привод\w*|вызва\w*|обуслов\w*)\b|"
+    r"\bсвязан\w*.{0,16}\bадаптаци\w*\b|"
+    r"\bрезультат\w*\s+адаптаци\w*\b)",
+    re.IGNORECASE,
+)
+_NEGATED_CAUSAL_PREFIX = re.compile(r"\bне\s*$", re.IGNORECASE)
+_COMPARISON_CAUSAL_SCOPE = re.compile(
+    r"(?:адаптаци\w*|сравнен\w*|сесси\w*|трениров\w*|tss|rpe|"
+    r"мощност\w*|темп\w*|скорост\w*|пульс\w*|"
+    r"интенсивност\w*|длительност\w*|нагрузк\w*|показател\w*)",
     re.IGNORECASE,
 )
 
@@ -283,6 +304,12 @@ def validate_coach_narrative(
     if _missed_session_claim_unsupported(claim_text, sessions, calendar):
         found.add(SESSION_MISSED_UNSUPPORTED)
 
+    if (
+        comparators.get("causal_claim_allowed") is False
+        and _unsupported_comparison_causal_claim(claim_text)
+    ):
+        found.add(CAUSAL_CLAIM_UNSUPPORTED)
+
     reason_codes = tuple(code for code in _REASON_ORDER if code in found)
     if not reason_codes:
         return CoachNarrativeGateResult(
@@ -394,6 +421,7 @@ def _session_evidence(source: Mapping[str, Any] | None) -> dict[str, Any]:
 def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     domains: set[str] = set()
     directions: dict[str, str] = {}
+    causal_claim_allowed: bool | None = None
     for item in tool_results:
         if not item.get("success"):
             continue
@@ -431,7 +459,16 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
                 directions.update(
                     {"generic": direction, "fitness": direction, "load": direction}
                 )
-    return {"domains": sorted(domains), "directions": directions}
+        elif name == "get_comparable_session":
+            guardrails = data.get("guardrails")
+            guardrails = dict(guardrails) if isinstance(guardrails, Mapping) else {}
+            if guardrails.get("causal_claim_allowed") is False:
+                causal_claim_allowed = False
+    return {
+        "domains": sorted(domains),
+        "directions": directions,
+        "causal_claim_allowed": causal_claim_allowed,
+    }
 
 
 def _trend_claim_domains(text: str) -> set[str]:
@@ -535,6 +572,19 @@ def _has_asserted_claim(
             if not is_negated and not is_conditional:
                 return True
     return False
+
+
+def _unsupported_comparison_causal_claim(text: str) -> bool:
+    """Reject causal claims derived from the comparison, not unrelated advice."""
+    return any(
+        _COMPARISON_CAUSAL_SCOPE.search(segment)
+        and _has_asserted_claim(
+            segment,
+            _CAUSAL_ASSERTION,
+            negated_prefix=_NEGATED_CAUSAL_PREFIX,
+        )
+        for segment in _claim_segments(text)
+    )
 
 
 def _missed_session_claim_unsupported(
@@ -733,6 +783,8 @@ def _replacement_text(reason_codes: tuple[str, ...], payload: Mapping[str, Any])
         )
     if SESSION_MISSED_UNSUPPORTED in reason_codes:
         lines.append("- Данных недостаточно, чтобы считать тренировку пропущенной.")
+    if CAUSAL_CLAIM_UNSUPPORTED in reason_codes:
+        lines.append("- Одно сравнение не доказывает причину или адаптацию.")
     if any(
         code in reason_codes
         for code in (

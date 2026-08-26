@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "86646dd09fc777199a6443b93a6daf60375afad413caa5d5210dc72ceaee20cf",
+    "source_sha256": "86094e6e552df93c2f9c1d3a6ec76986248e8db2bd3e6371aba4126917bbe05a",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "a8b1bf6dfe79c12d94a8e1ddab9697db93f2304b0714facfeeefebe0c6848a5e"
   },
@@ -4340,6 +4340,678 @@
               "array_length": null
             },
             "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "ComparableSessionProjection": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "candidate_counts": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": {
+              "kinds": [
+                "number"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "array_length": null
+          }
+        },
+        "comparator": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "activity_id": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "date": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "duration_minutes": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "sport": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "sport_metric": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "stimulus_family": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "tss": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "tss_per_hour": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "comparison": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "duration_minutes_delta": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "overall_intensity_tss_per_hour_delta": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "sport_metric": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "subjective_evidence": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "tss_delta": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "guardrails": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "causal_claim_allowed": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "boolean"
+                  ],
+                  "literals": [
+                    false
+                  ],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "one_comparison_only": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "boolean"
+                  ],
+                  "literals": [
+                    true
+                  ],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "trend_claim_allowed": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "boolean"
+                  ],
+                  "literals": [
+                    false
+                  ],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "reason_code": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "rule_version": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "similarity": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "evidence": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "array"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": {
+                    "kinds": [
+                      "object"
+                    ],
+                    "literals": [],
+                    "widened": false,
+                    "items": null,
+                    "fields": null,
+                    "ref": null,
+                    "wildcard": false,
+                    "variants": null,
+                    "record_values": null,
+                    "array_length": null
+                  },
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "score": {
+                "optional": false,
+                "spec": {
+                  "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "status": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "string"
+            ],
+            "literals": [
+              "available",
+              "data_gap"
+            ],
+            "widened": true,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "target": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": {
+              "activity_id": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "date": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "duration_minutes": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "sport": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "sport_metric": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "object"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "stimulus_family": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "string"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "tss": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "tss_per_hour": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              }
+            },
             "ref": null,
             "wildcard": false,
             "variants": null,
@@ -16511,6 +17183,24 @@
             "items": null,
             "fields": null,
             "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "comparison": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "ComparableSessionProjection",
             "wildcard": false,
             "variants": null,
             "record_values": null,

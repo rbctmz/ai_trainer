@@ -19,11 +19,16 @@ from models.post_workout_feedback import (
     validate_feedback_values,
 )
 from models.session_quality_forecast import ACTUAL_SESSION_ROLES, classify_plan_adherence
+from models.comparable_sessions import build_comparison_data_gap
+from services.comparable_sessions import project_comparable_session
 from utils.product_semantics import normalize_sport_key
 
 
 class StaleFeedbackError(RuntimeError):
     """Raised when a correction targets a superseded feedback revision."""
+
+
+_STARTED_COMPLETION_STATUSES = {"completed", "partial", "stopped_early"}
 
 
 def _now(value: datetime | None = None) -> datetime:
@@ -114,14 +119,474 @@ def feedback_from_today_evidence(
     if current_primary is not None:
         current_primary["capture_mode"] = "immediate"
         projection["primary"] = current_primary
+    _attach_primary_comparison(
+        db,
+        projection,
+        rows=[
+            *list(yesterday.get("rows") or []),
+            *list((current_day or {}).get("rows") or []),
+        ],
+        templates=list((goal_plan or {}).get("session_templates") or []),
+        feedback_by_session=latest_feedback,
+    )
     return projection
+
+
+def _session_template(
+    templates: list[Mapping[str, Any]], session_id: str
+) -> Mapping[str, Any] | None:
+    _day_template, session = find_planned_session(templates, session_id)
+    if session is not None:
+        return session
+    return next(
+        (
+            item
+            for item in templates
+            if isinstance(item, Mapping)
+            and str(item.get("session_id") or "") == str(session_id)
+        ),
+        None,
+    )
+
+
+def _comparison_for_evidence(
+    db: Database,
+    evidence: Mapping[str, Any],
+    *,
+    feedback: Mapping[str, Any] | None = None,
+) -> dict[str, Any]:
+    try:
+        return project_comparable_session(db, evidence=evidence, feedback=feedback)
+    except Exception:
+        # Comparison enrichment must never break feedback capture or coach chat.
+        return build_comparison_data_gap("COMPARISON_READ_FAILED")
+
+
+def _current_match_leaf_for_session(
+    db: Database,
+    *,
+    session_id: str,
+    session_date: str,
+    saved_match_id: Any,
+    match_reader: Any,
+) -> tuple[bool, Mapping[str, Any] | None]:
+    """Resolve the effective current leaf descended from one saved match."""
+    reader = getattr(db, "get_latest_plan_actual_matches", None)
+    if not callable(reader):
+        return False, None
+    try:
+        matches = reader(start_date=session_date, end_date=session_date)
+    except Exception:
+        return True, None
+    try:
+        saved_id = int(saved_match_id)
+    except (TypeError, ValueError):
+        saved_id = None
+    if saved_id is not None:
+        identified: dict[int, Mapping[str, Any]] = {}
+        for item in matches or []:
+            if not isinstance(item, Mapping):
+                continue
+            try:
+                identified[int(item.get("id"))] = item
+            except (TypeError, ValueError):
+                continue
+
+        def lineage_distance(candidate: Mapping[str, Any]) -> int | None:
+            current: Mapping[str, Any] | None = candidate
+            seen: set[int] = set()
+            distance = 0
+            while isinstance(current, Mapping):
+                try:
+                    current_id = int(current.get("id"))
+                except (TypeError, ValueError):
+                    return None
+                if current_id in seen:
+                    return None
+                seen.add(current_id)
+                if current_id == saved_id:
+                    return distance
+                try:
+                    parent_id = int(current.get("supersedes_match_id"))
+                except (TypeError, ValueError):
+                    return None
+                parent = identified.get(parent_id)
+                if parent is None and callable(match_reader):
+                    try:
+                        hydrated = match_reader(parent_id)
+                    except Exception:
+                        hydrated = None
+                    parent = hydrated if isinstance(hydrated, Mapping) else None
+                    if parent is not None:
+                        identified[parent_id] = parent
+                current = parent
+                distance += 1
+            return None
+
+        descendants = [
+            (distance, item)
+            for item in matches or []
+            if isinstance(item, Mapping)
+            and (distance := lineage_distance(item)) is not None
+        ]
+        if descendants:
+            deepest = max(distance for distance, _item in descendants)
+            leaves = [item for distance, item in descendants if distance == deepest]
+            return True, leaves[0] if len(leaves) == 1 else None
+        return True, None
+
+    target_key = f"session:{session_id}"
+    current = next(
+        (
+            item
+            for item in matches or []
+            if isinstance(item, Mapping)
+            and str(item.get("target_key") or "") == target_key
+        ),
+        None,
+    )
+    if current is None:
+        current = next(
+            (
+                item
+                for item in matches or []
+                if isinstance(item, Mapping)
+                and str(item.get("session_id") or "") == session_id
+            ),
+            None,
+        )
+    return True, current
+
+
+def _evidence_from_saved_feedback(
+    db: Database,
+    feedback: Mapping[str, Any],
+    *,
+    as_of: date | datetime | str | None = None,
+) -> dict[str, Any] | None:
+    """Rebuild read-only comparison input without re-running reconciliation."""
+    if feedback.get("status") == "tombstone":
+        return None
+    match_revision_id = feedback.get("match_revision_id")
+    match_reader = getattr(db, "get_plan_actual_match", None)
+    match = (
+        match_reader(match_revision_id)
+        if callable(match_reader) and match_revision_id is not None
+        else None
+    )
+    session_id = str(feedback.get("session_id") or "")
+    raw_snapshot = feedback.get("match_snapshot")
+    snapshot = dict(raw_snapshot) if isinstance(raw_snapshot, Mapping) else {}
+    saved_planned = dict(snapshot.get("planned") or {})
+    saved_session_date = str(
+        (match or {}).get("session_date") or saved_planned.get("date") or ""
+    )[:10]
+    revalidated_to_current = False
+    if isinstance(match, Mapping) and saved_session_date:
+        revalidation_ran, current_match = _current_match_leaf_for_session(
+            db,
+            session_id=session_id,
+            session_date=saved_session_date,
+            saved_match_id=match_revision_id,
+            match_reader=match_reader,
+        )
+        if revalidation_ran and not isinstance(current_match, Mapping):
+            return None
+        if isinstance(current_match, Mapping):
+            saved_ids = [
+                str(value)
+                for value in (
+                    match.get("actual_activity_ids")
+                    or feedback.get("actual_activity_ids")
+                    or []
+                )
+                if str(value or "").strip()
+            ]
+            current_ids = [
+                str(value)
+                for value in current_match.get("actual_activity_ids") or []
+                if str(value or "").strip()
+            ]
+            if (
+                current_match.get("match_status") != match.get("match_status")
+                or current_ids != saved_ids
+            ):
+                match = current_match
+                match_revision_id = current_match.get("id")
+                revalidated_to_current = True
+    day_template: Mapping[str, Any] | None = None
+    template: Mapping[str, Any] | None = None
+    if isinstance(match, Mapping):
+        lineage: list[Mapping[str, Any]] = []
+        seen: set[int] = set()
+        current: Mapping[str, Any] | None = match
+        while current is not None:
+            try:
+                current_id = int(current.get("id"))
+            except (TypeError, ValueError):
+                break
+            if current_id in seen:
+                break
+            seen.add(current_id)
+            lineage.append(current)
+            try:
+                parent_id = int(current.get("supersedes_match_id"))
+            except (TypeError, ValueError):
+                break
+            parent = match_reader(parent_id) if callable(match_reader) else None
+            current = parent if isinstance(parent, Mapping) else None
+        for lineage_match in lineage:
+            checkpoint = db.get_planning_checkpoint(
+                lineage_match.get("base_checkpoint_id")
+            )
+            plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+            candidate_session_id = str(lineage_match.get("session_id") or session_id)
+            day_template, template = find_planned_session(
+                list(plan.get("session_templates") or []), candidate_session_id
+            )
+            if template is not None:
+                break
+    else:
+        checkpoints: list[Mapping[str, Any]] = []
+        latest_checkpoint = db.get_latest_planning_checkpoint()
+        if isinstance(latest_checkpoint, Mapping):
+            checkpoints.append(latest_checkpoint)
+        checkpoint_reader = getattr(
+            db,
+            "get_planning_checkpoints_for_session",
+            None,
+        )
+        if callable(checkpoint_reader):
+            latest_id = (latest_checkpoint or {}).get("id")
+            checkpoints.extend(
+                checkpoint
+                for checkpoint in checkpoint_reader(session_id) or []
+                if isinstance(checkpoint, Mapping)
+                and checkpoint.get("id") != latest_id
+            )
+        for checkpoint in checkpoints:
+            plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+            day_template, template = find_planned_session(
+                list(plan.get("session_templates") or []), session_id
+            )
+            if template is not None:
+                break
+    if template is None:
+        return None
+    raw_actual_snapshot = (match or {}).get("actual_snapshot")
+    current_actual_snapshot = (
+        dict(raw_actual_snapshot)
+        if isinstance(raw_actual_snapshot, Mapping)
+        else {}
+    )
+    planned = dict(
+        (
+            (match or {}).get("planned_snapshot") or snapshot.get("planned")
+            if revalidated_to_current
+            else snapshot.get("planned") or (match or {}).get("planned_snapshot")
+        )
+        or {}
+    )
+    session_date_text = str(
+        (match or {}).get("session_date")
+        or (day_template or {}).get("date")
+        or planned.get("date")
+        or ""
+    )[:10]
+    if as_of and session_date_text:
+        try:
+            resolved_as_of = (
+                as_of.date()
+                if isinstance(as_of, datetime)
+                else as_of
+                if isinstance(as_of, date)
+                else date.fromisoformat(str(as_of)[:10])
+            )
+            session_date = date.fromisoformat(session_date_text)
+        except ValueError:
+            return None
+        if session_date > resolved_as_of:
+            return None
+    return {
+        "row": {
+            **planned,
+            "session_id": session_id,
+            "date": session_date_text or planned.get("date"),
+            "match_status": (
+                (match or {}).get("match_status")
+                if revalidated_to_current
+                else snapshot.get("match_status") or (match or {}).get("match_status")
+            ),
+            "match_method": (
+                (match or {}).get("match_method")
+                if revalidated_to_current
+                else snapshot.get("match_method") or (match or {}).get("match_method")
+            ),
+            "confidence": (
+                (match or {}).get("confidence")
+                if revalidated_to_current
+                else (
+                    snapshot.get("confidence")
+                    if snapshot.get("confidence") is not None
+                    else (match or {}).get("confidence")
+                )
+            ),
+            "actual_activity_ids": (
+                list((match or {}).get("actual_activity_ids") or [])
+                if revalidated_to_current
+                else list(feedback.get("actual_activity_ids") or [])
+            ),
+            "actual_activities": (
+                list(current_actual_snapshot.get("actual_activities") or [])
+                if revalidated_to_current
+                else list(snapshot.get("actual_activities") or [])
+            ),
+        },
+        "template": dict(template),
+        "match_revision_id": match_revision_id,
+    }
+
+
+def _feedback_workout_sort_key(feedback: Mapping[str, Any]) -> tuple[float, float, int]:
+    """Sort feedback by completed workout time, never by late entry alone."""
+    epoch = datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+    def rank(value: datetime | None) -> float:
+        return (value - epoch).total_seconds() if value is not None else float("-inf")
+
+    workout_time = _utc(feedback.get("session_end_at_utc"))
+    snapshot = dict(feedback.get("match_snapshot") or {})
+    if workout_time is None:
+        actual_times = [
+            _utc(item.get("started_at_utc"))
+            for item in snapshot.get("actual_activities") or []
+            if isinstance(item, Mapping)
+        ]
+        workout_time = max(
+            (item for item in actual_times if item is not None), default=None
+        )
+    if workout_time is None:
+        raw_planned = snapshot.get("planned")
+        planned = dict(raw_planned) if isinstance(raw_planned, Mapping) else {}
+        planned_date = str(planned.get("date") or "")[:10]
+        try:
+            workout_time = datetime.combine(
+                date.fromisoformat(planned_date),
+                datetime.min.time(),
+                tzinfo=timezone.utc,
+            )
+        except ValueError:
+            workout_time = None
+    submitted = _utc(feedback.get("submitted_at") or feedback.get("created_at"))
+    return rank(workout_time), rank(submitted), int(feedback.get("id") or 0)
+
+
+def _feedback_session_day(feedback: Mapping[str, Any]) -> date | None:
+    """Resolve the local planned/activity day, with UTC workout fallback."""
+    snapshot = dict(feedback.get("match_snapshot") or {})
+    raw_planned = snapshot.get("planned")
+    planned = dict(raw_planned) if isinstance(raw_planned, Mapping) else {}
+    day_values = [planned.get("date")]
+    day_values.extend(
+        item.get("date")
+        for item in snapshot.get("actual_activities") or []
+        if isinstance(item, Mapping)
+    )
+    for value in day_values:
+        try:
+            return date.fromisoformat(str(value or "")[:10])
+        except ValueError:
+            continue
+    workout_time = _utc(feedback.get("session_end_at_utc"))
+    return workout_time.date() if workout_time is not None else None
+
+
+def _feedback_is_on_or_before(
+    feedback: Mapping[str, Any], resolved_as_of: date | None
+) -> bool:
+    if resolved_as_of is None:
+        return True
+    session_day = _feedback_session_day(feedback)
+    return session_day is not None and session_day <= resolved_as_of
+
+
+def _attach_primary_comparison(
+    db: Database,
+    projection: dict[str, Any],
+    *,
+    rows: list[Mapping[str, Any]],
+    templates: list[Mapping[str, Any]],
+    feedback_by_session: Mapping[str, Mapping[str, Any]],
+) -> None:
+    """Attach at most one bounded comparison to the primary prompt."""
+    primary = projection.get("primary")
+    if not isinstance(primary, dict):
+        return
+    session_id = str(primary.get("session_id") or "")
+    row = next(
+        (
+            dict(item)
+            for item in rows
+            if isinstance(item, Mapping)
+            and str(item.get("session_id") or "") == session_id
+        ),
+        None,
+    )
+    template = _session_template(templates, session_id)
+    if row is None or template is None:
+        primary["comparison"] = build_comparison_data_gap(
+            "TARGET_SESSION_EVIDENCE_MISSING"
+        )
+        return
+    match_revision_id = _match_revision_id_for_prompt(db, row, session_id)
+    primary["comparison"] = _comparison_for_evidence(
+        db,
+        {
+            "row": row,
+            "template": dict(template),
+            "match_revision_id": match_revision_id,
+        },
+        feedback=feedback_by_session.get(session_id),
+    )
+
+
+def _match_revision_id_for_prompt(
+    db: Database,
+    row: Mapping[str, Any],
+    session_id: str,
+) -> Any:
+    """Resolve the immutable match revision backing a feedback prompt."""
+    if row.get("match_revision_id") is not None:
+        return row.get("match_revision_id")
+    session_date = str(row.get("date") or "")[:10]
+    reader = getattr(db, "get_latest_plan_actual_matches", None)
+    if not session_date or not callable(reader):
+        return None
+    try:
+        matches = reader(start_date=session_date, end_date=session_date)
+    except Exception:
+        return None
+    target_key = f"session:{session_id}"
+    match_revision = next(
+        (
+            item
+            for item in matches or []
+            if isinstance(item, Mapping)
+            and (
+                str(item.get("target_key") or "") == target_key
+                or str(item.get("session_id") or "") == session_id
+            )
+        ),
+        None,
+    )
+    return (match_revision or {}).get("id")
 
 
 def _feedback_evidence_for_session(
     db: Database,
     session_id: str,
     *,
-    as_of: date | str | None = None,
+    as_of: date | datetime | str | None = None,
 ) -> dict[str, Any]:
     """Revalidate one session from local facts without provider GET calls.
 
@@ -135,7 +600,13 @@ def _feedback_evidence_for_session(
     `services.recovery_analytics`'s targeted refresh uses for the same case.
     """
     resolved_as_of = (
-        as_of if isinstance(as_of, date) else date.fromisoformat(str(as_of)[:10]) if as_of else datetime.now().date()
+        as_of.date()
+        if isinstance(as_of, datetime)
+        else as_of
+        if isinstance(as_of, date)
+        else date.fromisoformat(str(as_of)[:10])
+        if as_of
+        else datetime.now().date()
     )
     checkpoint = db.get_latest_planning_checkpoint()
     goal_plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
@@ -147,6 +618,46 @@ def _feedback_evidence_for_session(
         goal_plan.get("session_templates") or [], session_id
     )
     if day_template is None or template is None:
+        historical_reader = getattr(
+            db,
+            "get_latest_plan_actual_match_for_session",
+            None,
+        )
+        historical_match = (
+            historical_reader(session_id) if callable(historical_reader) else None
+        )
+        if isinstance(historical_match, Mapping):
+            actual_snapshot = historical_match.get("actual_snapshot")
+            actual_snapshot = (
+                dict(actual_snapshot)
+                if isinstance(actual_snapshot, Mapping)
+                else {}
+            )
+            historical_evidence = _evidence_from_saved_feedback(
+                db,
+                {
+                    "status": "active",
+                    "session_id": session_id,
+                    "match_revision_id": historical_match.get("id"),
+                    "actual_activity_ids": list(
+                        historical_match.get("actual_activity_ids") or []
+                    ),
+                    "match_snapshot": {
+                        "planned": dict(
+                            historical_match.get("planned_snapshot") or {}
+                        ),
+                        "match_status": historical_match.get("match_status"),
+                        "match_method": historical_match.get("match_method"),
+                        "confidence": historical_match.get("confidence"),
+                        "actual_activities": list(
+                            actual_snapshot.get("actual_activities") or []
+                        ),
+                    },
+                },
+                as_of=resolved_as_of,
+            )
+            if historical_evidence is not None:
+                return historical_evidence
         raise LookupError(f"planned session {session_id} not found in active checkpoint")
     session_date_text = str(day_template.get("date") or "")[:10]
     try:
@@ -310,7 +821,13 @@ def _append_feedback(
     refresh_recovery_episodes_best_effort(
         db, as_of=now_utc.date(), target_session_ids=[session_id]
     )
-    return {"feedback": feedback, "created": saved["created"], "evaluations": evaluations}
+    comparison = _comparison_for_evidence(db, evidence, feedback=feedback)
+    return {
+        "feedback": feedback,
+        "created": saved["created"],
+        "evaluations": evaluations,
+        "comparison": comparison,
+    }
 
 
 def submit_session_feedback(
@@ -333,12 +850,19 @@ def submit_session_feedback(
             raise StaleFeedbackError(
                 "client_submission_fingerprint is already used for another session"
             )
+        evidence = _evidence_from_saved_feedback(db, existing, as_of=now.date())
+        comparison = (
+            _comparison_for_evidence(db, evidence, feedback=existing)
+            if evidence is not None
+            else build_comparison_data_gap("TARGET_SESSION_EVIDENCE_MISSING")
+        )
         return {
             "feedback": existing,
             "created": False,
             "evaluations": db.get_session_quality_evaluations(
                 feedback_ids=[existing["id"]]
             ),
+            "comparison": comparison,
         }
     latest = db.get_latest_session_feedback(session_id)
     if latest is not None and latest.get("status") == "active":
@@ -743,6 +1267,59 @@ def list_feedback_prompts(
     )
 
 
+def comparable_session_for_session(
+    db: Database,
+    session_id: str | None = None,
+    *,
+    as_of: date | datetime | str | None = None,
+) -> dict[str, Any]:
+    """Return one read-only comparison for an explicit or latest feedback session."""
+    target_session_id = str(session_id or "").strip()
+    feedback: Mapping[str, Any] | None = None
+    if target_session_id:
+        feedback = db.get_latest_session_feedback(target_session_id)
+    else:
+        if isinstance(as_of, datetime):
+            resolved_as_of = as_of.date()
+        elif isinstance(as_of, date):
+            resolved_as_of = as_of
+        elif as_of is not None:
+            resolved_as_of = date.fromisoformat(str(as_of)[:10])
+        else:
+            resolved_as_of = None
+        candidates = [
+            row
+            for row in db.get_latest_session_feedbacks()
+            if isinstance(row, Mapping)
+            and row.get("status") != "tombstone"
+            and row.get("completion_status") in _STARTED_COMPLETION_STATUSES
+            and row.get("actual_activity_ids")
+            and _feedback_is_on_or_before(row, resolved_as_of)
+        ]
+        if not candidates:
+            return build_comparison_data_gap("NO_COMPLETED_SESSION")
+        feedback = max(candidates, key=_feedback_workout_sort_key)
+        target_session_id = str(feedback.get("session_id") or "")
+    if not target_session_id:
+        return build_comparison_data_gap("NO_COMPLETED_SESSION")
+    active_feedback = (
+        feedback
+        if isinstance(feedback, Mapping) and feedback.get("status") != "tombstone"
+        else None
+    )
+    evidence = (
+        _evidence_from_saved_feedback(db, active_feedback, as_of=as_of)
+        if isinstance(active_feedback, Mapping)
+        else None
+    )
+    if evidence is None:
+        try:
+            evidence = _feedback_evidence_for_session(db, target_session_id, as_of=as_of)
+        except (LookupError, ValueError):
+            return build_comparison_data_gap("TARGET_SESSION_EVIDENCE_MISSING")
+    return _comparison_for_evidence(db, evidence, feedback=active_feedback)
+
+
 def feedback_history(db: Database, session_id: str) -> dict[str, Any]:
     rows = db.get_session_feedback_history(session_id)
     feedback_ids = {row["id"] for row in rows}
@@ -779,6 +1356,7 @@ def feedback_summary(db: Database) -> dict[str, Any]:
 
 
 __all__ = [
+    "comparable_session_for_session",
     "StaleFeedbackError",
     "correct_session_feedback",
     "dismiss_feedback_prompt",

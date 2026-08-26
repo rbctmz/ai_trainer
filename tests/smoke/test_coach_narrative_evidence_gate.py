@@ -113,6 +113,170 @@ def test_supported_hrv_trend_and_neutral_advice_pass_byte_identical():
     assert result.reason_codes == ()
 
 
+def test_comparable_session_guardrail_blocks_causal_adaptation_claim() -> None:
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "tss": 70},
+                "comparator": {"activity_id": "prior", "tss": 60},
+                "guardrails": {
+                    "one_comparison_only": True,
+                    "trend_claim_allowed": False,
+                    "causal_claim_allowed": False,
+                },
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Более высокий TSS вызван адаптацией.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("CAUSAL_CLAIM_UNSUPPORTED",)
+    assert "не доказывает причину" in result.delivered_text.lower()
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Адаптация привела к более высокому TSS.",
+        "Более высокий TSS связан с адаптацией.",
+        "Более высокий TSS — результат адаптации.",
+    ],
+)
+def test_comparable_session_guardrail_blocks_common_causal_phrasing(
+    claim: str,
+) -> None:
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(claim, _evidence(tool_results=tools))
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("CAUSAL_CLAIM_UNSUPPORTED",)
+
+
+@pytest.mark.parametrize(
+    "claim",
+    [
+        "Причина боли пока неизвестна.",
+        "Причина прошлой травмы пока неизвестна.",
+        "Из-за боли лучше сегодня отдохнуть.",
+        "Благодаря отдыху самочувствие улучшилось.",
+    ],
+)
+def test_comparable_session_guardrail_allows_unrelated_coaching_causality(
+    claim: str,
+) -> None:
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(claim, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == claim
+
+
+def test_comparable_session_guardrail_blocks_causal_followup_sentence() -> None:
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "TSS вырос. Это произошло благодаря адаптации.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("CAUSAL_CLAIM_UNSUPPORTED",)
+
+
+def test_comparable_session_guardrail_allows_explicit_non_causal_disclaimer() -> None:
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+    raw = "Одно сравнение не доказывает тренд, адаптацию или причину."
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+
+
+def test_comparable_session_guardrail_does_not_block_adaptation_plan_advice() -> None:
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+    raw = "Сохраняй план адаптации к жаре и контролируй питьё."
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+
+    negated = "Нет оснований считать результат связанным с адаптацией."
+    negated_result = validate_coach_narrative(
+        negated,
+        _evidence(tool_results=tools),
+    )
+    assert negated_result.outcome == "pass"
+    assert negated_result.delivered_text == negated
+
+    for causal_negation in (
+        "Адаптация не привела к росту TSS.",
+        "Результат не связан с адаптацией.",
+        "Это не результат адаптации.",
+    ):
+        causal_negation_result = validate_coach_narrative(
+            causal_negation,
+            _evidence(tool_results=tools),
+        )
+        assert causal_negation_result.outcome == "pass"
+        assert causal_negation_result.delivered_text == causal_negation
+
+
 def test_trend_direction_must_match_structured_comparator():
     tools = [
         {

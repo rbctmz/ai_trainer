@@ -202,6 +202,17 @@ def test_database_roundtrips_planning_checkpoint(tmp_path):
     latest = db.get_latest_planning_checkpoint()
     history = db.get_recent_planning_checkpoints(limit=3)
     fetched = db.get_planning_checkpoint(saved["id"])
+    session_id = saved["goal_plan_snapshot"]["session_templates"][0]["sessions"][0][
+        "session_id"
+    ]
+    matching = db.get_planning_checkpoints_for_session(session_id)
+    matching_batch = db.get_planning_checkpoints_for_sessions(
+        [session_id, "missing-session"]
+    )
+    session_date = saved["goal_plan_snapshot"]["session_templates"][0]["date"]
+    matching_dates = db.get_latest_planning_checkpoints_for_dates(
+        [session_date, "1999-01-01"]
+    )
 
     assert saved["id"]
     assert fetched["id"] == saved["id"]
@@ -210,6 +221,43 @@ def test_database_roundtrips_planning_checkpoint(tmp_path):
     assert latest["goal_plan_snapshot"]["daily_plan"]
     assert latest["goal_plan_snapshot"]["weekly_summary"][0]["adjustment_note"].startswith("checkpoint:")
     assert len(history) == 1
+    assert [item["id"] for item in matching] == [saved["id"]]
+    assert [item["id"] for item in matching_batch[session_id]] == [saved["id"]]
+    assert matching_batch["missing-session"] == []
+    assert matching_dates[session_date]["id"] == saved["id"]
+    assert "1999-01-01" not in matching_dates
+
+
+def test_date_checkpoint_reader_excludes_post_activity_plan_edits(tmp_path):
+    db = Database(str(tmp_path / "planning_checkpoint_time_bound.db"))
+    checkpoint = build_planning_checkpoint(_sample_goal_plan())
+    earlier = db.save_planning_checkpoint(checkpoint)
+    later = db.save_planning_checkpoint(checkpoint)
+    session_date = earlier["goal_plan_snapshot"]["session_templates"][0]["date"]
+
+    conn = db._connect()
+    try:
+        conn.execute(
+            "UPDATE planning_checkpoints SET created_at = ? WHERE id = ?",
+            (f"{session_date} 06:00:00", earlier["id"]),
+        )
+        conn.execute(
+            "UPDATE planning_checkpoints SET created_at = ? WHERE id = ?",
+            (f"{session_date} 12:00:00", later["id"]),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    bounded = db.get_latest_planning_checkpoints_for_dates(
+        [session_date],
+        not_after_by_date={session_date: f"{session_date}T08:00:00Z"},
+    )
+
+    assert bounded[session_date]["id"] == earlier["id"]
+    assert db.get_latest_planning_checkpoints_for_dates([session_date])[
+        session_date
+    ]["id"] == later["id"]
 
 
 def test_checkpoint_helpers_restore_goal_plan_context():

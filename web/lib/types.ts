@@ -1643,6 +1643,49 @@ export interface SessionFeedbackRecord {
   created_at: string;
 }
 
+export interface ComparableSessionProjection {
+  status: "available" | "data_gap" | string;
+  reason_code?: string | null;
+  rule_version: string;
+  target: {
+    activity_id?: string | null;
+    date?: string | null;
+    sport?: string | null;
+    stimulus_family?: string | null;
+    duration_minutes?: number | null;
+    tss?: number | null;
+    tss_per_hour?: number | null;
+    sport_metric?: Record<string, unknown> | null;
+  } | null;
+  comparator: {
+    activity_id?: string | null;
+    date?: string | null;
+    sport?: string | null;
+    stimulus_family?: string | null;
+    duration_minutes?: number | null;
+    tss?: number | null;
+    tss_per_hour?: number | null;
+    sport_metric?: Record<string, unknown> | null;
+  } | null;
+  similarity: {
+    score: number;
+    evidence: Array<Record<string, unknown>>;
+  } | null;
+  comparison: {
+    duration_minutes_delta: number;
+    tss_delta: number;
+    overall_intensity_tss_per_hour_delta: number;
+    sport_metric: Record<string, unknown> | null;
+    subjective_evidence: Record<string, unknown>;
+  } | null;
+  candidate_counts?: Record<string, number>;
+  guardrails: {
+    one_comparison_only: true | boolean;
+    trend_claim_allowed: false | boolean;
+    causal_claim_allowed: false | boolean;
+  };
+}
+
 export interface SessionFeedbackPrompt {
   prompt_fingerprint: string;
   session_id: string;
@@ -1674,6 +1717,7 @@ export interface SessionFeedbackPrompt {
   allowed_completion_statuses: string[];
   feedback: SessionFeedbackRecord | null;
   provenance_label: string | null;
+  comparison?: ComparableSessionProjection | null;
 }
 
 export interface TodayFeedback {

@@ -1612,6 +1612,185 @@ class Database:
         conn.close()
         return [item for item in (self._deserialize_planning_checkpoint_row(row) for row in rows) if item]
 
+    def get_planning_checkpoints_for_session(self, session_id):
+        """Return checkpoints containing one immutable planned session id."""
+        target = str(session_id or "").strip()
+        if not target:
+            return []
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT pc.id, pc.goal_type, pc.distance, pc.weeks_to_race,
+                   pc.checkpoint_data, pc.created_at
+            FROM planning_checkpoints AS pc
+            WHERE json_valid(pc.checkpoint_data)
+              AND EXISTS (
+                SELECT 1
+                FROM json_tree(pc.checkpoint_data) AS node
+                WHERE node.key = 'session_id'
+                  AND CAST(node.value AS TEXT) = ?
+            )
+            ORDER BY pc.id DESC
+            ''',
+            (target,),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        return [
+            item
+            for item in (
+                self._deserialize_planning_checkpoint_row(row) for row in rows
+            )
+            if item
+        ]
+
+    def get_planning_checkpoints_for_sessions(self, session_ids):
+        """Return newest-first checkpoints for many planned session ids at once."""
+        targets = sorted(
+            {
+                str(session_id).strip()
+                for session_id in session_ids or []
+                if str(session_id or '').strip()
+            }
+        )
+        result = {session_id: [] for session_id in targets}
+        if not targets:
+            return result
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT DISTINCT CAST(node.value AS TEXT) AS matched_session_id,
+                   pc.id, pc.goal_type, pc.distance, pc.weeks_to_race,
+                   pc.checkpoint_data, pc.created_at
+            FROM planning_checkpoints AS pc
+            JOIN json_tree(
+                CASE
+                    WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data
+                    ELSE '{}'
+                END
+            ) AS node ON node.key = 'session_id'
+            WHERE CAST(node.value AS TEXT) IN (
+                SELECT CAST(value AS TEXT) FROM json_each(?)
+            )
+            ORDER BY pc.id DESC
+            ''',
+            (json.dumps(targets),),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        checkpoint_cache = {}
+        for row in rows:
+            session_id = str(row[0])
+            checkpoint_id = int(row[1])
+            if checkpoint_id not in checkpoint_cache:
+                checkpoint_cache[checkpoint_id] = (
+                    self._deserialize_planning_checkpoint_row(row[1:])
+                )
+            checkpoint = checkpoint_cache[checkpoint_id]
+            if checkpoint is not None and session_id in result:
+                result[session_id].append(checkpoint)
+        return result
+
+    def get_latest_planning_checkpoints_for_dates(
+        self,
+        session_dates,
+        *,
+        not_after_by_date=None,
+    ):
+        """Return the newest qualifying checkpoint for each requested session date."""
+        targets = sorted(
+            {
+                str(value).strip()
+                for value in session_dates or []
+                if _CURSOR_DATE_RE.fullmatch(str(value or "").strip())
+            }
+        )
+        if not targets:
+            return {}
+        bounded = not_after_by_date is not None
+        cutoffs = {}
+        if bounded:
+            raw_cutoffs = (
+                not_after_by_date if isinstance(not_after_by_date, Mapping) else {}
+            )
+            for session_date in targets:
+                raw_cutoff = str(raw_cutoffs.get(session_date) or "").strip()
+                if not raw_cutoff:
+                    continue
+                try:
+                    datetime.fromisoformat(raw_cutoff.replace("Z", "+00:00"))
+                except ValueError:
+                    continue
+                cutoffs[session_date] = raw_cutoff
+            targets = sorted(cutoffs)
+            if not targets:
+                return {}
+        conn = self._connect()
+        cursor = conn.cursor()
+        if bounded:
+            cursor.execute(
+                '''
+                SELECT DISTINCT CAST(node.value AS TEXT) AS session_date,
+                       pc.id, pc.goal_type, pc.distance, pc.weeks_to_race,
+                       pc.checkpoint_data, pc.created_at
+                FROM planning_checkpoints AS pc
+                JOIN json_tree(
+                    CASE
+                        WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data
+                        ELSE '{}'
+                    END
+                ) AS node ON node.key = 'date'
+                JOIN json_each(?) AS requested
+                  ON CAST(node.value AS TEXT) = CAST(requested.key AS TEXT)
+                WHERE node.fullkey LIKE '%session_templates%'
+                  AND datetime(pc.created_at) <= datetime(
+                      CAST(requested.value AS TEXT)
+                  )
+                ORDER BY datetime(pc.created_at) DESC, pc.id DESC
+                ''',
+                (json.dumps(cutoffs),),
+            )
+        else:
+            cursor.execute(
+                '''
+                SELECT DISTINCT CAST(node.value AS TEXT) AS session_date,
+                       pc.id, pc.goal_type, pc.distance, pc.weeks_to_race,
+                       pc.checkpoint_data, pc.created_at
+                FROM planning_checkpoints AS pc
+                JOIN json_tree(
+                    CASE
+                        WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data
+                        ELSE '{}'
+                    END
+                ) AS node ON node.key = 'date'
+                WHERE CAST(node.value AS TEXT) IN (
+                    SELECT CAST(value AS TEXT) FROM json_each(?)
+                )
+                  AND node.fullkey LIKE '%session_templates%'
+                ORDER BY pc.id DESC
+                ''',
+                (json.dumps(targets),),
+            )
+        rows = cursor.fetchall()
+        conn.close()
+        result = {}
+        checkpoint_cache = {}
+        for row in rows:
+            session_date = str(row[0])
+            if session_date in result:
+                continue
+            checkpoint_id = int(row[1])
+            if checkpoint_id not in checkpoint_cache:
+                checkpoint_cache[checkpoint_id] = (
+                    self._deserialize_planning_checkpoint_row(row[1:])
+                )
+            checkpoint = checkpoint_cache[checkpoint_id]
+            if checkpoint is not None:
+                result[session_date] = checkpoint
+        return result
+
     def _deserialize_planning_checkpoint_row(self, row):
         if not row:
             return None
@@ -2331,6 +2510,45 @@ class Database:
         )
         row = cursor.fetchone()
         conn.close()
+        return self._deserialize_plan_actual_match(row)
+
+    def get_latest_plan_actual_match_for_session(self, session_id):
+        """Return the newest immutable match revision for one session identity."""
+        target = str(session_id or "").strip()
+        if not target:
+            return None
+        target_key = f"session:{target}"
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                '''
+                SELECT *
+                FROM plan_actual_matches
+                WHERE target_key = ? OR session_id = ?
+                ORDER BY
+                    CASE WHEN target_key = ? THEN 0 ELSE 1 END,
+                    revision DESC,
+                    id DESC
+                LIMIT 1
+                ''',
+                (target_key, target, target_key),
+            ).fetchone()
+        finally:
+            conn.close()
+        return self._deserialize_plan_actual_match(row)
+
+    def get_plan_actual_match(self, match_id):
+        """Return one immutable plan-actual match revision by primary key."""
+        if match_id is None:
+            return None
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM plan_actual_matches WHERE id = ? LIMIT 1",
+                (int(match_id),),
+            ).fetchone()
+        finally:
+            conn.close()
         return self._deserialize_plan_actual_match(row)
 
     def get_checkpoint_data(self, checkpoint_id):
@@ -4634,6 +4852,16 @@ class Database:
         conn = self._connect()
         try:
             return AthleteProfileStore(conn, self.clean_value).get()
+        finally:
+            conn.close()
+
+    def get_athlete_pace_threshold_history(self, sport):
+        """Return append-only pace-threshold snapshots for run or swim."""
+        conn = self._connect()
+        try:
+            return AthleteProfileStore(conn, self.clean_value).pace_threshold_timeline(
+                str(sport)
+            )
         finally:
             conn.close()
 

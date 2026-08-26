@@ -1,6 +1,7 @@
 """Headless Markdown presentation for AI coach tool results."""
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Optional
 
 import pandas as pd
@@ -13,6 +14,22 @@ from utils.product_semantics import (
     training_status_label,
     trend_label,
 )
+
+
+def _subjective_evidence_line(label: str, evidence: Any) -> str:
+    if not isinstance(evidence, dict):
+        return ""
+    provenance = str(evidence.get("provenance") or "unknown-source")
+    kind = str(evidence.get("kind") or "")
+    value = evidence.get("value")
+    note = " ".join(str(evidence.get("note") or "").split())[:300]
+    if kind == "session_rpe_1_10" and value is not None:
+        detail = f"RPE {value}" + (f'; заметка «{note}»' if note else "")
+    elif kind == "athlete_note" and value:
+        detail = f'заметка «{" ".join(str(value).split())[:300]}»'
+    else:
+        return ""
+    return f"- Субъективно ({label}, {provenance}): {detail}."
 
 
 def format_tool_result(tool_name: str, data: Any) -> str:
@@ -48,6 +65,100 @@ def format_tool_result(tool_name: str, data: Any) -> str:
             activities_text += f"{i}. **{date_text}** {emoji} {description}\n"
 
         return activities_text
+
+    elif tool_name == "get_comparable_session":
+        if not isinstance(data, dict) or data.get("status") != "available":
+            reason = data.get("reason_code") if isinstance(data, dict) else "READ_FAILED"
+            return (
+                "## Сравнение с похожей сессией\n\n"
+                f"Данных недостаточно для корректного сравнения (`{reason or 'UNKNOWN'}`)."
+            )
+        target = data.get("target") or {}
+        comparator = data.get("comparator") or {}
+        comparison = data.get("comparison") or {}
+        similarity = data.get("similarity") or {}
+        sport_metric = comparison.get("sport_metric") or {}
+        metric_target = sport_metric.get("target") or {}
+        metric_comparator = sport_metric.get("comparator") or {}
+        subjective = comparison.get("subjective_evidence") or {}
+        subjective_lines = [
+            line
+            for line in (
+                _subjective_evidence_line("текущая", subjective.get("target")),
+                _subjective_evidence_line("сравнимая", subjective.get("comparator")),
+            )
+            if line
+        ]
+        metric_line = ""
+        intensity_line = ""
+        try:
+            intensity_delta = float(
+                comparison.get("overall_intensity_tss_per_hour_delta")
+            )
+        except (TypeError, ValueError):
+            intensity_delta = None
+        if intensity_delta is not None and math.isfinite(intensity_delta):
+            try:
+                target_intensity = float(target.get("tss_per_hour"))
+                comparator_intensity = float(comparator.get("tss_per_hour"))
+            except (TypeError, ValueError):
+                target_intensity = comparator_intensity = None
+            if (
+                target_intensity is not None
+                and comparator_intensity is not None
+                and math.isfinite(target_intensity)
+                and math.isfinite(comparator_intensity)
+            ):
+                intensity_detail = (
+                    f"{target_intensity:.1f} vs {comparator_intensity:.1f}; "
+                    f"Δ {intensity_delta:+.1f}"
+                )
+            else:
+                intensity_detail = f"Δ {intensity_delta:+.1f}"
+            intensity_line = (
+                "- Общая интенсивность (TSS/ч; источник: TSS ÷ время в движении, "
+                "если его нет — общая длительность): "
+                f"{intensity_detail}."
+            )
+        if sport_metric.get("kind") == "power_watts":
+            metric_line = (
+                f"- Мощность: {metric_target.get('value')} Вт "
+                f"({metric_target.get('source')}) vs {metric_comparator.get('value')} Вт "
+                f"({metric_comparator.get('source')})."
+            )
+        elif sport_metric.get("kind") in {
+            "pace_seconds_per_km",
+            "pace_seconds_per_100m",
+        }:
+            unit = "с/км" if sport_metric.get("kind") == "pace_seconds_per_km" else "с/100 м"
+            metric_line = (
+                f"- Темп: {metric_target.get('value')} {unit} vs "
+                f"{metric_comparator.get('value')} {unit}; пороги "
+                f"{metric_target.get('threshold_value')} "
+                f"({metric_target.get('threshold_source')}) / "
+                f"{metric_comparator.get('threshold_value')} "
+                f"({metric_comparator.get('threshold_source')})."
+            )
+        return "\n".join(
+            [
+                "## Сравнение с похожей сессией",
+                "",
+                f"- Текущая: {target.get('date') or '—'} · "
+                f"{target.get('duration_minutes') or '—'} мин · "
+                f"{target.get('tss') or '—'} TSS",
+                f"- Сравнимая: {comparator.get('date') or '—'} · "
+                f"{comparator.get('duration_minutes') or '—'} мин · "
+                f"{comparator.get('tss') or '—'} TSS",
+                f"- Сходство: {float(similarity.get('score') or 0.0):.2f}; "
+                f"Δ длительности {float(comparison.get('duration_minutes_delta') or 0.0):+.1f} мин; "
+                f"Δ TSS {float(comparison.get('tss_delta') or 0.0):+.1f}.",
+                *([intensity_line] if intensity_line else []),
+                *([metric_line] if metric_line else []),
+                *subjective_lines,
+                "",
+                "_Одно сравнение не доказывает тренд, адаптацию или причину._",
+            ]
+        )
 
     elif tool_name == "get_activities":
         count = data.get("count", 0)
