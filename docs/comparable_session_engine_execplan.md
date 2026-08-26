@@ -44,7 +44,10 @@ After this change, post-workout feedback can show one prior session that is genu
 - [x] (2026-08-26) Pushed the seventh review-fix commit `d20d00f`; GitHub CI is green on that head. Its 2 threads remain open for one combined reply/resolution pass with the next review fixes.
 - [x] (2026-08-26) The eighth current-head review added 3 findings (1 P1, 2 P2): saved feedback must follow the current match leaf, historical checkpoint recovery must be batched, and a present template without stimulus must stop lineage fallback. Captured an exact targeted RED of 4 failed / 1 control passed and a 5-test GREEN.
 - [x] (2026-08-26) Completed eighth-round verification: 44 comparable-session tests, 96 canonical focused tests, smoke 2108 passed / 1 skipped, contributor-safe 2154 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
-- [ ] Push the eighth review-fix commit, reply to and resolve all 5 open threads, and wait for CI plus one current-head connector result before declaring CLEAN.
+- [x] (2026-08-26) Pushed eighth-round commit `75828ba`, replied to and resolved all 5 open threads, and confirmed every GitHub CI check green.
+- [x] (2026-08-26) The ninth current-head review found one P1 across rebound identity: an old target-key ancestor could hide a newer unmatched descendant. Captured the exact 1-test RED and fixed it by selecting the deepest current row whose immutable ancestry contains the saved match.
+- [x] (2026-08-26) Completed ninth-round verification: 45 comparable-session tests, 97 canonical focused tests, smoke 2109 passed / 1 skipped, contributor-safe 2155 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green. A concurrent duplicate full-suite run exhausted macOS socket buffers; the sequential rerun was green and the isolated socket probe skipped under the documented sandbox limitation.
+- [ ] Push the ninth review-fix commit, reply to and resolve its thread, and wait for CI plus one current-head connector result before declaring CLEAN.
 - [ ] Merge PR #505 into `main` once the head is CLEAN and green.
 
 ## Surprises & Discoveries
@@ -71,6 +74,8 @@ After this change, post-workout feedback can show one prior session that is genu
 
 - **Observed**: revisionless historical feedback issued one `json_tree` checkpoint scan per session, and lineage fallback continued after finding a present template with empty stimulus evidence. **Inferred**: long histories could create N+1 reads, while incomplete current templates could inherit an unrelated ancestor stimulus. **Verified by**: the 100-session batch test now performs one multi-session read and zero singular reads; paired lineage tests stop on a present empty template but still walk when the identity is absent.
 
+- **Observed**: constraint repair can move a match lineage to a new `target_key`/`session_id`, while a date-bounded latest query still returns the old target's matched ancestor beside the new target's unmatched descendant. **Inferred**: current-leaf revalidation must follow immutable ancestry, not only string identity. **Verified by**: `test_saved_feedback_follows_rebound_descendant_to_unmatched_leaf` returned revision 41 / matched activity A before the fix and revision 43 / unmatched after it.
+
 ## Decision Log
 
 - Decision: v1 compares exactly one canonical actual activity to exactly one prior canonical activity. Rationale: normalized power and pace are not safely composable across split activities without a separate aggregation contract; returning a data gap preserves activity-card semantics. Date/Author: 2026-08-24 / Codex.
@@ -92,6 +97,8 @@ After this change, post-workout feedback can show one prior session that is genu
 - Decision: add one read-only multi-session checkpoint query and cache restored historical plans per checkpoint id. Rationale: a bounded comparison request must not perform one full checkpoint scan or restoration per legacy candidate; no schema or write path is needed. Date/Author: 2026-08-26 / Codex.
 
 - Decision: stop stimulus lineage traversal as soon as the requested session identity is present, even if `step_builder_key` is missing. Rationale: missing evidence is a data gap; ancestor traversal is allowed only to recover an absent/restamped identity. Date/Author: 2026-08-26 / Codex.
+
+- Decision: when revalidating saved feedback, select the unique deepest current row whose `supersedes_match_id` ancestry contains the saved revision, hydrating missing intermediates from immutable match storage. Rationale: session strings can change during constraint repair, but lineage identity remains authoritative; ambiguous descendants fail closed. Date/Author: 2026-08-26 / Codex.
 
 ## Outcomes & Retrospective
 
@@ -143,7 +150,7 @@ Every comparison call is read-only and deterministic. It can be retried after a 
 
 ## Artifacts and Notes
 
-The initial cheap falsifier was repository search plus the #499 gate fixture: no comparable-session model/tool/DTO existed and a session-comparison claim received `TREND_COMPARATOR_MISSING`. Initial pytest failed at missing module import. After the pure slice, the product-boundary run was 3 failed / 8 passed; the first published matrix was 12 passed. First native review produced an exact 8 failed / 10 passed RED and a 19-test GREEN. Second native review produced an exact 4 failed / 18 passed RED and a 22-test GREEN. The unplanned third review produced an exact 5 failed / 22 passed RED and a 27-test GREEN. The delayed fourth review produced an exact 4 failed / 27 passed RED and a 31-test GREEN. The explicit current-head fifth review produced a targeted 2-test RED and a 34-test GREEN. The sixth review produced a targeted 3-test RED and 38 comparable-session tests green. The seventh review produced a targeted 2-test RED and 40 comparable-session tests green. The eighth review produced a targeted 4-failure / 1-control RED and 44 comparable-session tests green. Latest local verification is 44 comparable-session tests, 96 canonical focused tests, smoke 2108 passed / 1 skipped, contributor-safe 2154 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
+The initial cheap falsifier was repository search plus the #499 gate fixture: no comparable-session model/tool/DTO existed and a session-comparison claim received `TREND_COMPARATOR_MISSING`. Initial pytest failed at missing module import. After the pure slice, the product-boundary run was 3 failed / 8 passed; the first published matrix was 12 passed. First native review produced an exact 8 failed / 10 passed RED and a 19-test GREEN. Second native review produced an exact 4 failed / 18 passed RED and a 22-test GREEN. The unplanned third review produced an exact 5 failed / 22 passed RED and a 27-test GREEN. The delayed fourth review produced an exact 4 failed / 27 passed RED and a 31-test GREEN. The explicit current-head fifth review produced a targeted 2-test RED and a 34-test GREEN. The sixth review produced a targeted 3-test RED and 38 comparable-session tests green. The seventh review produced a targeted 2-test RED and 40 comparable-session tests green. The eighth review produced a targeted 4-failure / 1-control RED and 44 comparable-session tests green. The ninth review produced a targeted 1-test RED and 45 comparable-session tests green. Latest local verification is 45 comparable-session tests, 97 canonical focused tests, smoke 2109 passed / 1 skipped, contributor-safe 2155 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
 
 ## Interfaces and Dependencies
 
@@ -162,3 +169,5 @@ Revision note (2026-08-24): publication state recorded after draft PR #505 was c
 Revision note (2026-08-26): seventh-round review fixes recorded. `tss_per_hour` now derives from positive moving duration with elapsed fallback, and the legacy auto-match feedback recovery is suppressed when a session's current manual ledger row does not own the feedback's activity. Both are additive behavior with regression coverage; no schema, TSS, provider, plan, or history behavior changed.
 
 Revision note (2026-08-26): eighth-round review fixes recorded. Saved feedback now follows an objective current-leaf correction, legacy checkpoint history is read in one bounded batch with per-checkpoint plan caching, and present templates without stimulus fail closed instead of inheriting ancestor evidence. SQLite schema and all write contracts remain unchanged.
+
+Revision note (2026-08-26): ninth-round rebound-lineage fix recorded. Current-leaf revalidation now follows immutable descendants across re-stamped target/session identity and chooses the unique deepest leaf; an unmatched descendant therefore invalidates the old feedback-backed activity.

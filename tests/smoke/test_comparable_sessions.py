@@ -1601,6 +1601,102 @@ def test_saved_feedback_revalidates_against_current_match_leaf() -> None:
     assert evidence["match_revision_id"] == 2
 
 
+def test_saved_feedback_follows_rebound_descendant_to_unmatched_leaf() -> None:
+    from api.session_feedback import _evidence_from_saved_feedback
+
+    feedback = {
+        "status": "active",
+        "session_id": "old-session",
+        "match_revision_id": 41,
+        "actual_activity_ids": ["activity-a"],
+        "match_snapshot": {
+            "planned": {"date": "2026-08-01", "sport": "bike"},
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "confidence": 1.0,
+        },
+    }
+    old_match = {
+        "id": 41,
+        "target_key": "session:old-session",
+        "session_id": "old-session",
+        "session_date": "2026-08-01",
+        "base_checkpoint_id": 7,
+        "match_status": "matched",
+        "match_method": "user_confirmed",
+        "confidence": 1.0,
+        "actual_activity_ids": ["activity-a"],
+        "planned_snapshot": {"date": "2026-08-01", "sport": "bike"},
+    }
+    rebound_match = {
+        **old_match,
+        "id": 42,
+        "target_key": "session:new-session",
+        "session_id": "new-session",
+        "base_checkpoint_id": 8,
+        "supersedes_match_id": 41,
+    }
+    unmatched_leaf = {
+        **rebound_match,
+        "id": 43,
+        "supersedes_match_id": 42,
+        "match_status": "unmatched",
+        "match_method": "user_unmatched",
+        "actual_activity_ids": [],
+    }
+
+    class ReboundDescendantDb:
+        def get_plan_actual_match(self, match_revision_id):
+            return {
+                41: old_match,
+                42: rebound_match,
+                43: unmatched_leaf,
+            }.get(match_revision_id)
+
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            assert start_date == "2026-08-01"
+            assert end_date == "2026-08-01"
+            return [old_match, unmatched_leaf]
+
+        def get_planning_checkpoint(self, checkpoint_id):
+            session_id = "old-session" if checkpoint_id == 7 else "new-session"
+            return {
+                "id": checkpoint_id,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-01",
+                            "total_tss": 70,
+                            "parts": {"bike": 70},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-01",
+                            "sessions": [
+                                {
+                                    "session_id": session_id,
+                                    "sport": "bike",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "threshold"
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+
+    evidence = _evidence_from_saved_feedback(
+        ReboundDescendantDb(), feedback, as_of="2026-08-24"
+    )
+
+    assert evidence is not None
+    assert evidence["row"]["match_status"] == "unmatched"
+    assert evidence["row"]["actual_activity_ids"] == []
+    assert evidence["match_revision_id"] == 43
+
+
 def test_stimulus_lineage_stops_at_present_template_without_stimulus() -> None:
     from services.comparable_sessions import _stimulus_for_match
 

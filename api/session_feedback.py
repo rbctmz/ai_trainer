@@ -167,8 +167,10 @@ def _current_match_leaf_for_session(
     *,
     session_id: str,
     session_date: str,
+    saved_match_id: Any,
+    match_reader: Any,
 ) -> tuple[bool, Mapping[str, Any] | None]:
-    """Return whether current-ledger revalidation ran and its matching leaf."""
+    """Resolve the effective current leaf descended from one saved match."""
     reader = getattr(db, "get_latest_plan_actual_matches", None)
     if not callable(reader):
         return False, None
@@ -176,6 +178,63 @@ def _current_match_leaf_for_session(
         matches = reader(start_date=session_date, end_date=session_date)
     except Exception:
         return True, None
+    try:
+        saved_id = int(saved_match_id)
+    except (TypeError, ValueError):
+        saved_id = None
+    if saved_id is not None:
+        identified: dict[int, Mapping[str, Any]] = {}
+        for item in matches or []:
+            if not isinstance(item, Mapping):
+                continue
+            try:
+                identified[int(item.get("id"))] = item
+            except (TypeError, ValueError):
+                continue
+
+        def lineage_distance(candidate: Mapping[str, Any]) -> int | None:
+            current: Mapping[str, Any] | None = candidate
+            seen: set[int] = set()
+            distance = 0
+            while isinstance(current, Mapping):
+                try:
+                    current_id = int(current.get("id"))
+                except (TypeError, ValueError):
+                    return None
+                if current_id in seen:
+                    return None
+                seen.add(current_id)
+                if current_id == saved_id:
+                    return distance
+                try:
+                    parent_id = int(current.get("supersedes_match_id"))
+                except (TypeError, ValueError):
+                    return None
+                parent = identified.get(parent_id)
+                if parent is None and callable(match_reader):
+                    try:
+                        hydrated = match_reader(parent_id)
+                    except Exception:
+                        hydrated = None
+                    parent = hydrated if isinstance(hydrated, Mapping) else None
+                    if parent is not None:
+                        identified[parent_id] = parent
+                current = parent
+                distance += 1
+            return None
+
+        descendants = [
+            (distance, item)
+            for item in matches or []
+            if isinstance(item, Mapping)
+            and (distance := lineage_distance(item)) is not None
+        ]
+        if descendants:
+            deepest = max(distance for distance, _item in descendants)
+            leaves = [item for distance, item in descendants if distance == deepest]
+            return True, leaves[0] if len(leaves) == 1 else None
+        return True, None
+
     target_key = f"session:{session_id}"
     current = next(
         (
@@ -228,6 +287,8 @@ def _evidence_from_saved_feedback(
             db,
             session_id=session_id,
             session_date=saved_session_date,
+            saved_match_id=match_revision_id,
+            match_reader=match_reader,
         )
         if revalidation_ran and not isinstance(current_match, Mapping):
             return None

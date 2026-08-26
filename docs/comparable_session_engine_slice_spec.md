@@ -10,7 +10,7 @@
 - Class: **A**
 - Rationale: a new cross-module evidence contract joins activity lineage, plan stimulus, interval structure, athlete feedback, API/web presentation, and AI-coach tools.
 - Automatic escalation triggers checked: new public contract — yes; provenance/identity — yes; persistence/schema — no; provider write — no; destructive sync — no; paid call — no.
-- Review budget used: 8 native Codex Review rounds (including delayed connector reviews); one root self-review and one bounded Luna read-only audit completed
+- Review budget used: 9 native Codex Review rounds (including delayed connector reviews); one root self-review and one bounded Luna read-only audit completed
 
 ## Scope
 
@@ -94,11 +94,11 @@
 
 - Head SHA: pending until commit.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
-- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38, targeted 2-test RED→40, targeted 4-failure / 1-control RED→44; 96 canonical focused tests; smoke 2108 passed / 1 skipped; contributor-safe 2154 passed / 3 skipped / 26 deselected.
-- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests green; `d20d00f` (seventh-review head) GitHub CI green; eighth-review head pending push.
+- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38, targeted 2-test RED→40, targeted 4-failure / 1-control RED→44, targeted 1-test RED→45; 97 canonical focused tests; smoke 2109 passed / 1 skipped; contributor-safe 2155 passed / 3 skipped / 26 deselected.
+- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests green; `75828ba` (eighth-review head) GitHub CI green; ninth-review head pending push. One concurrent duplicate full-suite run hit macOS socket-buffer exhaustion; sequential reruns were green.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: 5 — 2 seventh-round threads already fixed in `d20d00f`, plus 3 eighth-round threads fixed locally; all await pushed replies/resolution.
+- Unresolved review-thread count: 1 ninth-round thread fixed locally; all previous threads are resolved.
 - Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated.
 
 ## Review Findings
@@ -138,12 +138,13 @@
 | P1 | **Observed**: saved feedback reconstruction trusted its historical match revision after a later manual rematch. **Inferred**: explicit and default coach calls could compare stale activity A after S→B. **Verified by**: `test_saved_feedback_revalidates_against_current_match_leaf` RED/GREEN. | Revalidate against the current leaf and rebuild objective evidence when status or actual ids differ. | Codex / resolved locally. |
 | P2 | **Observed**: 100 distinct revisionless legacy sessions issued 100 per-session checkpoint scans. **Inferred**: plan rollovers create an avoidable N+1 full-history read. **Verified by**: `test_service_batches_historical_checkpoint_recovery` now observes one batch read and zero singular reads. | Add one read-only multi-session query and cache restored plans by checkpoint id. | Codex / resolved locally. |
 | P2 | **Observed**: a present current template with empty stimulus continued into an ancestor with `threshold`. **Inferred**: missing evidence could become a false exact-stimulus match. **Verified by**: paired present-empty and identity-absent lineage RED/GREEN tests. | Stop fail-closed when identity is present; traverse only when identity is absent. | Codex / resolved locally. |
+| P1 | **Observed**: rebound descendants can use a new target/session identity, leaving the old matched ancestor visible beside a newer unmatched leaf. **Inferred**: string-only current-leaf lookup can compare an activity the athlete removed. **Verified by**: `test_saved_feedback_follows_rebound_descendant_to_unmatched_leaf` RED/GREEN. | Follow `supersedes_match_id` ancestry across identity changes and select the unique deepest current descendant. | Codex / resolved locally. |
 
 ## Final Verdict
 
-- Verdict: **READY after eighth-round push, thread resolution, CI, and final current-head connector review**.
+- Verdict: **READY after ninth-round push, thread resolution, CI, and final current-head connector review**.
 - Blocking findings remaining: none in local code; publication gates remain.
-- Review rounds used: 8 (30 findings total).
+- Review rounds used: 9 (31 findings total).
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: Codex.
