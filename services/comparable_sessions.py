@@ -20,6 +20,12 @@ _AUTO_RECONCILED_MATCH_METHODS = {
     "ai_trainer_external_id": 1.0,
     "date_sport_heuristic": 0.75,
 }
+_MANUAL_MATCH_METHODS = {
+    "admin_resolve",
+    "user_confirmed",
+    "user_rejected",
+    "user_unmatched",
+}
 
 
 def _day(value: Any) -> date | None:
@@ -498,6 +504,52 @@ def _feedback_matches_target(
     return bool(compatible) and str(feedback_revision) in compatible
 
 
+def _manual_matches_by_session(
+    matches: list[Mapping[str, Any]],
+) -> dict[str, Mapping[str, Any]]:
+    result: dict[str, Mapping[str, Any]] = {}
+    for match in matches:
+        if (
+            not isinstance(match, Mapping)
+            or str(match.get("match_method") or "") not in _MANUAL_MATCH_METHODS
+        ):
+            continue
+        keys = {str(match.get("session_id") or "").strip()}
+        target_key = str(match.get("target_key") or "")
+        if target_key.startswith("session:"):
+            keys.add(target_key.removeprefix("session:").strip())
+        recency = (int(match.get("revision") or 0), int(match.get("id") or 0))
+        for key in keys - {""}:
+            current = result.get(key)
+            current_recency = (
+                int(current.get("revision") or 0),
+                int(current.get("id") or 0),
+            ) if isinstance(current, Mapping) else (-1, -1)
+            if recency > current_recency:
+                result[key] = match
+    return result
+
+
+def _manual_match_displaces_legacy_feedback(
+    feedback: Mapping[str, Any] | None,
+    *,
+    activity_id: str,
+    manual_matches_by_session: Mapping[str, Mapping[str, Any]],
+) -> bool:
+    if not isinstance(feedback, Mapping):
+        return False
+    session_id = str(feedback.get("session_id") or "").strip()
+    current = manual_matches_by_session.get(session_id)
+    if not isinstance(current, Mapping):
+        return False
+    current_ids = [
+        str(value)
+        for value in current.get("actual_activity_ids") or []
+        if str(value or "").strip()
+    ]
+    return current.get("match_status") != "matched" or current_ids != [activity_id]
+
+
 def project_comparable_session(
     database: Any,
     *,
@@ -567,13 +619,15 @@ def project_comparable_session(
     matches = database.get_latest_plan_actual_matches(
         start_date=start.isoformat(), end_date=target_day.isoformat()
     )
-    matches_by_activity = _match_by_activity(database, list(matches or []))
+    match_rows = list(matches or [])
+    matches_by_activity = _match_by_activity(database, match_rows)
+    manual_matches_by_session = _manual_matches_by_session(match_rows)
     checkpoint_cache: dict[int, Mapping[str, Any] | None] = {}
     latest_plan_cache: dict[str, Any] = {}
     auto_matches_by_activity = _auto_matches_by_activity(
         database,
         activities=activities,
-        ledger_rows=list(matches or []),
+        ledger_rows=match_rows,
         target_day=target_day,
         lookback_days=bounded_lookback,
         latest_plan_cache=latest_plan_cache,
@@ -615,12 +669,20 @@ def project_comparable_session(
                     checkpoint_cache,
                 )
             else:
-                candidate_stimulus = _auto_reconciled_stimulus(
-                    database,
-                    activity=activity,
-                    feedback=feedbacks.get(activity_id),
-                    latest_plan_cache=latest_plan_cache,
-                )
+                candidate_feedback = feedbacks.get(activity_id)
+                if _manual_match_displaces_legacy_feedback(
+                    candidate_feedback,
+                    activity_id=activity_id,
+                    manual_matches_by_session=manual_matches_by_session,
+                ):
+                    candidate_stimulus = None
+                else:
+                    candidate_stimulus = _auto_reconciled_stimulus(
+                        database,
+                        activity=activity,
+                        feedback=candidate_feedback,
+                        latest_plan_cache=latest_plan_cache,
+                    )
         if candidate_stimulus != stimulus:
             continue
         candidate_sources[activity_id] = (activity, candidate_stimulus, match)

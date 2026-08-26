@@ -94,11 +94,11 @@
 
 - Head SHA: pending until commit.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
-- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38; focused integration 104 passed; smoke 2102 passed / 1 skipped; contributor-safe 2148 passed / 3 skipped / 26 deselected.
-- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests green; `4b7ead8` GitHub CI green; final sixth-review head pending push.
+- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38, targeted 2-test RED→40; smoke 2105 passed; contributor-safe 2151 passed / 4 skipped / 24 deselected.
+- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests green; `fca0cfc` (sixth-review head) GitHub CI green; seventh-review head pending push.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: 0 from rounds one through five; 3 from round six pending pushed replies/resolution.
+- Unresolved review-thread count: 0 from rounds one through six; 2 from round seven pending pushed replies/resolution.
 - Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated.
 
 ## Review Findings
@@ -133,12 +133,14 @@
 | P2 | **Observed**: saved auto-match feedback without a ledger revision depended on the latest active checkpoint. **Inferred**: a plan rollover could erase stimulus evidence inside the 730-day lookback. **Verified by**: a replacement latest plan plus a historical checkpoint containing the saved session now restores the threshold stimulus. | Query checkpoint history by exact immutable session id; never infer stimulus from activity names. | Codex / resolved locally. |
 | P2 | **Observed**: an unmatched old lineage overrode a separate effective matched lineage for the same activity. **Inferred**: legitimate rematching could leave the activity permanently unavailable. **Verified by**: matched(A) → unmatched plus separate matched(A) now resolves to the new owner. | Apply unmatched suppression only when no effective matched lineage currently owns the activity. | Codex / resolved locally. |
 | P2 | **Observed**: explicit lookup restored a tombstoned feedback's stale match revision. **Inferred**: an unmatch could still appear as a stable target comparison. **Verified by**: tombstone evidence is rejected and the endpoint revalidates current reconciliation with no subjective feedback attachment. | Treat tombstones as prompt/history state only; rebuild objective target evidence from current facts. | Codex / resolved locally. |
+| P2 | **Observed**: `tss_per_hour` divided stored TSS by elapsed duration, while the canonical TSS resolver derives load from positive moving time. **Inferred**: pauses could make equivalent workouts look intensity-incompatible and remove valid comparators. **Verified by**: `test_tss_density_uses_moving_duration_with_elapsed_fallback` — two 40-moving-minute / 70-TSS runs with 40 vs 75 elapsed minutes. | Compute density from positive moving duration with the established elapsed fallback. | DeepSeek Harness / resolved locally. |
+| P1 | **Observed**: the legacy auto-recovery branch restored a stimulus from revisionless auto-match feedback without checking the session's current manual ledger row. **Inferred**: after a manual S→B correction, the auto-matched A could still be selected as an exact-stimulus comparator. **Verified by**: `test_service_suppresses_legacy_auto_feedback_after_manual_rematch` — current `user_confirmed` S→B plus legacy S→A feedback. | Suppress legacy recovery whenever the current session ledger does not own the feedback's activity as its sole matched actual. | DeepSeek Harness / resolved locally. |
 
 ## Final Verdict
 
-- Verdict: **READY after sixth-round push, thread resolution, CI, and final current-head connector review**.
+- Verdict: **READY after seventh-round push, thread resolution, CI, and final current-head connector review**.
 - Blocking findings remaining: none in local code; publication gates remain.
-- Review rounds used: 6 (four delayed/current-head connector reviews; 25 findings total).
+- Review rounds used: 7 (five delayed/current-head connector reviews; 27 findings total).
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: Codex.

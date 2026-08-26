@@ -36,6 +36,7 @@ def _activity(
     *,
     sport: str = "bike",
     duration: float = 60.0,
+    moving_duration_minutes: float | None = None,
     tss: float = 70.0,
     normalized_power: float | None = 210.0,
     avg_power: float | None = 190.0,
@@ -48,6 +49,7 @@ def _activity(
         "started_at_utc": f"{date}T08:00:00Z",
         "sport": sport,
         "duration_minutes": duration,
+        "moving_duration_minutes": moving_duration_minutes,
         "tss": tss,
         "normalized_power": normalized_power,
         "avg_power": avg_power,
@@ -171,6 +173,39 @@ def test_run_and_swim_pace_evidence_uses_pace_threshold_context(
     assert projected["sport_metric"]["threshold_value"] == threshold
     assert projected["sport_metric"]["threshold_source"] == "tss_pace_used"
     assert "ftp" not in projected["sport_metric"]
+
+
+def test_tss_density_uses_moving_duration_with_elapsed_fallback() -> None:
+    target = _features(
+        "target",
+        "2026-08-24",
+        sport="run",
+        duration=40,
+        moving_duration_minutes=40,
+        tss=70,
+        normalized_power=None,
+        avg_power=None,
+        distance_km=10,
+        tss_pace_used=300,
+    )
+    paused = _features(
+        "paused",
+        "2026-08-01",
+        sport="run",
+        duration=75,
+        moving_duration_minutes=40,
+        tss=70,
+        normalized_power=None,
+        avg_power=None,
+        distance_km=10,
+        tss_pace_used=300,
+    )
+
+    result = select_comparable_session(target, [paused])
+
+    assert target["tss_per_hour"] == 105.0
+    assert paused["tss_per_hour"] == 105.0
+    assert result["status"] == "available"
 
 
 def test_qualitative_feedback_survives_without_numeric_rpe() -> None:
@@ -461,6 +496,65 @@ def test_service_restores_auto_match_stimulus_after_plan_rollover() -> None:
 
     assert result["status"] == "available"
     assert result["comparator"]["activity_id"] == "candidate"
+
+
+def test_service_suppresses_legacy_auto_feedback_after_manual_rematch() -> None:
+    class ManuallyRematchedDb(_ComparableDb):
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            return [
+                {
+                    "id": 30,
+                    "target_key": "session:prior-session",
+                    "session_id": "prior-session",
+                    "base_checkpoint_id": 3,
+                    "match_status": "matched",
+                    "match_method": "user_confirmed",
+                    "confidence": 1.0,
+                    "actual_activity_ids": ["replacement-activity"],
+                }
+            ]
+
+        def get_latest_planning_checkpoint(self):
+            return self.get_planning_checkpoint(3)
+
+        def get_latest_session_feedbacks(self):
+            return [
+                {
+                    "status": "active",
+                    "session_id": "prior-session",
+                    "match_revision_id": None,
+                    "actual_activity_ids": ["candidate"],
+                    "match_snapshot": {
+                        "planned": {
+                            "session_id": "prior-session",
+                            "date": "2026-08-01",
+                            "sport": "bike",
+                        },
+                        "match_status": "matched",
+                        "match_method": "date_sport_heuristic",
+                        "confidence": 0.75,
+                        "actual_activity_ids": ["candidate"],
+                    },
+                    "source": "user_web",
+                }
+            ]
+
+    result = project_comparable_session(
+        ManuallyRematchedDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "data_gap"
+    assert result["reason_code"] == "NO_ELIGIBLE_CANDIDATE"
 
 
 def test_service_prefilters_incompatible_candidates_before_interval_reads() -> None:

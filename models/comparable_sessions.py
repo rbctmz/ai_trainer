@@ -166,10 +166,12 @@ def project_activity_features(
     """Project only persisted, source-labelled features used by the selector."""
     sport = normalize_sport_key(activity.get("sport")) or _text(activity.get("sport"))
     duration = _positive(activity.get("duration_minutes"))
+    moving_duration = _positive(activity.get("moving_duration_minutes"))
+    density_duration = moving_duration or duration
     tss = _positive(activity.get("tss"))
     tss_per_hour = (
-        round(tss * 60.0 / duration, 3)
-        if duration is not None and tss is not None
+        round(tss * 60.0 / density_duration, 3)
+        if density_duration is not None and tss is not None
         else None
     )
     return {
