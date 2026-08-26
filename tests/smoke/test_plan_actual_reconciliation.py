@@ -420,9 +420,11 @@ def test_match_ledger_is_idempotent_and_corrections_append_revisions(tmp_path) -
     assert first["revision"] == 1
     assert correction["revision"] == 2
     latest = db.get_latest_plan_actual_matches(start_date="2026-07-07", end_date="2026-07-13")
+    latest_for_session = db.get_latest_plan_actual_match_for_session("ats_123")
     assert len(latest) == 1
     assert latest[0]["id"] == correction["id"]
     assert latest[0]["supersedes_match_id"] == first["id"]
+    assert latest_for_session["id"] == correction["id"]
 
 
 def _eligible_reconciliation(*, actual_tss: float, ambiguous: int = 0) -> dict:

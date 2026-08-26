@@ -273,11 +273,13 @@ def _with_profile_pace_threshold(
         return projected
     activity_day = _day(projected.get("date"))
     activity_instant = _instant(projected.get("started_at_utc"))
-    if activity_instant is None and activity_day is not None:
-        activity_instant = datetime.combine(
-            activity_day, time.max, tzinfo=timezone.utc
-        )
-    if activity_instant is None:
+    strict_before_day = activity_instant is None and activity_day is not None
+    threshold_cutoff = (
+        datetime.combine(activity_day, time.min, tzinfo=timezone.utc)
+        if strict_before_day
+        else activity_instant
+    )
+    if threshold_cutoff is None:
         return projected
     if history_cache is not None and sport in history_cache:
         history = history_cache[sport]
@@ -292,7 +294,12 @@ def _with_profile_pace_threshold(
         if not isinstance(raw, Mapping):
             continue
         snapshot_at = _instant(raw.get("snapshot_at"))
-        if snapshot_at is not None and snapshot_at <= activity_instant:
+        known_in_time = (
+            snapshot_at < threshold_cutoff
+            if strict_before_day and snapshot_at is not None
+            else snapshot_at is not None and snapshot_at <= threshold_cutoff
+        )
+        if known_in_time:
             eligible.append((snapshot_at, raw))
     if not eligible:
         return projected

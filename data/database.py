@@ -2465,6 +2465,31 @@ class Database:
         conn.close()
         return self._deserialize_plan_actual_match(row)
 
+    def get_latest_plan_actual_match_for_session(self, session_id):
+        """Return the newest immutable match revision for one session identity."""
+        target = str(session_id or "").strip()
+        if not target:
+            return None
+        target_key = f"session:{target}"
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                '''
+                SELECT *
+                FROM plan_actual_matches
+                WHERE target_key = ? OR session_id = ?
+                ORDER BY
+                    CASE WHEN target_key = ? THEN 0 ELSE 1 END,
+                    revision DESC,
+                    id DESC
+                LIMIT 1
+                ''',
+                (target_key, target, target_key),
+            ).fetchone()
+        finally:
+            conn.close()
+        return self._deserialize_plan_actual_match(row)
+
     def get_plan_actual_match(self, match_id):
         """Return one immutable plan-actual match revision by primary key."""
         if match_id is None:

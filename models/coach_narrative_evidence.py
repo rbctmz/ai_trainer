@@ -123,9 +123,14 @@ _CAUSAL_ASSERTION = re.compile(
     r"(?:\b(?:вызван\w*|обусловлен\w*|из-за|благодаря|"
     r"причин\w*|следстви\w*)\b|"
     r"(?<!не\s)\b(?:доказыва\w*|подтвержда\w*|наблюда\w*|произошл\w*)"
-    r".{0,32}\bадаптаци\w*\b|\b(?:это|значит)\s+адаптаци\w*\b)",
+    r".{0,32}\bадаптаци\w*\b|\b(?:это|значит)\s+адаптаци\w*\b|"
+    r"\bадаптаци\w*(?:(?!\bне\b).){0,32}"
+    r"\b(?:привел\w*|привод\w*|вызва\w*|обуслов\w*)\b|"
+    r"\bсвязан\w*.{0,16}\bадаптаци\w*\b|"
+    r"\bрезультат\w*\s+адаптаци\w*\b)",
     re.IGNORECASE,
 )
+_NEGATED_CAUSAL_PREFIX = re.compile(r"\bне\s*$", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -295,7 +300,11 @@ def validate_coach_narrative(
 
     if (
         comparators.get("causal_claim_allowed") is False
-        and _has_asserted_claim(claim_text, _CAUSAL_ASSERTION)
+        and _has_asserted_claim(
+            claim_text,
+            _CAUSAL_ASSERTION,
+            negated_prefix=_NEGATED_CAUSAL_PREFIX,
+        )
     ):
         found.add(CAUSAL_CLAIM_UNSUPPORTED)
 

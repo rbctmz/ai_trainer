@@ -16,6 +16,7 @@ SUPPORTED_SPORTS = {"bike", "run", "swim"}
 MIN_DURATION_SIMILARITY = 0.50
 MIN_INTENSITY_SIMILARITY = 0.65
 MIN_STRUCTURE_SIMILARITY = 0.50
+MIN_STRUCTURE_DURATION_COVERAGE = 0.80
 
 
 def _number(value: Any) -> float | None:
@@ -89,7 +90,8 @@ def _structure_features(
     total_seconds = (duration_minutes or 0.0) * 60.0
     coverage = min(1.0, sum(durations) / total_seconds) if total_seconds > 0 else None
     return {
-        "available": True,
+        "available": coverage is not None
+        and coverage >= MIN_STRUCTURE_DURATION_COVERAGE,
         "segment_count": len(durations),
         "duration_coverage": round(coverage, 3) if coverage is not None else None,
         "source": _text(payload.get("source")) or "local_interval_cache",

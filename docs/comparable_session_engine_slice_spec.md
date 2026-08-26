@@ -94,11 +94,11 @@
 
 - Head SHA: pending until commit.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
-- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38, targeted 2-test RED→40, targeted 4-failure / 1-control RED→44, targeted 1-test RED→45, tenth-round 4-test RED→9 control/behavior tests; 48 comparable-session tests, 114 directly affected tests, smoke 2115 passed / 1 skipped, and contributor-safe 2161 passed / 3 skipped / 26 deselected.
-- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests were green on `0400fe7`; tenth-round head is not pushed yet. One concurrent duplicate full-suite run hit macOS socket-buffer exhaustion; sequential reruns were green.
+- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38, targeted 2-test RED→40, targeted 4-failure / 1-control RED→44, targeted 1-test RED→45, tenth-round 4-test RED→9 controls, eleventh-round 7-test RED→133 directly affected tests; 52 comparable-session tests, smoke 2122 passed / 1 skipped, and contributor-safe 2168 passed / 3 skipped / 26 deselected.
+- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests were green on `27f5b42`; eleventh-round head is not pushed yet. One concurrent duplicate full-suite run hit macOS socket-buffer exhaustion; sequential reruns were green.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: 3 tenth-round threads fixed locally; all previous threads are resolved.
+- Unresolved review-thread count: 5 eleventh-round threads fixed locally; all previous threads are resolved.
 - Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated.
 
 ## Review Findings
@@ -142,12 +142,17 @@
 | P1 | **Observed**: after rollover, an older activity and checkpoint remained but ledger and feedback were empty. **Inferred**: pre-feature stable auto-match history silently disappeared. **Verified by**: `test_service_restores_rollover_auto_match_without_feedback` failed with `NO_ELIGIBLE_CANDIDATE`; newest-per-date historical reconciliation now restores it, while the same-date ambiguity control fails closed. | Read newest historical checkpoint per bounded candidate date once; rebuild only singleton stable auto-matches locally without provider I/O or writes. | Codex / resolved locally. |
 | P2 | **Observed**: `overall_intensity_tss_per_hour_delta` existed in the comparison DTO but was absent from presenter text. **Inferred**: duration and total TSS deltas could be mistaken for a change in intensity. **Verified by**: presenter RED lacked `TSS/ч`; it now reports source-labelled TSS/hour and preserves `Δ +0.0`. | Render neutral `TSS/ч` evidence with its calculation source; do not infer better/worse/adaptation. | Codex / resolved locally. |
 | P2 | **Observed**: `causal_claim_allowed=false` was not part of narrative allowlisted evidence. **Inferred**: the model could deliver a causal adaptation claim despite the comparison contract. **Verified by**: “Более высокий TSS вызван адаптацией” passed before the fix and now returns `CAUSAL_CLAIM_UNSUPPORTED`; explicit no-causality disclaimer and adaptation-plan advice still pass byte-identical. | Propagate the guardrail to the deterministic final narrative boundary with scoped assertion detection. | Codex / resolved locally. |
+| P2 | **Observed**: common asserted relations such as “адаптация привела к”, “связан с адаптацией”, and “результат адаптации” passed the causal gate. **Inferred**: one comparison could still support unsupported adaptation language. **Verified by**: the three-case parameterized RED now returns `CAUSAL_CLAIM_UNSUPPORTED`, while negated and advice controls pass. | Match explicit causal relations, not the word `адаптация` alone. | Codex / resolved locally. |
+| P2 | **Observed**: TSS/hour used moving duration but the presenter labelled only generic duration. **Inferred**: paused workouts exposed contradictory evidence. **Verified by**: the presenter now says `TSS ÷ время в движении` and names the elapsed fallback while preserving zero delta. | Align the displayed denominator with feature projection semantics. | Codex / resolved locally. |
+| P2 | **Observed**: explicit no-feedback target lookup searched only the active checkpoint. **Inferred**: a completed historical session disappeared after rollover despite an immutable match revision. **Verified by**: `test_explicit_historical_target_without_feedback_uses_match_checkpoint` restores activity identity and stimulus from the match's checkpoint. | Read the newest immutable session match and reuse current-leaf/checkpoint evidence recovery; unmatched leaves remain data gaps. | Codex / resolved locally. |
+| P2 | **Observed**: missing `started_at_utc` used end-of-day as the threshold cutoff. **Inferred**: a morning legacy activity could consume a threshold first observed later that day. **Verified by**: the timing RED now selects the prior-day snapshot and excludes the same-day snapshot. | With unknown activity time, accept only threshold evidence known strictly before that calendar day. | Codex / resolved locally. |
+| P2 | **Observed**: any non-empty same-provider interval cache enabled the hard segment-count gate. **Inferred**: a truncated cache could falsely reject a compatible workout. **Verified by**: 8.3% coverage now yields structure `missing`, while complete 10-vs-2 segments still return `NO_COMPATIBLE_STRUCTURE`. | Require at least 80% duration coverage on both sides before hard structure comparison. | Codex / resolved locally. |
 
 ## Final Verdict
 
-- Verdict: **READY after tenth-round broad verification, push, thread resolution, CI, and final current-head connector review**.
+- Verdict: **READY after eleventh-round broad verification, push, thread resolution, CI, and final current-head connector review**.
 - Blocking findings remaining: none in local code; publication gates remain.
-- Review rounds used: 10 (34 findings total).
+- Review rounds used: 11 (39 findings total).
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: Codex.

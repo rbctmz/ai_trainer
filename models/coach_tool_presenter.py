@@ -116,7 +116,8 @@ def format_tool_result(tool_name: str, data: Any) -> str:
             else:
                 intensity_detail = f"Δ {intensity_delta:+.1f}"
             intensity_line = (
-                "- Общая интенсивность (TSS/ч; источник: TSS ÷ длительность): "
+                "- Общая интенсивность (TSS/ч; источник: TSS ÷ время в движении, "
+                "если его нет — общая длительность): "
                 f"{intensity_detail}."
             )
         if sport_metric.get("kind") == "power_watts":

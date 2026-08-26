@@ -610,6 +610,46 @@ def _feedback_evidence_for_session(
         goal_plan.get("session_templates") or [], session_id
     )
     if day_template is None or template is None:
+        historical_reader = getattr(
+            db,
+            "get_latest_plan_actual_match_for_session",
+            None,
+        )
+        historical_match = (
+            historical_reader(session_id) if callable(historical_reader) else None
+        )
+        if isinstance(historical_match, Mapping):
+            actual_snapshot = historical_match.get("actual_snapshot")
+            actual_snapshot = (
+                dict(actual_snapshot)
+                if isinstance(actual_snapshot, Mapping)
+                else {}
+            )
+            historical_evidence = _evidence_from_saved_feedback(
+                db,
+                {
+                    "status": "active",
+                    "session_id": session_id,
+                    "match_revision_id": historical_match.get("id"),
+                    "actual_activity_ids": list(
+                        historical_match.get("actual_activity_ids") or []
+                    ),
+                    "match_snapshot": {
+                        "planned": dict(
+                            historical_match.get("planned_snapshot") or {}
+                        ),
+                        "match_status": historical_match.get("match_status"),
+                        "match_method": historical_match.get("match_method"),
+                        "confidence": historical_match.get("confidence"),
+                        "actual_activities": list(
+                            actual_snapshot.get("actual_activities") or []
+                        ),
+                    },
+                },
+                as_of=resolved_as_of,
+            )
+            if historical_evidence is not None:
+                return historical_evidence
         raise LookupError(f"planned session {session_id} not found in active checkpoint")
     session_date_text = str(day_template.get("date") or "")[:10]
     try:
