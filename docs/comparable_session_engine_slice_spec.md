@@ -10,7 +10,7 @@
 - Class: **A**
 - Rationale: a new cross-module evidence contract joins activity lineage, plan stimulus, interval structure, athlete feedback, API/web presentation, and AI-coach tools.
 - Automatic escalation triggers checked: new public contract — yes; provenance/identity — yes; persistence/schema — no; provider write — no; destructive sync — no; paid call — no.
-- Review budget used: 9 native Codex Review rounds (including delayed connector reviews); one root self-review and one bounded Luna read-only audit completed
+- Review budget used: 13 native Codex Review rounds (including delayed connector reviews); one root self-review and one bounded Luna read-only audit completed. This exceeded the two-round policy and is recorded as the #506/#507 process incident.
 
 ## Scope
 
@@ -25,7 +25,7 @@
 ## Definition of Done
 
 - [x] Acceptance criteria are observable.
-- [x] Focused, broad, Ruff, web, and contract checks are green; native review completed with an exact RED and all findings have regression fixes.
+- [x] Focused, broad, Ruff, web, and contract checks are green; native review findings were fixed with regressions or explicitly accepted as non-blocking follow-ups by the merge owner.
 - [ ] User remains merge owner; Codex owns draft PR and post-merge sync.
 
 ## Public Contracts
@@ -92,14 +92,14 @@
 
 ## Evidence Bundle
 
-- Head SHA: pending until commit.
+- Head SHA: final feature head `f000bbe20ad574012eb2ea23bdbb5dc34e86ae8d`; squash merge `881107c7aae9d3b4537b5e1ef7a4af7fa171cc40`.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
 - Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38, targeted 2-test RED→40, targeted 4-failure / 1-control RED→44, targeted 1-test RED→45, tenth-round 4-test RED→9 controls, eleventh-round 7-test RED→133 directly affected tests, twelfth-round 6-failure RED→128 directly affected tests; 53 comparable-session tests, smoke 2129 passed / 1 skipped, and contributor-safe 2175 passed / 3 skipped / 26 deselected.
-- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests are green locally; GitHub CI was green on `c2458e7`, and the twelfth-round head is not pushed yet. One concurrent duplicate full-suite run hit macOS socket-buffer exhaustion; sequential reruns were green.
+- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests were green locally and GitHub CI was green on final head `f000bbe`. One concurrent duplicate full-suite run hit macOS socket-buffer exhaustion; sequential reruns were green.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: 4 twelfth-round threads; all previous threads are resolved.
-- Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated; provider-exact rollover recovery remains a data gap until session-specific provider identity is persisted locally.
+- Unresolved review-thread count: 0 at merge; the final 4 P2 threads were explicitly accepted as non-blocking follow-ups and resolved by the merge owner.
+- Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated; provider-exact rollover recovery remains a data gap until session-specific provider identity is persisted locally. The final accepted P2 set covers explicit automatic-target recovery, per-activity historical cutoffs, narrower causal scope, and moving-time interval coverage; no issue numbers were recorded at merge.
 
 ## Review Findings
 
@@ -154,9 +154,9 @@
 
 ## Final Verdict
 
-- Verdict: **READY after twelfth-round push, thread resolution, and green CI**.
-- Blocking findings remaining: none in local code; publication gates remain.
-- Review rounds used: 12 (43 findings total).
-- Accepted risk or follow-up issue: persist session-specific provider-match identity for offline rollover recovery; v1 deliberately returns a data gap when that identity is not locally provable.
+- Verdict: **MERGED after final-head CI, merge-owner triage, and thread resolution**.
+- Blocking findings remaining: none accepted by the merge owner at merge.
+- Review rounds used: 13 (47 findings total: 10 P1, 37 P2).
+- Accepted risk or follow-up issue: provider-match persistence plus four thirteenth-round P2 suggestions remained follow-ups; issue numbers were not recorded at merge, which is captured as a process gap in #506.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: Codex.

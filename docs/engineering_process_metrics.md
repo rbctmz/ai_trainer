@@ -58,6 +58,29 @@ only confirm that the proposed class labels fit two historical shapes and that
 pre-policy deep review retained P0/P1 scrutiny. Issue/PR timestamps include
 unknown queue, human, and agent wait, and active time is `not captured`.
 
+## Review-Loop Incident Retrospective — 2026-08-26
+
+| PR | Class | PR cycle time | Native review rounds | Findings | Manual review requests | Premature ready comments | Disposition | Agent wait time |
+| --- | --- | ---: | ---: | --- | ---: | ---: | --- | --- |
+| [PR #505](https://github.com/rbctmz/ai_trainer/pull/505) / [issue #500](https://github.com/rbctmz/ai_trainer/issues/500) | Class A — Full | 52h 12m 01s | 13 submitted Codex reviews | 10 P1 + 37 P2; 39/47 findings in three identity/recovery modules | 10, including a duplicate pair four seconds apart | 12 SHA-specific `Ready to merge` comments | 10 P1 and 33 P2 fixed in-branch; 4 final P2 accepted as post-merge follow-ups without issue numbers recorded at merge | not captured |
+
+**Observed:** the repository already limited review to two rounds, but the limit
+was prose-only. Automatic reviews were enabled while the maintainer also posted
+manual review commands. The readiness workflow checked current-head CI and
+GitHub mergeability before a later native review arrived; it neither queried
+review threads nor reran on review events. A docs-only outcome commit after the
+second pass changed the head and was followed by another full review.
+
+**Inferred:** PR #505 turned a full-diff reviewer into an unbounded edge-case
+generator. Large scope amplified the effect, but scope alone does not explain the
+loop: the missing executable stop rule and stale readiness projection allowed
+every fix SHA to become another review candidate.
+
+**Verified by:** GitHub timestamps and review objects for PR #505, its 47 inline
+Codex findings, the 15-commit history, and the pre-fix
+`.github/workflows/pr-ready-to-merge.yml`. Issue #506 owns the executable review
+gate; issue #507 owns the short agent-visible stop rule.
+
 ## Prospective Validation Status
 
 - Class A architecture-changing PR: **done — PR #496** (prospective row above).

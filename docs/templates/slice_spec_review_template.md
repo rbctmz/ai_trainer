@@ -16,6 +16,9 @@ its checklists or tables into the strict ExecPlan format defined by
 - Rationale:
 - Automatic escalation triggers checked:
 - Review budget used: 0 / 1 / 2 rounds
+- Review trigger mode: manual / automatic (choose exactly one)
+- Review acceptance head SHA:
+- Review budget exception: N/A / label + merge-owner rationale
 
 ## Scope
 
@@ -54,6 +57,15 @@ the corresponding extractor/test/migration.
 - Stable identity/provenance keys:
 - Cursor/checkpoint lifecycle:
 - Concurrency and stale-write behavior:
+
+## Evidence Boundary Matrix
+
+For evidence-, history-, matching-, or recovery-sensitive changes, enumerate the
+relevant cross-product instead of adding one boundary after each review:
+
+| Identity | Time/provenance | Evidence state | Fallback | Expected result / falsifier |
+| --- | --- | --- | --- | --- |
+| current / historical / rebound / ambiguous | before / equal / after / unknown | present / partial / missing / stale | allowed / fail closed | |
 
 ## RED Matrix
 
@@ -104,6 +116,18 @@ Use `P0/P1/P2/P3 → Observed → Inferred → Verified by → gate`.
 | Severity | Evidence and falsifying check | Gate | Owner/status |
 | --- | --- | --- | --- |
 | | | | |
+
+## Native Review Rounds
+
+| Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
+| ---: | --- | --- | --- | --- |
+| 1 | | manual / automatic | | continue / stop |
+| 2 | | verification | | stop / exception rationale |
+
+Every submitted native review counts, including a clean pass or repeated SHA.
+After round 2, do not request another full native review without a new
+architecture boundary, a documented merge-owner decision, and the
+`review-budget-exception` label.
 
 ## Final Verdict
 

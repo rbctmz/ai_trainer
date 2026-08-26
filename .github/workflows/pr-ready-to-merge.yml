@@ -2,7 +2,11 @@ name: PR ready to merge
 
 on:
   pull_request:
-    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited, closed]
+    types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited, labeled, unlabeled, closed]
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
   workflow_run:
     workflows: ["CI", "Link PR to issue", "Project roadmap sync"]
     types: [completed]
@@ -19,18 +23,184 @@ permissions:
   pull-requests: write
 
 jobs:
-  ready-to-merge:
+  review-gate:
+    name: Review gate
+    if: >-
+      github.event.action != 'closed' &&
+      (github.event_name == 'pull_request' ||
+       github.event_name == 'pull_request_review' ||
+       github.event_name == 'pull_request_review_comment')
     runs-on: ubuntu-latest
     steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Enforce accepted bounded review
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const {
+              MAX_NATIVE_REVIEW_ROUNDS,
+              countNativeReviewRounds,
+              evaluateReviewGate,
+            } = require('./.github/scripts/review-gate.cjs');
+
+            const ACCEPTED_LABEL = 'status: review accepted';
+            const READY_LABEL = 'status: ready to merge';
+            const EXCEEDED_LABEL = 'status: review budget exceeded';
+            const EXCEPTION_LABEL = 'review-budget-exception';
+            const pr = context.payload.pull_request;
+
+            const ensureLabel = async (name, color, description) => {
+              try {
+                await github.rest.issues.getLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+                try {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name,
+                    color,
+                    description,
+                  });
+                } catch (createError) {
+                  if (createError.status !== 422) throw createError;
+                }
+              }
+            };
+
+            const labels = async () => {
+              const { data: issue } = await github.rest.issues.get({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+              });
+              return new Set((issue.labels || []).map(label =>
+                typeof label === 'string' ? label : label.name
+              ));
+            };
+
+            const addLabel = async (name) => {
+              await github.rest.issues.addLabels({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                labels: [name],
+              });
+            };
+
+            const removeLabel = async (name) => {
+              try {
+                await github.rest.issues.removeLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  name,
+                });
+              } catch (error) {
+                if (error.status !== 404) throw error;
+              }
+            };
+
+            const unresolvedReviewThreadCount = async () => {
+              let after = null;
+              let count = 0;
+              do {
+                const data = await github.graphql(`
+                  query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $number) {
+                        reviewThreads(first: 100, after: $after) {
+                          nodes { isResolved }
+                          pageInfo { hasNextPage endCursor }
+                        }
+                      }
+                    }
+                  }
+                `, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  number: pr.number,
+                  after,
+                });
+                const threads = data.repository.pullRequest.reviewThreads;
+                count += threads.nodes.filter(thread => !thread.isResolved).length;
+                after = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
+              } while (after);
+              return count;
+            };
+
+            await Promise.all([
+              ensureLabel(ACCEPTED_LABEL, '1D76DB', 'Merge owner accepted review for the current head; cleared by every push'),
+              ensureLabel(EXCEEDED_LABEL, 'D93F0B', `Native review exceeded ${MAX_NATIVE_REVIEW_ROUNDS} rounds without an exception`),
+              ensureLabel(EXCEPTION_LABEL, 'BFDADC', 'Merge owner approved a documented exception to the native review budget'),
+            ]);
+
+            if (context.eventName === 'pull_request' && context.payload.action === 'synchronize') {
+              await Promise.all([removeLabel(ACCEPTED_LABEL), removeLabel(READY_LABEL)]);
+            }
+
+            const [currentLabels, reviews, unresolvedThreads] = await Promise.all([
+              labels(),
+              github.paginate(github.rest.pulls.listReviews, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                per_page: 100,
+              }),
+              unresolvedReviewThreadCount(),
+            ]);
+            const nativeReviewRounds = countNativeReviewRounds(reviews);
+            const hasBudgetException = currentLabels.has(EXCEPTION_LABEL);
+            const budgetExceeded = nativeReviewRounds > MAX_NATIVE_REVIEW_ROUNDS && !hasBudgetException;
+
+            if (budgetExceeded && !currentLabels.has(EXCEEDED_LABEL)) await addLabel(EXCEEDED_LABEL);
+            if (!budgetExceeded && currentLabels.has(EXCEEDED_LABEL)) await removeLabel(EXCEEDED_LABEL);
+
+            const decision = evaluateReviewGate({
+              accepted: currentLabels.has(ACCEPTED_LABEL),
+              nativeReviewRounds,
+              unresolvedThreads,
+              hasBudgetException,
+            });
+            await core.summary
+              .addHeading('Review gate')
+              .addRaw(`PR #${pr.number}: ${decision.reason}`)
+              .write();
+            if (!decision.ready) core.setFailed(decision.reason);
+
+  ready-to-merge:
+    name: ready-to-merge
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
       - name: Project PR readiness into labels
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const {
+              MAX_NATIVE_REVIEW_ROUNDS,
+              countNativeReviewRounds,
+              evaluateReviewGate,
+            } = require('./.github/scripts/review-gate.cjs');
+
             const READY_LABEL = 'status: ready to merge';
-            const READY_MARKER_PREFIX = '<!-- pr-ready-to-merge:';
+            const ACCEPTED_LABEL = 'status: review accepted';
+            const EXCEEDED_LABEL = 'status: review budget exceeded';
+            const EXCEPTION_LABEL = 'review-budget-exception';
+            const READY_MARKER = '<!-- pr-ready-to-merge -->';
+            const LEGACY_READY_MARKER_PREFIX = '<!-- pr-ready-to-merge:';
             const OK_CONCLUSIONS = new Set(['success', 'skipped', 'neutral']);
-            const IGNORED_CHECK_NAMES = new Set(['ready-to-merge']);
+            const IGNORED_CHECK_NAMES = new Set(['ready-to-merge', 'Review gate']);
 
             const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -51,22 +221,26 @@ jobs:
               return [...issueNums];
             };
 
-            const ensureReadyLabel = async () => {
+            const ensureLabel = async (name, color, description) => {
               try {
                 await github.rest.issues.getLabel({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
-                  name: READY_LABEL,
+                  name,
                 });
               } catch (error) {
                 if (error.status !== 404) throw error;
-                await github.rest.issues.createLabel({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  name: READY_LABEL,
-                  color: '0E8A16',
-                  description: 'All checks green and PR is clean; human merge decision still required',
-                });
+                try {
+                  await github.rest.issues.createLabel({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    name,
+                    color,
+                    description,
+                  });
+                } catch (createError) {
+                  if (createError.status !== 422) throw createError;
+                }
               }
             };
 
@@ -81,22 +255,22 @@ jobs:
               ));
             };
 
-            const addReadyLabel = async (prNumber) => {
+            const addLabel = async (prNumber, name) => {
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: prNumber,
-                labels: [READY_LABEL],
+                labels: [name],
               });
             };
 
-            const removeReadyLabel = async (prNumber) => {
+            const removeLabel = async (prNumber, name) => {
               try {
                 await github.rest.issues.removeLabel({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: prNumber,
-                  name: READY_LABEL,
+                  name,
                 });
               } catch (error) {
                 if (error.status !== 404) throw error;
@@ -105,8 +279,13 @@ jobs:
 
             const getPrNumbers = async () => {
               const nums = new Set();
+              const pullRequestEvents = new Set([
+                'pull_request',
+                'pull_request_review',
+                'pull_request_review_comment',
+              ]);
 
-              if (context.eventName === 'pull_request') {
+              if (pullRequestEvents.has(context.eventName)) {
                 nums.add(context.payload.pull_request.number);
               } else if (context.eventName === 'workflow_run') {
                 const run = context.payload.workflow_run;
@@ -168,11 +347,9 @@ jobs:
               const relevant = (data.check_runs || []).filter(run =>
                 !IGNORED_CHECK_NAMES.has(run.name)
               );
-
               if (relevant.length === 0) {
                 return { ready: false, reason: 'no current-head check runs found' };
               }
-
               const pending = relevant.filter(run => run.status !== 'completed');
               if (pending.length > 0) {
                 return {
@@ -180,7 +357,6 @@ jobs:
                   reason: `pending checks: ${pending.map(run => run.name).join(', ')}`,
                 };
               }
-
               const failing = relevant.filter(run => !OK_CONCLUSIONS.has(run.conclusion || ''));
               if (failing.length > 0) {
                 return {
@@ -188,71 +364,147 @@ jobs:
                   reason: `non-green checks: ${failing.map(run => `${run.name}=${run.conclusion}`).join(', ')}`,
                 };
               }
-
               return { ready: true, reason: `${relevant.length} check runs green` };
             };
 
-            const ensureReadyComment = async (pr, issueNums, checkReason) => {
-              const marker = `${READY_MARKER_PREFIX}${pr.head.sha} -->`;
+            const reviewState = async (pr, labels) => {
+              const reviewsPromise = github.paginate(github.rest.pulls.listReviews, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                per_page: 100,
+              });
+              let after = null;
+              let unresolvedThreads = 0;
+              do {
+                const data = await github.graphql(`
+                  query($owner: String!, $repo: String!, $number: Int!, $after: String) {
+                    repository(owner: $owner, name: $repo) {
+                      pullRequest(number: $number) {
+                        reviewThreads(first: 100, after: $after) {
+                          nodes { isResolved }
+                          pageInfo { hasNextPage endCursor }
+                        }
+                      }
+                    }
+                  }
+                `, {
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  number: pr.number,
+                  after,
+                });
+                const threads = data.repository.pullRequest.reviewThreads;
+                unresolvedThreads += threads.nodes.filter(thread => !thread.isResolved).length;
+                after = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
+              } while (after);
+
+              const nativeReviewRounds = countNativeReviewRounds(await reviewsPromise);
+              const hasBudgetException = labels.has(EXCEPTION_LABEL);
+              return {
+                decision: evaluateReviewGate({
+                  accepted: labels.has(ACCEPTED_LABEL),
+                  nativeReviewRounds,
+                  unresolvedThreads,
+                  hasBudgetException,
+                }),
+                budgetExceeded: nativeReviewRounds > MAX_NATIVE_REVIEW_ROUNDS && !hasBudgetException,
+              };
+            };
+
+            const updateReadyComment = async (pr, issueNums, ready, reason) => {
               const comments = await github.paginate(github.rest.issues.listComments, {
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: pr.number,
                 per_page: 100,
               });
-              if (comments.some(comment => (comment.body || '').includes(marker))) return;
+              const existing = comments.find(comment => {
+                const body = comment.body || '';
+                return comment.user?.login === 'github-actions[bot]' &&
+                  (body.includes(READY_MARKER) || body.includes(LEGACY_READY_MARKER_PREFIX));
+              });
+              if (!ready && !existing) return;
 
               const issueText = issueNums.map(num => `#${num}`).join(', ');
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body: [
-                  marker,
-                  `**Ready to merge**`,
-                  ``,
-                  `This PR is linked to ${issueText}, all current-head checks are green, and GitHub reports merge state \`clean\`.`,
-                  ``,
-                  `Check summary: ${checkReason}.`,
-                  ``,
-                  `Human merge decision is still required.`,
-                ].join('\n'),
-              });
+              const body = [
+                READY_MARKER,
+                ready ? '**Ready to merge**' : '**Not ready to merge**',
+                '',
+                ready
+                  ? `Linked to ${issueText}; checks and the accepted review gate are green on \`${pr.head.sha.slice(0, 12)}\`.`
+                  : `Current head \`${pr.head.sha.slice(0, 12)}\` is not ready: ${reason}.`,
+                '',
+                'Human merge decision is still required.',
+              ].join('\n');
+              if (existing) {
+                if ((existing.body || '') === body) return;
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: existing.id,
+                  body,
+                });
+              } else {
+                await github.rest.issues.createComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number,
+                  body,
+                });
+              }
             };
 
-            await ensureReadyLabel();
+            await Promise.all([
+              ensureLabel(READY_LABEL, '0E8A16', 'Checks and the accepted bounded review gate are green for the current head'),
+              ensureLabel(ACCEPTED_LABEL, '1D76DB', 'Merge owner accepted review for the current head; cleared by every push'),
+              ensureLabel(EXCEEDED_LABEL, 'D93F0B', `Native review exceeded ${MAX_NATIVE_REVIEW_ROUNDS} rounds without an exception`),
+              ensureLabel(EXCEPTION_LABEL, 'BFDADC', 'Merge owner approved a documented exception to the native review budget'),
+            ]);
+
             const prNumbers = await getPrNumbers();
             core.info(`Evaluating PRs: ${prNumbers.join(', ') || '(none)'}`);
-
             for (const prNumber of prNumbers) {
               const pr = await getPr(prNumber);
+              if (context.eventName === 'pull_request' && context.payload.action === 'synchronize') {
+                await Promise.all([
+                  removeLabel(prNumber, ACCEPTED_LABEL),
+                  removeLabel(prNumber, READY_LABEL),
+                ]);
+              }
               const labels = await currentLabels(prNumber);
-              const hasReadyLabel = labels.has(READY_LABEL);
+              const issueNums = issueNumbersFromPr(pr);
+              let reason = '';
 
               if (pr.state !== 'open') {
-                if (hasReadyLabel) await removeReadyLabel(prNumber);
-                core.info(`PR #${prNumber}: not open`);
-                continue;
+                reason = 'PR is not open';
+              } else if (pr.draft) {
+                reason = 'PR is draft';
+              } else if (issueNums.length === 0) {
+                reason = 'no linked issue';
+              } else if (pr.mergeable !== true) {
+                reason = 'PR has merge conflicts or mergeability is unknown';
               }
 
-              const issueNums = issueNumbersFromPr(pr);
-              if (pr.draft || issueNums.length === 0 || pr.mergeable !== true || pr.mergeable_state !== 'clean') {
-                if (hasReadyLabel) await removeReadyLabel(prNumber);
-                core.info(
-                  `PR #${prNumber}: not ready ` +
-                  `(draft=${pr.draft}, issues=${issueNums.length}, mergeable=${pr.mergeable}, mergeable_state=${pr.mergeable_state})`
-                );
-                continue;
+              let review = null;
+              let checks = null;
+              if (!reason) {
+                [review, checks] = await Promise.all([
+                  reviewState(pr, labels),
+                  checkState(pr),
+                ]);
+                if (review.budgetExceeded && !labels.has(EXCEEDED_LABEL)) {
+                  await addLabel(prNumber, EXCEEDED_LABEL);
+                } else if (!review.budgetExceeded && labels.has(EXCEEDED_LABEL)) {
+                  await removeLabel(prNumber, EXCEEDED_LABEL);
+                }
+                if (!review.decision.ready) reason = review.decision.reason;
+                else if (!checks.ready) reason = checks.reason;
               }
 
-              const checks = await checkState(pr);
-              if (!checks.ready) {
-                if (hasReadyLabel) await removeReadyLabel(prNumber);
-                core.info(`PR #${prNumber}: not ready (${checks.reason})`);
-                continue;
-              }
-
-              if (!hasReadyLabel) await addReadyLabel(prNumber);
-              await ensureReadyComment(pr, issueNums, checks.reason);
-              core.info(`PR #${prNumber}: ready to merge`);
+              const ready = !reason;
+              if (ready && !labels.has(READY_LABEL)) await addLabel(prNumber, READY_LABEL);
+              if (!ready && labels.has(READY_LABEL)) await removeLabel(prNumber, READY_LABEL);
+              await updateReadyComment(pr, issueNums, ready, reason);
+              core.info(`PR #${prNumber}: ${ready ? 'ready' : `not ready (${reason})`}`);
             }
