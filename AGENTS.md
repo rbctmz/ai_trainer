@@ -69,6 +69,15 @@ Canonical workflow: assign a `Change Class` using `docs/AI_Feature_Development_W
 
 - **Evidence Discipline:** causal claims must use `Observed` / `Inferred` / `Verified by` and run one cheap falsifying check before naming a bug or cause; follow `.agent/PLANS.md` and `docs/AI_Feature_Development_Workflow.md`.
 
+## LLM Code Review Norms (@codex & similar)
+Automated reviewers re-scan the full diff on every trigger, so review loops converge only under an explicit stop-rule. `docs/AI_Feature_Development_Workflow.md` («Review severity», «Review budget») binds humans and bots alike:
+- Issue acceptance criteria + non-goals define blockers. A finding that violates neither is a labelled suggestion (follow-up issue), never a merge gate.
+- Blocking severity (P1, blocking P2) requires a reproduction or a named violated invariant; unproven what-if scenarios default to follow-up issues, not fixes on the open branch.
+- Answer every finding in writing as `fixed-in <sha>` / `follow-up #N` / `disputed: <reason>` — silently auto-fixing every finding feeds the next review round.
+- After the first consolidated full-diff round, request only scoped delta reviews (`@codex review` explicitly naming the changes since `<sha>`); the Review-budget cap of two full-diff rounds per PR is a hard limit.
+- Review is complete at zero open P1 with every P2 addressed or triaged in writing; merge on green CI without waiting for a "no findings" pass — chasing zero findings does not terminate.
+- Never reverse a fix requested by an earlier round without fresh reproducing evidence.
+
 ## ExecPlans
 Complex features and significant refactors use an ExecPlan from design to implementation, per `.agent/PLANS.md`.
 
