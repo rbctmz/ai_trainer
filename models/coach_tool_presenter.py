@@ -1,6 +1,7 @@
 """Headless Markdown presentation for AI coach tool results."""
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, Optional
 
 import pandas as pd
@@ -89,6 +90,35 @@ def format_tool_result(tool_name: str, data: Any) -> str:
             if line
         ]
         metric_line = ""
+        intensity_line = ""
+        try:
+            intensity_delta = float(
+                comparison.get("overall_intensity_tss_per_hour_delta")
+            )
+        except (TypeError, ValueError):
+            intensity_delta = None
+        if intensity_delta is not None and math.isfinite(intensity_delta):
+            try:
+                target_intensity = float(target.get("tss_per_hour"))
+                comparator_intensity = float(comparator.get("tss_per_hour"))
+            except (TypeError, ValueError):
+                target_intensity = comparator_intensity = None
+            if (
+                target_intensity is not None
+                and comparator_intensity is not None
+                and math.isfinite(target_intensity)
+                and math.isfinite(comparator_intensity)
+            ):
+                intensity_detail = (
+                    f"{target_intensity:.1f} vs {comparator_intensity:.1f}; "
+                    f"Δ {intensity_delta:+.1f}"
+                )
+            else:
+                intensity_detail = f"Δ {intensity_delta:+.1f}"
+            intensity_line = (
+                "- Общая интенсивность (TSS/ч; источник: TSS ÷ длительность): "
+                f"{intensity_detail}."
+            )
         if sport_metric.get("kind") == "power_watts":
             metric_line = (
                 f"- Мощность: {metric_target.get('value')} Вт "
@@ -121,6 +151,7 @@ def format_tool_result(tool_name: str, data: Any) -> str:
                 f"- Сходство: {float(similarity.get('score') or 0.0):.2f}; "
                 f"Δ длительности {float(comparison.get('duration_minutes_delta') or 0.0):+.1f} мин; "
                 f"Δ TSS {float(comparison.get('tss_delta') or 0.0):+.1f}.",
+                *([intensity_line] if intensity_line else []),
                 *([metric_line] if metric_line else []),
                 *subjective_lines,
                 "",

@@ -498,6 +498,139 @@ def test_service_restores_auto_match_stimulus_after_plan_rollover() -> None:
     assert result["comparator"]["activity_id"] == "candidate"
 
 
+def test_service_restores_rollover_auto_match_without_feedback() -> None:
+    class RolledOverPreFeedbackDb(_ComparableDb):
+        def __init__(self) -> None:
+            super().__init__()
+            self.historical_reads = 0
+
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            return []
+
+        def get_latest_planning_checkpoint(self):
+            return {
+                "id": 4,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-24",
+                            "total_tss": 40,
+                            "parts": {"bike": 40},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-24",
+                            "sessions": [
+                                {
+                                    "session_id": "replacement-plan-session",
+                                    "sport": "bike",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "endurance"
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+
+        def get_latest_planning_checkpoints_for_dates(self, dates):
+            self.historical_reads += 1
+            assert dates == ["2026-08-01"]
+            return {"2026-08-01": self.get_planning_checkpoint(3)}
+
+        def get_latest_session_feedbacks(self):
+            return []
+
+    database = RolledOverPreFeedbackDb()
+    result = project_comparable_session(
+        database,
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "available"
+    assert result["comparator"]["activity_id"] == "candidate"
+    assert database.historical_reads == 1
+
+
+def test_historical_rollover_recovery_fails_closed_on_same_day_ambiguity() -> None:
+    class AmbiguousHistoricalDb(_ComparableDb):
+        def get_latest_plan_actual_matches(self, *, start_date, end_date):
+            return []
+
+        def get_latest_planning_checkpoint(self):
+            return {
+                "id": 4,
+                "goal_plan_snapshot": {
+                    "daily_plan": [
+                        {
+                            "date": "2026-08-24",
+                            "total_tss": 40,
+                            "parts": {"bike": 40},
+                        }
+                    ],
+                    "session_templates": [
+                        {
+                            "date": "2026-08-24",
+                            "sessions": [
+                                {
+                                    "session_id": "replacement-plan-session",
+                                    "sport": "bike",
+                                    "definition_snapshot": {
+                                        "step_builder_key": "endurance"
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                },
+            }
+
+        def get_latest_planning_checkpoints_for_dates(self, dates):
+            assert dates == ["2026-08-01"]
+            historical = self.get_planning_checkpoint(3)
+            historical["goal_plan_snapshot"]["session_templates"][0][
+                "sessions"
+            ].append(
+                {
+                    "session_id": "second-bike-session",
+                    "sport": "bike",
+                    "definition_snapshot": {"step_builder_key": "threshold"},
+                }
+            )
+            return {"2026-08-01": historical}
+
+        def get_latest_session_feedbacks(self):
+            return []
+
+    result = project_comparable_session(
+        AmbiguousHistoricalDb(),
+        evidence={
+            "row": {
+                "session_id": "target-session",
+                "match_status": "matched",
+                "actual_activity_ids": ["target"],
+            },
+            "template": {
+                "definition_snapshot": {"step_builder_key": "threshold"}
+            },
+        },
+    )
+
+    assert result["status"] == "data_gap"
+    assert result["reason_code"] == "NO_ELIGIBLE_CANDIDATE"
+
+
 def test_service_suppresses_legacy_auto_feedback_after_manual_rematch() -> None:
     class ManuallyRematchedDb(_ComparableDb):
         def get_latest_plan_actual_matches(self, *, start_date, end_date):
@@ -2233,12 +2366,34 @@ def test_coach_tool_and_presenter_expose_neutral_bounded_comparison(monkeypatch)
     assert "RPE 7" in rendered
     assert "ровно и контролируемо" in rendered
     assert "athlete-entered" in rendered
+    assert "TSS/ч" in rendered
+    assert "TSS ÷ длительность" in rendered
+    assert "+1.0" in rendered
     assert "не доказывает тренд" in rendered.lower()
     assert "лучше" not in rendered.lower()
     schemas = {schema["name"]: schema for schema in tools.get_tool_schemas()}
     assert schemas["get_comparable_session"]["parameters"]["properties"][
         "session_id"
     ]["type"] == "string"
+
+
+def test_comparable_presenter_preserves_zero_intensity_delta() -> None:
+    from models.coach_tool_presenter import format_tool_result
+
+    rendered = format_tool_result(
+        "get_comparable_session",
+        {
+            "status": "available",
+            "target": {"tss_per_hour": 70.0},
+            "comparator": {"tss_per_hour": 70.0},
+            "comparison": {
+                "overall_intensity_tss_per_hour_delta": 0.0,
+            },
+        },
+    )
+
+    assert "70.0 vs 70.0" in rendered
+    assert "Δ +0.0" in rendered
 
 
 def test_web_contract_has_neutral_comparison_surface() -> None:

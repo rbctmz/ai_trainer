@@ -1693,6 +1693,57 @@ class Database:
                 result[session_id].append(checkpoint)
         return result
 
+    def get_latest_planning_checkpoints_for_dates(self, session_dates):
+        """Return the newest checkpoint containing session templates for each date."""
+        targets = sorted(
+            {
+                str(value).strip()
+                for value in session_dates or []
+                if _CURSOR_DATE_RE.fullmatch(str(value or "").strip())
+            }
+        )
+        if not targets:
+            return {}
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            SELECT DISTINCT CAST(node.value AS TEXT) AS session_date,
+                   pc.id, pc.goal_type, pc.distance, pc.weeks_to_race,
+                   pc.checkpoint_data, pc.created_at
+            FROM planning_checkpoints AS pc
+            JOIN json_tree(
+                CASE
+                    WHEN json_valid(pc.checkpoint_data) THEN pc.checkpoint_data
+                    ELSE '{}'
+                END
+            ) AS node ON node.key = 'date'
+            WHERE CAST(node.value AS TEXT) IN (
+                SELECT CAST(value AS TEXT) FROM json_each(?)
+            )
+              AND node.fullkey LIKE '%session_templates%'
+            ORDER BY pc.id DESC
+            ''',
+            (json.dumps(targets),),
+        )
+        rows = cursor.fetchall()
+        conn.close()
+        result = {}
+        checkpoint_cache = {}
+        for row in rows:
+            session_date = str(row[0])
+            if session_date in result:
+                continue
+            checkpoint_id = int(row[1])
+            if checkpoint_id not in checkpoint_cache:
+                checkpoint_cache[checkpoint_id] = (
+                    self._deserialize_planning_checkpoint_row(row[1:])
+                )
+            checkpoint = checkpoint_cache[checkpoint_id]
+            if checkpoint is not None:
+                result[session_date] = checkpoint
+        return result
+
     def _deserialize_planning_checkpoint_row(self, row):
         if not row:
             return None

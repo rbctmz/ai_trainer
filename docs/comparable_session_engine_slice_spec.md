@@ -94,11 +94,11 @@
 
 - Head SHA: pending until commit.
 - Changed invariants: only a prior same-sport/exact-stimulus compatible session can be selected; one comparison is evidence, not a trend or cause.
-- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38, targeted 2-test RED→40, targeted 4-failure / 1-control RED→44, targeted 1-test RED→45; 97 canonical focused tests; smoke 2109 passed / 1 skipped; contributor-safe 2155 passed / 3 skipped / 26 deselected.
-- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests green; `75828ba` (eighth-review head) GitHub CI green; ninth-review head pending push. One concurrent duplicate full-suite run hit macOS socket-buffer exhaustion; sequential reruns were green.
+- Focused and broad tests: initial import RED; product-boundary RED 3 failed / 8 passed; first matrix 12 passed; review RED/GREEN rounds: 8/10→19, 4/18→22, 5/22→27, 4/27→31, targeted 2-test RED→34, targeted 3-test RED→38, targeted 2-test RED→40, targeted 4-failure / 1-control RED→44, targeted 1-test RED→45, tenth-round 4-test RED→9 control/behavior tests; 48 comparable-session tests, 114 directly affected tests, smoke 2115 passed / 1 skipped, and contributor-safe 2161 passed / 3 skipped / 26 deselected.
+- CI checks/reruns/flakes: full Ruff, web lint/build, contract artifact and 23 contract tests were green on `0400fe7`; tenth-round head is not pushed yet. One concurrent duplicate full-suite run hit macOS socket-buffer exhaustion; sequential reruns were green.
 - Lifecycle/probe evidence: temporary DB only; local athlete DB may be used read-only for a final falsifying probe without printing personal notes.
 - Changed contracts: additive comparison DTO/tool/TypeScript fields.
-- Unresolved review-thread count: 1 ninth-round thread fixed locally; all previous threads are resolved.
+- Unresolved review-thread count: 3 tenth-round threads fixed locally; all previous threads are resolved.
 - Residual risks and follow-ups: split/composite target is deliberately a data gap; interval structure may be absent and is then labelled missing rather than fabricated.
 
 ## Review Findings
@@ -139,12 +139,15 @@
 | P2 | **Observed**: 100 distinct revisionless legacy sessions issued 100 per-session checkpoint scans. **Inferred**: plan rollovers create an avoidable N+1 full-history read. **Verified by**: `test_service_batches_historical_checkpoint_recovery` now observes one batch read and zero singular reads. | Add one read-only multi-session query and cache restored plans by checkpoint id. | Codex / resolved locally. |
 | P2 | **Observed**: a present current template with empty stimulus continued into an ancestor with `threshold`. **Inferred**: missing evidence could become a false exact-stimulus match. **Verified by**: paired present-empty and identity-absent lineage RED/GREEN tests. | Stop fail-closed when identity is present; traverse only when identity is absent. | Codex / resolved locally. |
 | P1 | **Observed**: rebound descendants can use a new target/session identity, leaving the old matched ancestor visible beside a newer unmatched leaf. **Inferred**: string-only current-leaf lookup can compare an activity the athlete removed. **Verified by**: `test_saved_feedback_follows_rebound_descendant_to_unmatched_leaf` RED/GREEN. | Follow `supersedes_match_id` ancestry across identity changes and select the unique deepest current descendant. | Codex / resolved locally. |
+| P1 | **Observed**: after rollover, an older activity and checkpoint remained but ledger and feedback were empty. **Inferred**: pre-feature stable auto-match history silently disappeared. **Verified by**: `test_service_restores_rollover_auto_match_without_feedback` failed with `NO_ELIGIBLE_CANDIDATE`; newest-per-date historical reconciliation now restores it, while the same-date ambiguity control fails closed. | Read newest historical checkpoint per bounded candidate date once; rebuild only singleton stable auto-matches locally without provider I/O or writes. | Codex / resolved locally. |
+| P2 | **Observed**: `overall_intensity_tss_per_hour_delta` existed in the comparison DTO but was absent from presenter text. **Inferred**: duration and total TSS deltas could be mistaken for a change in intensity. **Verified by**: presenter RED lacked `TSS/ч`; it now reports source-labelled TSS/hour and preserves `Δ +0.0`. | Render neutral `TSS/ч` evidence with its calculation source; do not infer better/worse/adaptation. | Codex / resolved locally. |
+| P2 | **Observed**: `causal_claim_allowed=false` was not part of narrative allowlisted evidence. **Inferred**: the model could deliver a causal adaptation claim despite the comparison contract. **Verified by**: “Более высокий TSS вызван адаптацией” passed before the fix and now returns `CAUSAL_CLAIM_UNSUPPORTED`; explicit no-causality disclaimer and adaptation-plan advice still pass byte-identical. | Propagate the guardrail to the deterministic final narrative boundary with scoped assertion detection. | Codex / resolved locally. |
 
 ## Final Verdict
 
-- Verdict: **READY after ninth-round push, thread resolution, CI, and final current-head connector review**.
+- Verdict: **READY after tenth-round broad verification, push, thread resolution, CI, and final current-head connector review**.
 - Blocking findings remaining: none in local code; publication gates remain.
-- Review rounds used: 9 (31 findings total).
+- Review rounds used: 10 (34 findings total).
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: user.
 - Post-merge sync/branch/worktree/progress cleanup: Codex.

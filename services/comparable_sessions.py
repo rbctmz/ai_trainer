@@ -351,6 +351,26 @@ def _auto_matches_by_activity(
     plan = latest_plan_cache.get("plan")
     if not isinstance(checkpoint, Mapping) or not isinstance(plan, Mapping):
         return {}
+    return _stable_auto_matches_from_checkpoint(
+        checkpoint,
+        plan=plan,
+        activities=activities,
+        ledger_rows=ledger_rows,
+        target_day=target_day,
+        lookback_days=lookback_days,
+    )
+
+
+def _stable_auto_matches_from_checkpoint(
+    checkpoint: Mapping[str, Any],
+    *,
+    plan: Mapping[str, Any],
+    activities: list[Mapping[str, Any]],
+    ledger_rows: list[Mapping[str, Any]],
+    target_day: date,
+    lookback_days: int,
+) -> dict[str, Mapping[str, Any]]:
+    """Project only unambiguous stable auto-matches from one local checkpoint."""
     try:
         checkpoint_id = int(checkpoint.get("id"))
     except (TypeError, ValueError):
@@ -366,10 +386,30 @@ def _auto_matches_by_activity(
         )
     except (TypeError, ValueError):
         return {}
+    date_sport_counts: dict[tuple[str, str], int] = {}
+    session_keys: dict[str, tuple[str, str]] = {}
+    for raw_day in plan.get("session_templates") or []:
+        if not isinstance(raw_day, Mapping):
+            continue
+        planned_date = str(raw_day.get("date") or "")[:10]
+        for raw_session in raw_day.get("sessions") or []:
+            if not isinstance(raw_session, Mapping):
+                continue
+            session_id = str(raw_session.get("session_id") or "").strip()
+            sport = normalize_sport_key(raw_session.get("sport"))
+            if not session_id or not sport:
+                continue
+            key = (planned_date, sport)
+            session_keys[session_id] = key
+            date_sport_counts[key] = date_sport_counts.get(key, 0) + 1
     result: dict[str, Mapping[str, Any]] = {}
     for raw in reconciliation.get("rows") or []:
         if not isinstance(raw, Mapping) or not _stable_auto_match(raw):
             continue
+        if raw.get("match_method") == "date_sport_heuristic":
+            session_key = session_keys.get(str(raw.get("session_id") or ""))
+            if session_key is None or date_sport_counts.get(session_key) != 1:
+                continue
         activity_ids = [
             str(value)
             for value in raw.get("actual_activity_ids") or []
@@ -385,6 +425,84 @@ def _auto_matches_by_activity(
             "confidence": raw.get("confidence"),
             "actual_activity_ids": activity_ids,
         }
+    return result
+
+
+def _historical_auto_matches_by_activity(
+    database: Any,
+    *,
+    activities: list[Mapping[str, Any]],
+    ledger_rows: list[Mapping[str, Any]],
+    target_day: date,
+    lookback_days: int,
+    latest_plan_cache: Mapping[str, Any],
+    checkpoint_cache: dict[int, Mapping[str, Any] | None],
+) -> dict[str, Mapping[str, Any]]:
+    """Recover pre-feedback auto-matches from date-bounded local checkpoints."""
+    reader = getattr(database, "get_latest_planning_checkpoints_for_dates", None)
+    if not callable(reader):
+        return {}
+    activities_by_date: dict[str, list[Mapping[str, Any]]] = {}
+    for activity in activities:
+        activity_date = str(activity.get("date") or "")[:10]
+        if _day(activity_date) is not None:
+            activities_by_date.setdefault(activity_date, []).append(activity)
+    if not activities_by_date:
+        return {}
+    try:
+        by_date = reader(sorted(activities_by_date))
+    except Exception:
+        return {}
+    if not isinstance(by_date, Mapping):
+        return {}
+
+    latest_checkpoint = latest_plan_cache.get("checkpoint")
+    try:
+        latest_checkpoint_id = int(latest_checkpoint.get("id"))
+    except (AttributeError, TypeError, ValueError):
+        latest_checkpoint_id = None
+    grouped: dict[int, dict[str, Any]] = {}
+    for activity_date, raw_checkpoint in by_date.items():
+        if not isinstance(raw_checkpoint, Mapping):
+            continue
+        try:
+            checkpoint_id = int(raw_checkpoint.get("id"))
+        except (TypeError, ValueError):
+            continue
+        if checkpoint_id == latest_checkpoint_id:
+            continue
+        bucket = grouped.setdefault(
+            checkpoint_id,
+            {"checkpoint": dict(raw_checkpoint), "dates": set()},
+        )
+        bucket["dates"].add(str(activity_date))
+
+    result: dict[str, Mapping[str, Any]] = {}
+    for checkpoint_id in sorted(grouped, reverse=True):
+        bucket = grouped[checkpoint_id]
+        checkpoint = bucket["checkpoint"]
+        try:
+            plan = restore_goal_plan_from_checkpoint(checkpoint)
+        except (TypeError, ValueError):
+            continue
+        if not isinstance(plan, Mapping):
+            continue
+        checkpoint_cache[checkpoint_id] = plan
+        checkpoint_activities = [
+            activity
+            for activity_date in sorted(bucket["dates"])
+            for activity in activities_by_date.get(activity_date, [])
+        ]
+        matches = _stable_auto_matches_from_checkpoint(
+            checkpoint,
+            plan=plan,
+            activities=checkpoint_activities,
+            ledger_rows=ledger_rows,
+            target_day=target_day,
+            lookback_days=lookback_days,
+        )
+        for activity_id, match in matches.items():
+            result.setdefault(activity_id, match)
     return result
 
 
@@ -695,6 +813,15 @@ def project_comparable_session(
         lookback_days=bounded_lookback,
         latest_plan_cache=latest_plan_cache,
     )
+    historical_auto_matches_by_activity = _historical_auto_matches_by_activity(
+        database,
+        activities=activities,
+        ledger_rows=match_rows,
+        target_day=target_day,
+        lookback_days=bounded_lookback,
+        latest_plan_cache=latest_plan_cache,
+        checkpoint_cache=checkpoint_cache,
+    )
     latest_checkpoint = latest_plan_cache.get("checkpoint")
     latest_plan = latest_plan_cache.get("plan")
     if isinstance(latest_checkpoint, Mapping) and isinstance(latest_plan, Mapping):
@@ -730,6 +857,8 @@ def project_comparable_session(
             )
         else:
             auto_match = auto_matches_by_activity.get(activity_id)
+            if not isinstance(auto_match, Mapping):
+                auto_match = historical_auto_matches_by_activity.get(activity_id)
             if isinstance(auto_match, Mapping):
                 match = auto_match
                 candidate_stimulus = _stimulus_for_match(
