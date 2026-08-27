@@ -6,6 +6,7 @@ const test = require('node:test');
 const {
   MAX_NATIVE_REVIEW_ROUNDS,
   countNativeReviewRounds,
+  countNativeReviewRoundsForHead,
   evaluateReviewGate,
   isPrivilegedRepositoryPermission,
   latestLabelActor,
@@ -51,13 +52,37 @@ test('acceptance cannot substitute for a missing native review', () => {
       unresolvedThreads: 0,
       hasBudgetException: false,
     }),
-    { ready: false, reason: 'no submitted native review' },
+    { ready: false, reason: 'no submitted native review for the current head' },
+  );
+});
+
+test('historical native reviews cannot satisfy the current-head gate', () => {
+  const reviews = [
+    {
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      state: 'COMMENTED',
+      commit_id: 'head-a',
+    },
+  ];
+
+  assert.equal(countNativeReviewRounds(reviews), 1);
+  assert.equal(countNativeReviewRoundsForHead(reviews, 'head-b'), 0);
+  assert.deepEqual(
+    evaluateReviewGate({
+      accepted: true,
+      nativeReviewRounds: 1,
+      currentHeadNativeReviewRounds: countNativeReviewRoundsForHead(reviews, 'head-b'),
+      unresolvedThreads: 0,
+      hasBudgetException: false,
+    }),
+    { ready: false, reason: 'no submitted native review for the current head' },
   );
 });
 
 test('a submitted review invalidates prior acceptance and readiness', () => {
   assert.equal(shouldInvalidateAcceptance('pull_request_review', 'submitted'), true);
   assert.equal(shouldInvalidateAcceptance('pull_request', 'synchronize'), true);
+  assert.equal(shouldInvalidateAcceptance('pull_request_target', 'synchronize'), true);
   assert.equal(shouldInvalidateAcceptance('pull_request_review', 'dismissed'), false);
   assert.equal(shouldInvalidateAcceptance('pull_request', 'labeled'), false);
 });

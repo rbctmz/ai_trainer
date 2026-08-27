@@ -7,11 +7,20 @@ const CODEX_REVIEWER_LOGINS = new Set([
 ]);
 const PRIVILEGED_REPOSITORY_PERMISSIONS = new Set(['admin', 'maintain']);
 
+function isSubmittedNativeReview(review) {
+  const login = review.user?.login || review.author?.login || '';
+  const state = String(review.state || '').toUpperCase();
+  return CODEX_REVIEWER_LOGINS.has(login) && state !== 'PENDING';
+}
+
 function countNativeReviewRounds(reviews) {
+  return reviews.filter(isSubmittedNativeReview).length;
+}
+
+function countNativeReviewRoundsForHead(reviews, headSha) {
   return reviews.filter((review) => {
-    const login = review.user?.login || review.author?.login || '';
-    const state = String(review.state || '').toUpperCase();
-    return CODEX_REVIEWER_LOGINS.has(login) && state !== 'PENDING';
+    const reviewHead = review.commit_id || review.commit?.oid || review.commit?.sha || '';
+    return isSubmittedNativeReview(review) && reviewHead === headSha;
   }).length;
 }
 
@@ -35,7 +44,8 @@ function selectReadinessStatusComments(comments) {
 }
 
 function shouldInvalidateAcceptance(eventName, action) {
-  return (eventName === 'pull_request' && action === 'synchronize') ||
+  return (['pull_request', 'pull_request_target'].includes(eventName) &&
+      action === 'synchronize') ||
     (eventName === 'pull_request_review' && action === 'submitted');
 }
 
@@ -60,12 +70,13 @@ function isPrivilegedRepositoryPermission(permission) {
 function evaluateReviewGate({
   accepted,
   nativeReviewRounds,
+  currentHeadNativeReviewRounds = nativeReviewRounds,
   unresolvedThreads,
   hasBudgetException,
   reviewDecision = null,
 }) {
-  if (nativeReviewRounds < 1) {
-    return { ready: false, reason: 'no submitted native review' };
+  if (currentHeadNativeReviewRounds < 1) {
+    return { ready: false, reason: 'no submitted native review for the current head' };
   }
   if (!accepted) {
     return { ready: false, reason: 'review result is not accepted for the current head' };
@@ -99,5 +110,6 @@ module.exports = {
   latestLabelActor,
   isPrivilegedRepositoryPermission,
   countNativeReviewRounds,
+  countNativeReviewRoundsForHead,
   evaluateReviewGate,
 };

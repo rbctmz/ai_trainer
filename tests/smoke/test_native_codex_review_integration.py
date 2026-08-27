@@ -45,6 +45,7 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
         "status: review budget exceeded",
         "review-budget-exception",
         "countNativeReviewRounds",
+        "countNativeReviewRoundsForHead",
         "evaluateReviewGate",
         "selectReadinessStatusComments",
         "shouldInvalidateAcceptance",
@@ -58,6 +59,9 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
         "pr-ready-to-merge-superseded",
     ):
         assert contract in text
+    assert "pull_request_target:" in text
+    assert "ref: ${{ github.event.repository.default_branch }}" in text
+    assert "github.event_name == 'pull_request'" not in text
     assert "shouldInvalidateAcceptance(context.eventName, context.payload.action)" in text
     assert "removeLabel(ACCEPTED_LABEL)" in text
     assert "latestPr.head.sha !== pr.head.sha" in text

@@ -134,6 +134,8 @@ submitted native review counts against the two-round budget even when it is clea
 or repeats a head SHA. Dismissing a submitted review does not refund its round.
 Every newly submitted review clears earlier acceptance; the merge owner accepts
 the latest result only after its findings have been triaged.
+At least one submitted native review must name the current head SHA; historical
+reviews consume budget but cannot qualify a later head for acceptance.
 
 After the first review, every finding receives `fixed-in <sha>`, `follow-up #N`,
 or `disputed: <reason>`. One verification review is allowed. After the second
@@ -199,6 +201,11 @@ conflicted, unlinked, closed, loses acceptance, gains an unresolved thread, or
 receives an active changes-requested review or pending/failing checks, the
 workflow removes readiness. Before publishing the result, the workflow refetches
 the PR head and privileged labels and abandons a stale evaluation.
+
+Write-capable readiness jobs run from `pull_request_target` or other default-branch
+events and explicitly check out the repository default branch. They never execute
+workflow helpers from the candidate PR head; PR versions of the policy are tested
+only by the read-only CI contour before merge.
 
 GitHub Actions has no direct trigger for reopening an existing review thread.
 The repository ruleset therefore remains the immediate merge guard through
