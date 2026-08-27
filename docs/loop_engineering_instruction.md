@@ -129,13 +129,16 @@ review from the connected GitHub account of the maintainer only after the candid
 documentation, evidence bundle, and CI are stable. Do not mix automatic and
 manual triggers, and do not create an Actions workflow that posts
 `@codex review`: its author is `github-actions[bot]`, not the connected
-maintainer account. The exact maintainer command is `@codex review`; every
-submitted native review counts against the two-round budget even when it is clean
-or repeats a head SHA. Dismissing a submitted review does not refund its round.
-Every newly submitted review clears earlier acceptance; the merge owner accepts
-the latest result only after its findings have been triaged.
-At least one submitted native review must name the current head SHA; historical
-reviews consume budget but cannot qualify a later head for acceptance.
+maintainer account. The exact maintainer command is `@codex review`. A native
+round is either a submitted review from the Codex connector or its authenticated
+clean-result PR comment containing `Codex Review: Didn't find any major issues`
+and an explicit `Reviewed commit`. Every round counts against the two-round
+budget even when it is clean or repeats a head SHA. Dismissing a submitted review
+does not refund its round. Every newly submitted review or clean result clears
+earlier acceptance; the merge owner accepts the latest result only after its
+findings have been triaged. At least one native result must name the current head
+SHA; historical results consume budget but cannot qualify a later head for
+acceptance.
 
 After the first review, every finding receives `fixed-in <sha>`, `follow-up #N`,
 or `disputed: <reason>`. One verification review is allowed. After the second

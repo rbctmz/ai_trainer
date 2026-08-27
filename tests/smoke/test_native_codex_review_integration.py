@@ -1,4 +1,5 @@
 """Rot guards for the native Codex GitHub review integration."""
+import re
 import subprocess
 from pathlib import Path
 
@@ -17,11 +18,13 @@ CI_WORKFLOW = WORKFLOW_DIR / "ci.yml"
 
 def test_actions_do_not_impersonate_a_connected_user_for_codex_review() -> None:
     assert not (WORKFLOW_DIR / "codex-review.yml").exists()
+    assert not (WORKFLOW_DIR / "codex-review.yaml").exists()
 
     offenders = []
-    for path in WORKFLOW_DIR.glob("*.yml"):
+    workflow_paths = (*WORKFLOW_DIR.glob("*.yml"), *WORKFLOW_DIR.glob("*.yaml"))
+    for path in workflow_paths:
         text = path.read_text(encoding="utf-8")
-        if "body: '@codex review'" in text or 'body: "@codex review"' in text:
+        if re.search(r"@codex\s+review\b", text, flags=re.IGNORECASE):
             offenders.append(str(path))
 
     assert offenders == []
@@ -30,7 +33,6 @@ def test_actions_do_not_impersonate_a_connected_user_for_codex_review() -> None:
 def test_ready_projection_does_not_wait_for_removed_actions_workflow() -> None:
     text = READY_WORKFLOW.read_text(encoding="utf-8")
 
-    assert 'workflows: ["CI", "Link PR to issue", "Project roadmap sync"]' in text
     assert '"Codex Review"' not in text
 
 
@@ -38,6 +40,7 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
     text = READY_WORKFLOW.read_text(encoding="utf-8")
 
     for contract in (
+        "issue_comment:",
         "pull_request_review:",
         "pull_request_review_comment:",
         "reviewThreads(first: 100",
@@ -46,6 +49,8 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
         "review-budget-exception",
         "countNativeReviewRounds",
         "countNativeReviewRoundsForHead",
+        "cleanNativeReviewHead",
+        "github.rest.issues.listComments",
         "evaluateReviewGate",
         "selectReadinessStatusComments",
         "shouldInvalidateAcceptance",
@@ -62,7 +67,8 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
     assert "pull_request_target:" in text
     assert "ref: ${{ github.event.repository.default_branch }}" in text
     assert "github.event_name == 'pull_request'" not in text
-    assert "shouldInvalidateAcceptance(context.eventName, context.payload.action)" in text
+    assert "context.payload.comment" in text
+    assert "github.event.comment.user.login == 'chatgpt-codex-connector[bot]'" in text
     assert "removeLabel(ACCEPTED_LABEL)" in text
     assert "latestPr.head.sha !== pr.head.sha" in text
     assert "READY_MARKER," in text

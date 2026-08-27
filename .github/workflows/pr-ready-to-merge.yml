@@ -7,6 +7,8 @@ on:
     types: [submitted, dismissed]
   pull_request_review_comment:
     types: [created, edited, deleted]
+  issue_comment:
+    types: [created, edited, deleted]
   workflow_run:
     workflows: ["CI", "Link PR to issue", "Project roadmap sync"]
     types: [completed]
@@ -31,7 +33,10 @@ jobs:
       github.event.action != 'closed' &&
       (github.event_name == 'pull_request_target' ||
        github.event_name == 'pull_request_review' ||
-       github.event_name == 'pull_request_review_comment')
+       github.event_name == 'pull_request_review_comment' ||
+       (github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.user.login == 'chatgpt-codex-connector[bot]'))
     runs-on: ubuntu-latest
     steps:
       - name: Check out trusted gate implementation
@@ -58,7 +63,11 @@ jobs:
             const READY_LABEL = 'status: ready to merge';
             const EXCEEDED_LABEL = 'status: review budget exceeded';
             const EXCEPTION_LABEL = 'review-budget-exception';
-            const pr = context.payload.pull_request;
+            const pr = context.payload.pull_request || (await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.issue.number,
+            })).data;
 
             const ensureLabel = async (name, color, description) => {
               try {
@@ -198,11 +207,15 @@ jobs:
               ensureLabel(EXCEPTION_LABEL, 'BFDADC', 'Merge owner approved a documented exception to the native review budget'),
             ]);
 
-            if (shouldInvalidateAcceptance(context.eventName, context.payload.action)) {
+            if (shouldInvalidateAcceptance(
+              context.eventName,
+              context.payload.action,
+              context.payload.comment,
+            )) {
               await Promise.all([removeLabel(ACCEPTED_LABEL), removeLabel(READY_LABEL)]);
             }
 
-            const [currentLabels, reviews, review, events] = await Promise.all([
+            const [currentLabels, reviews, comments, review, events] = await Promise.all([
               labels(),
               github.paginate(github.rest.pulls.listReviews, {
                 owner: context.repo.owner,
@@ -210,13 +223,20 @@ jobs:
                 pull_number: pr.number,
                 per_page: 100,
               }),
+              github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                per_page: 100,
+              }),
               reviewSnapshot(),
               issueEvents(),
             ]);
-            const nativeReviewRounds = countNativeReviewRounds(reviews);
+            const nativeReviewRounds = countNativeReviewRounds(reviews, comments);
             const currentHeadNativeReviewRounds = countNativeReviewRoundsForHead(
               reviews,
               pr.head.sha,
+              comments,
             );
             const [accepted, hasBudgetException] = await Promise.all([
               authenticatedLabel(ACCEPTED_LABEL, currentLabels, events),
@@ -258,6 +278,7 @@ jobs:
             const {
               MAX_NATIVE_REVIEW_ROUNDS,
               READY_MARKER,
+              cleanNativeReviewHead,
               countNativeReviewRounds,
               countNativeReviewRoundsForHead,
               evaluateReviewGate,
@@ -403,6 +424,10 @@ jobs:
 
               if (pullRequestEvents.has(context.eventName)) {
                 nums.add(context.payload.pull_request.number);
+              } else if (context.eventName === 'issue_comment' &&
+                  context.payload.issue?.pull_request &&
+                  cleanNativeReviewHead(context.payload.comment) !== null) {
+                nums.add(context.payload.issue.number);
               } else if (context.eventName === 'workflow_run') {
                 const run = context.payload.workflow_run;
                 for (const pr of run.pull_requests || []) {
@@ -492,6 +517,12 @@ jobs:
                 pull_number: pr.number,
                 per_page: 100,
               });
+              const commentsPromise = github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                per_page: 100,
+              });
               const eventsPromise = issueEvents(pr.number);
               let after = null;
               let unresolvedThreads = 0;
@@ -522,11 +553,16 @@ jobs:
                 after = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
               } while (after);
 
-              const [reviews, events] = await Promise.all([reviewsPromise, eventsPromise]);
-              const nativeReviewRounds = countNativeReviewRounds(reviews);
+              const [reviews, comments, events] = await Promise.all([
+                reviewsPromise,
+                commentsPromise,
+                eventsPromise,
+              ]);
+              const nativeReviewRounds = countNativeReviewRounds(reviews, comments);
               const currentHeadNativeReviewRounds = countNativeReviewRoundsForHead(
                 reviews,
                 pr.head.sha,
+                comments,
               );
               const [accepted, hasBudgetException] = await Promise.all([
                 authenticatedLabel(ACCEPTED_LABEL, labels, events),
@@ -612,7 +648,11 @@ jobs:
             core.info(`Evaluating PRs: ${prNumbers.join(', ') || '(none)'}`);
             for (const prNumber of prNumbers) {
               const pr = await getPr(prNumber);
-              if (shouldInvalidateAcceptance(context.eventName, context.payload.action)) {
+              if (shouldInvalidateAcceptance(
+                context.eventName,
+                context.payload.action,
+                context.payload.comment,
+              )) {
                 await Promise.all([
                   removeLabel(prNumber, ACCEPTED_LABEL),
                   removeLabel(prNumber, READY_LABEL),

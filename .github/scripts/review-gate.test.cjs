@@ -5,6 +5,7 @@ const test = require('node:test');
 
 const {
   MAX_NATIVE_REVIEW_ROUNDS,
+  cleanNativeReviewHead,
   countNativeReviewRounds,
   countNativeReviewRoundsForHead,
   evaluateReviewGate,
@@ -77,6 +78,40 @@ test('historical native reviews cannot satisfy the current-head gate', () => {
     }),
     { ready: false, reason: 'no submitted native review for the current head' },
   );
+});
+
+test('clean Codex result comments count as current-head native review rounds', () => {
+  const cleanComment = {
+    user: { login: 'chatgpt-codex-connector[bot]' },
+    body: [
+      "Codex Review: Didn't find any major issues. Another round soon, please!",
+      '',
+      '**Reviewed commit:** `800c618311`',
+    ].join('\n'),
+  };
+  const headSha = '800c618311a79c2cf4b0d9a7fb2421a5bbe6587c';
+
+  assert.equal(cleanNativeReviewHead(cleanComment), '800c618311');
+  assert.equal(countNativeReviewRounds([], [cleanComment]), 1);
+  assert.equal(countNativeReviewRoundsForHead([], headSha, [cleanComment]), 1);
+  assert.equal(countNativeReviewRoundsForHead([], 'deadbeef00000000000000000000000000000000', [cleanComment]), 0);
+  assert.equal(shouldInvalidateAcceptance('issue_comment', 'created', cleanComment), true);
+});
+
+test('maintainer text cannot spoof a clean native review result', () => {
+  const spoofed = {
+    user: { login: 'rbctmz' },
+    body: "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `800c618311`",
+  };
+  const unrelatedBotComment = {
+    user: { login: 'chatgpt-codex-connector[bot]' },
+    body: 'Codex finished another task.',
+  };
+
+  assert.equal(cleanNativeReviewHead(spoofed), null);
+  assert.equal(cleanNativeReviewHead(unrelatedBotComment), null);
+  assert.equal(countNativeReviewRounds([], [spoofed, unrelatedBotComment]), 0);
+  assert.equal(shouldInvalidateAcceptance('issue_comment', 'created', spoofed), false);
 });
 
 test('a submitted review invalidates prior acceptance and readiness', () => {

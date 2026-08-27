@@ -13,15 +13,37 @@ function isSubmittedNativeReview(review) {
   return CODEX_REVIEWER_LOGINS.has(login) && state !== 'PENDING';
 }
 
-function countNativeReviewRounds(reviews) {
-  return reviews.filter(isSubmittedNativeReview).length;
+function cleanNativeReviewHead(comment) {
+  const login = comment.user?.login || comment.author?.login || '';
+  const body = String(comment.body || '');
+  if (!CODEX_REVIEWER_LOGINS.has(login) ||
+      !body.startsWith("Codex Review: Didn't find any major issues.")) {
+    return null;
+  }
+  const match = body.match(/\*\*Reviewed commit:\*\*\s*`([0-9a-f]{7,40})`/i);
+  return match ? match[1].toLowerCase() : null;
 }
 
-function countNativeReviewRoundsForHead(reviews, headSha) {
-  return reviews.filter((review) => {
+function commitMatchesHead(candidate, headSha) {
+  const normalizedCandidate = String(candidate || '').toLowerCase();
+  const normalizedHead = String(headSha || '').toLowerCase();
+  return normalizedCandidate.length >= 7 && normalizedHead.startsWith(normalizedCandidate);
+}
+
+function countNativeReviewRounds(reviews, comments = []) {
+  return reviews.filter(isSubmittedNativeReview).length +
+    comments.filter(comment => cleanNativeReviewHead(comment) !== null).length;
+}
+
+function countNativeReviewRoundsForHead(reviews, headSha, comments = []) {
+  const submittedForHead = reviews.filter((review) => {
     const reviewHead = review.commit_id || review.commit?.oid || review.commit?.sha || '';
-    return isSubmittedNativeReview(review) && reviewHead === headSha;
+    return isSubmittedNativeReview(review) && commitMatchesHead(reviewHead, headSha);
   }).length;
+  const cleanForHead = comments.filter(comment =>
+    commitMatchesHead(cleanNativeReviewHead(comment), headSha)
+  ).length;
+  return submittedForHead + cleanForHead;
 }
 
 const READY_MARKER = '<!-- pr-ready-to-merge -->';
@@ -43,10 +65,12 @@ function selectReadinessStatusComments(comments) {
   };
 }
 
-function shouldInvalidateAcceptance(eventName, action) {
+function shouldInvalidateAcceptance(eventName, action, comment = null) {
   return (['pull_request', 'pull_request_target'].includes(eventName) &&
       action === 'synchronize') ||
-    (eventName === 'pull_request_review' && action === 'submitted');
+    (eventName === 'pull_request_review' && action === 'submitted') ||
+    (eventName === 'issue_comment' && ['created', 'edited'].includes(action) &&
+      cleanNativeReviewHead(comment) !== null);
 }
 
 function latestLabelActor(events, labelName) {
@@ -109,6 +133,7 @@ module.exports = {
   shouldInvalidateAcceptance,
   latestLabelActor,
   isPrivilegedRepositoryPermission,
+  cleanNativeReviewHead,
   countNativeReviewRounds,
   countNativeReviewRoundsForHead,
   evaluateReviewGate,
