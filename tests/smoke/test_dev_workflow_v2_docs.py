@@ -91,6 +91,10 @@ def test_slice_spec_review_template_covers_required_state_and_review_contracts()
     assert "P0/P1/P2/P3" in text
     assert "separate working spec" in text
     assert "behavior-preserving refactor" in text
+    assert "Review trigger mode: manual / automatic" in text
+    assert "## Evidence Boundary Matrix" in text
+    assert "## Native Review Rounds" in text
+    assert "review-budget-exception" in text
 
 
 def test_process_metrics_have_definitions_place_and_two_real_baselines() -> None:
@@ -120,6 +124,10 @@ def test_process_metrics_have_definitions_place_and_two_real_baselines() -> None
     assert "Class C UI/docs PR: **done — PR #497**" in text
     assert "PR #496" in text
     assert "PR #497" in text
+    assert "Review-Loop Incident Retrospective — 2026-08-26" in text
+    assert "PR #505" in text
+    assert "13 submitted Codex reviews" in text
+    assert "10 P1 + 37 P2" in text
 
 
 def test_agent_entrypoint_links_policy_template_and_metrics() -> None:

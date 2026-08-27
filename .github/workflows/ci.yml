@@ -64,6 +64,9 @@ jobs:
           cache: npm
           cache-dependency-path: web/package-lock.json
 
+      - name: Test review gate policy
+        run: node --test .github/scripts/review-gate.test.cjs
+
       - name: Install web dependencies
         run: npm --prefix web ci
 

@@ -123,12 +123,25 @@ effort remain planning inputs and are not overwritten by automation.
 
 CI runs the contributor-safe test contour through `.github/workflows/ci.yml`.
 Codex review uses the native GitHub integration configured at
-`https://chatgpt.com/codex/settings/code-review`, with **Code review** and
-**Automatic reviews** enabled for this repository. Do not create an Actions
-workflow that posts `@codex review`: its author is `github-actions[bot]`, not the
-connected maintainer account. A maintainer can still request a one-off review by
-posting the exact command from the connected GitHub account. A PR is mergeable
-only after checks are green and the maintainer accepts the result.
+`https://chatgpt.com/codex/settings/code-review`. Keep **Code review** enabled and
+**Automatic reviews** disabled for this repository: the merge owner requests one
+review from the connected GitHub account of the maintainer only after the candidate head,
+documentation, evidence bundle, and CI are stable. Do not mix automatic and
+manual triggers, and do not create an Actions workflow that posts
+`@codex review`: its author is `github-actions[bot]`, not the connected
+maintainer account. The exact maintainer command is `@codex review`; every
+submitted native review counts against the two-round budget even when it is clean
+or repeats a head SHA. Dismissing a submitted review does not refund its round.
+Every newly submitted review clears earlier acceptance; the merge owner accepts
+the latest result only after its findings have been triaged.
+
+After the first review, every finding receives `fixed-in <sha>`, `follow-up #N`,
+or `disputed: <reason>`. One verification review is allowed. After the second
+native pass, fix remaining P0/P1 and blocking P2 findings with targeted evidence,
+resolve or own every thread, and stop requesting full native reviews unless the
+merge owner records a new architecture boundary and applies the documented
+budget exception. A later docs-only outcome push does not justify another
+review; record final process metrics after merge instead.
 
 ### Claude Code Tag Mode
 
@@ -168,21 +181,42 @@ available only after the workflow PR has been merged into `main`.
 
 Workflow: `.github/workflows/pr-ready-to-merge.yml`
 
-When a linked PR is open, not draft, mergeable with a clean merge state, and all
-current-head check runs are green, GitHub Actions adds `status: ready to merge`
-and posts a short readiness comment. If the PR becomes draft, dirty, unlinked,
-closed, or receives pending/failing checks, the workflow removes the label.
+The workflow has two independent gates. `Review gate` passes only when the merge
+owner applies `status: review accepted`, all review threads are resolved, and no
+more than two native Codex reviews were submitted. A third pass adds
+`status: review budget exceeded`; it needs a documented merge-owner decision and
+the `review-budget-exception` label. Only a repository admin or maintainer may
+apply either privileged label. Every new push or submitted review removes review
+acceptance and readiness, so acceptance is always bound to the current evidence.
+
+When a linked PR is open, not draft, has no merge conflict, passes the accepted
+review gate, and all other current-head check runs are green, GitHub Actions adds
+`status: ready to merge`. One bot comment is updated in place instead of posting
+one comment per head SHA. Review submission and review-comment events recompute
+the projection; after resolving the final thread, the merge owner applies review
+acceptance to trigger the final recomputation. If the PR becomes draft,
+conflicted, unlinked, closed, loses acceptance, gains an unresolved thread, or
+receives an active changes-requested review or pending/failing checks, the
+workflow removes readiness. Before publishing the result, the workflow refetches
+the PR head and privileged labels and abandons a stale evaluation.
+
+GitHub Actions has no direct trigger for reopening an existing review thread.
+The repository ruleset therefore remains the immediate merge guard through
+`required_review_thread_resolution`, while a 15-minute scheduled reconciliation
+removes stale readiness labels and neutralizes legacy per-head Ready comments.
 
 This is a signal, not an auto-merge. The maintainer still makes the merge
 decision.
 
 To smoke-test this projection without touching product code, open a small
 structured docs-only issue and PR whose branch name contains the issue number.
-After CI is green, the linked PR should receive `status: ready to merge`
-automatically. If the label is absent, inspect the `PR ready to merge` workflow
-run before merging; missing PR write permissions will show as a 403 while adding
-labels or comments. A successful smoke test shows a post-CI `workflow_run` and
-the label without using `workflow_dispatch` or manually editing labels.
+Green CI without `status: review accepted` must not produce readiness. Apply
+acceptance only after review threads are resolved; the linked PR should then
+receive `status: ready to merge`. Push one harmless follow-up commit and verify
+that both acceptance and readiness disappear. A third native review must keep
+the gate red until a documented exception is applied. If the projection is
+wrong, inspect the `PR ready to merge` workflow; missing PR write permissions
+show as a 403 while adding labels or updating its single status comment.
 
 ### CI Failure Loop
 

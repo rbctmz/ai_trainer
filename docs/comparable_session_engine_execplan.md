@@ -56,8 +56,9 @@ After this change, post-workout feedback can show one prior session that is genu
 - [x] (2026-08-26) Pushed eleventh-round commit `c2458e7`, replied to and resolved its 5 threads, and confirmed every GitHub CI check green.
 - [x] (2026-08-26) The twelfth current-head review added 4 P2 findings. Captured an exact 6-failure RED: three unrelated causal phrases, one saved-feedback `datetime`, one missing activity-time cutoff handoff, and one unbounded post-activity checkpoint lookup. Self-review added the active no-feedback `datetime` control; all evidence-boundary defects now have 128 focused tests green.
 - [x] (2026-08-26) Completed twelfth-round broad verification: 53 comparable-session tests, 128 directly affected tests, smoke 2129 passed / 1 skipped, contributor-safe 2175 passed / 3 skipped / 26 deselected, full Ruff, web lint/build, contract freshness, and 23 contract tests green.
-- [ ] Push the twelfth review-fix commit, resolve its 4 threads, and wait for CI before declaring CLEAN.
-- [ ] Merge PR #505 into `main` once the head is CLEAN and green.
+- [x] (2026-08-26) Pushed the twelfth review-fix commit `f000bbe`, resolved its 4 threads, and confirmed GitHub CI green.
+- [x] (2026-08-26) A thirteenth native review on the unchanged product scope added 4 P2 suggestions. The merge owner classified them as non-blocking post-merge follow-ups, resolved the threads without another fix/review cycle, and squash-merged PR #505 as `881107c`.
+- [x] (2026-08-26) Recorded the review-loop incident in `docs/engineering_process_metrics.md`; issues #506 and #507 own the executable gate and agent-visible stop rule.
 
 ## Surprises & Discoveries
 
