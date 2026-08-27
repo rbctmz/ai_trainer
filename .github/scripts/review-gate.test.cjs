@@ -7,7 +7,10 @@ const {
   MAX_NATIVE_REVIEW_ROUNDS,
   countNativeReviewRounds,
   evaluateReviewGate,
+  isPrivilegedRepositoryPermission,
+  latestLabelActor,
   selectReadinessStatusComments,
+  shouldInvalidateAcceptance,
 } = require('./review-gate.cjs');
 
 test('counts every submitted native Codex pass and ignores maintainer replies', () => {
@@ -52,6 +55,45 @@ test('acceptance cannot substitute for a missing native review', () => {
   );
 });
 
+test('a submitted review invalidates prior acceptance and readiness', () => {
+  assert.equal(shouldInvalidateAcceptance('pull_request_review', 'submitted'), true);
+  assert.equal(shouldInvalidateAcceptance('pull_request', 'synchronize'), true);
+  assert.equal(shouldInvalidateAcceptance('pull_request_review', 'dismissed'), false);
+  assert.equal(shouldInvalidateAcceptance('pull_request', 'labeled'), false);
+});
+
+test('privileged labels require the latest authorized label actor', () => {
+  const events = [
+    {
+      id: 1,
+      event: 'labeled',
+      created_at: '2026-08-27T07:00:00Z',
+      label: { name: 'status: review accepted' },
+      actor: { login: 'untrusted-bot[bot]' },
+    },
+    {
+      id: 2,
+      event: 'unlabeled',
+      created_at: '2026-08-27T07:01:00Z',
+      label: { name: 'status: review accepted' },
+      actor: { login: 'rbctmz' },
+    },
+    {
+      id: 3,
+      event: 'labeled',
+      created_at: '2026-08-27T07:02:00Z',
+      label: { name: 'status: review accepted' },
+      actor: { login: 'rbctmz' },
+    },
+  ];
+
+  assert.equal(latestLabelActor(events, 'status: review accepted'), 'rbctmz');
+  assert.equal(latestLabelActor(events.slice(0, 2), 'status: review accepted'), null);
+  assert.equal(isPrivilegedRepositoryPermission('admin'), true);
+  assert.equal(isPrivilegedRepositoryPermission('maintain'), true);
+  assert.equal(isPrivilegedRepositoryPermission('write'), false);
+});
+
 test('green CI cannot substitute for explicit review acceptance', () => {
   assert.deepEqual(
     evaluateReviewGate({
@@ -73,6 +115,19 @@ test('an unresolved thread blocks an accepted review', () => {
       hasBudgetException: false,
     }),
     { ready: false, reason: '1 unresolved review thread(s)' },
+  );
+});
+
+test('an active changes-requested review blocks readiness without a thread', () => {
+  assert.deepEqual(
+    evaluateReviewGate({
+      accepted: true,
+      nativeReviewRounds: 1,
+      unresolvedThreads: 0,
+      hasBudgetException: false,
+      reviewDecision: 'CHANGES_REQUESTED',
+    }),
+    { ready: false, reason: 'an active review requests changes' },
   );
 });
 

@@ -47,14 +47,20 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
         "countNativeReviewRounds",
         "evaluateReviewGate",
         "selectReadinessStatusComments",
+        "shouldInvalidateAcceptance",
+        "latestLabelActor",
+        "getCollaboratorPermissionLevel",
+        "reviewDecision",
+        "stale evaluation skipped",
         'schedule:',
         'cron: "*/15 * * * *"',
         "['workflow_dispatch', 'schedule'].includes(context.eventName)",
         "pr-ready-to-merge-superseded",
     ):
         assert contract in text
-    assert "context.payload.action === 'synchronize'" in text
+    assert "shouldInvalidateAcceptance(context.eventName, context.payload.action)" in text
     assert "removeLabel(ACCEPTED_LABEL)" in text
+    assert "latestPr.head.sha !== pr.head.sha" in text
     assert "READY_MARKER," in text
     assert "const marker = `${READY_MARKER_PREFIX}${pr.head.sha} -->`;" not in text
 

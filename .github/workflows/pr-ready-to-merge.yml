@@ -46,6 +46,9 @@ jobs:
               MAX_NATIVE_REVIEW_ROUNDS,
               countNativeReviewRounds,
               evaluateReviewGate,
+              isPrivilegedRepositoryPermission,
+              latestLabelActor,
+              shouldInvalidateAcceptance,
             } = require('./.github/scripts/review-gate.cjs');
 
             const ACCEPTED_LABEL = 'status: review accepted';
@@ -88,6 +91,16 @@ jobs:
               ));
             };
 
+            const issueEvents = async () => github.paginate(
+              github.rest.issues.listEventsForTimeline,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                per_page: 100,
+              },
+            );
+
             const addLabel = async (name) => {
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
@@ -110,14 +123,50 @@ jobs:
               }
             };
 
-            const unresolvedReviewThreadCount = async () => {
+            const permissionByActor = new Map();
+            const isPrivilegedActor = async (login) => {
+              if (!login || login.endsWith('[bot]')) return false;
+              if (login === context.payload.repository.owner.login) return true;
+              if (!permissionByActor.has(login)) {
+                permissionByActor.set(login, (async () => {
+                  try {
+                    const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      username: login,
+                    });
+                    return isPrivilegedRepositoryPermission(data.permission);
+                  } catch (error) {
+                    core.warning(`Cannot authenticate label actor ${login}: ${error.message}`);
+                    return false;
+                  }
+                })());
+              }
+              return permissionByActor.get(login);
+            };
+
+            const authenticatedLabel = async (name, currentLabels, events) => {
+              if (!currentLabels.has(name)) return false;
+              const actor = context.eventName === 'pull_request' &&
+                  context.payload.action === 'labeled' &&
+                  context.payload.label?.name === name
+                ? context.actor
+                : latestLabelActor(events, name);
+              const authenticated = await isPrivilegedActor(actor);
+              if (!authenticated) core.warning(`${name} has no privileged current actor`);
+              return authenticated;
+            };
+
+            const reviewSnapshot = async () => {
               let after = null;
               let count = 0;
+              let reviewDecision = null;
               do {
                 const data = await github.graphql(`
                   query($owner: String!, $repo: String!, $number: Int!, $after: String) {
                     repository(owner: $owner, name: $repo) {
                       pullRequest(number: $number) {
+                        reviewDecision
                         reviewThreads(first: 100, after: $after) {
                           nodes { isResolved }
                           pageInfo { hasNextPage endCursor }
@@ -131,11 +180,13 @@ jobs:
                   number: pr.number,
                   after,
                 });
-                const threads = data.repository.pullRequest.reviewThreads;
+                const pullRequest = data.repository.pullRequest;
+                const threads = pullRequest.reviewThreads;
+                reviewDecision = pullRequest.reviewDecision;
                 count += threads.nodes.filter(thread => !thread.isResolved).length;
                 after = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
               } while (after);
-              return count;
+              return { unresolvedThreads: count, reviewDecision };
             };
 
             await Promise.all([
@@ -144,11 +195,11 @@ jobs:
               ensureLabel(EXCEPTION_LABEL, 'BFDADC', 'Merge owner approved a documented exception to the native review budget'),
             ]);
 
-            if (context.eventName === 'pull_request' && context.payload.action === 'synchronize') {
+            if (shouldInvalidateAcceptance(context.eventName, context.payload.action)) {
               await Promise.all([removeLabel(ACCEPTED_LABEL), removeLabel(READY_LABEL)]);
             }
 
-            const [currentLabels, reviews, unresolvedThreads] = await Promise.all([
+            const [currentLabels, reviews, review, events] = await Promise.all([
               labels(),
               github.paginate(github.rest.pulls.listReviews, {
                 owner: context.repo.owner,
@@ -156,20 +207,25 @@ jobs:
                 pull_number: pr.number,
                 per_page: 100,
               }),
-              unresolvedReviewThreadCount(),
+              reviewSnapshot(),
+              issueEvents(),
             ]);
             const nativeReviewRounds = countNativeReviewRounds(reviews);
-            const hasBudgetException = currentLabels.has(EXCEPTION_LABEL);
+            const [accepted, hasBudgetException] = await Promise.all([
+              authenticatedLabel(ACCEPTED_LABEL, currentLabels, events),
+              authenticatedLabel(EXCEPTION_LABEL, currentLabels, events),
+            ]);
             const budgetExceeded = nativeReviewRounds > MAX_NATIVE_REVIEW_ROUNDS && !hasBudgetException;
 
             if (budgetExceeded && !currentLabels.has(EXCEEDED_LABEL)) await addLabel(EXCEEDED_LABEL);
             if (!budgetExceeded && currentLabels.has(EXCEEDED_LABEL)) await removeLabel(EXCEEDED_LABEL);
 
             const decision = evaluateReviewGate({
-              accepted: currentLabels.has(ACCEPTED_LABEL),
+              accepted,
               nativeReviewRounds,
-              unresolvedThreads,
+              unresolvedThreads: review.unresolvedThreads,
               hasBudgetException,
+              reviewDecision: review.reviewDecision,
             });
             await core.summary
               .addHeading('Review gate')
@@ -194,7 +250,10 @@ jobs:
               READY_MARKER,
               countNativeReviewRounds,
               evaluateReviewGate,
+              isPrivilegedRepositoryPermission,
+              latestLabelActor,
               selectReadinessStatusComments,
+              shouldInvalidateAcceptance,
             } = require('./.github/scripts/review-gate.cjs');
 
             const READY_LABEL = 'status: ready to merge';
@@ -257,6 +316,16 @@ jobs:
               ));
             };
 
+            const issueEvents = async (prNumber) => github.paginate(
+              github.rest.issues.listEventsForTimeline,
+              {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: prNumber,
+                per_page: 100,
+              },
+            );
+
             const addLabel = async (prNumber, name) => {
               await github.rest.issues.addLabels({
                 owner: context.repo.owner,
@@ -277,6 +346,40 @@ jobs:
               } catch (error) {
                 if (error.status !== 404) throw error;
               }
+            };
+
+            const permissionByActor = new Map();
+            const isPrivilegedActor = async (login) => {
+              if (!login || login.endsWith('[bot]')) return false;
+              if (login === context.payload.repository.owner.login) return true;
+              if (!permissionByActor.has(login)) {
+                permissionByActor.set(login, (async () => {
+                  try {
+                    const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      username: login,
+                    });
+                    return isPrivilegedRepositoryPermission(data.permission);
+                  } catch (error) {
+                    core.warning(`Cannot authenticate label actor ${login}: ${error.message}`);
+                    return false;
+                  }
+                })());
+              }
+              return permissionByActor.get(login);
+            };
+
+            const authenticatedLabel = async (name, labels, events) => {
+              if (!labels.has(name)) return false;
+              const actor = context.eventName === 'pull_request' &&
+                  context.payload.action === 'labeled' &&
+                  context.payload.label?.name === name
+                ? context.actor
+                : latestLabelActor(events, name);
+              const authenticated = await isPrivilegedActor(actor);
+              if (!authenticated) core.warning(`${name} has no privileged current actor`);
+              return authenticated;
             };
 
             const getPrNumbers = async () => {
@@ -378,13 +481,16 @@ jobs:
                 pull_number: pr.number,
                 per_page: 100,
               });
+              const eventsPromise = issueEvents(pr.number);
               let after = null;
               let unresolvedThreads = 0;
+              let reviewDecision = null;
               do {
                 const data = await github.graphql(`
                   query($owner: String!, $repo: String!, $number: Int!, $after: String) {
                     repository(owner: $owner, name: $repo) {
                       pullRequest(number: $number) {
+                        reviewDecision
                         reviewThreads(first: 100, after: $after) {
                           nodes { isResolved }
                           pageInfo { hasNextPage endCursor }
@@ -398,19 +504,26 @@ jobs:
                   number: pr.number,
                   after,
                 });
-                const threads = data.repository.pullRequest.reviewThreads;
+                const pullRequest = data.repository.pullRequest;
+                const threads = pullRequest.reviewThreads;
+                reviewDecision = pullRequest.reviewDecision;
                 unresolvedThreads += threads.nodes.filter(thread => !thread.isResolved).length;
                 after = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
               } while (after);
 
-              const nativeReviewRounds = countNativeReviewRounds(await reviewsPromise);
-              const hasBudgetException = labels.has(EXCEPTION_LABEL);
+              const [reviews, events] = await Promise.all([reviewsPromise, eventsPromise]);
+              const nativeReviewRounds = countNativeReviewRounds(reviews);
+              const [accepted, hasBudgetException] = await Promise.all([
+                authenticatedLabel(ACCEPTED_LABEL, labels, events),
+                authenticatedLabel(EXCEPTION_LABEL, labels, events),
+              ]);
               return {
                 decision: evaluateReviewGate({
-                  accepted: labels.has(ACCEPTED_LABEL),
+                  accepted,
                   nativeReviewRounds,
                   unresolvedThreads,
                   hasBudgetException,
+                  reviewDecision,
                 }),
                 budgetExceeded: nativeReviewRounds > MAX_NATIVE_REVIEW_ROUNDS && !hasBudgetException,
               };
@@ -483,7 +596,7 @@ jobs:
             core.info(`Evaluating PRs: ${prNumbers.join(', ') || '(none)'}`);
             for (const prNumber of prNumbers) {
               const pr = await getPr(prNumber);
-              if (context.eventName === 'pull_request' && context.payload.action === 'synchronize') {
+              if (shouldInvalidateAcceptance(context.eventName, context.payload.action)) {
                 await Promise.all([
                   removeLabel(prNumber, ACCEPTED_LABEL),
                   removeLabel(prNumber, READY_LABEL),
@@ -520,8 +633,18 @@ jobs:
               }
 
               const ready = !reason;
+              const [latestPr, latestLabels] = await Promise.all([
+                getPr(prNumber),
+                currentLabels(prNumber),
+              ]);
+              if (latestPr.head.sha !== pr.head.sha ||
+                  latestLabels.has(ACCEPTED_LABEL) !== labels.has(ACCEPTED_LABEL) ||
+                  latestLabels.has(EXCEPTION_LABEL) !== labels.has(EXCEPTION_LABEL)) {
+                core.info(`PR #${prNumber}: stale evaluation skipped`);
+                continue;
+              }
               if (ready && !labels.has(READY_LABEL)) await addLabel(prNumber, READY_LABEL);
               if (!ready && labels.has(READY_LABEL)) await removeLabel(prNumber, READY_LABEL);
-              await updateReadyComment(pr, issueNums, ready, reason);
+              await updateReadyComment(latestPr, issueNums, ready, reason);
               core.info(`PR #${prNumber}: ${ready ? 'ready' : `not ready (${reason})`}`);
             }

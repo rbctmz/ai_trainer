@@ -5,6 +5,7 @@ const CODEX_REVIEWER_LOGINS = new Set([
   'chatgpt-codex-connector',
   'chatgpt-codex-connector[bot]',
 ]);
+const PRIVILEGED_REPOSITORY_PERMISSIONS = new Set(['admin', 'maintain']);
 
 function countNativeReviewRounds(reviews) {
   return reviews.filter((review) => {
@@ -33,11 +34,35 @@ function selectReadinessStatusComments(comments) {
   };
 }
 
+function shouldInvalidateAcceptance(eventName, action) {
+  return (eventName === 'pull_request' && action === 'synchronize') ||
+    (eventName === 'pull_request_review' && action === 'submitted');
+}
+
+function latestLabelActor(events, labelName) {
+  const ordered = [...events].sort((left, right) => {
+    const timeOrder = String(left.created_at || '').localeCompare(String(right.created_at || ''));
+    return timeOrder || Number(left.id || 0) - Number(right.id || 0);
+  });
+  let actor = null;
+  for (const event of ordered) {
+    if (event.label?.name !== labelName) continue;
+    if (event.event === 'labeled') actor = event.actor?.login || null;
+    if (event.event === 'unlabeled') actor = null;
+  }
+  return actor;
+}
+
+function isPrivilegedRepositoryPermission(permission) {
+  return PRIVILEGED_REPOSITORY_PERMISSIONS.has(String(permission || '').toLowerCase());
+}
+
 function evaluateReviewGate({
   accepted,
   nativeReviewRounds,
   unresolvedThreads,
   hasBudgetException,
+  reviewDecision = null,
 }) {
   if (nativeReviewRounds < 1) {
     return { ready: false, reason: 'no submitted native review' };
@@ -50,6 +75,9 @@ function evaluateReviewGate({
       ready: false,
       reason: `${unresolvedThreads} unresolved review thread(s)`,
     };
+  }
+  if (String(reviewDecision || '').toUpperCase() === 'CHANGES_REQUESTED') {
+    return { ready: false, reason: 'an active review requests changes' };
   }
   if (nativeReviewRounds > MAX_NATIVE_REVIEW_ROUNDS && !hasBudgetException) {
     return {
@@ -67,6 +95,9 @@ module.exports = {
   MAX_NATIVE_REVIEW_ROUNDS,
   READY_MARKER,
   selectReadinessStatusComments,
+  shouldInvalidateAcceptance,
+  latestLabelActor,
+  isPrivilegedRepositoryPermission,
   countNativeReviewRounds,
   evaluateReviewGate,
 };

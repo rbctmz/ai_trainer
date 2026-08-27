@@ -132,6 +132,8 @@ manual triggers, and do not create an Actions workflow that posts
 maintainer account. The exact maintainer command is `@codex review`; every
 submitted native review counts against the two-round budget even when it is clean
 or repeats a head SHA. Dismissing a submitted review does not refund its round.
+Every newly submitted review clears earlier acceptance; the merge owner accepts
+the latest result only after its findings have been triaged.
 
 After the first review, every finding receives `fixed-in <sha>`, `follow-up #N`,
 or `disputed: <reason>`. One verification review is allowed. After the second
@@ -183,8 +185,9 @@ The workflow has two independent gates. `Review gate` passes only when the merge
 owner applies `status: review accepted`, all review threads are resolved, and no
 more than two native Codex reviews were submitted. A third pass adds
 `status: review budget exceeded`; it needs a documented merge-owner decision and
-the `review-budget-exception` label. Every new push removes review acceptance and
-readiness, so acceptance is always bound to the current head.
+the `review-budget-exception` label. Only a repository admin or maintainer may
+apply either privileged label. Every new push or submitted review removes review
+acceptance and readiness, so acceptance is always bound to the current evidence.
 
 When a linked PR is open, not draft, has no merge conflict, passes the accepted
 review gate, and all other current-head check runs are green, GitHub Actions adds
@@ -193,7 +196,9 @@ one comment per head SHA. Review submission and review-comment events recompute
 the projection; after resolving the final thread, the merge owner applies review
 acceptance to trigger the final recomputation. If the PR becomes draft,
 conflicted, unlinked, closed, loses acceptance, gains an unresolved thread, or
-receives pending/failing checks, the workflow removes readiness.
+receives an active changes-requested review or pending/failing checks, the
+workflow removes readiness. Before publishing the result, the workflow refetches
+the PR head and privileged labels and abandons a stale evaluation.
 
 GitHub Actions has no direct trigger for reopening an existing review thread.
 The repository ruleset therefore remains the immediate merge guard through
