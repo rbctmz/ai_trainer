@@ -129,19 +129,11 @@ review from the connected GitHub account of the maintainer only after the candid
 documentation, evidence bundle, and CI are stable. Do not mix automatic and
 manual triggers, and do not create an Actions workflow that posts
 `@codex review`: its author is `github-actions[bot]`, not the connected
-maintainer account. The exact maintainer command is `@codex review`. A native
-round is either a submitted review from the Codex connector or its authenticated
-clean-result PR comment containing `Codex Review: Didn't find any major issues`
-and an explicit `Reviewed commit`. Every round counts against the two-round
-budget even when it is clean or repeats a head SHA. Dismissing a submitted review
-does not refund its round. Every newly submitted review or clean result clears
-earlier acceptance; the merge owner accepts the latest result only after its
-findings have been triaged. At least one native result must name the current head
-SHA; historical results consume budget but cannot qualify a later head for
-acceptance. The trusted readiness workflow records every authenticated clean
-result as a uniquely keyed successful commit status before evaluating the gate.
-That append-only status is the durable round ledger: deleting or editing the
-source PR comment does not refund a completed round.
+maintainer account. The exact maintainer command is `@codex review`; every
+submitted native review counts against the two-round budget even when it is clean
+or repeats a head SHA. Dismissing a submitted review does not refund its round.
+Every newly submitted review clears earlier acceptance; the merge owner accepts
+the latest result only after its findings have been triaged.
 
 After the first review, every finding receives `fixed-in <sha>`, `follow-up #N`,
 or `disputed: <reason>`. One verification review is allowed. After the second
@@ -207,11 +199,6 @@ conflicted, unlinked, closed, loses acceptance, gains an unresolved thread, or
 receives an active changes-requested review or pending/failing checks, the
 workflow removes readiness. Before publishing the result, the workflow refetches
 the PR head and privileged labels and abandons a stale evaluation.
-
-Write-capable readiness jobs run from `pull_request_target` or other default-branch
-events and explicitly check out the repository default branch. They never execute
-workflow helpers from the candidate PR head; PR versions of the policy are tested
-only by the read-only CI contour before merge.
 
 GitHub Actions has no direct trigger for reopening an existing review thread.
 The repository ruleset therefore remains the immediate merge guard through
