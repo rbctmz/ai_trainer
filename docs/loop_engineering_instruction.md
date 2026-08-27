@@ -138,7 +138,10 @@ does not refund its round. Every newly submitted review or clean result clears
 earlier acceptance; the merge owner accepts the latest result only after its
 findings have been triaged. At least one native result must name the current head
 SHA; historical results consume budget but cannot qualify a later head for
-acceptance.
+acceptance. The trusted readiness workflow records every authenticated clean
+result as a uniquely keyed successful commit status before evaluating the gate.
+That append-only status is the durable round ledger: deleting or editing the
+source PR comment does not refund a completed round.
 
 After the first review, every finding receives `fixed-in <sha>`, `follow-up #N`,
 or `disputed: <reason>`. One verification review is allowed. After the second

@@ -51,6 +51,7 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
         "countNativeReviewRoundsForHead",
         "cleanNativeReviewHead",
         "github.rest.issues.listComments",
+        "persistCleanReviewStatuses",
         "evaluateReviewGate",
         "selectReadinessStatusComments",
         "shouldInvalidateAcceptance",
@@ -65,6 +66,7 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
     ):
         assert contract in text
     assert "pull_request_target:" in text
+    assert "statuses: write" in text
     assert "ref: ${{ github.event.repository.default_branch }}" in text
     assert "github.event_name == 'pull_request'" not in text
     assert "context.payload.comment" in text
@@ -81,6 +83,11 @@ def test_review_gate_policy_has_deterministic_node_coverage() -> None:
     assert "node --test .github/scripts/review-gate.test.cjs" in CI_WORKFLOW.read_text(
         encoding="utf-8"
     )
+    policy = REVIEW_GATE_POLICY.read_text(encoding="utf-8")
+    assert "cleanNativeReviewStatus" in policy
+    assert "persistCleanReviewStatuses" in policy
+    assert "github.rest.repos.createCommitStatus" in policy
+    assert "github.rest.repos.listCommitStatusesForRef" in policy
 
     subprocess.run(
         ["node", "--test", str(REVIEW_GATE_TEST)],

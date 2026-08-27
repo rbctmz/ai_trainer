@@ -25,6 +25,7 @@ permissions:
   contents: read
   issues: write
   pull-requests: write
+  statuses: write
 
 jobs:
   review-gate:
@@ -56,6 +57,7 @@ jobs:
               evaluateReviewGate,
               isPrivilegedRepositoryPermission,
               latestLabelActor,
+              persistCleanReviewStatuses,
               shouldInvalidateAcceptance,
             } = require('./.github/scripts/review-gate.cjs');
 
@@ -232,11 +234,23 @@ jobs:
               reviewSnapshot(),
               issueEvents(),
             ]);
-            const nativeReviewRounds = countNativeReviewRounds(reviews, comments);
+            const cleanReviewStatuses = await persistCleanReviewStatuses({
+              github,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pr,
+              comments,
+            });
+            const nativeReviewRounds = countNativeReviewRounds(
+              reviews,
+              comments,
+              cleanReviewStatuses,
+            );
             const currentHeadNativeReviewRounds = countNativeReviewRoundsForHead(
               reviews,
               pr.head.sha,
               comments,
+              cleanReviewStatuses,
             );
             const [accepted, hasBudgetException] = await Promise.all([
               authenticatedLabel(ACCEPTED_LABEL, currentLabels, events),
@@ -284,6 +298,7 @@ jobs:
               evaluateReviewGate,
               isPrivilegedRepositoryPermission,
               latestLabelActor,
+              persistCleanReviewStatuses,
               selectReadinessStatusComments,
               shouldInvalidateAcceptance,
             } = require('./.github/scripts/review-gate.cjs');
@@ -558,11 +573,23 @@ jobs:
                 commentsPromise,
                 eventsPromise,
               ]);
-              const nativeReviewRounds = countNativeReviewRounds(reviews, comments);
+              const cleanReviewStatuses = await persistCleanReviewStatuses({
+                github,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pr,
+                comments,
+              });
+              const nativeReviewRounds = countNativeReviewRounds(
+                reviews,
+                comments,
+                cleanReviewStatuses,
+              );
               const currentHeadNativeReviewRounds = countNativeReviewRoundsForHead(
                 reviews,
                 pr.head.sha,
                 comments,
+                cleanReviewStatuses,
               );
               const [accepted, hasBudgetException] = await Promise.all([
                 authenticatedLabel(ACCEPTED_LABEL, labels, events),
