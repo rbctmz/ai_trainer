@@ -131,7 +131,7 @@ manual triggers, and do not create an Actions workflow that posts
 `@codex review`: its author is `github-actions[bot]`, not the connected
 maintainer account. The exact maintainer command is `@codex review`; every
 submitted native review counts against the two-round budget even when it is clean
-or repeats a head SHA.
+or repeats a head SHA. Dismissing a submitted review does not refund its round.
 
 After the first review, every finding receives `fixed-in <sha>`, `follow-up #N`,
 or `disputed: <reason>`. One verification review is allowed. After the second
@@ -194,6 +194,11 @@ the projection; after resolving the final thread, the merge owner applies review
 acceptance to trigger the final recomputation. If the PR becomes draft,
 conflicted, unlinked, closed, loses acceptance, gains an unresolved thread, or
 receives pending/failing checks, the workflow removes readiness.
+
+GitHub Actions has no direct trigger for reopening an existing review thread.
+The repository ruleset therefore remains the immediate merge guard through
+`required_review_thread_resolution`, while a 15-minute scheduled reconciliation
+removes stale readiness labels and neutralizes legacy per-head Ready comments.
 
 This is a signal, not an auto-merge. The maintainer still makes the merge
 decision.

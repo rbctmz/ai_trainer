@@ -15,6 +15,8 @@ on:
       pr:
         description: "Optional PR number. Leave empty to recompute all open PRs."
         required: false
+  schedule:
+    - cron: "*/15 * * * *"
 
 permissions:
   checks: read
@@ -189,16 +191,16 @@ jobs:
           script: |
             const {
               MAX_NATIVE_REVIEW_ROUNDS,
+              READY_MARKER,
               countNativeReviewRounds,
               evaluateReviewGate,
+              selectReadinessStatusComments,
             } = require('./.github/scripts/review-gate.cjs');
 
             const READY_LABEL = 'status: ready to merge';
             const ACCEPTED_LABEL = 'status: review accepted';
             const EXCEEDED_LABEL = 'status: review budget exceeded';
             const EXCEPTION_LABEL = 'review-budget-exception';
-            const READY_MARKER = '<!-- pr-ready-to-merge -->';
-            const LEGACY_READY_MARKER_PREFIX = '<!-- pr-ready-to-merge:';
             const OK_CONCLUSIONS = new Set(['success', 'skipped', 'neutral']);
             const IGNORED_CHECK_NAMES = new Set(['ready-to-merge', 'Review gate']);
 
@@ -302,8 +304,10 @@ jobs:
                   });
                   for (const pr of prs) nums.add(pr.number);
                 }
-              } else if (context.eventName === 'workflow_dispatch') {
-                const input = (context.payload.inputs?.pr || '').trim();
+              } else if (['workflow_dispatch', 'schedule'].includes(context.eventName)) {
+                const input = context.eventName === 'workflow_dispatch'
+                  ? (context.payload.inputs?.pr || '').trim()
+                  : '';
                 if (input) {
                   nums.add(parseInt(input, 10));
                 } else {
@@ -419,12 +423,8 @@ jobs:
                 issue_number: pr.number,
                 per_page: 100,
               });
-              const existing = comments.find(comment => {
-                const body = comment.body || '';
-                return comment.user?.login === 'github-actions[bot]' &&
-                  (body.includes(READY_MARKER) || body.includes(LEGACY_READY_MARKER_PREFIX));
-              });
-              if (!ready && !existing) return;
+              const { canonical, duplicates } = selectReadinessStatusComments(comments);
+              if (!ready && !canonical) return;
 
               const issueText = issueNums.map(num => `#${num}`).join(', ');
               const body = [
@@ -437,20 +437,37 @@ jobs:
                 '',
                 'Human merge decision is still required.',
               ].join('\n');
-              if (existing) {
-                if ((existing.body || '') === body) return;
-                await github.rest.issues.updateComment({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  comment_id: existing.id,
-                  body,
-                });
+              if (canonical) {
+                if ((canonical.body || '') !== body) {
+                  await github.rest.issues.updateComment({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    comment_id: canonical.id,
+                    body,
+                  });
+                }
               } else {
                 await github.rest.issues.createComment({
                   owner: context.repo.owner,
                   repo: context.repo.repo,
                   issue_number: pr.number,
                   body,
+                });
+              }
+
+              const supersededBody = [
+                '<!-- pr-ready-to-merge-superseded -->',
+                '**Superseded readiness status**',
+                '',
+                'This legacy per-head signal was replaced by the current readiness comment.',
+              ].join('\n');
+              for (const duplicate of duplicates) {
+                if ((duplicate.body || '') === supersededBody) continue;
+                await github.rest.issues.updateComment({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  comment_id: duplicate.id,
+                  body: supersededBody,
                 });
               }
             };
