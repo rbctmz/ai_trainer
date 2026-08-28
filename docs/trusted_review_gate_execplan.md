@@ -16,6 +16,7 @@ After this change, the write-capable PR readiness automation evaluates only a re
 - [x] (2026-08-28 21:58Z) Published draft PR #514; all six hosted checks passed on `e235328`.
 - [x] (2026-08-29 10:05Z) Reproduced review round 1 findings: historical clean comments raised after rebase, and one signal commit could select multiple associated PRs.
 - [x] (2026-08-29 10:12Z) Added RED tests and fixed both findings locally; focused Node and smoke contours are green.
+- [x] (2026-08-29 10:43Z) Hosted delta CI exposed an unrelated UTC/athlete-timezone midnight assertion; reproduced with `TZ=UTC` and replaced runner-clock dependence with a fixed UTC-to-Moscow boundary test.
 - [ ] Push the delta, resolve both threads with `fixed-in <sha>`, and collect one scoped verification review.
 
 ## Surprises & Discoveries

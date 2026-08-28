@@ -95,7 +95,7 @@
 - Head SHA: pending
 - Changed invariants: trusted workflow ref; current-head review; immutable clean-round budget.
 - Focused and broad tests: initial contour: Node (18 passed), focused smoke (12 passed), Ruff green, contributor-safe pytest (2178 passed, 3 skipped, 26 deselected). Review delta: Node (19 passed), focused smoke (12 passed), Ruff green, contributor-safe pytest (2178 passed, 3 skipped, 26 deselected), two GitHub-script blocks and both workflow YAML files parsed, `git diff --check` green.
-- CI checks/reruns/flakes: six of six hosted checks passed on reviewed head `e235328`; delta CI pending.
+- CI checks/reruns/flakes: six of six hosted checks passed on reviewed head `e235328`. Delta CI first run exposed a pre-existing midnight flake: runner date `2026-08-28` UTC versus canonical athlete date `2026-08-29` Europe/Moscow. `TZ=UTC` reproduced it locally; the test now fixes observation time across that boundary. Delta rerun pending.
 - Lifecycle/probe evidence: runs `33114270228` and `33113456986` proved empty `workflow_run.pull_requests`; GitHub associated-pulls lookup for `8a3d844` resolved its PR lineage, motivating the trusted `head_sha` fallback.
 - Changed contracts: GitHub workflow event contract only
 - Unresolved review-thread count: 2 before delta push/resolution

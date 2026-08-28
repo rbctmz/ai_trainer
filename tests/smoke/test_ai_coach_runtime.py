@@ -80,9 +80,18 @@ def test_system_prompt_mandates_plan_tool_for_specific_day_recommendations():
     ) in prompt
 
 
-def test_prompts_anchor_today_as_single_date_source():
-    from datetime import date
-    today_iso = date.today().isoformat()
+def test_prompts_anchor_today_as_single_date_source(monkeypatch):
+    from datetime import datetime as real_datetime, timezone
+
+    class _FixedDateTime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            observed = real_datetime(2026, 8, 28, 21, 30, tzinfo=timezone.utc)
+            return observed if tz is None else observed.astimezone(tz)
+
+    monkeypatch.setattr(ai_coach_runtime, "datetime", _FixedDateTime)
+    # UTC is still 28 August while the athlete's Europe/Moscow date is 29th.
+    today_iso = "2026-08-29"
     for prompt in (
         ai_coach_runtime.create_chat_system_prompt_with_tools(None),
         ai_coach_runtime.create_chat_synthesis_system_prompt(),
