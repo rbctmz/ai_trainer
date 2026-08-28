@@ -81,6 +81,8 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
     assert "ref: ${{ github.event.repository.default_branch }}" in text
     assert "github.event.comment.user.login == 'chatgpt-codex-connector[bot]'" in text
     assert "context.payload.workflow_run?.name === 'PR review signal'" in text
+    assert "listPullRequestsAssociatedWithCommit" in text
+    assert "commit_sha: run.head_sha" in text
     assert "context.payload.comment," in text
     assert "removeLabel(ACCEPTED_LABEL)" in text
     assert "latestPr.head.sha !== pr.head.sha" in text

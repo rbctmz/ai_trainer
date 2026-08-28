@@ -11,8 +11,9 @@ After this change, the write-capable PR readiness automation evaluates only a re
 - [x] (2026-08-28 18:45Z) Merged bootstrap PR #513 and fast-forwarded local `main` to `6ddc0d3`.
 - [x] (2026-08-28 18:50Z) Classified phase 2 as Class A because it changes a security boundary and write permissions.
 - [x] (2026-08-28 19:00Z) Added RED smoke contracts for trusted triggers, default-branch checkout, current-head counting, and clean-result persistence; focused smoke failed with `1 failed, 4 passed` because `main` lacked `pull_request_target`.
-- [ ] Implement the trusted workflow, permissionless review signal, and documentation changes.
-- [ ] Run focused and broad validation, self-review the final diff, and publish a draft PR that closes #512.
+- [x] (2026-08-28 19:18Z) Implemented the trusted workflow, permissionless review signal, current-head gate, durable clean-result ledger, and associated-commit fallback.
+- [x] (2026-08-28 19:22Z) Ran Node policy tests, focused smoke tests, YAML/inline-JS parsing, Ruff, the contributor-safe suite, and `git diff --check` locally.
+- [ ] Publish a draft PR that closes #512 and collect hosted CI plus one independent review round for the final head.
 
 ## Surprises & Discoveries
 
@@ -23,6 +24,10 @@ After this change, the write-capable PR readiness automation evaluates only a re
 - **Observed**: direct `pull_request_review` and `pull_request_review_comment` runs used the candidate workflow definition while the job token had write permissions.
   **Inferred**: retaining those triggers would leave candidate-controlled YAML on the privileged path even if the helper checkout used `main`. The cheapest falsifying check is a static workflow contract that rejects both direct triggers in the write-capable workflow and requires a separate permissionless signal workflow.
   **Verified by**: the RED contract failed on `main`; GREEN must prove that only the signal workflow receives direct review events and that it has `permissions: {}`, no checkout, and no secrets.
+
+- **Observed**: historical `pull_request_review` runs `33114270228` and `33113456986` expose an empty `workflow_run.pull_requests` array even though `workflow_run.head_sha` is the reviewed PR commit.
+  **Inferred**: consuming only `workflow_run.pull_requests` would silently defer review invalidation to the 15-minute repair schedule. The cheapest falsifying check queried the associated-pulls endpoint for run head `8a3d844`, which resolved the PR lineage.
+  **Verified by**: the trusted consumer falls back to `listPullRequestsAssociatedWithCommit(run.head_sha)` and accepts only open PRs returned by GitHub.
 
 ## Decision Log
 
@@ -40,7 +45,7 @@ After this change, the write-capable PR readiness automation evaluates only a re
 
 ## Outcomes & Retrospective
 
-Not complete. The bootstrap dependency is merged; activation, hosted evidence, and merge remain.
+Local implementation is complete. The bootstrap dependency is merged and the activation branch passes the full local contributor-safe contour. Hosted CI, independent current-head review, maintainer acceptance, and merge remain.
 
 ## Context and Orientation
 
@@ -50,7 +55,7 @@ An authenticated clean review may arrive as a connector-authored issue comment r
 
 ## Plan of Work
 
-First extend `tests/smoke/test_native_codex_review_integration.py` so the current workflow fails the trusted-trigger and current-head contracts. Then add `.github/workflows/pr-review-signal.yml` as a permissionless, checkout-free listener for direct review events. Update `.github/workflows/pr-ready-to-merge.yml`: replace `pull_request` with `pull_request_target`, consume completion of the signal workflow, add the connector-only `issue_comment` trigger, set least-privilege job permissions including `statuses: write`, explicitly check out `github.event.repository.default_branch`, fetch comments and durable statuses, and pass both total and current-head round counts to the policy helper. The ready projection must use the same evidence and refetch the latest head and privileged labels before publishing.
+First extend `tests/smoke/test_native_codex_review_integration.py` so the current workflow fails the trusted-trigger and current-head contracts. Then add `.github/workflows/pr-review-signal.yml` as a permissionless, checkout-free listener for direct review events. Update `.github/workflows/pr-ready-to-merge.yml`: replace `pull_request` with `pull_request_target`, consume completion of the signal workflow, resolve an empty `workflow_run.pull_requests` list from the run's GitHub-associated head commit, add the connector-only `issue_comment` trigger, set least-privilege job permissions including `statuses: write`, explicitly check out `github.event.repository.default_branch`, fetch comments and durable statuses, and pass both total and current-head round counts to the policy helper. The ready projection must use the same evidence and refetch the latest head and privileged labels before publishing.
 
 Finally update `docs/loop_engineering_instruction.md` to explain the permissionless signal and trusted default-branch recomputation. Keep CODEOWNERS and hosted ruleset changes in #511.
 

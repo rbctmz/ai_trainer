@@ -27,8 +27,8 @@
 
 ## Definition of Done
 
-- [ ] Acceptance criteria are observable.
-- [ ] Required tests/checks are named and green.
+- [x] Acceptance criteria are observable locally; hosted signal behavior remains the PR acceptance probe.
+- [x] Required local tests/checks are named and green.
 - [ ] Merge and cleanup owner is rbctmz; Codex owns branch/PR evidence and post-merge local sync.
 
 ## Public Contracts
@@ -44,7 +44,7 @@
 - Rollback procedure and proof: revert activation PR; old workflow ignores durable statuses.
 - [x] Does this add new persistent state? Successful commit statuses are durable audit entries owned by the review workflow and intentionally do not age out.
 - [x] Does full reset remove every row/artifact/cursor introduced here? N/A: no destructive reset is provided for immutable review audit evidence.
-- [ ] Restart and partial-failure recovery are covered.
+- [x] Restart and partial-failure recovery are covered by idempotent recomputation, immutable status keys, associated-commit lookup, and scheduled repair.
 
 ## State Boundaries and Identity
 
@@ -72,6 +72,7 @@
 | current-head evidence | smoke requires `countNativeReviewRoundsForHead` wired into both jobs | symbol absent from workflow | symbol and decision arg present |
 | clean result durability | smoke requires `issue_comment`, `statuses: write`, and persistence helper | all absent | all present and Node tests green |
 | synchronization invalidation | smoke requires `pull_request_target` plus invalidation call | target trigger absent | push clears acceptance/readiness |
+| review signal PR identity | smoke requires associated-pulls fallback keyed by `workflow_run.head_sha` | historical review runs expose empty `pull_requests` | trusted GitHub lookup supplies only associated open PRs |
 
 ## ASR / ADR Traceability
 
@@ -92,9 +93,9 @@
 
 - Head SHA: pending
 - Changed invariants: trusted workflow ref; current-head review; immutable clean-round budget.
-- Focused and broad tests: pending
+- Focused and broad tests: `node --test .github/scripts/review-gate.test.cjs` (18 passed); focused smoke (12 passed); Ruff green; contributor-safe pytest (2178 passed, 3 skipped, 26 deselected); two GitHub-script blocks parsed with `vm.Script`; both workflow YAML files parsed with PyYAML; `git diff --check` green.
 - CI checks/reruns/flakes: pending
-- Lifecycle/probe evidence: pending
+- Lifecycle/probe evidence: runs `33114270228` and `33113456986` proved empty `workflow_run.pull_requests`; GitHub associated-pulls lookup for `8a3d844` resolved its PR lineage, motivating the trusted `head_sha` fallback.
 - Changed contracts: GitHub workflow event contract only
 - Unresolved review-thread count: pending
 - Residual risks and follow-ups: hosted CODEOWNERS/ruleset #511
@@ -114,8 +115,8 @@
 
 ## Final Verdict
 
-- Verdict: BLOCK until implementation and evidence are complete
-- Blocking findings remaining: implementation not started
+- Verdict: BLOCK only until hosted CI and independent current-head review complete
+- Blocking findings remaining: hosted evidence and independent checker not yet available
 - Review rounds used: 0
 - Accepted risk or follow-up issue: #511
 - Merge owner final gate: rbctmz

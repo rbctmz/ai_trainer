@@ -1,0 +1,20 @@
+name: PR review signal
+
+on:
+  pull_request_review:
+    types: [submitted, dismissed]
+  pull_request_review_comment:
+    types: [created, edited, deleted]
+
+# Candidate branches may change this workflow definition. It therefore has no
+# repository token permissions, checks out no code, and only emits a completed
+# workflow_run event. The default-branch PR readiness workflow consumes that
+# event and performs the privileged recomputation from trusted code.
+permissions: {}
+
+jobs:
+  signal:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Emit read-only review signal
+        run: ":"
