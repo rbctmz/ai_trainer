@@ -456,8 +456,18 @@ jobs:
                       per_page: 100,
                     },
                   );
-                  for (const pr of associated) {
-                    if (pr.state === 'open') nums.add(pr.number);
+                  const candidates = associated.filter(pr =>
+                    pr.state === 'open' &&
+                    pr.head?.sha === run.head_sha &&
+                    pr.head?.ref === run.head_branch &&
+                    String(pr.head?.repo?.id) === String(run.head_repository?.id)
+                  );
+                  if (candidates.length === 1) {
+                    nums.add(candidates[0].number);
+                  } else {
+                    core.warning(
+                      `Review signal ${run.id} resolved ${candidates.length} exact PR candidates; skipping`,
+                    );
                   }
                 }
               } else if (['workflow_dispatch', 'schedule'].includes(context.eventName)) {

@@ -83,6 +83,10 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
     assert "context.payload.workflow_run?.name === 'PR review signal'" in text
     assert "listPullRequestsAssociatedWithCommit" in text
     assert "commit_sha: run.head_sha" in text
+    assert "pr.head?.sha === run.head_sha" in text
+    assert "pr.head?.ref === run.head_branch" in text
+    assert "String(pr.head?.repo?.id) === String(run.head_repository?.id)" in text
+    assert "candidates.length === 1" in text
     assert "context.payload.comment," in text
     assert "removeLabel(ACCEPTED_LABEL)" in text
     assert "latestPr.head.sha !== pr.head.sha" in text

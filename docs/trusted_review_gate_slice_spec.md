@@ -1,6 +1,6 @@
 # Trusted Review Gate — Slice Spec And Review
 
-- Issue / PR: #512 / pending
+- Issue / PR: #512 / #514
 - Author / checker / merge owner: Codex / Codex Review + CI / rbctmz
 - Date: 2026-08-28
 - Candidate head SHA: pending
@@ -10,7 +10,7 @@
 - Class: A
 - Rationale: changes GitHub token permissions and the trusted execution boundary of a write-capable workflow.
 - Automatic escalation triggers checked: security boundary and permissions.
-- Review budget used: 0 rounds for phase 2
+- Review budget used: 1 of 2 rounds for phase 2
 - Review trigger mode: manual
 - Review acceptance head SHA: pending
 - Review budget exception: N/A
@@ -34,7 +34,7 @@
 ## Public Contracts
 
 - GitHub event contract: changed compatibly; direct review events only complete a permissionless signal workflow, whose `workflow_run` wakes trusted default-branch recomputation.
-- Policy helper contract: unchanged from merged PR #513.
+- Policy helper contract: historical clean comments are carried to the current ledger commit without qualifying the replacement head.
 - API, TypeScript, database, CLI, and product UI: unchanged.
 
 ## Failure, Reset, Rollback, Idempotency
@@ -72,7 +72,8 @@
 | current-head evidence | smoke requires `countNativeReviewRoundsForHead` wired into both jobs | symbol absent from workflow | symbol and decision arg present |
 | clean result durability | smoke requires `issue_comment`, `statuses: write`, and persistence helper | all absent | all present and Node tests green |
 | synchronization invalidation | smoke requires `pull_request_target` plus invalidation call | target trigger absent | push clears acceptance/readiness |
-| review signal PR identity | smoke requires associated-pulls fallback keyed by `workflow_run.head_sha` | historical review runs expose empty `pull_requests` | trusted GitHub lookup supplies only associated open PRs |
+| review signal PR identity | smoke requires exact SHA + source branch + source repository and unique selection | SHA-only lookup can return stacked/shared PRs | one exact candidate or safe skip |
+| rebase-safe clean ledger | Node test presents an authenticated historical SHA absent from current commits | helper throws and blocks recomputation | ledger context is carried on current head; current-head count stays zero |
 
 ## ASR / ADR Traceability
 
@@ -93,31 +94,32 @@
 
 - Head SHA: pending
 - Changed invariants: trusted workflow ref; current-head review; immutable clean-round budget.
-- Focused and broad tests: `node --test .github/scripts/review-gate.test.cjs` (18 passed); focused smoke (12 passed); Ruff green; contributor-safe pytest (2178 passed, 3 skipped, 26 deselected); two GitHub-script blocks parsed with `vm.Script`; both workflow YAML files parsed with PyYAML; `git diff --check` green.
-- CI checks/reruns/flakes: pending
+- Focused and broad tests: initial contour: Node (18 passed), focused smoke (12 passed), Ruff green, contributor-safe pytest (2178 passed, 3 skipped, 26 deselected). Review delta: Node (19 passed), focused smoke (12 passed), Ruff green, contributor-safe pytest (2178 passed, 3 skipped, 26 deselected), two GitHub-script blocks and both workflow YAML files parsed, `git diff --check` green.
+- CI checks/reruns/flakes: six of six hosted checks passed on reviewed head `e235328`; delta CI pending.
 - Lifecycle/probe evidence: runs `33114270228` and `33113456986` proved empty `workflow_run.pull_requests`; GitHub associated-pulls lookup for `8a3d844` resolved its PR lineage, motivating the trusted `head_sha` fallback.
 - Changed contracts: GitHub workflow event contract only
-- Unresolved review-thread count: pending
+- Unresolved review-thread count: 2 before delta push/resolution
 - Residual risks and follow-ups: hosted CODEOWNERS/ruleset #511
 
 ## Review Findings
 
 | Severity | Evidence and falsifying check | Gate | Owner/status |
 | --- | --- | --- | --- |
-| pending | pending | pending | pending |
+| P1 | surviving historical clean SHA threw after rebase; reproduced by `aaaaaaa` -> `bbbbbbb` test | blocking | fixed locally; `fixed-in` reply pending |
+| P2 | SHA-only fallback selected every associated open PR | blocking until triaged | exact run identity + unique selection fixed locally; `fixed-in` reply pending |
 
 ## Native Review Rounds
 
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
-| 1 | pending | manual | pending | continue / stop |
+| 1 | `e235328fec` | manual | P1 and P2 reproduced and fixed in one delta | continue with scoped verification |
 | 2 | pending | verification | pending | stop |
 
 ## Final Verdict
 
-- Verdict: BLOCK only until hosted CI and independent current-head review complete
-- Blocking findings remaining: hosted evidence and independent checker not yet available
-- Review rounds used: 0
+- Verdict: BLOCK until both threads are resolved and delta CI/scoped verification are green
+- Blocking findings remaining: two threads awaiting `fixed-in` replies and resolution
+- Review rounds used: 1
 - Accepted risk or follow-up issue: #511
 - Merge owner final gate: rbctmz
 - Post-merge sync/branch/worktree/progress cleanup: Codex

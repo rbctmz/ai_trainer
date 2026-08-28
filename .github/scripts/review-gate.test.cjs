@@ -202,6 +202,59 @@ test('persists each authenticated clean result as one uniquely keyed commit stat
   assert.equal(statuses.length, 1);
 });
 
+test('carries a surviving historical clean round across a rebase without qualifying the new head', async () => {
+  const listCommits = Symbol('listCommits');
+  const listStatuses = Symbol('listStatuses');
+  const created = [];
+  const comment = {
+    id: 302,
+    html_url: 'https://github.com/rbctmz/ai_trainer/pull/514#issuecomment-302',
+    user: { login: 'chatgpt-codex-connector[bot]' },
+    body: "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaaaaaa`",
+  };
+  const currentHead = 'bbbbbbb000000000000000000000000000000000';
+  const github = {
+    paginate: async (endpoint) => {
+      if (endpoint === listCommits) return [{ sha: currentHead }];
+      if (endpoint === listStatuses) return [];
+      throw new Error('unexpected endpoint');
+    },
+    rest: {
+      pulls: { listCommits },
+      repos: {
+        listCommitStatusesForRef: listStatuses,
+        createCommitStatus: async (payload) => {
+          created.push(payload);
+          return {
+            data: {
+              ...payload,
+              creator: { login: 'github-actions[bot]' },
+            },
+          };
+        },
+      },
+    },
+  };
+
+  const statuses = await persistCleanReviewStatuses({
+    github,
+    owner: 'rbctmz',
+    repo: 'ai_trainer',
+    pr: {
+      number: 514,
+      head: { sha: currentHead },
+      html_url: 'https://github.com/rbctmz/ai_trainer/pull/514',
+    },
+    comments: [comment],
+  });
+
+  assert.equal(created.length, 1);
+  assert.equal(created[0].sha, currentHead);
+  assert.equal(created[0].context, 'review-gate/codex-clean/302:aaaaaaa');
+  assert.equal(countNativeReviewRounds([], [], statuses), 1);
+  assert.equal(countNativeReviewRoundsForHead([], currentHead, [], statuses), 0);
+});
+
 test('maintainer text cannot spoof a clean native review result', () => {
   const spoofed = {
     user: { login: 'rbctmz' },

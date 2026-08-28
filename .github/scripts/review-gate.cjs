@@ -85,13 +85,16 @@ async function persistCleanReviewStatuses({ github, owner, repo, pr, comments })
     const marker = cleanNativeReviewStatus(comment);
     if (!marker || existingContexts.has(marker.context)) continue;
     const commit = commits.find(item => item.sha.startsWith(marker.head));
-    if (!commit) {
-      throw new Error(`Reviewed commit ${marker.head} is not in PR #${pr.number}`);
-    }
+    // A rebase may remove the reviewed commit while the authenticated clean
+    // comment remains. Carry its immutable ledger entry on the current head;
+    // the context still names the historical reviewed SHA, so it consumes the
+    // budget without qualifying the replacement head.
+    const ledgerSha = commit?.sha || pr.head?.sha;
+    if (!ledgerSha) continue;
     const { data: created } = await github.rest.repos.createCommitStatus({
       owner,
       repo,
-      sha: commit.sha,
+      sha: ledgerSha,
       state: 'success',
       context: marker.context,
       description: marker.description,

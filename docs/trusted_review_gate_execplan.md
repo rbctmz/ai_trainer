@@ -13,7 +13,10 @@ After this change, the write-capable PR readiness automation evaluates only a re
 - [x] (2026-08-28 19:00Z) Added RED smoke contracts for trusted triggers, default-branch checkout, current-head counting, and clean-result persistence; focused smoke failed with `1 failed, 4 passed` because `main` lacked `pull_request_target`.
 - [x] (2026-08-28 19:18Z) Implemented the trusted workflow, permissionless review signal, current-head gate, durable clean-result ledger, and associated-commit fallback.
 - [x] (2026-08-28 19:22Z) Ran Node policy tests, focused smoke tests, YAML/inline-JS parsing, Ruff, the contributor-safe suite, and `git diff --check` locally.
-- [ ] Publish a draft PR that closes #512 and collect hosted CI plus one independent review round for the final head.
+- [x] (2026-08-28 21:58Z) Published draft PR #514; all six hosted checks passed on `e235328`.
+- [x] (2026-08-29 10:05Z) Reproduced review round 1 findings: historical clean comments raised after rebase, and one signal commit could select multiple associated PRs.
+- [x] (2026-08-29 10:12Z) Added RED tests and fixed both findings locally; focused Node and smoke contours are green.
+- [ ] Push the delta, resolve both threads with `fixed-in <sha>`, and collect one scoped verification review.
 
 ## Surprises & Discoveries
 
@@ -29,6 +32,14 @@ After this change, the write-capable PR readiness automation evaluates only a re
   **Inferred**: consuming only `workflow_run.pull_requests` would silently defer review invalidation to the 15-minute repair schedule. The cheapest falsifying check queried the associated-pulls endpoint for run head `8a3d844`, which resolved the PR lineage.
   **Verified by**: the trusted consumer falls back to `listPullRequestsAssociatedWithCommit(run.head_sha)` and accepts only open PRs returned by GitHub.
 
+- **Observed**: `persistCleanReviewStatuses` threw when a surviving authenticated clean comment named a commit removed by rebase.
+  **Inferred**: the historical round could block every later recomputation instead of merely consuming budget. The falsifying test supplied reviewed SHA `aaaaaaa` with only replacement head `bbbbbbb` in the PR.
+  **Verified by**: the RED test raised the exact production exception; GREEN carries the immutable `aaaaaaa` ledger context on the current head while current-head round counting remains zero.
+
+- **Observed**: the associated-commit fallback accepted every open PR returned for a signal SHA.
+  **Inferred**: stacked/shared commits could invalidate acceptance on a PR that did not receive the review event.
+  **Verified by**: the trusted consumer now accepts exactly one candidate matching run SHA, source branch, and source repository; zero or multiple exact candidates are skipped with a warning.
+
 ## Decision Log
 
 - Decision: deliver issue #512 in two PRs: bootstrap helpers first, privileged workflow second.
@@ -43,9 +54,13 @@ After this change, the write-capable PR readiness automation evaluates only a re
   Rationale: issue #512 explicitly excludes budget changes and repository policy requires manual review ownership.
   Date/Author: 2026-08-28 / Codex.
 
+- Decision: disambiguate review signals from trusted GitHub run identity rather than accepting every associated PR.
+  Rationale: SHA alone is not a stable PR identity; SHA + source branch + source repository must resolve uniquely or the write path fails safe and leaves scheduled reconciliation as recovery.
+  Date/Author: 2026-08-29 / Codex.
+
 ## Outcomes & Retrospective
 
-Local implementation is complete. The bootstrap dependency is merged and the activation branch passes the full local contributor-safe contour. Hosted CI, independent current-head review, maintainer acceptance, and merge remain.
+The activation branch passed the full local and hosted contours. Independent review round 1 found two reproducible boundary cases; both now have RED/GREEN coverage. A scoped verification review, maintainer acceptance, and merge remain.
 
 ## Context and Orientation
 
