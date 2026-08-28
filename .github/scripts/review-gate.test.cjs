@@ -5,10 +5,14 @@ const test = require('node:test');
 
 const {
   MAX_NATIVE_REVIEW_ROUNDS,
+  cleanNativeReviewHead,
+  cleanNativeReviewStatus,
   countNativeReviewRounds,
+  countNativeReviewRoundsForHead,
   evaluateReviewGate,
   isPrivilegedRepositoryPermission,
   latestLabelActor,
+  persistCleanReviewStatuses,
   selectReadinessStatusComments,
   shouldInvalidateAcceptance,
 } = require('./review-gate.cjs');
@@ -51,13 +55,173 @@ test('acceptance cannot substitute for a missing native review', () => {
       unresolvedThreads: 0,
       hasBudgetException: false,
     }),
-    { ready: false, reason: 'no submitted native review' },
+    { ready: false, reason: 'no submitted native review for the current head' },
   );
+});
+
+test('historical native reviews cannot satisfy the current-head gate', () => {
+  const reviews = [
+    {
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      state: 'COMMENTED',
+      commit_id: 'head-a',
+    },
+  ];
+
+  assert.equal(countNativeReviewRounds(reviews), 1);
+  assert.equal(countNativeReviewRoundsForHead(reviews, 'head-b'), 0);
+  assert.deepEqual(
+    evaluateReviewGate({
+      accepted: true,
+      nativeReviewRounds: 1,
+      currentHeadNativeReviewRounds: countNativeReviewRoundsForHead(reviews, 'head-b'),
+      unresolvedThreads: 0,
+      hasBudgetException: false,
+    }),
+    { ready: false, reason: 'no submitted native review for the current head' },
+  );
+});
+
+test('clean Codex result comments count as current-head native review rounds', () => {
+  const cleanComment = {
+    id: 5444669954,
+    user: { login: 'chatgpt-codex-connector[bot]' },
+    body: [
+      "Codex Review: Didn't find any major issues. Another round soon, please!",
+      '',
+      '**Reviewed commit:** `800c618311`',
+    ].join('\n'),
+  };
+  const headSha = '800c618311a79c2cf4b0d9a7fb2421a5bbe6587c';
+
+  assert.equal(cleanNativeReviewHead(cleanComment), '800c618311');
+  assert.equal(countNativeReviewRounds([], [cleanComment]), 1);
+  assert.equal(countNativeReviewRoundsForHead([], headSha, [cleanComment]), 1);
+  assert.equal(countNativeReviewRoundsForHead([], 'deadbeef00000000000000000000000000000000', [cleanComment]), 0);
+  assert.equal(shouldInvalidateAcceptance('issue_comment', 'created', cleanComment), true);
+});
+
+test('persisted clean-result statuses keep rounds after source comment deletion', () => {
+  const comments = [
+    {
+      id: 101,
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      body: "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `aaa0001`",
+    },
+    {
+      id: 102,
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      body: "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `bbb0002`",
+    },
+    {
+      id: 103,
+      user: { login: 'chatgpt-codex-connector[bot]' },
+      body: "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `ccc0003`",
+    },
+  ];
+  const statuses = comments.map(comment => ({
+    ...cleanNativeReviewStatus(comment),
+    state: 'success',
+    creator: { login: 'github-actions[bot]' },
+  }));
+
+  assert.equal(countNativeReviewRounds([], comments, statuses), 3);
+  assert.equal(countNativeReviewRounds([], [], statuses), 3);
+  assert.equal(countNativeReviewRoundsForHead([], 'ccc00030000', [], statuses), 1);
+  assert.equal(
+    evaluateReviewGate({
+      accepted: true,
+      nativeReviewRounds: countNativeReviewRounds([], [], statuses),
+      currentHeadNativeReviewRounds: 1,
+      unresolvedThreads: 0,
+      hasBudgetException: false,
+    }).ready,
+    false,
+  );
+});
+
+test('untrusted commit statuses cannot forge clean review rounds', () => {
+  const cleanComment = {
+    id: 201,
+    user: { login: 'chatgpt-codex-connector[bot]' },
+    body: "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `abcdef1234`",
+  };
+  const status = {
+    ...cleanNativeReviewStatus(cleanComment),
+    state: 'success',
+    creator: { login: 'rbctmz' },
+  };
+
+  assert.equal(countNativeReviewRounds([], [], [status]), 0);
+});
+
+test('persists each authenticated clean result as one uniquely keyed commit status', async () => {
+  const listCommits = Symbol('listCommits');
+  const listStatuses = Symbol('listStatuses');
+  const created = [];
+  const comment = {
+    id: 301,
+    html_url: 'https://github.com/rbctmz/ai_trainer/pull/513#issuecomment-301',
+    user: { login: 'chatgpt-codex-connector[bot]' },
+    body: "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `abcdef1234`",
+  };
+  const github = {
+    paginate: async (endpoint) => {
+      if (endpoint === listCommits) return [{ sha: 'abcdef12340000000000000000000000000000000' }];
+      if (endpoint === listStatuses) return [];
+      throw new Error('unexpected endpoint');
+    },
+    rest: {
+      pulls: { listCommits },
+      repos: {
+        listCommitStatusesForRef: listStatuses,
+        createCommitStatus: async (payload) => {
+          created.push(payload);
+          return {
+            data: {
+              ...payload,
+              creator: { login: 'github-actions[bot]' },
+            },
+          };
+        },
+      },
+    },
+  };
+
+  const statuses = await persistCleanReviewStatuses({
+    github,
+    owner: 'rbctmz',
+    repo: 'ai_trainer',
+    pr: { number: 513, html_url: 'https://github.com/rbctmz/ai_trainer/pull/513' },
+    comments: [comment],
+  });
+
+  assert.equal(created.length, 1);
+  assert.equal(created[0].sha, 'abcdef12340000000000000000000000000000000');
+  assert.equal(created[0].context, 'review-gate/codex-clean/301:abcdef1234');
+  assert.equal(statuses.length, 1);
+});
+
+test('maintainer text cannot spoof a clean native review result', () => {
+  const spoofed = {
+    user: { login: 'rbctmz' },
+    body: "Codex Review: Didn't find any major issues.\n\n**Reviewed commit:** `800c618311`",
+  };
+  const unrelatedBotComment = {
+    user: { login: 'chatgpt-codex-connector[bot]' },
+    body: 'Codex finished another task.',
+  };
+
+  assert.equal(cleanNativeReviewHead(spoofed), null);
+  assert.equal(cleanNativeReviewHead(unrelatedBotComment), null);
+  assert.equal(countNativeReviewRounds([], [spoofed, unrelatedBotComment]), 0);
+  assert.equal(shouldInvalidateAcceptance('issue_comment', 'created', spoofed), false);
 });
 
 test('a submitted review invalidates prior acceptance and readiness', () => {
   assert.equal(shouldInvalidateAcceptance('pull_request_review', 'submitted'), true);
   assert.equal(shouldInvalidateAcceptance('pull_request', 'synchronize'), true);
+  assert.equal(shouldInvalidateAcceptance('pull_request_target', 'synchronize'), true);
   assert.equal(shouldInvalidateAcceptance('pull_request_review', 'dismissed'), false);
   assert.equal(shouldInvalidateAcceptance('pull_request', 'labeled'), false);
 });
