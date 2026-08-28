@@ -1,14 +1,12 @@
 name: PR ready to merge
 
 on:
-  pull_request:
+  pull_request_target:
     types: [opened, reopened, synchronize, ready_for_review, converted_to_draft, edited, labeled, unlabeled, closed]
-  pull_request_review:
-    types: [submitted, dismissed]
-  pull_request_review_comment:
+  issue_comment:
     types: [created, edited, deleted]
   workflow_run:
-    workflows: ["CI", "Link PR to issue", "Project roadmap sync"]
+    workflows: ["CI", "Link PR to issue", "Project roadmap sync", "PR review signal"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -18,24 +16,28 @@ on:
   schedule:
     - cron: "*/15 * * * *"
 
-permissions:
-  checks: read
-  contents: read
-  issues: write
-  pull-requests: write
+permissions: {}
 
 jobs:
   review-gate:
     name: Review gate
     if: >-
       github.event.action != 'closed' &&
-      (github.event_name == 'pull_request' ||
-       github.event_name == 'pull_request_review' ||
-       github.event_name == 'pull_request_review_comment')
+      (github.event_name == 'pull_request_target' ||
+       (github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request != null &&
+        github.event.comment.user.login == 'chatgpt-codex-connector[bot]'))
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      statuses: write
     steps:
-      - name: Check out repository
+      - name: Check out trusted gate implementation
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Enforce accepted bounded review
         uses: actions/github-script@v8
@@ -45,9 +47,11 @@ jobs:
             const {
               MAX_NATIVE_REVIEW_ROUNDS,
               countNativeReviewRounds,
+              countNativeReviewRoundsForHead,
               evaluateReviewGate,
               isPrivilegedRepositoryPermission,
               latestLabelActor,
+              persistCleanReviewStatuses,
               shouldInvalidateAcceptance,
             } = require('./.github/scripts/review-gate.cjs');
 
@@ -55,7 +59,11 @@ jobs:
             const READY_LABEL = 'status: ready to merge';
             const EXCEEDED_LABEL = 'status: review budget exceeded';
             const EXCEPTION_LABEL = 'review-budget-exception';
-            const pr = context.payload.pull_request;
+            const pr = context.payload.pull_request || (await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.payload.issue.number,
+            })).data;
 
             const ensureLabel = async (name, color, description) => {
               try {
@@ -147,7 +155,7 @@ jobs:
 
             const authenticatedLabel = async (name, currentLabels, events) => {
               if (!currentLabels.has(name)) return false;
-              const actor = context.eventName === 'pull_request' &&
+              const actor = ['pull_request', 'pull_request_target'].includes(context.eventName) &&
                   context.payload.action === 'labeled' &&
                   context.payload.label?.name === name
                 ? context.actor
@@ -195,11 +203,15 @@ jobs:
               ensureLabel(EXCEPTION_LABEL, 'BFDADC', 'Merge owner approved a documented exception to the native review budget'),
             ]);
 
-            if (shouldInvalidateAcceptance(context.eventName, context.payload.action)) {
+            if (shouldInvalidateAcceptance(
+              context.eventName,
+              context.payload.action,
+              context.payload.comment,
+            )) {
               await Promise.all([removeLabel(ACCEPTED_LABEL), removeLabel(READY_LABEL)]);
             }
 
-            const [currentLabels, reviews, review, events] = await Promise.all([
+            const [currentLabels, reviews, comments, review, events] = await Promise.all([
               labels(),
               github.paginate(github.rest.pulls.listReviews, {
                 owner: context.repo.owner,
@@ -207,10 +219,33 @@ jobs:
                 pull_number: pr.number,
                 per_page: 100,
               }),
+              github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                per_page: 100,
+              }),
               reviewSnapshot(),
               issueEvents(),
             ]);
-            const nativeReviewRounds = countNativeReviewRounds(reviews);
+            const cleanReviewStatuses = await persistCleanReviewStatuses({
+              github,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pr,
+              comments,
+            });
+            const nativeReviewRounds = countNativeReviewRounds(
+              reviews,
+              comments,
+              cleanReviewStatuses,
+            );
+            const currentHeadNativeReviewRounds = countNativeReviewRoundsForHead(
+              reviews,
+              pr.head.sha,
+              comments,
+              cleanReviewStatuses,
+            );
             const [accepted, hasBudgetException] = await Promise.all([
               authenticatedLabel(ACCEPTED_LABEL, currentLabels, events),
               authenticatedLabel(EXCEPTION_LABEL, currentLabels, events),
@@ -223,6 +258,7 @@ jobs:
             const decision = evaluateReviewGate({
               accepted,
               nativeReviewRounds,
+              currentHeadNativeReviewRounds,
               unresolvedThreads: review.unresolvedThreads,
               hasBudgetException,
               reviewDecision: review.reviewDecision,
@@ -236,9 +272,17 @@ jobs:
   ready-to-merge:
     name: ready-to-merge
     runs-on: ubuntu-latest
+    permissions:
+      checks: read
+      contents: read
+      issues: write
+      pull-requests: write
+      statuses: write
     steps:
-      - name: Check out repository
+      - name: Check out trusted gate implementation
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.repository.default_branch }}
 
       - name: Project PR readiness into labels
         uses: actions/github-script@v8
@@ -248,10 +292,13 @@ jobs:
             const {
               MAX_NATIVE_REVIEW_ROUNDS,
               READY_MARKER,
+              cleanNativeReviewHead,
               countNativeReviewRounds,
+              countNativeReviewRoundsForHead,
               evaluateReviewGate,
               isPrivilegedRepositoryPermission,
               latestLabelActor,
+              persistCleanReviewStatuses,
               selectReadinessStatusComments,
               shouldInvalidateAcceptance,
             } = require('./.github/scripts/review-gate.cjs');
@@ -372,7 +419,7 @@ jobs:
 
             const authenticatedLabel = async (name, labels, events) => {
               if (!labels.has(name)) return false;
-              const actor = context.eventName === 'pull_request' &&
+              const actor = ['pull_request', 'pull_request_target'].includes(context.eventName) &&
                   context.payload.action === 'labeled' &&
                   context.payload.label?.name === name
                 ? context.actor
@@ -385,27 +432,43 @@ jobs:
             const getPrNumbers = async () => {
               const nums = new Set();
               const pullRequestEvents = new Set([
-                'pull_request',
-                'pull_request_review',
-                'pull_request_review_comment',
+                'pull_request_target',
               ]);
 
               if (pullRequestEvents.has(context.eventName)) {
                 nums.add(context.payload.pull_request.number);
+              } else if (context.eventName === 'issue_comment' &&
+                  context.payload.issue?.pull_request &&
+                  cleanNativeReviewHead(context.payload.comment) !== null) {
+                nums.add(context.payload.issue.number);
               } else if (context.eventName === 'workflow_run') {
                 const run = context.payload.workflow_run;
                 for (const pr of run.pull_requests || []) {
                   if (pr.number) nums.add(pr.number);
                 }
-                if (nums.size === 0 && run.head_branch) {
-                  const { data: prs } = await github.rest.pulls.list({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    state: 'open',
-                    head: `${context.repo.owner}:${run.head_branch}`,
-                    per_page: 20,
-                  });
-                  for (const pr of prs) nums.add(pr.number);
+                if (run.name === 'PR review signal' && nums.size === 0 && run.head_sha) {
+                  const associated = await github.paginate(
+                    github.rest.repos.listPullRequestsAssociatedWithCommit,
+                    {
+                      owner: context.repo.owner,
+                      repo: context.repo.repo,
+                      commit_sha: run.head_sha,
+                      per_page: 100,
+                    },
+                  );
+                  const candidates = associated.filter(pr =>
+                    pr.state === 'open' &&
+                    pr.head?.sha === run.head_sha &&
+                    pr.head?.ref === run.head_branch &&
+                    String(pr.head?.repo?.id) === String(run.head_repository?.id)
+                  );
+                  if (candidates.length === 1) {
+                    nums.add(candidates[0].number);
+                  } else {
+                    core.warning(
+                      `Review signal ${run.id} resolved ${candidates.length} exact PR candidates; skipping`,
+                    );
+                  }
                 }
               } else if (['workflow_dispatch', 'schedule'].includes(context.eventName)) {
                 const input = context.eventName === 'workflow_dispatch'
@@ -481,6 +544,12 @@ jobs:
                 pull_number: pr.number,
                 per_page: 100,
               });
+              const commentsPromise = github.paginate(github.rest.issues.listComments, {
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                per_page: 100,
+              });
               const eventsPromise = issueEvents(pr.number);
               let after = null;
               let unresolvedThreads = 0;
@@ -511,8 +580,29 @@ jobs:
                 after = threads.pageInfo.hasNextPage ? threads.pageInfo.endCursor : null;
               } while (after);
 
-              const [reviews, events] = await Promise.all([reviewsPromise, eventsPromise]);
-              const nativeReviewRounds = countNativeReviewRounds(reviews);
+              const [reviews, comments, events] = await Promise.all([
+                reviewsPromise,
+                commentsPromise,
+                eventsPromise,
+              ]);
+              const cleanReviewStatuses = await persistCleanReviewStatuses({
+                github,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pr,
+                comments,
+              });
+              const nativeReviewRounds = countNativeReviewRounds(
+                reviews,
+                comments,
+                cleanReviewStatuses,
+              );
+              const currentHeadNativeReviewRounds = countNativeReviewRoundsForHead(
+                reviews,
+                pr.head.sha,
+                comments,
+                cleanReviewStatuses,
+              );
               const [accepted, hasBudgetException] = await Promise.all([
                 authenticatedLabel(ACCEPTED_LABEL, labels, events),
                 authenticatedLabel(EXCEPTION_LABEL, labels, events),
@@ -521,6 +611,7 @@ jobs:
                 decision: evaluateReviewGate({
                   accepted,
                   nativeReviewRounds,
+                  currentHeadNativeReviewRounds,
                   unresolvedThreads,
                   hasBudgetException,
                   reviewDecision,
@@ -596,7 +687,13 @@ jobs:
             core.info(`Evaluating PRs: ${prNumbers.join(', ') || '(none)'}`);
             for (const prNumber of prNumbers) {
               const pr = await getPr(prNumber);
-              if (shouldInvalidateAcceptance(context.eventName, context.payload.action)) {
+              const reviewSignalCompleted = context.eventName === 'workflow_run' &&
+                context.payload.workflow_run?.name === 'PR review signal';
+              if (reviewSignalCompleted || shouldInvalidateAcceptance(
+                context.eventName,
+                context.payload.action,
+                context.payload.comment,
+              )) {
                 await Promise.all([
                   removeLabel(prNumber, ACCEPTED_LABEL),
                   removeLabel(prNumber, READY_LABEL),

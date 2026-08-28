@@ -10,6 +10,7 @@ pytestmark = pytest.mark.smoke
 WORKFLOW_DIR = Path(".github/workflows")
 LOOP_DOC = Path("docs/loop_engineering_instruction.md")
 READY_WORKFLOW = WORKFLOW_DIR / "pr-ready-to-merge.yml"
+REVIEW_SIGNAL_WORKFLOW = WORKFLOW_DIR / "pr-review-signal.yml"
 REVIEW_GATE_POLICY = Path(".github/scripts/review-gate.cjs")
 REVIEW_GATE_TEST = Path(".github/scripts/review-gate.test.cjs")
 CI_WORKFLOW = WORKFLOW_DIR / "ci.yml"
@@ -30,21 +31,36 @@ def test_actions_do_not_impersonate_a_connected_user_for_codex_review() -> None:
 def test_ready_projection_does_not_wait_for_removed_actions_workflow() -> None:
     text = READY_WORKFLOW.read_text(encoding="utf-8")
 
-    assert 'workflows: ["CI", "Link PR to issue", "Project roadmap sync"]' in text
+    assert '"PR review signal"' in text
     assert '"Codex Review"' not in text
+
+
+def test_review_events_use_a_permissionless_signal_before_trusted_recompute() -> None:
+    text = REVIEW_SIGNAL_WORKFLOW.read_text(encoding="utf-8")
+
+    assert "pull_request_review:" in text
+    assert "pull_request_review_comment:" in text
+    assert "permissions: {}" in text
+    assert "actions/checkout" not in text
+    assert "secrets." not in text
+    assert "pull_request_target:" not in text
+    assert "PR review signal" in READY_WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_ready_projection_requires_an_accepted_bounded_review() -> None:
     text = READY_WORKFLOW.read_text(encoding="utf-8")
+    trigger_block = text.split("permissions:", 1)[0]
 
     for contract in (
-        "pull_request_review:",
-        "pull_request_review_comment:",
+        "pull_request_target:",
+        "issue_comment:",
         "reviewThreads(first: 100",
         "status: review accepted",
         "status: review budget exceeded",
         "review-budget-exception",
         "countNativeReviewRounds",
+        "countNativeReviewRoundsForHead",
+        "persistCleanReviewStatuses",
         "evaluateReviewGate",
         "selectReadinessStatusComments",
         "shouldInvalidateAcceptance",
@@ -58,7 +74,20 @@ def test_ready_projection_requires_an_accepted_bounded_review() -> None:
         "pr-ready-to-merge-superseded",
     ):
         assert contract in text
-    assert "shouldInvalidateAcceptance(context.eventName, context.payload.action)" in text
+    assert "pull_request:" not in trigger_block
+    assert "pull_request_review:" not in trigger_block
+    assert "pull_request_review_comment:" not in trigger_block
+    assert "statuses: write" in text
+    assert "ref: ${{ github.event.repository.default_branch }}" in text
+    assert "github.event.comment.user.login == 'chatgpt-codex-connector[bot]'" in text
+    assert "context.payload.workflow_run?.name === 'PR review signal'" in text
+    assert "listPullRequestsAssociatedWithCommit" in text
+    assert "commit_sha: run.head_sha" in text
+    assert "pr.head?.sha === run.head_sha" in text
+    assert "pr.head?.ref === run.head_branch" in text
+    assert "String(pr.head?.repo?.id) === String(run.head_repository?.id)" in text
+    assert "candidates.length === 1" in text
+    assert "context.payload.comment," in text
     assert "removeLabel(ACCEPTED_LABEL)" in text
     assert "latestPr.head.sha !== pr.head.sha" in text
     assert "READY_MARKER," in text
