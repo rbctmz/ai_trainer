@@ -116,10 +116,14 @@ _ADVICE_VERB = re.compile(
 )
 _INTENT_MARKER = re.compile(r"\b(?:хочу|планирую|цель\s*[-—:]?)\b", re.IGNORECASE)
 _PLANNED_OR_FUTURE_TREND = re.compile(
-    r"\b(?:завтра|послезавтра|следующ\w*|предстоящ\w*|по\s+плану|планов\w*)\b",
+    r"(?:\b(?:завтра|послезавтра)\b|"
+    r"\b(?:на|в)\s+следующ\w+\s+"
+    r"(?:недел\w*|д(?:ень|ня|ней)|месяц\w*|микроцикл\w*)\b|"
+    r"\bпо\s+плану\b|"
+    r"\bпланов\w*\s+(?:нагрузк\w*|объ[её]м\w*|трениров\w*|сесси\w*|разгрузк\w*)\b)",
     re.IGNORECASE,
 )
-_TREND_CLAUSE_BOUNDARY = re.compile(r"[,;:—–]|\s+-\s+")
+_TREND_CLAIM_SEPARATOR = re.compile(r"[,;:—–]|\s+-\s+")
 _CAUSAL_TAIL = re.compile(
     r"\b(?:потому\s+что|так\s+как|поскольку)\b\s*(.+)$",
     re.IGNORECASE,
@@ -469,6 +473,27 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
             guardrails = dict(guardrails) if isinstance(guardrails, Mapping) else {}
             if guardrails.get("causal_claim_allowed") is False:
                 causal_claim_allowed = False
+            if data.get("status") == "available":
+                comparison = data.get("comparison")
+                comparison = (
+                    dict(comparison) if isinstance(comparison, Mapping) else {}
+                )
+                tss_delta = _number(comparison.get("tss_delta"))
+                if tss_delta != float("-inf"):
+                    domains.add("session_tss")
+                    directions["session_tss"] = _direction_from_delta(tss_delta)
+                sport_metric = comparison.get("sport_metric")
+                sport_metric = (
+                    dict(sport_metric) if isinstance(sport_metric, Mapping) else {}
+                )
+                metric_delta = _number(sport_metric.get("delta"))
+                metric_domain = _session_metric_domain(sport_metric.get("kind"))
+                if metric_domain is not None and metric_delta != float("-inf"):
+                    domains.add(metric_domain)
+                    directions[metric_domain] = _session_metric_direction(
+                        metric_domain,
+                        metric_delta,
+                    )
     return {
         "domains": sorted(domains),
         "directions": directions,
@@ -478,45 +503,62 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
 
 def _trend_claim_domains(text: str) -> set[str]:
     domains: set[str] = set()
-    for segment in _asserted_historical_trend_clauses(text):
+    for segment, _trend_word in _asserted_historical_trend_claims(text):
         if not _TREND_SUBJECT.search(segment):
             continue
-        lowered = segment.lower()
-        segment_domains: set[str] = set()
-        if "hrv" in lowered or "вср" in lowered:
-            segment_domains.add("hrv")
-        if "нагруз" in lowered:
-            segment_domains.add("load")
-        if "форма" in lowered or "показател" in lowered:
-            segment_domains.add("fitness")
-        if "трениров" in lowered or "сесси" in lowered or "прошл" in lowered:
-            segment_domains.add("generic")
-        domains.update(segment_domains or {"generic"})
+        domains.update(_trend_domains_for_claim(segment))
     return domains
 
 
 def _trend_direction_mismatch(text: str, directions: Mapping[str, Any]) -> bool:
-    for segment in _asserted_historical_trend_clauses(text):
+    for segment, trend_word in _asserted_historical_trend_claims(text):
         if not _TREND_SUBJECT.search(segment):
             continue
-        lowered = segment.lower()
-        claimed = _claimed_direction(lowered)
+        claimed = _claimed_direction(trend_word.lower())
         if claimed is None:
             continue
-        domains: list[str] = []
-        if "hrv" in lowered or "вср" in lowered:
-            domains.append("hrv")
-        if "нагруз" in lowered:
-            domains.append("load")
-        if "форма" in lowered or "показател" in lowered:
-            domains.append("fitness")
-        if not domains and "тренд" in lowered:
-            domains.append("generic")
-        for domain in domains:
+        for domain in _trend_domains_for_claim(segment):
             observed = _normalize_direction(directions.get(domain))
             if observed is not None and observed != claimed:
                 return True
     return False
+
+
+def _trend_domains_for_claim(text: str) -> set[str]:
+    lowered = text.lower()
+    if "hrv" in lowered or "вср" in lowered:
+        return {"hrv"}
+    if "форма" in lowered or "показател" in lowered:
+        return {"fitness"}
+    session_scope = bool(
+        re.search(r"трениров\w*|сесси\w*|прошл\w*", lowered, re.IGNORECASE)
+    )
+    if session_scope:
+        if re.search(r"темп\w*|скорост\w*", lowered):
+            return {"session_pace"}
+        if "мощност" in lowered:
+            return {"session_power"}
+        if "tss" in lowered or "нагруз" in lowered:
+            return {"session_tss"}
+        return {"session"}
+    if "нагруз" in lowered:
+        return {"load"}
+    return {"generic"}
+
+
+def _session_metric_domain(kind: Any) -> str | None:
+    normalized = str(kind or "").strip().lower()
+    if normalized in {"pace_seconds_per_km", "pace_seconds_per_100m"}:
+        return "session_pace"
+    if normalized == "power_watts":
+        return "session_power"
+    return None
+
+
+def _session_metric_direction(domain: str, delta: float) -> str:
+    if domain == "session_pace":
+        return _direction_from_delta(-delta)
+    return _direction_from_delta(delta)
 
 
 def _claimed_direction(text: str) -> str | None:
@@ -687,20 +729,29 @@ def _asserted_trend_matches(segment: str) -> list[re.Match[str]]:
     return matches
 
 
-def _asserted_historical_trend_clauses(text: str) -> list[str]:
-    """Return asserted trend clauses that describe observed, not planned, data."""
-    clauses: list[str] = []
+def _asserted_historical_trend_claims(text: str) -> list[tuple[str, str]]:
+    """Return match-scoped observed trends without losing punctuated subjects."""
+    claims: list[tuple[str, str]] = []
     for segment in _claim_segments(text):
-        seen: set[str] = set()
-        for match in _asserted_trend_matches(segment):
-            prefix_parts = _TREND_CLAUSE_BOUNDARY.split(segment[: match.start()])
-            suffix_parts = _TREND_CLAUSE_BOUNDARY.split(segment[match.end() :], maxsplit=1)
-            clause = f"{prefix_parts[-1]}{match.group()}{suffix_parts[0]}".strip()
-            if not clause or clause in seen or _PLANNED_OR_FUTURE_TREND.search(clause):
+        matches = _asserted_trend_matches(segment)
+        starts = [0] * len(matches)
+        ends = [len(segment)] * len(matches)
+        for index in range(len(matches) - 1):
+            left = matches[index]
+            right = matches[index + 1]
+            gap = segment[left.end() : right.start()]
+            separators = list(_TREND_CLAIM_SEPARATOR.finditer(gap))
+            if not separators:
                 continue
-            seen.add(clause)
-            clauses.append(clause)
-    return clauses
+            separator = separators[-1]
+            ends[index] = left.end() + separator.start()
+            starts[index + 1] = left.end() + separator.end()
+        for index, match in enumerate(matches):
+            scope = segment[starts[index] : ends[index]].strip()
+            if not scope or _PLANNED_OR_FUTURE_TREND.search(scope):
+                continue
+            claims.append((scope, match.group()))
+    return claims
 
 
 def _claim_segments(text: str) -> list[str]:

@@ -91,7 +91,7 @@ def test_trend_claim_without_comparator_is_refused():
     assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
 
 
-def test_past_session_comparison_accepts_an_available_generic_comparator():
+def test_past_session_comparison_rejects_an_aggregate_period_comparator():
     raw = "Темп по сравнению с прошлой тренировкой улучшился."
     tools = [
         {
@@ -101,6 +101,37 @@ def test_past_session_comparison_accepts_an_available_generic_comparator():
                 "recent_period": {"tss": 100},
                 "previous_period": {"tss": 140},
                 "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_past_session_comparison_accepts_metric_specific_session_evidence():
+    raw = "Темп по сравнению с прошлой тренировкой улучшился."
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "target": {"value": 292.0, "source": "activity"},
+                        "comparator": {"value": 300.0, "source": "activity"},
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {
+                    "one_comparison_only": True,
+                    "trend_claim_allowed": False,
+                    "causal_claim_allowed": False,
+                },
             },
         }
     ]
@@ -166,6 +197,42 @@ def test_future_plan_does_not_hide_a_contradicted_current_load_claim():
 
     assert result.outcome == "replaced"
     assert result.reason_codes == ("TREND_CLAIM_CONTRADICTED",)
+
+
+def test_future_event_reference_does_not_hide_a_historical_load_claim():
+    raw = "С начала подготовки к следующей гонке нагрузка выросла."
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 100},
+                "previous_period": {"tss": 140},
+                "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == ("TREND_CLAIM_CONTRADICTED",)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Нагрузка: выросла.",
+        "Нагрузка — выросла.",
+        "Нагрузка, судя по данным, выросла.",
+        "HRV: улучшается.",
+    ],
+)
+def test_trend_subject_survives_inline_punctuation(raw: str):
+    result = validate_coach_narrative(raw, _evidence())
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
 
 
 def test_supported_hrv_trend_and_neutral_advice_pass_byte_identical():
