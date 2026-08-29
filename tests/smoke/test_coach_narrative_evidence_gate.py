@@ -91,6 +91,83 @@ def test_trend_claim_without_comparator_is_refused():
     assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
 
 
+def test_past_session_comparison_accepts_an_available_generic_comparator():
+    raw = "Темп по сравнению с прошлой тренировкой улучшился."
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 100},
+                "previous_period": {"tss": 140},
+                "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+    assert result.reason_codes == ()
+
+
+def test_past_session_comparison_without_any_comparator_remains_a_data_gap():
+    result = validate_coach_narrative(
+        "Темп по сравнению с прошлой тренировкой улучшился.",
+        _evidence(),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_future_plan_is_not_compared_with_historical_load_direction():
+    raw = (
+        "Историческая нагрузка снизилась. "
+        "На следующей неделе нагрузка вырастет до 403 TSS."
+    )
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 100},
+                "previous_period": {"tss": 140},
+                "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+    assert result.reason_codes == ()
+
+
+def test_future_plan_does_not_hide_a_contradicted_current_load_claim():
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 100},
+                "previous_period": {"tss": 140},
+                "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Текущая нагрузка растет. На следующей неделе она вырастет ещё сильнее.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == ("TREND_CLAIM_CONTRADICTED",)
+
+
 def test_supported_hrv_trend_and_neutral_advice_pass_byte_identical():
     raw = "HRV улучшается относительно 28-дневной базовой линии. Держи план ровно.\n"
     tools = [

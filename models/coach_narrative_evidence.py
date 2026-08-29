@@ -115,6 +115,11 @@ _ADVICE_VERB = re.compile(
     re.IGNORECASE,
 )
 _INTENT_MARKER = re.compile(r"\b(?:хочу|планирую|цель\s*[-—:]?)\b", re.IGNORECASE)
+_PLANNED_OR_FUTURE_TREND = re.compile(
+    r"\b(?:завтра|послезавтра|следующ\w*|предстоящ\w*|по\s+плану|планов\w*)\b",
+    re.IGNORECASE,
+)
+_TREND_CLAUSE_BOUNDARY = re.compile(r"[,;:—–]|\s+-\s+")
 _CAUSAL_TAIL = re.compile(
     r"\b(?:потому\s+что|так\s+как|поскольку)\b\s*(.+)$",
     re.IGNORECASE,
@@ -473,8 +478,8 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
 
 def _trend_claim_domains(text: str) -> set[str]:
     domains: set[str] = set()
-    for segment in _claim_segments(text):
-        if not _asserted_trend_matches(segment) or not _TREND_SUBJECT.search(segment):
+    for segment in _asserted_historical_trend_clauses(text):
+        if not _TREND_SUBJECT.search(segment):
             continue
         lowered = segment.lower()
         segment_domains: set[str] = set()
@@ -485,14 +490,14 @@ def _trend_claim_domains(text: str) -> set[str]:
         if "форма" in lowered or "показател" in lowered:
             segment_domains.add("fitness")
         if "трениров" in lowered or "сесси" in lowered or "прошл" in lowered:
-            segment_domains.add("sessions")
+            segment_domains.add("generic")
         domains.update(segment_domains or {"generic"})
     return domains
 
 
 def _trend_direction_mismatch(text: str, directions: Mapping[str, Any]) -> bool:
-    for segment in _claim_segments(text):
-        if not _asserted_trend_matches(segment) or not _TREND_SUBJECT.search(segment):
+    for segment in _asserted_historical_trend_clauses(text):
+        if not _TREND_SUBJECT.search(segment):
             continue
         lowered = segment.lower()
         claimed = _claimed_direction(lowered)
@@ -680,6 +685,22 @@ def _asserted_trend_matches(segment: str) -> list[re.Match[str]]:
             continue
         matches.append(match)
     return matches
+
+
+def _asserted_historical_trend_clauses(text: str) -> list[str]:
+    """Return asserted trend clauses that describe observed, not planned, data."""
+    clauses: list[str] = []
+    for segment in _claim_segments(text):
+        seen: set[str] = set()
+        for match in _asserted_trend_matches(segment):
+            prefix_parts = _TREND_CLAUSE_BOUNDARY.split(segment[: match.start()])
+            suffix_parts = _TREND_CLAUSE_BOUNDARY.split(segment[match.end() :], maxsplit=1)
+            clause = f"{prefix_parts[-1]}{match.group()}{suffix_parts[0]}".strip()
+            if not clause or clause in seen or _PLANNED_OR_FUTURE_TREND.search(clause):
+                continue
+            seen.add(clause)
+            clauses.append(clause)
+    return clauses
 
 
 def _claim_segments(text: str) -> list[str]:
