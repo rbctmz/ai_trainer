@@ -542,6 +542,208 @@ def test_shadow_recording_appends_changed_readiness_without_product_mutation(
     assert db.get_coach_proposals(days=36500) == []
 
 
+def test_shadow_recording_reuses_semantic_forecast_when_only_provenance_timestamps_change(
+    tmp_path,
+) -> None:
+    from api.session_quality_forecast import record_shadow_session_quality_forecast
+
+    today = date(2026, 7, 12)
+    db = Database(str(tmp_path / "timestamp-replay.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    results = []
+    for minute in range(10):
+        observed_at = f"2026-07-12T06:{minute:02d}:00Z"
+        readiness = {
+            **_readiness(),
+            "observed_at_utc": observed_at,
+            "provenance": {"observed_at_utc": observed_at},
+        }
+        report = {
+            "as_of": today.isoformat(),
+            "readiness": {
+                **readiness,
+                "observed_at_utc": observed_at,
+                "provenance": {"observed_at_utc": observed_at},
+            },
+        }
+        results.append(
+            record_shadow_session_quality_forecast(
+                db,
+                report=report,
+                checkpoint=checkpoint,
+                readiness_snapshot=readiness,
+                today=today,
+            )
+        )
+
+    assert results[0]["created"] is True
+    assert all(result["created"] is False for result in results[1:])
+    assert {result["prediction"]["id"] for result in results} == {
+        results[0]["prediction"]["id"]
+    }
+    rows = db.get_session_quality_predictions(days=36500)
+    assert len(rows) == 1
+    assert rows[0]["inputs"]["readiness"]["observed_at_utc"] == "2026-07-12T06:00:00Z"
+    assert rows[0]["inputs"]["gate_readiness"]["provenance"]["observed_at_utc"] == (
+        "2026-07-12T06:00:00Z"
+    )
+
+
+def test_shadow_recording_concurrent_semantic_replays_converge(tmp_path) -> None:
+    from api.session_quality_forecast import record_shadow_session_quality_forecast
+
+    today = date(2026, 7, 12)
+    db = Database(str(tmp_path / "concurrent-semantic-replay.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    barrier = Barrier(2)
+
+    def record(minute: int) -> dict:
+        observed_at = f"2026-07-12T06:{minute:02d}:00Z"
+        readiness = {
+            **_readiness(),
+            "observed_at_utc": observed_at,
+            "provenance": {"observed_at_utc": observed_at},
+        }
+        barrier.wait()
+        return record_shadow_session_quality_forecast(
+            db,
+            checkpoint=checkpoint,
+            readiness_snapshot=readiness,
+            today=today,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        results = list(executor.map(record, (0, 1)))
+
+    assert sum(result["created"] for result in results) == 1
+    assert {result["prediction"]["id"] for result in results} == {
+        results[0]["prediction"]["id"]
+    }
+    assert len(db.get_session_quality_predictions(days=36500)) == 1
+
+
+def test_shadow_recording_stops_after_confirmed_actual_start(tmp_path) -> None:
+    from api.session_quality_forecast import record_shadow_session_quality_forecast
+
+    today = date(2026, 7, 12)
+    db = Database(str(tmp_path / "started-session.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    plan = checkpoint["goal_plan_snapshot"]
+    target_index = next(
+        index
+        for index, template in enumerate(plan["session_templates"])
+        if template["date"] == "2026-07-14"
+    )
+    template = plan["session_templates"][target_index]
+    session_id = template["session_id"]
+    first = record_shadow_session_quality_forecast(
+        db,
+        checkpoint=checkpoint,
+        readiness_snapshot=_readiness(),
+        today=today,
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "confirmed-ride",
+                "date": "2026-07-14",
+                "started_at_utc": "2026-07-14T08:00:00Z",
+                "sport": "bike",
+                "duration_minutes": 60,
+                "tss": 60,
+            }
+        ]
+    )
+    db.save_plan_actual_match(
+        {
+            "fingerprint": "confirmed-match-1",
+            "target_key": f"session:{session_id}",
+            "session_id": session_id,
+            "base_checkpoint_id": checkpoint["id"],
+            "session_date": "2026-07-14",
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "confidence": 1.0,
+            "planned_snapshot": {
+                "session_id": session_id,
+                "date": "2026-07-14",
+                "role": "quality",
+                "sport": "bike",
+                "tss": 60.0,
+                "duration_minutes": 60,
+            },
+            "actual_activity_ids": ["confirmed-ride"],
+            "actual_snapshot": {"role": "quality", "sport": "bike", "tss": 60.0},
+            "evidence": ["confirmed in the plan-fact ledger"],
+            "rule_version": "plan_actual_match_v2",
+        }
+    )
+
+    after_start = record_shadow_session_quality_forecast(
+        db,
+        checkpoint=checkpoint,
+        readiness_snapshot=_readiness(),
+        today=today,
+    )
+
+    assert first["created"] is True
+    assert after_start == {"prediction": None, "reason": "session_started"}
+    assert len(db.get_session_quality_predictions(days=36500)) == 1
+
+
+def test_shadow_recording_stops_after_active_terminal_feedback(tmp_path) -> None:
+    from api.session_quality_forecast import record_shadow_session_quality_forecast
+    from models.post_workout_feedback import FEEDBACK_RULE_VERSION
+
+    today = date(2026, 7, 12)
+    db = Database(str(tmp_path / "terminal-feedback.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    plan = checkpoint["goal_plan_snapshot"]
+    target_index = next(
+        index
+        for index, template in enumerate(plan["session_templates"])
+        if template["date"] == "2026-07-14"
+    )
+    session_id = plan["session_templates"][target_index]["session_id"]
+    first = record_shadow_session_quality_forecast(
+        db,
+        checkpoint=checkpoint,
+        readiness_snapshot=_readiness(),
+        today=today,
+    )
+    db.save_session_feedback(
+        {
+            "fingerprint": "terminal-feedback-1",
+            "target_key": f"session:{session_id}",
+            "session_id": session_id,
+            "match_snapshot": {"planned": {"session_id": session_id}},
+            "actual_activity_ids": [],
+            "completion_status": "unknown",
+            "completion_pct": None,
+            "completion_pct_source": "athlete_entered",
+            "session_rpe_1_10": None,
+            "quality_rating_1_5": None,
+            "note": "athlete submitted an uncertain outcome",
+            "source": "user_web",
+            "session_end_provenance": "athlete_entered",
+            "status": "active",
+            "rule_version": FEEDBACK_RULE_VERSION,
+            "submitted_at": "2026-07-14T10:00:00Z",
+        }
+    )
+
+    after_feedback = record_shadow_session_quality_forecast(
+        db,
+        checkpoint=checkpoint,
+        readiness_snapshot=_readiness(),
+        today=today,
+    )
+
+    assert first["created"] is True
+    assert after_feedback == {"prediction": None, "reason": "terminal_feedback_exists"}
+    assert len(db.get_session_quality_predictions(days=36500)) == 1
+
+
 def test_summary_counts_only_scored_low_forecast_failures(tmp_path) -> None:
     from api.session_quality_forecast import summarize_session_quality_predictions
 
