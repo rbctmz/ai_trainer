@@ -235,6 +235,141 @@ def test_trend_subject_survives_inline_punctuation(raw: str):
     assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
 
 
+def test_single_session_pair_cannot_prove_a_longitudinal_pace_trend():
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {
+                    "trend_claim_allowed": False,
+                    "causal_claim_allowed": False,
+                },
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Темп на тренировках растет.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_future_clause_does_not_hide_current_trend_in_the_same_sentence():
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 140},
+                "previous_period": {"tss": 100},
+                "comparison": {"tss_change": 40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Текущая нагрузка снизилась, а на следующей неделе будет 403 TSS.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == ("TREND_CLAIM_CONTRADICTED",)
+
+
+def test_compound_trend_requires_evidence_for_every_subject():
+    tools = [
+        {
+            "tool_name": "analyze_hrv_trends",
+            "success": True,
+            "raw_result": {
+                "data_points": 14,
+                "baseline_median": 53.0,
+                "trend_direction": "improving",
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "HRV и нагрузка выросли.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Следующая тренировка будет лучше прошлой.",
+        "На предстоящей неделе нагрузка вырастет.",
+    ],
+)
+def test_unambiguous_future_session_and_period_claims_are_not_historical(raw: str):
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 100},
+                "previous_period": {"tss": 140},
+                "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+
+
+def test_multiple_session_comparators_fail_closed_when_claim_is_ambiguous():
+    def comparable(target_id: str, date_value: str, delta: float) -> dict:
+        return {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": target_id, "date": date_value},
+                "comparator": {"activity_id": f"prior-{target_id}"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": delta,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+
+    result = validate_coach_narrative(
+        "Темп тренировки 2026-08-20 по сравнению с прошлой улучшился.",
+        _evidence(
+            tool_results=[
+                comparable("aug-20", "2026-08-20", 8.0),
+                comparable("aug-21", "2026-08-21", -8.0),
+            ]
+        ),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
 def test_supported_hrv_trend_and_neutral_advice_pass_byte_identical():
     raw = "HRV улучшается относительно 28-дневной базовой линии. Держи план ровно.\n"
     tools = [
