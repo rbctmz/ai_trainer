@@ -310,6 +310,14 @@ class _PowerCurveServiceClient:
         return self.efforts
 
 
+class _NeverPowerCurveClient:
+    def is_configured(self):
+        raise AssertionError("provider must not be consulted on a cache hit")
+
+    def get_activity_power_curve(self, activity_id):
+        raise AssertionError("provider must not be consulted on a cache hit")
+
+
 def test_normalize_power_curve_payload_extracts_headline_peaks():
     compact = normalize_power_curve_payload(_sample_power_curve_payload())
 
@@ -412,6 +420,23 @@ def test_fetch_activity_power_curve_fetches_normalizes_and_caches(tmp_path, monk
     assert db.get_activity_power_curve("act-1") == result
 
 
+def test_fetch_activity_power_curve_cache_skips_live_fetch(tmp_path):
+    from services.best_efforts import fetch_activity_power_curve
+
+    db = Database(str(tmp_path / "svc-cache-hit.db"))
+    _seed_intervals_link(db)
+    cached = normalize_power_curve_payload(_sample_power_curve_payload())
+    db.save_activity_power_curve("act-1", cached)
+
+    result = fetch_activity_power_curve(
+        db,
+        "act-1",
+        client=_NeverPowerCurveClient(),
+    )
+
+    assert result == cached
+
+
 def test_fetch_activity_power_curve_enriches_60min_from_best_effort(tmp_path):
     from services.best_efforts import fetch_activity_power_curve
 
@@ -466,7 +491,12 @@ def test_fetch_activity_power_curve_60min_failure_caches_fresh_partial_curve(tmp
         efforts_error=IntervalsICUError("upstream down", status_code=503),
     )
 
-    result = fetch_activity_power_curve(db, "act-1", client=client)
+    result = fetch_activity_power_curve(
+        db,
+        "act-1",
+        client=client,
+        refresh=True,
+    )
 
     assert result is not None
     assert result != cached
@@ -508,7 +538,15 @@ def test_fetch_activity_power_curve_serves_cache_on_provider_failure(
     db.save_activity_power_curve("act-1", cached)
     client = _patch_client_http_error(monkeypatch, 503, "upstream down")
 
-    assert fetch_activity_power_curve(db, "act-1", client=client) == cached
+    assert (
+        fetch_activity_power_curve(
+            db,
+            "act-1",
+            client=client,
+            refresh=True,
+        )
+        == cached
+    )
 
 
 def test_fetch_activity_power_curve_returns_none_without_cache_on_failure(
