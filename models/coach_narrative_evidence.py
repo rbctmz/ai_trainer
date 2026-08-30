@@ -134,11 +134,13 @@ _PAIRWISE_SESSION_COMPARISON = re.compile(
 )
 _LONGITUDINAL_PERIOD_COMPARISON = re.compile(
     r"(?:по\s+сравнению\s+с|сравнен\w*\s+с|(?:лучше|хуже)|чем)\s+"
-    r"(?:прошл\w+\s+)?(?:недел\w*|месяц\w*|период\w*|год\w*|микроцикл\w*)\b",
+    r"(?:(?:прошл|предыдущ|предшествующ)\w+\s+)?"
+    r"(?:недел\w*|месяц\w*|период\w*|год\w*|микроцикл\w*)\b",
     re.IGNORECASE,
 )
 _COMPLETED_TENSE_CONTEXT = re.compile(
-    r"\b(?:был(?:а|о|и)?|прош(?:(?:е|ё)л|ла|ло|ли)|оказал\w*|стал(?:а|о|и)?)\b",
+    r"\b(?:[а-яё]{3,}(?:ла|ло|ли|лся|лась|лось|лись)|"
+    r"был(?:а|о|и)?|прош(?:(?:е|ё)л|ла|ло|ли)|оказал\w*|стал(?:а|о|и)?)\b",
     re.IGNORECASE,
 )
 _FUTURE_TENSE_CONTEXT = re.compile(
@@ -577,6 +579,8 @@ def _trend_domains_for_claim(text: str) -> set[str]:
             session_domains.add("session_pace")
         if "мощност" in lowered:
             session_domains.add("session_power")
+        if re.search(r"пульс\w*|чсс\b|сердечн\w+\s+ритм\w*", lowered):
+            session_domains.add("session_hr")
         if "tss" in lowered or has_load:
             session_domains.add("session_tss")
         domains.update(session_domains or {"session"})
@@ -849,7 +853,11 @@ def _trend_is_planned_or_future(scope: str, match_start: int, match_end: int) ->
         if (
             not separated
             and marker.start() >= match_end
-            and re.fullmatch(r"\s*,\s*", between)
+            and re.fullmatch(
+                r"\s*,\s*(?:(?:затем|потом|далее|после\s+этого)\s*)?",
+                between,
+                re.IGNORECASE,
+            )
             and re.match(r"(?:на|в)\s+(?:следующ\w+|предстоящ\w+)", marker.group())
         ):
             separated = True
