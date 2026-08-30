@@ -132,6 +132,19 @@ _PAIRWISE_SESSION_COMPARISON = re.compile(
     r"(?:лучше|хуже)\s+прошл\w*|чем\s+прошл\w*)",
     re.IGNORECASE,
 )
+_LONGITUDINAL_PERIOD_COMPARISON = re.compile(
+    r"(?:по\s+сравнению\s+с|сравнен\w*\s+с|(?:лучше|хуже)|чем)\s+"
+    r"(?:прошл\w+\s+)?(?:недел\w*|месяц\w*|период\w*|год\w*|микроцикл\w*)\b",
+    re.IGNORECASE,
+)
+_COMPLETED_TENSE_CONTEXT = re.compile(
+    r"\b(?:был(?:а|о|и)?|прош(?:(?:е|ё)л|ла|ло|ли)|оказал\w*|стал(?:а|о|и)?)\b",
+    re.IGNORECASE,
+)
+_FUTURE_TENSE_CONTEXT = re.compile(
+    r"\b(?:буд(?:ет|ут)|предстоит|планиру\w*|должн\w*)\b",
+    re.IGNORECASE,
+)
 _CAUSAL_TAIL = re.compile(
     r"\b(?:потому\s+что|так\s+как|поскольку)\b\s*(.+)$",
     re.IGNORECASE,
@@ -557,22 +570,31 @@ def _trend_domains_for_claim(text: str) -> set[str]:
     session_scope = bool(
         re.search(r"трениров\w*|сесси\w*|прошл\w*", lowered, re.IGNORECASE)
     )
-    pairwise_scope = bool(_PAIRWISE_SESSION_COMPARISON.search(lowered))
+    pairwise_scope = _is_pairwise_session_comparison(lowered)
     if session_scope and pairwise_scope:
+        session_domains: set[str] = set()
         if re.search(r"темп\w*|скорост\w*", lowered):
-            domains.add("session_pace")
-        elif "мощност" in lowered:
-            domains.add("session_power")
-        elif "tss" in lowered or has_load:
-            domains.add("session_tss")
-        elif not domains:
-            domains.add("session")
+            session_domains.add("session_pace")
+        if "мощност" in lowered:
+            session_domains.add("session_power")
+        if "tss" in lowered or has_load:
+            session_domains.add("session_tss")
+        domains.update(session_domains or {"session"})
     else:
         if has_load:
             domains.add("load")
         if session_scope and re.search(r"темп\w*|скорост\w*|мощност\w*", lowered):
             domains.add("session")
     return domains or {"generic"}
+
+
+def _is_pairwise_session_comparison(text: str) -> bool:
+    if _PAIRWISE_SESSION_COMPARISON.search(text) is None:
+        return False
+    # A comparable-session pair may support only another-session wording. A
+    # period object of the comparison (month/week/year/etc.) is a
+    # longitudinal claim and must keep requiring longitudinal evidence.
+    return _LONGITUDINAL_PERIOD_COMPARISON.search(text) is None
 
 
 def _record_session_comparison(
@@ -815,11 +837,23 @@ def _trend_is_planned_or_future(scope: str, match_start: int, match_end: int) ->
     for marker in _PLANNED_OR_FUTURE_TREND.finditer(scope):
         if marker.end() <= match_start:
             between = scope[marker.end() : match_start]
+            if _COMPLETED_TENSE_CONTEXT.search(
+                between
+            ) and not _FUTURE_TENSE_CONTEXT.search(between):
+                continue
         elif marker.start() >= match_end:
             between = scope[match_end : marker.start()]
         else:
             between = ""
-        if not _TEMPORAL_CLAUSE_SEPARATOR.search(between):
+        separated = bool(_TEMPORAL_CLAUSE_SEPARATOR.search(between))
+        if (
+            not separated
+            and marker.start() >= match_end
+            and re.fullmatch(r"\s*,\s*", between)
+            and re.match(r"(?:на|в)\s+(?:следующ\w+|предстоящ\w+)", marker.group())
+        ):
+            separated = True
+        if not separated:
             return True
     return False
 
