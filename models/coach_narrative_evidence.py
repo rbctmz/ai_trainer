@@ -115,6 +115,38 @@ _ADVICE_VERB = re.compile(
     re.IGNORECASE,
 )
 _INTENT_MARKER = re.compile(r"\b(?:хочу|планирую|цель\s*[-—:]?)\b", re.IGNORECASE)
+_PLANNED_OR_FUTURE_TREND = re.compile(
+    r"(?:\b(?:завтра|послезавтра)\b|"
+    r"\b(?:на|в)\s+(?:следующ\w+|предстоящ\w+)\s+"
+    r"(?:недел\w*|д(?:ень|ня|ней)|месяц\w*|микроцикл\w*)\b|"
+    r"\b(?:следующ\w+|предстоящ\w+)\s+"
+    r"(?:трениров\w*|сесси\w*|недел\w*|месяц\w*|микроцикл\w*)\b|"
+    r"\bпо\s+плану\b|"
+    r"\bпланов\w*\s+(?:нагрузк\w*|объ[её]м\w*|трениров\w*|сесси\w*|разгрузк\w*)\b)",
+    re.IGNORECASE,
+)
+_TREND_CLAIM_SEPARATOR = re.compile(r"[,;:—–]|\s+-\s+")
+_TEMPORAL_CLAUSE_SEPARATOR = re.compile(r";|,\s*(?:а|но|зато|при\s+этом)\b", re.IGNORECASE)
+_PAIRWISE_SESSION_COMPARISON = re.compile(
+    r"(?:по\s+сравнению\s+с|сравнен\w*\s+с|"
+    r"(?:лучше|хуже)\s+прошл\w*|чем\s+прошл\w*)",
+    re.IGNORECASE,
+)
+_LONGITUDINAL_PERIOD_COMPARISON = re.compile(
+    r"(?:по\s+сравнению\s+с|сравнен\w*\s+с|(?:лучше|хуже)|чем)\s+"
+    r"(?:(?:прошл|предыдущ|предшествующ)\w+\s+)?"
+    r"(?:недел\w*|месяц\w*|период\w*|год\w*|микроцикл\w*)\b",
+    re.IGNORECASE,
+)
+_COMPLETED_TENSE_CONTEXT = re.compile(
+    r"\b(?:был(?:а|о|и)?|прош(?:(?:е|ё)л|ла|ло|ли)|оказал\w*|"
+    r"стал(?:а|о|и)?|получил\w*|завершил\w*|состоял\w*)\b",
+    re.IGNORECASE,
+)
+_FUTURE_TENSE_CONTEXT = re.compile(
+    r"\b(?:буд(?:ет|ут)|предстоит|планиру\w*|должн\w*)\b",
+    re.IGNORECASE,
+)
 _CAUSAL_TAIL = re.compile(
     r"\b(?:потому\s+что|так\s+как|поскольку)\b\s*(.+)$",
     re.IGNORECASE,
@@ -421,6 +453,7 @@ def _session_evidence(source: Mapping[str, Any] | None) -> dict[str, Any]:
 def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     domains: set[str] = set()
     directions: dict[str, str] = {}
+    session_comparisons: dict[str, dict[str, str]] = {}
     causal_claim_allowed: bool | None = None
     for item in tool_results:
         if not item.get("success"):
@@ -464,6 +497,40 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
             guardrails = dict(guardrails) if isinstance(guardrails, Mapping) else {}
             if guardrails.get("causal_claim_allowed") is False:
                 causal_claim_allowed = False
+            if data.get("status") == "available":
+                comparison = data.get("comparison")
+                comparison = (
+                    dict(comparison) if isinstance(comparison, Mapping) else {}
+                )
+                tss_delta = _number(comparison.get("tss_delta"))
+                if tss_delta != float("-inf"):
+                    _record_session_comparison(
+                        session_comparisons,
+                        domain="session_tss",
+                        direction=_direction_from_delta(tss_delta),
+                        data=data,
+                    )
+                sport_metric = comparison.get("sport_metric")
+                sport_metric = (
+                    dict(sport_metric) if isinstance(sport_metric, Mapping) else {}
+                )
+                metric_delta = _number(sport_metric.get("delta"))
+                metric_domain = _session_metric_domain(sport_metric.get("kind"))
+                if metric_domain is not None and metric_delta != float("-inf"):
+                    _record_session_comparison(
+                        session_comparisons,
+                        domain=metric_domain,
+                        direction=_session_metric_direction(
+                            metric_domain,
+                            metric_delta,
+                        ),
+                        data=data,
+                    )
+    for domain, comparisons in session_comparisons.items():
+        if len(comparisons) != 1:
+            continue
+        domains.add(domain)
+        directions[domain] = next(iter(comparisons.values()))
     return {
         "domains": sorted(domains),
         "directions": directions,
@@ -473,45 +540,123 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
 
 def _trend_claim_domains(text: str) -> set[str]:
     domains: set[str] = set()
-    for segment in _claim_segments(text):
-        if not _asserted_trend_matches(segment) or not _TREND_SUBJECT.search(segment):
+    for segment, _trend_word, _start, _end in _asserted_historical_trend_claims(text):
+        if not _TREND_SUBJECT.search(segment):
             continue
-        lowered = segment.lower()
-        segment_domains: set[str] = set()
-        if "hrv" in lowered or "вср" in lowered:
-            segment_domains.add("hrv")
-        if "нагруз" in lowered:
-            segment_domains.add("load")
-        if "форма" in lowered or "показател" in lowered:
-            segment_domains.add("fitness")
-        if "трениров" in lowered or "сесси" in lowered or "прошл" in lowered:
-            segment_domains.add("sessions")
-        domains.update(segment_domains or {"generic"})
+        domains.update(_trend_domains_for_claim(segment))
     return domains
 
 
 def _trend_direction_mismatch(text: str, directions: Mapping[str, Any]) -> bool:
-    for segment in _claim_segments(text):
-        if not _asserted_trend_matches(segment) or not _TREND_SUBJECT.search(segment):
+    for segment, trend_word, _start, _end in _asserted_historical_trend_claims(text):
+        if not _TREND_SUBJECT.search(segment):
             continue
-        lowered = segment.lower()
-        claimed = _claimed_direction(lowered)
+        claimed = _claimed_direction(trend_word.lower())
         if claimed is None:
             continue
-        domains: list[str] = []
-        if "hrv" in lowered or "вср" in lowered:
-            domains.append("hrv")
-        if "нагруз" in lowered:
-            domains.append("load")
-        if "форма" in lowered or "показател" in lowered:
-            domains.append("fitness")
-        if not domains and "тренд" in lowered:
-            domains.append("generic")
-        for domain in domains:
+        for domain in _trend_domains_for_claim(segment):
             observed = _normalize_direction(directions.get(domain))
             if observed is not None and observed != claimed:
                 return True
     return False
+
+
+def _trend_domains_for_claim(text: str) -> set[str]:
+    lowered = text.lower()
+    assertion_scope = _trend_assertion_scope(lowered)
+    domains: set[str] = set()
+    if "hrv" in assertion_scope or "вср" in assertion_scope:
+        domains.add("hrv")
+    if "форма" in assertion_scope or "показател" in assertion_scope:
+        domains.add("fitness")
+    has_load = "нагруз" in assertion_scope
+    session_scope = bool(
+        re.search(
+            r"трениров\w*|сесси\w*|прошл\w*",
+            assertion_scope,
+            re.IGNORECASE,
+        )
+    )
+    pairwise_scope = _is_pairwise_session_comparison(assertion_scope)
+    if session_scope and pairwise_scope:
+        session_domains: set[str] = set()
+        if re.search(r"темп\w*|скорост\w*", assertion_scope):
+            session_domains.add("session_pace")
+        if "мощност" in assertion_scope:
+            session_domains.add("session_power")
+        if re.search(
+            r"пульс\w*|чсс\b|сердечн\w+\s+ритм\w*",
+            assertion_scope,
+        ):
+            session_domains.add("session_hr")
+        if "tss" in assertion_scope or has_load:
+            session_domains.add("session_tss")
+        domains.update(session_domains or {"session"})
+    else:
+        if has_load:
+            domains.add("load")
+        if session_scope and re.search(
+            r"темп\w*|скорост\w*|мощност\w*",
+            assertion_scope,
+        ):
+            domains.add("session")
+    return domains or {"generic"}
+
+
+def _trend_assertion_scope(text: str) -> str:
+    trend = _TREND_WORD.search(text)
+    if trend is None:
+        return text
+    trailing = text[trend.end() :]
+    separator = _TREND_CLAIM_SEPARATOR.search(trailing)
+    if separator is None:
+        return text
+    return text[: trend.end() + separator.start()]
+
+
+def _is_pairwise_session_comparison(text: str) -> bool:
+    if _PAIRWISE_SESSION_COMPARISON.search(text) is None:
+        return False
+    # A comparable-session pair may support only another-session wording. A
+    # period object of the comparison (month/week/year/etc.) is a
+    # longitudinal claim and must keep requiring longitudinal evidence.
+    return _LONGITUDINAL_PERIOD_COMPARISON.search(text) is None
+
+
+def _record_session_comparison(
+    comparisons: dict[str, dict[str, str]],
+    *,
+    domain: str,
+    direction: str,
+    data: Mapping[str, Any],
+) -> None:
+    signature = json.dumps(
+        {
+            "target": data.get("target"),
+            "comparator": data.get("comparator"),
+            "comparison": data.get("comparison"),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        default=str,
+    )
+    comparisons.setdefault(domain, {})[signature] = direction
+
+
+def _session_metric_domain(kind: Any) -> str | None:
+    normalized = str(kind or "").strip().lower()
+    if normalized in {"pace_seconds_per_km", "pace_seconds_per_100m"}:
+        return "session_pace"
+    if normalized == "power_watts":
+        return "session_power"
+    return None
+
+
+def _session_metric_direction(domain: str, delta: float) -> str:
+    if domain == "session_pace":
+        return _direction_from_delta(-delta)
+    return _direction_from_delta(delta)
 
 
 def _claimed_direction(text: str) -> str | None:
@@ -680,6 +825,67 @@ def _asserted_trend_matches(segment: str) -> list[re.Match[str]]:
             continue
         matches.append(match)
     return matches
+
+
+def _asserted_historical_trend_claims(
+    text: str,
+) -> list[tuple[str, str, int, int]]:
+    """Return match-scoped observed trends without losing punctuated subjects."""
+    claims: list[tuple[str, str, int, int]] = []
+    for segment in _claim_segments(text):
+        matches = _asserted_trend_matches(segment)
+        starts = [0] * len(matches)
+        ends = [len(segment)] * len(matches)
+        for index in range(len(matches) - 1):
+            left = matches[index]
+            right = matches[index + 1]
+            gap = segment[left.end() : right.start()]
+            separators = list(_TREND_CLAIM_SEPARATOR.finditer(gap))
+            if not separators:
+                continue
+            separator = separators[-1]
+            ends[index] = left.end() + separator.start()
+            starts[index + 1] = left.end() + separator.end()
+        for index, match in enumerate(matches):
+            scope = segment[starts[index] : ends[index]].strip()
+            leading_space = len(segment[starts[index] : ends[index]]) - len(
+                segment[starts[index] : ends[index]].lstrip()
+            )
+            match_start = match.start() - starts[index] - leading_space
+            match_end = match.end() - starts[index] - leading_space
+            if not scope or _trend_is_planned_or_future(scope, match_start, match_end):
+                continue
+            claims.append((scope, match.group(), match_start, match_end))
+    return claims
+
+
+def _trend_is_planned_or_future(scope: str, match_start: int, match_end: int) -> bool:
+    for marker in _PLANNED_OR_FUTURE_TREND.finditer(scope):
+        if marker.end() <= match_start:
+            between = scope[marker.end() : match_start]
+            if _COMPLETED_TENSE_CONTEXT.search(
+                between
+            ) and not _FUTURE_TENSE_CONTEXT.search(between):
+                continue
+        elif marker.start() >= match_end:
+            between = scope[match_end : marker.start()]
+        else:
+            between = ""
+        separated = bool(_TEMPORAL_CLAUSE_SEPARATOR.search(between))
+        if (
+            not separated
+            and marker.start() >= match_end
+            and re.fullmatch(
+                r"\s*,\s*(?:(?:затем|потом|далее|после\s+этого)\s*)?",
+                between,
+                re.IGNORECASE,
+            )
+            and re.match(r"(?:на|в)\s+(?:следующ\w+|предстоящ\w+)", marker.group())
+        ):
+            separated = True
+        if not separated:
+            return True
+    return False
 
 
 def _claim_segments(text: str) -> list[str]:

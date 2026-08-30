@@ -91,6 +91,539 @@ def test_trend_claim_without_comparator_is_refused():
     assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
 
 
+def test_past_session_comparison_rejects_an_aggregate_period_comparator():
+    raw = "Темп по сравнению с прошлой тренировкой улучшился."
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 100},
+                "previous_period": {"tss": 140},
+                "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_past_session_comparison_accepts_metric_specific_session_evidence():
+    raw = "Темп по сравнению с прошлой тренировкой улучшился."
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "target": {"value": 292.0, "source": "activity"},
+                        "comparator": {"value": 300.0, "source": "activity"},
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {
+                    "one_comparison_only": True,
+                    "trend_claim_allowed": False,
+                    "causal_claim_allowed": False,
+                },
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+    assert result.reason_codes == ()
+
+
+def test_past_session_comparison_without_any_comparator_remains_a_data_gap():
+    result = validate_coach_narrative(
+        "Темп по сравнению с прошлой тренировкой улучшился.",
+        _evidence(),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_future_plan_is_not_compared_with_historical_load_direction():
+    raw = (
+        "Историческая нагрузка снизилась. "
+        "На следующей неделе нагрузка вырастет до 403 TSS."
+    )
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 100},
+                "previous_period": {"tss": 140},
+                "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+    assert result.reason_codes == ()
+
+
+def test_future_plan_does_not_hide_a_contradicted_current_load_claim():
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 100},
+                "previous_period": {"tss": 140},
+                "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Текущая нагрузка растет. На следующей неделе она вырастет ещё сильнее.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == ("TREND_CLAIM_CONTRADICTED",)
+
+
+def test_future_event_reference_does_not_hide_a_historical_load_claim():
+    raw = "С начала подготовки к следующей гонке нагрузка выросла."
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 100},
+                "previous_period": {"tss": 140},
+                "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == ("TREND_CLAIM_CONTRADICTED",)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Нагрузка: выросла.",
+        "Нагрузка — выросла.",
+        "Нагрузка, судя по данным, выросла.",
+        "HRV: улучшается.",
+    ],
+)
+def test_trend_subject_survives_inline_punctuation(raw: str):
+    result = validate_coach_narrative(raw, _evidence())
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_single_session_pair_cannot_prove_a_longitudinal_pace_trend():
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {
+                    "trend_claim_allowed": False,
+                    "causal_claim_allowed": False,
+                },
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Темп на тренировках растет.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_single_session_pair_cannot_prove_a_month_over_month_pace_trend():
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {
+                    "trend_claim_allowed": False,
+                    "causal_claim_allowed": False,
+                },
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Темп на тренировках по сравнению с прошлым месяцем улучшился.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_single_session_pair_cannot_prove_a_previous_month_pace_trend():
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Темп на тренировках по сравнению с предыдущим месяцем улучшился.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_period_context_does_not_hide_an_explicit_session_comparison():
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "В этом месяце темп по сравнению с прошлой тренировкой улучшился.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "pass"
+
+
+def test_future_clause_does_not_hide_current_trend_in_the_same_sentence():
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 140},
+                "previous_period": {"tss": 100},
+                "comparison": {"tss_change": 40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Текущая нагрузка снизилась, а на следующей неделе будет 403 TSS.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == ("TREND_CLAIM_CONTRADICTED",)
+
+
+def test_bare_comma_future_clause_does_not_hide_current_trend():
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 140},
+                "previous_period": {"tss": 100},
+                "comparison": {"tss_change": 40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Текущая нагрузка снизилась, на следующей неделе будет 403 TSS.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == ("TREND_CLAIM_CONTRADICTED",)
+
+
+def test_temporal_adverb_future_clause_does_not_hide_current_trend():
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 140},
+                "previous_period": {"tss": 100},
+                "comparison": {"tss_change": 40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Текущая нагрузка снизилась, затем на следующей неделе будет 403 TSS.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "replaced"
+    assert result.reason_codes == ("TREND_CLAIM_CONTRADICTED",)
+
+
+def test_compound_trend_requires_evidence_for_every_subject():
+    tools = [
+        {
+            "tool_name": "analyze_hrv_trends",
+            "success": True,
+            "raw_result": {
+                "data_points": 14,
+                "baseline_median": 53.0,
+                "trend_direction": "improving",
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "HRV и нагрузка выросли.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_compound_session_trend_requires_evidence_for_every_metric():
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Темп и мощность тренировки по сравнению с прошлой улучшились.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_compound_session_trend_requires_heart_rate_evidence():
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Темп и пульс тренировки по сравнению с прошлой улучшились.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_heart_rate_advice_after_pace_claim_is_not_a_compound_trend():
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Темп тренировки по сравнению с прошлой улучшился, пульс держи ниже.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "pass"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Следующая тренировка будет лучше прошлой.",
+        "Следующая тренировка была запланирована и будет лучше прошлой.",
+        "На предстоящей неделе нагрузка вырастет.",
+    ],
+)
+def test_unambiguous_future_session_and_period_claims_are_not_historical(raw: str):
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"tss": 100},
+                "previous_period": {"tss": 140},
+                "comparison": {"tss_change": -40},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+
+
+def test_completed_next_session_comparison_is_historical():
+    result = validate_coach_narrative(
+        "Следующая тренировка была лучше прошлой.",
+        _evidence(),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_completed_next_session_lexical_verb_is_historical():
+    result = validate_coach_narrative(
+        "Следующая тренировка получилась лучше прошлой.",
+        _evidence(),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Следующая тренировка после недели отдыха лучше прошлой.",
+        "Следующая тренировка для модели лучше прошлой.",
+    ],
+)
+def test_future_session_context_nouns_are_not_completed_verbs(raw: str):
+    result = validate_coach_narrative(raw, _evidence())
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+
+
+def test_multiple_session_comparators_fail_closed_when_claim_is_ambiguous():
+    def comparable(target_id: str, date_value: str, delta: float) -> dict:
+        return {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": target_id, "date": date_value},
+                "comparator": {"activity_id": f"prior-{target_id}"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": delta,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+
+    result = validate_coach_narrative(
+        "Темп тренировки 2026-08-20 по сравнению с прошлой улучшился.",
+        _evidence(
+            tool_results=[
+                comparable("aug-20", "2026-08-20", 8.0),
+                comparable("aug-21", "2026-08-21", -8.0),
+            ]
+        ),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
 def test_supported_hrv_trend_and_neutral_advice_pass_byte_identical():
     raw = "HRV улучшается относительно 28-дневной базовой линии. Держи план ровно.\n"
     tools = [
