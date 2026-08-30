@@ -502,6 +502,34 @@ def test_compound_session_trend_requires_heart_rate_evidence():
     assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
 
 
+def test_heart_rate_advice_after_pace_claim_is_not_a_compound_trend():
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -8.0,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Темп тренировки по сравнению с прошлой улучшился, пульс держи ниже.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "pass"
+
+
 @pytest.mark.parametrize(
     "raw",
     [
@@ -547,6 +575,20 @@ def test_completed_next_session_lexical_verb_is_historical():
 
     assert result.outcome == "data_gap"
     assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Следующая тренировка после недели отдыха лучше прошлой.",
+        "Следующая тренировка для модели лучше прошлой.",
+    ],
+)
+def test_future_session_context_nouns_are_not_completed_verbs(raw: str):
+    result = validate_coach_narrative(raw, _evidence())
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
 
 
 def test_multiple_session_comparators_fail_closed_when_claim_is_ambiguous():

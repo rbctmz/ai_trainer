@@ -139,8 +139,8 @@ _LONGITUDINAL_PERIOD_COMPARISON = re.compile(
     re.IGNORECASE,
 )
 _COMPLETED_TENSE_CONTEXT = re.compile(
-    r"\b(?:[а-яё]{3,}(?:ла|ло|ли|лся|лась|лось|лись)|"
-    r"был(?:а|о|и)?|прош(?:(?:е|ё)л|ла|ло|ли)|оказал\w*|стал(?:а|о|и)?)\b",
+    r"\b(?:был(?:а|о|и)?|прош(?:(?:е|ё)л|ла|ло|ли)|оказал\w*|"
+    r"стал(?:а|о|и)?|получил\w*|завершил\w*|состоял\w*)\b",
     re.IGNORECASE,
 )
 _FUTURE_TENSE_CONTEXT = re.compile(
@@ -563,33 +563,55 @@ def _trend_direction_mismatch(text: str, directions: Mapping[str, Any]) -> bool:
 
 def _trend_domains_for_claim(text: str) -> set[str]:
     lowered = text.lower()
+    assertion_scope = _trend_assertion_scope(lowered)
     domains: set[str] = set()
-    if "hrv" in lowered or "вср" in lowered:
+    if "hrv" in assertion_scope or "вср" in assertion_scope:
         domains.add("hrv")
-    if "форма" in lowered or "показател" in lowered:
+    if "форма" in assertion_scope or "показател" in assertion_scope:
         domains.add("fitness")
-    has_load = "нагруз" in lowered
+    has_load = "нагруз" in assertion_scope
     session_scope = bool(
-        re.search(r"трениров\w*|сесси\w*|прошл\w*", lowered, re.IGNORECASE)
+        re.search(
+            r"трениров\w*|сесси\w*|прошл\w*",
+            assertion_scope,
+            re.IGNORECASE,
+        )
     )
-    pairwise_scope = _is_pairwise_session_comparison(lowered)
+    pairwise_scope = _is_pairwise_session_comparison(assertion_scope)
     if session_scope and pairwise_scope:
         session_domains: set[str] = set()
-        if re.search(r"темп\w*|скорост\w*", lowered):
+        if re.search(r"темп\w*|скорост\w*", assertion_scope):
             session_domains.add("session_pace")
-        if "мощност" in lowered:
+        if "мощност" in assertion_scope:
             session_domains.add("session_power")
-        if re.search(r"пульс\w*|чсс\b|сердечн\w+\s+ритм\w*", lowered):
+        if re.search(
+            r"пульс\w*|чсс\b|сердечн\w+\s+ритм\w*",
+            assertion_scope,
+        ):
             session_domains.add("session_hr")
-        if "tss" in lowered or has_load:
+        if "tss" in assertion_scope or has_load:
             session_domains.add("session_tss")
         domains.update(session_domains or {"session"})
     else:
         if has_load:
             domains.add("load")
-        if session_scope and re.search(r"темп\w*|скорост\w*|мощност\w*", lowered):
+        if session_scope and re.search(
+            r"темп\w*|скорост\w*|мощност\w*",
+            assertion_scope,
+        ):
             domains.add("session")
     return domains or {"generic"}
+
+
+def _trend_assertion_scope(text: str) -> str:
+    trend = _TREND_WORD.search(text)
+    if trend is None:
+        return text
+    trailing = text[trend.end() :]
+    separator = _TREND_CLAIM_SEPARATOR.search(trailing)
+    if separator is None:
+        return text
+    return text[: trend.end() + separator.start()]
 
 
 def _is_pairwise_session_comparison(text: str) -> bool:
