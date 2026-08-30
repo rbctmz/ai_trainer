@@ -19,7 +19,10 @@ from models.activity_card import (
     feedback_for_activity,
     foster_load_au,
 )
-from models.plan_intervals import planned_intervals_for_match
+from models.plan_intervals import (
+    planned_intervals_for_match,
+    planned_leg_summary_for_match,
+)
 from models.plan_vs_fact import (
     match_plan_vs_fact,
     plan_replanned_after_delivery,
@@ -61,6 +64,30 @@ def _num(value: Any) -> float | None:
         return round(float(value), 1)
     except (TypeError, ValueError):
         return None
+
+
+def _plan_vs_fact_totals(
+    planned_intervals: list[dict[str, Any]],
+    activity: dict[str, Any],
+    planned_leg: dict[str, Any] | None,
+) -> dict[str, float | None]:
+    durations = [
+        float(step["duration_seconds"])
+        for step in planned_intervals
+        if step.get("duration_seconds") is not None
+    ]
+    return {
+        "planned_duration_minutes": (
+            (planned_leg or {}).get("planned_duration_minutes")
+            if (planned_leg or {}).get("planned_duration_minutes") is not None
+            else round(sum(durations) / 60.0, 1)
+            if durations
+            else None
+        ),
+        "actual_duration_minutes": activity.get("duration_minutes"),
+        "planned_tss": (planned_leg or {}).get("planned_tss"),
+        "actual_tss": activity.get("tss"),
+    }
 
 
 def _base_item(row: Any) -> dict[str, Any]:
@@ -232,12 +259,35 @@ def get_activity_card(
     item["power_curve"] = fetch_activity_power_curve(db, activity_id)
     planned_match = db.get_plan_actual_match_for_activity(activity_id)
     planned_intervals = None
+    planned_leg = None
     if planned_match is not None:
         checkpoint_id = planned_match.get("base_checkpoint_id")
         checkpoint_data = (
             db.get_checkpoint_data(checkpoint_id) if checkpoint_id is not None else None
         )
-        planned_intervals = planned_intervals_for_match(planned_match, checkpoint_data)
+        # A brick remains one reconciliation/feedback target, but each activity
+        # card must project only the leg proven to belong to that activity. The
+        # lineage payload is intentionally read-time/internal: old snapshots
+        # continue to work, while explicit leg fields win over sport fallback.
+        lineage: dict[str, Any] = {}
+        actual_snapshot = planned_match.get("actual_snapshot")
+        if isinstance(actual_snapshot, dict):
+            lineage.update(actual_snapshot)
+        actual_payload = item.get("intervals")
+        if isinstance(actual_payload, dict):
+            lineage.update(actual_payload)
+        planned_intervals = planned_intervals_for_match(
+            planned_match,
+            checkpoint_data,
+            activity_sport=item.get("sport"),
+            activity_lineage=lineage,
+        )
+        planned_leg = planned_leg_summary_for_match(
+            planned_match,
+            checkpoint_data,
+            activity_sport=item.get("sport"),
+            activity_lineage=lineage,
+        )
     item["planned_intervals"] = planned_intervals
     if planned_intervals is None:
         item["plan_vs_fact"] = None
@@ -262,6 +312,9 @@ def get_activity_card(
             sport=item.get("sport"),
             athlete_profile=db.get_athlete_profile(),
             actual_source=actual_source,
+        )
+        plan_vs_fact["summary"].update(
+            _plan_vs_fact_totals(planned_intervals, item, planned_leg)
         )
         checkpoint = (
             db.get_planning_checkpoint(planned_match["base_checkpoint_id"])

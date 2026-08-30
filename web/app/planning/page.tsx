@@ -947,7 +947,7 @@ function WeekDay({ day, onResolveAmbiguous }: { day: WeekByWeekPlan["weeks"][num
 }
 
 function WeekLeaf({ session, dayIndex, onResolveAmbiguous }: { session: WeekByWeekPlan["weeks"][number]["days"][number]["sessions"][number]; dayIndex: number | null; onResolveAmbiguous: () => void }) {
-  const labels: Record<string, string> = { planned: "запланировано", in_progress: "в процессе", exact: "выполнено", substituted: "замена", major_deviation: "отклонение", unknown: "нужна проверка", ambiguous: "нужно уточнить", missed: "пропущено" };
+  const labels: Record<string, string> = { planned: "запланировано", in_progress: "в процессе", exact: "выполнено", substituted: "изменено", major_deviation: "отклонение", unknown: "нужна проверка", ambiguous: "нужно уточнить", missed: "пропущено" };
   return (
     <div className="rounded-md border border-surface-border bg-surface p-2.5 text-xs">
       <div className="flex flex-wrap items-center justify-between gap-2"><span className="font-medium text-ink">{session.name}</span><span className="text-ink-soft">{session.duration_minutes} мин · {session.tss} TSS · {labels[session.adherence_status]}</span></div>
@@ -1293,7 +1293,7 @@ function AdjustMode({
   };
   const adherenceLabels: Record<string, string> = {
     exact: "точно",
-    substituted: "замена",
+    substituted: "изменено",
     major_deviation: "сильное отклонение",
     unknown: "не оценено",
   };

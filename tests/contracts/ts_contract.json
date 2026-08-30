@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "86094e6e552df93c2f9c1d3a6ec76986248e8db2bd3e6371aba4126917bbe05a",
+    "source_sha256": "a4cd168531c96c4dd2b2ed2504d6f084c8fa5dd80465c25e583b2fc60cfc0683",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "a8b1bf6dfe79c12d94a8e1ddab9697db93f2304b0714facfeeefebe0c6848a5e"
   },
@@ -1722,6 +1722,23 @@
             "array_length": null
           }
         },
+        "matched_actual_tss": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
         "planned_tss": {
           "optional": false,
           "spec": {
@@ -1759,6 +1776,23 @@
             "items": null,
             "fields": null,
             "ref": "AdherenceDayStatus",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "unplanned_tss": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
             "wildcard": false,
             "variants": null,
             "record_values": null,
@@ -5012,6 +5046,189 @@
                 }
               }
             },
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        }
+      },
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "CompositeExecutionProjection": {
+      "kinds": [
+        "object"
+      ],
+      "literals": [],
+      "widened": false,
+      "items": null,
+      "fields": {
+        "actual_sports": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "string"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "actual_transition_minutes": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "actual_tss": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "planned_sports": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "array"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": {
+              "kinds": [
+                "string"
+              ],
+              "literals": [],
+              "widened": false,
+              "items": null,
+              "fields": null,
+              "ref": null,
+              "wildcard": false,
+              "variants": null,
+              "record_values": null,
+              "array_length": null
+            },
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "planned_transition_minutes": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "planned_tss": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "structure_match": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "boolean",
+              "null"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "transition_delta_minutes": {
+          "optional": false,
+          "spec": {
+            "kinds": [
+              "null",
+              "number"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
             "ref": null,
             "wildcard": false,
             "variants": null,
@@ -8624,10 +8841,46 @@
             "widened": false,
             "items": null,
             "fields": {
+              "actual_duration_minutes": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
               "actual_intervals": {
                 "optional": false,
                 "spec": {
                   "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "actual_tss": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
                     "number"
                   ],
                   "literals": [],
@@ -8709,10 +8962,46 @@
                   "array_length": null
                 }
               },
+              "planned_duration_minutes": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
               "planned_steps": {
                 "optional": false,
                 "spec": {
                   "kinds": [
+                    "number"
+                  ],
+                  "literals": [],
+                  "widened": false,
+                  "items": null,
+                  "fields": null,
+                  "ref": null,
+                  "wildcard": false,
+                  "variants": null,
+                  "record_values": null,
+                  "array_length": null
+                }
+              },
+              "planned_tss": {
+                "optional": true,
+                "spec": {
+                  "kinds": [
+                    "null",
                     "number"
                   ],
                   "literals": [],
@@ -15068,6 +15357,24 @@
             "array_length": null
           }
         },
+        "composite_execution": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "CompositeExecutionProjection",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
         "confidence": {
           "optional": false,
           "spec": {
@@ -17201,6 +17508,24 @@
             "items": null,
             "fields": null,
             "ref": "ComparableSessionProjection",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "composite_execution": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "object"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "CompositeExecutionProjection",
             "wildcard": false,
             "variants": null,
             "record_values": null,

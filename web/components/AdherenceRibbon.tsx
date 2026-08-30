@@ -81,7 +81,7 @@ function WeekCard({ week }: { week: AdherenceWeek }) {
         </span>
       </div>
       <div className="mt-2 text-xs text-ink-soft">
-        {Math.round(week.actual_tss)} / {Math.round(week.planned_tss)} TSS
+        Сопоставлено {Math.round(week.actual_tss)} / {Math.round(week.planned_tss)} TSS
         {week.unplanned_tss > 0
           ? ` · вне плана ${Math.round(week.unplanned_tss)}`
           : ""}
@@ -118,11 +118,14 @@ function DayCell({ day }: { day: AdherenceDay }) {
   return (
     <div
       className={`rounded-lg p-2 text-center ${meta.chip}`}
-      title={`${meta.label} · план ${Math.round(day.planned_tss)} TSS · факт ${Math.round(day.actual_tss)} TSS`}
+      title={`${meta.label} · план ${Math.round(day.planned_tss)} TSS · факт ${Math.round(day.actual_tss)} TSS = сопоставлено ${Math.round(day.matched_actual_tss)} + вне плана ${Math.round(day.unplanned_tss)}`}
     >
       <div className="text-[11px] font-medium">{adherenceDayLabel(day.date)}</div>
       <div className="mt-0.5 text-[11px]">
         {Math.round(day.actual_tss)}/{Math.round(day.planned_tss)}
+      </div>
+      <div className="text-[10px] opacity-80">
+        {Math.round(day.matched_actual_tss)} + {Math.round(day.unplanned_tss)} вне плана
       </div>
     </div>
   );

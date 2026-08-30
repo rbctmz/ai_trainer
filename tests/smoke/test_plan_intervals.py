@@ -121,6 +121,108 @@ def test_project_planned_intervals_flattens_brick_legs_in_order():
     assert [iv["type"] for iv in intervals] == ["work", "work", "rest"]
 
 
+def _brick_session_for_activity_cards() -> dict:
+    """A two-leg brick with intentionally different target metrics."""
+    def step(name: str, duration_seconds: int, target_type: str) -> dict:
+        return _step(
+            name=name,
+            intensity="work",
+            segment_kind="work",
+            duration_seconds=duration_seconds,
+            target_type=target_type,
+        )
+
+    return {
+        "session_id": "brick-1",
+        "kind": "composite",
+        "sport": "brick",
+        "legs": [
+            {
+                "leg_index": 1,
+                "sport": "bike",
+                "materialized_steps": [step("Bike work", 4200, "power")],
+            },
+            {
+                "leg_index": 2,
+                "sport": "run",
+                "materialized_steps": [step("Run work", 1800, "pace")],
+            },
+        ],
+    }
+
+
+def test_project_planned_intervals_scopes_composite_to_one_unique_leg():
+    session = _brick_session_for_activity_cards()
+
+    bike = project_planned_intervals(session, sport="bike")
+    run = project_planned_intervals(session, sport="run")
+
+    assert sum(int(item["duration_seconds"]) for item in bike) == 4200
+    assert sum(int(item["duration_seconds"]) for item in run) == 1800
+    assert {item["target_zone"]["type"] for item in bike} == {"power"}
+    assert {item["target_zone"]["type"] for item in run} == {"pace"}
+
+
+def test_planned_intervals_for_match_fails_closed_for_missing_or_ambiguous_leg():
+    session = _brick_session_for_activity_cards()
+    checkpoint = {"goal_plan_snapshot": {"session_templates": [session]}}
+    match = {
+        "planned_snapshot": {
+            "session_id": "brick-1",
+            "date": "2026-07-12",
+            "sport": "brick",
+            "kind": "composite",
+        }
+    }
+
+    assert planned_intervals_for_match(match, checkpoint, activity_sport=None) is None
+    assert planned_intervals_for_match(match, checkpoint, activity_sport="swim") is None
+
+    ambiguous = {
+        **session,
+        "legs": [session["legs"][0], {**session["legs"][0], "leg_index": 3}],
+    }
+    ambiguous_checkpoint = {"goal_plan_snapshot": {"session_templates": [ambiguous]}}
+    assert (
+        planned_intervals_for_match(
+            match,
+            ambiguous_checkpoint,
+            activity_sport="bike",
+        )
+        is None
+    )
+
+
+def test_explicit_leg_lineage_wins_and_cannot_cross_sport():
+    session = _brick_session_for_activity_cards()
+
+    selected = project_planned_intervals(
+        session,
+        sport=None,
+        activity_lineage={"leg_index": 2},
+    )
+    conflicting = project_planned_intervals(
+        session,
+        sport="bike",
+        activity_lineage={"leg_index": 2},
+    )
+
+    assert selected[0]["target_zone"]["type"] == "pace"
+    assert conflicting == []
+
+
+def test_composite_leg_projection_rejects_junk_and_conflicting_lineage():
+    session = _brick_session_for_activity_cards()
+    with_junk = {**session, "legs": [session["legs"][0], "junk"]}
+
+    assert project_planned_intervals(with_junk, sport="bike") == []
+    assert project_planned_intervals(
+        session,
+        sport="bike",
+        activity_lineage={"leg_index": 1, "leg_id": "brick:leg:2"},
+    ) == []
+
+
 def test_project_planned_intervals_merges_direct_steps_and_legs():
     session = {
         "materialized_steps": [_step(name="Top", intensity="easy")],

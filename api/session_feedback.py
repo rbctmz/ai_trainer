@@ -441,6 +441,12 @@ def _evidence_from_saved_feedback(
                 if revalidated_to_current
                 else list(snapshot.get("actual_activities") or [])
             ),
+            "composite_execution": (
+                dict((match or {}).get("composite_execution") or {})
+                if revalidated_to_current
+                else dict(snapshot.get("composite_execution") or {})
+            )
+            or None,
         },
         "template": dict(template),
         "match_revision_id": match_revision_id,
@@ -727,6 +733,11 @@ def _match_snapshot(evidence: Mapping[str, Any]) -> dict[str, Any]:
         "actual_duration_minutes": row.get("actual_duration_minutes"),
         "actual_sport": row.get("actual_sport"),
         "actual_role": row.get("actual_role"),
+        "composite_execution": (
+            dict(row.get("composite_execution") or {})
+            if isinstance(row.get("composite_execution"), Mapping)
+            else None
+        ),
         "evidence": list(row.get("evidence") or []),
         "match_rule_version": MATCH_RULE_VERSION,
     }

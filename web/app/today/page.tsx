@@ -527,7 +527,7 @@ function YesterdayMetric({ label, value }: { label: string; value: string }) {
 function adherenceLabel(value: string): string {
   return {
     exact: "по плану",
-    substituted: "замена",
+    substituted: "изменено",
     major_deviation: "сильное отклонение",
     unknown: "не определено",
   }[value] ?? value;
