@@ -367,6 +367,41 @@ test('a third native review requires an explicit budget exception', () => {
   assert.equal(withException.ready, true);
 });
 
+test('a privileged human can accept a post-budget fix head without another native round', () => {
+  const decision = evaluateReviewGate({
+    accepted: true,
+    nativeReviewRounds: MAX_NATIVE_REVIEW_ROUNDS,
+    currentHeadNativeReviewRounds: 0,
+    unresolvedThreads: 0,
+    hasBudgetException: true,
+  });
+
+  assert.equal(decision.ready, true);
+  assert.match(decision.reason, /human post-budget exception/);
+});
+
+test('post-budget human acceptance stays fail-closed without every guardrail', () => {
+  const base = {
+    accepted: true,
+    nativeReviewRounds: MAX_NATIVE_REVIEW_ROUNDS,
+    currentHeadNativeReviewRounds: 0,
+    unresolvedThreads: 0,
+    hasBudgetException: true,
+  };
+
+  const cases = [
+    { hasBudgetException: false },
+    { accepted: false },
+    { nativeReviewRounds: MAX_NATIVE_REVIEW_ROUNDS - 1 },
+    { unresolvedThreads: 1 },
+    { reviewDecision: 'CHANGES_REQUESTED' },
+  ];
+
+  for (const override of cases) {
+    assert.equal(evaluateReviewGate({ ...base, ...override }).ready, false);
+  }
+});
+
 test('accepted review within budget and without threads passes', () => {
   const decision = evaluateReviewGate({
     accepted: true,
