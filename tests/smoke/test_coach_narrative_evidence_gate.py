@@ -56,6 +56,44 @@ def _evidence(**overrides):
     return build_coach_narrative_evidence(**values)
 
 
+def _comparable_tool(
+    *,
+    target_id: str,
+    target_date: str,
+    comparator_id: str,
+    sport: str = "run",
+    metric_kind: str | None = "pace_seconds_per_km",
+    metric_delta: float | None = -5.0,
+    heart_rate_delta: float | None = None,
+) -> dict:
+    comparison: dict[str, object] = {}
+    if metric_kind is not None and metric_delta is not None:
+        comparison["sport_metric"] = {
+            "kind": metric_kind,
+            "delta": metric_delta,
+        }
+    if heart_rate_delta is not None:
+        comparison["heart_rate"] = {
+            "kind": "heart_rate_bpm",
+            "delta": heart_rate_delta,
+        }
+    return {
+        "tool_name": "get_comparable_session",
+        "success": True,
+        "raw_result": {
+            "status": "available",
+            "target": {
+                "activity_id": target_id,
+                "date": target_date,
+                "sport": sport,
+            },
+            "comparator": {"activity_id": comparator_id},
+            "comparison": comparison,
+            "guardrails": {"causal_claim_allowed": False},
+        },
+    }
+
+
 def test_green_readiness_blocks_poor_recovery_and_suppressed_hrv_claims():
     raw = "Восстановление плохое, HRV подавлен — сегодня нужен полный отдых."
 
@@ -304,6 +342,57 @@ def test_three_independent_session_observations_can_prove_a_pace_trend():
 
     assert result.outcome == "pass"
     assert result.delivered_text == raw
+
+
+def test_pace_evidence_does_not_prove_recovery_speed_claim():
+    tools = [
+        _comparable_tool(
+            target_id=f"run-{index}",
+            target_date=f"2026-08-{index + 2:02d}",
+            comparator_id=f"prior-{index}",
+        )
+        for index in range(1, 4)
+    ]
+
+    result = validate_coach_narrative(
+        "Скорость восстановления улучшается.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+@pytest.mark.parametrize(
+    ("evidence_sport", "claim"),
+    [
+        ("swim", "Темп на беговых тренировках растет."),
+        ("run", "Темп в плавании растет."),
+    ],
+)
+def test_longitudinal_evidence_must_match_claimed_sport(
+    evidence_sport: str,
+    claim: str,
+):
+    tools = [
+        _comparable_tool(
+            target_id=f"{evidence_sport}-{index}",
+            target_date=f"2026-08-{index + 2:02d}",
+            comparator_id=f"prior-{index}",
+            sport=evidence_sport,
+            metric_kind=(
+                "pace_seconds_per_100m"
+                if evidence_sport == "swim"
+                else "pace_seconds_per_km"
+            ),
+        )
+        for index in range(1, 4)
+    ]
+
+    result = validate_coach_narrative(claim, _evidence(tool_results=tools))
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
 
 
 def test_single_session_pair_cannot_prove_a_month_over_month_pace_trend():
@@ -572,6 +661,50 @@ def test_compound_session_claim_accepts_pace_and_heart_rate_for_one_target():
     assert result.delivered_text == raw
 
 
+def test_compound_session_claim_requires_one_exact_comparator_pair():
+    target = {"target_id": "target", "target_date": "2026-08-24"}
+    tools = [
+        _comparable_tool(
+            **target,
+            comparator_id="pace-prior",
+        ),
+        _comparable_tool(
+            **target,
+            comparator_id="hr-prior",
+            metric_kind=None,
+            metric_delta=None,
+            heart_rate_delta=-5.0,
+        ),
+    ]
+
+    result = validate_coach_narrative(
+        "Темп и пульс тренировки по сравнению с прошлой улучшились.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+@pytest.mark.parametrize("comparison_object", ["погодой", "самочувствием"])
+def test_pairwise_claim_must_name_a_previous_session(comparison_object: str):
+    result = validate_coach_narrative(
+        f"Темп тренировки по сравнению с {comparison_object} улучшился.",
+        _evidence(
+            tool_results=[
+                _comparable_tool(
+                    target_id="target",
+                    target_date="2026-08-24",
+                    comparator_id="prior",
+                )
+            ]
+        ),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
 def test_pairwise_heart_rate_claim_uses_only_heart_rate_evidence():
     raw = "Пульс тренировки по сравнению с прошлой снизился."
     tools = [
@@ -767,15 +900,43 @@ def test_unsupported_historical_trend_fails_closed_despite_generic_evidence():
 @pytest.mark.parametrize(
     "raw",
     [
+        "На следующей неделе нагрузка выросла.",
         "Следующая тренировка после недели отдыха лучше прошлой.",
         "Следующая тренировка для модели лучше прошлой.",
     ],
 )
-def test_future_session_context_nouns_are_not_completed_verbs(raw: str):
+def test_future_marker_without_future_verb_fails_closed(raw: str):
     result = validate_coach_narrative(raw, _evidence())
 
-    assert result.outcome == "pass"
-    assert result.delivered_text == raw
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_longitudinal_hr_direction_stays_literal():
+    tools = [
+        _comparable_tool(
+            target_id=f"run-{index}",
+            target_date=f"2026-08-{index + 2:02d}",
+            comparator_id=f"prior-{index}",
+            metric_kind=None,
+            metric_delta=None,
+            heart_rate_delta=-5.0,
+        )
+        for index in range(1, 4)
+    ]
+
+    increasing = validate_coach_narrative(
+        "Пульс на тренировках растет.",
+        _evidence(tool_results=tools),
+    )
+    decreasing = validate_coach_narrative(
+        "Пульс на тренировках снизился.",
+        _evidence(tool_results=tools),
+    )
+
+    assert increasing.outcome == "replaced"
+    assert increasing.reason_codes == ("TREND_CLAIM_CONTRADICTED",)
+    assert decreasing.outcome == "pass"
 
 
 def test_multiple_session_comparators_fail_closed_when_claim_is_ambiguous():

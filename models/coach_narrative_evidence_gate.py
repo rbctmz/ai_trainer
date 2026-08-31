@@ -24,6 +24,15 @@ _PAIRWISE = re.compile(
     r"чем\s+прошл\w*)",
     re.IGNORECASE,
 )
+_PAIRWISE_PREVIOUS_SESSION = re.compile(
+    r"(?:(?:по\s+сравнению\s+с|сравнен\w*\s+с)\s+"
+    r"(?:прошл|предыдущ|предшествующ)\w*"
+    r"(?=\s*(?:(?:трениров|сесси)\w*|улучш\w*|ухудш\w*|"
+    r"снижа\w*|сниз\w*|раст\w*|вырос\w*|стабил\w*|"
+    r"(?:был|стал|получ|оказ|выш)\w*|[.,;:—–]|$))|"
+    r"(?:лучше|хуже|чем)\s+(?:прошл|предыдущ|предшествующ)\w*)",
+    re.IGNORECASE,
+)
 _PERIOD_OBJECT = re.compile(
     r"(?:прошл|предыдущ|предшествующ)\w*\s+"
     r"(?:недел\w*|месяц\w*|период\w*|год\w*|микроцикл\w*)",
@@ -38,6 +47,11 @@ _COMPLETED_NEXT = re.compile(
 _ISO_DATE = re.compile(r"\b\d{4}-\d{2}-\d{2}\b")
 
 _PACE = re.compile(r"(?:темп\w*|скорост\w*)", re.IGNORECASE)
+_NON_TRAINING_PACE_COMPOUND = re.compile(
+    r"(?:темп\w*|скорост\w*)\s+"
+    r"(?:восстанов\w*|адаптаци\w*|заживлен\w*|реакци\w*)",
+    re.IGNORECASE,
+)
 _POWER = re.compile(r"мощност\w*", re.IGNORECASE)
 _HEART_RATE = re.compile(
     r"(?:пульс\w*|чсс\b|сердечн\w+\s+ритм\w*)",
@@ -57,6 +71,7 @@ class TrendClaimContract:
     domains: frozenset[str]
     claimed_direction: str | None
     target_date: str | None = None
+    claimed_sport: str | None = None
     supported: bool = True
 
     @property
@@ -84,23 +99,28 @@ def classify_historical_trend_claim(
     direction = _direction(trend_word)
     target_date_match = _ISO_DATE.search(lowered)
     target_date = target_date_match.group() if target_date_match else None
+    claimed_sport = _claimed_sport(lowered)
     metric_domains = _metric_domains(lowered, session=True)
+    has_pairwise = bool(_PAIRWISE.search(lowered))
+    has_previous_session = bool(_PAIRWISE_PREVIOUS_SESSION.search(lowered))
 
-    if _COMPLETED_NEXT.search(lowered) and _PAIRWISE.search(lowered):
+    if _COMPLETED_NEXT.search(lowered) and has_previous_session:
         return TrendClaimContract(
             form=COMPLETED_NEXT,
             domains=frozenset({"session"}),
             claimed_direction=None,
             target_date=target_date,
+            claimed_sport=claimed_sport,
         )
 
-    if _PAIRWISE.search(lowered) and not _PERIOD_OBJECT.search(lowered):
-        if _SESSION_OBJECT.search(lowered) and metric_domains:
+    if has_pairwise and not _PERIOD_OBJECT.search(lowered):
+        if has_previous_session and _SESSION_OBJECT.search(lowered) and metric_domains:
             return TrendClaimContract(
                 form=(COMPOUND_SESSION if len(metric_domains) > 1 else PAIRWISE_SESSION),
                 domains=frozenset(metric_domains),
                 claimed_direction=direction,
                 target_date=target_date,
+                claimed_sport=claimed_sport,
             )
         return _unsupported(target_date)
 
@@ -112,6 +132,7 @@ def classify_historical_trend_claim(
                 domains=frozenset(domains),
                 claimed_direction=direction,
                 target_date=target_date,
+                claimed_sport=claimed_sport,
             )
             if domains
             else _unsupported(target_date)
@@ -124,6 +145,7 @@ def classify_historical_trend_claim(
             domains=frozenset(domains),
             claimed_direction=direction,
             target_date=target_date,
+            claimed_sport=claimed_sport,
         )
     return _unsupported(target_date)
 
@@ -131,7 +153,7 @@ def classify_historical_trend_claim(
 def _metric_domains(text: str, *, session: bool) -> set[str]:
     prefix = "session_" if session else "trend_"
     domains: set[str] = set()
-    if _PACE.search(text):
+    if _PACE.search(text) and not _NON_TRAINING_PACE_COMPOUND.search(text):
         domains.add(f"{prefix}pace")
     if _POWER.search(text):
         domains.add(f"{prefix}power")
@@ -157,6 +179,16 @@ def _metric_domains(text: str, *, session: bool) -> set[str]:
         if not re.search(r"[а-яёa-z]", remainder, re.IGNORECASE):
             domains.add("generic")
     return domains
+
+
+def _claimed_sport(text: str) -> str | None:
+    if re.search(r"\b(?:swim\w*|плав\w*)", text, re.IGNORECASE):
+        return "swim"
+    if re.search(r"\b(?:bike\w*|cycling\w*|вело\w*)", text, re.IGNORECASE):
+        return "bike"
+    if re.search(r"\b(?:run\w*|running\w*|бег\w*)", text, re.IGNORECASE):
+        return "run"
+    return None
 
 
 def _direction(text: str) -> str | None:

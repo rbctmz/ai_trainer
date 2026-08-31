@@ -139,7 +139,9 @@ _COMPLETED_TENSE_CONTEXT = re.compile(
     re.IGNORECASE,
 )
 _FUTURE_TENSE_CONTEXT = re.compile(
-    r"\b(?:буд(?:ет|ут)|предстоит|планиру\w*|должн\w*)\b",
+    r"\b(?:буд(?:ет|ут)|предстоит|планиру\w*|должн\w*|"
+    r"выраст(?:ет|ут)|сниз(?:ится|ятся)|улучш(?:ится|атся)|"
+    r"ухудш(?:ится|атся)|стан(?:ет|ут))\b",
     re.IGNORECASE,
 )
 _CAUSAL_TAIL = re.compile(
@@ -327,13 +329,19 @@ def validate_coach_narrative(
             elif session_status == "contradicted":
                 found.add(TREND_CLAIM_CONTRADICTED)
             continue
-        if not set(contract.domains).issubset(comparator_domains):
+        required_domains = {
+            _longitudinal_evidence_domain(contract, domain)
+            for domain in contract.domains
+        }
+        if not required_domains.issubset(comparator_domains):
             found.add(TREND_COMPARATOR_MISSING)
             continue
         directions = comparators.get("directions") or {}
         if any(
             contract.expected_direction(domain) is not None
-            and _normalize_direction(directions.get(domain))
+            and _normalize_direction(
+                directions.get(_longitudinal_evidence_domain(contract, domain))
+            )
             != contract.expected_direction(domain)
             for domain in contract.domains
         ):
@@ -516,6 +524,7 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
                 )
                 record_domains = {"session"}
                 record_directions: dict[str, str] = {}
+                trend_directions: dict[str, str] = {}
                 tss_delta = _number(comparison.get("tss_delta"))
                 if tss_delta != float("-inf"):
                     tss_direction = _direction_from_delta(tss_delta)
@@ -534,6 +543,10 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
                     )
                     record_domains.add(metric_domain)
                     record_directions[metric_domain] = metric_direction
+                    trend_directions[metric_domain] = _session_metric_trend_direction(
+                        metric_domain,
+                        metric_delta,
+                    )
                 heart_rate = comparison.get("heart_rate")
                 heart_rate = (
                     dict(heart_rate) if isinstance(heart_rate, Mapping) else {}
@@ -550,26 +563,56 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
                     )
                     record_domains.add(heart_rate_domain)
                     record_directions[heart_rate_domain] = heart_rate_direction
+                    trend_directions[heart_rate_domain] = (
+                        _session_metric_trend_direction(
+                            heart_rate_domain,
+                            heart_rate_delta,
+                        )
+                    )
                 target = data.get("target")
                 target = dict(target) if isinstance(target, Mapping) else {}
+                comparator = data.get("comparator")
+                comparator = (
+                    dict(comparator) if isinstance(comparator, Mapping) else {}
+                )
                 target_identity = {
                     key: target.get(key)
                     for key in ("activity_id", "date")
                     if target.get(key) is not None
                 }
+                comparator_identity = {
+                    key: comparator.get(key)
+                    for key in ("activity_id", "date")
+                    if comparator.get(key) is not None
+                }
+                evidence_key = json.dumps(
+                    {
+                        "target": data.get("target"),
+                        "comparator": data.get("comparator"),
+                        "comparison": data.get("comparison"),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    default=str,
+                )
+                pair_key = (
+                    json.dumps(
+                        {
+                            "target": target_identity,
+                            "comparator": comparator_identity,
+                        },
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        separators=(",", ":"),
+                    )
+                    if target_identity and comparator_identity
+                    else evidence_key
+                )
                 session_records.append(
                     {
-                        "evidence_key": json.dumps(
-                            {
-                                "target": data.get("target"),
-                                "comparator": data.get("comparator"),
-                                "comparison": data.get("comparison"),
-                            },
-                            ensure_ascii=False,
-                            sort_keys=True,
-                            separators=(",", ":"),
-                            default=str,
-                        ),
+                        "evidence_key": evidence_key,
+                        "pair_key": pair_key,
                         "target_key": (
                             json.dumps(
                                 target_identity,
@@ -584,6 +627,7 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
                         "target_sport": _canonical_sport(target.get("sport")),
                         "domains": sorted(record_domains),
                         "directions": record_directions,
+                        "trend_directions": trend_directions,
                     }
                 )
     _promote_longitudinal_session_evidence(session_records, domains, directions)
@@ -618,23 +662,27 @@ def _promote_longitudinal_session_evidence(
                 continue
             groups.setdefault(sport, []).append(record)
 
-        qualified: list[str] = []
-        for observations in groups.values():
+        qualified: dict[str, str] = {}
+        for sport, observations in groups.items():
             observation_dates = {
                 str(observation.get("target_date")) for observation in observations
             }
             observed_directions = {
                 _normalize_direction(
-                    (observation.get("directions") or {}).get(session_domain)
+                    (observation.get("trend_directions") or {}).get(session_domain)
                 )
                 for observation in observations
             }
             observed_directions.discard(None)
             if len(observation_dates) >= 3 and len(observed_directions) == 1:
-                qualified.append(next(iter(observed_directions)))
+                qualified[sport] = next(iter(observed_directions))
+        for sport, direction in qualified.items():
+            sport_domain = f"{trend_domain}:{sport}"
+            domains.add(sport_domain)
+            directions[sport_domain] = direction
         if len(qualified) == 1:
             domains.add(trend_domain)
-            directions[trend_domain] = qualified[0]
+            directions[trend_domain] = next(iter(qualified.values()))
 
 
 def _trend_claim_contracts(text: str) -> list[TrendClaimContract]:
@@ -664,6 +712,12 @@ def _session_claim_evidence_status(
             for record in records
             if record.get("target_date") == contract.target_date
         ]
+    if contract.claimed_sport:
+        records = [
+            record
+            for record in records
+            if record.get("target_sport") == contract.claimed_sport
+        ]
 
     selected: list[tuple[str, str | None, str | None]] = []
     for domain in contract.domains:
@@ -674,8 +728,8 @@ def _session_claim_evidence_status(
             str(record.get("evidence_key")): record for record in candidates
         }
         candidates = list(unique_evidence.values())
-        target_keys = {str(record.get("target_key")) for record in candidates}
-        if len(candidates) != 1 or len(target_keys) != 1:
+        pair_keys = {str(record.get("pair_key")) for record in candidates}
+        if len(candidates) != 1 or len(pair_keys) != 1:
             return "missing"
         observed_values = {
             _normalize_direction((record.get("directions") or {}).get(domain))
@@ -687,13 +741,13 @@ def _session_claim_evidence_status(
             return "missing"
         selected.append(
             (
-                next(iter(target_keys)),
+                next(iter(pair_keys)),
                 next(iter(observed_values), None),
                 contract.expected_direction(domain),
             )
         )
 
-    if len({target_key for target_key, _observed, _expected in selected}) != 1:
+    if len({pair_key for pair_key, _observed, _expected in selected}) != 1:
         return "missing"
     if any(
         expected is not None and observed is not None and observed != expected
@@ -729,6 +783,21 @@ def _session_metric_direction(domain: str, delta: float) -> str:
     if domain in {"session_pace", "session_hr"}:
         return _direction_from_delta(-delta)
     return _direction_from_delta(delta)
+
+
+def _session_metric_trend_direction(domain: str, delta: float) -> str:
+    if domain == "session_hr":
+        return _direction_from_delta(delta)
+    return _session_metric_direction(domain, delta)
+
+
+def _longitudinal_evidence_domain(
+    contract: TrendClaimContract,
+    domain: str,
+) -> str:
+    if contract.claimed_sport and domain.startswith("trend_"):
+        return f"{domain}:{contract.claimed_sport}"
+    return domain
 
 
 def _normalize_direction(value: Any) -> str | None:
@@ -919,6 +988,8 @@ def _asserted_historical_trend_claims(
 
 
 def _trend_is_planned_or_future(scope: str, match_start: int, match_end: int) -> bool:
+    if not _FUTURE_TENSE_CONTEXT.search(scope):
+        return False
     for marker in _PLANNED_OR_FUTURE_TREND.finditer(scope):
         if marker.end() <= match_start:
             between = scope[marker.end() : match_start]

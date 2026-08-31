@@ -33,8 +33,14 @@ codes.
   threshold.
 - [x] 2026-08-31: Ran focused, smoke, contributor-safe, Ruff, contract
   freshness, and diff checks.
-- [ ] Complete the evidence bundle with the committed SHA and prepare a draft
-  PR linked to #523.
+- [x] 2026-08-31: Committed the first GREEN implementation as `82e01c4` and
+  opened draft PR #525 linked to #523.
+- [x] 2026-08-31: Reproduced all six findings from the first native Codex
+  Review as 10 failing assertions: metric context, explicit future tense,
+  exact comparator pair, claimed discipline, previous-session object, and
+  literal longitudinal HR direction.
+- [x] 2026-08-31: Closed the review delta without expanding A-G, then reran
+  focused, smoke, contributor-safe, Ruff, contract freshness, and diff checks.
 
 ## Surprises & Discoveries
 
@@ -55,6 +61,14 @@ codes.
   buffers and made the preflight socket constructor fail with `Errno 55`.
   Verified by rerunning sequentially: the focused, smoke, and contributor-safe
   suites all passed; no product change was made for the environmental failure.
+- Observed: target-only identity was insufficient for form B. Two evidence
+  records could share the target while comparing pace and HR against different
+  prior sessions. Verified by the native-review reproduction; compound claims
+  now require one exact target/comparator pair.
+- Observed: pairwise HR improvement and longitudinal HR direction need
+  different projections. Lower HR can support pairwise improvement, while a
+  literal claim that HR rose or fell must follow the numeric delta. Verified by
+  paired RED/GREEN assertions for three dated observations.
 
 ## Decision Log
 
@@ -67,13 +81,19 @@ codes.
   is limited to trend/comparison evidence.
 - Decision: preserve existing public API and TypeScript shapes. Any additional
   comparator evidence is internal/additive and must not mutate source data.
-- Decision: require one target identity across all metric evidence for a
-  compound session claim. A date in the claim may disambiguate multiple tool
-  results; absent a date, multiple target identities fail closed.
+- Decision: require one exact target/comparator identity across all metric
+  evidence for a compound session claim. A date in the claim may disambiguate
+  targets, but never permits metrics from different prior sessions to combine.
 - Decision: three pairwise observations count as longitudinal evidence only
   when they use one metric, one discipline, at least three distinct target
   dates, and one consistent direction. Rationale: implement the contract's
   explicit alternative without mixing disciplines or duplicate observations.
+- Decision: a temporal marker such as `следующая` is form G only when the same
+  clause contains an explicit future verb. Completed or marker-only wording is
+  validated as historical and fails closed without evidence.
+- Decision: retain discipline-qualified longitudinal domains and match an
+  explicit run/bike/swim noun in the claim. The unqualified domain is exposed
+  only when exactly one discipline satisfies the three-observation threshold.
 
 ## Outcomes & Retrospective
 
@@ -81,13 +101,16 @@ The finite policy is executable and verified locally. Forms A/B now bind exact
 session metrics, C/E cannot be proven by one pair, D preserves its historical
 clause, F recognizes all four completed verbs, and G remains explicit future.
 Multiple comparator identities fail closed; an ISO date disambiguates only one
-matching target. Same-session average HR is source-labelled and additive.
+matching target. Same-session average HR is source-labelled and additive. The
+review delta also binds pace evidence to a training metric, requires an actual
+previous-session comparison object, preserves claimed sport, and keeps literal
+longitudinal HR direction separate from pairwise improvement semantics.
 
 Validation completed on 2026-08-31:
 
-- focused gate + comparable sessions: 158 passed;
-- smoke: 2174 passed, 1 environment skip;
-- contributor-safe: 2220 passed, 3 skips, 26 deselected;
+- focused gate + comparable sessions: 166 passed;
+- smoke: 2182 passed, 1 environment skip;
+- contributor-safe: 2228 passed, 3 skips, 26 deselected;
 - Ruff, contract artifact freshness, and `git diff --check`: passed.
 
 No persistent state, API/TypeScript contract, frontend, or plan mutation was
