@@ -41,6 +41,9 @@ codes.
   literal longitudinal HR direction.
 - [x] 2026-08-31: Closed the review delta without expanding A-G, then reran
   focused, smoke, contributor-safe, Ruff, contract freshness, and diff checks.
+- [x] 2026-08-31: Reproduced the scoped delta-review finding for all four
+  missing personal forms of future `быть`, added them to the explicit-future
+  recognizer, and closed the final RED/GREEN slice at 170 focused tests.
 
 ## Surprises & Discoveries
 
@@ -69,6 +72,10 @@ codes.
   different projections. Lower HR can support pairwise improvement, while a
   literal claim that HR rose or fell must follow the numeric delta. Verified by
   paired RED/GREEN assertions for three dated observations.
+- Observed: recognizing only third-person `будет`/`будут` made otherwise
+  explicit form-G clauses with `буду`, `будешь`, `будем`, or `будете` fail
+  closed as historical. Verified by four failing assertions before extending
+  the finite future-tense pattern.
 
 ## Decision Log
 
@@ -104,12 +111,14 @@ Multiple comparator identities fail closed; an ISO date disambiguates only one
 matching target. Same-session average HR is source-labelled and additive. The
 review delta also binds pace evidence to a training metric, requires an actual
 previous-session comparison object, preserves claimed sport, and keeps literal
-longitudinal HR direction separate from pairwise improvement semantics.
+longitudinal HR direction separate from pairwise improvement semantics. The
+explicit-future recognizer covers every present personal form of future
+`быть`, not only third person.
 
 Validation completed on 2026-08-31:
 
-- focused gate + comparable sessions: 166 passed;
-- smoke: 2182 passed, 1 environment skip;
+- focused gate + comparable sessions: 170 passed;
+- smoke: 2186 passed, 1 environment skip;
 - contributor-safe: 2228 passed, 3 skips, 26 deselected;
 - Ruff, contract artifact freshness, and `git diff --check`: passed.
 
