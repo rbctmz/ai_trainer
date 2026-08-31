@@ -14,9 +14,14 @@ from datetime import date, datetime, timedelta, timezone
 from typing import Any, Iterable, Mapping
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from models.coach_narrative_evidence_gate import (
+    TrendClaimContract,
+    classify_historical_trend_claim,
+)
 
-COACH_NARRATIVE_EVIDENCE_VERSION = "coach_narrative_evidence_v1"
-COACH_NARRATIVE_GATE_RULE_VERSION = "coach_narrative_gate_v1"
+
+COACH_NARRATIVE_EVIDENCE_VERSION = "coach_narrative_evidence_v2"
+COACH_NARRATIVE_GATE_RULE_VERSION = "coach_narrative_gate_v2"
 
 READINESS_CLAIM_CONTRADICTED = "READINESS_CLAIM_CONTRADICTED"
 HRV_CLAIM_CONTRADICTED = "HRV_CLAIM_CONTRADICTED"
@@ -94,7 +99,8 @@ _TREND_WORD = re.compile(
     re.IGNORECASE,
 )
 _TREND_SUBJECT = re.compile(
-    r"(?:hrv|вср|форма|нагрузк\w*|показател\w*|трениров\w*|сесси\w*|тренд\w*)",
+    r"(?:hrv|вср|форма|нагрузк\w*|показател\w*|трениров\w*|сесси\w*|тренд\w*|"
+    r"темп\w*|скорост\w*|мощност\w*|пульс\w*|чсс\b)",
     re.IGNORECASE,
 )
 _RELATIVE_DATE = re.compile(r"\b(?:сегодня|вчера|до\s+старта)\b", re.IGNORECASE)
@@ -127,20 +133,9 @@ _PLANNED_OR_FUTURE_TREND = re.compile(
 )
 _TREND_CLAIM_SEPARATOR = re.compile(r"[,;:—–]|\s+-\s+")
 _TEMPORAL_CLAUSE_SEPARATOR = re.compile(r";|,\s*(?:а|но|зато|при\s+этом)\b", re.IGNORECASE)
-_PAIRWISE_SESSION_COMPARISON = re.compile(
-    r"(?:по\s+сравнению\s+с|сравнен\w*\s+с|"
-    r"(?:лучше|хуже)\s+прошл\w*|чем\s+прошл\w*)",
-    re.IGNORECASE,
-)
-_LONGITUDINAL_PERIOD_COMPARISON = re.compile(
-    r"(?:по\s+сравнению\s+с|сравнен\w*\s+с|(?:лучше|хуже)|чем)\s+"
-    r"(?:(?:прошл|предыдущ|предшествующ)\w+\s+)?"
-    r"(?:недел\w*|месяц\w*|период\w*|год\w*|микроцикл\w*)\b",
-    re.IGNORECASE,
-)
 _COMPLETED_TENSE_CONTEXT = re.compile(
     r"\b(?:был(?:а|о|и)?|прош(?:(?:е|ё)л|ла|ло|ли)|оказал\w*|"
-    r"стал(?:а|о|и)?|получил\w*|завершил\w*|состоял\w*)\b",
+    r"стал(?:а|о|и)?|получил\w*|выш(?:ел|ла|ло|ли)|завершил\w*|состоял\w*)\b",
     re.IGNORECASE,
 )
 _FUTURE_TENSE_CONTEXT = re.compile(
@@ -321,11 +316,28 @@ def validate_coach_narrative(
         elif _hrv_is_not_suppressed(hrv):
             found.add(HRV_CLAIM_CONTRADICTED)
 
-    trend_domains = _trend_claim_domains(claim_text)
-    if trend_domains and not trend_domains.issubset(comparator_domains):
-        found.add(TREND_COMPARATOR_MISSING)
-    elif _trend_direction_mismatch(claim_text, comparators.get("directions") or {}):
-        found.add(TREND_CLAIM_CONTRADICTED)
+    for contract in _trend_claim_contracts(claim_text):
+        if not contract.supported:
+            found.add(TREND_COMPARATOR_MISSING)
+            continue
+        if contract.is_session_claim:
+            session_status = _session_claim_evidence_status(contract, comparators)
+            if session_status == "missing":
+                found.add(TREND_COMPARATOR_MISSING)
+            elif session_status == "contradicted":
+                found.add(TREND_CLAIM_CONTRADICTED)
+            continue
+        if not set(contract.domains).issubset(comparator_domains):
+            found.add(TREND_COMPARATOR_MISSING)
+            continue
+        directions = comparators.get("directions") or {}
+        if any(
+            contract.expected_direction(domain) is not None
+            and _normalize_direction(directions.get(domain))
+            != contract.expected_direction(domain)
+            for domain in contract.domains
+        ):
+            found.add(TREND_CLAIM_CONTRADICTED)
 
     if _RELATIVE_DATE.search(claim_text):
         if calendar.get("status") != "available":
@@ -453,7 +465,7 @@ def _session_evidence(source: Mapping[str, Any] | None) -> dict[str, Any]:
 def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str, Any]:
     domains: set[str] = set()
     directions: dict[str, str] = {}
-    session_comparisons: dict[str, dict[str, str]] = {}
+    session_records: list[dict[str, Any]] = []
     causal_claim_allowed: bool | None = None
     for item in tool_results:
         if not item.get("success"):
@@ -502,14 +514,13 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
                 comparison = (
                     dict(comparison) if isinstance(comparison, Mapping) else {}
                 )
+                record_domains = {"session"}
+                record_directions: dict[str, str] = {}
                 tss_delta = _number(comparison.get("tss_delta"))
                 if tss_delta != float("-inf"):
-                    _record_session_comparison(
-                        session_comparisons,
-                        domain="session_tss",
-                        direction=_direction_from_delta(tss_delta),
-                        data=data,
-                    )
+                    tss_direction = _direction_from_delta(tss_delta)
+                    record_domains.add("session_tss")
+                    record_directions["session_tss"] = tss_direction
                 sport_metric = comparison.get("sport_metric")
                 sport_metric = (
                     dict(sport_metric) if isinstance(sport_metric, Mapping) else {}
@@ -517,90 +528,179 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
                 metric_delta = _number(sport_metric.get("delta"))
                 metric_domain = _session_metric_domain(sport_metric.get("kind"))
                 if metric_domain is not None and metric_delta != float("-inf"):
-                    _record_session_comparison(
-                        session_comparisons,
-                        domain=metric_domain,
-                        direction=_session_metric_direction(
-                            metric_domain,
-                            metric_delta,
-                        ),
-                        data=data,
+                    metric_direction = _session_metric_direction(
+                        metric_domain,
+                        metric_delta,
                     )
-    for domain, comparisons in session_comparisons.items():
-        if len(comparisons) != 1:
-            continue
-        domains.add(domain)
-        directions[domain] = next(iter(comparisons.values()))
+                    record_domains.add(metric_domain)
+                    record_directions[metric_domain] = metric_direction
+                heart_rate = comparison.get("heart_rate")
+                heart_rate = (
+                    dict(heart_rate) if isinstance(heart_rate, Mapping) else {}
+                )
+                heart_rate_delta = _number(heart_rate.get("delta"))
+                heart_rate_domain = _session_metric_domain(heart_rate.get("kind"))
+                if (
+                    heart_rate_domain == "session_hr"
+                    and heart_rate_delta != float("-inf")
+                ):
+                    heart_rate_direction = _session_metric_direction(
+                        heart_rate_domain,
+                        heart_rate_delta,
+                    )
+                    record_domains.add(heart_rate_domain)
+                    record_directions[heart_rate_domain] = heart_rate_direction
+                target = data.get("target")
+                target = dict(target) if isinstance(target, Mapping) else {}
+                target_identity = {
+                    key: target.get(key)
+                    for key in ("activity_id", "date")
+                    if target.get(key) is not None
+                }
+                session_records.append(
+                    {
+                        "evidence_key": json.dumps(
+                            {
+                                "target": data.get("target"),
+                                "comparator": data.get("comparator"),
+                                "comparison": data.get("comparison"),
+                            },
+                            ensure_ascii=False,
+                            sort_keys=True,
+                            separators=(",", ":"),
+                            default=str,
+                        ),
+                        "target_key": (
+                            json.dumps(
+                                target_identity,
+                                ensure_ascii=False,
+                                sort_keys=True,
+                                separators=(",", ":"),
+                            )
+                            if target_identity
+                            else f"unknown:{len(session_records)}"
+                        ),
+                        "target_date": str(target.get("date") or "")[:10] or None,
+                        "target_sport": _canonical_sport(target.get("sport")),
+                        "domains": sorted(record_domains),
+                        "directions": record_directions,
+                    }
+                )
+    _promote_longitudinal_session_evidence(session_records, domains, directions)
     return {
         "domains": sorted(domains),
         "directions": directions,
+        "session_records": session_records,
         "causal_claim_allowed": causal_claim_allowed,
     }
 
 
-def _trend_claim_domains(text: str) -> set[str]:
-    domains: set[str] = set()
-    for segment, _trend_word, _start, _end in _asserted_historical_trend_claims(text):
-        if not _TREND_SUBJECT.search(segment):
-            continue
-        domains.update(_trend_domains_for_claim(segment))
-    return domains
+def _promote_longitudinal_session_evidence(
+    records: Iterable[Mapping[str, Any]],
+    domains: set[str],
+    directions: dict[str, str],
+) -> None:
+    domain_map = {
+        "session_pace": "trend_pace",
+        "session_power": "trend_power",
+        "session_hr": "trend_hr",
+    }
+    for session_domain, trend_domain in domain_map.items():
+        groups: dict[str, list[Mapping[str, Any]]] = {}
+        for record in records:
+            sport = str(record.get("target_sport") or "")
+            target_date = str(record.get("target_date") or "")
+            if (
+                not sport
+                or not target_date
+                or session_domain not in set(record.get("domains") or [])
+            ):
+                continue
+            groups.setdefault(sport, []).append(record)
+
+        qualified: list[str] = []
+        for observations in groups.values():
+            observation_dates = {
+                str(observation.get("target_date")) for observation in observations
+            }
+            observed_directions = {
+                _normalize_direction(
+                    (observation.get("directions") or {}).get(session_domain)
+                )
+                for observation in observations
+            }
+            observed_directions.discard(None)
+            if len(observation_dates) >= 3 and len(observed_directions) == 1:
+                qualified.append(next(iter(observed_directions)))
+        if len(qualified) == 1:
+            domains.add(trend_domain)
+            directions[trend_domain] = qualified[0]
 
 
-def _trend_direction_mismatch(text: str, directions: Mapping[str, Any]) -> bool:
+def _trend_claim_contracts(text: str) -> list[TrendClaimContract]:
+    contracts: list[TrendClaimContract] = []
     for segment, trend_word, _start, _end in _asserted_historical_trend_claims(text):
-        if not _TREND_SUBJECT.search(segment):
+        assertion_scope = _trend_assertion_scope(segment)
+        if not _TREND_SUBJECT.search(assertion_scope):
             continue
-        claimed = _claimed_direction(trend_word.lower())
-        if claimed is None:
-            continue
-        for domain in _trend_domains_for_claim(segment):
-            observed = _normalize_direction(directions.get(domain))
-            if observed is not None and observed != claimed:
-                return True
-    return False
-
-
-def _trend_domains_for_claim(text: str) -> set[str]:
-    lowered = text.lower()
-    assertion_scope = _trend_assertion_scope(lowered)
-    domains: set[str] = set()
-    if "hrv" in assertion_scope or "вср" in assertion_scope:
-        domains.add("hrv")
-    if "форма" in assertion_scope or "показател" in assertion_scope:
-        domains.add("fitness")
-    has_load = "нагруз" in assertion_scope
-    session_scope = bool(
-        re.search(
-            r"трениров\w*|сесси\w*|прошл\w*",
-            assertion_scope,
-            re.IGNORECASE,
+        contracts.append(
+            classify_historical_trend_claim(assertion_scope, trend_word)
         )
-    )
-    pairwise_scope = _is_pairwise_session_comparison(assertion_scope)
-    if session_scope and pairwise_scope:
-        session_domains: set[str] = set()
-        if re.search(r"темп\w*|скорост\w*", assertion_scope):
-            session_domains.add("session_pace")
-        if "мощност" in assertion_scope:
-            session_domains.add("session_power")
-        if re.search(
-            r"пульс\w*|чсс\b|сердечн\w+\s+ритм\w*",
-            assertion_scope,
-        ):
-            session_domains.add("session_hr")
-        if "tss" in assertion_scope or has_load:
-            session_domains.add("session_tss")
-        domains.update(session_domains or {"session"})
-    else:
-        if has_load:
-            domains.add("load")
-        if session_scope and re.search(
-            r"темп\w*|скорост\w*|мощност\w*",
-            assertion_scope,
-        ):
-            domains.add("session")
-    return domains or {"generic"}
+    return contracts
+
+
+def _session_claim_evidence_status(
+    contract: TrendClaimContract,
+    comparators: Mapping[str, Any],
+) -> str:
+    records = [
+        dict(record)
+        for record in comparators.get("session_records") or []
+        if isinstance(record, Mapping)
+    ]
+    if contract.target_date:
+        records = [
+            record
+            for record in records
+            if record.get("target_date") == contract.target_date
+        ]
+
+    selected: list[tuple[str, str | None, str | None]] = []
+    for domain in contract.domains:
+        candidates = [
+            record for record in records if domain in set(record.get("domains") or [])
+        ]
+        unique_evidence = {
+            str(record.get("evidence_key")): record for record in candidates
+        }
+        candidates = list(unique_evidence.values())
+        target_keys = {str(record.get("target_key")) for record in candidates}
+        if len(candidates) != 1 or len(target_keys) != 1:
+            return "missing"
+        observed_values = {
+            _normalize_direction((record.get("directions") or {}).get(domain))
+            for record in candidates
+            if (record.get("directions") or {}).get(domain) is not None
+        }
+        observed_values.discard(None)
+        if len(observed_values) > 1:
+            return "missing"
+        selected.append(
+            (
+                next(iter(target_keys)),
+                next(iter(observed_values), None),
+                contract.expected_direction(domain),
+            )
+        )
+
+    if len({target_key for target_key, _observed, _expected in selected}) != 1:
+        return "missing"
+    if any(
+        expected is not None and observed is not None and observed != expected
+        for _target_key, observed, expected in selected
+    ):
+        return "contradicted"
+    return "available"
 
 
 def _trend_assertion_scope(text: str) -> str:
@@ -614,62 +714,21 @@ def _trend_assertion_scope(text: str) -> str:
     return text[: trend.end() + separator.start()]
 
 
-def _is_pairwise_session_comparison(text: str) -> bool:
-    if _PAIRWISE_SESSION_COMPARISON.search(text) is None:
-        return False
-    # A comparable-session pair may support only another-session wording. A
-    # period object of the comparison (month/week/year/etc.) is a
-    # longitudinal claim and must keep requiring longitudinal evidence.
-    return _LONGITUDINAL_PERIOD_COMPARISON.search(text) is None
-
-
-def _record_session_comparison(
-    comparisons: dict[str, dict[str, str]],
-    *,
-    domain: str,
-    direction: str,
-    data: Mapping[str, Any],
-) -> None:
-    signature = json.dumps(
-        {
-            "target": data.get("target"),
-            "comparator": data.get("comparator"),
-            "comparison": data.get("comparison"),
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        default=str,
-    )
-    comparisons.setdefault(domain, {})[signature] = direction
-
-
 def _session_metric_domain(kind: Any) -> str | None:
     normalized = str(kind or "").strip().lower()
     if normalized in {"pace_seconds_per_km", "pace_seconds_per_100m"}:
         return "session_pace"
     if normalized == "power_watts":
         return "session_power"
+    if normalized == "heart_rate_bpm":
+        return "session_hr"
     return None
 
 
 def _session_metric_direction(domain: str, delta: float) -> str:
-    if domain == "session_pace":
+    if domain in {"session_pace", "session_hr"}:
         return _direction_from_delta(-delta)
     return _direction_from_delta(delta)
-
-
-def _claimed_direction(text: str) -> str | None:
-    if re.search(r"улучш\w*|раст[её]т|вырос\w*", text):
-        return "improving"
-    if re.search(
-        r"ухудш\w*|снижа\w*|сниз(?:ил|ила|ило|или|ился|илась|илось|ились)\w*",
-        text,
-    ):
-        return "declining"
-    if re.search(r"стабил\w*", text):
-        return "stable"
-    return None
 
 
 def _normalize_direction(value: Any) -> str | None:

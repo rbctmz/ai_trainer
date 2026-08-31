@@ -267,6 +267,45 @@ def test_single_session_pair_cannot_prove_a_longitudinal_pace_trend():
     assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
 
 
+def test_three_independent_session_observations_can_prove_a_pace_trend():
+    def comparable(target_id: str, date_value: str) -> dict:
+        return {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {
+                    "activity_id": target_id,
+                    "date": date_value,
+                    "sport": "run",
+                },
+                "comparator": {"activity_id": f"prior-{target_id}"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -5.0,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+
+    raw = "Темп на тренировках растет."
+    result = validate_coach_narrative(
+        raw,
+        _evidence(
+            tool_results=[
+                comparable("run-1", "2026-08-03"),
+                comparable("run-2", "2026-08-10"),
+                comparable("run-3", "2026-08-17"),
+            ]
+        ),
+    )
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+
+
 def test_single_session_pair_cannot_prove_a_month_over_month_pace_trend():
     tools = [
         {
@@ -502,6 +541,64 @@ def test_compound_session_trend_requires_heart_rate_evidence():
     assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
 
 
+def test_compound_session_claim_accepts_pace_and_heart_rate_for_one_target():
+    raw = "Темп и пульс тренировки по сравнению с прошлой улучшились."
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": -8.0,
+                    },
+                    "heart_rate": {
+                        "kind": "heart_rate_bpm",
+                        "delta": -5.0,
+                    },
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+
+
+def test_pairwise_heart_rate_claim_uses_only_heart_rate_evidence():
+    raw = "Пульс тренировки по сравнению с прошлой снизился."
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {
+                    "heart_rate": {
+                        "kind": "heart_rate_bpm",
+                        "delta": -5.0,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+
+
 def test_heart_rate_advice_after_pace_claim_is_not_a_compound_trend():
     tools = [
         {
@@ -577,6 +674,96 @@ def test_completed_next_session_lexical_verb_is_historical():
     assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
 
 
+@pytest.mark.parametrize("verb", ["была", "получилась", "оказалась", "вышла"])
+def test_completed_next_session_variants_pass_with_one_comparator(verb: str):
+    raw = f"Следующая тренировка {verb} лучше прошлой."
+    tools = [
+        {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-24"},
+                "comparator": {"activity_id": "prior", "date": "2026-08-10"},
+                "comparison": {"tss_delta": 5.0},
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(raw, _evidence(tool_results=tools))
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+
+
+@pytest.mark.parametrize("verb", ["оказалась", "вышла"])
+def test_completed_next_session_additional_verbs_require_comparator(verb: str):
+    result = validate_coach_narrative(
+        f"Следующая тренировка {verb} лучше прошлой.",
+        _evidence(),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_claim_date_disambiguates_multiple_session_comparators():
+    def comparable(target_id: str, date_value: str, delta: float) -> dict:
+        return {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": target_id, "date": date_value},
+                "comparator": {"activity_id": f"prior-{target_id}"},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": delta,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+
+    raw = "Темп тренировки 2026-08-20 по сравнению с прошлой улучшился."
+    result = validate_coach_narrative(
+        raw,
+        _evidence(
+            tool_results=[
+                comparable("aug-20", "2026-08-20", -8.0),
+                comparable("aug-21", "2026-08-21", 8.0),
+            ]
+        ),
+    )
+
+    assert result.outcome == "pass"
+    assert result.delivered_text == raw
+
+
+def test_unsupported_historical_trend_fails_closed_despite_generic_evidence():
+    tools = [
+        {
+            "tool_name": "compare_periods",
+            "success": True,
+            "raw_result": {
+                "recent_period": {"no_data": False},
+                "previous_period": {"no_data": False},
+                "comparison": {"tss_change": 40.0},
+            },
+        }
+    ]
+
+    result = validate_coach_narrative(
+        "Тренд самочувствия улучшился.",
+        _evidence(tool_results=tools),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
 @pytest.mark.parametrize(
     "raw",
     [
@@ -611,11 +798,44 @@ def test_multiple_session_comparators_fail_closed_when_claim_is_ambiguous():
         }
 
     result = validate_coach_narrative(
-        "Темп тренировки 2026-08-20 по сравнению с прошлой улучшился.",
+        "Темп тренировки по сравнению с прошлой улучшился.",
         _evidence(
             tool_results=[
                 comparable("aug-20", "2026-08-20", 8.0),
                 comparable("aug-21", "2026-08-21", -8.0),
+            ]
+        ),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+
+
+def test_multiple_comparators_for_the_same_target_remain_ambiguous():
+    def comparable(comparator_id: str, delta: float) -> dict:
+        return {
+            "tool_name": "get_comparable_session",
+            "success": True,
+            "raw_result": {
+                "status": "available",
+                "target": {"activity_id": "target", "date": "2026-08-20"},
+                "comparator": {"activity_id": comparator_id},
+                "comparison": {
+                    "sport_metric": {
+                        "kind": "pace_seconds_per_km",
+                        "delta": delta,
+                    }
+                },
+                "guardrails": {"causal_claim_allowed": False},
+            },
+        }
+
+    result = validate_coach_narrative(
+        "Темп тренировки 2026-08-20 по сравнению с прошлой улучшился.",
+        _evidence(
+            tool_results=[
+                comparable("prior-a", -8.0),
+                comparable("prior-b", -6.0),
             ]
         ),
     )
