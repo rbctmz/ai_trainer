@@ -136,9 +136,14 @@ and an explicit `Reviewed commit`. Every round counts against the two-round
 budget even when it is clean or repeats a head SHA. Dismissing a submitted review
 does not refund its round. Every newly submitted review or clean result clears
 earlier acceptance; the merge owner accepts the latest result only after its
-findings have been triaged. At least one native result must name the current head
-SHA; historical results consume budget but cannot qualify a later head for
-acceptance. The trusted readiness workflow records every authenticated clean
+findings have been triaged. Normally at least one native result must name the
+current head SHA; historical results consume budget but cannot qualify a later
+head for acceptance. The one exception is a post-budget blocking-fix head:
+after at least two native rounds, a privileged merge owner may apply both
+`review-budget-exception` and `status: review accepted` to accept that later
+head without starting another native round. Zero historical rounds, unresolved
+threads, an active `CHANGES_REQUESTED`, missing acceptance, or missing exception
+remain fail-closed. The trusted readiness workflow records every authenticated clean
 result as a uniquely keyed successful commit status before evaluating the gate.
 That append-only status is the durable round ledger: deleting or editing the
 source PR comment does not refund a completed round.
@@ -149,7 +154,9 @@ native pass, fix remaining P0/P1 and blocking P2 findings with targeted evidence
 resolve or own every thread, and stop requesting full native reviews unless the
 merge owner records a new architecture boundary and applies the documented
 budget exception. A later docs-only outcome push does not justify another
-review; record final process metrics after merge instead.
+review; record final process metrics after merge instead. If a blocking fix
+itself changes the head after the budget is exhausted, use the privileged human
+post-budget exception above rather than requesting a third verification loop.
 
 ### Claude Code Tag Mode
 
@@ -193,9 +200,12 @@ The workflow has two independent gates. `Review gate` passes only when the merge
 owner applies `status: review accepted`, all review threads are resolved, and no
 more than two native Codex reviews were submitted. A third pass adds
 `status: review budget exceeded`; it needs a documented merge-owner decision and
-the `review-budget-exception` label. Only a repository admin or maintainer may
-apply either privileged label. Every new push or submitted review removes review
-acceptance and readiness, so acceptance is always bound to the current evidence.
+the `review-budget-exception` label. The same exception label plus fresh human
+acceptance can close a post-budget blocking-fix head without another native
+round, but only after two historical rounds and with zero unresolved threads or
+active changes request. Only a repository admin or maintainer may apply either
+privileged label. Every new push or submitted review removes review acceptance
+and readiness, so acceptance is always bound to the current evidence.
 
 When a linked PR is open, not draft, has no merge conflict, passes the accepted
 review gate, and all other current-head check runs are green, GitHub Actions adds

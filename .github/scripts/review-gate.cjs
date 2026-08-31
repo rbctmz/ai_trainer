@@ -181,7 +181,10 @@ function evaluateReviewGate({
   hasBudgetException,
   reviewDecision = null,
 }) {
-  if (currentHeadNativeReviewRounds < 1) {
+  const humanPostBudgetException = currentHeadNativeReviewRounds < 1 &&
+    hasBudgetException &&
+    nativeReviewRounds >= MAX_NATIVE_REVIEW_ROUNDS;
+  if (currentHeadNativeReviewRounds < 1 && !humanPostBudgetException) {
     return { ready: false, reason: 'no submitted native review for the current head' };
   }
   if (!accepted) {
@@ -204,7 +207,9 @@ function evaluateReviewGate({
   }
   return {
     ready: true,
-    reason: `review accepted; ${nativeReviewRounds}/${MAX_NATIVE_REVIEW_ROUNDS} native round(s); no unresolved threads`,
+    reason: humanPostBudgetException
+      ? `human post-budget exception accepted; ${nativeReviewRounds}/${MAX_NATIVE_REVIEW_ROUNDS} native round(s); no unresolved threads`
+      : `review accepted; ${nativeReviewRounds}/${MAX_NATIVE_REVIEW_ROUNDS} native round(s); no unresolved threads`,
   };
 }
 
