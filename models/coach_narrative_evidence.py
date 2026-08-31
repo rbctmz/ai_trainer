@@ -1013,7 +1013,19 @@ def _trend_is_planned_or_future(scope: str, match_start: int, match_end: int) ->
             and re.match(r"(?:на|в)\s+(?:следующ\w+|предстоящ\w+)", marker.group())
         ):
             separated = True
-        if not separated:
+        if separated:
+            continue
+        span_start = min(marker.start(), match_start)
+        span_end = max(marker.end(), match_end)
+        clause_start = 0
+        clause_end = len(scope)
+        for separator in _TEMPORAL_CLAUSE_SEPARATOR.finditer(scope):
+            if separator.end() <= span_start:
+                clause_start = separator.end()
+            elif separator.start() >= span_end:
+                clause_end = separator.start()
+                break
+        if _FUTURE_TENSE_CONTEXT.search(scope[clause_start:clause_end]):
             return True
     return False
 

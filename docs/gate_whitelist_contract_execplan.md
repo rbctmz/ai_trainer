@@ -44,6 +44,9 @@ codes.
 - [x] 2026-08-31: Reproduced the scoped delta-review finding for all four
   missing personal forms of future `быть`, added them to the explicit-future
   recognizer, and closed the final RED/GREEN slice at 170 focused tests.
+- [x] 2026-08-31: Reproduced the final same-clause finding with two failing
+  assertions and bound the explicit future verb to the clause containing the
+  temporal marker and historical candidate.
 
 ## Surprises & Discoveries
 
@@ -76,6 +79,10 @@ codes.
   explicit form-G clauses with `буду`, `будешь`, `будем`, or `будете` fail
   closed as historical. Verified by four failing assertions before extending
   the finite future-tense pattern.
+- Observed: an explicit future auxiliary in a later independent clause could
+  previously suppress validation of an earlier marker-only or completed claim.
+  Verified by two RED examples separated by `, а затем`; future detection is
+  now bounded to the marker-and-claim clause.
 
 ## Decision Log
 
@@ -113,13 +120,14 @@ review delta also binds pace evidence to a training metric, requires an actual
 previous-session comparison object, preserves claimed sport, and keeps literal
 longitudinal HR direction separate from pairwise improvement semantics. The
 explicit-future recognizer covers every present personal form of future
-`быть`, not only third person.
+`быть`, not only third person, and does not borrow that verb from another
+clause.
 
 Validation completed on 2026-08-31:
 
-- focused gate + comparable sessions: 170 passed;
-- smoke: 2186 passed, 1 environment skip;
-- contributor-safe: 2228 passed, 3 skips, 26 deselected;
+- focused gate + comparable sessions: 172 passed;
+- smoke: 2188 passed, 1 environment skip;
+- contributor-safe: 2234 passed, 3 skips, 26 deselected;
 - Ruff, contract artifact freshness, and `git diff --check`: passed.
 
 No persistent state, API/TypeScript contract, frontend, or plan mutation was
