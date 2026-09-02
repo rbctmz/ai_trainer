@@ -3381,6 +3381,14 @@ def preview_coach_constraint_mutation(
         if goal_plan and goal_plan.get("daily_plan"):
             updated, application = apply_constraints_to_goal_plan(goal_plan, [constraint])
             if int(application.get("applied_count") or 0) > 0:
+                # Issue #529: a scoped constraint can change a day from two
+                # parent sessions to one. Stamp while the prior plan is still
+                # available so the unchanged survivor keeps its own identity,
+                # rather than inheriting the old day-level projection.
+                updated = ensure_session_identities(
+                    updated,
+                    previous_goal_plan=goal_plan,
+                )
                 updated["plan_revision"] = datetime.now().isoformat()
                 updated = with_checkpoint_provenance(
                     updated,

@@ -192,6 +192,39 @@ def _provider_indexes(
     return activity_by_external, event_by_id
 
 
+def _confirmed_replacement_ledger(
+    planned: Mapping[str, Any],
+    latest_ledger: Mapping[str, Mapping[str, Any]],
+    *,
+    predecessor_id: str,
+    current_session_ids: set[str],
+    replacement_claim_counts: Mapping[str, int],
+) -> Mapping[str, Any] | None:
+    """Resolve one unambiguous, compatible parent-session match handoff."""
+    if (
+        not predecessor_id
+        or predecessor_id in current_session_ids
+        or replacement_claim_counts.get(predecessor_id, 0) != 1
+    ):
+        return None
+    predecessor = latest_ledger.get(f"session:{predecessor_id}")
+    if not predecessor or str(predecessor.get("match_method") or "") not in {
+        "user_confirmed",
+        "admin_resolve",
+    }:
+        return None
+    if str(predecessor.get("session_date") or "")[:10] != str(planned.get("date") or "")[:10]:
+        return None
+    predecessor_sport_raw = (predecessor.get("planned_snapshot") or {}).get("sport")
+    predecessor_sport = (
+        normalize_sport_key(predecessor_sport_raw)
+        or str(predecessor_sport_raw or "").strip().lower()
+    )
+    if not predecessor_sport or predecessor_sport != str(planned.get("sport") or ""):
+        return None
+    return predecessor
+
+
 def _adherence(
     planned: Mapping[str, Any],
     *,
@@ -264,6 +297,20 @@ def build_reconciliation(
     rows: list[dict[str, Any]] = []
     templates = list(resolved_plan.get("session_templates") or [])
     parent_sessions = iter_parent_sessions(templates)
+    current_session_ids = {
+        str(entry["session"].get("session_id") or "").strip()
+        for entry in parent_sessions
+        if str(entry["session"].get("session_id") or "").strip()
+    }
+    replacement_claim_counts: dict[str, int] = {}
+    for entry in parent_sessions:
+        predecessor_id = str(
+            entry["session"].get("replaces_session_id") or ""
+        ).strip()
+        if predecessor_id:
+            replacement_claim_counts[predecessor_id] = (
+                replacement_claim_counts.get(predecessor_id, 0) + 1
+            )
     planned_signature_counts: dict[tuple[str, str], int] = {}
     for index, entry in enumerate(parent_sessions):
         planned = _planned_snapshot(entry["date"], entry["session"], entry["template"], index)
@@ -283,6 +330,17 @@ def build_reconciliation(
             continue
         target_key = f"session:{planned['session_id']}"
         ledger = latest_ledger.get(target_key)
+        if ledger is None:
+            predecessor_id = str(
+                entry["session"].get("replaces_session_id") or ""
+            ).strip()
+            ledger = _confirmed_replacement_ledger(
+                planned,
+                latest_ledger,
+                predecessor_id=predecessor_id,
+                current_session_ids=current_session_ids,
+                replacement_claim_counts=replacement_claim_counts,
+            )
         ledger_selected_ids = {
             str(value)
             for value in (ledger or {}).get("actual_activity_ids", []) or []
