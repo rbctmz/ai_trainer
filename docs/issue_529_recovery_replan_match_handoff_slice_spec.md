@@ -1,9 +1,9 @@
 # Issue #529 Slice Spec and Review
 
-- Issue / PR: #529 / pending
+- Issue / PR: #529 / pending creation
 - Author / checker / merge owner: Codex / independent checker pending / repository maintainer
 - Date: 2026-09-02
-- Candidate head SHA: pending
+- Candidate implementation SHA: `10e62fe`
 
 ## Change Class
 
@@ -27,9 +27,9 @@
 
 ## Definition of Done
 
-- [ ] Acceptance criteria are observable.
-- [ ] Required tests/checks are named.
-- [ ] Merge and cleanup owner is assigned.
+- [x] Acceptance criteria are observable.
+- [x] Required tests/checks are named.
+- [x] Merge and cleanup owner is assigned.
 
 ## Public Contracts
 
@@ -59,23 +59,23 @@
 
 | Identity | Time/provenance | Evidence state | Fallback | Expected result / falsifier |
 | --- | --- | --- | --- | --- |
-| unchanged survivor | constraint checkpoint after confirmation | current-id confirmed row present | exact current key | same id and matched; any remint falsifies writer fix |
-| valid replacement | same date and sport | predecessor confirmed row present, current row absent | one-hop allowed | current row matched; unplanned activity falsifies reader fix |
-| current id | current explicit decision | current and predecessor rows present | current wins | output follows current decision |
-| ambiguous replacement | two current parents claim one predecessor | predecessor confirmed row present | fail closed | neither silently inherits the same activity |
-| incompatible replacement | date or sport differs | predecessor confirmed row present | fail closed | predecessor activity is not inherited |
-| missing activity | valid replacement | confirmed id no longer available | existing ambiguous behavior | no fabricated match |
+| unchanged survivor | constraint checkpoint after confirmation | current-id confirmed row present | exact current key | GREEN: same id and matched |
+| valid replacement | same date and sport | predecessor confirmed row present, current row absent | one-hop allowed | GREEN: current row matched and activity claimed |
+| current id | current explicit decision | current and predecessor rows present | current wins | GREEN: current `user_unmatched` wins |
+| ambiguous replacement | two current parents claim one predecessor | predecessor confirmed row present | fail closed | GREEN: neither inherits and activity stays unplanned |
+| incompatible replacement | date or sport differs | predecessor confirmed row present | fail closed | GREEN: predecessor activity is not inherited |
+| missing activity | valid replacement | confirmed id no longer available | existing ambiguous behavior | Existing confirmed-ledger ambiguity behavior unchanged |
 
 ## RED Matrix
 
 | Acceptance criterion / invariant | RED test or probe | Expected failure | GREEN evidence |
 | --- | --- | --- | --- |
-| constraint persistence preserves survivor | temporary DB confirm bike -> create swim constraint -> restore | survivor id changes during checkpoint build | pending |
-| confirmed activity remains matched | same vertical test followed by `reconciliation_at` | unmatched plus unplanned | pending |
-| valid replacement inherits confirmed row | pure S1 -> S2 reconciliation test | S2 unmatched plus activity unplanned | pending |
-| current explicit decision wins | current and predecessor ledger rows | any predecessor override | pending |
-| ambiguous/incompatible lineage fails closed | duplicate claimant and mismatch parameterization | duplicate or wrong inherited match | pending |
-| existing behavior remains green | focused legacy contour | regression | pending |
+| constraint persistence preserves survivor | temporary DB confirm bike -> create swim constraint -> restore | RED: survivor id changed | GREEN in `test_sport_scoped_constraint_persistence_keeps_confirmed_survivor_matched` |
+| confirmed activity remains matched | same vertical test followed by `reconciliation_at` | RED: identity assertion failed before reconciliation could match | GREEN: `matched`, activity returned, not unplanned |
+| valid replacement inherits confirmed row | pure S1 -> S2 reconciliation test | RED: S2 unmatched plus activity unplanned | GREEN for `user_confirmed` and `admin_resolve` |
+| current explicit decision wins | current and predecessor ledger rows | any predecessor override | GREEN: current `user_unmatched` wins |
+| ambiguous/incompatible lineage fails closed | duplicate claimant and date/sport mismatch parameterization | duplicate or wrong inherited match | GREEN: no inheritance |
+| existing behavior remains green | focused legacy contour | regression | GREEN: 132 passed |
 
 ## ASR / ADR Traceability
 
@@ -100,20 +100,20 @@
 
 ## Evidence Bundle
 
-- Head SHA: pending
-- Changed invariants: pending final diff
-- Focused and broad tests: pending
-- CI checks/reruns/flakes: pending
-- Lifecycle/probe evidence: pre-change probes recorded in ExecPlan; final probes pending
-- Changed contracts: none expected
-- Unresolved review-thread count: pending
-- Residual risks and follow-ups: multi-hop historical lineage intentionally excluded
+- Implementation SHA: `10e62fe`
+- Changed invariants: unchanged survivor keeps parent id through sport-scoped constraint persistence; valid one-hop confirmed predecessor can supply evidence only under unambiguous same-date/sport guards; current-id ledger always wins.
+- Focused and broad tests: new module 7 passed; focused contour 132 passed; contributor-safe contour 2,241 passed, 3 skipped, 26 deselected.
+- CI checks/reruns/flakes: local Ruff and diff check green; GitHub CI pending PR.
+- Lifecycle/probe evidence: temporary DB proposal -> atomic confirmation -> checkpoint restore -> reconciliation passes; no state migration.
+- Changed contracts: no API, TypeScript, schema, configuration, or provider contract change.
+- Unresolved review-thread count: N/A before PR.
+- Residual risks and follow-ups: historical malformed checkpoint #129 is not rewritten and cannot satisfy the new valid-lineage reader guard; explicit re-confirmation or separately authorized repair is required.
 
 ## Review Findings
 
 | Severity | Evidence and falsifying check | Gate | Owner/status |
 | --- | --- | --- | --- |
-| P1 | Observed confirmed activity lost after persisted sibling constraint; pure persistence probe reproduces identity-grain crossover | writer and reader regressions must pass | Codex / in progress |
+| P1 | Observed confirmed activity lost after persisted sibling constraint; pure persistence probe reproduced identity-grain crossover | writer and reader regressions must pass | fixed-in `10e62fe`; local focused and broad evidence green |
 
 ## Native Review Rounds
 
@@ -124,9 +124,9 @@
 
 ## Final Verdict
 
-- Verdict: BLOCK until implementation and validation complete
-- Blocking findings remaining: writer and reader REDs not yet green
+- Verdict: READY FOR INDEPENDENT REVIEW; merge remains human-gated
+- Blocking findings remaining: none in self-review; GitHub CI and independent review pending
 - Review rounds used: 0
-- Accepted risk or follow-up issue: none yet
+- Accepted risk or follow-up issue: no automatic repair of historical malformed checkpoint #129; documented non-goal
 - Merge owner final gate: repository maintainer
 - Post-merge sync/branch/worktree/progress cleanup: merge owner or delegated author after explicit merge decision

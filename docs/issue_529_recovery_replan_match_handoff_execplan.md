@@ -13,11 +13,11 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
 - [x] (2026-09-02 09:47 MSK) Reproduced the production read failure against a read-only local database snapshot and separated the checkpoint source from inherited near-term-edit metadata.
 - [x] (2026-09-02 09:47 MSK) Ran the pre-change smoke baseline: 112 tests passed.
 - [x] (2026-09-02 09:47 MSK) Created this ExecPlan and the Class A slice spec.
-- [ ] Add and run the writer-path and reader-path RED regression tests.
-- [ ] Implement the minimal writer identity-preservation fix.
-- [ ] Implement the bounded reconciliation lineage fallback.
-- [ ] Run focused, smoke, contributor-safe, and lint validation.
-- [ ] Complete self-review, evidence bundle, and retrospective.
+- [x] (2026-09-02 09:54 MSK) Added the writer-path and reader-path RED regressions; two intended behavior tests failed and two fail-closed boundaries passed before product changes.
+- [x] (2026-09-02 09:58 MSK) Implemented the writer identity-preservation fix using the existing previous-plan stamping mechanism.
+- [x] (2026-09-02 09:58 MSK) Implemented the bounded reconciliation lineage fallback with current-id precedence and ambiguity/date/sport guards.
+- [x] (2026-09-02 10:03 MSK) Ran the 132-test focused contour, the 2,244-selected contributor-safe contour, full Ruff, and `git diff --check`; all required checks passed.
+- [x] (2026-09-02 10:06 MSK) Completed self-review, removed an accidental additive DTO field before final validation, and recorded the evidence bundle and retrospective.
 
 ## Surprises & Discoveries
 
@@ -32,6 +32,10 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
 - **Observed**: `build_reconciliation` indexes the ledger only by `session:<current session_id>` and globally reserves all activities selected by confirmed rows.
   **Inferred**: even a valid one-hop parent-session replacement cannot consult the predecessor match, and the reservation then prevents heuristic recovery. The cheapest falsifying check was a synthetic current session with `replaces_session_id` and one stored confirmed predecessor match.
   **Verified by**: the pre-change probe returned `match_status=unmatched`, no actual activity ids, and the confirmed activity in `unplanned_activities`.
+
+- **Observed**: the first GREEN implementation carried `replaces_session_id` in `_planned_snapshot`, whose fields are spread directly into every public reconciliation row.
+  **Inferred**: leaving that internal field there would create an unnecessary additive DTO change despite the issue declaring API contracts unchanged. The cheapest falsifying check was to trace `_planned_snapshot` to the row construction and inspect the diff.
+  **Verified by**: self-review confirmed the spread and the field was removed; the resolver now receives the predecessor id separately from `entry["session"]`. Focused and broad tests remained green.
 
 ## Decision Log
 
@@ -53,7 +57,11 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
 
 ## Outcomes & Retrospective
 
-Implementation is in progress. At completion this section will state the exact tests, changed invariants, remaining limitations, and whether issue #529's acceptance criteria are fully met.
+The writer now canonicalizes a sport-scoped constraint result against its exact previous plan before checkpoint serialization. A `2 -> 1` day transition therefore preserves the unchanged parent id and its exact match target. Reconciliation now consults a confirmed one-hop predecessor only when the current id has no decision, exactly one current parent owns that predecessor, the predecessor is no longer active, and date and sport agree.
+
+Seven new tests cover the persisted constraint vertical, `user_confirmed`, `admin_resolve`, current-id precedence, date mismatch, sport mismatch, and ambiguous claimant failure. The focused contour passed 132 tests. The contributor-safe run passed 2,241 tests, skipped 3 environment-dependent tests, and deselected 26 live/debug/e2e tests. Ruff and whitespace validation passed.
+
+The change adds no schema, persistent row, provider call, API field, or backfill. Existing checkpoint #129 remains historical malformed lineage and is intentionally not rewritten; its athlete-visible state requires an explicit current-id confirmation or separately authorized historical repair. This limitation is recorded rather than hidden because issue scope forbids automatic backfill and historical multi-hop reconstruction.
 
 ## Context and Orientation
 
@@ -85,9 +93,9 @@ Create the RED tests and run:
 
     ai_trainer_env/bin/python -m pytest -q tests/smoke/test_issue_529_match_handoff.py
 
-The new writer and valid-lineage tests must fail before product code changes for the expected identity or unmatched assertions, not because of fixture setup.
+The new writer and valid-lineage tests failed before product code changes for the expected identity and unmatched assertions, not because of fixture setup. The RED run reported two failed and two passed tests before the boundary matrix was expanded to seven tests.
 
-After the writer slice, rerun the writer test and expect it to pass. After the reader slice, rerun the whole new module and expect all tests to pass.
+After both slices, the whole new module reports seven passed tests.
 
 Run the focused regression contour:
 
@@ -137,10 +145,26 @@ Pre-change reader probe:
     actual_activity_ids = []
     is_unplanned = true
 
+RED test transcript:
+
+    2 failed, 2 passed in 0.47s
+
+Final focused transcript:
+
+    132 passed in 2.56s
+
+Final contributor-safe transcript:
+
+    2241 passed, 3 skipped, 26 deselected, 3 warnings in 67.97s
+
+The warnings are existing FastAPI/Pydantic deprecations. The skipped tests require a local listening socket or the optional `garth` package and are unrelated to this change.
+
 ## Interfaces and Dependencies
 
 No new dependency is allowed. Reuse `models.session_identity.ensure_session_identities`, `models.plan_actual_reconciliation.build_reconciliation`, `models.coach_constraints.apply_constraints_to_goal_plan`, and the existing `Database` temporary-file test pattern.
 
-The public signature of `build_reconciliation` remains unchanged. An internal planned snapshot may add `replaces_session_id`. The reconciliation result continues to expose the current `session_id` and `target_key`; inherited ledger provenance must not make the output pretend that the historical target is current.
+The public signature and result shape of `build_reconciliation` remain unchanged. The resolver reads `replaces_session_id` directly from the current parent session without adding it to the public planned snapshot. The reconciliation result continues to expose the current `session_id` and `target_key`; inherited ledger provenance must not make the output pretend that the historical target is current.
 
 Revision note (2026-09-02): Initial ExecPlan created after the read-only production evidence disproved the issue's original recovery-replan attribution and identified the sport-scoped constraint checkpoint boundary.
+
+Revision note (2026-09-02): Updated after RED/GREEN implementation, self-review, and broad validation; recorded the unchanged public DTO and the explicit no-backfill limitation for historical checkpoint #129.
