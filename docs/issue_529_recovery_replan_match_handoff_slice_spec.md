@@ -1,6 +1,6 @@
 # Issue #529 Slice Spec and Review
 
-- Issue / PR: #529 / pending creation
+- Issue / PR: #529 / #530
 - Author / checker / merge owner: Codex / independent checker pending / repository maintainer
 - Date: 2026-09-02
 - Candidate implementation SHA: `10e62fe`
@@ -103,7 +103,7 @@
 - Implementation SHA: `10e62fe`
 - Changed invariants: unchanged survivor keeps parent id through sport-scoped constraint persistence; valid one-hop confirmed predecessor can supply evidence only under unambiguous same-date/sport guards; current-id ledger always wins.
 - Focused and broad tests: new module 7 passed; focused contour 132 passed; contributor-safe contour 2,241 passed, 3 skipped, 26 deselected.
-- CI checks/reruns/flakes: local Ruff and diff check green; GitHub CI pending PR.
+- CI checks/reruns/flakes: local Ruff and diff check green; GitHub CI pending on PR #530.
 - Lifecycle/probe evidence: temporary DB proposal -> atomic confirmation -> checkpoint restore -> reconciliation passes; no state migration.
 - Changed contracts: no API, TypeScript, schema, configuration, or provider contract change.
 - Unresolved review-thread count: N/A before PR.

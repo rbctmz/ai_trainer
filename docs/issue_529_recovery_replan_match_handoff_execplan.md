@@ -18,6 +18,7 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
 - [x] (2026-09-02 09:58 MSK) Implemented the bounded reconciliation lineage fallback with current-id precedence and ambiguity/date/sport guards.
 - [x] (2026-09-02 10:03 MSK) Ran the 132-test focused contour, the 2,244-selected contributor-safe contour, full Ruff, and `git diff --check`; all required checks passed.
 - [x] (2026-09-02 10:06 MSK) Completed self-review, removed an accidental additive DTO field before final validation, and recorded the evidence bundle and retrospective.
+- [x] (2026-09-02 10:12 MSK) Pushed `codex/issue-529-match-handoff` and opened PR #530 against `main`; CI and independent review remain human-gated delivery steps.
 
 ## Surprises & Discoveries
 
@@ -168,3 +169,5 @@ The public signature and result shape of `build_reconciliation` remain unchanged
 Revision note (2026-09-02): Initial ExecPlan created after the read-only production evidence disproved the issue's original recovery-replan attribution and identified the sport-scoped constraint checkpoint boundary.
 
 Revision note (2026-09-02): Updated after RED/GREEN implementation, self-review, and broad validation; recorded the unchanged public DTO and the explicit no-backfill limitation for historical checkpoint #129.
+
+Revision note (2026-09-02): Linked the completed implementation and evidence to PR #530 after publishing the branch.
