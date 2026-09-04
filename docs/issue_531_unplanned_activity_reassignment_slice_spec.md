@@ -46,7 +46,7 @@
 - Rollback procedure and proof: revert scoped commits; no migration or data rewrite is required.
 - [x] Does this add **new persistent state**? No new state kind; it appends an existing match row only after explicit confirmation.
 - [x] Does **full reset** remove every row/artifact/cursor introduced here? Existing full database reset already removes match rows; no new artifact.
-- [ ] Restart and partial-failure recovery are covered by the temporary-DB retry and failure probes.
+- [x] Restart and partial-failure recovery are covered by the temporary-DB retry and failure probes.
 
 ## State Boundaries and Identity
 
@@ -77,8 +77,8 @@
 | active owner cannot be stolen | active target fixture | already green characterization | must remain green |
 | grouped match moves atomically | select subset of two ids | RED: generic conflict instead of bounded group guard | GREEN: explicit complete-group error, no row |
 | multiple owners fail closed | two stale rows selected together | RED: generic conflict instead of multi-owner guard | GREEN: explicit multi-owner error, no row |
-| web exposes exact correction | source-level UI contract | RED: `UnplannedMatchControl` absent | pending |
-| no same-date target is explained | source-level UI contract | RED: list is display-only | pending |
+| web exposes exact correction | source-level UI contract | RED: `UnplannedMatchControl` absent | GREEN: exact activity id plus target and role selectors present |
+| no same-date target is explained | source-level UI contract | RED: list is display-only | GREEN: explicit no-eligible-target message |
 
 ## ASR / ADR Traceability
 
@@ -105,7 +105,7 @@
 
 - Head SHA: pending
 - Changed invariants: pending
-- Focused and broad tests: backend contour 59 passed; web and broad contours pending.
+- Focused and broad tests: issue module 6 passed; backend contour 59 passed; web lint/build and contract freshness passed; broad Python contour pending.
 - CI checks/reruns/flakes: pending
 - Lifecycle/probe evidence: initial backup probe and sanitized RED fixture reproduced existing conflict; RED `5 failed, 1 passed`; final temporary fixture pending.
 - Changed contracts: user-visible web action only; DTO/schema unchanged.
@@ -117,7 +117,7 @@
 | Severity | Evidence and falsifying check | Gate | Owner/status |
 | --- | --- | --- | --- |
 | P1 | Explicit same-date correction is blocked by an inactive historical reservation; reproduced on a SQLite backup | backend RED→GREEN plus active-conflict boundary | fixed locally; 59-test backend contour green |
-| P2 | Top-level unplanned activities have no correction action; verified in `web/app/planning/page.tsx` | web contract and build | open / Codex |
+| P2 | Top-level unplanned activities have no correction action; verified in `web/app/planning/page.tsx` | web contract and build | fixed locally; issue UI test, lint, and build green |
 
 ## Native Review Rounds
 

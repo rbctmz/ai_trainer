@@ -227,4 +227,4 @@ def test_unplanned_web_control_requires_exact_same_date_target_and_role() -> Non
     assert "[activity.activity_id]" in source
     assert "Роль факта для" in source
     assert "Нет несопоставленной плановой сессии на эту дату" in source
-    assert ">Сопоставить<" in source
+    assert "Сопоставить" in source

@@ -136,6 +136,84 @@ function ConfirmMatchControl({
   );
 }
 
+function UnplannedMatchControl({
+  activity,
+  rows,
+  busy,
+  onConfirm,
+}: {
+  activity: ReconResponse["unplanned_activities"][number];
+  rows: ReconResponse["rows"];
+  busy: boolean;
+  onConfirm: (
+    row: ReconResponse["rows"][number],
+    role: string,
+    activityIds: string[],
+  ) => void;
+}) {
+  const eligibleRows = rows.filter(
+    (row) =>
+      row.date === activity.date &&
+      row.match_status !== "matched" &&
+      row.actual_activity_ids.length === 0,
+  );
+  const [targetSessionId, setTargetSessionId] = useState("");
+  const [role, setRole] = useState("");
+  const target = eligibleRows.find((row) => row.session_id === targetSessionId);
+
+  if (eligibleRows.length === 0) {
+    return (
+      <div className="mt-1 text-[11px] text-ink-faint">
+        Нет несопоставленной плановой сессии на эту дату
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      <select
+        value={targetSessionId}
+        onChange={(event) => {
+          setTargetSessionId(event.target.value);
+          setRole("");
+        }}
+        disabled={busy}
+        aria-label={`Плановая сессия для ${activity.name}`}
+        className="max-w-xs rounded border border-surface-border bg-surface px-1.5 py-1 text-[11px] text-ink disabled:opacity-40"
+      >
+        <option value="">Выберите плановую сессию…</option>
+        {eligibleRows.map((row) => (
+          <option key={row.session_id} value={row.session_id}>
+            {row.name} · {row.sport} · {row.role}
+          </option>
+        ))}
+      </select>
+      <select
+        value={role}
+        onChange={(event) => setRole(event.target.value)}
+        disabled={busy || !target}
+        aria-label={`Роль факта для ${activity.name}`}
+        className="rounded border border-surface-border bg-surface px-1.5 py-1 text-[11px] text-ink disabled:opacity-40"
+      >
+        <option value="">Роль факта…</option>
+        {ACTUAL_ROLE_OPTIONS.map((option) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={() => target && onConfirm(target, role, [activity.activity_id])}
+        disabled={busy || !target || !role}
+        className="rounded border border-tone-success/30 px-2 py-1 text-[11px] text-tone-success disabled:opacity-40"
+      >
+        Сопоставить
+      </button>
+    </div>
+  );
+}
+
 export default function PlanningPage() {
   const { data: status } = useSWR<PlanningStatus>("/api/planning/status", fetcher);
   const { data: overview, error: overviewError } = useSWR<PlanningOverview>(
@@ -1434,9 +1512,19 @@ function AdjustMode({
               Вне плана: {data.metrics?.unplanned_tss ?? 0} TSS — учитывается в нагрузке
             </div>
             <ul className="mt-1 space-y-0.5 text-xs text-ink-soft">
-              {data.unplanned_activities.map((item, index) => (
-                <li key={index}>
-                  {item.date.slice(5)} · {item.name} · {item.sport} · {item.tss} TSS
+              {data.unplanned_activities.map((item) => (
+                <li key={item.activity_id}>
+                  <div>
+                    {item.date.slice(5)} · {item.name} · {item.sport} · {item.tss} TSS
+                  </div>
+                  <UnplannedMatchControl
+                    activity={item}
+                    rows={data.rows}
+                    busy={busy}
+                    onConfirm={(row, role, ids) =>
+                      resolveMatch(row, "confirm", role, ids)
+                    }
+                  />
                 </li>
               ))}
             </ul>

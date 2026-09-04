@@ -15,8 +15,8 @@ The production-shaped acceptance case is a 2026-08-31 bike activity with 51.8 TS
 - [x] (2026-09-04 12:43 MSK) Created this ExecPlan and the Class A slice spec.
 - [x] (2026-09-04 12:47 MSK) Added backend and web contract RED tests on sanitized temporary fixtures; the intended pre-change run reported five failures and one active-owner boundary pass.
 - [x] (2026-09-04 12:54 MSK) Implemented bounded inactive-target reassignment and semantic retry idempotency in the existing match endpoint; the 59-test backend contour passed.
-- [ ] Implement the `/planning` “Сопоставить” control for unplanned activities.
-- [ ] Run focused, contract, web, broad, and lint validation; complete self-review.
+- [x] (2026-09-04 13:01 MSK) Implemented the `/planning` “Сопоставить” control with same-date unmatched target filtering and mandatory actual-role selection.
+- [ ] Run focused, contract, web, broad, and lint validation; completed so far: issue module 6 passed, web lint/build and contract freshness passed; broad validation and self-review remain.
 - [ ] Publish a PR and obtain one consolidated independent review without merging.
 
 ## Surprises & Discoveries
@@ -120,6 +120,13 @@ Backend GREEN transcript:
 
     59 passed, 1 deselected in 3.15s
 
+Web slice transcript:
+
+    6 passed in 0.50s
+    next lint: no warnings or errors
+    next build: compiled, typed, and generated 15 static pages
+    extract-contract --check: artifact current
+
 ## Interfaces and Dependencies
 
 No dependency, schema, request field, response field, configuration, or provider call is added. `record_plan_actual_match` keeps its signature. The existing `MatchCorrectionRequest` and `ReconResponse` contracts remain compatible. The only persistent effect is one ordinary append-only `plan_actual_matches` row whose `supersedes_match_id` points to the reassignable stale owner.
@@ -129,3 +136,5 @@ Revision note (2026-09-04): Initial ExecPlan created after issue #531 and the te
 Revision note (2026-09-04): Recorded the five-failure RED run and the already-green active-owner fail-closed boundary before product implementation.
 
 Revision note (2026-09-04): Recorded the bounded backend reassignment, retry behavior, and the compatibility correction found by the focused regression contour.
+
+Revision note (2026-09-04): Recorded the same-date web correction flow and successful issue-module, lint, build, and contract-freshness checks.
