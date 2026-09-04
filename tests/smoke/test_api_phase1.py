@@ -191,6 +191,56 @@ def test_coach_chat_done_event_reports_first_token_ms(tmp_path, monkeypatch):
     assert done_event["first_token_ms"] >= 0
 
 
+def test_coach_chat_rejects_empty_final_without_persisting_success(
+    tmp_path,
+    monkeypatch,
+):
+    from config.settings import Settings
+    from models.chat_manager import ChatManager
+
+    monkeypatch.setattr(Settings, "CHATS_DIR", str(tmp_path / "chats"), raising=False)
+
+    from api.routers import coach as coach_mod
+
+    provider = object()
+    monkeypatch.setattr(coach_mod, "resolve_provider", lambda _ptype=None: provider)
+    monkeypatch.setattr(coach_mod, "supports_streaming", lambda _provider: True)
+    monkeypatch.setattr(
+        coach_mod,
+        "resolve_turn_tool_results",
+        lambda **_kwargs: {
+            "rendered_response": "",
+            "tool_results": [
+                {
+                    "tool_name": "get_performance_metrics",
+                    "success": True,
+                    "raw_result": {"ctl": 30.8},
+                    "formatted_result": "CTL 30.8",
+                }
+            ],
+            "native": True,
+        },
+    )
+    monkeypatch.setattr(coach_mod, "stream_tokens", lambda *_args, **_kwargs: iter(()))
+
+    db = Database(str(tmp_path / "empty_final.db"))
+    response = coach_mod.coach_chat(
+        coach_mod.ChatRequest(message="Дай брифинг"),
+        db,
+    )
+    events = _events(response)
+
+    assert [event["type"] for event in events] == ["meta", "tool_call", "error"]
+    assert "пустой ответ" in events[-1]["message"]
+    assert not [event for event in events if event["type"] == "token"]
+    assert not [event for event in events if event["type"] == "done"]
+
+    chat_id = events[0]["chat_id"]
+    saved_messages = ChatManager().get_chat_messages(chat_id)
+    assert [message["role"] for message in saved_messages] == ["user"]
+    assert db.get_coach_decisions(days=30) == []
+
+
 def test_coach_chat_synthesizes_final_answer_after_tools(tmp_path, monkeypatch):
     from config.settings import Settings
 
