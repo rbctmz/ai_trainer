@@ -17,7 +17,7 @@ The production-shaped acceptance case is a 2026-08-31 bike activity with 51.8 TS
 - [x] (2026-09-04 12:54 MSK) Implemented bounded inactive-target reassignment and semantic retry idempotency in the existing match endpoint; the 59-test backend contour passed.
 - [x] (2026-09-04 13:01 MSK) Implemented the `/planning` “Сопоставить” control with same-date unmatched target filtering and mandatory actual-role selection.
 - [x] (2026-09-04 13:13 MSK) Ran focused, contract, web, broad, and lint validation; completed self-review with no open correctness finding.
-- [ ] Publish a PR and obtain one consolidated independent review without merging; completed: PR #532 opened at head `9114360`, review pending.
+- [ ] Publish a PR and obtain bounded independent review without merging; completed: PR #532 opened, round one at head `1cd7f2d` reported two P1 findings and one blocking P2, and four focused review regressions now reproduce the three failure modes.
 
 ## Surprises & Discoveries
 
@@ -32,6 +32,14 @@ The production-shaped acceptance case is a 2026-08-31 bike activity with 51.8 TS
 - **Observed**: the first backend GREEN returned a new validation message for an existing current-target-plus-unrelated-owner regression that expects the established `already matched` contract.
   **Inferred**: stale-owner classification was correct, but changing the error vocabulary would be an unnecessary compatibility regression. The cheapest falsifier was the existing focused API planning test.
   **Verified by**: `test_user_match_correction_appends_ledger_and_changes_reconciliation` failed on the message mismatch; retaining the established phrase restored the 59-test contour.
+
+- **Observed**: two concurrent corrections for different current targets can both classify the same inactive owner as reassignable before either append is committed, leaving two effective successors and making activity lookup ambiguous.
+  **Inferred**: service-level validation is not a concurrency boundary; the predecessor-successor condition must be checked inside the writer's `BEGIN IMMEDIATE` transaction.
+  **Verified by**: a barrier-controlled two-thread regression produced two successful rows from the same predecessor instead of one success and one conflict.
+
+- **Observed**: an identical semantic retry returns before recovery refresh, and a delayed confirm retry after a later unmatch has no stable request identity independent of the mutable predecessor.
+  **Inferred**: retry recovery must replay the best-effort derived-state refresh, while transport idempotency needs a caller-supplied action id that remains stable across ledger evolution.
+  **Verified by**: focused regressions observed zero refresh calls after a simulated post-commit response failure and reproduced a delayed confirm that reversed a later unmatch.
 
 ## Decision Log
 
@@ -50,6 +58,10 @@ The production-shaped acceptance case is a 2026-08-31 bike activity with 51.8 TS
 - Decision: Treat a byte-equivalent repeated confirmation against the same active checkpoint as an idempotent retry and return the latest current row.
   Rationale: once the first correction links the stale owner, recalculating the fingerprint against that new predecessor would otherwise append an unnecessary revision on retry.
   Date/Author: 2026-09-04 / Codex.
+
+- Decision: Add an optional bounded `client_request_id` to the existing correction request and guard stale-owner successor creation atomically in the database writer.
+  Rationale: a stable action id distinguishes a delayed transport replay from a later deliberate confirmation, while the transactional guard prevents two targets from consuming the same historical predecessor.
+  Date/Author: 2026-09-04 / Codex after native review round one.
 
 ## Outcomes & Retrospective
 
@@ -151,7 +163,7 @@ Production-shaped temporary-copy acceptance:
 
 ## Interfaces and Dependencies
 
-No dependency, schema, request field, response field, configuration, or provider call is added. `record_plan_actual_match` keeps its signature. The existing `MatchCorrectionRequest` and `ReconResponse` contracts remain compatible. The only persistent effect is one ordinary append-only `plan_actual_matches` row whose `supersedes_match_id` points to the reassignable stale owner.
+No dependency, schema, response field, configuration, or provider call is added. `MatchCorrectionRequest` gains one optional bounded `client_request_id`; callers that omit it retain the existing semantic-retry behavior. `ReconResponse` remains unchanged. The only persistent effect is one ordinary append-only `plan_actual_matches` row whose `supersedes_match_id` points to the reassignable stale owner.
 
 Revision note (2026-09-04): Initial ExecPlan created after issue #531 and the temporary-database falsifier established that both backend conflict classification and web reachability are required.
 
@@ -164,3 +176,5 @@ Revision note (2026-09-04): Recorded the same-date web correction flow and succe
 Revision note (2026-09-04): Recorded final focused/broad validation, browser acceptance, self-review, and the production-shaped temporary-copy outcome.
 
 Revision note (2026-09-04): Linked the published implementation to PR #532; independent review and final-head CI remain pending.
+
+Revision note (2026-09-04): Recorded native review round-one findings and the four-test RED slice covering atomic successor ownership, recovery refresh on retry, stable delayed-retry identity, and web request wiring.

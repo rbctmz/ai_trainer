@@ -1,7 +1,9 @@
 """Regression coverage for issue #531 explicit unplanned activity correction."""
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Barrier
 
 import pytest
 
@@ -218,6 +220,138 @@ def test_multiple_inactive_historical_owners_fail_closed(tmp_path) -> None:
         )
 
 
+def test_concurrent_reassignment_allows_only_one_stale_match_successor(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db, plan, checkpoint_id = _current_db(
+        tmp_path,
+        _session("bike", "quality", 60.0),
+        _session("bike", "easy", 30.0),
+    )
+    target_ids = _session_ids(plan)
+    db.save_activities([_activity()])
+    stale = _save_stale_match(db, checkpoint_id)
+    original_save = db.save_plan_actual_match
+    before_save = Barrier(2)
+
+    def synchronized_save(payload, **kwargs):
+        before_save.wait(timeout=5)
+        return original_save(payload, **kwargs)
+
+    monkeypatch.setattr(db, "save_plan_actual_match", synchronized_save)
+
+    def assign(target_id: str):
+        try:
+            return record_plan_actual_match(
+                db,
+                base_checkpoint_id=checkpoint_id,
+                session_id=target_id,
+                activity_ids=[ACTIVITY_ID],
+                actual_role="quality",
+                action="confirm",
+            )
+        except ValueError as exc:
+            return exc
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(assign, target_ids))
+
+    successes = [item for item in results if isinstance(item, dict)]
+    conflicts = [item for item in results if isinstance(item, ValueError)]
+    assert len(successes) == 1
+    assert len(conflicts) == 1
+    assert successes[0]["supersedes_match_id"] == stale["id"]
+    effective = db.get_plan_actual_match_for_activity(ACTIVITY_ID)
+    assert effective is not None
+    assert effective["id"] == successes[0]["id"]
+
+
+def test_idempotent_retry_repairs_post_commit_recovery_refresh(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    from services import recovery_analytics
+
+    db, plan, checkpoint_id = _current_db(tmp_path)
+    current_session_id = _session_ids(plan)[0]
+    db.save_activities([_activity()])
+    _save_stale_match(db, checkpoint_id)
+    refresh_calls = []
+    monkeypatch.setattr(
+        recovery_analytics,
+        "refresh_recovery_episodes_best_effort",
+        lambda _db, *, as_of=None, target_session_ids=None: refresh_calls.append(
+            (as_of, target_session_ids)
+        )
+        or {"created": 0},
+    )
+    original_save = db.save_plan_actual_match
+
+    def commit_then_raise(payload, **kwargs):
+        original_save(payload, **kwargs)
+        raise RuntimeError("simulated response failure after match commit")
+
+    monkeypatch.setattr(db, "save_plan_actual_match", commit_then_raise)
+    request = {
+        "base_checkpoint_id": checkpoint_id,
+        "session_id": current_session_id,
+        "activity_ids": [ACTIVITY_ID],
+        "actual_role": "quality",
+        "action": "confirm",
+    }
+    with pytest.raises(RuntimeError, match="after match commit"):
+        record_plan_actual_match(db, **request)
+    assert refresh_calls == []
+
+    monkeypatch.setattr(db, "save_plan_actual_match", original_save)
+    retry = record_plan_actual_match(db, **request)
+
+    assert retry["match_status"] == "matched"
+    assert len(refresh_calls) == 1
+    assert refresh_calls[0][1] == [current_session_id]
+
+
+def test_delayed_confirm_retry_does_not_reverse_later_unmatch(tmp_path) -> None:
+    db, plan, checkpoint_id = _current_db(tmp_path)
+    current_session_id = _session_ids(plan)[0]
+    db.save_activities([_activity()])
+    _save_stale_match(db, checkpoint_id)
+    confirm_request = {
+        "base_checkpoint_id": checkpoint_id,
+        "session_id": current_session_id,
+        "activity_ids": [ACTIVITY_ID],
+        "actual_role": "quality",
+        "action": "confirm",
+        "client_request_id": "issue-531-delayed-confirm",
+    }
+    confirmed = record_plan_actual_match(db, **confirm_request)
+    unmatched = record_plan_actual_match(
+        db,
+        base_checkpoint_id=checkpoint_id,
+        session_id=current_session_id,
+        activity_ids=[],
+        actual_role=None,
+        action="unmatch",
+        client_request_id="issue-531-later-unmatch",
+    )
+
+    retry = record_plan_actual_match(db, **confirm_request)
+
+    assert retry["id"] == confirmed["id"]
+    latest = next(
+        row
+        for row in db.get_latest_plan_actual_matches(
+            start_date=DAY_ISO,
+            end_date=DAY_ISO,
+        )
+        if row["target_key"] == f"session:{current_session_id}"
+    )
+    assert latest["id"] == unmatched["id"]
+    assert latest["match_method"] == "user_unmatched"
+    assert db.get_plan_actual_match_for_activity(ACTIVITY_ID) is None
+
+
 def test_unplanned_web_control_requires_exact_same_date_target_and_role() -> None:
     source = Path("web/app/planning/page.tsx").read_text(encoding="utf-8")
 
@@ -226,5 +360,6 @@ def test_unplanned_web_control_requires_exact_same_date_target_and_role() -> Non
     assert 'row.match_status !== "matched"' in source
     assert "[activity.activity_id]" in source
     assert "Роль факта для" in source
+    assert "client_request_id" in source
     assert "Нет несопоставленной плановой сессии на эту дату" in source
     assert "Сопоставить" in source

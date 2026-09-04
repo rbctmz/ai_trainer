@@ -3,14 +3,14 @@
 - Issue / PR: #531 / #532
 - Author / checker / merge owner: Codex / independent reviewer pending / repository maintainer
 - Date: 2026-09-04
-- Candidate head SHA: `9114360`
+- Candidate head SHA: `1cd7f2d` plus local round-one RED tests
 
 ## Change Class
 
 - Class: A
 - Rationale: append-only match identity/provenance semantics and a user-triggered persistent correction change.
 - Automatic escalation triggers checked: identity/provenance and persistence semantics.
-- Review budget used: 0 / 2 rounds
+- Review budget used: 1 / 2 rounds
 - Review trigger mode: manual
 - Review acceptance head SHA: pending
 - Review budget exception: N/A
@@ -33,7 +33,7 @@
 
 ## Public Contracts
 
-- API request/response DTO: unchanged; existing `POST /api/planning/reconciliation/matches` is reused.
+- API request/response DTO: compatible extension; existing `POST /api/planning/reconciliation/matches` gains optional bounded `client_request_id` and is reused.
 - TypeScript DTO: unchanged; existing `ReconResponse` fields are sufficient.
 - Database schema: unchanged; one append-only ordinary match revision is added per successful correction.
 - User-visible web contract: changed compatibly by adding “Сопоставить” to eligible unplanned activities and a no-target explanation otherwise.
@@ -42,7 +42,7 @@
 ## Failure, Reset, Rollback, Idempotency
 
 - Failure modes and safe result: active owner, partial grouped move, multiple inactive owners, cross-date activity, missing activity, missing current session, or stale checkpoint fails closed without a row.
-- Retry/idempotency key and duplicate behavior: existing payload fingerprint and target revision behavior; identical retry resolves to the existing row.
+- Retry/idempotency key and duplicate behavior: an optional client action id produces a fingerprint independent of mutable ledger predecessors; callers without it retain semantic retry behavior. Identical transport retry resolves to the original row and replays best-effort recovery refresh.
 - Rollback procedure and proof: revert scoped commits; no migration or data rewrite is required.
 - [x] Does this add **new persistent state**? No new state kind; it appends an existing match row only after explicit confirmation.
 - [x] Does **full reset** remove every row/artifact/cursor introduced here? Existing full database reset already removes match rows; no new artifact.
@@ -53,7 +53,7 @@
 - Source of truth and owner: the active checkpoint owns current parent-session ids; the match ledger owns immutable user evidence.
 - Stable identity/provenance keys: current `session:<session_id>`, stale row primary id, and `supersedes_match_id`.
 - Cursor/checkpoint lifecycle: request must name the latest checkpoint; history is never rewritten.
-- Concurrency and stale-write behavior: existing checkpoint mismatch remains 409; match conflicts are re-evaluated immediately before append under the current service contract.
+- Concurrency and stale-write behavior: existing checkpoint mismatch remains 409; stale-owner successor availability is re-evaluated inside the writer's `BEGIN IMMEDIATE` transaction.
 
 ## Evidence Boundary Matrix
 
@@ -79,6 +79,9 @@
 | multiple owners fail closed | two stale rows selected together | RED: generic conflict instead of multi-owner guard | GREEN: explicit multi-owner error, no row |
 | web exposes exact correction | source-level UI contract | RED: `UnplannedMatchControl` absent | GREEN: exact activity id plus target and role selectors present |
 | no same-date target is explained | source-level UI contract | RED: list is display-only | GREEN: explicit no-eligible-target message |
+| stale owner has one successor | barrier-controlled concurrent writers | RED: both targets append a child | GREEN: one append and one conflict |
+| partial-failure retry repairs derived state | commit-then-raise writer probe | RED: semantic retry skips refresh | GREEN: retry refreshes recovery episodes |
+| delayed transport retry is inert | confirm, unmatch, replay same action id | RED: replay appends a new match | GREEN: replay returns original confirmation and latest remains unmatched |
 
 ## ASR / ADR Traceability
 
@@ -103,7 +106,7 @@
 
 ## Evidence Bundle
 
-- Head SHA: `9114360`
+- Head SHA: `1cd7f2d` before round-one fixes
 - Changed invariants: pending
 - Focused and broad tests: issue module 6 passed; focused contour 114 passed; contributor-safe contour 2,250 passed, 3 skipped, 26 deselected; Ruff, web lint/build, contract freshness, and diff check passed.
 - CI checks/reruns/flakes: pending
@@ -118,19 +121,22 @@
 | --- | --- | --- | --- |
 | P1 | Explicit same-date correction is blocked by an inactive historical reservation; reproduced on a SQLite backup | backend RED→GREEN plus active-conflict boundary | fixed locally; 59-test backend contour green |
 | P2 | Top-level unplanned activities have no correction action; verified in `web/app/planning/page.tsx` | web contract and build | fixed locally; issue UI test, lint, and build green |
+| P1 | Concurrent stale-owner reassignment can append two successors and make effective activity ownership ambiguous | barrier-controlled two-writer regression | open; RED reproduces two successes |
+| P2 blocking | Idempotent semantic retry skips best-effort recovery refresh after a post-commit response failure | commit-then-raise retry regression | open; RED observes zero refresh calls |
+| P1 | Delayed confirm retry can reverse a later explicit unmatch because retry identity depends on the current predecessor | stable action-id regression | open; RED lacks `client_request_id` support |
 
 ## Native Review Rounds
 
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
-| 1 | pending | manual | pending | continue / stop |
+| 1 | `1cd7f2d` | consolidated full-diff | two P1 and one blocking P2 reproduced with focused RED tests | continue with one coordinated fix and scoped delta review |
 | 2 | pending | verification | pending | stop / exception rationale |
 
 ## Final Verdict
 
-- Verdict: BLOCK only on independent review and final-head CI
-- Blocking findings remaining: none in local self-review; review/CI pending
-- Review rounds used: 0
+- Verdict: BLOCK on reproduced round-one findings and final-head CI
+- Blocking findings remaining: atomic successor ownership, retry refresh recovery, and stable delayed-retry identity
+- Review rounds used: 1
 - Accepted risk or follow-up issue: none yet
 - Merge owner final gate: repository maintainer
 - Post-merge sync/branch/worktree/progress cleanup: only after explicit merge decision
