@@ -2484,33 +2484,63 @@ class Database:
     def get_plan_actual_match_for_activity(self, activity_id):
         """Resolve the latest plan-actual match that includes ``activity_id`` (#383).
 
-        ``actual_activity_ids_json`` is a JSON array; we look up the latest
-        revision whose array contains the activity. Returns the deserialised
-        match dict (with ``planned_snapshot``), or ``None``.
+        ``actual_activity_ids_json`` is a JSON array. Cross-target replacement
+        revisions may supersede a predecessor that selected the same activity,
+        so resolve only effective append-only lineage leaves. Returns the one
+        unambiguous matched leaf (with ``planned_snapshot``), or ``None``.
         """
         conn = self._connect()
         cursor = conn.cursor()
         cursor.execute(
             '''
-            SELECT pam.*
-            FROM plan_actual_matches pam
-            JOIN (
-                SELECT target_key, MAX(revision) AS revision
-                FROM plan_actual_matches
-                GROUP BY target_key
-            ) latest
-              ON latest.target_key = pam.target_key AND latest.revision = pam.revision
-            WHERE EXISTS (
-                SELECT 1 FROM json_each(pam.actual_activity_ids_json)
-                WHERE json_each.value = ?
+            WITH RECURSIVE latest_rows AS (
+                SELECT pam.*
+                FROM plan_actual_matches pam
+                JOIN (
+                    SELECT target_key, MAX(revision) AS revision
+                    FROM plan_actual_matches
+                    GROUP BY target_key
+                ) latest
+                  ON latest.target_key = pam.target_key
+                 AND latest.revision = pam.revision
+            ),
+            lineage(leaf_id, ancestor_id, depth) AS (
+                SELECT id, supersedes_match_id, 1
+                FROM latest_rows
+                WHERE supersedes_match_id IS NOT NULL
+                UNION ALL
+                SELECT lineage.leaf_id, parent.supersedes_match_id, lineage.depth + 1
+                FROM lineage
+                JOIN plan_actual_matches parent ON parent.id = lineage.ancestor_id
+                WHERE parent.supersedes_match_id IS NOT NULL
+                  AND lineage.depth < 100
+            ),
+            effective_leaves AS (
+                SELECT latest_rows.*
+                FROM latest_rows
+                WHERE NOT EXISTS (
+                    SELECT 1
+                    FROM lineage
+                    WHERE lineage.ancestor_id = latest_rows.id
+                )
             )
-            LIMIT 1
+            SELECT *
+            FROM effective_leaves
+            WHERE match_status = 'matched'
+              AND EXISTS (
+                SELECT 1 FROM json_each(effective_leaves.actual_activity_ids_json)
+                WHERE json_each.value = ?
+              )
+            ORDER BY id DESC
+            LIMIT 2
             ''',
             (str(activity_id),),
         )
-        row = cursor.fetchone()
+        rows = cursor.fetchall()
         conn.close()
-        return self._deserialize_plan_actual_match(row)
+        if len(rows) != 1:
+            return None
+        return self._deserialize_plan_actual_match(rows[0])
 
     def get_latest_plan_actual_match_for_session(self, session_id):
         """Return the newest immutable match revision for one session identity."""
