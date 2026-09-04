@@ -314,6 +314,7 @@ def test_current_replacement_decision_can_reselect_predecessor_activity(tmp_path
         action="unmatch",
     )
     assert unmatched["supersedes_match_id"] == predecessor["id"]
+    assert db.get_plan_actual_match_for_activity(ACTIVITY_ID) is None
 
     reconciliation = build_reconciliation(
         current,
@@ -345,6 +346,10 @@ def test_current_replacement_decision_can_reselect_predecessor_activity(tmp_path
     assert saved["match_status"] == "matched"
     assert saved["actual_activity_ids"] == [ACTIVITY_ID]
     assert saved["supersedes_match_id"] == unmatched["id"]
+    activity_match = db.get_plan_actual_match_for_activity(ACTIVITY_ID)
+    assert activity_match is not None
+    assert activity_match["id"] == saved["id"]
+    assert activity_match["session_id"] == new_id
 
 
 def test_inherited_revision_reaches_feedback_and_recovery_evidence(tmp_path) -> None:
