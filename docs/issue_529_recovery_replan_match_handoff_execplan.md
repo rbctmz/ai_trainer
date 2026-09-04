@@ -21,6 +21,7 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
 - [x] (2026-09-02 10:12 MSK) Pushed `codex/issue-529-match-handoff` and opened PR #530 against `main`; CI and independent review remain human-gated delivery steps.
 - [x] (2026-09-04 12:01 MSK) Reproduced all three native-review P2 findings with six failing assertions across admin resolution, predecessor reservation, writer conflict, and downstream revision provenance.
 - [x] (2026-09-04 12:01 MSK) Fixed the review findings in `ce815d1`, preserved byte-equivalent public reconciliation responses, and passed 214 focused plus 2,244 contributor-safe tests.
+- [x] (2026-09-04 12:12 MSK) Reproduced the final scoped-review P2 in the activity-card ledger lookup, fixed effective lineage-leaf resolution in `612bb29`, and passed 235 focused plus 2,244 contributor-safe tests. The two-round review budget is exhausted.
 
 ## Surprises & Discoveries
 
@@ -52,6 +53,10 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
   **Inferred**: provenance must cross the internal feedback/recovery boundary without changing the public reconciliation DTO. The falsifying check was the full contributor-safe suite.
   **Verified by**: feedback prompt/evidence and recovery materialization now resolve the same guarded predecessor revision internally; the targeted provenance test passes and all four byte-equivalence tests remain green.
 
+- **Observed**: after cross-target unmatch/reselect, `get_plan_actual_match_for_activity` saw both latest target rows and used unordered `LIMIT 1`, returning the predecessor to the activity card.
+  **Inferred**: reservation shadowing alone did not retire stale activity-card evidence. The falsifying check queried the production reader both after the current unmatch and after current re-confirmation.
+  **Verified by**: the pre-fix reader returned the predecessor after unmatch; it now resolves effective append-only lineage leaves, returns no match after unmatch, and returns the current confirmation after reselect.
+
 ## Decision Log
 
 - Decision: Treat checkpoint #129's `checkpoint_source` as the authoritative mutation provenance and treat `near_term_edit.origin_kind` as inherited historical context.
@@ -78,6 +83,10 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
   Rationale: the immutable revision remains auditable without changing the byte-equivalent public API contract.
   Date/Author: 2026-09-04 / Codex.
 
+- Decision: Activity lookup resolves one unambiguous effective lineage leaf and fails closed for zero or multiple leaves.
+  Rationale: an unordered target-local latest row can be stale after cross-target supersession; the activity card must not display predecessor plan evidence.
+  Date/Author: 2026-09-04 / Codex.
+
 - Decision: Preserve all existing `plan_actual_matches` rows and add no migration or backfill.
   Rationale: the ledger is append-only evidence. Read-time resolution and correct future identity stamping are sufficient.
   Date/Author: 2026-09-02 / Codex.
@@ -86,7 +95,7 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
 
 The writer now canonicalizes a sport-scoped constraint result against its exact previous plan before checkpoint serialization. A `2 -> 1` day transition therefore preserves the unchanged parent id and its exact match target. Reconciliation now consults a confirmed one-hop predecessor only when the current id has no decision, exactly one current parent owns that predecessor, the predecessor is no longer active, and date and sport agree.
 
-Ten new tests cover the persisted constraint vertical, matched and unmatched administrative decisions, current-id precedence and re-selection, immutable revision propagation into feedback and recovery, date mismatch, sport mismatch, and ambiguous claimant failure. The review-focused contour passed 214 tests. The contributor-safe run passed 2,244 tests, skipped 3 environment-dependent tests, and deselected 26 live/debug/e2e tests. Ruff, byte-equivalence, and whitespace validation passed.
+Ten new tests cover the persisted constraint vertical, matched and unmatched administrative decisions, current-id precedence and re-selection, activity-card lineage leaves, immutable revision propagation into feedback and recovery, date mismatch, sport mismatch, and ambiguous claimant failure. The final review-focused contour passed 235 tests. The contributor-safe run passed 2,244 tests, skipped 3 environment-dependent tests, and deselected 26 live/debug/e2e tests. Ruff, byte-equivalence, and whitespace validation passed.
 
 The change adds no schema, persistent row, provider call, API field, or backfill. Existing checkpoint #129 remains historical malformed lineage and is intentionally not rewritten; its athlete-visible state requires an explicit current-id confirmation or separately authorized historical repair. This limitation is recorded rather than hidden because issue scope forbids automatic backfill and historical multi-hop reconstruction.
 
@@ -196,6 +205,18 @@ Native-review contributor-safe transcript:
 
     2244 passed, 3 skipped, 26 deselected, 3 warnings in 69.10s
 
+Final scoped-review RED transcript:
+
+    1 failed in 0.53s
+
+Final scoped-review focused transcript:
+
+    235 passed in 5.88s
+
+Final contributor-safe transcript after the DB reader fix:
+
+    2244 passed, 3 skipped, 26 deselected, 3 warnings in 68.55s
+
 The warnings are existing FastAPI/Pydantic deprecations. The skipped tests require a local listening socket or the optional `garth` package and are unrelated to this change.
 
 ## Interfaces and Dependencies
@@ -211,3 +232,5 @@ Revision note (2026-09-02): Updated after RED/GREEN implementation, self-review,
 Revision note (2026-09-02): Linked the completed implementation and evidence to PR #530 after publishing the branch.
 
 Revision note (2026-09-04): Addressed all three round-one P2 findings at `ce815d1`; retained the public DTO after a byte-equivalence falsifier and moved immutable revision resolution into internal consumers.
+
+Revision note (2026-09-04): Addressed the one round-two P2 at `612bb29` by resolving effective match lineage leaves for activity-card lookup; no third review requested because the two-round budget is a hard stop.

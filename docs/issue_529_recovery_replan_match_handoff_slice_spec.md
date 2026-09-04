@@ -3,14 +3,14 @@
 - Issue / PR: #529 / #530
 - Author / checker / merge owner: Codex / native Codex review / repository maintainer
 - Date: 2026-09-02; review update 2026-09-04
-- Candidate implementation SHA: `ce815d1`
+- Candidate implementation SHA: `612bb29`
 
 ## Change Class
 
 - Class: A
 - Rationale: parent-session identity, checkpoint provenance, and append-only reconciliation semantics change.
 - Automatic escalation triggers checked: identity/provenance and persistence semantics.
-- Review budget used: 1 round
+- Review budget used: 2 rounds (hard limit reached)
 - Review trigger mode: manual
 - Review acceptance head SHA: pending
 - Review budget exception: N/A
@@ -18,7 +18,7 @@
 ## Scope
 
 - Behavior that changes: a parent session unchanged by removal of a sibling keeps its id through coach-constraint persistence; reconciliation can inherit an explicit confirmed match through one valid parent-session replacement; a current explicit decision retires the predecessor reservation; feedback and recovery retain the immutable predecessor revision.
-- Files/modules in scope: `api/planning_service.py`, `api/session_feedback.py`, `models/plan_actual_reconciliation.py`, `services/recovery_analytics.py`, focused smoke tests, this spec, and the ExecPlan.
+- Files/modules in scope: `api/planning_service.py`, `api/session_feedback.py`, `data/database.py`, `models/plan_actual_reconciliation.py`, `services/recovery_analytics.py`, focused smoke tests, this spec, and the ExecPlan.
 
 ## Non-goals
 
@@ -68,6 +68,7 @@
 | administrative clearing | valid replacement | predecessor is `admin_resolve`/`unmatched` with no activity | no inheritance | GREEN: normal current heuristic remains available |
 | current re-selection | valid replacement | predecessor confirmed, current explicitly unmatched | predecessor reservation shadowed | GREEN: candidate visible and current confirmation succeeds |
 | downstream provenance | valid replacement | predecessor has immutable revision id | internal guarded lookup | GREEN: feedback and recovery retain predecessor revision without DTO change |
+| activity card after current decision | predecessor and current target share history | current leaf unmatched or re-confirmed | effective lineage leaf | GREEN: no stale predecessor after unmatch; current revision after reselect |
 
 ## RED Matrix
 
@@ -83,6 +84,7 @@
 | current decision retires predecessor reservation | unmatch then reselect through production writer | RED: no candidate and writer conflict | GREEN: candidate visible; confirm succeeds with linked lineage |
 | downstream evidence keeps revision | feedback prompt/evidence and targeted recovery probe | RED: revision was `None` | GREEN: predecessor revision id retained internally |
 | public DTO remains byte-equivalent | reconciliation migration hashes | RED during first review fix: four digest mismatches | GREEN after internal-only provenance resolution |
+| activity card does not use stale predecessor | production activity match reader after unmatch/reselect | RED: unordered lookup returned predecessor | GREEN: effective leaf is none/current respectively |
 
 ## ASR / ADR Traceability
 
@@ -111,12 +113,18 @@
    - Refactor/contract refresh: no public row field; byte-equivalence preserved.
    - Verification: 214 focused tests and full contributor-safe contour.
 
+4. Final scoped-review activity lookup:
+   - RED: production reader returned the predecessor after a cross-target unmatch.
+   - GREEN: recursive append-only lineage eliminates superseded latest-per-target rows and returns one unambiguous matched leaf.
+   - Refactor/contract refresh: no schema or DTO change.
+   - Verification: 235 focused tests and full contributor-safe contour; no third review by hard budget.
+
 ## Evidence Bundle
 
-- Implementation SHA: `ce815d1`
+- Implementation SHA: `612bb29`
 - Changed invariants: unchanged survivor keeps parent id through sport-scoped constraint persistence; valid one-hop matched predecessor can supply evidence only under unambiguous same-date/sport guards; current-id ledger always wins and retires the predecessor reservation; internal feedback/recovery evidence retains immutable revision lineage.
-- Focused and broad tests: new module 10 passed; focused contour 214 passed; contributor-safe contour 2,244 passed, 3 skipped, 26 deselected.
-- CI checks/reruns/flakes: local Ruff, byte-equivalence, and diff check green; GitHub delta CI pending on PR #530.
+- Focused and broad tests: new module 10 passed; final focused contour 235 passed; contributor-safe contour 2,244 passed, 3 skipped, 26 deselected.
+- CI checks/reruns/flakes: local Ruff, byte-equivalence, and diff check green; GitHub CI pending for final head on PR #530.
 - Lifecycle/probe evidence: temporary DB proposal -> atomic confirmation -> checkpoint restore -> reconciliation passes; no state migration.
 - Changed contracts: no API, TypeScript, schema, configuration, or provider contract change.
 - Unresolved review-thread count: N/A before PR.
@@ -130,19 +138,20 @@
 | P2 | `admin_resolve`/`unmatched` predecessor was inherited by method alone and suppressed current heuristic matching | require `matched` plus selected activities | fixed-in `ce815d1`; unmatched-admin regression green |
 | P2 | predecessor activity stayed reserved and blocked current unmatch/reselect | shadow only a valid unique predecessor after current decision; preserve other conflicts | fixed-in `ce815d1`; production writer regression green |
 | P2 | inherited revision id was absent from feedback and recovery evidence | carry immutable revision internally without changing public DTO | fixed-in `ce815d1`; prompt, feedback, recovery, and byte-equivalence regressions green |
+| P2 | activity-card lookup could return the predecessor after current reselect | resolve the unique effective append-only lineage leaf | fixed-in `612bb29`; unmatch/reselect production-reader regression green |
 
 ## Native Review Rounds
 
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
 | 1 | `9cdf3e1` | manual `@codex review` | three P2; all reproduced and fixed in `ce815d1` | request one scoped delta review |
-| 2 | `ce815d1` pending | scoped verification since `9cdf3e1` | pending | hard stop after disposition |
+| 2 | `28f6057` | scoped verification since `9cdf3e1` | one P2 reproduced and fixed in `612bb29` | hard stop; no third review |
 
 ## Final Verdict
 
-- Verdict: READY FOR SCOPED DELTA REVIEW; merge remains human-gated
-- Blocking findings remaining: round-one findings fixed locally; delta review and GitHub CI pending
-- Review rounds used: 1
+- Verdict: READY FOR REVIEW ACCEPTANCE after final-head CI; merge remains human-gated
+- Blocking findings remaining: none after local reproduction/fix; GitHub CI pending for final head
+- Review rounds used: 2 (hard limit reached)
 - Accepted risk or follow-up issue: no automatic repair of historical malformed checkpoint #129; documented non-goal
 - Merge owner final gate: repository maintainer
 - Post-merge sync/branch/worktree/progress cleanup: merge owner or delegated author after explicit merge decision
