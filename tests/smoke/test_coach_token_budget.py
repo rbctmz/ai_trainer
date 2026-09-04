@@ -78,6 +78,22 @@ def test_stream_tokens_uses_configured_response_cap(monkeypatch):
 
     assert "".join(chunks) == "Привет мир"
     assert provider.client.completions.kwargs["max_tokens"] == 1800
+    assert "extra_body" not in provider.client.completions.kwargs
+
+
+def test_stream_tokens_disables_thinking_for_deepseek(monkeypatch):
+    monkeypatch.setattr(Settings, "AI_RESPONSE_MAX_TOKENS", 1800, raising=False)
+    provider = DeepSeekProvider(api_key=None, settings=Settings)
+    provider.client = _DummyStreamingClient()
+    provider.api_key = "test"
+    provider.model = "deepseek-v4-flash"
+
+    chunks = list(stream_tokens(provider, "Сформируй итоговый ответ"))
+
+    assert "".join(chunks) == "Привет мир"
+    assert provider.client.completions.kwargs["extra_body"] == {
+        "thinking": {"type": "disabled"}
+    }
 
 
 def test_deepseek_provider_uses_configured_response_cap(monkeypatch):
