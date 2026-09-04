@@ -72,11 +72,11 @@
 
 | Acceptance criterion / invariant | RED test or probe | Expected failure | GREEN evidence |
 | --- | --- | --- | --- |
-| inactive reservation can move | production writer on temporary DB | RED: existing `already matched` ValueError | pending |
-| effective leaf becomes current | activity lookup after reassignment | RED: blocked before row exists | pending |
+| inactive reservation can move | production writer on temporary DB | RED: existing `already matched` ValueError | GREEN: current row supersedes the inactive owner |
+| effective leaf becomes current | activity lookup after reassignment | RED: blocked before row exists | GREEN: lookup returns only the current row |
 | active owner cannot be stolen | active target fixture | already green characterization | must remain green |
-| grouped match moves atomically | select subset of two ids | RED: generic conflict instead of bounded group guard | pending guard |
-| multiple owners fail closed | two stale rows selected together | RED: generic conflict instead of multi-owner guard | pending guard |
+| grouped match moves atomically | select subset of two ids | RED: generic conflict instead of bounded group guard | GREEN: explicit complete-group error, no row |
+| multiple owners fail closed | two stale rows selected together | RED: generic conflict instead of multi-owner guard | GREEN: explicit multi-owner error, no row |
 | web exposes exact correction | source-level UI contract | RED: `UnplannedMatchControl` absent | pending |
 | no same-date target is explained | source-level UI contract | RED: list is display-only | pending |
 
@@ -105,7 +105,7 @@
 
 - Head SHA: pending
 - Changed invariants: pending
-- Focused and broad tests: pending
+- Focused and broad tests: backend contour 59 passed; web and broad contours pending.
 - CI checks/reruns/flakes: pending
 - Lifecycle/probe evidence: initial backup probe and sanitized RED fixture reproduced existing conflict; RED `5 failed, 1 passed`; final temporary fixture pending.
 - Changed contracts: user-visible web action only; DTO/schema unchanged.
@@ -116,7 +116,7 @@
 
 | Severity | Evidence and falsifying check | Gate | Owner/status |
 | --- | --- | --- | --- |
-| P1 | Explicit same-date correction is blocked by an inactive historical reservation; reproduced on a SQLite backup | backend RED→GREEN plus active-conflict boundary | open / Codex |
+| P1 | Explicit same-date correction is blocked by an inactive historical reservation; reproduced on a SQLite backup | backend RED→GREEN plus active-conflict boundary | fixed locally; 59-test backend contour green |
 | P2 | Top-level unplanned activities have no correction action; verified in `web/app/planning/page.tsx` | web contract and build | open / Codex |
 
 ## Native Review Rounds

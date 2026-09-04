@@ -14,7 +14,7 @@ The production-shaped acceptance case is a 2026-08-31 bike activity with 51.8 TS
 - [x] (2026-09-04 12:39 MSK) Reproduced the backend rejection on a SQLite backup: explicit current-target confirmation raised `one or more activities are already matched to another planned session`.
 - [x] (2026-09-04 12:43 MSK) Created this ExecPlan and the Class A slice spec.
 - [x] (2026-09-04 12:47 MSK) Added backend and web contract RED tests on sanitized temporary fixtures; the intended pre-change run reported five failures and one active-owner boundary pass.
-- [ ] Implement bounded inactive-target reassignment in the existing match endpoint.
+- [x] (2026-09-04 12:54 MSK) Implemented bounded inactive-target reassignment and semantic retry idempotency in the existing match endpoint; the 59-test backend contour passed.
 - [ ] Implement the `/planning` “Сопоставить” control for unplanned activities.
 - [ ] Run focused, contract, web, broad, and lint validation; complete self-review.
 - [ ] Publish a PR and obtain one consolidated independent review without merging.
@@ -28,6 +28,10 @@ The production-shaped acceptance case is a 2026-08-31 bike activity with 51.8 TS
 - **Observed**: the old match target is the checkpoint-128 nested bike id `ats_f6987bb48aa48bb99bae7cd2`, while the current checkpoint-132 parent is `ats_9f00d3bdbda089e1a6159b30` and names only day-level predecessor `ats_ed3deb7cb9dcace65d7840d5`.
   **Inferred**: #530's bounded one-hop resolver correctly cannot infer this cross-grain historical chain. A current explicit user correction needs a separate stale-owner rule rather than broader automatic inheritance.
   **Verified by**: read-only SQLite JSON queries showed the distinct nested, day-level, and current ids; checkpoint 132 predates merge commit `5ed37bd`.
+
+- **Observed**: the first backend GREEN returned a new validation message for an existing current-target-plus-unrelated-owner regression that expects the established `already matched` contract.
+  **Inferred**: stale-owner classification was correct, but changing the error vocabulary would be an unnecessary compatibility regression. The cheapest falsifier was the existing focused API planning test.
+  **Verified by**: `test_user_match_correction_appends_ledger_and_changes_reconciliation` failed on the message mismatch; retaining the established phrase restored the 59-test contour.
 
 ## Decision Log
 
@@ -112,6 +116,10 @@ RED test transcript:
 
 The happy path and retry failed on the existing generic conflict. The partial-group and multiple-owner tests reached the same generic conflict instead of their new bounded guards. The web test failed because `UnplannedMatchControl` did not exist. The active current-session conflict already passed and is a characterization boundary that must stay green.
 
+Backend GREEN transcript:
+
+    59 passed, 1 deselected in 3.15s
+
 ## Interfaces and Dependencies
 
 No dependency, schema, request field, response field, configuration, or provider call is added. `record_plan_actual_match` keeps its signature. The existing `MatchCorrectionRequest` and `ReconResponse` contracts remain compatible. The only persistent effect is one ordinary append-only `plan_actual_matches` row whose `supersedes_match_id` points to the reassignable stale owner.
@@ -119,3 +127,5 @@ No dependency, schema, request field, response field, configuration, or provider
 Revision note (2026-09-04): Initial ExecPlan created after issue #531 and the temporary-database falsifier established that both backend conflict classification and web reachability are required.
 
 Revision note (2026-09-04): Recorded the five-failure RED run and the already-green active-owner fail-closed boundary before product implementation.
+
+Revision note (2026-09-04): Recorded the bounded backend reassignment, retry behavior, and the compatibility correction found by the focused regression contour.
