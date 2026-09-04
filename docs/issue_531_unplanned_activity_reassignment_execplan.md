@@ -17,7 +17,7 @@ The production-shaped acceptance case is a 2026-08-31 bike activity with 51.8 TS
 - [x] (2026-09-04 12:54 MSK) Implemented bounded inactive-target reassignment and semantic retry idempotency in the existing match endpoint; the 59-test backend contour passed.
 - [x] (2026-09-04 13:01 MSK) Implemented the `/planning` “Сопоставить” control with same-date unmatched target filtering and mandatory actual-role selection.
 - [x] (2026-09-04 13:13 MSK) Ran focused, contract, web, broad, and lint validation; completed self-review with no open correctness finding.
-- [ ] Publish a PR and obtain one consolidated independent review without merging.
+- [ ] Publish a PR and obtain one consolidated independent review without merging; completed: PR #532 opened at head `9114360`, review pending.
 
 ## Surprises & Discoveries
 
@@ -162,3 +162,5 @@ Revision note (2026-09-04): Recorded the bounded backend reassignment, retry beh
 Revision note (2026-09-04): Recorded the same-date web correction flow and successful issue-module, lint, build, and contract-freshness checks.
 
 Revision note (2026-09-04): Recorded final focused/broad validation, browser acceptance, self-review, and the production-shaped temporary-copy outcome.
+
+Revision note (2026-09-04): Linked the published implementation to PR #532; independent review and final-head CI remain pending.

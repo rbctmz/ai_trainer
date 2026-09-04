@@ -1,9 +1,9 @@
 # Issue #531 Slice Spec and Review
 
-- Issue / PR: #531 / pending
+- Issue / PR: #531 / #532
 - Author / checker / merge owner: Codex / independent reviewer pending / repository maintainer
 - Date: 2026-09-04
-- Candidate head SHA: pending
+- Candidate head SHA: `9114360`
 
 ## Change Class
 
@@ -103,7 +103,7 @@
 
 ## Evidence Bundle
 
-- Head SHA: pending
+- Head SHA: `9114360`
 - Changed invariants: pending
 - Focused and broad tests: issue module 6 passed; focused contour 114 passed; contributor-safe contour 2,250 passed, 3 skipped, 26 deselected; Ruff, web lint/build, contract freshness, and diff check passed.
 - CI checks/reruns/flakes: pending
