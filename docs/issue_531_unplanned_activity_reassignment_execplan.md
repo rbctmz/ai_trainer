@@ -16,7 +16,7 @@ The production-shaped acceptance case is a 2026-08-31 bike activity with 51.8 TS
 - [x] (2026-09-04 12:47 MSK) Added backend and web contract RED tests on sanitized temporary fixtures; the intended pre-change run reported five failures and one active-owner boundary pass.
 - [x] (2026-09-04 12:54 MSK) Implemented bounded inactive-target reassignment and semantic retry idempotency in the existing match endpoint; the 59-test backend contour passed.
 - [x] (2026-09-04 13:01 MSK) Implemented the `/planning` “Сопоставить” control with same-date unmatched target filtering and mandatory actual-role selection.
-- [ ] Run focused, contract, web, broad, and lint validation; completed so far: issue module 6 passed, web lint/build and contract freshness passed; broad validation and self-review remain.
+- [x] (2026-09-04 13:13 MSK) Ran focused, contract, web, broad, and lint validation; completed self-review with no open correctness finding.
 - [ ] Publish a PR and obtain one consolidated independent review without merging.
 
 ## Surprises & Discoveries
@@ -47,9 +47,15 @@ The production-shaped acceptance case is a 2026-08-31 bike activity with 51.8 TS
   Rationale: the request already names the current session, exact activity ids, actual role, action, and base checkpoint. Only the server-side conflict classification and web reachability are missing.
   Date/Author: 2026-09-04 / Codex.
 
+- Decision: Treat a byte-equivalent repeated confirmation against the same active checkpoint as an idempotent retry and return the latest current row.
+  Rationale: once the first correction links the stale owner, recalculating the fingerprint against that new predecessor would otherwise append an unnecessary revision on retry.
+  Date/Author: 2026-09-04 / Codex.
+
 ## Outcomes & Retrospective
 
-Implementation is not complete. The intended outcome is a current-target append-only confirmation reachable from the web UI, with no checkpoint rewrite, schema migration, automatic backfill, cross-date match, or Streamlit change.
+The current-target append-only correction is implemented and reachable from the web UI. A production-shaped temporary copy changed the reproduced 2026-08-31 result from `2/6`, 33% coverage, and 142.3 unplanned TSS to `3/6`, 50% coverage, and 90.5 unplanned TSS while preserving historical row 33 as the new row's predecessor. The implementation adds no checkpoint rewrite, schema migration, automatic backfill, cross-date match, provider call, or Streamlit change.
+
+The web acceptance showed one enabled correction surface only for the 2026-08-31 activity. The 2026-08-29 and 2026-09-02 items showed the explicit no-eligible-session explanation. Confirmation was not clicked against the live database. Remaining delivery work is PR publication and independent review; merge remains a human decision.
 
 ## Context and Orientation
 
@@ -127,6 +133,22 @@ Web slice transcript:
     next build: compiled, typed, and generated 15 static pages
     extract-contract --check: artifact current
 
+Final focused and broad transcripts:
+
+    114 passed in 4.48s
+    2250 passed, 3 skipped, 26 deselected, 3 warnings in 71.20s
+    ruff: all checks passed
+    git diff --check: passed
+
+Production-shaped temporary-copy acceptance:
+
+    supersedes_match_id = 33
+    match_status = matched
+    activity_ids = [24182468727]
+    matched_count = 3
+    coverage = 0.5
+    unplanned_tss = 90.5
+
 ## Interfaces and Dependencies
 
 No dependency, schema, request field, response field, configuration, or provider call is added. `record_plan_actual_match` keeps its signature. The existing `MatchCorrectionRequest` and `ReconResponse` contracts remain compatible. The only persistent effect is one ordinary append-only `plan_actual_matches` row whose `supersedes_match_id` points to the reassignable stale owner.
@@ -138,3 +160,5 @@ Revision note (2026-09-04): Recorded the five-failure RED run and the already-gr
 Revision note (2026-09-04): Recorded the bounded backend reassignment, retry behavior, and the compatibility correction found by the focused regression contour.
 
 Revision note (2026-09-04): Recorded the same-date web correction flow and successful issue-module, lint, build, and contract-freshness checks.
+
+Revision note (2026-09-04): Recorded final focused/broad validation, browser acceptance, self-review, and the production-shaped temporary-copy outcome.

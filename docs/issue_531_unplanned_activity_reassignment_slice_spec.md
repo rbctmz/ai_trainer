@@ -82,7 +82,7 @@
 
 ## ASR / ADR Traceability
 
-- ASRs affected from `docs/architecture/asr_catalog.md`: ASR-REL-1 and ASR-REL-2.
+- ASRs affected from `docs/architecture/asr_catalog.md`: ASR-REL-1 and ASR-REL-2; ASR-REL-1 verification now names the #531 regression module.
 - ADRs reused or required: ADR-0001 web-first boundary and ADR-0006 append-only planning versions; no new ADR.
 - Tactic and trade-off: explicit state resynchronization with bounded stale-owner classification; fail closed rather than infer multi-hop identity.
 - New architecture boundary discovered during review: pending.
@@ -105,12 +105,12 @@
 
 - Head SHA: pending
 - Changed invariants: pending
-- Focused and broad tests: issue module 6 passed; backend contour 59 passed; web lint/build and contract freshness passed; broad Python contour pending.
+- Focused and broad tests: issue module 6 passed; focused contour 114 passed; contributor-safe contour 2,250 passed, 3 skipped, 26 deselected; Ruff, web lint/build, contract freshness, and diff check passed.
 - CI checks/reruns/flakes: pending
-- Lifecycle/probe evidence: initial backup probe and sanitized RED fixture reproduced existing conflict; RED `5 failed, 1 passed`; final temporary fixture pending.
+- Lifecycle/probe evidence: initial backup probe and sanitized RED fixture reproduced existing conflict; RED `5 failed, 1 passed`; final production-shaped temporary copy produced current match, lineage predecessor 33, 3/6 coverage, and 90.5 unplanned TSS.
 - Changed contracts: user-visible web action only; DTO/schema unchanged.
 - Unresolved review-thread count: N/A before PR.
-- Residual risks and follow-ups: historical multi-hop identity remains intentionally non-automatic.
+- Residual risks and follow-ups: historical multi-hop identity remains intentionally non-automatic; grouped historical matches require complete-group reassignment and are not exposed by this single-activity UI.
 
 ## Review Findings
 
@@ -128,8 +128,8 @@
 
 ## Final Verdict
 
-- Verdict: BLOCK until implementation, validation, and review complete
-- Blocking findings remaining: backend historical reservation and missing web action
+- Verdict: BLOCK only on independent review and final-head CI
+- Blocking findings remaining: none in local self-review; review/CI pending
 - Review rounds used: 0
 - Accepted risk or follow-up issue: none yet
 - Merge owner final gate: repository maintainer
