@@ -138,6 +138,37 @@ def test_bike_metric_prefers_normalized_power_with_named_fallback() -> None:
     assert fallback_metric["delta"] == 4.0
 
 
+def test_comparable_session_projects_same_session_heart_rate_evidence() -> None:
+    target_activity = _activity("target", "2026-08-24")
+    candidate_activity = _activity("candidate", "2026-08-01")
+    target_activity["avg_hr"] = 135.0
+    candidate_activity["avg_hr"] = 142.0
+    target = project_activity_features(
+        target_activity,
+        stimulus_family="threshold",
+        intervals=_intervals(4),
+    )
+    candidate = project_activity_features(
+        candidate_activity,
+        stimulus_family="threshold",
+        intervals=_intervals(4),
+    )
+
+    result = select_comparable_session(target, [candidate])
+
+    assert target["heart_rate"] == {
+        "kind": "heart_rate_bpm",
+        "value": 135.0,
+        "source": "average_heart_rate",
+    }
+    assert result["comparison"]["heart_rate"] == {
+        "kind": "heart_rate_bpm",
+        "target": {"value": 135.0, "source": "average_heart_rate"},
+        "comparator": {"value": 142.0, "source": "average_heart_rate"},
+        "delta": -7.0,
+    }
+
+
 @pytest.mark.parametrize(
     ("sport", "distance_km", "duration", "threshold", "kind", "pace"),
     [

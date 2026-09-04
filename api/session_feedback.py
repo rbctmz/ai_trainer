@@ -7,7 +7,12 @@ from typing import Any, Mapping
 
 from api.planning_service import reconciliation_at
 from data.database import Database
-from models.plan_actual_reconciliation import MATCH_RULE_VERSION, find_planned_session
+from models.plan_actual_reconciliation import (
+    MATCH_RULE_VERSION,
+    find_planned_session,
+    iter_parent_sessions,
+    resolve_confirmed_replacement_ledger,
+)
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.post_workout_feedback import (
     EVALUATION_RULE_VERSION,
@@ -579,7 +584,59 @@ def _match_revision_id_for_prompt(
         ),
         None,
     )
-    return (match_revision or {}).get("id")
+    if match_revision is not None:
+        return match_revision.get("id")
+    checkpoint = db.get_latest_planning_checkpoint()
+    goal_plan = restore_goal_plan_from_checkpoint(checkpoint) or {}
+    _day_template, session = find_planned_session(
+        goal_plan.get("session_templates") or [], session_id
+    )
+    return _replacement_match_revision_id(
+        goal_plan,
+        session=session,
+        session_date=session_date,
+        ledger_rows=matches,
+    )
+
+
+def _replacement_match_revision_id(
+    goal_plan: Mapping[str, Any],
+    *,
+    session: Mapping[str, Any] | None,
+    session_date: str,
+    ledger_rows: list[Mapping[str, Any]],
+) -> Any:
+    """Resolve one valid predecessor revision without changing public rows."""
+    if session is None:
+        return None
+    parent_sessions = iter_parent_sessions(goal_plan.get("session_templates") or [])
+    current_session_ids = {
+        str(entry["session"].get("session_id") or "").strip()
+        for entry in parent_sessions
+        if str(entry["session"].get("session_id") or "").strip()
+    }
+    replacement_claim_counts: dict[str, int] = {}
+    for entry in parent_sessions:
+        predecessor_id = str(
+            entry["session"].get("replaces_session_id") or ""
+        ).strip()
+        if predecessor_id:
+            replacement_claim_counts[predecessor_id] = (
+                replacement_claim_counts.get(predecessor_id, 0) + 1
+            )
+    predecessor_id = str(session.get("replaces_session_id") or "").strip()
+    predecessor = resolve_confirmed_replacement_ledger(
+        {"date": session_date, "sport": session.get("sport")},
+        {
+            str(item.get("target_key") or ""): item
+            for item in ledger_rows
+            if item.get("target_key")
+        },
+        predecessor_id=predecessor_id,
+        current_session_ids=current_session_ids,
+        replacement_claim_counts=replacement_claim_counts,
+    )
+    return (predecessor or {}).get("id")
 
 
 def _feedback_evidence_for_session(
@@ -696,10 +753,18 @@ def _feedback_evidence_for_session(
         ),
         None,
     )
+    match_revision_id = (match_revision or {}).get("id")
+    if match_revision_id is None:
+        match_revision_id = _replacement_match_revision_id(
+            goal_plan,
+            session=template,
+            session_date=session_date_text,
+            ledger_rows=ledger_rows,
+        )
     return {
         "row": row,
         "template": template,
-        "match_revision_id": (match_revision or {}).get("id"),
+        "match_revision_id": match_revision_id,
     }
 
 
