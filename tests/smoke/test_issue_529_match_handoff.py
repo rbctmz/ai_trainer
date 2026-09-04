@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 import pytest
 
@@ -109,8 +109,10 @@ def _confirmed_ledger(
     sport: str = "bike",
     session_date: str = DAY_ISO,
     match_method: str = "user_confirmed",
+    match_revision_id: int = 41,
 ) -> dict:
     return {
+        "id": match_revision_id,
         "fingerprint": f"issue-529-confirmed-{session_id}",
         "target_key": f"session:{session_id}",
         "session_id": session_id,
@@ -261,6 +263,134 @@ def test_current_session_ledger_wins_over_confirmed_predecessor() -> None:
     assert row["match_method"] == "user_unmatched"
     assert row["match_status"] == "unmatched"
     assert row["actual_activity_ids"] == []
+    assert [item["activity_id"] for item in row["candidate_activities"]] == [
+        ACTIVITY_ID
+    ]
+
+
+def test_unmatched_admin_predecessor_does_not_suppress_heuristic_match() -> None:
+    current, old_id, new_id = _replacement_plan()
+    admin_cleared = {
+        **_confirmed_ledger(old_id, match_method="admin_resolve"),
+        "match_status": "unmatched",
+        "actual_activity_ids": [],
+        "actual_snapshot": {},
+    }
+
+    result = build_reconciliation(
+        current,
+        [_activity()],
+        as_of=DAY,
+        weeks=1,
+        base_checkpoint_id=2,
+        ledger_rows=[admin_cleared],
+    )
+
+    row = next(item for item in result["rows"] if item["session_id"] == new_id)
+    assert row["match_status"] == "matched"
+    assert row["match_method"] == "date_sport_heuristic"
+    assert row["actual_activity_ids"] == [ACTIVITY_ID]
+
+
+def test_current_replacement_decision_can_reselect_predecessor_activity(tmp_path) -> None:
+    from api.planning_service import record_plan_actual_match
+
+    db = Database(str(tmp_path / "issue-529-reselect.db"))
+    current, old_id, new_id = _replacement_plan()
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(current))
+    db.save_activities([_activity()])
+    predecessor = db.save_plan_actual_match(
+        {
+            **_confirmed_ledger(old_id),
+            "base_checkpoint_id": int(checkpoint["id"]),
+        }
+    )
+    unmatched = record_plan_actual_match(
+        db,
+        base_checkpoint_id=int(checkpoint["id"]),
+        session_id=new_id,
+        activity_ids=[],
+        actual_role=None,
+        action="unmatch",
+    )
+    assert unmatched["supersedes_match_id"] == predecessor["id"]
+
+    reconciliation = build_reconciliation(
+        current,
+        [_activity()],
+        as_of=DAY,
+        weeks=1,
+        base_checkpoint_id=int(checkpoint["id"]),
+        ledger_rows=db.get_latest_plan_actual_matches(
+            start_date=DAY_ISO,
+            end_date=DAY_ISO,
+        ),
+    )
+    row = next(
+        item for item in reconciliation["rows"] if item["session_id"] == new_id
+    )
+    assert [item["activity_id"] for item in row["candidate_activities"]] == [
+        ACTIVITY_ID
+    ]
+
+    saved = record_plan_actual_match(
+        db,
+        base_checkpoint_id=int(checkpoint["id"]),
+        session_id=new_id,
+        activity_ids=[ACTIVITY_ID],
+        actual_role="quality",
+        action="confirm",
+    )
+
+    assert saved["match_status"] == "matched"
+    assert saved["actual_activity_ids"] == [ACTIVITY_ID]
+    assert saved["supersedes_match_id"] == unmatched["id"]
+
+
+def test_inherited_revision_reaches_feedback_and_recovery_evidence(tmp_path) -> None:
+    from api.session_feedback import (
+        _feedback_evidence_for_session,
+        _match_revision_id_for_prompt,
+    )
+    from services.recovery_analytics import refresh_recovery_episodes
+
+    db = Database(str(tmp_path / "issue-529-revision.db"))
+    current, old_id, new_id = _replacement_plan()
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(current))
+    db.save_activities([_activity()])
+    predecessor = db.save_plan_actual_match(
+        {
+            **_confirmed_ledger(old_id),
+            "base_checkpoint_id": int(checkpoint["id"]),
+        }
+    )
+
+    reconciliation = reconciliation_at(
+        db,
+        weeks=1,
+        as_of=DAY_ISO,
+        include_provider=False,
+    )
+    row = next(
+        item for item in reconciliation["rows"] if item["session_id"] == new_id
+    )
+    assert _match_revision_id_for_prompt(db, row, new_id) == predecessor["id"]
+
+    evidence = _feedback_evidence_for_session(db, new_id, as_of=DAY)
+    assert evidence["match_revision_id"] == predecessor["id"]
+
+    refreshed = refresh_recovery_episodes(
+        db,
+        as_of=DAY + timedelta(days=3),
+        target_session_ids=[new_id],
+    )
+    assert refreshed["created"] == 1
+    episode = next(
+        item
+        for item in db.get_recovery_episodes(latest_only=True)
+        if item["session_id"] == new_id
+    )
+    assert episode["match_revision_id"] == predecessor["id"]
 
 
 @pytest.mark.parametrize(

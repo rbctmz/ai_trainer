@@ -51,6 +51,8 @@ from models.plan_actual_reconciliation import (
     apply_weekly_rebalance_preview,
     build_weekly_rebalance_preview,
     find_planned_session,
+    iter_parent_sessions,
+    resolve_confirmed_replacement_ledger,
 )
 from models.planned_bike_tss import (
     apply_bike_tss_rebalance_preview,
@@ -2513,16 +2515,49 @@ def record_plan_actual_match(
     session_date = str(template.get("date") or "")[:10]
     if any(str(item.get("date") or "")[:10] != session_date for item in activities):
         raise ValueError("confirmed activities must share the planned session date")
+    existing_matches = db.get_latest_plan_actual_matches(
+        start_date=session_date,
+        end_date=session_date,
+    )
+    parent_sessions = iter_parent_sessions(goal_plan.get("session_templates", []) or [])
+    current_session_ids = {
+        str(entry["session"].get("session_id") or "").strip()
+        for entry in parent_sessions
+        if str(entry["session"].get("session_id") or "").strip()
+    }
+    replacement_claim_counts: dict[str, int] = {}
+    for entry in parent_sessions:
+        predecessor_id = str(
+            entry["session"].get("replaces_session_id") or ""
+        ).strip()
+        if predecessor_id:
+            replacement_claim_counts[predecessor_id] = (
+                replacement_claim_counts.get(predecessor_id, 0) + 1
+            )
+    predecessor_id = str(session.get("replaces_session_id") or "").strip()
+    confirmed_predecessor = resolve_confirmed_replacement_ledger(
+        {"date": session_date, "sport": session.get("sport")},
+        {
+            str(item.get("target_key") or ""): item
+            for item in existing_matches
+            if item.get("target_key")
+        },
+        predecessor_id=predecessor_id,
+        current_session_ids=current_session_ids,
+        replacement_claim_counts=replacement_claim_counts,
+    )
     if normalized_action == "confirm":
         requested_ids = {str(value) for value in activity_ids}
-        existing_matches = db.get_latest_plan_actual_matches(
-            start_date=session_date,
-            end_date=session_date,
+        shadowed_predecessor_target = (
+            str(confirmed_predecessor.get("target_key") or "")
+            if confirmed_predecessor is not None
+            else ""
         )
         conflicting_targets = [
             str(item.get("target_key"))
             for item in existing_matches
             if item.get("target_key") != f"session:{session_id}"
+            and item.get("target_key") != shadowed_predecessor_target
             and str(item.get("match_status") or "") == "matched"
             and requested_ids.intersection(str(value) for value in item.get("actual_activity_ids", []) or [])
         ]
@@ -2540,8 +2575,10 @@ def record_plan_actual_match(
         "role": normalized_actual_role or None,
     }
     target_key = f"session:{session_id}"
-    previous = db.get_latest_plan_actual_matches(start_date=session_date, end_date=session_date)
-    previous_row = next((item for item in previous if item.get("target_key") == target_key), None)
+    previous_row = next(
+        (item for item in existing_matches if item.get("target_key") == target_key),
+        None,
+    ) or confirmed_predecessor
     payload = {
         "target_key": target_key,
         "session_id": session_id,
