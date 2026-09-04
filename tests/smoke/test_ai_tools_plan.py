@@ -247,6 +247,94 @@ def test_get_upcoming_workouts_returns_sessions(tools_with_plan: AITools) -> Non
         assert "sport" in s
         assert "tss" in s
         assert s["tss"] > 0
+        assert s["completion_status"] == "planned"
+        assert s["reconciliation_status"] == "unmatched"
+
+
+def _seed_today_session(db: Database, *, session_id: str = "ats_today") -> dict:
+    plan = _make_goal_plan()
+    plan["daily_plan"] = [
+        (
+            datetime.combine(date.today(), datetime.min.time()),
+            44,
+            {"run": 44},
+        )
+    ]
+    plan["session_templates"] = [
+        {
+            "phase": "build",
+            "sessions": [
+                {
+                    "session_id": session_id,
+                    "sport": "run",
+                    "sport_label": "бег",
+                    "total_tss": 44,
+                    "export_name": "Aerobic Endurance Run",
+                    "kind": "single",
+                }
+            ],
+        }
+    ]
+    return db.save_planning_checkpoint(build_planning_checkpoint(plan))
+
+
+def _seed_today_match(
+    db: Database,
+    checkpoint: dict,
+    *,
+    session_id: str = "ats_today",
+    match_status: str = "matched",
+) -> None:
+    db.save_plan_actual_match(
+        {
+            "fingerprint": f"{session_id}:{match_status}",
+            "target_key": f"session:{session_id}",
+            "session_id": session_id,
+            "base_checkpoint_id": checkpoint["id"],
+            "session_date": date.today().isoformat(),
+            "match_status": match_status,
+            "match_method": "user_confirmed" if match_status == "matched" else "auto",
+            "confidence": 1.0 if match_status == "matched" else 0.5,
+            "planned_snapshot": {"sport": "run", "tss": 44},
+            "actual_activity_ids": ["run-actual"] if match_status == "matched" else [],
+            "actual_snapshot": (
+                {"sport": "running", "tss": 57.3, "duration_minutes": 50.1}
+                if match_status == "matched"
+                else {}
+            ),
+            "evidence": ["test fixture"],
+            "rule_version": "test-v1",
+        }
+    )
+
+
+def test_get_upcoming_workouts_marks_matched_session_completed(tmp_path) -> None:
+    db = Database(str(tmp_path / "matched.db"))
+    checkpoint = _seed_today_session(db)
+    _seed_today_match(db, checkpoint)
+
+    session = AITools(db).get_upcoming_workouts(days=0)["sessions"][0]
+
+    assert session["completion_status"] == "completed"
+    assert session["reconciliation_status"] == "matched"
+    assert session["actual"] == {
+        "activity_ids": ["run-actual"],
+        "tss": 57.3,
+        "duration_minutes": 50.1,
+        "sport": "running",
+    }
+
+
+def test_get_upcoming_workouts_does_not_mark_ambiguous_session_completed(tmp_path) -> None:
+    db = Database(str(tmp_path / "ambiguous.db"))
+    checkpoint = _seed_today_session(db)
+    _seed_today_match(db, checkpoint, match_status="ambiguous")
+
+    session = AITools(db).get_upcoming_workouts(days=0)["sessions"][0]
+
+    assert session["completion_status"] == "planned"
+    assert session["reconciliation_status"] == "ambiguous"
+    assert "actual" not in session
 
 
 def test_get_upcoming_workouts_no_plan(tools_no_plan: AITools) -> None:

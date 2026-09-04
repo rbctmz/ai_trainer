@@ -73,6 +73,8 @@ def test_system_prompt_mandates_plan_tool_for_specific_day_recommendations():
     assert "называешь или рекомендуешь тренировку на конкретный день" in prompt
     assert "цитируй фактическую сессию из плана" in prompt
     assert "«вероятно», «скорее всего»" in prompt and "недопустимы" in prompt
+    assert "completion_status=completed" in prompt
+    assert "не рекомендуй выполнять её повторно" in prompt
     # План на ближайшие дни входит в минимальный набор общего анализа/брифинга.
     assert (
         "**get_performance_metrics**, **analyze_hrv_trends**, "

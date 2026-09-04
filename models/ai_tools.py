@@ -366,7 +366,10 @@ class AITools:
             },
             {
                 "name": "get_upcoming_workouts",
-                "description": "Получить ближайшие плановые тренировки из активного плана (days=7)",
+                "description": (
+                    "Получить ближайшие плановые тренировки из активного плана (days=7), "
+                    "включая статус выполнения по план-факт"
+                ),
                 "parameters": _params(_days(7)),
             },
             {
@@ -2063,6 +2066,24 @@ class AITools:
         today = datetime.now().date()
         cutoff = today + timedelta(days=days)
 
+        match_reader = getattr(self.db, "get_latest_plan_actual_matches", None)
+        match_rows = (
+            match_reader(start_date=today.isoformat(), end_date=cutoff.isoformat())
+            if callable(match_reader)
+            else []
+        )
+        matches_by_session: dict[str, list[dict[str, Any]]] = {}
+        for row in match_rows or []:
+            if not isinstance(row, dict):
+                continue
+            session_id = str(
+                row.get("session_id")
+                or dict(row.get("planned_snapshot") or {}).get("session_id")
+                or ""
+            ).strip()
+            if session_id:
+                matches_by_session.setdefault(session_id, []).append(row)
+
         sessions = []
         for i, item in enumerate(daily_plan):
             if not isinstance(item, (list, tuple)) or len(item) < 3:
@@ -2093,7 +2114,21 @@ class AITools:
                         if parts
                         else "bike"
                     )
-                sessions.append({
+                session_id = str(
+                    leaf.get("session_id") or (tpl or {}).get("session_id") or ""
+                ).strip()
+                matching_rows = matches_by_session.get(session_id, []) if session_id else []
+                match = matching_rows[0] if len(matching_rows) == 1 else None
+                reconciliation_status = (
+                    str(match.get("match_status") or "unmatched")
+                    if match is not None
+                    else ("ambiguous" if len(matching_rows) > 1 else "unmatched")
+                )
+                actual_activity_ids = list((match or {}).get("actual_activity_ids") or [])
+                completed = (
+                    reconciliation_status == "matched" and bool(actual_activity_ids)
+                )
+                session_payload = {
                     "date": session_date.isoformat(),
                     "sport": sport,
                     "sport_label": str(leaf.get("sport_label") or sport),
@@ -2106,7 +2141,19 @@ class AITools:
                     ),
                     "phase": phase,
                     "kind": str(leaf.get("kind") or "single"),
-                })
+                    "completion_status": "completed" if completed else "planned",
+                    "reconciliation_status": reconciliation_status,
+                }
+                if session_id:
+                    session_payload["session_id"] = session_id
+                if completed:
+                    actual_snapshot = dict((match or {}).get("actual_snapshot") or {})
+                    actual = {"activity_ids": actual_activity_ids}
+                    for key in ("tss", "duration_minutes", "sport"):
+                        if actual_snapshot.get(key) is not None:
+                            actual[key] = actual_snapshot[key]
+                    session_payload["actual"] = actual
+                sessions.append(session_payload)
 
         if not sessions:
             return {

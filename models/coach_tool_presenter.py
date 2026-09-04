@@ -638,9 +638,22 @@ def format_tool_result(tool_name: str, data: Any) -> str:
             date = session.get("date_label") or format_date_label(session.get("date"), "weekday_short")
             sport = session.get("sport_label") or sport_label(session.get("sport"))
             phase = f", фаза: {session['phase']}" if session.get("phase") else ""
-            session_lines.append(
-                f"• {date}: **{session.get('name', 'Сессия')}** — {sport}, TSS {session.get('tss', 'н/д')}{phase}"
-            )
+            if session.get("completion_status") == "completed":
+                actual = dict(session.get("actual") or {})
+                fact = (
+                    f"; факт TSS {actual['tss']}"
+                    if actual.get("tss") is not None
+                    else ""
+                )
+                session_lines.append(
+                    f"• {date}: ✅ выполнена — **{session.get('name', 'Сессия')}** — "
+                    f"{sport}, план TSS {session.get('tss', 'н/д')}{fact}{phase}"
+                )
+            else:
+                session_lines.append(
+                    f"• {date}: **{session.get('name', 'Сессия')}** — {sport}, "
+                    f"TSS {session.get('tss', 'н/д')}{phase}"
+                )
 
         return f"""
 ## 📅 Ближайшие плановые тренировки ({data.get('days', 7)} дней)
