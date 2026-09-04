@@ -19,6 +19,8 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
 - [x] (2026-09-02 10:03 MSK) Ran the 132-test focused contour, the 2,244-selected contributor-safe contour, full Ruff, and `git diff --check`; all required checks passed.
 - [x] (2026-09-02 10:06 MSK) Completed self-review, removed an accidental additive DTO field before final validation, and recorded the evidence bundle and retrospective.
 - [x] (2026-09-02 10:12 MSK) Pushed `codex/issue-529-match-handoff` and opened PR #530 against `main`; CI and independent review remain human-gated delivery steps.
+- [x] (2026-09-04 12:01 MSK) Reproduced all three native-review P2 findings with six failing assertions across admin resolution, predecessor reservation, writer conflict, and downstream revision provenance.
+- [x] (2026-09-04 12:01 MSK) Fixed the review findings in `ce815d1`, preserved byte-equivalent public reconciliation responses, and passed 214 focused plus 2,244 contributor-safe tests.
 
 ## Surprises & Discoveries
 
@@ -38,6 +40,18 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
   **Inferred**: leaving that internal field there would create an unnecessary additive DTO change despite the issue declaring API contracts unchanged. The cheapest falsifying check was to trace `_planned_snapshot` to the row construction and inspect the diff.
   **Verified by**: self-review confirmed the spread and the field was removed; the resolver now receives the predecessor id separately from `entry["session"]`. Focused and broad tests remained green.
 
+- **Observed**: `admin_resolve` can represent either a matched administrative decision or an unmatched administrative clearing, but the initial handoff guard checked only `match_method`.
+  **Inferred**: an unmatched administrative predecessor could suppress a valid current heuristic match. The falsifying check supplied an `admin_resolve`/`unmatched` predecessor with no selected activities and one compatible current activity.
+  **Verified by**: the pre-fix row stayed unmatched; the guard now requires `match_status=matched` and at least one selected activity, after which the same probe resolves through the normal date/sport heuristic.
+
+- **Observed**: a current `user_unmatched` decision won row selection but the predecessor's confirmed row still globally reserved its activity and still blocked a subsequent current-id confirmation.
+  **Inferred**: current decision precedence was incomplete across read and write boundaries. The falsifying checks inspected candidates after unmatch and called the production `record_plan_actual_match` reselect path.
+  **Verified by**: the predecessor reservation is now shadowed only for a valid unique replacement; the current row exposes the activity as a candidate, confirmation succeeds, and the first current revision links to the predecessor via `supersedes_match_id`.
+
+- **Observed**: adding predecessor `match_revision_id` directly to reconciliation rows fixed downstream provenance but broke four byte-equivalence contract tests.
+  **Inferred**: provenance must cross the internal feedback/recovery boundary without changing the public reconciliation DTO. The falsifying check was the full contributor-safe suite.
+  **Verified by**: feedback prompt/evidence and recovery materialization now resolve the same guarded predecessor revision internally; the targeted provenance test passes and all four byte-equivalence tests remain green.
+
 ## Decision Log
 
 - Decision: Treat checkpoint #129's `checkpoint_source` as the authoritative mutation provenance and treat `near_term_edit.origin_kind` as inherited historical context.
@@ -52,6 +66,18 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
   Rationale: current explicit decisions must win, ambiguous lineage must fail closed, and a replacement must not claim an activity from another calendar or discipline context.
   Date/Author: 2026-09-02 / Codex.
 
+- Decision: A predecessor is inheritable only when its latest row is explicitly `matched` and selects at least one activity; an unmatched `admin_resolve` is not confirmation evidence.
+  Rationale: method alone does not distinguish administrative confirmation from administrative clearing.
+  Date/Author: 2026-09-04 / Codex.
+
+- Decision: Once a valid replacement has its own explicit decision, shadow the predecessor reservation and connect the first current revision to the predecessor through `supersedes_match_id`.
+  Rationale: the athlete must be able to unmatch and reselect, while saved evidence still needs append-only lineage for later revalidation.
+  Date/Author: 2026-09-04 / Codex.
+
+- Decision: Resolve inherited revision ids inside feedback and recovery consumers instead of adding a field to reconciliation rows.
+  Rationale: the immutable revision remains auditable without changing the byte-equivalent public API contract.
+  Date/Author: 2026-09-04 / Codex.
+
 - Decision: Preserve all existing `plan_actual_matches` rows and add no migration or backfill.
   Rationale: the ledger is append-only evidence. Read-time resolution and correct future identity stamping are sufficient.
   Date/Author: 2026-09-02 / Codex.
@@ -60,7 +86,7 @@ The outcome is observable through smoke tests that exercise a temporary SQLite d
 
 The writer now canonicalizes a sport-scoped constraint result against its exact previous plan before checkpoint serialization. A `2 -> 1` day transition therefore preserves the unchanged parent id and its exact match target. Reconciliation now consults a confirmed one-hop predecessor only when the current id has no decision, exactly one current parent owns that predecessor, the predecessor is no longer active, and date and sport agree.
 
-Seven new tests cover the persisted constraint vertical, `user_confirmed`, `admin_resolve`, current-id precedence, date mismatch, sport mismatch, and ambiguous claimant failure. The focused contour passed 132 tests. The contributor-safe run passed 2,241 tests, skipped 3 environment-dependent tests, and deselected 26 live/debug/e2e tests. Ruff and whitespace validation passed.
+Ten new tests cover the persisted constraint vertical, matched and unmatched administrative decisions, current-id precedence and re-selection, immutable revision propagation into feedback and recovery, date mismatch, sport mismatch, and ambiguous claimant failure. The review-focused contour passed 214 tests. The contributor-safe run passed 2,244 tests, skipped 3 environment-dependent tests, and deselected 26 live/debug/e2e tests. Ruff, byte-equivalence, and whitespace validation passed.
 
 The change adds no schema, persistent row, provider call, API field, or backfill. Existing checkpoint #129 remains historical malformed lineage and is intentionally not rewritten; its athlete-visible state requires an explicit current-id confirmation or separately authorized historical repair. This limitation is recorded rather than hidden because issue scope forbids automatic backfill and historical multi-hop reconstruction.
 
@@ -96,7 +122,7 @@ Create the RED tests and run:
 
 The new writer and valid-lineage tests failed before product code changes for the expected identity and unmatched assertions, not because of fixture setup. The RED run reported two failed and two passed tests before the boundary matrix was expanded to seven tests.
 
-After both slices, the whole new module reports seven passed tests.
+After the initial slices, the whole new module reported seven passed tests. After native-review regressions, it reports ten passed tests.
 
 Run the focused regression contour:
 
@@ -158,6 +184,18 @@ Final contributor-safe transcript:
 
     2241 passed, 3 skipped, 26 deselected, 3 warnings in 67.97s
 
+Native-review RED transcript:
+
+    6 failed, 4 passed in 0.54s
+
+Native-review focused transcript:
+
+    214 passed in 5.90s
+
+Native-review contributor-safe transcript:
+
+    2244 passed, 3 skipped, 26 deselected, 3 warnings in 69.10s
+
 The warnings are existing FastAPI/Pydantic deprecations. The skipped tests require a local listening socket or the optional `garth` package and are unrelated to this change.
 
 ## Interfaces and Dependencies
@@ -171,3 +209,5 @@ Revision note (2026-09-02): Initial ExecPlan created after the read-only product
 Revision note (2026-09-02): Updated after RED/GREEN implementation, self-review, and broad validation; recorded the unchanged public DTO and the explicit no-backfill limitation for historical checkpoint #129.
 
 Revision note (2026-09-02): Linked the completed implementation and evidence to PR #530 after publishing the branch.
+
+Revision note (2026-09-04): Addressed all three round-one P2 findings at `ce815d1`; retained the public DTO after a byte-equivalence falsifier and moved immutable revision resolution into internal consumers.
