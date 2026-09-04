@@ -197,6 +197,63 @@ def test_openai_compatible_tool_calls_are_deterministic_temperature():
     assert recorded["temperature"] == 0.0
 
 
+def test_openai_compatible_adapter_serializes_normalized_tool_calls_for_wire():
+    provider = DeepSeekProvider(api_key="test-key")
+    recorded: dict = {}
+
+    def _create(**kwargs):
+        recorded.update(kwargs)
+        return _openai_style_response("готово", [])
+
+    provider.client = SimpleNamespace(
+        chat=SimpleNamespace(completions=SimpleNamespace(create=_create))
+    )
+
+    provider.generate_with_tools(
+        messages=[
+            {"role": "user", "content": "как моя форма?"},
+            {
+                "role": "assistant",
+                "content": "",
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "name": "get_performance_metrics",
+                        "arguments": {"days": 30},
+                    }
+                ],
+            },
+            {
+                "role": "tool",
+                "tool_call_id": "call_1",
+                "name": "get_performance_metrics",
+                "content": '{"ctl": 30.8}',
+            },
+        ],
+        tools=[],
+    )
+
+    assert recorded["messages"][1] == {
+        "role": "assistant",
+        "content": "",
+        "tool_calls": [
+            {
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "get_performance_metrics",
+                    "arguments": '{"days": 30}',
+                },
+            }
+        ],
+    }
+    assert recorded["messages"][2] == {
+        "role": "tool",
+        "tool_call_id": "call_1",
+        "content": '{"ctl": 30.8}',
+    }
+
+
 def test_openai_compatible_adapter_tolerates_missing_and_broken_arguments():
     provider = DeepSeekProvider(api_key="test-key")
 

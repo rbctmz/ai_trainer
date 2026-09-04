@@ -104,6 +104,55 @@ class OpenAICompatibleToolsMixin:
     def supports_native_tools(self) -> bool:
         return True
 
+    @staticmethod
+    def _messages_for_chat_completions(
+        messages: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Перевести tool-вызовы рантайма в wire-формат chat.completions."""
+        translated: List[Dict[str, Any]] = []
+        for message in messages:
+            role = str(message.get("role") or "")
+            tool_calls = message.get("tool_calls")
+            if role == "assistant" and tool_calls:
+                wire_calls: List[Dict[str, Any]] = []
+                for call in tool_calls:
+                    if not isinstance(call, Mapping):
+                        continue
+                    arguments = call.get("arguments") or {}
+                    if not isinstance(arguments, dict):
+                        arguments = {}
+                    wire_calls.append(
+                        {
+                            "id": str(call.get("id") or ""),
+                            "type": "function",
+                            "function": {
+                                "name": str(call.get("name") or ""),
+                                "arguments": json.dumps(arguments, ensure_ascii=False),
+                            },
+                        }
+                    )
+                translated.append(
+                    {
+                        "role": "assistant",
+                        "content": str(message.get("content") or ""),
+                        "tool_calls": wire_calls,
+                    }
+                )
+                continue
+
+            if role == "tool":
+                translated.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": str(message.get("tool_call_id") or ""),
+                        "content": str(message.get("content") or ""),
+                    }
+                )
+                continue
+
+            translated.append(dict(message))
+        return translated
+
     def generate_with_tools(
         self,
         messages: List[Dict[str, Any]],
@@ -116,7 +165,7 @@ class OpenAICompatibleToolsMixin:
         full_messages: List[Dict[str, Any]] = []
         if system_prompt:
             full_messages.append({"role": "system", "content": system_prompt})
-        full_messages.extend(messages)
+        full_messages.extend(self._messages_for_chat_completions(messages))
 
         request: Dict[str, Any] = {
             "model": self.model,

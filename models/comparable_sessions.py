@@ -11,7 +11,7 @@ from typing import Any, Mapping, Sequence
 from utils.product_semantics import normalize_sport_key
 
 
-COMPARABLE_SESSION_RULE_VERSION = "comparable_session_v1"
+COMPARABLE_SESSION_RULE_VERSION = "comparable_session_v2"
 SUPPORTED_SPORTS = {"bike", "run", "swim"}
 MIN_DURATION_SIMILARITY = 0.50
 MIN_INTENSITY_SIMILARITY = 0.65
@@ -158,6 +158,17 @@ def _sport_metric(activity: Mapping[str, Any], sport: str) -> dict[str, Any] | N
     }
 
 
+def _heart_rate_metric(activity: Mapping[str, Any]) -> dict[str, Any] | None:
+    average_heart_rate = _positive(activity.get("avg_hr"))
+    if average_heart_rate is None:
+        return None
+    return {
+        "kind": "heart_rate_bpm",
+        "value": round(average_heart_rate, 1),
+        "source": "average_heart_rate",
+    }
+
+
 def project_activity_features(
     activity: Mapping[str, Any],
     *,
@@ -187,6 +198,7 @@ def project_activity_features(
         "tss_per_hour": tss_per_hour,
         "structure": _structure_features(intervals, duration_minutes=duration),
         "sport_metric": _sport_metric(activity, str(sport or "")),
+        "heart_rate": _heart_rate_metric(activity),
         "subjective_evidence": (
             dict(subjective_evidence) if isinstance(subjective_evidence, Mapping) else None
         ),
@@ -207,6 +219,7 @@ def _identity_projection(features: Mapping[str, Any] | None) -> dict[str, Any] |
             "tss",
             "tss_per_hour",
             "sport_metric",
+            "heart_rate",
         )
     }
 
@@ -301,10 +314,13 @@ def prefilter_comparable_candidates(
 
 
 def _metric_comparison(
-    target: Mapping[str, Any], candidate: Mapping[str, Any]
+    target: Mapping[str, Any],
+    candidate: Mapping[str, Any],
+    *,
+    metric_key: str = "sport_metric",
 ) -> dict[str, Any] | None:
-    target_metric = target.get("sport_metric")
-    candidate_metric = candidate.get("sport_metric")
+    target_metric = target.get(metric_key)
+    candidate_metric = candidate.get(metric_key)
     if not isinstance(target_metric, Mapping) or not isinstance(candidate_metric, Mapping):
         return None
     if target_metric.get("kind") != candidate_metric.get("kind"):
@@ -511,6 +527,11 @@ def select_comparable_session(
                 1,
             ),
             "sport_metric": _metric_comparison(frozen_target, comparator),
+            "heart_rate": _metric_comparison(
+                frozen_target,
+                comparator,
+                metric_key="heart_rate",
+            ),
             "subjective_evidence": {
                 "target": frozen_target.get("subjective_evidence"),
                 "comparator": comparator.get("subjective_evidence"),
