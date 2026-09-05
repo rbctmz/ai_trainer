@@ -23,7 +23,8 @@
 - [x] (2026-09-05) Независимый первичный разбор PR #551 воспроизвёл четыре blocking-дефекта: конкурентный replay создавал дубли; четыре заявленных trigger не имели production producers; proposal записывался как `proposed` + `no_revisit_required`; группировка скрывала различающиеся v2-события.
 - [x] (2026-09-05) Добавлены шесть RED-регрессий: детерминированный 16-поточный replay и реальные producer/lifecycle/grouping сценарии. До исправлений итог был `6 failed, 9 passed`; отдельный concurrency-тест наблюдал 16 разных id.
 - [x] (2026-09-05) GREEN-срез реализован через атомарную запись, общий `services/agent_log.py`, production producers и metadata-aware группировку. `test_agent_log_v2.py`: `15 passed`; смежные recovery/coach/settings/sync/today тесты: `121 passed`.
-- [ ] Финальный broad validation, независимый read-only OpenCode delta-аудит, disposition находок, commit/push и обновление PR #551.
+- [x] (2026-09-05) На behavior head `aec862b` финальные локальные проверки зелёные: contributor-safe `2322 passed, 3 skipped, 26 deselected`; Ruff clean; web lint/build clean; contract artifact current.
+- [ ] Независимый read-only OpenCode delta-аудит, disposition находок, финальный evidence commit/push и обновление PR #551.
 
 ## Surprises & Discoveries
 
@@ -103,7 +104,7 @@
 
 Первичный retrospective выше был уточнён после blocking review. Recovery-решения сохраняют собственную таблицу, но standalone recovery evaluation дополнительно создаёт sourced Agent Log event; `provider_sync`, `settings_change` и `proposal_approved` теперь имеют реальные producers. Автономного планировщика пересмотра по-прежнему нет: revisit хранит стабильное условие следующего уже существующего product event, а не обещание нового scheduler.
 
-(2026-09-05, review-correction milestone) Четыре найденных acceptance-дефекта исправлены и защищены воспроизводимыми тестами. Атомарность достигнута без переписывания legacy data; producer-границы используют один contract writer; embedded recovery не конкурирует с coach-request ownership; API больше не агрегирует семантически разные v2 rows. Финальный broad run и внешний delta-review ещё не завершены, поэтому итоговый verdict пока не READY.
+(2026-09-05, review-correction milestone) Четыре найденных acceptance-дефекта исправлены и защищены воспроизводимыми тестами. Атомарность достигнута без переписывания legacy data; producer-границы используют один contract writer; embedded recovery не конкурирует с coach-request ownership; API больше не агрегирует семантически разные v2 rows. Behavior head `aec862b` прошёл contributor-safe `2322 passed, 3 skipped, 26 deselected`, Ruff, web lint/build и contract freshness. Внешний delta-review ещё не завершён, поэтому итоговый verdict пока не READY.
 
 Уроки: снапшоты метаданных на записи и поздние мутации статуса (approve/reject/rollback) — разные источники истины; read-time derivation с явным fallback на stored-значение оказалась дешевле машины состояний и повторила special-case `keep` из drift-отчёта без расхождения. NULL как «нет данных» и sentinel как «нет пересмотра» — обязательная пара для честного legacy-режима (AC7). Числовые плейсхолдеры вручную расширяемых INSERT — источник ошибок (21 values for 20 columns); на будущее — генерировать списки колонок/плейсхолдеров из одного кортежа.
 

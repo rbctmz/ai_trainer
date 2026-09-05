@@ -3,7 +3,7 @@
 - Issue / PR: #501 / #551
 - Author / checker / merge owner: Codex implementer / OpenCode independent reviewer / human repository owner
 - Date: 2026-09-05
-- Candidate head SHA: working tree after `d62114ee`; replace after final commit
+- Candidate behavior head SHA: `aec862b`
 
 ## Change Class
 
@@ -103,10 +103,10 @@
 
 ## Evidence Bundle
 
-- Head SHA: pending final commit
+- Head SHA: `aec862b` (behavior); evidence/disposition commit follows review
 - Changed invariants: atomic logical event identity; producer completeness; proposal revisit; provenance-preserving projection.
-- Focused and broad tests: `15 passed` focused and `121 passed` adjacent so far; final contributor-safe/web/contract pending.
-- CI checks/reruns/flakes: pending push/CI.
+- Focused and broad tests: `15 passed` focused; `121 passed` adjacent; contributor-safe `2322 passed, 3 skipped, 26 deselected`.
+- CI checks/reruns/flakes: local Ruff, web lint/build and contract check are green; final-head GitHub CI pending push.
 - Lifecycle/probe evidence: deterministic 16-writer RED then GREEN; success/failure sync and applied/no-change settings covered.
 - Changed contracts: event semantics only; API/TS shape unchanged.
 - Unresolved review-thread count: zero GitHub threads; four local blocking findings are fixed in the working tree pending verification.
@@ -130,7 +130,7 @@
 
 ## Final Verdict
 
-- Verdict: BLOCK pending final validation and delta review
+- Verdict: BLOCK pending independent delta review and final-head CI
 - Blocking findings remaining: none known in the implementation; verification gates remain.
 - Review rounds used: 1 of 2.
 - Accepted risk or follow-up issue: none yet.
