@@ -2385,7 +2385,12 @@ class Database:
         finally:
             conn.close()
 
-    def save_plan_actual_match(self, payload):
+    def save_plan_actual_match(
+        self,
+        payload,
+        *,
+        require_unsuperseded_match_id=None,
+    ):
         """Append one immutable user match revision, idempotent by fingerprint."""
         required = {
             "fingerprint",
@@ -2416,6 +2421,32 @@ class Database:
             if existing:
                 conn.commit()
                 return self._deserialize_plan_actual_match(existing)
+            if require_unsuperseded_match_id is not None:
+                predecessor_id = int(require_unsuperseded_match_id)
+                if int(payload.get("supersedes_match_id") or 0) != predecessor_id:
+                    raise ValueError("historical match predecessor changed before append")
+                cursor.execute(
+                    "SELECT id, target_key, revision FROM plan_actual_matches WHERE id = ?",
+                    (predecessor_id,),
+                )
+                predecessor = cursor.fetchone()
+                if predecessor is None:
+                    raise ValueError("historical match is no longer available")
+                cursor.execute(
+                    "SELECT MAX(revision) FROM plan_actual_matches WHERE target_key = ?",
+                    (str(predecessor[1]),),
+                )
+                latest_predecessor_revision = cursor.fetchone()[0]
+                cursor.execute(
+                    "SELECT id FROM plan_actual_matches WHERE supersedes_match_id = ? LIMIT 1",
+                    (predecessor_id,),
+                )
+                successor = cursor.fetchone()
+                if (
+                    int(latest_predecessor_revision or 0) != int(predecessor[2])
+                    or successor is not None
+                ):
+                    raise ValueError("historical match was already reassigned")
             cursor.execute(
                 "SELECT COALESCE(MAX(revision), 0) + 1 FROM plan_actual_matches WHERE target_key = ?",
                 (str(payload["target_key"]),),

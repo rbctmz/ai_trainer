@@ -2480,6 +2480,59 @@ def repair_active_bike_tss_materialization(
     }
 
 
+def _match_owner_session_id(match: Mapping[str, Any]) -> str:
+    session_id = str(match.get("session_id") or "").strip()
+    if session_id:
+        return session_id
+    target_key = str(match.get("target_key") or "").strip()
+    if target_key.startswith("session:"):
+        return target_key.split(":", 1)[1]
+    return ""
+
+
+def _match_descends_from(
+    db: Database,
+    match: Mapping[str, Any] | None,
+    ancestor_id: Any,
+) -> bool:
+    """Whether ``match`` already retires ``ancestor_id`` in its saved lineage."""
+    try:
+        expected_id = int(ancestor_id)
+    except (TypeError, ValueError):
+        return False
+    current = match
+    seen: set[int] = set()
+    for _ in range(100):
+        if not isinstance(current, Mapping):
+            return False
+        try:
+            current_id = int(current.get("id"))
+        except (TypeError, ValueError):
+            return False
+        if current_id in seen:
+            return False
+        seen.add(current_id)
+        if current_id == expected_id:
+            return True
+        try:
+            parent_id = int(current.get("supersedes_match_id"))
+        except (TypeError, ValueError):
+            return False
+        current = db.get_plan_actual_match(parent_id)
+    return False
+
+
+def _refresh_match_recovery(db: Database, session_id: str) -> None:
+    """Replay best-effort derived-state repair after a match commit or retry."""
+    from services.recovery_analytics import refresh_recovery_episodes_best_effort
+
+    refresh_recovery_episodes_best_effort(
+        db,
+        as_of=date.today(),
+        target_session_ids=[session_id],
+    )
+
+
 def record_plan_actual_match(
     db: Database,
     *,
@@ -2488,6 +2541,7 @@ def record_plan_actual_match(
     activity_ids: List[str],
     actual_role: str | None,
     action: str,
+    client_request_id: str | None = None,
 ) -> Dict[str, Any]:
     latest = db.get_latest_planning_checkpoint()
     latest_id = int(latest.get("id")) if latest and latest.get("id") is not None else 0
@@ -2509,6 +2563,11 @@ def record_plan_actual_match(
         )
     if normalized_action == "confirm" and not activity_ids:
         raise ValueError("confirm requires at least one activity")
+    normalized_request_id = str(client_request_id or "").strip()
+    if client_request_id is not None and not normalized_request_id:
+        raise ValueError("client_request_id must not be blank")
+    if len(normalized_request_id) > 128:
+        raise ValueError("client_request_id must not exceed 128 characters")
     activities = db.get_activities_by_ids(activity_ids if normalized_action == "confirm" else [])
     if normalized_action == "confirm" and len(activities) != len(set(activity_ids)):
         raise ValueError("one or more activities were not found")
@@ -2546,6 +2605,12 @@ def record_plan_actual_match(
         current_session_ids=current_session_ids,
         replacement_claim_counts=replacement_claim_counts,
     )
+    target_key = f"session:{session_id}"
+    current_target_match = next(
+        (item for item in existing_matches if item.get("target_key") == target_key),
+        None,
+    )
+    reassignable_stale_match: Mapping[str, Any] | None = None
     if normalized_action == "confirm":
         requested_ids = {str(value) for value in activity_ids}
         shadowed_predecessor_target = (
@@ -2553,16 +2618,47 @@ def record_plan_actual_match(
             if confirmed_predecessor is not None
             else ""
         )
-        conflicting_targets = [
-            str(item.get("target_key"))
+        competing_matches = [
+            item
             for item in existing_matches
-            if item.get("target_key") != f"session:{session_id}"
+            if item.get("target_key") != target_key
             and item.get("target_key") != shadowed_predecessor_target
             and str(item.get("match_status") or "") == "matched"
             and requested_ids.intersection(str(value) for value in item.get("actual_activity_ids", []) or [])
+            and not _match_descends_from(db, current_target_match, item.get("id"))
         ]
-        if conflicting_targets:
+        inactive_explicit_matches = [
+            item
+            for item in competing_matches
+            if _match_owner_session_id(item) not in current_session_ids
+            and str(item.get("match_method") or "")
+            in {"user_confirmed", "admin_resolve"}
+            and list(item.get("actual_activity_ids") or [])
+        ]
+        hard_conflicts = [
+            item for item in competing_matches if item not in inactive_explicit_matches
+        ]
+        if hard_conflicts:
             raise ValueError("one or more activities are already matched to another planned session")
+        if len(inactive_explicit_matches) > 1:
+            raise ValueError(
+                "selected activities belong to multiple historical matches"
+            )
+        if inactive_explicit_matches:
+            candidate = inactive_explicit_matches[0]
+            stale_selected_ids = {
+                str(value) for value in candidate.get("actual_activity_ids", []) or []
+            }
+            if not stale_selected_ids.issubset(requested_ids):
+                raise ValueError(
+                    "all activities from the historical match must be reassigned together"
+                )
+            if current_target_match is not None:
+                raise ValueError(
+                    "one or more activities are already matched to another planned session; "
+                    "clear the current target history before reassigning a historical match"
+                )
+            reassignable_stale_match = candidate
     sports = {str(item.get("sport") or "") for item in activities if item.get("sport")}
     actual_snapshot = {
         "tss": round(sum(float(item.get("tss") or 0.0) for item in activities), 1),
@@ -2574,11 +2670,26 @@ def record_plan_actual_match(
         # adherence stays "не оценено" honestly).
         "role": normalized_actual_role or None,
     }
-    target_key = f"session:{session_id}"
-    previous_row = next(
-        (item for item in existing_matches if item.get("target_key") == target_key),
-        None,
-    ) or confirmed_predecessor
+    if (
+        normalized_action == "confirm"
+        and current_target_match is not None
+        and str(current_target_match.get("match_status") or "") == "matched"
+        and str(current_target_match.get("match_method") or "") == "user_confirmed"
+        and {
+            str(value)
+            for value in current_target_match.get("actual_activity_ids", []) or []
+        }
+        == {str(item["activity_id"]) for item in activities}
+        and dict(current_target_match.get("actual_snapshot") or {}) == actual_snapshot
+        and int(current_target_match.get("base_checkpoint_id") or 0) == latest_id
+    ):
+        _refresh_match_recovery(db, session_id)
+        return dict(current_target_match)
+    previous_row = (
+        current_target_match
+        or confirmed_predecessor
+        or reassignable_stale_match
+    )
     payload = {
         "target_key": target_key,
         "session_id": session_id,
@@ -2609,9 +2720,31 @@ def record_plan_actual_match(
         "rule_version": MATCH_RULE_VERSION,
         "supersedes_match_id": previous_row.get("id") if previous_row else None,
     }
-    fingerprint_source = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    fingerprint_payload = payload
+    if normalized_request_id:
+        fingerprint_payload = {
+            "client_request_id": normalized_request_id,
+            "target_key": target_key,
+            "base_checkpoint_id": latest_id,
+            "action": normalized_action,
+            "activity_ids": sorted(str(value) for value in activity_ids),
+            "actual_role": normalized_actual_role or None,
+        }
+    fingerprint_source = json.dumps(
+        fingerprint_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
     payload["fingerprint"] = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
-    saved = db.save_plan_actual_match(payload)
+    saved = db.save_plan_actual_match(
+        payload,
+        require_unsuperseded_match_id=(
+            reassignable_stale_match.get("id")
+            if reassignable_stale_match is not None
+            else None
+        ),
+    )
     if normalized_action == "unmatch":
         # #405 review P1: feedback derived from the superseded match must not
         # stay active — including feedback linked to an older match revision
@@ -2634,9 +2767,7 @@ def record_plan_actual_match(
                 )
             except StaleFeedbackError:
                 pass
-    from services.recovery_analytics import refresh_recovery_episodes_best_effort
-
-    refresh_recovery_episodes_best_effort(db, as_of=date.today(), target_session_ids=[session_id])
+    _refresh_match_recovery(db, session_id)
     return saved
 
 
