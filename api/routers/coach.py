@@ -273,6 +273,9 @@ def coach_chat(
                     final = _rendered_response
                 final = apply_response_contract_to_final_response(final, None)
 
+            if not str(final or "").strip():
+                raise RuntimeError("AI-провайдер вернул пустой ответ. Повторите запрос.")
+
             try:
                 evidence = build_coach_narrative_evidence(
                     readiness_snapshot=readiness_snapshot,
