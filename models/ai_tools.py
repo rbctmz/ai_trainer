@@ -366,7 +366,10 @@ class AITools:
             },
             {
                 "name": "get_upcoming_workouts",
-                "description": "Получить ближайшие плановые тренировки из активного плана (days=7)",
+                "description": (
+                    "Получить ближайшие плановые тренировки из активного плана (days=7), "
+                    "включая статус выполнения по план-факт"
+                ),
                 "parameters": _params(_days(7)),
             },
             {
@@ -2063,6 +2066,36 @@ class AITools:
         today = datetime.now().date()
         cutoff = today + timedelta(days=days)
 
+        # Composite bricks cannot be reconciled safely from sport/date alone:
+        # the parent sport is ``brick`` while the synced actuals are separate
+        # bike/run legs. Preserve the exact Intervals event identity for a
+        # brick that could already have happened today. Future bricks cannot
+        # be completed yet, and singleton sessions keep the local/offline path.
+        today_iso = today.isoformat()
+        needs_provider_identity = any(
+            str((tpl or {}).get("date") or "")[:10] == today_iso
+            and (
+                str((tpl or {}).get("kind") or "") == "composite"
+                or any(
+                    str((session or {}).get("kind") or "") == "composite"
+                    for session in list((tpl or {}).get("sessions") or [])
+                )
+            )
+            for tpl in templates
+        )
+
+        reconciliation = planning_service.reconciliation_at(
+            self.db,
+            weeks=1,
+            as_of=today,
+            include_provider=needs_provider_identity,
+        )
+        reconciled_by_session = {
+            str(row.get("session_id")): row
+            for row in reconciliation.get("rows", []) or []
+            if isinstance(row, dict) and row.get("session_id")
+        }
+
         sessions = []
         for i, item in enumerate(daily_plan):
             if not isinstance(item, (list, tuple)) or len(item) < 3:
@@ -2093,7 +2126,26 @@ class AITools:
                         if parts
                         else "bike"
                     )
-                sessions.append({
+                session_id = str(
+                    leaf.get("session_id") or (tpl or {}).get("session_id") or ""
+                ).strip()
+                match = reconciled_by_session.get(session_id) if session_id else None
+                reconciliation_status = str(
+                    (match or {}).get("match_status") or "unmatched"
+                )
+                actual_activity_ids = list(
+                    (match or {}).get("actual_activity_ids") or []
+                )
+                completed = (
+                    reconciliation_status == "matched" and bool(actual_activity_ids)
+                )
+                partial = (
+                    reconciliation_status == "ambiguous"
+                    and bool(actual_activity_ids)
+                    and str((match or {}).get("match_method") or "")
+                    == "ai_trainer_external_id"
+                )
+                session_payload = {
                     "date": session_date.isoformat(),
                     "sport": sport,
                     "sport_label": str(leaf.get("sport_label") or sport),
@@ -2106,7 +2158,28 @@ class AITools:
                     ),
                     "phase": phase,
                     "kind": str(leaf.get("kind") or "single"),
-                })
+                    "completion_status": (
+                        "completed" if completed else "partial" if partial else "planned"
+                    ),
+                    "reconciliation_status": reconciliation_status,
+                }
+                if session_id:
+                    session_payload["session_id"] = session_id
+                if match is not None:
+                    session_payload["match_method"] = str(
+                        match.get("match_method") or ""
+                    )
+                    session_payload["confidence"] = float(
+                        match.get("confidence") or 0.0
+                    )
+                if completed or partial:
+                    session_payload["actual"] = {
+                        "activity_ids": actual_activity_ids,
+                        "tss": match.get("actual_total_tss"),
+                        "duration_minutes": match.get("actual_duration_minutes"),
+                        "sport": match.get("actual_sport"),
+                    }
+                sessions.append(session_payload)
 
         if not sessions:
             return {
