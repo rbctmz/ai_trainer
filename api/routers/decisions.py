@@ -9,6 +9,7 @@ from api import planning_service
 from api.deps import get_database
 from api.operational_state import build_operational_state
 from data.database import Database
+from models.coach_decisions import derive_decision_outcome
 from services.coach_drift import build_coach_drift_report
 from services.intervals_plan_delivery import safe_deliver_active_plan
 
@@ -38,7 +39,7 @@ def list_decisions(
         day = str(row.get("date") or "")[:10]
         if not day:
             continue
-        item = dict(row)
+        item = _project_agent_log_v2_row(row, proposal_rows)
         item["time"] = _display_time(item)
         item["count"] = 1
         item["first_time"] = item["time"]
@@ -126,6 +127,36 @@ def list_decisions(
             stale_after_days=30,
         ),
     }
+
+
+def _display_or_unknown(value: Any) -> str:
+    """Map absent Agent Log v2 metadata to the explicit `unknown` value.
+
+    Legacy rows (written before issue #501) carry no trigger/scope/outcome;
+    the surface must show that they were not captured instead of failing or
+    fabricating a state.
+    """
+    text = str(value or "").strip()
+    return text or "unknown"
+
+
+def _project_agent_log_v2_row(
+    row: dict[str, Any],
+    proposal_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Expose one coach decision with Agent Log v2 metadata (issue #501).
+
+    ``trigger``/``scope`` normalize NULL to ``unknown``. ``outcome`` is
+    refreshed from the current lifecycle of proposals linked by
+    ``decision_event_id`` (approve/reject/rollback happen after the row is
+    written), falling back to the stored snapshot and then ``unknown`` for
+    legacy rows.
+    """
+    item = dict(row)
+    item["trigger"] = _display_or_unknown(item.get("trigger"))
+    item["scope"] = _display_or_unknown(item.get("scope"))
+    item["outcome"] = derive_decision_outcome(row, proposal_rows)
+    return item
 
 
 def _format_time(value: Any) -> str:

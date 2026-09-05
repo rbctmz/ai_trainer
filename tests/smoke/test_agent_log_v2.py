@@ -339,7 +339,7 @@ def test_decisions_api_shows_approved_keep_as_no_change(tmp_path):
 
     db = Database(str(tmp_path / "keep.db"))
     today_iso = date.today().isoformat()
-    decision = db.save_coach_decision(
+    db.save_coach_decision(
         decision_type="Recovery",
         reason="Готовность low: оставить план без изменений.",
         decision_event_id="keep-1",

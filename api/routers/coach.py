@@ -29,7 +29,12 @@ from models.ai_coach_runtime import (
     revalidate_with_correction,
     synthesize_ai_chat_response,
 )
-from models.coach_decisions import CoachDecision, build_coach_decision
+from models.coach_decisions import (
+    NO_REVISIT_REQUIRED,
+    CoachDecision,
+    build_coach_decision,
+    scope_for_proposal_actions,
+)
 from models.coach_narrative_evidence import (
     build_coach_narrative_evidence,
     fail_closed_coach_narrative,
@@ -169,8 +174,10 @@ def coach_chat(
                 ),
             }
         )
+        event_proposal_actions: list[str] = []
         recovery_proposal = recovery_replan.get("proposal")
         if isinstance(recovery_proposal, dict) and recovery_proposal.get("status") == "pending":
+            event_proposal_actions.append("recovery_replan")
             yield _sse(
                 {
                     "type": "proposal",
@@ -216,6 +223,7 @@ def coach_chat(
                 )
                 raw_result = item.get("raw_result") or {}
                 if raw_result.get("is_proposal"):
+                    event_proposal_actions.append(str(raw_result.get("action") or ""))
                     saved_proposal = db.save_coach_proposal(
                         action=raw_result.get("action"),
                         params=raw_result.get("params", {}),
@@ -316,6 +324,7 @@ def coach_chat(
                 decision_event_id=decision_event_id,
                 load_metrics_context=load_metrics_context,
                 evidence_gate=gate_result.metadata(),
+                proposal_actions=tuple(event_proposal_actions),
             )
             chat_manager.add_message(chat_id, "assistant", final)
 
@@ -519,7 +528,16 @@ def _save_decision(
     decision_event_id: str,
     load_metrics_context: dict[str, Any] | None = None,
     evidence_gate: dict[str, Any] | None = None,
+    proposal_actions: tuple[str, ...] = (),
 ) -> None:
+    """Persist one coach decision with Agent Log v2 explainability metadata.
+
+    A coach-chat turn is always a ``coach_request`` decision. Its scope is the
+    widest zone its saved proposals may touch (advice-only turns affect only
+    today), and its outcome snapshot says whether the turn proposed a product
+    change (``proposed``) or deliberately changed nothing (``no_change``).
+    The API later refreshes the outcome from the proposal lifecycle.
+    """
     try:
         gate = dict(evidence_gate or {})
         if gate.get("outcome") == "replaced":
@@ -543,6 +561,10 @@ def _save_decision(
             metrics_window_days=load_metrics_context.get("metrics_window_days"),
             as_of_date=load_metrics_context.get("as_of_date"),
             narrative_gate=evidence_gate,
+            trigger="coach_request",
+            scope=scope_for_proposal_actions(proposal_actions),
+            outcome="proposed" if proposal_actions else "no_change",
+            revisit_reason=NO_REVISIT_REQUIRED,
         )
     except Exception:
         # Decision logging must not block the coach answer delivery.
