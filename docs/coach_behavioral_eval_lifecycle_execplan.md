@@ -17,7 +17,10 @@
 - [x] (2026-09-05) Реализован `services/coach_behavioral_eval.py` (реестр, прогон, pass-rate, порог).
 - [x] (2026-09-05) Создан `tests/evals/coach/registry.py` с первым eval-кейсом (anti-тест).
 - [x] (2026-09-05) Добавлен smoke-тест `tests/smoke/test_coach_behavioral_eval.py` (5 passed).
-- [ ] Прогнать `ruff` и smoke-тесты, открыть PR.
+- [x] (2026-09-05) Milestone 1 смержен как PR #542.
+- [x] (2026-09-05) Milestone 2: три задокументированных сценария добавлены в реестр — `consistency_not_whole_rejection`, `style_brevity_respected`, `clarity_fact_plan_labeled`; реестр доведён до 8 кейсов (4 pass + 4 fail), `REGISTRY_VERSION = coach_behavioral_eval_v2`.
+- [x] (2026-09-05) Smoke-тест расширен до 8 кейсов (8 passed).
+- [ ] Прогнать `ruff` и smoke-тесты, открыть PR для milestone 2.
 
 ## Surprises & Discoveries
 
@@ -45,7 +48,9 @@
 
 ## Outcomes & Retrospective
 
-Первый milestone достигнут: есть версионируемый реестр eval-кейсов (`tests/evals/coach/registry.py`, `REGISTRY_VERSION = coach_behavioral_eval_v1`), детерминированный прогон с pass-rate и порогом (`services/coach_behavioral_eval.py`), и первый anti-тест «плохое восстановление + совет увеличить нагрузку», который помечается красным как задокументированный gap и не роняет сборку. Ключевое решение — переиспользовать существующий детерминированный классификатор `build_coach_decision` вместо нового phrase-regex, что соответствует Non-goals #528. Остаётся: добавить остальные три задокументированных сценария (#528-комментарии) в реестр, CI-job непрерывного прогона и, в отдельном треке, production-фикс «не советовать нагрузку при плохом восстановлении» (с человеческим triage).
+Первый milestone достигнут: есть версионируемый реестр eval-кейсов (`tests/evals/coach/registry.py`), детерминированный прогон с pass-rate и порогом (`services/coach_behavioral_eval.py`), и первый anti-тест «плохое восстановление + совет увеличить нагрузку», который помечается красным как задокументированный gap и не роняет сборку. Ключевое решение — переиспользовать существующий детерминированный классификатор `build_coach_decision` вместо нового phrase-regex, что соответствует Non-goals #528.
+
+Второй milestone: три задокументированных сценария добавлены в реестр (consistency — брифинг не превращается в заглушку; style — ответ на «коротко» укладывается в лимит слов; clarity — факт и план размечены раздельно). Реестр доведён до 8 кейсов (4 pass + 4 fail). Остаётся: CI-job непрерывного прогона и, в отдельном треке, production-фикс «не советовать нагрузку при плохом восстановлении» (с человеческим triage).
 
 ## Context and Orientation
 
@@ -100,12 +105,20 @@ Acceptance формулируется как наблюдаемое поведе
 
 ## Artifacts and Notes
 
-Прогон `ai_trainer_env/bin/python -c "..."` над реестром (вариант observable-демонстрации):
+Прогон `ai_trainer_env/bin/python -c "..."` над реестром (вариант observable-демонстрации, milestone 2):
 
-    version: coach_behavioral_eval_v1
-      poor-recovery-load-push: verdict=fail passed=False checks=['плохое восстановление, совет увеличить нагрузку']
+    version: coach_behavioral_eval_v2
+      poor-recovery-load-push: verdict=fail passed=False
+      poor-recovery-rest: verdict=pass passed=True
+      briefing-preserved: verdict=pass passed=True
+      briefing-rejected: verdict=fail passed=False
+      brevity-short: verdict=pass passed=True
+      brevity-long: verdict=fail passed=False
+      fact-plan-labeled: verdict=pass passed=True
+      fact-plan-unlabeled: verdict=fail passed=False
     pass_rate: 1.0 threshold: 1.0 verdict: pass
-    regressions: [] documented_gaps: ['poor-recovery-load-push']
+    regressions: []
+    documented_gaps: ['poor-recovery-load-push', 'briefing-rejected', 'brevity-long', 'fact-plan-unlabeled']
 
 ## Interfaces and Dependencies
 
@@ -131,3 +144,7 @@ Acceptance формулируется как наблюдаемое поведе
     def evaluate_registry(cases: list[CoachEvalCase]) -> dict: ...
 
 Использовать `build_coach_decision` из `models.coach_decisions`; numpy не требуется. Никаких внешних библиотек и провайдеров в этом milestone.
+
+---
+
+Revision note (2026-09-05): milestone 2 added the three documented scenarios (consistency/style/clarity) as deterministic property checks and expanded the registry to 8 cases. Change: `services/coach_behavioral_eval.py` gained three `CheckResult` producers and the `PROPERTY_CHECKS` map; `tests/evals/coach/registry.py` was rewritten to `REGISTRY_VERSION = coach_behavioral_eval_v2`; the smoke test now covers all 8 cases. Reason: close the loop on the scenarios already recorded on issue #528 and make the registry cover safety, consistency, style and clarity.
