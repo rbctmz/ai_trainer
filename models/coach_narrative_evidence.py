@@ -1109,10 +1109,14 @@ def _calendar_mismatch(text: str, calendar: Mapping[str, Any]) -> bool:
     return False
 
 
-def _replacement_text(reason_codes: tuple[str, ...], payload: Mapping[str, Any]) -> str:
-    lines = ["Не могу подтвердить исходный вывод по имеющимся данным."]
+def _replacement_bullets(
+    reason_codes: tuple[str, ...],
+    payload: Mapping[str, Any],
+) -> list[str]:
+    """Specific, human-readable findings for each rejected reason code."""
     readiness = dict(payload.get("readiness") or {})
     calendar = dict(payload.get("calendar") or {})
+    lines: list[str] = []
     if READINESS_CLAIM_CONTRADICTED in reason_codes:
         lines.append(
             f"- Канонический снимок: readiness {_format_number(readiness.get('score'))} "
@@ -1143,7 +1147,29 @@ def _replacement_text(reason_codes: tuple[str, ...], payload: Mapping[str, Any])
         )
     ):
         lines.append("- Данных недостаточно для проверки утверждения; сначала обновите факты.")
+    return lines
+
+
+def _replacement_text(reason_codes: tuple[str, ...], payload: Mapping[str, Any]) -> str:
+    lines = ["Не могу подтвердить исходный вывод по имеющимся данным."]
+    lines.extend(_replacement_bullets(reason_codes, payload))
     return "\n".join(lines)
+
+
+def build_corrective_instruction(
+    reason_codes: Iterable[str],
+    payload: Mapping[str, Any],
+) -> str:
+    """One-shot correction hint for a coach narrative the gate rejected."""
+    bullets = _replacement_bullets(tuple(str(code) for code in reason_codes), payload)
+    if not bullets:
+        bullets = ["- Часть ответа не подтверждается имеющимися данными."]
+    return (
+        "Проверка фактов отклонила часть твоего ответа:\n"
+        + "\n".join(bullets)
+        + "\n\nПерепиши ответ: убери или исправь ТОЛЬКО перечисленные утверждения, "
+        "сохранив остальную структуру, конкретные цифры и план."
+    )
 
 
 def _event_date(

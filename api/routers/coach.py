@@ -26,6 +26,7 @@ from models.ai_coach_runtime import (
     create_chat_synthesis_system_prompt,
     build_chat_synthesis_prompt,
     resolve_turn_tool_results,
+    revalidate_with_correction,
     synthesize_ai_chat_response,
 )
 from models.coach_decisions import CoachDecision, build_coach_decision
@@ -276,6 +277,7 @@ def coach_chat(
             if not str(final or "").strip():
                 raise RuntimeError("AI-провайдер вернул пустой ответ. Повторите запрос.")
 
+            evidence = None
             try:
                 evidence = build_coach_narrative_evidence(
                     readiness_snapshot=readiness_snapshot,
@@ -288,6 +290,18 @@ def coach_chat(
                 gate_result = validate_coach_narrative(final, evidence)
             except Exception:
                 gate_result = fail_closed_coach_narrative()
+            if evidence is not None:
+                # One bounded corrective retry: a single contradicted claim must
+                # not throw away an otherwise useful briefing (#528 behavior).
+                gate_result = revalidate_with_correction(
+                    provider=provider,
+                    gate_result=gate_result,
+                    evidence=evidence,
+                    history_messages=history,
+                    user_input=message,
+                    tool_results=tool_results,
+                    goal_plan=goal_plan,
+                )
             final = gate_result.delivered_text
             for chunk in _chunk(final):
                 if first_token_ms is None:
