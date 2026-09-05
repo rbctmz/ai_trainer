@@ -91,6 +91,12 @@ export function Nav() {
           >
             Восстановление
           </Link>
+          <Link
+            href="/showcase"
+            className="rounded px-1.5 py-0.5 text-xs text-ink-soft transition hover:bg-surface-muted"
+          >
+            Компоненты
+          </Link>
         </div>
       ) : null}
       {demo ? (
