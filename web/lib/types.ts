@@ -250,6 +250,10 @@ export interface PlanVsFact {
     matched: number;
     intensity_assessed?: number;
     intensity_within?: number;
+    planned_duration_minutes?: number | null;
+    actual_duration_minutes?: number | null;
+    planned_tss?: number | null;
+    actual_tss?: number | null;
   };
   plan_replanned_after_delivery?: {
     reason: string;
@@ -1268,6 +1272,17 @@ export interface DashboardWidgets {
 export type MatchStatus = "matched" | "ambiguous" | "unmatched" | "unplanned";
 export type PlanAdherence = "exact" | "substituted" | "major_deviation" | "unknown";
 
+export interface CompositeExecutionProjection {
+  planned_sports: string[];
+  actual_sports: string[];
+  structure_match: boolean | null;
+  planned_tss: number | null;
+  actual_tss: number | null;
+  planned_transition_minutes: number | null;
+  actual_transition_minutes: number | null;
+  transition_delta_minutes: number | null;
+}
+
 export interface ReconActivity {
   activity_id: string;
   date: string;
@@ -1296,6 +1311,7 @@ export interface ReconRow {
   candidate_activities: ReconActivity[];
   actual_total_tss: number;
   actual_duration_minutes: number;
+  composite_execution?: CompositeExecutionProjection | null;
 }
 
 export interface ReconResponse {
@@ -1718,6 +1734,7 @@ export interface SessionFeedbackPrompt {
   feedback: SessionFeedbackRecord | null;
   provenance_label: string | null;
   comparison?: ComparableSessionProjection | null;
+  composite_execution?: CompositeExecutionProjection | null;
 }
 
 export interface TodayFeedback {
@@ -1856,6 +1873,8 @@ export interface AdherenceDay {
   date: string;
   status: AdherenceDayStatus;
   planned_tss: number;
+  matched_actual_tss: number;
+  unplanned_tss: number;
   actual_tss: number;
 }
 

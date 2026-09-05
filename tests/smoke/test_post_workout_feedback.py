@@ -940,6 +940,66 @@ def test_empty_feedback_history_does_not_return_other_evaluations() -> None:
     }
 
 
+def test_feedback_prompt_uses_backend_composite_execution_projection() -> None:
+    planned = _template(kind="composite")
+    planned.update(
+        {
+            "sport": "brick",
+            "total_tss": 76.0,
+            "duration_minutes": 105,
+            "transition_minutes": 5,
+            "legs": [
+                {"leg_index": 1, "sport": "bike", "target_tss": 57.0, "duration_minutes": 70},
+                {"leg_index": 2, "sport": "run", "target_tss": 19.0, "duration_minutes": 30},
+            ],
+        }
+    )
+    row = _row(
+        activities=[
+            {
+                **_activity("brick-bike", duration_minutes=70, sport="bike"),
+                "started_at_utc": "2026-07-12T08:00:00Z",
+                "tss": 55.0,
+            },
+            {
+                **_activity("brick-run", duration_minutes=30, sport="run"),
+                "started_at_utc": "2026-07-12T09:16:00Z",
+                "tss": 18.0,
+            },
+        ]
+    )
+    row.update(
+        {
+            "session_id": "ats_quality",
+            "kind": "composite",
+            "sport": "brick",
+            "tss": 76.0,
+            "duration_minutes": 105,
+            "actual_total_tss": 73.0,
+            "actual_duration_minutes": 100.0,
+            "actual_sport": "",
+            "actual_role": "quality",
+        }
+    )
+
+    result = build_feedback_prompts(
+        [row],
+        templates=[planned],
+        latest_feedback_by_session={},
+        prompt_events_by_session={},
+        forecasts=[],
+        now_utc=datetime(2026, 7, 13, 9, tzinfo=timezone.utc),
+        as_of="2026-07-13",
+    )
+
+    projection = result["prompts"][0]["composite_execution"]
+    assert projection["structure_match"] is True
+    assert projection["actual_sports"] == ["bike", "run"]
+    assert projection["planned_tss"] == 76.0
+    assert projection["actual_tss"] == 73.0
+    assert projection["transition_delta_minutes"] == 1.0
+
+
 def test_openapi_exposes_feedback_lifecycle_routes() -> None:
     from api.main import app
 

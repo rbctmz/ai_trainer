@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
 import math
@@ -160,7 +160,7 @@ def _planned_snapshot(
         intervals = project_planned_intervals(session)
     except ValueError:
         intervals = []
-    return {
+    snapshot = {
         "index": index,
         "session_id": session.get("session_id"),
         "date": date_iso,
@@ -172,6 +172,158 @@ def _planned_snapshot(
         "duration_minutes": int(round(max(0.0, _float(session.get("duration_minutes"))))),
         "parts": _session_parts(session),
         "intervals": intervals,
+    }
+    if str(session.get("kind") or "").strip().lower() == "composite":
+        snapshot["kind"] = "composite"
+        snapshot["transition_minutes"] = _nonnegative_number(
+            session.get("transition_minutes")
+        )
+        snapshot["legs"] = [
+            {
+                "leg_index": leg.get("leg_index"),
+                "sport": normalize_sport_key(leg.get("sport"))
+                if leg.get("sport")
+                else "",
+                "target_tss": _nonnegative_number(leg.get("target_tss")),
+                "duration_minutes": _nonnegative_number(leg.get("duration_minutes")),
+            }
+            for leg in list(session.get("legs") or [])
+            if isinstance(leg, Mapping)
+        ]
+    return snapshot
+
+
+def _nonnegative_number(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return round(number, 1) if math.isfinite(number) and number >= 0 else None
+
+
+def _activity_start(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _composite_legs(planned: Mapping[str, Any]) -> list[Mapping[str, Any]] | None:
+    if str(planned.get("kind") or "").strip().lower() != "composite":
+        return None
+    raw_legs = planned.get("legs")
+    if not isinstance(raw_legs, list) or len(raw_legs) < 2:
+        return None
+    legs = [leg for leg in raw_legs if isinstance(leg, Mapping)]
+    if len(legs) != len(raw_legs):
+        return None
+    indexed = [leg.get("leg_index") for leg in legs]
+    if all(value is not None for value in indexed):
+        try:
+            indexes = [int(value) for value in indexed]
+        except (TypeError, ValueError):
+            return None
+        if len(set(indexes)) != len(indexes) or any(value <= 0 for value in indexes):
+            return None
+        legs = [leg for _index, leg in sorted(zip(indexes, legs), key=lambda item: item[0])]
+    for leg in legs:
+        if _sport_key(leg.get("sport")) is None:
+            return None
+    return legs
+
+
+def _sport_key(value: Any) -> str | None:
+    normalized = normalize_sport_key(value)
+    return normalized if normalized not in {"", "other"} else None
+
+
+def project_composite_execution(
+    planned: Mapping[str, Any],
+    actual_activities: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    """Project evidence for one composite parent without creating a new target.
+
+    Discipline order is asserted only when every actual activity has a valid,
+    unique start timestamp. Transition time additionally requires a positive
+    duration for every activity; missing/overlapping timing stays ``None``.
+    """
+    legs = _composite_legs(planned)
+    if legs is None:
+        return None
+    planned_sports = [_sport_key(leg.get("sport")) for leg in legs]
+    if any(value is None for value in planned_sports):
+        return None
+    actuals = [item for item in actual_activities if isinstance(item, Mapping)]
+    if len(actuals) != len(list(actual_activities)) or not actuals:
+        return None
+    actual_sports_in_row = [_sport_key(item.get("sport")) for item in actuals]
+    if any(value is None for value in actual_sports_in_row):
+        return None
+    starts = [_activity_start(item.get("started_at_utc")) for item in actuals]
+    durations = [_nonnegative_number(item.get("duration_minutes")) for item in actuals]
+    ordered = all(start is not None for start in starts) and len(set(starts)) == len(starts)
+    if ordered:
+        actuals = [
+            item
+            for _start, item in sorted(zip(starts, actuals), key=lambda pair: pair[0])
+        ]
+        starts = [_activity_start(item.get("started_at_utc")) for item in actuals]
+        durations = [_nonnegative_number(item.get("duration_minutes")) for item in actuals]
+    actual_sports = [_sport_key(item.get("sport")) for item in actuals]
+    structure_match = (
+        actual_sports == planned_sports
+        if ordered
+        else None
+    )
+    actual_tss = _nonnegative_number(planned.get("actual_total_tss"))
+    if actual_tss is None:
+        tss_values = [_nonnegative_number(item.get("tss")) for item in actuals]
+        actual_tss = round(sum(tss_values), 1) if all(value is not None for value in tss_values) else None
+    planned_tss = _nonnegative_number(planned.get("tss"))
+    if planned_tss is None:
+        values = [_nonnegative_number(leg.get("target_tss")) for leg in legs]
+        planned_tss = round(sum(values), 1) if all(value is not None for value in values) else None
+    planned_transition = _nonnegative_number(
+        planned.get("transition_minutes")
+        if planned.get("transition_minutes") is not None
+        else planned.get("planned_transition_minutes")
+    )
+    actual_transition: float | None = None
+    if ordered and all(value is not None and value > 0 for value in durations):
+        gaps: list[float] = []
+        for current, following, duration in zip(starts, starts[1:], durations):
+            if current is None or following is None or duration is None:
+                gaps = []
+                break
+            gap = (following - current).total_seconds() / 60.0 - duration
+            if gap < 0:
+                gaps = []
+                break
+            gaps.append(gap)
+        if gaps:
+            actual_transition = round(sum(gaps), 1)
+    transition_delta = (
+        round(actual_transition - planned_transition, 1)
+        if actual_transition is not None and planned_transition is not None
+        else None
+    )
+    return {
+        "planned_sports": planned_sports,
+        "actual_sports": actual_sports,
+        "structure_match": structure_match,
+        "planned_tss": planned_tss,
+        "actual_tss": actual_tss,
+        "planned_transition_minutes": planned_transition,
+        "actual_transition_minutes": actual_transition,
+        "transition_delta_minutes": transition_delta,
     }
 
 
@@ -249,6 +401,8 @@ def _adherence(
     actual_tss: float,
     actual_sport: str,
     actual_role: str | None,
+    actual_sports: set[str] | None = None,
+    composite_execution: Mapping[str, Any] | None = None,
 ) -> str:
     if match_status != "matched" or planned.get("tss") in {None, 0}:
         return "unknown"
@@ -262,6 +416,37 @@ def _adherence(
         # evidence exists; the outer load check above still yields
         # `major_deviation` for clearly out-of-bounds loads.
         return "unknown"
+    planned_parts = {
+        str(key).strip().lower()
+        for key in (planned.get("parts") or {})
+        if str(key).strip()
+    }
+    # A brick is one parent target, but its discipline identity is the set of
+    # proven leg sports. Do not let the scalar parent sport (``brick``) turn a
+    # correctly completed bike+run fact into ``substituted``. Load remains
+    # classified against the parent total below, so a lower/upper load still
+    # reports honestly as a deviation without changing TSS.
+    if planned_parts and str(planned.get("sport") or "").strip().lower() == "brick":
+        if isinstance(composite_execution, Mapping):
+            structure_match = composite_execution.get("structure_match")
+            if structure_match is None:
+                return "unknown"
+            if structure_match is True:
+                if ratio < 0.80 or ratio > 1.20:
+                    return "substituted"
+                return "exact"
+            if structure_match is False:
+                return "substituted"
+        observed_parts = {
+            str(value).strip().lower()
+            for value in (actual_sports or set())
+            if str(value).strip()
+        }
+        if observed_parts == planned_parts:
+            if ratio < 0.80 or ratio > 1.20:
+                return "substituted"
+            return "exact"
+
     return classify_plan_adherence(
         {"role": planned.get("role"), "sport": planned.get("sport"), "tss": planned.get("tss")},
         {"role": actual_role, "sport": actual_sport, "tss": actual_tss},
@@ -517,6 +702,9 @@ def build_reconciliation(
         actual_duration = round(sum(float(item.get("duration_minutes") or 0.0) for item in matched), 1)
         sports = {str(item.get("sport") or "") for item in matched if item.get("sport")}
         actual_sport = next(iter(sports)) if len(sports) == 1 else ""
+        composite_execution = project_composite_execution(
+            {**planned, "actual_total_tss": actual_tss}, matched
+        )
         rows.append(
             {
                 **planned,
@@ -532,12 +720,19 @@ def build_reconciliation(
                 "actual_duration_minutes": actual_duration,
                 "actual_sport": actual_sport,
                 "actual_role": actual_role,
+                **(
+                    {"composite_execution": composite_execution}
+                    if composite_execution is not None
+                    else {}
+                ),
                 "adherence": _adherence(
                     planned,
                     match_status=match_status,
                     actual_tss=actual_tss,
                     actual_sport=actual_sport,
                     actual_role=actual_role,
+                    actual_sports=sports,
+                    composite_execution=composite_execution,
                 ),
             }
         )
@@ -823,4 +1018,5 @@ __all__ = [
     "build_weekly_rebalance_preview",
     "find_planned_session",
     "iter_parent_sessions",
+    "project_composite_execution",
 ]

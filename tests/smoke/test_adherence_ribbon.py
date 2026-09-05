@@ -116,8 +116,12 @@ def test_day_status_matrix_and_week_aggregates():
     assert days["2026-08-09"]["status"] == "rest"
 
     assert days["2026-08-03"]["planned_tss"] == 80.0
+    assert days["2026-08-03"]["matched_actual_tss"] == 85.0
+    assert days["2026-08-03"]["unplanned_tss"] == 0.0
     assert days["2026-08-03"]["actual_tss"] == 85.0
     assert days["2026-08-07"]["planned_tss"] == 0.0
+    assert days["2026-08-07"]["matched_actual_tss"] == 0.0
+    assert days["2026-08-07"]["unplanned_tss"] == 45.0
     assert days["2026-08-07"]["actual_tss"] == 45.0
 
     assert len(ribbon["weeks"]) == 1

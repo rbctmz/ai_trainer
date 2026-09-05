@@ -10,6 +10,7 @@ from data.database import Database
 from models.plan_actual_reconciliation import (
     MATCH_RULE_VERSION,
     REBALANCE_RULE_VERSION,
+    _adherence,
     apply_weekly_rebalance_preview,
     build_reconciliation,
     build_weekly_rebalance_preview,
@@ -343,6 +344,103 @@ def test_ai_trainer_brick_leg_external_ids_are_exact_parent_evidence() -> None:
     row = next(item for item in result["rows"] if item["date"] == "2026-07-08")
     assert row["match_method"] == "ai_trainer_external_id"
     assert set(row["actual_activity_ids"]) == {"bike-leg", "run-leg"}
+
+
+def test_brick_adherence_uses_parent_load_after_matching_both_disciplines() -> None:
+    planned = {
+        "sport": "brick",
+        "role": "long",
+        "tss": 76.0,
+        "parts": {"bike": 57.0, "run": 19.0},
+    }
+
+    assert _adherence(
+        planned,
+        match_status="matched",
+        actual_tss=57.0,
+        actual_sport="",
+        actual_role="long",
+        actual_sports={"bike", "run"},
+    ) == "substituted"
+    assert _adherence(
+        planned,
+        match_status="matched",
+        actual_tss=76.0,
+        actual_sport="",
+        actual_role="long",
+        actual_sports={"bike", "run"},
+    ) == "exact"
+
+
+def test_composite_execution_projection_requires_ordered_activity_evidence() -> None:
+    from models.plan_actual_reconciliation import project_composite_execution
+
+    planned = {
+        "kind": "composite",
+        "sport": "brick",
+        "tss": 76.0,
+        "duration_minutes": 105,
+        "transition_minutes": 5,
+        "legs": [
+            {"leg_index": 1, "sport": "bike", "target_tss": 57.0, "duration_minutes": 70},
+            {"leg_index": 2, "sport": "run", "target_tss": 19.0, "duration_minutes": 30},
+        ],
+    }
+    activities = [
+        {
+            "activity_id": "bike-leg",
+            "sport": "bike",
+            "tss": 55.0,
+            "duration_minutes": 70.0,
+            "started_at_utc": "2026-08-29T08:00:00Z",
+        },
+        {
+            "activity_id": "run-leg",
+            "sport": "run",
+            "tss": 18.0,
+            "duration_minutes": 30.0,
+            "started_at_utc": "2026-08-29T09:16:00Z",
+        },
+    ]
+
+    projection = project_composite_execution(planned, activities)
+
+    assert projection == {
+        "planned_sports": ["bike", "run"],
+        "actual_sports": ["bike", "run"],
+        "structure_match": True,
+        "planned_tss": 76.0,
+        "actual_tss": 73.0,
+        "planned_transition_minutes": 5.0,
+        "actual_transition_minutes": 6.0,
+        "transition_delta_minutes": 1.0,
+    }
+    assert project_composite_execution(
+        planned,
+        [{**activities[0], "started_at_utc": None}, activities[1]],
+    ) == {
+        "planned_sports": ["bike", "run"],
+        "actual_sports": ["bike", "run"],
+        "structure_match": None,
+        "planned_tss": 76.0,
+        "actual_tss": 73.0,
+        "planned_transition_minutes": 5.0,
+        "actual_transition_minutes": None,
+        "transition_delta_minutes": None,
+    }
+    reversed_projection = project_composite_execution(
+        planned,
+        [activities[1], activities[0]],
+    )
+    assert reversed_projection["actual_sports"] == ["bike", "run"]
+    assert reversed_projection["structure_match"] is True
+    assert project_composite_execution(
+        planned,
+        [
+            {**activities[0], "started_at_utc": "2026-08-29T09:00:00Z"},
+            {**activities[1], "started_at_utc": "2026-08-29T08:00:00Z"},
+        ],
+    )["structure_match"] is False
 
 
 def test_user_match_reserves_activity_before_automatic_heuristics() -> None:

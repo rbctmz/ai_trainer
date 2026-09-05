@@ -46,6 +46,17 @@ function sportLabel(value: string | null | undefined): string {
   return SPORT_LABELS[key] ?? (key || "активность");
 }
 
+function loadAdherenceLabel(value: string | null | undefined): string {
+  return (
+    {
+      exact: "нагрузка по плану",
+      substituted: "нагрузка отличается от точного диапазона плана",
+      major_deviation: "существенное отклонение нагрузки от плана",
+      unknown: "нагрузка не оценена",
+    }[String(value ?? "").trim()] ?? "нагрузка не оценена"
+  );
+}
+
 function provenanceLabel(value: string | null | undefined): string {
   const key = String(value ?? "").trim();
   return PROVENANCE_LABELS[key] ?? (key || "введено спортсменом");
@@ -89,18 +100,37 @@ export function PostWorkoutFeedbackCard({
   const needsRatings = !["did_not_start", "unknown"].includes(completionStatus);
   const canSubmit = !submitting && (!needsRatings || (rpe !== null && quality !== null));
   const plannedSportKey = sportKey(prompt.planned_sport);
-  const actualSportKeys = Array.from(
-    new Set(
-      prompt.actual_activities
-        .map((activity) => sportKey(activity.sport))
-        .filter(Boolean),
-    ),
-  );
+  const compositeExecution = prompt.composite_execution;
+  const actualSportKeys = compositeExecution
+    ? compositeExecution.actual_sports.map(sportKey)
+    : Array.from(
+        new Set(
+          prompt.actual_activities
+            .map((activity) => sportKey(activity.sport))
+            .filter(Boolean),
+        ),
+      );
+  // A composite parent is a single feedback target. Structure is displayed
+  // only when the API's evidence-backed projection proves the leg order.
+  const compositeBrickMatched =
+    prompt.kind === "composite" &&
+    prompt.match_status === "matched" &&
+    prompt.composite_execution?.structure_match === true;
+  const confirmedCompositeReplacement =
+    prompt.kind === "composite" &&
+    prompt.match_method === "user_confirmed" &&
+    compositeExecution?.structure_match === false;
   const confirmedSubstitution =
     prompt.match_method === "user_confirmed" &&
-    Boolean(plannedSportKey) &&
-    actualSportKeys.some((key) => key !== plannedSportKey);
+    !compositeBrickMatched &&
+    (prompt.kind === "composite"
+      ? confirmedCompositeReplacement
+      : Boolean(plannedSportKey) &&
+        actualSportKeys.some((key) => key !== plannedSportKey));
   const actualSportLabel = actualSportKeys.map(sportLabel).join(" + ");
+  const plannedCompositeSportLabel =
+    compositeExecution?.planned_sports.map(sportLabel).join(" + ") ||
+    sportLabel(prompt.planned_sport);
   const activitySummary = useMemo(
     () =>
       prompt.actual_activities
@@ -198,16 +228,37 @@ export function PostWorkoutFeedbackCard({
         <ComparableSessionEvidence comparison={prompt.comparison} />
       ) : null}
 
-      {confirmedSubstitution ? (
+      {compositeBrickMatched ? (
+        <div className="mt-2 space-y-1 text-xs">
+          <p className="font-medium text-tone-success">
+            Brick сопоставлен по структуре: {actualSportLabel}
+            <span className="ml-1 text-ink-soft">· {loadAdherenceLabel(prompt.adherence)}</span>
+          </p>
+          {compositeExecution?.planned_tss != null && compositeExecution.actual_tss != null ? (
+            <p className="text-ink-soft">
+              Нагрузка: факт {Math.round(compositeExecution.actual_tss)} / план {Math.round(compositeExecution.planned_tss)} TSS
+            </p>
+          ) : null}
+          {compositeExecution?.actual_transition_minutes != null &&
+          compositeExecution.planned_transition_minutes != null ? (
+            <p className="text-ink-soft">
+              Переход: факт {Math.round(compositeExecution.actual_transition_minutes)} / план {Math.round(compositeExecution.planned_transition_minutes)} мин
+              {compositeExecution.transition_delta_minutes != null
+                ? ` · отклонение ${compositeExecution.transition_delta_minutes > 0 ? "+" : ""}${Math.round(compositeExecution.transition_delta_minutes)} мин`
+                : ""}
+            </p>
+          ) : null}
+        </div>
+      ) : confirmedSubstitution ? (
         <p className="mt-2 text-xs font-medium text-accent">
-          Подтверждённая замена: {actualSportLabel} вместо {sportLabel(prompt.planned_sport)}
+          Подтверждённая замена: {actualSportLabel} вместо {plannedCompositeSportLabel}
         </p>
       ) : null}
 
       {saved && !editing ? (
         <div className="mt-3 space-y-2 text-sm text-ink-soft">
           <p>
-            {confirmedSubstitution ? "Фактическая сессия" : "Сессия"} · {" "}
+            {compositeBrickMatched ? "Brick" : confirmedSubstitution ? "Фактическая сессия" : "Сессия"} · {" "}
             {COMPLETION_LABELS[saved.completion_status] ?? saved.completion_status}
             {saved.completion_pct != null ? ` · ${Math.round(saved.completion_pct)}%` : ""}
             {saved.session_rpe_1_10 != null ? ` · RPE ${saved.session_rpe_1_10}/10` : ""}
@@ -249,7 +300,11 @@ export function PostWorkoutFeedbackCard({
         <div className="mt-4 space-y-4">
           <fieldset>
             <legend className="text-xs font-semibold uppercase tracking-wide text-ink-faint">
-              {confirmedSubstitution ? "Выполнение фактической сессии" : "Выполнение"}
+              {compositeBrickMatched
+                ? "Выполнение brick"
+                : confirmedSubstitution
+                  ? "Выполнение фактической сессии"
+                  : "Выполнение"}
             </legend>
             <div className="mt-2 flex flex-wrap gap-2">
               {prompt.allowed_completion_statuses.map((status) => (
