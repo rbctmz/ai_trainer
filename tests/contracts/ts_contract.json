@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "a4cd168531c96c4dd2b2ed2504d6f084c8fa5dd80465c25e583b2fc60cfc0683",
+    "source_sha256": "e0830ea5fe1fb693b49248fdcf5efe8a551bd729c7d9c74d5b5ce144513f8202",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "a8b1bf6dfe79c12d94a8e1ddab9697db93f2304b0714facfeeefebe0c6848a5e"
   },
@@ -3019,6 +3019,32 @@
             "array_length": null
           }
         },
+        "outcome": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [
+              "applied",
+              "failed",
+              "no_change",
+              "proposed",
+              "rejected",
+              "rolled_back",
+              "unknown"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "DecisionOutcome",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
         "reason": {
           "optional": false,
           "spec": {
@@ -3036,10 +3062,113 @@
             "array_length": null
           }
         },
+        "revisit_at": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "revisit_reason": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "scope": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [
+              "plan",
+              "today",
+              "unknown",
+              "week"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "DecisionScope",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
         "time": {
           "optional": false,
           "spec": {
             "kinds": [
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "trigger": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [
+              "coach_request",
+              "manual",
+              "proposal_approved",
+              "provider_sync",
+              "scheduled_check",
+              "settings_change",
+              "unknown"
+            ],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": "DecisionTrigger",
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "trigger_source": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
               "string"
             ],
             "literals": [],
@@ -5878,6 +6007,69 @@
         "planned",
         "rest",
         "today"
+      ],
+      "widened": false,
+      "items": null,
+      "fields": null,
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "DecisionOutcome": {
+      "kinds": [
+        "string"
+      ],
+      "literals": [
+        "applied",
+        "failed",
+        "no_change",
+        "proposed",
+        "rejected",
+        "rolled_back",
+        "unknown"
+      ],
+      "widened": false,
+      "items": null,
+      "fields": null,
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "DecisionScope": {
+      "kinds": [
+        "string"
+      ],
+      "literals": [
+        "plan",
+        "today",
+        "unknown",
+        "week"
+      ],
+      "widened": false,
+      "items": null,
+      "fields": null,
+      "ref": null,
+      "wildcard": false,
+      "variants": null,
+      "record_values": null,
+      "array_length": null
+    },
+    "DecisionTrigger": {
+      "kinds": [
+        "string"
+      ],
+      "literals": [
+        "coach_request",
+        "manual",
+        "proposal_approved",
+        "provider_sync",
+        "scheduled_check",
+        "settings_change",
+        "unknown"
       ],
       "widened": false,
       "items": null,

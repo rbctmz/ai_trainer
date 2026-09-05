@@ -16,6 +16,13 @@ import uuid
 from typing import Any, Callable
 
 from api.operational_state import build_operational_state, latest_iso_from_database
+from models.coach_decisions import NO_REVISIT_REQUIRED
+from services.agent_log import (
+    PROVIDER_AVAILABLE,
+    SYNC_RETRY_REQUIRED,
+    record_agent_decision,
+    scope_for_sync_days,
+)
 from services.sync_contracts import SyncProgressUpdate
 
 
@@ -74,7 +81,7 @@ class SyncJobManager:
 
             thread = Thread(
                 target=self._run_job,
-                args=(job_id, run_sync, source),
+                args=(job_id, run_sync, source, days, db),
                 name=f"sync-{source}-{job_id}",
                 daemon=True,
             )
@@ -89,7 +96,14 @@ class SyncJobManager:
         with self._lock:
             self._job = self._idle_snapshot()
 
-    def _run_job(self, job_id: str, run_sync: SyncRunner, source: str) -> None:
+    def _run_job(
+        self,
+        job_id: str,
+        run_sync: SyncRunner,
+        source: str,
+        days: int | None,
+        db: Any | None,
+    ) -> None:
         def on_progress(update: SyncProgressUpdate) -> None:
             with self._lock:
                 if self._job.get("job_id") != job_id:
@@ -104,6 +118,13 @@ class SyncJobManager:
         try:
             result = run_sync(on_progress)
             sync_state = str(result.get("sync_state") or "succeeded")
+            self._record_provider_sync_decision(
+                db=db,
+                job_id=job_id,
+                source=source,
+                days=days,
+                sync_state=sync_state,
+            )
             with self._lock:
                 if self._job.get("job_id") != job_id:
                     return
@@ -124,6 +145,13 @@ class SyncJobManager:
                 )
         except Exception as exc:
             message = str(exc)
+            self._record_provider_sync_decision(
+                db=db,
+                job_id=job_id,
+                source=source,
+                days=days,
+                sync_state="failed",
+            )
             with self._lock:
                 if self._job.get("job_id") != job_id:
                     return
@@ -142,6 +170,43 @@ class SyncJobManager:
                         "error": {"message": message},
                     }
                 )
+
+    @staticmethod
+    def _record_provider_sync_decision(
+        *,
+        db: Any | None,
+        job_id: str,
+        source: str,
+        days: int | None,
+        sync_state: str,
+    ) -> None:
+        """Record one terminal sync event without changing the sync result."""
+        if db is None:
+            return
+        try:
+            incomplete = sync_state in {"failed", "partial"}
+            revisit_reason = (
+                SYNC_RETRY_REQUIRED
+                if sync_state == "partial"
+                else PROVIDER_AVAILABLE
+                if sync_state == "failed"
+                else NO_REVISIT_REQUIRED
+            )
+            record_agent_decision(
+                db,
+                decision_type="Monitor",
+                reason=f"Синхронизация {source}: {sync_state}.",
+                decision_event_id=f"provider_sync:{source}:{job_id}",
+                trigger="provider_sync",
+                trigger_source=f"sync_job:{source}:{job_id}",
+                scope=scope_for_sync_days(days),
+                outcome="failed" if incomplete else "applied",
+                revisit_reason=revisit_reason,
+            )
+        except Exception:
+            # Sync success/failure is authoritative; an audit write outage must
+            # not rewrite a completed provider result into a different state.
+            return
 
     def _public_snapshot(self, db: Any | None = None, demo: bool = False, reused: bool = False) -> dict[str, Any]:
         with self._lock:

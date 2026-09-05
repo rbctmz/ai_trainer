@@ -9,6 +9,12 @@ from api import planning_service
 from api.deps import get_database
 from api.operational_state import build_operational_state
 from data.database import Database
+from models.coach_decisions import (
+    NO_REVISIT_REQUIRED,
+    derive_decision_outcome,
+    scope_for_proposal_actions,
+)
+from services.agent_log import record_agent_decision
 from services.coach_drift import build_coach_drift_report
 from services.intervals_plan_delivery import safe_deliver_active_plan
 
@@ -38,7 +44,7 @@ def list_decisions(
         day = str(row.get("date") or "")[:10]
         if not day:
             continue
-        item = dict(row)
+        item = _project_agent_log_v2_row(row, proposal_rows)
         item["time"] = _display_time(item)
         item["count"] = 1
         item["first_time"] = item["time"]
@@ -54,6 +60,17 @@ def list_decisions(
             previous is not None
             and previous.get("decision_type") == item.get("decision_type")
             and previous.get("reason") == item.get("reason")
+            and all(
+                previous.get(field) == item.get(field)
+                for field in (
+                    "trigger",
+                    "trigger_source",
+                    "scope",
+                    "outcome",
+                    "revisit_at",
+                    "revisit_reason",
+                )
+            )
         ):
             previous["count"] += 1
             previous["first_time"] = item["time"]
@@ -126,6 +143,36 @@ def list_decisions(
             stale_after_days=30,
         ),
     }
+
+
+def _display_or_unknown(value: Any) -> str:
+    """Map absent Agent Log v2 metadata to the explicit `unknown` value.
+
+    Legacy rows (written before issue #501) carry no trigger/scope/outcome;
+    the surface must show that they were not captured instead of failing or
+    fabricating a state.
+    """
+    text = str(value or "").strip()
+    return text or "unknown"
+
+
+def _project_agent_log_v2_row(
+    row: dict[str, Any],
+    proposal_rows: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Expose one coach decision with Agent Log v2 metadata (issue #501).
+
+    ``trigger``/``scope`` normalize NULL to ``unknown``. ``outcome`` is
+    refreshed from the current lifecycle of proposals linked by
+    ``decision_event_id`` (approve/reject/rollback happen after the row is
+    written), falling back to the stored snapshot and then ``unknown`` for
+    legacy rows.
+    """
+    item = dict(row)
+    item["trigger"] = _display_or_unknown(item.get("trigger"))
+    item["scope"] = _display_or_unknown(item.get("scope"))
+    item["outcome"] = derive_decision_outcome(row, proposal_rows)
+    return item
 
 
 def _format_time(value: Any) -> str:
@@ -233,7 +280,38 @@ def approve_proposal(
         }
 
     updated = db.update_coach_proposal_status(proposal_id, "approved", result=result)
+    _record_proposal_approval_decision(db, updated, result)
     return {"proposal": updated, "result": result}
+
+
+def _record_proposal_approval_decision(
+    db: Database,
+    proposal: dict[str, Any],
+    result: dict[str, Any],
+) -> None:
+    """Add the human-approved action as its own sourced audit event."""
+    try:
+        proposal_id = int(proposal["id"])
+        action = str(proposal.get("action") or "")
+        no_change = action == "recovery_replan" and result.get("selected_kind") == "keep"
+        record_agent_decision(
+            db,
+            # Approval is an execution/lifecycle fact, not a new directional
+            # training recommendation. The originating coach row retains its
+            # Push/Moderate/Recovery classification.
+            decision_type="Monitor",
+            reason=f"Предложение {proposal_id} подтверждено: {action}.",
+            decision_event_id=f"proposal_approved:{proposal_id}",
+            trigger="proposal_approved",
+            trigger_source=f"proposal:{proposal_id}",
+            scope=scope_for_proposal_actions((action,)),
+            outcome="no_change" if no_change else "applied",
+            revisit_reason=NO_REVISIT_REQUIRED,
+        )
+    except Exception:
+        # Approval may already have changed plan/provider state. Audit logging
+        # must not turn a successful, externally visible action into HTTP 500.
+        return
 
 
 @router.post("/proposals/{proposal_id}/reject")

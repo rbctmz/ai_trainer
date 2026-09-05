@@ -206,6 +206,14 @@ class Database:
         'narrative_gate_rule_version': 'TEXT',
         'narrative_evidence_version': 'TEXT',
         'narrative_evidence_fingerprint': 'TEXT',
+        # Agent Log v2 (issue #501): additive explainability metadata. Nullable
+        # TEXT; NULL == not captured (legacy rows), never a fabricated value.
+        'trigger': 'TEXT',
+        'trigger_source': 'TEXT',
+        'scope': 'TEXT',
+        'outcome': 'TEXT',
+        'revisit_at': 'TEXT',
+        'revisit_reason': 'TEXT',
     }
 
     _COACH_PROPOSAL_COLUMN_TYPES = {
@@ -455,6 +463,12 @@ class Database:
                 narrative_gate_rule_version TEXT,
                 narrative_evidence_version TEXT,
                 narrative_evidence_fingerprint TEXT,
+                trigger TEXT,
+                trigger_source TEXT,
+                scope TEXT,
+                outcome TEXT,
+                revisit_at TEXT,
+                revisit_reason TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -1827,8 +1841,28 @@ class Database:
         decision_event_id=None,
         narrative_gate=None,
         date=None,
+        trigger=None,
+        trigger_source=None,
+        scope=None,
+        outcome=None,
+        revisit_at=None,
+        revisit_reason=None,
     ):
-        """Сохраняет решение коуча для audit trail."""
+        """Сохраняет решение коуча для audit trail (Agent Log v2, issue #501).
+
+        Новые поля ``trigger``/``trigger_source``/``scope``/``outcome``/
+        ``revisit_at``/``revisit_reason`` опциональны и хранятся как TEXT;
+        ``None`` означает «не зафиксировано» (legacy-строка). Метод
+        идемпотентен по ``decision_event_id``: повторная запись события
+        (replay/retry) возвращает уже существующую строку, не создавая
+        дубль логического решения.
+        """
+        from models.coach_decisions import (
+            DECISION_OUTCOMES,
+            DECISION_SCOPES,
+            DECISION_TRIGGERS,
+        )
+
         allowed = {"Push", "Moderate", "Recovery", "Monitor"}
         decision_type = str(decision_type or "").strip()
         if decision_type not in allowed:
@@ -1837,6 +1871,16 @@ class Database:
         reason = " ".join(str(reason or "").split())
         if not reason:
             raise ValueError("reason must be non-empty")
+
+        for name, value, allowed_values in (
+            ("trigger", trigger, DECISION_TRIGGERS),
+            ("scope", scope, DECISION_SCOPES),
+            ("outcome", outcome, DECISION_OUTCOMES),
+        ):
+            if value is not None and str(value).strip() not in allowed_values:
+                raise ValueError(
+                    f"{name} must be one of {sorted(allowed_values)} (got {value!r})"
+                )
 
         if date is None:
             date = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
@@ -1848,8 +1892,45 @@ class Database:
         gate = dict(narrative_gate or {})
         gate_reason_codes = [str(code) for code in gate.get("reason_codes") or []]
 
+        decision_event_id = self.clean_value(decision_event_id)
         conn = self._connect()
         cursor = conn.cursor()
+        if decision_event_id:
+            # Claim the single SQLite writer before checking the event key.
+            # Without one transaction, concurrent retries can all observe
+            # "missing" and then insert duplicate logical decisions (#501).
+            # BEGIN IMMEDIATE preserves legacy duplicate rows while making all
+            # new writes through this boundary atomic.
+            cursor.execute("BEGIN IMMEDIATE")
+            cursor.execute(
+                '''
+                SELECT id
+                FROM coach_decisions
+                WHERE decision_event_id = ?
+                ORDER BY id
+                LIMIT 1
+                ''',
+                (decision_event_id,),
+            )
+            existing = cursor.fetchone()
+            if existing is not None:
+                cursor.execute(
+                    '''
+                    SELECT id, date, decision_type, reason, workout_id, chat_id, message_id,
+                           metrics_window_days, as_of_date, created_at, decision_event_id,
+                           narrative_gate_outcome, narrative_gate_reason_codes_json,
+                           narrative_gate_rule_version, narrative_evidence_version,
+                           narrative_evidence_fingerprint,
+                           trigger, trigger_source, scope, outcome, revisit_at, revisit_reason
+                    FROM coach_decisions
+                    WHERE id = ?
+                    ''',
+                    (existing[0],),
+                )
+                row = cursor.fetchone()
+                conn.commit()
+                conn.close()
+                return self._deserialize_coach_decision_row(row)
         cursor.execute(
             '''
             INSERT INTO coach_decisions
@@ -1857,8 +1938,9 @@ class Database:
                  metrics_window_days, as_of_date, decision_event_id,
                  narrative_gate_outcome, narrative_gate_reason_codes_json,
                  narrative_gate_rule_version, narrative_evidence_version,
-                 narrative_evidence_fingerprint)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 narrative_evidence_fingerprint,
+                 trigger, trigger_source, scope, outcome, revisit_at, revisit_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''',
             (
                 self.clean_value(date),
@@ -1869,12 +1951,18 @@ class Database:
                 self.clean_value(message_id),
                 self.clean_value(metrics_window_days),
                 self.clean_value(as_of_date),
-                self.clean_value(decision_event_id),
+                decision_event_id,
                 self.clean_value(gate.get("outcome")),
                 json.dumps(gate_reason_codes, ensure_ascii=False),
                 self.clean_value(gate.get("rule_version")),
                 self.clean_value(gate.get("evidence_version")),
                 self.clean_value(gate.get("evidence_fingerprint")),
+                self.clean_value(trigger),
+                self.clean_value(trigger_source),
+                self.clean_value(scope),
+                self.clean_value(outcome),
+                self.clean_value(revisit_at),
+                self.clean_value(revisit_reason),
             ),
         )
         decision_id = cursor.lastrowid
@@ -1884,7 +1972,8 @@ class Database:
                    metrics_window_days, as_of_date, created_at, decision_event_id,
                    narrative_gate_outcome, narrative_gate_reason_codes_json,
                    narrative_gate_rule_version, narrative_evidence_version,
-                   narrative_evidence_fingerprint
+                   narrative_evidence_fingerprint,
+                   trigger, trigger_source, scope, outcome, revisit_at, revisit_reason
             FROM coach_decisions
             WHERE id = ?
             ''',
@@ -1906,7 +1995,8 @@ class Database:
                    metrics_window_days, as_of_date, created_at, decision_event_id,
                    narrative_gate_outcome, narrative_gate_reason_codes_json,
                    narrative_gate_rule_version, narrative_evidence_version,
-                   narrative_evidence_fingerprint
+                   narrative_evidence_fingerprint,
+                   trigger, trigger_source, scope, outcome, revisit_at, revisit_reason
             FROM coach_decisions
             WHERE substr(date, 1, 10) >= ?
             ORDER BY date DESC, id DESC
@@ -1942,6 +2032,13 @@ class Database:
             'narrative_gate_rule_version': row[13] if len(row) > 13 else None,
             'narrative_evidence_version': row[14] if len(row) > 14 else None,
             'narrative_evidence_fingerprint': row[15] if len(row) > 15 else None,
+            # Agent Log v2 (issue #501). Len-guards keep short/legacy rows safe.
+            'trigger': row[16] if len(row) > 16 else None,
+            'trigger_source': row[17] if len(row) > 17 else None,
+            'scope': row[18] if len(row) > 18 else None,
+            'outcome': row[19] if len(row) > 19 else None,
+            'revisit_at': row[20] if len(row) > 20 else None,
+            'revisit_reason': row[21] if len(row) > 21 else None,
         }
 
     def save_recovery_decision(

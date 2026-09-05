@@ -341,6 +341,28 @@ export type CoachEvent =
 // --- Decisions ---
 export type CoachDecisionType = "Push" | "Moderate" | "Recovery" | "Monitor";
 
+// Agent Log v2 metadata (issue #501): stable explainability values mirrored
+// from models/coach_decisions.py. `unknown` = not captured (legacy rows).
+export type DecisionTrigger =
+  | "coach_request"
+  | "scheduled_check"
+  | "provider_sync"
+  | "settings_change"
+  | "proposal_approved"
+  | "manual"
+  | "unknown";
+
+export type DecisionScope = "today" | "week" | "plan" | "unknown";
+
+export type DecisionOutcome =
+  | "applied"
+  | "proposed"
+  | "no_change"
+  | "rejected"
+  | "failed"
+  | "rolled_back"
+  | "unknown";
+
 export interface CoachDecision {
   id: number;
   date: string;
@@ -358,6 +380,17 @@ export interface CoachDecision {
   narrative_gate_rule_version?: string | null;
   narrative_evidence_version?: string | null;
   narrative_evidence_fingerprint?: string | null;
+  trigger?: DecisionTrigger | null;
+  /** Free-text source evidence for the trigger (e.g. setting or provider
+   *  name); chat turns carry their evidence in chat_id/message_id. */
+  trigger_source?: string | null;
+  scope?: DecisionScope | null;
+  outcome?: DecisionOutcome | null;
+  revisit_at?: string | null;
+  /** Revisit condition text, or the sentinel "no_revisit_required" for an
+   *  explicit "no revisit" on new rows; NULL = not captured (legacy row).
+   *  Sentinel mirrors models/coach_decisions.py::NO_REVISIT_REQUIRED. */
+  revisit_reason?: string | null;
   created_at?: string | null;
 }
 
