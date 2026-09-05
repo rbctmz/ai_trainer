@@ -548,6 +548,13 @@ def test_synthesis_prompt_forbids_inventing_metric_values():
     assert "не выдумывай числа" in prompt
 
 
+def test_synthesis_prompt_forbids_ungrounded_trend_direction():
+    prompt = ai_coach_runtime.create_chat_synthesis_system_prompt()
+    assert "тренд" in prompt.lower()
+    assert "сравнения периодов" in prompt
+    assert "наблюдение из метрик" in prompt
+
+
 def _trend_evidence():
     from datetime import datetime, timezone
 
