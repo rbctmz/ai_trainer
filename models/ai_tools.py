@@ -2066,23 +2066,17 @@ class AITools:
         today = datetime.now().date()
         cutoff = today + timedelta(days=days)
 
-        match_reader = getattr(self.db, "get_latest_plan_actual_matches", None)
-        match_rows = (
-            match_reader(start_date=today.isoformat(), end_date=cutoff.isoformat())
-            if callable(match_reader)
-            else []
+        reconciliation = planning_service.reconciliation_at(
+            self.db,
+            weeks=1,
+            as_of=today,
+            include_provider=False,
         )
-        matches_by_session: dict[str, list[dict[str, Any]]] = {}
-        for row in match_rows or []:
-            if not isinstance(row, dict):
-                continue
-            session_id = str(
-                row.get("session_id")
-                or dict(row.get("planned_snapshot") or {}).get("session_id")
-                or ""
-            ).strip()
-            if session_id:
-                matches_by_session.setdefault(session_id, []).append(row)
+        reconciled_by_session = {
+            str(row.get("session_id")): row
+            for row in reconciliation.get("rows", []) or []
+            if isinstance(row, dict) and row.get("session_id")
+        }
 
         sessions = []
         for i, item in enumerate(daily_plan):
@@ -2117,14 +2111,13 @@ class AITools:
                 session_id = str(
                     leaf.get("session_id") or (tpl or {}).get("session_id") or ""
                 ).strip()
-                matching_rows = matches_by_session.get(session_id, []) if session_id else []
-                match = matching_rows[0] if len(matching_rows) == 1 else None
-                reconciliation_status = (
-                    str(match.get("match_status") or "unmatched")
-                    if match is not None
-                    else ("ambiguous" if len(matching_rows) > 1 else "unmatched")
+                match = reconciled_by_session.get(session_id) if session_id else None
+                reconciliation_status = str(
+                    (match or {}).get("match_status") or "unmatched"
                 )
-                actual_activity_ids = list((match or {}).get("actual_activity_ids") or [])
+                actual_activity_ids = list(
+                    (match or {}).get("actual_activity_ids") or []
+                )
                 completed = (
                     reconciliation_status == "matched" and bool(actual_activity_ids)
                 )
@@ -2146,13 +2139,20 @@ class AITools:
                 }
                 if session_id:
                     session_payload["session_id"] = session_id
+                if match is not None:
+                    session_payload["match_method"] = str(
+                        match.get("match_method") or ""
+                    )
+                    session_payload["confidence"] = float(
+                        match.get("confidence") or 0.0
+                    )
                 if completed:
-                    actual_snapshot = dict((match or {}).get("actual_snapshot") or {})
-                    actual = {"activity_ids": actual_activity_ids}
-                    for key in ("tss", "duration_minutes", "sport"):
-                        if actual_snapshot.get(key) is not None:
-                            actual[key] = actual_snapshot[key]
-                    session_payload["actual"] = actual
+                    session_payload["actual"] = {
+                        "activity_ids": actual_activity_ids,
+                        "tss": match.get("actual_total_tss"),
+                        "duration_minutes": match.get("actual_duration_minutes"),
+                        "sport": match.get("actual_sport"),
+                    }
                 sessions.append(session_payload)
 
         if not sessions:
