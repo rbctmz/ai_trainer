@@ -9,9 +9,12 @@ implementation lands on branch codex/issue-501-agent-log-v2.
 from __future__ import annotations
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 import json
 import sqlite3
+import time
 from datetime import date, datetime, timedelta
+from threading import Barrier
 
 import pytest
 
@@ -184,6 +187,47 @@ def test_database_does_not_create_duplicate_logical_decision(tmp_path):
     rows = db.get_coach_decisions(days=36500)
     assert len(rows) == 1
     assert rows[0]["decision_event_id"] == "replayed-event-1"
+
+
+def test_database_concurrent_replay_creates_one_logical_decision(tmp_path, monkeypatch):
+    db = Database(str(tmp_path / "concurrent_idempotency.db"))
+    writers = 16
+    start_together = Barrier(writers)
+    original_clean_value = db.clean_value
+
+    def aligned_clean_value(value):
+        # Align every writer immediately before the event lookup. The fixed
+        # implementation takes its write transaction after this normalization,
+        # so the test amplifies the real race without reaching into SQL internals.
+        if value == "concurrent-replay-1":
+            start_together.wait(timeout=5)
+        return original_clean_value(value)
+
+    monkeypatch.setattr(db, "clean_value", aligned_clean_value)
+
+    def save_replay(_index: int) -> int:
+        row = db.save_coach_decision(
+            decision_type="Monitor",
+            reason="Один логический прогон.",
+            decision_event_id="concurrent-replay-1",
+            trigger="coach_request",
+            trigger_source="coach:chat-1:message-1",
+            scope="today",
+            outcome="no_change",
+            revisit_reason="no_revisit_required",
+        )
+        return int(row["id"])
+
+    with ThreadPoolExecutor(max_workers=writers) as pool:
+        returned_ids = list(pool.map(save_replay, range(writers)))
+
+    assert len(set(returned_ids)) == 1
+    rows = [
+        row
+        for row in db.get_coach_decisions(days=36500)
+        if row["decision_event_id"] == "concurrent-replay-1"
+    ]
+    assert len(rows) == 1
 
 
 def test_legacy_database_migrates_and_reads_metadata_as_null(tmp_path):
@@ -364,6 +408,44 @@ def test_decisions_api_shows_approved_keep_as_no_change(tmp_path):
     assert item["outcome"] == "no_change"
 
 
+def test_decisions_api_does_not_group_distinct_v2_events(tmp_path):
+    from api.routers.decisions import list_decisions
+
+    db = Database(str(tmp_path / "distinct_v2_events.db"))
+    common = {
+        "decision_type": "Monitor",
+        "reason": "Одинаковая видимая рекомендация.",
+    }
+    db.save_coach_decision(
+        **common,
+        date="2026-09-05T09:00:00",
+        decision_event_id="event-coach",
+        trigger="coach_request",
+        trigger_source="coach:chat-1:message-1",
+        scope="today",
+        outcome="no_change",
+        revisit_reason="no_revisit_required",
+    )
+    db.save_coach_decision(
+        **common,
+        date="2026-09-05T10:00:00",
+        decision_event_id="event-sync",
+        trigger="provider_sync",
+        trigger_source="sync_job:intervals:run-1",
+        scope="week",
+        outcome="failed",
+        revisit_reason="provider_available",
+    )
+
+    decisions = list_decisions(days=36500, db=db)["days"][0]["decisions"]
+    assert len(decisions) == 2
+    assert {item["trigger"] for item in decisions} == {
+        "coach_request",
+        "provider_sync",
+    }
+    assert all(item["count"] == 1 for item in decisions)
+
+
 # ------------------------------------------------------------ coach write site
 
 
@@ -395,6 +477,7 @@ def test_coach_chat_turn_records_trigger_scope_outcome_revisit(tmp_path, monkeyp
     assert decision["trigger"] == "coach_request"
     assert decision["scope"] == "today"
     assert decision["outcome"] == "no_change"
+    assert decision["trigger_source"].startswith("coach:")
     # Every new product decision states revisit explicitly: none required now.
     assert decision["revisit_reason"] == "no_revisit_required"
     assert decision["revisit_at"] is None
@@ -448,6 +531,7 @@ def test_coach_proposal_turn_records_plan_scope_and_applies_outcome(tmp_path, mo
     assert decision["trigger"] == "coach_request"
     assert decision["scope"] == "plan"
     assert decision["outcome"] == "proposed"
+    assert decision["revisit_reason"] == "proposal_resolved"
 
     payload = list_decisions(days=30, db=db)
     item = next(
@@ -464,3 +548,109 @@ def test_coach_proposal_turn_records_plan_scope_and_applies_outcome(tmp_path, mo
         if row["id"] == decision["id"]
     )
     assert item["outcome"] == "applied"
+
+    approval = next(
+        row
+        for row in db.get_coach_decisions(days=30)
+        if row["trigger"] == "proposal_approved"
+    )
+    assert approval["trigger_source"] == f"proposal:{proposal['id']}"
+    assert approval["scope"] == "plan"
+    assert approval["outcome"] == "applied"
+    assert approval["revisit_reason"] == "no_revisit_required"
+
+
+def test_scheduled_recovery_check_records_source_and_revisit(tmp_path):
+    from api.recovery_replan_loop import run_recovery_replan_loop
+
+    db = Database(str(tmp_path / "scheduled_check.db"))
+    result = run_recovery_replan_loop(db, today=date(2026, 9, 5))
+    assert result["outcome"] == "data_gap"
+
+    decisions = db.get_coach_decisions(days=36500)
+    assert len(decisions) == 1
+    decision = decisions[0]
+    assert decision["trigger"] == "scheduled_check"
+    assert decision["trigger_source"].startswith("recovery_check:")
+    assert decision["scope"] == "week"
+    assert decision["outcome"] == "failed"
+    assert decision["revisit_reason"] == "next_scheduled_check"
+
+
+def test_sync_job_records_provider_trigger_for_success_and_failure(tmp_path):
+    from api.sync_jobs import SyncJobManager
+
+    db = Database(str(tmp_path / "sync_events.db"))
+
+    def wait_done(manager: SyncJobManager) -> dict:
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            snapshot = manager.status(db=db)
+            if snapshot["sync_state"] != "running":
+                return snapshot
+            time.sleep(0.01)
+        raise AssertionError("sync job did not finish")
+
+    succeeded = SyncJobManager()
+    succeeded.start_or_get(
+        days=7,
+        source="intervals",
+        db=db,
+        run_sync=lambda _progress: {"sync_state": "succeeded", "title": "ok"},
+    )
+    assert wait_done(succeeded)["sync_state"] == "succeeded"
+
+    failed = SyncJobManager()
+
+    def fail_sync(_progress):
+        raise RuntimeError("provider unavailable")
+
+    failed.start_or_get(
+        days=30,
+        source="garmin",
+        db=db,
+        run_sync=fail_sync,
+    )
+    assert wait_done(failed)["sync_state"] == "failed"
+
+    decisions = {
+        row["trigger_source"]: row for row in db.get_coach_decisions(days=36500)
+    }
+    interval_event = next(
+        row for source, row in decisions.items() if source.startswith("sync_job:intervals:")
+    )
+    garmin_event = next(
+        row for source, row in decisions.items() if source.startswith("sync_job:garmin:")
+    )
+    assert interval_event["trigger"] == "provider_sync"
+    assert interval_event["scope"] == "week"
+    assert interval_event["outcome"] == "applied"
+    assert interval_event["revisit_reason"] == "no_revisit_required"
+    assert garmin_event["scope"] == "plan"
+    assert garmin_event["outcome"] == "failed"
+    assert garmin_event["revisit_reason"] == "provider_available"
+
+
+def test_briefing_setting_change_records_applied_and_no_change(tmp_path):
+    from api.routers.settings import BriefingFrequencyRequest, put_briefing_settings
+
+    db = Database(str(tmp_path / "settings_events.db"))
+    put_briefing_settings(
+        BriefingFrequencyRequest(frequency="conflicts_only"),
+        db=db,
+    )
+    put_briefing_settings(
+        BriefingFrequencyRequest(frequency="conflicts_only"),
+        db=db,
+    )
+
+    rows = [
+        row
+        for row in db.get_coach_decisions(days=36500)
+        if row["trigger"] == "settings_change"
+    ]
+    assert len(rows) == 2
+    assert {row["outcome"] for row in rows} == {"applied", "no_change"}
+    assert all(row["trigger_source"].startswith("settings:briefing:") for row in rows)
+    assert all(row["scope"] == "plan" for row in rows)
+    assert all(row["revisit_reason"] == "no_revisit_required" for row in rows)

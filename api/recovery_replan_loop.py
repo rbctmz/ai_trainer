@@ -12,6 +12,11 @@ from data.database import Database
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.recovery_replan import build_recovery_replan_variant
 from models.recovery_transfer import build_transfer_variant, rank_transfer_candidates
+from services.agent_log import (
+    NEXT_SCHEDULED_CHECK,
+    PROPOSAL_RESOLVED,
+    record_agent_decision,
+)
 
 # Maps a v1 `options[]` entry's `key` onto its typed `variants[]` `kind`
 # (Issue #209 M3: `variants = [keep, downgrade_today, transfer_1_3d?]`).
@@ -325,6 +330,9 @@ def run_recovery_replan_loop(
     checkpoint = db.get_latest_planning_checkpoint()
     checkpoint_id = checkpoint.get("id") if isinstance(checkpoint, dict) else None
     fingerprint = _fingerprint(report, checkpoint_id)
+    standalone_scheduled_check = decision_event_id is None
+    if standalone_scheduled_check:
+        decision_event_id = f"scheduled_check:{fingerprint}"
     saved = db.save_recovery_decision(
         fingerprint=fingerprint,
         outcome=outcome,
@@ -395,6 +403,35 @@ def run_recovery_replan_loop(
             if proposal["status"] == "pending" and proposal.get("preview") != preview:
                 proposal = db.update_coach_proposal_preview(proposal["id"], preview)
             decision = db.link_recovery_decision_proposal(decision["id"], proposal["id"])
+
+    # A recovery evaluation invoked directly by /today is its own scheduled
+    # agent event.  When the same loop runs inside a coach turn, the outer
+    # coach_request owns the decision and proposal linkage, so do not create a
+    # competing decision for that shared event id.
+    if standalone_scheduled_check:
+        log_outcome = (
+            "proposed"
+            if proposal is not None
+            else "failed"
+            if outcome == "data_gap" or proposal_gap
+            else "no_change"
+        )
+        record_agent_decision(
+            db,
+            decision_type="Recovery" if outcome == "conflict" else "Monitor",
+            reason=str(report.get("reason") or outcome),
+            decision_event_id=str(decision_event_id),
+            trigger="scheduled_check",
+            trigger_source=f"recovery_check:{fingerprint}",
+            scope="week",
+            outcome=log_outcome,
+            revisit_reason=(
+                PROPOSAL_RESOLVED
+                if log_outcome == "proposed"
+                else NEXT_SCHEDULED_CHECK
+            ),
+            date=f"{str(report.get('as_of') or today.isoformat())[:10]}T00:00:00",
+        )
 
     shadow_forecast = None
     shadow_forecast_error = None

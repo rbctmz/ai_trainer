@@ -44,6 +44,7 @@ from models.ai_tools import AITools
 from models.chat_manager import ChatManager
 from api.planning_service import get_active_plan
 from models.coach_tool_presenter import format_tool_result
+from services.agent_log import PROPOSAL_RESOLVED, record_agent_decision
 from services.intervals_plan_delivery import athlete_local_date
 from utils.product_semantics import tool_label
 
@@ -551,7 +552,8 @@ def _save_decision(
             # both keep the normal decision; the gap is recorded in narrative_gate.
             decision = build_coach_decision(final, db=db)
         load_metrics_context = load_metrics_context or {}
-        db.save_coach_decision(
+        record_agent_decision(
+            db,
             decision_type=decision.decision_type,
             reason=decision.reason,
             workout_id=decision.workout_id,
@@ -562,9 +564,12 @@ def _save_decision(
             as_of_date=load_metrics_context.get("as_of_date"),
             narrative_gate=evidence_gate,
             trigger="coach_request",
+            trigger_source=f"coach:{chat_id}:{message_id}",
             scope=scope_for_proposal_actions(proposal_actions),
             outcome="proposed" if proposal_actions else "no_change",
-            revisit_reason=NO_REVISIT_REQUIRED,
+            revisit_reason=(
+                PROPOSAL_RESOLVED if proposal_actions else NO_REVISIT_REQUIRED
+            ),
         )
     except Exception:
         # Decision logging must not block the coach answer delivery.

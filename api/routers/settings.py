@@ -8,6 +8,7 @@ routing as every other endpoint (api/deps.py::get_database).
 from __future__ import annotations
 
 from typing import Literal
+import uuid
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
@@ -15,6 +16,8 @@ from pydantic import BaseModel
 from api.briefing_settings import get_briefing_frequency, set_briefing_frequency
 from api.deps import get_database
 from data.database import Database
+from models.coach_decisions import NO_REVISIT_REQUIRED
+from services.agent_log import record_agent_decision
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -37,7 +40,20 @@ def put_briefing_settings(
     payload: BriefingFrequencyRequest,
     db: Database = Depends(get_database),
 ) -> BriefingFrequencyResponse:
+    previous = get_briefing_frequency(db)
     frequency = set_briefing_frequency(db, payload.frequency)
+    event_token = str(uuid.uuid4())
+    record_agent_decision(
+        db,
+        decision_type="Monitor",
+        reason=f"Частота брифинга: {previous} → {frequency}.",
+        decision_event_id=f"settings_change:{event_token}",
+        trigger="settings_change",
+        trigger_source=f"settings:briefing:{event_token}",
+        scope="plan",
+        outcome="no_change" if previous == frequency else "applied",
+        revisit_reason=NO_REVISIT_REQUIRED,
+    )
     return BriefingFrequencyResponse(frequency=frequency)
 
 

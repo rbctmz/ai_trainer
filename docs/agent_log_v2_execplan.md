@@ -19,7 +19,11 @@
 - [x] (2026-09-05) Проекция `api/routers/decisions.py`: `_project_agent_log_v2_row` — `trigger`/`scope` нормализуют NULL → `"unknown"`, `outcome` пересчитывается через `derive_decision_outcome` по текущему жизненному циклу proposal. Коммит `71acdfb`.
 - [x] (2026-09-05) UI: `web/lib/types.ts` (юнионы `DecisionTrigger`/`DecisionScope`/`DecisionOutcome`, 6 полей `CoachDecision`), `web/components/ui/DecisionEntry.tsx` (чипы trigger · scope · outcome + revisit-заметка; отсутствующие ключи до-#501 payload → без чипов). Артефакт `tests/contracts/ts_contract.json` перегенерирован (`contract:extract`, `-- --check` зелёный). Коммит `19946a0`.
 - [x] (2026-09-05) `tests/smoke/test_agent_log_v2.py` — 10 тестов RED (10 failed на базе) → GREEN (10 passed); регрессии test_coach_decisions/test_coach_drift/test_recovery_replan_loop/test_api_today/test_contract_extractor/test_api_call_inventory/test_ai_coach_chat_shell/test_ai_coaching_demo_flow/test_api_operational_states зелёные; Ruff чист.
-- [ ] Полный contributor-safe прогон pytest (идёт в фоне), финальный ruff `python -m ruff check .`, push ветки, PR `Closes #501`, комментарий в issue.
+- [x] (2026-09-05) Первичная реализация прошла contributor-safe pytest (`2318 passed, 2 skipped`), Ruff, web lint/build и contract freshness; ветка опубликована как PR #551.
+- [x] (2026-09-05) Независимый первичный разбор PR #551 воспроизвёл четыре blocking-дефекта: конкурентный replay создавал дубли; четыре заявленных trigger не имели production producers; proposal записывался как `proposed` + `no_revisit_required`; группировка скрывала различающиеся v2-события.
+- [x] (2026-09-05) Добавлены шесть RED-регрессий: детерминированный 16-поточный replay и реальные producer/lifecycle/grouping сценарии. До исправлений итог был `6 failed, 9 passed`; отдельный concurrency-тест наблюдал 16 разных id.
+- [x] (2026-09-05) GREEN-срез реализован через атомарную запись, общий `services/agent_log.py`, production producers и metadata-aware группировку. `test_agent_log_v2.py`: `15 passed`; смежные recovery/coach/settings/sync/today тесты: `121 passed`.
+- [ ] Финальный broad validation, независимый read-only OpenCode delta-аудит, disposition находок, commit/push и обновление PR #551.
 
 ## Surprises & Discoveries
 
@@ -38,6 +42,14 @@
 - **Observed**: `save_coach_decision` (2026-09-05, реализация) сперва упал с `sqlite3.OperationalError: 21 values for 20 columns` — рассинхрон плейсхолдеров при расширении INSERT (вывод pytest).
 - **Inferred**: арифметическая ошибка при добавлении шести колонок; уникальный-индекс вариант идемпотентности отклонён до тестов legacy-дублей.
 - **Verified by**: после правки числа `?` (20) тест `test_database_persists_agent_log_v2_fields` проходит; полный прогон ниже.
+
+- **Observed**: 16 конкурентных вызовов `save_coach_decision` с одним `decision_event_id` вернули 16 разных id после синхронного старта непосредственно перед lookup.
+- **Inferred**: отдельные `SELECT` и `INSERT` не владеют одним SQLite write transaction, поэтому каждый retry успевает увидеть отсутствие строки. Дешёвая проверка-опровержение — тот же барьерный тест после `BEGIN IMMEDIATE`: если гипотеза неверна, дубли останутся.
+- **Verified by**: `test_database_concurrent_replay_creates_one_logical_decision` падал `16 == 1`, а после переноса нормализации ключа перед атомарным `BEGIN IMMEDIATE` проходит и возвращает один id.
+
+- **Observed**: production-поиск находил только один `save_coach_decision` в `api/routers/coach.py` с hard-coded `coach_request`; два v2-события с одинаковыми reason/type, но разными trigger/scope/outcome, API сворачивал в один item с `count=2`.
+- **Inferred**: enum и persistence fixtures не обеспечивают acceptance без реальных producer boundaries, а старая группировка стирает provenance. Фальсификаторы — вызвать recovery loop, sync manager, settings PUT и proposal approval на temp DB, затем прочитать Agent Log; отдельно подать две различающиеся строки в `list_decisions`.
+- **Verified by**: четыре producer-сценария и grouping-тест падали до изменения; после подключения общего writer и расширения grouping key все входят в `15 passed`.
 
 ## Decision Log
 
@@ -69,6 +81,18 @@
   Rationale: proposal action — самый сильный доступный сигнал допустимой зоны влияния; инструмент-имена из ExecPlan §3 (get_upcoming_workouts и т.п.) не детерминированы для маркерных путей, а сохранённый proposal уже прошёл allowlist `save_coach_proposal`.
   Date/Author: 2026-09-05 / agent.
 
+- Decision (review correction, 2026-09-05): атомарность replay обеспечивается `BEGIN IMMEDIATE` вокруг lookup+insert, без UNIQUE-миграции существующей таблицы.
+  Rationale: transaction сериализует все новые writers через официальный Database boundary, а legacy-дубликаты остаются нетронутыми согласно non-goal. Детерминированный 16-поточный тест является lifecycle gate.
+  Date/Author: 2026-09-05 / agent.
+
+- Decision (review correction, 2026-09-05): новые product producers используют общий `services/agent_log.py`; standalone recovery evaluation пишет `scheduled_check`, terminal sync job — `provider_sync`, briefing PUT — `settings_change`, успешный approval — отдельный `proposal_approved`. Recovery loop внутри coach-turn не пишет конкурирующий scheduled-event: внешняя строка `coach_request` остаётся владельцем общего proposal linkage.
+  Rationale: acceptance требует реальные источники, но один proposal должен сохранять одного origin owner. Отдельная standalone/embedded семантика предотвращает collision одного `decision_event_id` между двумя строками.
+  Date/Author: 2026-09-05 / agent.
+
+- Decision (review correction, 2026-09-05): pending proposal получает revisit condition `proposal_resolved`; scheduled data-gap/no-change — `next_scheduled_check`; failed provider sync — `provider_available`; terminal applied/no-change events — `no_revisit_required`. Повторные строки группируются только при совпадении всей v2 provenance-семантики.
+  Rationale: outcome и revisit не должны противоречить друг другу, а aggregate presentation не может скрывать trigger/source/scope/outcome другой записи.
+  Date/Author: 2026-09-05 / agent.
+
 ## Outcomes & Retrospective
 
 (2026-09-05, завершение реализации на `codex/issue-501-agent-log-v2`)
@@ -77,7 +101,9 @@
 
 Проверки на финальном дереве: `python -m ruff check .` — чисто; полный contributor-safe прогон `python -m pytest -m "not live and not debug and not e2e" tests/` — 2318 passed, 2 skipped (garth не установлен — до-существующий skip), 0 failed (базовый сценарий issue: «не добавлять регрессий»); `npm --prefix web run lint` и `npm --prefix web run build` — зелёные; `npm --prefix web run contract:extract -- --check` — артефакт актуален; регрессии test_coach_decisions/test_coach_drift/test_recovery_replan_loop/test_api_today/test_contract_extractor/test_api_call_inventory — зелёные.
 
-Границы (осознанные решения, см. Decision Log #5–#8): recovery-решения (`recovery_decisions`, собственная таблица с outcome silence/data_gap/conflict и отдельной UI-секцией) не расширялись — files-in-scope #501 называют только `coach_decisions`; триггеры provider_sync/settings_change/proposal_approved/manual существуют как стабильный контракт и покрыты тестами persistence, но сегодняшние продуктовые точки записи порождают только coach_request (scheduled_check-семантика живёт в recovery-лупе); «автономного планировщика пересмотра» нет по non-goals, поэтому новые строки явно пишут sentinel no_revisit_required, а будущие продюсеры revisit заполнят `revisit_at`/`revisit_reason`.
+Первичный retrospective выше был уточнён после blocking review. Recovery-решения сохраняют собственную таблицу, но standalone recovery evaluation дополнительно создаёт sourced Agent Log event; `provider_sync`, `settings_change` и `proposal_approved` теперь имеют реальные producers. Автономного планировщика пересмотра по-прежнему нет: revisit хранит стабильное условие следующего уже существующего product event, а не обещание нового scheduler.
+
+(2026-09-05, review-correction milestone) Четыре найденных acceptance-дефекта исправлены и защищены воспроизводимыми тестами. Атомарность достигнута без переписывания legacy data; producer-границы используют один contract writer; embedded recovery не конкурирует с coach-request ownership; API больше не агрегирует семантически разные v2 rows. Финальный broad run и внешний delta-review ещё не завершены, поэтому итоговый verdict пока не READY.
 
 Уроки: снапшоты метаданных на записи и поздние мутации статуса (approve/reject/rollback) — разные источники истины; read-time derivation с явным fallback на stored-значение оказалась дешевле машины состояний и повторила special-case `keep` из drift-отчёта без расхождения. NULL как «нет данных» и sentinel как «нет пересмотра» — обязательная пара для честного legacy-режима (AC7). Числовые плейсхолдеры вручную расширяемых INSERT — источник ошибок (21 values for 20 columns); на будущее — генерировать списки колонок/плейсхолдеров из одного кортежа.
 
@@ -107,9 +133,9 @@
 
 2. **Хранилище (`data/database.py`).** Аддитивно добавить колонки `trigger`, `trigger_source`, `scope`, `outcome`, `revisit_at`, `revisit_reason` в `coach_decisions` (через `ALTER TABLE ADD COLUMN` с проверкой существования колонки, чтобы метод оставался идемпотентным для существующих БД). Расширить `save_coach_decision` новыми keyword-аргументами и — главное — добавить идемпотентность: перед `INSERT` искать существующую строку с тем же `decision_event_id` (если он непустой) и возвращать её, а не создавать дубль. Расширить `get_coach_decisions` и `_deserialize_coach_decision_row`, чтобы читать новые колонки и отдавать их как `None`, когда они отсутствуют.
 
-3. **Запись (`api/routers/coach.py`).** В `_save_decision` передавать `trigger="coach_request"`, `scope` (вывести из вызванных инструментов: `get_upcoming_workouts` → `today`, `get_active_plan`/rebalance → `plan`, иначе `unknown`), `outcome` (если для этого `decision_event_id` есть proposal → `proposed`/`applied` по его статусу, иначе `no_change` для `Monitor`/`Recovery`-без-изменений, иначе `unknown`), и `revisit_reason` по умолчанию `None` (пересмотр не требуется) с возможностью задать позже. В `api/recovery_replan_loop.py` при записи proposal-решения передавать `trigger="scheduled_check"`.
+3. **Запись (`services/agent_log.py` и producers).** Все новые product events проходят через `record_agent_decision`, который требует event id, source evidence и revisit. `api/routers/coach.py` пишет `coach_request`; standalone `api/recovery_replan_loop.py` пишет `scheduled_check`; `api/sync_jobs.py` пишет terminal `provider_sync`; `api/routers/settings.py` пишет briefing `settings_change`; успешный `approve_proposal` пишет отдельный `proposal_approved`. Embedded recovery внутри coach-turn не создаёт вторую decision row с тем же origin id.
 
-4. **Проекция (`api/routers/decisions.py`).** Пробрасывать новые поля в выдачу как есть (`item = dict(row)` уже копирует всё), добавив для legacy-строк нормализацию: `None` → `"unknown"` для `trigger`/`scope`/`outcome` на уровне API, чтобы web не падал.
+4. **Проекция (`api/routers/decisions.py`).** Пробрасывать новые поля в выдачу как есть (`item = dict(row)` уже копирует всё), нормализовать legacy `None` → `"unknown"` для `trigger`/`scope`/`outcome` и агрегировать повторения только при совпадении trigger/source/scope/outcome/revisit.
 
 5. **UI (`web/lib/types.ts`, `web/app/decisions/page.tsx`).** Дополнить `CoachDecision` полями `trigger`, `trigger_source`, `scope`, `outcome`, `revisit_at`, `revisit_reason` (все optional/nullable). В `DecisionEntry` (или рядом) выводить строку `trigger · scope · outcome` и, при наличии, `revisit_at`/`revisit_reason`; для `None` показывать «unknown»/«нет пересмотра» без сбоя.
 
@@ -136,7 +162,7 @@
 
 Acceptance формулируется как наблюдаемое поведение:
 
-- `ai_trainer_env/bin/python -m pytest tests/smoke/test_agent_log_v2.py -q` → `<N> passed`; тест idempotency падает ДО реализации (две строки) и проходит ПОСЛЕ (одна строка).
+- `ai_trainer_env/bin/python -m pytest tests/smoke/test_agent_log_v2.py -q` → `15 passed`; concurrency idempotency падает ДО review correction (16 строк) и проходит ПОСЛЕ (одна строка).
 - `ai_trainer_env/bin/python -m pytest tests/smoke -q` — без новых регрессий.
 - `npm --prefix web run lint && npm --prefix web run build` — зелёно; `contract:extract -- --check` — артефакт актуален.
 - На `/decisions` (при `NEXT_PUBLIC_SHOW_DEV_TOOLS=true`) строка решения показывает `trigger · scope · outcome`, а старая строка показывает `unknown` и не ломает страницу.
@@ -178,3 +204,7 @@ Acceptance формулируется как наблюдаемое поведе
         revisit_reason: str | None = None
 
 В `data/database.py::save_coach_decision` добавить keyword-аргументы `trigger=None, trigger_source=None, scope=None, outcome=None, revisit_at=None, revisit_reason=None` и idempotency-проверку по `decision_event_id`. Зависимости: `services/coach_drift.py` (связь decision↔proposal), `api/planning_service` (checkpoint-линковка proposal). Новых внешних библиотек нет.
+
+---
+
+Изменение плана 2026-09-05: после первичного blocking review добавлены атомарная concurrency-семантика, реальные producer boundaries, proposal-aware revisit и provenance-aware grouping. Progress, discoveries, decisions, outcomes, plan steps и acceptance обновлены, потому что первоначальный retrospective ошибочно считал enum-only triggers и SELECT-then-INSERT достаточным завершением #501. Детальная Class A RED/review матрица вынесена в `docs/agent_log_v2_slice_spec.md` согласно шаблону процесса.

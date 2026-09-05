@@ -1892,10 +1892,16 @@ class Database:
         gate = dict(narrative_gate or {})
         gate_reason_codes = [str(code) for code in gate.get("reason_codes") or []]
 
+        decision_event_id = self.clean_value(decision_event_id)
         conn = self._connect()
         cursor = conn.cursor()
-        decision_event_id = self.clean_value(decision_event_id)
         if decision_event_id:
+            # Claim the single SQLite writer before checking the event key.
+            # Without one transaction, concurrent retries can all observe
+            # "missing" and then insert duplicate logical decisions (#501).
+            # BEGIN IMMEDIATE preserves legacy duplicate rows while making all
+            # new writes through this boundary atomic.
+            cursor.execute("BEGIN IMMEDIATE")
             cursor.execute(
                 '''
                 SELECT id
@@ -1922,6 +1928,7 @@ class Database:
                     (existing[0],),
                 )
                 row = cursor.fetchone()
+                conn.commit()
                 conn.close()
                 return self._deserialize_coach_decision_row(row)
         cursor.execute(
