@@ -508,10 +508,12 @@ def _comparator_evidence(tool_results: Iterable[Mapping[str, Any]]) -> dict[str,
         elif name == "get_performance_metrics" and data.get("fitness_trend"):
             direction = _normalize_direction(data.get("fitness_trend"))
             if direction is not None:
-                domains.update({"generic", "fitness", "load"})
-                directions.update(
-                    {"generic": direction, "fitness": direction, "load": direction}
-                )
+                # Fitness trend is a CTL/fitness signal, not a load signal: do
+                # not write it into `load` (or `generic`), otherwise a declining
+                # fitness falsely contradicts a correct "нагрузка растёт" claim
+                # depending on tool-call order (#544 follow-up).
+                domains.add("fitness")
+                directions["fitness"] = direction
         elif name == "get_comparable_session":
             guardrails = data.get("guardrails")
             guardrails = dict(guardrails) if isinstance(guardrails, Mapping) else {}

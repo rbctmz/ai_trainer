@@ -1731,3 +1731,26 @@ def test_build_corrective_instruction_names_trend_contradiction():
     assert "тренд" in instruction.lower()
     assert "противоречит" in instruction.lower()
     assert "перепиши" in instruction.lower()
+
+
+def test_load_trend_direction_is_independent_of_fitness_trend_order():
+    perf = {
+        "tool_name": "get_performance_metrics",
+        "success": True,
+        "raw_result": {"fitness_trend": "снижение"},
+    }
+    load = {
+        "tool_name": "analyze_training_load",
+        "success": True,
+        "raw_result": {
+            "weekly_breakdown": [{"week": 1}, {"week": 2}],
+            "load_trend": "увеличение",
+        },
+    }
+
+    for tools in ([perf, load], [load, perf]):
+        result = validate_coach_narrative(
+            "Нагрузка растёт.",
+            _evidence(tool_results=tools),
+        )
+        assert result.outcome == "pass", (tools, result.reason_codes)
