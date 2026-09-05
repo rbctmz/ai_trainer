@@ -9,10 +9,22 @@ from __future__ import annotations
 
 from typing import Any
 
+from models.coach_decisions import NO_REVISIT_REQUIRED
+
 
 PROPOSAL_RESOLVED = "proposal_resolved"
 NEXT_SCHEDULED_CHECK = "next_scheduled_check"
 PROVIDER_AVAILABLE = "provider_available"
+SYNC_RETRY_REQUIRED = "sync_retry_required"
+REVISIT_REASONS = frozenset(
+    {
+        NO_REVISIT_REQUIRED,
+        PROPOSAL_RESOLVED,
+        NEXT_SCHEDULED_CHECK,
+        PROVIDER_AVAILABLE,
+        SYNC_RETRY_REQUIRED,
+    }
+)
 
 
 def scope_for_sync_days(days: int | None) -> str:
@@ -53,6 +65,11 @@ def record_agent_decision(
         raise ValueError("trigger_source is required for Agent Log v2")
     if not revisit and not revisit_at:
         raise ValueError("revisit_reason or revisit_at is required for Agent Log v2")
+    if revisit and revisit not in REVISIT_REASONS:
+        raise ValueError(
+            f"revisit_reason must be one of {sorted(REVISIT_REASONS)} "
+            f"(got {revisit!r})"
+        )
     return db.save_coach_decision(
         decision_type=decision_type,
         reason=reason,
@@ -71,6 +88,8 @@ __all__ = [
     "NEXT_SCHEDULED_CHECK",
     "PROPOSAL_RESOLVED",
     "PROVIDER_AVAILABLE",
+    "REVISIT_REASONS",
+    "SYNC_RETRY_REQUIRED",
     "record_agent_decision",
     "scope_for_sync_days",
 ]

@@ -19,6 +19,7 @@ from api.operational_state import build_operational_state, latest_iso_from_datab
 from models.coach_decisions import NO_REVISIT_REQUIRED
 from services.agent_log import (
     PROVIDER_AVAILABLE,
+    SYNC_RETRY_REQUIRED,
     record_agent_decision,
     scope_for_sync_days,
 )
@@ -183,7 +184,14 @@ class SyncJobManager:
         if db is None:
             return
         try:
-            failed = sync_state == "failed"
+            incomplete = sync_state in {"failed", "partial"}
+            revisit_reason = (
+                SYNC_RETRY_REQUIRED
+                if sync_state == "partial"
+                else PROVIDER_AVAILABLE
+                if sync_state == "failed"
+                else NO_REVISIT_REQUIRED
+            )
             record_agent_decision(
                 db,
                 decision_type="Monitor",
@@ -192,10 +200,8 @@ class SyncJobManager:
                 trigger="provider_sync",
                 trigger_source=f"sync_job:{source}:{job_id}",
                 scope=scope_for_sync_days(days),
-                outcome="failed" if failed else "applied",
-                revisit_reason=(
-                    PROVIDER_AVAILABLE if failed else NO_REVISIT_REQUIRED
-                ),
+                outcome="failed" if incomplete else "applied",
+                revisit_reason=revisit_reason,
             )
         except Exception:
             # Sync success/failure is authoritative; an audit write outage must

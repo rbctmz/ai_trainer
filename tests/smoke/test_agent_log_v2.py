@@ -577,7 +577,7 @@ def test_scheduled_recovery_check_records_source_and_revisit(tmp_path):
     assert decision["revisit_reason"] == "next_scheduled_check"
 
 
-def test_sync_job_records_provider_trigger_for_success_and_failure(tmp_path):
+def test_sync_job_records_provider_trigger_for_success_partial_and_failure(tmp_path):
     from api.sync_jobs import SyncJobManager
 
     db = Database(str(tmp_path / "sync_events.db"))
@@ -600,6 +600,15 @@ def test_sync_job_records_provider_trigger_for_success_and_failure(tmp_path):
     )
     assert wait_done(succeeded)["sync_state"] == "succeeded"
 
+    partial = SyncJobManager()
+    partial.start_or_get(
+        days=7,
+        source="intervals",
+        db=db,
+        run_sync=lambda _progress: {"sync_state": "partial", "title": "warnings"},
+    )
+    assert wait_done(partial)["sync_state"] == "partial"
+
     failed = SyncJobManager()
 
     def fail_sync(_progress):
@@ -616,19 +625,43 @@ def test_sync_job_records_provider_trigger_for_success_and_failure(tmp_path):
     decisions = {
         row["trigger_source"]: row for row in db.get_coach_decisions(days=36500)
     }
-    interval_event = next(
+    interval_events = [
         row for source, row in decisions.items() if source.startswith("sync_job:intervals:")
-    )
+    ]
     garmin_event = next(
         row for source, row in decisions.items() if source.startswith("sync_job:garmin:")
     )
-    assert interval_event["trigger"] == "provider_sync"
-    assert interval_event["scope"] == "week"
-    assert interval_event["outcome"] == "applied"
-    assert interval_event["revisit_reason"] == "no_revisit_required"
+    assert len(interval_events) == 2
+    succeeded_event = next(row for row in interval_events if row["outcome"] == "applied")
+    partial_event = next(
+        row for row in interval_events if row["reason"] == "Синхронизация intervals: partial."
+    )
+    assert succeeded_event["trigger"] == "provider_sync"
+    assert succeeded_event["scope"] == "week"
+    assert succeeded_event["revisit_reason"] == "no_revisit_required"
+    assert partial_event["outcome"] == "failed"
+    assert partial_event["revisit_reason"] == "sync_retry_required"
     assert garmin_event["scope"] == "plan"
     assert garmin_event["outcome"] == "failed"
     assert garmin_event["revisit_reason"] == "provider_available"
+
+
+def test_agent_log_writer_rejects_unknown_revisit_reason(tmp_path):
+    from services.agent_log import record_agent_decision
+
+    db = Database(str(tmp_path / "revisit_enum.db"))
+    with pytest.raises(ValueError, match="revisit_reason"):
+        record_agent_decision(
+            db,
+            decision_type="Monitor",
+            reason="Неверное условие пересмотра.",
+            decision_event_id="bad-revisit-1",
+            trigger="manual",
+            trigger_source="acceptance:test",
+            scope="today",
+            outcome="no_change",
+            revisit_reason="provider_availble",
+        )
 
 
 def test_briefing_setting_change_records_applied_and_no_change(tmp_path):
