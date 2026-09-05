@@ -546,3 +546,76 @@ def test_synthesis_prompt_forbids_inventing_metric_values():
     prompt = ai_coach_runtime.create_chat_synthesis_system_prompt()
     assert "которых НЕТ в результатах инструментов" in prompt
     assert "не выдумывай числа" in prompt
+
+
+def _trend_evidence():
+    from datetime import datetime, timezone
+
+    from models.coach_narrative_evidence import build_coach_narrative_evidence
+
+    return build_coach_narrative_evidence(
+        readiness_snapshot={
+            "score": 82.0,
+            "status": "strong",
+            "confidence": 1.0,
+            "stale": False,
+            "is_provisional": False,
+        },
+        tool_results=[
+            {
+                "tool_name": "compare_periods",
+                "success": True,
+                "raw_result": {
+                    "recent_period": {"tss": 100},
+                    "previous_period": {"tss": 140},
+                    "comparison": {"tss_change": -40},
+                },
+            }
+        ],
+        athlete_timezone="Europe/Moscow",
+        observed_at_utc=datetime(2026, 8, 23, 21, 30, tzinfo=timezone.utc),
+    )
+
+
+def test_revalidate_with_correction_recovers_rejected_trend_claim():
+    from models.ai_coach_runtime import revalidate_with_correction
+    from models.coach_narrative_evidence import validate_coach_narrative
+
+    evidence = _trend_evidence()
+    rejected = validate_coach_narrative("Текущая нагрузка растет.", evidence)
+    assert rejected.outcome == "replaced"
+
+    provider = _DummyProvider("Лёгкая пробежка по плану.")
+    result = revalidate_with_correction(
+        provider=provider,
+        gate_result=rejected,
+        evidence=evidence,
+        history_messages=[],
+        user_input="Дай ежедневный брифинг.",
+        tool_results=[],
+    )
+
+    assert result.outcome == "pass"
+    assert "пробежка" in result.delivered_text
+    assert len(provider.calls) == 1
+
+
+def test_revalidate_with_correction_keeps_rejection_on_second_failure():
+    from models.ai_coach_runtime import revalidate_with_correction
+    from models.coach_narrative_evidence import validate_coach_narrative
+
+    evidence = _trend_evidence()
+    rejected = validate_coach_narrative("Текущая нагрузка растет.", evidence)
+
+    provider = _DummyProvider("Нагрузка растет.")
+    result = revalidate_with_correction(
+        provider=provider,
+        gate_result=rejected,
+        evidence=evidence,
+        history_messages=[],
+        user_input="Дай ежедневный брифинг.",
+        tool_results=[],
+    )
+
+    assert result is rejected
+    assert result.outcome == "replaced"

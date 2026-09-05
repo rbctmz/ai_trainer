@@ -9,7 +9,9 @@ from config.settings import Settings
 from models.ai_data_context import AIDataContext
 from models.coach_narrative_evidence import (
     CoachNarrativeEvidence,
+    CoachNarrativeGateResult,
     build_coach_narrative_evidence,
+    build_corrective_instruction,
     fail_closed_coach_narrative,
     resolve_calendar_evidence,
     validate_coach_narrative,
@@ -254,6 +256,7 @@ def build_chat_synthesis_prompt(
     user_input: str,
     tool_results: Iterable[Dict[str, Any]],
     response_contract: Any = None,
+    correction_hint: str | None = None,
 ) -> str:
     """Build the prompt for the second-pass final synthesis over tool data."""
     conversation_history = build_conversation_history(history_messages)
@@ -262,6 +265,14 @@ def build_chat_synthesis_prompt(
         for result in tool_results
     ).strip()
 
+    correction_block = ""
+    if correction_hint:
+        correction_block = f"""
+
+ВАЖНО — ИСПРАВЛЕНИЕ:
+{correction_hint}
+"""
+
     return f"""
 ИСТОРИЯ РАЗГОВОРА:{conversation_history}
 
@@ -269,7 +280,7 @@ def build_chat_synthesis_prompt(
 
 РЕЗУЛЬТАТЫ ИНСТРУМЕНТОВ:
 {rendered_tool_results}
-
+{correction_block}
 Сформируй завершённый ответ пользователю на основе результатов выше.
 Не пиши, что ты ещё будешь собирать или анализировать данные позже.
 Сразу дай финальный вывод и практические рекомендации.
@@ -537,6 +548,7 @@ def synthesize_ai_chat_response(
     tool_results: Iterable[Dict[str, Any]],
     response_contract: Any = None,
     goal_plan: Optional[Dict] = None,
+    correction_hint: str | None = None,
 ) -> str:
     """Run the second pass that turns tool results into a final user answer."""
     synthesis_prompt = build_chat_synthesis_prompt(
@@ -544,11 +556,55 @@ def synthesize_ai_chat_response(
         user_input=user_input,
         tool_results=tool_results,
         response_contract=response_contract,
+        correction_hint=correction_hint,
     )
     return provider.generate_response(
         synthesis_prompt,
         create_chat_synthesis_system_prompt(goal_plan=goal_plan),
     )
+
+
+def revalidate_with_correction(
+    *,
+    provider: Any,
+    gate_result: CoachNarrativeGateResult,
+    evidence: CoachNarrativeEvidence,
+    history_messages: Iterable[Dict[str, Any]],
+    user_input: str,
+    tool_results: Iterable[Dict[str, Any]],
+    goal_plan: Optional[Dict] = None,
+    response_contract: Any = None,
+) -> CoachNarrativeGateResult:
+    """Retry one rejected narrative with a corrective hint, then re-validate.
+
+    When the narrative gate replaces a whole answer because one claim was
+    contradicted, a bounded single re-synthesis lets the model drop only that
+    claim instead of discarding an otherwise useful briefing. On a second
+    rejection (or any error) the original gate result is preserved unchanged.
+    """
+    if not gate_result.changed or provider is None:
+        return gate_result
+    try:
+        corrective = build_corrective_instruction(
+            gate_result.reason_codes,
+            evidence.payload,
+        )
+        corrected = synthesize_ai_chat_response(
+            provider=provider,
+            history_messages=history_messages,
+            user_input=user_input,
+            tool_results=tool_results,
+            response_contract=response_contract,
+            goal_plan=goal_plan,
+            correction_hint=corrective,
+        )
+        corrected = apply_response_contract_to_final_response(corrected, response_contract)
+        if not str(corrected or "").strip():
+            return gate_result
+        corrected_gate = validate_coach_narrative(corrected, evidence)
+        return corrected_gate if not corrected_gate.changed else gate_result
+    except Exception:
+        return gate_result
 
 
 def process_tool_calls(

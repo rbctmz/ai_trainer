@@ -1718,3 +1718,16 @@ def test_legacy_decision_schema_migrates_gate_metadata_additively(tmp_path):
         "narrative_evidence_version",
         "narrative_evidence_fingerprint",
     } <= columns
+
+
+def test_build_corrective_instruction_names_trend_contradiction():
+    from models.coach_narrative_evidence import build_corrective_instruction
+
+    instruction = build_corrective_instruction(
+        ("TREND_CLAIM_CONTRADICTED",),
+        {"readiness": {}, "calendar": {}},
+    )
+
+    assert "тренд" in instruction.lower()
+    assert "противоречит" in instruction.lower()
+    assert "перепиши" in instruction.lower()
