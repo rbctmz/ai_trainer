@@ -61,6 +61,8 @@ def fetch_activity_power_curve(
     database: Any,
     activity_id: str,
     client: IntervalsICUClient | None = None,
+    *,
+    refresh: bool = False,
 ) -> dict[str, Any] | None:
     """Return the compact power curve for a card, fetching on demand with a cache.
 
@@ -73,19 +75,25 @@ def fetch_activity_power_curve(
       "no curve", not ``None`` — so the card can distinguish "checked, none"
       from "never checked". ``None`` is reserved for "no Intervals link".
     """
+    cached = database.get_activity_power_curve(activity_id)
+    # A normalized curve (including an honest empty peaks list) is a complete
+    # card projection. Reuse it by default so rendering stays provider-free.
+    if not refresh and cached is not None:
+        return cached
+
     intervals_id = database.get_intervals_provider_activity_id(activity_id)
     if not intervals_id:
         return None
 
     client = client or intervals_icu.get_client()
     if not client.is_configured():
-        return database.get_activity_power_curve(activity_id)
+        return cached
 
     try:
         payload = client.get_activity_power_curve(intervals_id)
         compact = normalize_power_curve_payload(payload)
     except (IntervalsICUError, ValueError):
-        return database.get_activity_power_curve(activity_id)
+        return cached
 
     sixty_minute_peak_missing = any(
         peak.get("duration") == _SIXTY_MINUTES_SECONDS
