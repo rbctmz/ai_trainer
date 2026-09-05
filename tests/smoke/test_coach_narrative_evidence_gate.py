@@ -116,7 +116,8 @@ def test_missing_readiness_is_an_explicit_data_gap():
 
     assert result.outcome == "data_gap"
     assert result.reason_codes == ("READINESS_EVIDENCE_MISSING",)
-    assert "данных недостаточно" in result.delivered_text.lower()
+    # A pure data gap is soft: the answer is delivered as-is, not replaced.
+    assert result.delivered_text == "Восстановление плохое — нагрузку нужно снизить."
 
 
 def test_trend_claim_without_comparator_is_refused():
@@ -1058,7 +1059,7 @@ def test_comparable_session_guardrail_blocks_causal_adaptation_claim() -> None:
 
     assert result.outcome == "data_gap"
     assert result.reason_codes == ("CAUSAL_CLAIM_UNSUPPORTED",)
-    assert "не доказывает причину" in result.delivered_text.lower()
+    assert result.delivered_text == "Более высокий TSS вызван адаптацией."
 
 
 @pytest.mark.parametrize(
@@ -1754,3 +1755,15 @@ def test_load_trend_direction_is_independent_of_fitness_trend_order():
             _evidence(tool_results=tools),
         )
         assert result.outcome == "pass", (tools, result.reason_codes)
+
+
+def test_data_gap_only_claim_delivers_original_answer_not_boilerplate():
+    result = validate_coach_narrative(
+        "Нагрузка растёт.",
+        _evidence(tool_results=[]),
+    )
+
+    assert result.outcome == "data_gap"
+    assert result.reason_codes == ("TREND_COMPARATOR_MISSING",)
+    assert result.delivered_text == "Нагрузка растёт."
+    assert "Не могу подтвердить" not in result.delivered_text
