@@ -65,4 +65,4 @@ def test_clarity_check_requires_fact_plan_labels():
 
 
 def test_registry_version_is_stable():
-    assert REGISTRY_VERSION == "coach_behavioral_eval_v2"
+    assert REGISTRY_VERSION == "coach_behavioral_eval_v3"
