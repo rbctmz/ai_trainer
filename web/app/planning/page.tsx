@@ -1345,6 +1345,7 @@ function AdjustMode({
             : [],
         actual_role: actualRole,
         action,
+        client_request_id: crypto.randomUUID(),
       });
       setPreviewResult(null);
       await mutate();

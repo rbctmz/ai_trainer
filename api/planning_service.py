@@ -2522,6 +2522,17 @@ def _match_descends_from(
     return False
 
 
+def _refresh_match_recovery(db: Database, session_id: str) -> None:
+    """Replay best-effort derived-state repair after a match commit or retry."""
+    from services.recovery_analytics import refresh_recovery_episodes_best_effort
+
+    refresh_recovery_episodes_best_effort(
+        db,
+        as_of=date.today(),
+        target_session_ids=[session_id],
+    )
+
+
 def record_plan_actual_match(
     db: Database,
     *,
@@ -2530,6 +2541,7 @@ def record_plan_actual_match(
     activity_ids: List[str],
     actual_role: str | None,
     action: str,
+    client_request_id: str | None = None,
 ) -> Dict[str, Any]:
     latest = db.get_latest_planning_checkpoint()
     latest_id = int(latest.get("id")) if latest and latest.get("id") is not None else 0
@@ -2551,6 +2563,11 @@ def record_plan_actual_match(
         )
     if normalized_action == "confirm" and not activity_ids:
         raise ValueError("confirm requires at least one activity")
+    normalized_request_id = str(client_request_id or "").strip()
+    if client_request_id is not None and not normalized_request_id:
+        raise ValueError("client_request_id must not be blank")
+    if len(normalized_request_id) > 128:
+        raise ValueError("client_request_id must not exceed 128 characters")
     activities = db.get_activities_by_ids(activity_ids if normalized_action == "confirm" else [])
     if normalized_action == "confirm" and len(activities) != len(set(activity_ids)):
         raise ValueError("one or more activities were not found")
@@ -2666,6 +2683,7 @@ def record_plan_actual_match(
         and dict(current_target_match.get("actual_snapshot") or {}) == actual_snapshot
         and int(current_target_match.get("base_checkpoint_id") or 0) == latest_id
     ):
+        _refresh_match_recovery(db, session_id)
         return dict(current_target_match)
     previous_row = (
         current_target_match
@@ -2702,9 +2720,31 @@ def record_plan_actual_match(
         "rule_version": MATCH_RULE_VERSION,
         "supersedes_match_id": previous_row.get("id") if previous_row else None,
     }
-    fingerprint_source = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    fingerprint_payload = payload
+    if normalized_request_id:
+        fingerprint_payload = {
+            "client_request_id": normalized_request_id,
+            "target_key": target_key,
+            "base_checkpoint_id": latest_id,
+            "action": normalized_action,
+            "activity_ids": sorted(str(value) for value in activity_ids),
+            "actual_role": normalized_actual_role or None,
+        }
+    fingerprint_source = json.dumps(
+        fingerprint_payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        default=str,
+    )
     payload["fingerprint"] = hashlib.sha256(fingerprint_source.encode("utf-8")).hexdigest()
-    saved = db.save_plan_actual_match(payload)
+    saved = db.save_plan_actual_match(
+        payload,
+        require_unsuperseded_match_id=(
+            reassignable_stale_match.get("id")
+            if reassignable_stale_match is not None
+            else None
+        ),
+    )
     if normalized_action == "unmatch":
         # #405 review P1: feedback derived from the superseded match must not
         # stay active — including feedback linked to an older match revision
@@ -2727,9 +2767,7 @@ def record_plan_actual_match(
                 )
             except StaleFeedbackError:
                 pass
-    from services.recovery_analytics import refresh_recovery_episodes_best_effort
-
-    refresh_recovery_episodes_best_effort(db, as_of=date.today(), target_session_ids=[session_id])
+    _refresh_match_recovery(db, session_id)
     return saved
 
 

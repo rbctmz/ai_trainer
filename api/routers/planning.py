@@ -57,6 +57,7 @@ class MatchCorrectionRequest(BaseModel):
     activity_ids: List[str] = Field(default_factory=list)
     actual_role: Optional[str] = None
     action: str = "confirm"
+    client_request_id: Optional[str] = Field(default=None, min_length=1, max_length=128)
 
 
 class DemandRequest(BaseModel):
@@ -482,6 +483,7 @@ def planning_record_match(
             activity_ids=req.activity_ids,
             actual_role=req.actual_role,
             action=req.action,
+            client_request_id=req.client_request_id,
         )
     except planning_service.StalePlanningCheckpointError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
