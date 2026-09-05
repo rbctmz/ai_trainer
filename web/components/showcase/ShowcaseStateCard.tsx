@@ -21,8 +21,14 @@ export function ShowcaseStateCard({
   return (
     <article className="min-w-0 rounded-card border border-surface-border bg-surface p-4 shadow-card">
       <header className="mb-3 flex items-center justify-between gap-2 border-b border-surface-border pb-3">
-        <h3 className="text-sm font-semibold text-ink">{title}</h3>
-        <span className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-ink-faint">
+        <h3 className="text-sm font-semibold text-ink">
+          {title}
+          <span className="sr-only"> — состояние {STATE_LABELS[state]}</span>
+        </h3>
+        <span
+          aria-hidden="true"
+          className="rounded-full bg-surface-muted px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-ink-soft"
+        >
           {STATE_LABELS[state]}
         </span>
       </header>

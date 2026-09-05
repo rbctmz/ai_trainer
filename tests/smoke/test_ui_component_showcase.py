@@ -50,6 +50,10 @@ def test_showcase_covers_normal_loading_empty_error_and_responsive_states() -> N
         assert state in page
     assert 'role="status"' in state_card
     assert 'role="alert"' in state_card
+    assert 'uppercase tracking-wide text-ink-soft"' in state_card
+    assert 'uppercase tracking-wide text-ink-faint"' not in state_card
+    assert 'aria-hidden="true"' in state_card
+    assert "состояние {STATE_LABELS[state]}" in state_card
     assert "md:grid-cols-2" in page
     assert "xl:grid-cols-4" in page
 
