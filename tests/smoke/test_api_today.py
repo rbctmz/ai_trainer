@@ -627,6 +627,139 @@ def test_today_selects_latest_shadow_revision_without_changing_decision(
     assert payload["forecast"]["session_id"] == payload["session"]["session_id"]
 
 
+def test_today_skips_evaluated_pending_history_and_selects_next_forecast(tmp_path) -> None:
+    from api.today_snapshot import _resolve_forecast
+
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "forecast-projection.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    plan = checkpoint["goal_plan_snapshot"]
+    session_index = next(
+        index
+        for index, template in enumerate(plan["session_templates"])
+        if template["date"] == today.isoformat()
+    )
+    planned = {
+        "date": today.isoformat(),
+        "index": session_index,
+        "role": "quality",
+        "sport": "bike",
+        "tss": 60.0,
+        "duration_minutes": 60,
+    }
+    completed = db.save_session_quality_prediction(
+        fingerprint="forecast-completed",
+        target_key=f"{checkpoint['id']}:{today.isoformat()}:{session_index}:session_quality_v1",
+        rule_version="session_quality_v1",
+        target_date=today.isoformat(),
+        plan_checkpoint_id=checkpoint["id"],
+        plan_session_index=session_index,
+        planned_session=planned,
+        forecast={"prediction_pct": 55, "prediction_band": "low"},
+        inputs={"readiness": {"score": 70}},
+        evidence=["completed target"],
+        created_at="2026-07-10T05:00:00Z",
+    )
+    next_forecast = db.save_session_quality_prediction(
+        fingerprint="forecast-next",
+        target_key=f"{checkpoint['id']}:2026-07-12:{session_index}:session_quality_v1",
+        rule_version="session_quality_v1",
+        target_date="2026-07-12",
+        plan_checkpoint_id=checkpoint["id"],
+        plan_session_index=session_index,
+        planned_session={**planned, "date": "2026-07-12"},
+        forecast={"prediction_pct": 66, "prediction_band": "uncertain"},
+        inputs={"readiness": {"score": 72}},
+        evidence=["next eligible target"],
+        created_at="2026-07-10T06:00:00Z",
+    )
+    db.save_session_quality_evaluation(
+        {
+            "fingerprint": "evaluation-completed",
+            "target_key": f"prediction:{completed['prediction']['id']}",
+            "prediction_id": completed["prediction"]["id"],
+            "prediction_target_key": completed["prediction"]["target_key"],
+            "feedback_id": 1,
+            "status": "scored",
+            "plan_adherence": "exact",
+            "quality_rating_1_5": 4,
+            "quality_outcome": "success",
+            "unscored_reason": None,
+            "brier_score": 0.2,
+            "evidence": {"source": "test"},
+            "rule_version": "session_quality_evaluation_v1",
+        }
+    )
+
+    projected = _resolve_forecast(
+        db,
+        {},
+        checkpoint,
+        plan,
+        today.isoformat(),
+    )
+
+    assert projected["prediction"]["id"] == next_forecast["prediction"]["id"]
+    assert projected["prediction"]["status"] == "pending"
+    assert projected["prediction"]["target_date"] == "2026-07-12"
+
+    stale_loop_result = {
+        "session_quality_forecast": {"prediction": completed["prediction"]}
+    }
+    projected_after_target = _resolve_forecast(
+        db,
+        stale_loop_result,
+        checkpoint,
+        plan,
+        "2026-07-13",
+    )
+    assert projected_after_target["prediction"] is None
+
+
+def test_repeated_today_reads_do_not_append_timestamp_only_forecasts(
+    tmp_path, monkeypatch
+) -> None:
+    from api import session_quality_forecast as forecast_module
+    from api.routers.today import today_view
+
+    today = datetime.now().date()
+    db = Database(str(tmp_path / "today-forecast-idempotency.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    day_session = _session(today, days_until=0, role="quality")
+    _patch_report(monkeypatch, _report(today, sessions=[day_session]))
+    _patch_snapshot(monkeypatch, _snapshot())
+    calls = {"count": 0}
+
+    def readiness_with_fresh_timestamp(_db):
+        calls["count"] += 1
+        observed_at = f"{today.isoformat()}T06:{calls['count']:02d}:00Z"
+        return {
+            **_snapshot(),
+            "observed_at_utc": observed_at,
+            "provenance": {"observed_at_utc": observed_at},
+        }
+
+    monkeypatch.setattr(
+        forecast_module,
+        "build_readiness_snapshot",
+        readiness_with_fresh_timestamp,
+    )
+
+    first = today_view(db=db)
+    second = today_view(db=db)
+    rows = db.get_session_quality_predictions(days=36500)
+
+    assert calls["count"] == 2
+    assert len(rows) == 1
+    assert first["forecast"]["prediction"]["id"] == rows[0]["id"]
+    assert second["forecast"]["prediction"]["id"] == rows[0]["id"]
+    assert rows[0]["inputs"]["semantic_fingerprint_basis"]["readiness"] == {
+        "score": 72.0,
+        "confidence": 0.8,
+        "stale": False,
+    }
+
+
 def test_today_survives_reconciliation_failure(tmp_path, monkeypatch) -> None:
     from api import today_snapshot as snapshot_module
     from api.routers.today import today_view

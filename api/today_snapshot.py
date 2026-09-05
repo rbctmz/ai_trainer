@@ -9,7 +9,11 @@ from api.operational_state import build_operational_state
 from api.planning_service import reconciliation_at
 from api.readiness_snapshot import build_readiness_snapshot
 from api.recovery_replan_loop import run_recovery_replan_loop
-from api.session_feedback import feedback_from_today_evidence
+from api.session_feedback import (
+    feedback_from_today_evidence,
+    project_predictions_with_evaluations,
+)
+from api.session_quality_forecast import _forecast_lifecycle_reason
 from data.database import Database
 from models.planning_checkpoints import (
     restore_goal_plan_from_checkpoint,
@@ -452,13 +456,55 @@ def _resolve_forecast(
         rows = db.get_session_quality_predictions(days=36500, limit=1000)
     except Exception as exc:
         return _forecast_block(None, "unavailable", None, error=str(exc))
-    relevant = [
+    candidates = [
         row
         for row in rows
         if isinstance(row, Mapping)
-        and row.get("status") == "pending"
         and _date_in_range(row.get("target_date"), anchor, end)
     ]
+    try:
+        relevant = [
+            row
+            for row in project_predictions_with_evaluations(db, candidates)
+            if row.get("status") == "pending"
+        ]
+    except Exception as exc:
+        return _forecast_block(None, "unavailable", None, error=str(exc))
+
+    plan_cache: dict[int, Mapping[str, Any] | None] = {}
+    lifecycle_cache: dict[str, str | None] = {}
+
+    def lifecycle_reason(row: Mapping[str, Any]) -> str | None:
+        checkpoint_id = _coerce_int(row.get("plan_checkpoint_id"))
+        if checkpoint_id is None:
+            return None
+        if checkpoint_id == active_checkpoint_id:
+            candidate_plan = goal_plan
+        elif checkpoint_id not in plan_cache:
+            try:
+                historical_checkpoint = db.get_planning_checkpoint(checkpoint_id)
+                plan_cache[checkpoint_id] = restore_goal_plan_from_checkpoint(
+                    historical_checkpoint
+                )
+            except Exception:
+                plan_cache[checkpoint_id] = None
+            candidate_plan = plan_cache[checkpoint_id]
+        else:
+            candidate_plan = plan_cache[checkpoint_id]
+        session_id = _forecast_session_id(row, candidate_plan)
+        if not session_id:
+            return None
+        if session_id in lifecycle_cache:
+            return lifecycle_cache[session_id]
+        reason = _forecast_lifecycle_reason(
+            db,
+            {"session_id": session_id},
+            now_utc=datetime.now(timezone.utc),
+        )
+        lifecycle_cache[session_id] = reason
+        return reason
+
+    relevant = [row for row in relevant if lifecycle_reason(row) is None]
     current = [
         row for row in relevant if _coerce_int(row.get("plan_checkpoint_id")) == active_checkpoint_id
     ]
@@ -466,7 +512,20 @@ def _resolve_forecast(
     prediction = min(pool, key=_forecast_sort_key) if pool else None
     if prediction is None:
         loop_prediction = (loop_result.get("session_quality_forecast") or {}).get("prediction")
-        prediction = dict(loop_prediction) if isinstance(loop_prediction, Mapping) else None
+        if isinstance(loop_prediction, Mapping):
+            if loop_prediction.get("id") is not None:
+                try:
+                    projected_loop = project_predictions_with_evaluations(db, [loop_prediction])
+                except Exception:
+                    projected_loop = []
+                loop_candidate = projected_loop[0] if projected_loop else None
+            else:
+                loop_candidate = loop_prediction
+            if isinstance(loop_candidate, Mapping) and (
+                loop_candidate.get("status", "pending") == "pending"
+                and lifecycle_reason(loop_candidate) is None
+            ):
+                prediction = dict(loop_candidate)
     if prediction is None:
         return _forecast_block(
             None,
@@ -531,6 +590,13 @@ def _forecast_session_id(
     prediction: Mapping[str, Any],
     goal_plan: Mapping[str, Any] | None,
 ) -> str | None:
+    planned = prediction.get("planned_session")
+    if isinstance(planned, Mapping) and planned.get("session_id"):
+        return str(planned.get("session_id") or "") or None
+    inputs = prediction.get("inputs")
+    input_session = inputs.get("planned_session") if isinstance(inputs, Mapping) else None
+    if isinstance(input_session, Mapping) and input_session.get("session_id"):
+        return str(input_session.get("session_id") or "") or None
     index = _coerce_int(prediction.get("plan_session_index"))
     templates = list((goal_plan or {}).get("session_templates") or [])
     if index is None or index < 0 or index >= len(templates):
