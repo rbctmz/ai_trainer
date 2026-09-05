@@ -1,5 +1,42 @@
 # Repository Guidelines
 
+## Agent Role Separation
+Roles are assigned by the task scope and the human owner, not by the agent
+vendor, model name, or self-assessed skill. At the start of work, use the
+narrowest role that can complete the request. A role change requires an explicit
+handoff in the task; delegation never broadens the original authority.
+
+- **Spec / Architecture Owner** owns acceptance criteria, non-goals, ADR and ASR
+  content, public contracts, and domain invariants. This role may inspect UI
+  code but must not choose or rewrite CSS, layout, visual styling, or interaction
+  polish unless UI work is explicitly in scope.
+- **Domain / API Implementer** owns shared Python logic, `api/`, `models/`,
+  `services/`, `data/`, migrations, and contract-backed tests. This role consumes
+  approved specs and must not redefine product scope while implementing it.
+- **UI / Design Specialist** owns `web/` components, layout, accessibility,
+  interaction behavior, and styling within existing API and TypeScript
+  contracts. This role may inspect specs and backend contracts but must not edit
+  BDD/spec acceptance, ADRs, API schemas, or domain logic as part of a UI task.
+- **Independent Reviewer** is read-only by default. It reports evidence-bound
+  findings and may run only approved checks; it does not edit code, create
+  issues, approve review, merge, or silently expand scope.
+- **Supervisor / Integrator** assigns bounded work, checks repository state,
+  reproduces findings, resolves handoffs, and reports what actually happened.
+  Human approval remains required for merge, destructive actions, live writes,
+  and materially broader scope.
+
+Tool defaults are routing hints, not permissions: Codex commonly serves as
+Spec / Architecture Owner, Domain / API Implementer, Reviewer, or Supervisor;
+Claude commonly serves as UI / Design Specialist when assigned UI work;
+OpenCode defaults to Independent Reviewer. Any tool may take another role only
+when the task explicitly assigns it and all scope rules above still hold.
+
+When work crosses a boundary, stop that slice at a clean handoff: state the
+required input, exact files or contract involved, evidence already collected,
+and the role that should continue. UI work uses existing component tests,
+fixtures, or isolated acceptance surfaces; the absence of a showcase does not
+authorize a UI agent to move business logic into the browser.
+
 ## Project Structure & Module Organization
 AI Trainer is in an active web migration. The main product development path is `api/` + `web/`: `api/` exposes FastAPI contracts over shared Python logic, `web/` is the Next.js UI. Legacy Streamlit entry point is `app.py` — a thin fallback shell (page dispatch, sync callbacks, theme) while migration continues; Streamlit stays supported until parity, so never describe the project as already migrated.
 
@@ -77,6 +114,19 @@ Automated reviewers re-scan the full diff on every trigger, so review loops conv
 - After the first consolidated full-diff round, request only scoped delta reviews (`@codex review` explicitly naming the changes since `<sha>`); the Review-budget cap of two full-diff rounds per PR is a hard limit.
 - Review is complete at zero open P1 with every P2 addressed or triaged in writing; merge on green CI without waiting for a "no findings" pass — chasing zero findings does not terminate.
 - Never reverse a fix requested by an earlier round without fresh reproducing evidence.
+
+### External Local Reviewer (OpenCode)
+OpenCode follows the Independent Reviewer role above and is never the final
+authority. Follow `docs/opencode_external_reviewer_runbook.md`. A catalog entry
+from `opencode models` is not availability evidence: require a real minimal
+smoke response before assigning work. Read-only reviews use the `plan` agent,
+never `--auto`, name the exact ref/diff and allowed test command, and exclude
+`.env*`, `logs/`, `ai_trainer.db`, personal data, and `backups/`. Capture and
+compare `git status --short --branch` before and after, stop leftover processes,
+and independently reproduce or dispose every finding under the same severity
+and review-budget rules above. An OpenCode full-diff audit counts as a review
+round. Code-writing delegation requires explicit user authorization and an
+isolated worktree; do not let two agents edit the same checkout concurrently.
 
 ## ExecPlans
 Complex features and significant refactors use an ExecPlan from design to implementation, per `.agent/PLANS.md`.
