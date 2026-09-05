@@ -90,6 +90,14 @@ class _IntervalsClient:
         return self.payload
 
 
+class _NeverIntervalsClient:
+    def is_configured(self) -> bool:
+        raise AssertionError("provider must not be consulted on a cache hit")
+
+    def get_activity_intervals(self, activity_id: str) -> dict:
+        raise AssertionError("provider must not be consulted on a cache hit")
+
+
 def _seed_intervals_link(db: Database, canonical: str) -> None:
     import sqlite3
 
@@ -177,8 +185,19 @@ def test_empty_intervals_result_does_not_hide_cached_garmin_laps(tmp_path) -> No
         client=_IntervalsClient({"icu_intervals": [], "icu_groups": []}),
     )
 
-    assert result == cached
-    assert db.get_activity_intervals("garmin-and-intervals") == cached
+    assert result["source"] == "intervals"
+    assert result["intervals"] == []
+    assert result["garmin_laps"] == cached["intervals"]
+    assert db.get_activity_intervals("garmin-and-intervals") == result
+
+    assert (
+        fetch_activity_intervals(
+            db,
+            "garmin-and-intervals",
+            client=_NeverIntervalsClient(),
+        )
+        == result
+    )
 
 
 def test_detected_intervals_keep_cached_garmin_laps_separately(tmp_path) -> None:
@@ -199,6 +218,41 @@ def test_detected_intervals_keep_cached_garmin_laps_separately(tmp_path) -> None
     assert result["intervals"][0]["moving_time"] == 420
     assert result["garmin_laps"] == cached["intervals"]
     assert db.get_activity_intervals("garmin-and-intervals") == result
+
+
+def test_provider_enriched_intervals_cache_skips_live_fetch(tmp_path) -> None:
+    db = Database(str(tmp_path / "provider-cache-hit.db"))
+    cached = normalize_intervals_payload(
+        {"icu_intervals": [{"moving_time": 420, "distance": 1000}]}
+    )
+    db.save_activity_intervals("garmin-and-intervals", cached)
+    _seed_intervals_link(db, "garmin-and-intervals")
+
+    result = fetch_activity_intervals(
+        db,
+        "garmin-and-intervals",
+        client=_NeverIntervalsClient(),
+    )
+
+    assert result == cached
+
+
+def test_legacy_provider_intervals_cache_skips_live_fetch(tmp_path) -> None:
+    db = Database(str(tmp_path / "legacy-provider-cache-hit.db"))
+    cached = normalize_intervals_payload(
+        {"icu_intervals": [{"moving_time": 420, "distance": 1000}]}
+    )
+    cached.pop("source")
+    db.save_activity_intervals("legacy-intervals", cached)
+    _seed_intervals_link(db, "legacy-intervals")
+
+    result = fetch_activity_intervals(
+        db,
+        "legacy-intervals",
+        client=_NeverIntervalsClient(),
+    )
+
+    assert result == cached
 
 
 def test_garmin_sync_caches_laps_without_intervals_provider(tmp_path) -> None:
@@ -345,3 +399,11 @@ def test_activity_card_names_garmin_laps_and_intervals_source() -> None:
     assert 'garmin: "Круги Garmin"' in page
     assert 'intervals: "Интервалы Intervals.icu"' in page
     assert "intervals?.garmin_laps" in page
+
+
+def test_activity_card_has_honest_loading_copy_for_deferred_details() -> None:
+    page = Path("web/app/activities/page.tsx").read_text(encoding="utf-8")
+
+    assert "Загружаем интервалы…" in page
+    assert "Загружаем план и факт…" in page
+    assert "Загружаем рекорды…" in page

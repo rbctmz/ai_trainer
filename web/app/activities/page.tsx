@@ -605,6 +605,7 @@ function ActivityCardModal({
     PlanVsFactStep[] | null | undefined
   >(activity.planned_intervals);
   const fallbackPlannedIntervals = useRef(activity.planned_intervals);
+  const [detailLoading, setDetailLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -633,6 +634,7 @@ function ActivityCardModal({
 
   useEffect(() => {
     let cancelled = false;
+    setDetailLoading(true);
     fetcher<{ activity: Activity }>(`/api/activities/${id}`)
       .then((res) => {
         if (!cancelled) {
@@ -648,6 +650,11 @@ function ActivityCardModal({
           setPowerCurve(fallbackPowerCurve.current ?? null);
           setPlanVsFact(fallbackPlanVsFact.current ?? null);
           setPlannedIntervals(fallbackPlannedIntervals.current ?? null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setDetailLoading(false);
         }
       });
     return () => {
@@ -794,7 +801,9 @@ function ActivityCardModal({
               <ActivityIntervalList items={detectedIntervals} />
             </div>
           ) : null}
-          {garminLaps.length === 0 && detectedIntervals.length === 0 ? (
+          {detailLoading && intervals === undefined ? (
+            <p className="mt-2 text-sm text-ink-soft">Загружаем интервалы…</p>
+          ) : garminLaps.length === 0 && detectedIntervals.length === 0 ? (
             <p className="mt-2 text-sm text-ink-soft">
               {intervals
                 ? "Интервалы не детектированы."
@@ -803,7 +812,14 @@ function ActivityCardModal({
           ) : null}
         </div>
 
-        {planVsFact ? (
+        {detailLoading && planVsFact === undefined ? (
+          <div className="mt-4 rounded-md border border-surface-border bg-surface p-3">
+            <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
+              План и факт
+            </div>
+            <p className="mt-2 text-sm text-ink-soft">Загружаем план и факт…</p>
+          </div>
+        ) : planVsFact ? (
           <div className="mt-4 rounded-md border border-surface-border bg-surface p-3">
             <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
               План и факт
@@ -967,7 +983,9 @@ function ActivityCardModal({
           <div className="text-xs font-medium uppercase tracking-wide text-ink-faint">
             Рекорды
           </div>
-          {powerCurve && powerCurve.peaks.length > 0 ? (
+          {detailLoading && powerCurve === undefined ? (
+            <p className="mt-2 text-sm text-ink-soft">Загружаем рекорды…</p>
+          ) : powerCurve && powerCurve.peaks.length > 0 ? (
             <ul className="mt-2 space-y-1.5 text-sm text-ink">
               {powerCurve.peaks.map((peak) => (
                 <li
