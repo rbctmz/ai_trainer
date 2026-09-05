@@ -372,10 +372,23 @@ def validate_coach_narrative(
             evidence_fingerprint=evidence.fingerprint,
         )
 
-    outcome = "data_gap" if any(code in _DATA_GAP_CODES for code in reason_codes) else "replaced"
+    # Contradictions (proven wrong) are hard: replace the whole answer. A pure
+    # data-gap (an unverifiable claim such as a trend with no comparator) is
+    # soft: deliver the answer as-is and record the gap for observability, so a
+    # single unverifiable load trend does not throw away an otherwise useful
+    # daily briefing (#544 follow-up).
+    hard_codes = [code for code in reason_codes if code not in _DATA_GAP_CODES]
+    if hard_codes:
+        return CoachNarrativeGateResult(
+            delivered_text=_replacement_text(reason_codes, payload),
+            outcome="replaced",
+            reason_codes=reason_codes,
+            evidence_version=COACH_NARRATIVE_EVIDENCE_VERSION,
+            evidence_fingerprint=evidence.fingerprint,
+        )
     return CoachNarrativeGateResult(
-        delivered_text=_replacement_text(reason_codes, payload),
-        outcome=outcome,
+        delivered_text=text,
+        outcome="data_gap",
         reason_codes=reason_codes,
         evidence_version=COACH_NARRATIVE_EVIDENCE_VERSION,
         evidence_fingerprint=evidence.fingerprint,

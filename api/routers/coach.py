@@ -522,13 +522,15 @@ def _save_decision(
 ) -> None:
     try:
         gate = dict(evidence_gate or {})
-        if gate.get("outcome") in {"replaced", "data_gap"}:
+        if gate.get("outcome") == "replaced":
             codes = ", ".join(str(code) for code in gate.get("reason_codes") or [])
             decision = CoachDecision(
                 "Monitor",
                 f"Evidence gate отклонил вывод коуча: {codes or 'reason unavailable'}.",
             )
         else:
+            # "pass" and a soft "data_gap" (unverifiable claim, answer delivered)
+            # both keep the normal decision; the gap is recorded in narrative_gate.
             decision = build_coach_decision(final, db=db)
         load_metrics_context = load_metrics_context or {}
         db.save_coach_decision(
