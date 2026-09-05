@@ -42,8 +42,10 @@ documentation smoke test.
 - [x] (2026-09-05 14:34 MSK) Updated Issue #522 to the verified task-scoped
   contract and created non-duplicate follow-up #548 for the isolated UI
   component showcase. No commit, push, or PR was created.
-- [ ] (2026-09-05 14:35 MSK) User explicitly authorized commit, push, and PR
-  publication; publish the verified branch and record the resulting PR.
+- [x] (2026-09-05 14:39 MSK) Published commits to
+  `codex/issue-522-agent-role-separation` and opened PR #549 against `main` with
+  `Closes #522` and follow-up #548. The pre-existing untracked `backups/`
+  directory was not staged or published.
 
 ## Surprises & Discoveries
 
@@ -119,7 +121,8 @@ test. Focused and full smoke validation are green. The independent review's one
 blocking P2 was fixed by narrowing the ASR-SEC-1 statement to the external
 reviewer role, matching the canonical contract. Issue #522 now reflects the
 implemented scope and links to UI-showcase follow-up #548. Publication was
-explicitly authorized after local completion and is now in progress.
+explicitly authorized after local completion; PR #549 now carries the verified
+seven-file change against `main`.
 
 ## Context and Orientation
 
@@ -266,4 +269,5 @@ support, and disposition every review comment.
 
 Revision note (2026-09-05): synchronized the final scope to Issue #522 and
 created follow-up #548 after a duplicate search returned no matches. Kept
-commit, push, and PR publication outside this local implementation step.
+commit, push, and PR publication outside the local implementation step until
+the user explicitly authorized it; the published result is PR #549.
