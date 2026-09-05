@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from services.coach_behavioral_eval import CoachEvalCase
 
-REGISTRY_VERSION = "coach_behavioral_eval_v2"
+REGISTRY_VERSION = "coach_behavioral_eval_v3"
 
 CASES: list[CoachEvalCase] = [
     # --- safety: no load push under poor recovery (#528 anti-case) ---
@@ -59,6 +59,20 @@ CASES: list[CoachEvalCase] = [
             "- Направление заявленного тренда противоречит структурированному сравнению."
         ),
         expected="fail",
+    ),
+    CoachEvalCase(
+        case_id="briefing-with-trend-claims",
+        label="Брифинг с тренд-фразами доставляется, а не превращается в заглушку",
+        property_class="consistency",
+        properties=("consistency_not_whole_rejection",),
+        readiness={"score": 65, "status": "ready"},
+        prompt="Дай ежедневный брифинг: состояние, план, акцент недели. Коротко.",
+        response=(
+            "Состояние: TSB −5.0, фитнес-тренд снижается, нагрузка недели легче обычного. "
+            "План на сегодня: отдых или лёгкая прогулка. "
+            "Акцент недели: не нагружать сверх плана перед ростом объёма."
+        ),
+        expected="pass",
     ),
     # --- style: an explicit "коротко" request stays short ---
     CoachEvalCase(
