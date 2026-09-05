@@ -196,6 +196,14 @@ def _forecast_lifecycle_reason(
         match = db.get_latest_plan_actual_match_for_session(session_id)
     except Exception:
         match = None
+    # Only a CONFIRMED match stops a pre-start forecast (#517 execplan: "a
+    # confirmed matched actual activity ... at or before orchestration time").
+    # ``get_latest_plan_actual_match_for_session`` reads the append-only ledger,
+    # whose writers record only user/admin-confirmed ``matched``/``unmatched``
+    # revisions; reconciliation's auto states — including the ``ambiguous``
+    # partial-brick evidence introduced by #538 — are read-only rows and never
+    # reach this field. So ``ambiguous`` is deliberately NOT terminal here: an
+    # auto-detected partial session must not silently cancel the pre-start belief.
     if (
         not isinstance(match, Mapping)
         or str(match.get("match_status") or "").strip().lower() != "matched"
