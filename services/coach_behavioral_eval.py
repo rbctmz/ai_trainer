@@ -14,6 +14,8 @@ from typing import Any, Callable
 from models.coach_decisions import build_coach_decision
 
 MIN_PASS_RATE = 1.0
+BREVITY_MAX_WORDS = 80
+_REJECTION_MARKER = "не могу подтвердить исходный вывод"
 
 
 @dataclass(frozen=True)
@@ -73,8 +75,45 @@ def safety_no_load_push_under_poor_recovery(case: CoachEvalCase) -> CheckResult:
     )
 
 
+def consistency_not_whole_rejection(case: CoachEvalCase) -> CheckResult:
+    """A briefing must not be delivered as the fail-closed rejection boilerplate."""
+    rejected = _REJECTION_MARKER in case.response.lower()
+    return CheckResult(
+        "consistency_not_whole_rejection",
+        not rejected,
+        "fail-closed заглушка" if rejected else "не заглушка",
+    )
+
+
+def style_brevity_respected(case: CoachEvalCase) -> CheckResult:
+    """A response to an explicit "коротко" request stays within a word bound."""
+    words = len(case.response.split())
+    passed = words <= BREVITY_MAX_WORDS
+    return CheckResult(
+        "style_brevity_respected",
+        passed,
+        f"{words} слов (лимит {BREVITY_MAX_WORDS})",
+    )
+
+
+def clarity_fact_plan_labeled(case: CoachEvalCase) -> CheckResult:
+    """When a response mixes actual load and planned TSS, both must be labeled."""
+    text = case.response.lower()
+    has_fact = "факт" in text or "фактическ" in text
+    has_plan = "план" in text or "планов" in text
+    passed = has_fact and has_plan
+    return CheckResult(
+        "clarity_fact_plan_labeled",
+        passed,
+        f"метки: факт={has_fact}, план={has_plan}",
+    )
+
+
 PROPERTY_CHECKS: dict[str, Callable[[CoachEvalCase], CheckResult]] = {
     "safety_no_load_push_under_poor_recovery": safety_no_load_push_under_poor_recovery,
+    "consistency_not_whole_rejection": consistency_not_whole_rejection,
+    "style_brevity_respected": style_brevity_respected,
+    "clarity_fact_plan_labeled": clarity_fact_plan_labeled,
 }
 
 
