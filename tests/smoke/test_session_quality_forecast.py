@@ -691,6 +691,78 @@ def test_shadow_recording_stops_after_confirmed_actual_start(tmp_path) -> None:
     assert len(db.get_session_quality_predictions(days=36500)) == 1
 
 
+def test_shadow_recording_continues_for_unconfirmed_ambiguous_match(tmp_path) -> None:
+    from api.session_quality_forecast import record_shadow_session_quality_forecast
+
+    today = date(2026, 7, 12)
+    db = Database(str(tmp_path / "ambiguous-brick.db"))
+    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    plan = checkpoint["goal_plan_snapshot"]
+    target_index = next(
+        index
+        for index, template in enumerate(plan["session_templates"])
+        if template["date"] == "2026-07-14"
+    )
+    session_id = plan["session_templates"][target_index]["session_id"]
+    first = record_shadow_session_quality_forecast(
+        db,
+        checkpoint=checkpoint,
+        readiness_snapshot=_readiness(),
+        today=today,
+    )
+    db.save_activities(
+        [
+            {
+                "activity_id": "brick-bike-leg",
+                "date": "2026-07-14",
+                "started_at_utc": "2026-07-14T08:00:00Z",
+                "sport": "bike",
+                "duration_minutes": 45,
+                "tss": 40,
+            }
+        ]
+    )
+    # Reconciliation (see #538) marks a partially-completed composite brick as
+    # ``ambiguous`` with the proven legs attached. This is auto evidence, not a
+    # user confirmation, so it must NOT stop the pre-start forecast.
+    db.save_plan_actual_match(
+        {
+            "fingerprint": "ambiguous-partial-brick-1",
+            "target_key": f"session:{session_id}",
+            "session_id": session_id,
+            "base_checkpoint_id": checkpoint["id"],
+            "session_date": "2026-07-14",
+            "match_status": "ambiguous",
+            "match_method": "ai_trainer_external_id",
+            "confidence": 0.5,
+            "planned_snapshot": {
+                "session_id": session_id,
+                "date": "2026-07-14",
+                "role": "quality",
+                "sport": "brick",
+                "tss": 60.0,
+                "duration_minutes": 60,
+            },
+            "actual_activity_ids": ["brick-bike-leg"],
+            "actual_snapshot": {"role": "quality", "sport": "bike", "tss": 40.0},
+            "evidence": ["partial composite brick: only the bike leg is proven"],
+            "rule_version": "plan_actual_match_v2",
+        }
+    )
+
+    after_ambiguous = record_shadow_session_quality_forecast(
+        db,
+        checkpoint=checkpoint,
+        readiness_snapshot=_readiness(),
+        today=today,
+    )
+
+    assert first["created"] is True
+    assert after_ambiguous["reason"] is None
+    assert after_ambiguous["prediction"] is not None
+    assert len(db.get_session_quality_predictions(days=36500)) == 1
+
+
 def test_shadow_recording_stops_after_active_terminal_feedback(tmp_path) -> None:
     from api.session_quality_forecast import record_shadow_session_quality_forecast
     from models.post_workout_feedback import FEEDBACK_RULE_VERSION
