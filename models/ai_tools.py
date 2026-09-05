@@ -2066,11 +2066,29 @@ class AITools:
         today = datetime.now().date()
         cutoff = today + timedelta(days=days)
 
+        # Composite bricks cannot be reconciled safely from sport/date alone:
+        # the parent sport is ``brick`` while the synced actuals are separate
+        # bike/run legs. Preserve the exact Intervals event identity for a
+        # brick that could already have happened today. Future bricks cannot
+        # be completed yet, and singleton sessions keep the local/offline path.
+        today_iso = today.isoformat()
+        needs_provider_identity = any(
+            str((tpl or {}).get("date") or "")[:10] == today_iso
+            and (
+                str((tpl or {}).get("kind") or "") == "composite"
+                or any(
+                    str((session or {}).get("kind") or "") == "composite"
+                    for session in list((tpl or {}).get("sessions") or [])
+                )
+            )
+            for tpl in templates
+        )
+
         reconciliation = planning_service.reconciliation_at(
             self.db,
             weeks=1,
             as_of=today,
-            include_provider=False,
+            include_provider=needs_provider_identity,
         )
         reconciled_by_session = {
             str(row.get("session_id")): row

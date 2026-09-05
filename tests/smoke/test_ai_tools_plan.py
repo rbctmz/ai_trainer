@@ -285,6 +285,39 @@ def _seed_today_session(
     return db.save_planning_checkpoint(build_planning_checkpoint(plan))
 
 
+def _seed_today_brick(db: Database, *, session_id: str = "ats_brick") -> None:
+    plan = _make_goal_plan()
+    plan["daily_plan"] = [
+        (
+            datetime.combine(date.today(), datetime.min.time()),
+            70,
+            {"bike": 50, "run": 20},
+        )
+    ]
+    plan["session_templates"] = [
+        {
+            "date": date.today().isoformat(),
+            "phase": "build",
+            "kind": "composite",
+            "sessions": [
+                {
+                    "session_id": session_id,
+                    "sport": "brick",
+                    "sport_label": "вело → бег",
+                    "total_tss": 70,
+                    "export_name": "Race-specific brick",
+                    "kind": "composite",
+                    "legs": [
+                        {"leg_index": 1, "sport": "bike", "target_tss": 50},
+                        {"leg_index": 2, "sport": "run", "target_tss": 20},
+                    ],
+                }
+            ],
+        }
+    ]
+    db.save_planning_checkpoint(build_planning_checkpoint(plan))
+
+
 def _seed_today_match(
     db: Database,
     checkpoint: dict,
@@ -409,6 +442,65 @@ def test_get_upcoming_workouts_inherits_confirmed_predecessor_match(tmp_path) ->
     assert session["reconciliation_status"] == "matched"
     assert session["match_method"] == "user_confirmed"
     assert session["actual"]["activity_ids"] == ["101"]
+
+
+def test_get_upcoming_workouts_uses_provider_identity_for_completed_brick(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    db = Database(str(tmp_path / "brick.db"))
+    _seed_today_brick(db)
+    db.save_activities(
+        [
+            {
+                "activity_id": "bike-leg",
+                "date": date.today().isoformat(),
+                "sport": "cycling",
+                "duration_minutes": 75,
+                "tss": 50,
+                "activity_name": "Brick bike",
+            },
+            {
+                "activity_id": "run-leg",
+                "date": date.today().isoformat(),
+                "sport": "running",
+                "duration_minutes": 20,
+                "tss": 20,
+                "activity_name": "Brick run",
+            },
+        ]
+    )
+
+    class _Client:
+        def is_configured(self) -> bool:
+            return True
+
+        def list_activities(self, _start, _end):
+            return [
+                {"external_id": "bike-leg", "paired_event_id": "event-bike"},
+                {"external_id": "run-leg", "paired_event_id": "event-run"},
+            ]
+
+        def list_workout_events(self, _start, _end):
+            return [
+                {
+                    "id": "event-bike",
+                    "external_id": "ai_trainer:ats_brick:leg:1",
+                },
+                {
+                    "id": "event-run",
+                    "external_id": "ai_trainer:ats_brick:leg:2",
+                },
+            ]
+
+    monkeypatch.setattr("services.intervals_icu.get_client", lambda: _Client())
+
+    session = AITools(db).get_upcoming_workouts(days=0)["sessions"][0]
+
+    assert session["completion_status"] == "completed"
+    assert session["reconciliation_status"] == "matched"
+    assert session["match_method"] == "ai_trainer_external_id"
+    assert set(session["actual"]["activity_ids"]) == {"bike-leg", "run-leg"}
 
 
 def test_get_upcoming_workouts_no_plan(tools_no_plan: AITools) -> None:
