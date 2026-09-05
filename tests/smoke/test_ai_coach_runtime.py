@@ -75,9 +75,13 @@ def test_system_prompt_mandates_plan_tool_for_specific_day_recommendations():
     assert "«вероятно», «скорее всего»" in prompt and "недопустимы" in prompt
     assert "completion_status=completed" in prompt
     assert "не рекомендуй выполнять её повторно" in prompt
+    assert "completion_status=partial" in prompt
+    assert "только оставшуюся часть" in prompt
     synthesis_prompt = ai_coach_runtime.create_chat_synthesis_system_prompt()
     assert "completion_status=completed" in synthesis_prompt
     assert "не рекомендуй выполнять её повторно" in synthesis_prompt
+    assert "completion_status=partial" in synthesis_prompt
+    assert "только оставшуюся часть" in synthesis_prompt
     # План на ближайшие дни входит в минимальный набор общего анализа/брифинга.
     assert (
         "**get_performance_metrics**, **analyze_hrv_trends**, "

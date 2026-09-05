@@ -649,6 +649,17 @@ def format_tool_result(tool_name: str, data: Any) -> str:
                     f"• {date}: ✅ выполнена — **{session.get('name', 'Сессия')}** — "
                     f"{sport}, план TSS {session.get('tss', 'н/д')}{fact}{phase}"
                 )
+            elif session.get("completion_status") == "partial":
+                actual = dict(session.get("actual") or {})
+                fact = (
+                    f"; факт TSS {actual['tss']}"
+                    if actual.get("tss") is not None
+                    else ""
+                )
+                session_lines.append(
+                    f"• {date}: ⚠️ частично выполнена — **{session.get('name', 'Сессия')}** — "
+                    f"{sport}, план TSS {session.get('tss', 'н/д')}{fact}{phase}"
+                )
             else:
                 session_lines.append(
                     f"• {date}: **{session.get('name', 'Сессия')}** — {sport}, "

@@ -2139,6 +2139,12 @@ class AITools:
                 completed = (
                     reconciliation_status == "matched" and bool(actual_activity_ids)
                 )
+                partial = (
+                    reconciliation_status == "ambiguous"
+                    and bool(actual_activity_ids)
+                    and str((match or {}).get("match_method") or "")
+                    == "ai_trainer_external_id"
+                )
                 session_payload = {
                     "date": session_date.isoformat(),
                     "sport": sport,
@@ -2152,7 +2158,9 @@ class AITools:
                     ),
                     "phase": phase,
                     "kind": str(leaf.get("kind") or "single"),
-                    "completion_status": "completed" if completed else "planned",
+                    "completion_status": (
+                        "completed" if completed else "partial" if partial else "planned"
+                    ),
                     "reconciliation_status": reconciliation_status,
                 }
                 if session_id:
@@ -2164,7 +2172,7 @@ class AITools:
                     session_payload["confidence"] = float(
                         match.get("confidence") or 0.0
                     )
-                if completed:
+                if completed or partial:
                     session_payload["actual"] = {
                         "activity_ids": actual_activity_ids,
                         "tss": match.get("actual_total_tss"),
