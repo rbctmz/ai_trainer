@@ -13,18 +13,31 @@
 - [x] (2026-09-05) Изучены `models/coach_decisions.py`, таблица `coach_decisions`, `api/routers/decisions.py`, `web/app/decisions/page.tsx`, `web/lib/types.ts`, `services/coach_drift.py`, вызовы `save_coach_decision`/`save_coach_proposal`, issue #501.
 - [x] (2026-09-05) Написан ExecPlan (этот документ).
 - [x] (2026-09-05) Ветка `codex/issue-501-agent-log-v2` создана; префлайт публикации пройден (origin = rbctmz/ai_trainer, gh auth как rbctmz). Зафиксированы уточнения дизайна (Decision Log #5–#8): read-time derivation outcome, sentinel `no_revisit_required`, action→scope маппинг, `rolled_back` в enum.
-- [ ] Реализовать schema/модель (enums trigger/scope/outcome + поля revisit).
-- [ ] Аддитивная миграция `coach_decisions` + idempotency-защита по `decision_event_id`.
-- [ ] Прогнать trigger/scope/outcome через существующие точки записи (coach-чат и recovery-replan loop).
-- [ ] Проекция в `api/routers/decisions.py` + legacy-совместимость.
-- [ ] UI `web/app/decisions/page.tsx` + `web/lib/types.ts` + contract artifact.
-- [ ] Тесты, smoke, Ruff, web lint/build, contract:extract.
+- [x] (2026-09-05) Реализована schema/модель: значения/наборы `DECISION_TRIGGERS`/`DECISION_SCOPES`/`DECISION_OUTCOMES` (включая `rolled_back`), `NO_REVISIT_REQUIRED`, `SCOPE_BY_PROPOSAL_ACTION` + `scope_for_proposal_actions`, `derive_decision_outcome` (read-time refresh), поля `CoachDecision`. Коммит `71acdfb`.
+- [x] (2026-09-05) Аддитивная миграция `coach_decisions` (6 nullable TEXT-колонок: fresh CREATE + `_COACH_DECISION_COLUMN_TYPES`) + идемпотентность по `decision_event_id` в `save_coach_decision` (SELECT-then-return, без unique-индекса — legacy-дубликаты не должны ломать init) + расширенные SELECT/десериализация (индексы 16–21 с len-guards). Коммит `71acdfb`.
+- [x] (2026-09-05) Точка записи `api/routers/coach.py::_save_decision`: `trigger="coach_request"`, `scope` по actions сохранённых proposal события (`scope_for_proposal_actions`; совет-без-proposal → `today`), снапшот `outcome` (`proposed` при наличии proposal события, иначе `no_change`), `revisit_reason=NO_REVISIT_REQUIRED`; `coach_chat` собирает `event_proposal_actions` (включая pending recovery-proposal из replan-лупа). Коммит `71acdfb`.
+- [x] (2026-09-05) Проекция `api/routers/decisions.py`: `_project_agent_log_v2_row` — `trigger`/`scope` нормализуют NULL → `"unknown"`, `outcome` пересчитывается через `derive_decision_outcome` по текущему жизненному циклу proposal. Коммит `71acdfb`.
+- [x] (2026-09-05) UI: `web/lib/types.ts` (юнионы `DecisionTrigger`/`DecisionScope`/`DecisionOutcome`, 6 полей `CoachDecision`), `web/components/ui/DecisionEntry.tsx` (чипы trigger · scope · outcome + revisit-заметка; отсутствующие ключи до-#501 payload → без чипов). Артефакт `tests/contracts/ts_contract.json` перегенерирован (`contract:extract`, `-- --check` зелёный). Коммит `19946a0`.
+- [x] (2026-09-05) `tests/smoke/test_agent_log_v2.py` — 10 тестов RED (10 failed на базе) → GREEN (10 passed); регрессии test_coach_decisions/test_coach_drift/test_recovery_replan_loop/test_api_today/test_contract_extractor/test_api_call_inventory/test_ai_coach_chat_shell/test_ai_coaching_demo_flow/test_api_operational_states зелёные; Ruff чист.
+- [ ] Полный contributor-safe прогон pytest (идёт в фоне), финальный ruff `python -m ruff check .`, push ветки, PR `Closes #501`, комментарий в issue.
 
 ## Surprises & Discoveries
 
 - **Observed**: таблица `coach_decisions` уже имеет поле `decision_event_id`, которое генерируется один раз на ход коуча (`api/routers/coach.py::coach_chat`, `str(uuid.uuid4())`) и передаётся и в `save_coach_decision`, и в `save_coach_proposal`; `services/coach_drift.py::_event_id` извлекает этот id и связывает решения и предложения. Источник: чтение `api/routers/coach.py` и `services/coach_drift.py`.
 - **Inferred**: `decision_event_id` — готовый ключ идемпотентности и событийной связи; его нужно только сделать уникальным (сейчас `save_coach_decision` вставляет без проверки на дубль). Самая дешёвая проверка-опровержение — два вызова `save_coach_decision` с одинаковым `decision_event_id` на временной БД: если появится две строки, гипотеза «уникальность не гарантирована» верна.
 - **Verified by**: `save_coach_decision` не содержит `SELECT`-проверки на существующий `decision_event_id` перед `INSERT` (чтение кода); полноценный RED-тест добавим в `Concrete Steps`.
+
+- **Observed**: status proposal меняется ПОСЛЕ записи решения — `approve_proposal`/`reject_proposal`/`rollback_proposal` вызывают только `update_coach_proposal_status`, строку `coach_decisions` не трогают (`api/routers/decisions.py`, чтение кода).
+- **Inferred**: снапшот `outcome` на момент записи устаревает (решение записано как `proposed`, а через час применено); read-time refresh по связанным proposal покажет актуальный исход без новой машины состояний. Дешёвая проверка — RED-тест жизненного цикла (proposed → applied → rejected через `update_coach_proposal_status` без перезаписи решения).
+- **Verified by**: `test_decisions_api_refreshes_outcome_from_proposal_lifecycle` падал до проекции (`KeyError: 'trigger'`) и проходит после (`10 passed in 0.93s` на финальном дереве); special-case approved `keep` → `no_change` закрыт `test_decisions_api_shows_approved_keep_as_no_change`.
+
+- **Observed**: legacy-строка и новая строка «без пересмотра» неразличимы, если отсутствие `revisit_at`/`revisit_reason` трактовать как «пересмотр не требуется» — у legacy метаданные просто не записывались (проектирование #501, AC7 «не фабриковать»).
+- **Inferred**: нужен явный sentinel для новых строк, а NULL резервировать под legacy. Проверка — unit-тест, сохраняющий обе категории и читающий их обратно.
+- **Verified by**: `test_legacy_database_migrates_and_reads_metadata_as_null` (NULL после миграции) и запись sentinel `no_revisit_required` в write-site-тестах; UI различает «Пересмотр не требуется» (sentinel) и отсутствие чипа (NULL).
+
+- **Observed**: `save_coach_decision` (2026-09-05, реализация) сперва упал с `sqlite3.OperationalError: 21 values for 20 columns` — рассинхрон плейсхолдеров при расширении INSERT (вывод pytest).
+- **Inferred**: арифметическая ошибка при добавлении шести колонок; уникальный-индекс вариант идемпотентности отклонён до тестов legacy-дублей.
+- **Verified by**: после правки числа `?` (20) тест `test_database_persists_agent_log_v2_fields` проходит; полный прогон ниже.
 
 ## Decision Log
 
@@ -58,7 +71,15 @@
 
 ## Outcomes & Retrospective
 
-(Заполняется по завершении реализации.)
+(2026-09-05, завершение реализации на `codex/issue-501-agent-log-v2`)
+
+Сделано: строки `coach_decisions` теперь несут стабильные поля trigger/scope/outcome/revisit (nullable TEXT, аддитивная миграция); `save_coach_decision` идемпотентен по `decision_event_id`; точки записи coach-чата заполняют метаданные; `GET /api/decisions` нормализует legacy-строки в `unknown` и освежает outcome по жизненному циклу proposal; web-слой показывает чипы trigger · scope · outcome и revisit-заметку; контракт-артефакт перегенерирован.
+
+Проверки на финальном дереве: `python -m ruff check .` — чисто; полный contributor-safe прогон `python -m pytest -m "not live and not debug and not e2e" tests/` — 2318 passed, 2 skipped (garth не установлен — до-существующий skip), 0 failed (базовый сценарий issue: «не добавлять регрессий»); `npm --prefix web run lint` и `npm --prefix web run build` — зелёные; `npm --prefix web run contract:extract -- --check` — артефакт актуален; регрессии test_coach_decisions/test_coach_drift/test_recovery_replan_loop/test_api_today/test_contract_extractor/test_api_call_inventory — зелёные.
+
+Границы (осознанные решения, см. Decision Log #5–#8): recovery-решения (`recovery_decisions`, собственная таблица с outcome silence/data_gap/conflict и отдельной UI-секцией) не расширялись — files-in-scope #501 называют только `coach_decisions`; триггеры provider_sync/settings_change/proposal_approved/manual существуют как стабильный контракт и покрыты тестами persistence, но сегодняшние продуктовые точки записи порождают только coach_request (scheduled_check-семантика живёт в recovery-лупе); «автономного планировщика пересмотра» нет по non-goals, поэтому новые строки явно пишут sentinel no_revisit_required, а будущие продюсеры revisit заполнят `revisit_at`/`revisit_reason`.
+
+Уроки: снапшоты метаданных на записи и поздние мутации статуса (approve/reject/rollback) — разные источники истины; read-time derivation с явным fallback на stored-значение оказалась дешевле машины состояний и повторила special-case `keep` из drift-отчёта без расхождения. NULL как «нет данных» и sentinel как «нет пересмотра» — обязательная пара для честного legacy-режима (AC7). Числовые плейсхолдеры вручную расширяемых INSERT — источник ошибок (21 values for 20 columns); на будущее — генерировать списки колонок/плейсхолдеров из одного кортежа.
 
 ## Context and Orientation
 
