@@ -3,7 +3,7 @@
 - Issue / PR: #501 / #551
 - Author / checker / merge owner: Codex implementer / OpenCode independent reviewer / human repository owner
 - Date: 2026-09-05
-- Candidate behavior head SHA: `aec862b`
+- Candidate behavior head SHA: `f5b8455`
 
 ## Change Class
 
@@ -103,14 +103,14 @@
 
 ## Evidence Bundle
 
-- Head SHA: `aec862b` (behavior); evidence/disposition commit follows review
+- Head SHA: `f5b8455` (behavior); evidence/disposition commit follows review
 - Changed invariants: atomic logical event identity; producer completeness; proposal revisit; provenance-preserving projection.
-- Focused and broad tests: `15 passed` focused; `121 passed` adjacent; contributor-safe `2322 passed, 3 skipped, 26 deselected`.
+- Focused and broad tests: `16 passed` focused; `121 passed` adjacent before the delta fix; final contributor-safe `2323 passed, 3 skipped, 26 deselected`.
 - CI checks/reruns/flakes: local Ruff, web lint/build and contract check are green; final-head GitHub CI pending push.
 - Lifecycle/probe evidence: deterministic 16-writer RED then GREEN; success/failure sync and applied/no-change settings covered.
 - Changed contracts: event semantics only; API/TS shape unchanged.
 - Unresolved review-thread count: zero GitHub threads; four local blocking findings are fixed in the working tree pending verification.
-- Residual risks and follow-ups: audit writes after externally visible approval/settings mutations are not one cross-table transaction; current boundaries preserve authoritative product outcomes and are covered for normal operation.
+- Residual risks and follow-ups: scheduled data-gap uses the existing `failed` outcome bucket plus `next_scheduled_check`; repeated briefing PUTs are distinct request events and the second is explicit no-change; cross-table audit writes preserve authoritative approval/sync results on audit failure. No follow-up issue was created.
 
 ## Review Findings
 
@@ -120,19 +120,20 @@
 | P1 | Production search found only `coach_request` producer | must fix before merge | implementer / five producers covered |
 | P2 blocking | Proposed row said no revisit required | must fix before merge | implementer / `proposal_resolved` covered |
 | P2 blocking | API collapsed distinct v2 metadata | must fix before merge | implementer / metadata-aware grouping covered |
+| P2 blocking | Partial provider sync was stored as clean applied/no-revisit | must fix before merge | `fixed-in f5b8455`; partial regression green |
 
 ## Native Review Rounds
 
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
 | 1 | `d62114ee` | manual consolidated review | four blocking findings reproduced and fixed in working tree | continue to one delta verification |
-| 2 | pending | OpenCode verification | pending | stop after dispositions |
+| 2 | `40d2b4e` | OpenCode verification | one P2 fixed in `f5b8455`; P1 none; suggestions dispositioned | stop |
 
 ## Final Verdict
 
-- Verdict: BLOCK pending independent delta review and final-head CI
-- Blocking findings remaining: none known in the implementation; verification gates remain.
-- Review rounds used: 1 of 2.
+- Verdict: READY pending final-head GitHub CI
+- Blocking findings remaining: none.
+- Review rounds used: 2 of 2; stop rule reached.
 - Accepted risk or follow-up issue: none yet.
 - Merge owner final gate: human repository owner after final-head CI.
 - Post-merge sync/branch/worktree/progress cleanup: human-controlled merge; implementer updates ExecPlan/issue evidence. `backups/` remains untouched.
