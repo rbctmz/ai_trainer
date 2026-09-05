@@ -17,10 +17,31 @@ from services.intervals_icu import IntervalsICUClient, IntervalsICUError
 _STREAM_TYPES = "time,watts,heartrate,distance"
 
 
+def _is_provider_cache(
+    cached: dict[str, Any] | None,
+    intervals_id: str | None,
+) -> bool:
+    if not cached:
+        return False
+    source = cached.get("source")
+    if source == "intervals":
+        return True
+    if source is not None or not intervals_id:
+        return False
+    # Pre-#435 provider caches have no source marker. Require the normalized
+    # compact shape plus an Intervals provider link so a malformed mapping or a
+    # Garmin-only legacy row cannot suppress the first provider enrichment.
+    return isinstance(cached.get("intervals"), list) and isinstance(
+        cached.get("groups"), list
+    )
+
+
 def fetch_activity_intervals(
     database: Any,
     activity_id: str,
     client: IntervalsICUClient | None = None,
+    *,
+    refresh: bool = False,
 ) -> dict[str, Any] | None:
     """Return compact intervals for a card, fetching on demand with a cache.
 
@@ -31,6 +52,12 @@ def fetch_activity_intervals(
     """
     cached = database.get_activity_intervals(activity_id)
     intervals_id = database.get_intervals_provider_activity_id(activity_id)
+    # A normalized provider projection is complete card enrichment, including
+    # an honest empty intervals list. Serve it locally; callers that own an
+    # explicit refresh lifecycle may opt in without making every card open wait
+    # for Intervals.icu.
+    if not refresh and _is_provider_cache(cached, intervals_id):
+        return cached
     if not intervals_id:
         return cached
 
@@ -42,9 +69,6 @@ def fetch_activity_intervals(
         payload = client.get_activity_intervals(intervals_id)
         compact = normalize_intervals_payload(payload)
     except (IntervalsICUError, ValueError):
-        return cached
-
-    if cached and not compact["intervals"] and not compact["groups"]:
         return cached
 
     garmin_laps = None
