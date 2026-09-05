@@ -15,6 +15,7 @@ from models.plan_vs_fact import match_plan_vs_fact
 
 
 pytestmark = pytest.mark.smoke
+ROOT = Path(__file__).resolve().parents[2]
 
 
 def _planned_work(duration_seconds, relative_high=1.0, **kw):
@@ -742,9 +743,146 @@ def test_activity_card_plan_vs_fact_contract(tmp_path, monkeypatch):
         "actual_intervals": 3,
         "matched_steps": 2,
         "matched": 2,
+        "planned_duration_minutes": 28.0,
+        "actual_duration_minutes": 60.0,
+        "planned_tss": None,
+        "actual_tss": 60.0,
     }
     assert [match["matched"] for match in plan_vs_fact["matches"]] == [True, True]
     assert plan_vs_fact["matches"][0]["actual"]["moving_time"] == 715
+
+
+def test_activity_cards_project_only_the_matching_brick_leg(tmp_path, monkeypatch):
+    """A shared parent match must not make either activity compare cross-sport."""
+    from api.routers import activities as activities_router
+    from data.database import Database
+    from models.plan_intervals import project_planned_intervals
+
+    db = Database(str(tmp_path / "brick-plan-vs-fact-api.db"))
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    def step(name: str, duration_seconds: int, target_type: str) -> dict:
+        return {
+            "name": name,
+            "intensity": "work",
+            "segment_kind": "work",
+            "duration_seconds": duration_seconds,
+            "tss": 57.0 if target_type == "power" else 21.0,
+            "target": {"type": target_type, "relative_high": 0.9},
+        }
+
+    session = {
+        "session_id": "brick-card",
+        "kind": "composite",
+        "sport": "brick",
+        "legs": [
+            {
+                "leg_index": 1,
+                "sport": "bike",
+                "target_tss": 57.0,
+                "duration_minutes": 70,
+                "materialized_steps": [step("Bike work", 4200, "power")],
+            },
+            {
+                "leg_index": 2,
+                "sport": "run",
+                "target_tss": 21.0,
+                "duration_minutes": 30,
+                "materialized_steps": [step("Run work", 1800, "pace")],
+            },
+        ],
+    }
+    db.save_activities(
+        [
+            {
+                "activity_id": "brick-bike",
+                "date": today,
+                "sport": "bike",
+                "duration_minutes": 70,
+                "distance_km": 30,
+                "tss": 57,
+                "tss_method": "power_tss_v1",
+            },
+            {
+                "activity_id": "brick-run",
+                "date": today,
+                "sport": "run",
+                "duration_minutes": 30,
+                "distance_km": 5,
+                "tss": 21,
+                "tss_method": "pace_tss_v1",
+            },
+        ]
+    )
+    db.save_plan_actual_match(
+        {
+            "fingerprint": "brick-card-match",
+            "target_key": "session:brick-card",
+            "base_checkpoint_id": 1,
+            "session_date": today,
+            "match_status": "matched",
+            "match_method": "user_confirmed",
+            "confidence": 1.0,
+            "planned_snapshot": {
+                "session_id": "brick-card",
+                "date": today,
+                "sport": "brick",
+                "kind": "composite",
+                "intervals": project_planned_intervals(session),
+            },
+            "actual_activity_ids": ["brick-bike", "brick-run"],
+            "actual_snapshot": {"tss": 78, "duration_minutes": 100, "sport": ""},
+            "evidence": [],
+            "rule_version": "test",
+        }
+    )
+    monkeypatch.setattr(
+        db,
+        "get_checkpoint_data",
+        lambda checkpoint_id: {
+            "goal_plan_snapshot": {"session_templates": [session]}
+        },
+    )
+    monkeypatch.setattr(
+        activities_router,
+        "fetch_activity_intervals",
+        lambda _db, activity_id: {
+            "source": "intervals",
+            "intervals": [{"moving_time": 600}],
+            "groups": [],
+        },
+    )
+    monkeypatch.setattr(activities_router, "fetch_activity_power_curve", lambda *_: None)
+
+    bike_card = activities_router.get_activity_card("brick-bike", db=db)["activity"]
+    run_card = activities_router.get_activity_card("brick-run", db=db)["activity"]
+
+    bike_plan = bike_card["planned_intervals"]
+    run_plan = run_card["planned_intervals"]
+    assert bike_plan is not None and run_plan is not None
+    assert sum(item["duration_seconds"] for item in bike_plan) == 4200
+    assert sum(item["duration_seconds"] for item in run_plan) == 1800
+    assert {item["target_zone"]["type"] for item in bike_plan} == {"power"}
+    assert {item["target_zone"]["type"] for item in run_plan} == {"pace"}
+    assert bike_card["plan_vs_fact"]["summary"]["planned_steps"] == 1
+    assert run_card["plan_vs_fact"]["summary"]["planned_steps"] == 1
+    assert bike_card["plan_vs_fact"]["summary"]["planned_duration_minutes"] == 70.0
+    assert bike_card["plan_vs_fact"]["summary"]["actual_duration_minutes"] == 70.0
+    assert bike_card["plan_vs_fact"]["summary"]["planned_tss"] == 57.0
+    assert bike_card["plan_vs_fact"]["summary"]["actual_tss"] == 57.0
+    assert run_card["plan_vs_fact"]["summary"]["planned_duration_minutes"] == 30.0
+    assert run_card["plan_vs_fact"]["summary"]["actual_duration_minutes"] == 30.0
+    assert run_card["plan_vs_fact"]["summary"]["planned_tss"] == 21.0
+    assert run_card["plan_vs_fact"]["summary"]["actual_tss"] == 21.0
+
+
+def test_activity_detail_renders_leg_duration_and_tss_comparison() -> None:
+    page = (ROOT / "web/app/activities/page.tsx").read_text(encoding="utf-8")
+
+    assert "planVsFact.summary.planned_duration_minutes" in page
+    assert "Длительность: факт" in page
+    assert "planVsFact.summary.planned_tss" in page
+    assert "Нагрузка: факт" in page
 
 
 def test_activity_card_plan_vs_fact_null_without_plan(tmp_path, monkeypatch):

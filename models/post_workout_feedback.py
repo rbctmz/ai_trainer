@@ -6,7 +6,10 @@ from hashlib import sha256
 import json
 from typing import Any, Mapping, Sequence
 
-from models.plan_actual_reconciliation import iter_parent_sessions
+from models.plan_actual_reconciliation import (
+    iter_parent_sessions,
+    project_composite_execution,
+)
 from models.session_quality_forecast import brier_score
 
 
@@ -244,6 +247,20 @@ def build_feedback_prompts(
 
         role = str(row.get("role") or session.get("session_role") or "")
         is_primary = role in {"quality", "long"} or str(row.get("date") or "")[:10] in forecast_dates
+        projection_source = {
+            **session,
+            "tss": row.get("tss", session.get("total_tss")),
+            "actual_total_tss": row.get("actual_total_tss"),
+            "transition_minutes": row.get(
+                "transition_minutes", session.get("transition_minutes")
+            ),
+        }
+        composite_execution = row.get("composite_execution")
+        if not isinstance(composite_execution, Mapping):
+            composite_execution = project_composite_execution(
+                projection_source,
+                activities,
+            )
         prompts.append(
             {
                 "prompt_fingerprint": prompt_fingerprint,
@@ -271,6 +288,11 @@ def build_feedback_prompts(
                     "athlete-entered"
                     if latest and latest.get("source") == "user_web"
                     else "admin-entered" if latest else None
+                ),
+                "composite_execution": (
+                    dict(composite_execution)
+                    if isinstance(composite_execution, Mapping)
+                    else None
                 ),
             }
         )

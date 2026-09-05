@@ -40,3 +40,25 @@ def test_feedback_substitution_presentation_is_localized() -> None:
     assert 'bike: "вело"' in component
     assert "Подтверждённая замена" in component
     assert "Фактическая сессия" in component
+
+
+def test_feedback_brick_presentation_separates_structure_from_load() -> None:
+    component = _source("web/components/today/PostWorkoutFeedbackCard.tsx")
+
+    assert 'prompt.kind === "composite"' in component
+    assert 'prompt.match_status === "matched"' in component
+    assert "Brick сопоставлен по структуре" in component
+    assert "loadAdherenceLabel(prompt.adherence)" in component
+    assert "вместо {plannedCompositeSportLabel}" in component
+    assert "prompt.composite_execution?.structure_match === true" in component
+    assert "actualSportKeys.length >= 2" not in component
+
+
+def test_generic_substituted_labels_do_not_claim_replacement() -> None:
+    adherence = _source("web/lib/adherence.ts")
+    planning = _source("web/app/planning/page.tsx")
+    today = _source("web/app/today/page.tsx")
+
+    assert 'substituted: { label: "Изменено"' in adherence
+    assert 'substituted: "изменено"' in planning
+    assert 'substituted: "изменено"' in today

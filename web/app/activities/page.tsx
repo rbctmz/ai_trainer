@@ -829,6 +829,22 @@ function ActivityCardModal({
                 Intervals.icu: соответствие {Math.round(intervals.compliance)}%
               </div>
             ) : null}
+            {planVsFact.summary.planned_duration_minutes != null ||
+            planVsFact.summary.planned_tss != null ? (
+              <div className="mt-2 rounded border border-surface-border bg-surface-muted/30 px-2.5 py-2 text-xs text-ink-soft">
+                {planVsFact.summary.planned_duration_minutes != null &&
+                planVsFact.summary.actual_duration_minutes != null ? (
+                  <div>
+                    Длительность: факт {Math.round(planVsFact.summary.actual_duration_minutes)} / план {Math.round(planVsFact.summary.planned_duration_minutes)} мин
+                  </div>
+                ) : null}
+                {planVsFact.summary.planned_tss != null && planVsFact.summary.actual_tss != null ? (
+                  <div className="mt-0.5">
+                    Нагрузка: факт {Math.round(planVsFact.summary.actual_tss)} / план {Math.round(planVsFact.summary.planned_tss)} TSS
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
             {hasTimelineAlignment ? (
               <div className="mt-2 rounded border border-surface-border bg-surface-muted/30 px-2.5 py-2">
                 <div className="text-sm font-medium text-ink">

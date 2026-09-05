@@ -8,7 +8,7 @@ export const STATUS_META: Record<
   { label: string; chip: string }
 > = {
   exact: { label: "По плану", chip: "bg-tone-success/15 text-tone-success" },
-  substituted: { label: "Заменено", chip: "bg-tone-success/10 text-ink-soft" },
+  substituted: { label: "Изменено", chip: "bg-tone-success/10 text-ink-soft" },
   major_deviation: {
     label: "Сильное отклонение",
     chip: "bg-tone-warning/15 text-tone-warning",

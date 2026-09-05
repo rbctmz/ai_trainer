@@ -114,16 +114,21 @@ def build_adherence_ribbon(
             (label for label in _DAY_STATUS_PRIORITY if label in labels),
             "unplanned" if unplanned_by_date.get(iso, 0.0) > 0 else "rest",
         )
+        matched_actual_tss = round(
+            sum(row["actual_tss"] for row in rows if row["matched"]),
+            1,
+        )
+        unplanned_tss = round(unplanned_by_date.get(iso, 0.0), 1)
         days.append(
             {
                 "date": iso,
                 "status": status,
                 "planned_tss": round(sum(row["planned_tss"] for row in rows), 1),
-                "actual_tss": round(
-                    sum(row["actual_tss"] for row in rows if row["matched"])
-                    + unplanned_by_date.get(iso, 0.0),
-                    1,
-                ),
+                "matched_actual_tss": matched_actual_tss,
+                "unplanned_tss": unplanned_tss,
+                # Keep the existing total for older consumers; the split above
+                # makes its composition explicit to the ribbon surfaces.
+                "actual_tss": round(matched_actual_tss + unplanned_tss, 1),
             }
         )
         current += timedelta(days=1)

@@ -33,7 +33,7 @@ export function AdherenceStrip() {
             <div
               key={day.date}
               className={`rounded-md px-1 py-1.5 text-center text-[10px] ${meta.chip}`}
-              title={`${day.date} · ${meta.label} · ${Math.round(day.actual_tss)}/${Math.round(day.planned_tss)} TSS`}
+              title={`${day.date} · ${meta.label} · план ${Math.round(day.planned_tss)} TSS · факт ${Math.round(day.actual_tss)} TSS = сопоставлено ${Math.round(day.matched_actual_tss)} + вне плана ${Math.round(day.unplanned_tss)}`}
             >
               {day.date.slice(8, 10)}
             </div>
