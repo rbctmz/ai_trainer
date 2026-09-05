@@ -527,6 +527,30 @@ non-neutral`). Семантика принадлежит Python DTO; `/decisions
 Проверка: `test_coach_drift.py`, `test_coach_decisions.py`,
 `test_recovery_replan_loop.py`, contract extractor и web lint/build.
 
+## Ролевая изоляция агентов (ASR-MOD-2, ASR-SEC-1; #522)
+
+`AGENTS.md` задаёт роли по scope задачи, а не по бренду модели: Spec /
+Architecture Owner, Domain / API Implementer, UI / Design Specialist,
+Independent Reviewer и Supervisor / Integrator. Cross-boundary работа требует
+явного handoff; делегирование не расширяет исходные полномочия. `CLAUDE.md`
+импортирует `AGENTS.md` и сохраняет только Claude-специфичные правила, поэтому
+архитектура, команды и review policy больше не дублируются в двух источниках.
+
+- **ASR-MOD-2**: UI-роль потребляет существующие API/TypeScript контракты и не
+  переносит доменную семантику в React; contract/domain изменение возвращается
+  соответствующему owner через handoff.
+- **ASR-SEC-1**: reviewer явно исключает `.env*`, логи, локальную БД и
+  персональные данные из внешнего анализа; OpenCode требует реального model
+  smoke и запрещает `--auto`.
+- **ADR-0005**: ExecPlan остаётся воспроизводимой границей передачи работы между
+  ролями; имя агента не заменяет acceptance criteria и evidence gate.
+
+Проверка: `tests/smoke/test_agent_role_separation_docs.py` пинует раннюю загрузку
+role contract, импорт `@AGENTS.md`, отсутствие дублированного project overview в
+`CLAUDE.md` и связь с OpenCode runbook. Изолированный UI showcase вынесен в
+отдельный follow-up и не является скрытым prerequisite документационного
+контракта #522.
+
 ## Реестр ADR
 
 | ADR | Тема |
