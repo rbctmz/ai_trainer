@@ -1,0 +1,5 @@
+# CI-critical paths (#511): workflow definitions and the trusted gate policy
+# scripts that run with repository write/status privileges. Any PR touching
+# these paths requires review from the repository owner.
+.github/workflows/  @rbctmz
+.github/scripts/    @rbctmz
