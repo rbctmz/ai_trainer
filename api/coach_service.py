@@ -8,7 +8,7 @@ from __future__ import annotations
 from typing import Iterator, Optional
 
 from config.settings import Settings
-from models.ai_providers import AIProvider, AIProviderFactory
+from models.ai_providers import AIProvider, AIProviderFactory, DeepSeekProvider
 
 # Providers exposing an OpenAI-compatible streaming client.
 _STREAMABLE = {"DeepSeekProvider", "OpenAIProvider"}
@@ -77,13 +77,19 @@ def stream_tokens(
         messages.append({"role": "system", "content": system_prompt})
     messages.append({"role": "user", "content": prompt})
 
-    response = client.chat.completions.create(
-        model=model,
-        messages=messages,
-        max_tokens=Settings.AI_RESPONSE_MAX_TOKENS,
-        temperature=0.7,
-        stream=True,
-    )
+    request = {
+        "model": model,
+        "messages": messages,
+        "max_tokens": Settings.AI_RESPONSE_MAX_TOKENS,
+        "temperature": 0.7,
+        "stream": True,
+    }
+    if isinstance(provider, DeepSeekProvider):
+        # Final synthesis must reserve the output budget for athlete-facing
+        # text. Hidden reasoning_content is neither displayed nor persisted.
+        request["extra_body"] = {"thinking": {"type": "disabled"}}
+
+    response = client.chat.completions.create(**request)
     for chunk in response:
         choices = getattr(chunk, "choices", None)
         if not choices:

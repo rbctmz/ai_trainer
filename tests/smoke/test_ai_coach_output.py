@@ -173,6 +173,70 @@ def test_format_get_upcoming_workouts_lists_sessions():
     assert "[данные доступны]" not in formatted
 
 
+def test_format_get_upcoming_workouts_marks_completed_session_with_actual_tss():
+    formatted = ai_coach_output.format_tool_result(
+        "get_upcoming_workouts",
+        {
+            "has_plan": True,
+            "days": 0,
+            "sessions": [
+                {
+                    "date": "2026-09-04",
+                    "sport": "run",
+                    "sport_label": "бег",
+                    "tss": 44,
+                    "name": "Aerobic Endurance Run",
+                    "phase": "build",
+                    "completion_status": "completed",
+                    "reconciliation_status": "matched",
+                    "actual": {
+                        "activity_ids": ["run-actual"],
+                        "tss": 57.3,
+                        "duration_minutes": 50.1,
+                        "sport": "running",
+                    },
+                }
+            ],
+        },
+    )
+
+    assert "✅ выполнена" in formatted
+    assert "план TSS 44" in formatted
+    assert "факт TSS 57.3" in formatted
+
+
+def test_format_get_upcoming_workouts_marks_partial_brick_with_actual_tss():
+    formatted = ai_coach_output.format_tool_result(
+        "get_upcoming_workouts",
+        {
+            "has_plan": True,
+            "days": 0,
+            "sessions": [
+                {
+                    "date": "2026-09-05",
+                    "sport": "brick",
+                    "sport_label": "вело → бег",
+                    "tss": 70,
+                    "name": "Race-specific brick",
+                    "phase": "build",
+                    "completion_status": "partial",
+                    "reconciliation_status": "ambiguous",
+                    "actual": {
+                        "activity_ids": ["intervals_42"],
+                        "tss": 50,
+                        "duration_minutes": 75,
+                        "sport": "bike",
+                    },
+                }
+            ],
+        },
+    )
+
+    assert "⚠️ частично выполнена" in formatted
+    assert "план TSS 70" in formatted
+    assert "факт TSS 50" in formatted
+
+
 def test_format_get_upcoming_workouts_no_plan_message():
     formatted = ai_coach_output.format_tool_result(
         "get_upcoming_workouts",

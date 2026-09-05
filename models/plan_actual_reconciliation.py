@@ -179,17 +179,67 @@ def _provider_indexes(
     provider_activities: Any,
     provider_events: Any,
 ) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
-    activity_by_external = {
-        str(row.get("external_id")): row
-        for row in _records(provider_activities)
-        if str(row.get("external_id") or "").strip()
-    }
+    activity_by_external: dict[str, dict[str, Any]] = {}
+    for row in _records(provider_activities):
+        external_id = str(row.get("external_id") or "").strip()
+        if external_id:
+            activity_by_external[external_id] = row
+        # Native Intervals activities have no cross-provider external_id. The
+        # ingest boundary stores them under the namespaced canonical identity
+        # ``intervals_<provider id>``; index that same identity so paired
+        # workout-event evidence remains available after local persistence.
+        provider_id = str(row.get("id") or "").strip()
+        if provider_id:
+            activity_by_external[f"intervals_{provider_id}"] = row
     event_by_id = {
         str(row.get("id")): row
         for row in _records(provider_events)
         if str(row.get("id") or "").strip()
     }
     return activity_by_external, event_by_id
+
+
+def resolve_confirmed_replacement_ledger(
+    planned: Mapping[str, Any],
+    latest_ledger: Mapping[str, Mapping[str, Any]],
+    *,
+    predecessor_id: str,
+    current_session_ids: set[str],
+    replacement_claim_counts: Mapping[str, int],
+) -> Mapping[str, Any] | None:
+    """Resolve one unambiguous, compatible parent-session match handoff."""
+    if (
+        not predecessor_id
+        or predecessor_id in current_session_ids
+        or replacement_claim_counts.get(predecessor_id, 0) != 1
+    ):
+        return None
+    predecessor = latest_ledger.get(f"session:{predecessor_id}")
+    if not predecessor or str(predecessor.get("match_method") or "") not in {
+        "user_confirmed",
+        "admin_resolve",
+    }:
+        return None
+    if (
+        str(predecessor.get("match_status") or "") != "matched"
+        or not list(predecessor.get("actual_activity_ids") or [])
+    ):
+        return None
+    if str(predecessor.get("session_date") or "")[:10] != str(planned.get("date") or "")[:10]:
+        return None
+    predecessor_sport_raw = (predecessor.get("planned_snapshot") or {}).get("sport")
+    predecessor_sport = (
+        normalize_sport_key(predecessor_sport_raw)
+        or str(predecessor_sport_raw or "").strip().lower()
+    )
+    planned_sport_raw = planned.get("sport")
+    planned_sport = (
+        normalize_sport_key(planned_sport_raw)
+        or str(planned_sport_raw or "").strip().lower()
+    )
+    if not predecessor_sport or predecessor_sport != planned_sport:
+        return None
+    return predecessor
 
 
 def _adherence(
@@ -254,16 +304,53 @@ def build_reconciliation(
         for row in (ledger_rows or [])
         if isinstance(row, Mapping) and row.get("target_key")
     }
-    reserved_user_activity_ids = {
-        str(activity_id)
-        for row in latest_ledger.values()
-        if str(row.get("match_method") or "") in {"user_confirmed", "admin_resolve"}
-        for activity_id in row.get("actual_activity_ids", []) or []
-    }
     assigned_ids: set[str] = set()
     rows: list[dict[str, Any]] = []
     templates = list(resolved_plan.get("session_templates") or [])
     parent_sessions = iter_parent_sessions(templates)
+    current_session_ids = {
+        str(entry["session"].get("session_id") or "").strip()
+        for entry in parent_sessions
+        if str(entry["session"].get("session_id") or "").strip()
+    }
+    replacement_claim_counts: dict[str, int] = {}
+    for entry in parent_sessions:
+        predecessor_id = str(
+            entry["session"].get("replaces_session_id") or ""
+        ).strip()
+        if predecessor_id:
+            replacement_claim_counts[predecessor_id] = (
+                replacement_claim_counts.get(predecessor_id, 0) + 1
+            )
+    shadowed_predecessor_targets: set[str] = set()
+    for index, entry in enumerate(parent_sessions):
+        current_target = f"session:{entry['session'].get('session_id')}"
+        if current_target not in latest_ledger:
+            continue
+        planned = _planned_snapshot(
+            entry["date"], entry["session"], entry["template"], index
+        )
+        predecessor_id = str(
+            entry["session"].get("replaces_session_id") or ""
+        ).strip()
+        predecessor = resolve_confirmed_replacement_ledger(
+            planned,
+            latest_ledger,
+            predecessor_id=predecessor_id,
+            current_session_ids=current_session_ids,
+            replacement_claim_counts=replacement_claim_counts,
+        )
+        if predecessor is not None:
+            shadowed_predecessor_targets.add(f"session:{predecessor_id}")
+    reserved_user_activity_ids = {
+        str(activity_id)
+        for target_key, row in latest_ledger.items()
+        if target_key not in shadowed_predecessor_targets
+        and str(row.get("match_status") or "") == "matched"
+        and str(row.get("match_method") or "")
+        in {"user_confirmed", "admin_resolve"}
+        for activity_id in row.get("actual_activity_ids", []) or []
+    }
     planned_signature_counts: dict[tuple[str, str], int] = {}
     for index, entry in enumerate(parent_sessions):
         planned = _planned_snapshot(entry["date"], entry["session"], entry["template"], index)
@@ -283,6 +370,17 @@ def build_reconciliation(
             continue
         target_key = f"session:{planned['session_id']}"
         ledger = latest_ledger.get(target_key)
+        if ledger is None:
+            predecessor_id = str(
+                entry["session"].get("replaces_session_id") or ""
+            ).strip()
+            ledger = resolve_confirmed_replacement_ledger(
+                planned,
+                latest_ledger,
+                predecessor_id=predecessor_id,
+                current_session_ids=current_session_ids,
+                replacement_claim_counts=replacement_claim_counts,
+            )
         ledger_selected_ids = {
             str(value)
             for value in (ledger or {}).get("actual_activity_ids", []) or []
@@ -327,7 +425,13 @@ def build_reconciliation(
                 candidates = list(day_activities)
         else:
             stable = []
+            stable_external_ids: set[str] = set()
             provider_pair_notes: list[str] = []
+            session_identity_ids = {
+                str(planned["session_id"]).strip(),
+                str(entry["session"].get("delivery_session_id") or "").strip(),
+            }
+            session_identity_ids.discard("")
             for item in day_activities:
                 provider_activity = provider_activity_by_external.get(item["activity_id"])
                 if not provider_activity:
@@ -337,27 +441,46 @@ def build_reconciliation(
                 if not paired_event:
                     continue
                 external_id = str(paired_event.get("external_id") or "").strip()
-                expected_external_id = f"ai_trainer:{planned['session_id']}"
-                delivery_session_id = str(
-                    planned.get("delivery_session_id")
-                    or planned["session_id"]
-                ).strip()
-                expected_delivery_external_id = f"ai_trainer:{delivery_session_id}"
-                if (
-                    external_id == expected_external_id
-                    or external_id.startswith(f"{expected_external_id}:leg:")
-                    or external_id == expected_delivery_external_id
-                    or external_id.startswith(f"{expected_delivery_external_id}:leg:")
+                if any(
+                    external_id == f"ai_trainer:{identity_id}"
+                    or external_id.startswith(f"ai_trainer:{identity_id}:leg:")
+                    for identity_id in session_identity_ids
                 ):
                     stable.append(item)
+                    stable_external_ids.add(external_id)
                 else:
                     provider_pair_notes.append(f"Парное событие провайдера {paired_id} не имеет identity сессии AI Trainer")
             if stable:
                 matched = stable
-                match_status = "matched"
                 match_method = "ai_trainer_external_id"
-                confidence = 1.0
-                evidence.append("Внешний id Intervals и парное событие соответствуют сессии AI Trainer")
+                raw_legs = (
+                    list(entry["session"].get("legs") or [])
+                    if str(entry["session"].get("kind") or "") == "composite"
+                    else []
+                )
+                expected_leg_indexes = [
+                    int((leg or {}).get("leg_index") or position)
+                    for position, leg in enumerate(raw_legs, start=1)
+                ]
+                has_all_composite_legs = not expected_leg_indexes or all(
+                    any(
+                        f"ai_trainer:{identity_id}:leg:{leg_index}"
+                        in stable_external_ids
+                        for identity_id in session_identity_ids
+                    )
+                    for leg_index in expected_leg_indexes
+                )
+                if has_all_composite_legs:
+                    match_status = "matched"
+                    confidence = 1.0
+                    evidence.append("Внешний id Intervals и парное событие соответствуют сессии AI Trainer")
+                else:
+                    match_status = "ambiguous"
+                    confidence = 0.5
+                    evidence.append(
+                        "Найдена только часть ног составной сессии; "
+                        "вся связка не считается выполненной"
+                    )
             else:
                 same_sport = [item for item in day_activities if item.get("sport") == planned.get("sport")]
                 signature_count = planned_signature_counts.get((planned["date"], planned["sport"]), 0)

@@ -289,6 +289,33 @@ def _materialize_matched_row(
     target_key = f"session:{session_id}"
     match_status = str(row.get("match_status") or "unmatched")
     match = matches.get(str(row.get("target_key"))) or {}
+    if not match:
+        from models.plan_actual_reconciliation import (
+            resolve_confirmed_replacement_ledger,
+        )
+
+        current_session_ids = set(templates)
+        replacement_claim_counts: dict[str, int] = {}
+        for template_projection in templates.values():
+            predecessor_id = str(
+                template_projection.get("replaces_session_id") or ""
+            ).strip()
+            if predecessor_id:
+                replacement_claim_counts[predecessor_id] = (
+                    replacement_claim_counts.get(predecessor_id, 0) + 1
+                )
+        template_projection = templates.get(session_id) or {}
+        predecessor_id = str(
+            template_projection.get("replaces_session_id") or ""
+        ).strip()
+        match = resolve_confirmed_replacement_ledger(
+            row,
+            matches,
+            predecessor_id=predecessor_id,
+            current_session_ids=current_session_ids,
+            replacement_claim_counts=replacement_claim_counts,
+        ) or {}
+    match_revision_id = match.get("id")
     if match_status != "matched" or not row.get("actual_activity_ids"):
         return _invalidate_stale_episode(
             db,
@@ -365,7 +392,7 @@ def _materialize_matched_row(
     frozen = {
         "target_key": target_key,
         "checkpoint_id": checkpoint.get("id") if checkpoint else None,
-        "match_revision_id": match.get("id"),
+        "match_revision_id": match_revision_id,
         "feedback_id": feedback.get("id"),
         "template": template,
         "actual_activity_ids": row.get("actual_activity_ids") or [],
@@ -389,7 +416,7 @@ def _materialize_matched_row(
             "target_key": target_key,
             "session_id": session_id,
             "plan_checkpoint_id": checkpoint.get("id") if checkpoint else None,
-            "match_revision_id": match.get("id"),
+            "match_revision_id": match_revision_id,
             "feedback_id": feedback.get("id"),
             "session_date": session_date.isoformat(),
             "iso_week": f"{iso.year}-W{iso.week:02d}",
