@@ -183,6 +183,7 @@ def _card_session_summary(
         ),
         "sport_label": str(session.get("sport_label") or ""),
         "tss": round(tss, 1),
+        "duration_minutes": int(session.get("duration_minutes") or 0),
         "session_role": str(session.get("session_role") or ""),
     }
 
@@ -352,6 +353,22 @@ def build_recovery_replan_variant(
     draft_summary = summarize_near_term_draft_rows(draft_rows)
     recommended_row = next(row for row in draft_rows if int(row.get("index", -1)) == target_index)
     preview_session = _primary_session_for_day(preview_plan, target_index)
+    before_sessions = _day_sessions_for_card(goal_plan, target_index)
+    after_sessions = _day_sessions_for_card(preview_plan, target_index)
+    current_duration_minutes = sum(
+        int(item.get("duration_minutes") or 0) for item in before_sessions
+    )
+    recommended_duration_minutes = sum(
+        int(item.get("duration_minutes") or 0) for item in after_sessions
+    )
+    draft_summary = {
+        **draft_summary,
+        "current_total_duration_minutes": current_duration_minutes,
+        "target_total_duration_minutes": recommended_duration_minutes,
+        "total_delta_duration_minutes": (
+            recommended_duration_minutes - current_duration_minutes
+        ),
+    }
     current_session = {
         "date": conflict_date,
         "name": str(session.get("name") or target_row.get("current_focus") or "Сессия"),
@@ -359,10 +376,8 @@ def build_recovery_replan_variant(
         "sport": current_sport,
         "sport_label": str(session.get("sport_label") or ""),
         "tss": int(round(current_tss)),
-        "duration_minutes": int(target_row.get("current_duration_minutes") or 0),
+        "duration_minutes": current_duration_minutes,
     }
-    current_duration_minutes = int(current_session["duration_minutes"])
-    recommended_duration_minutes = int(recommended_row.get("target_duration_minutes") or 0)
     recommended_session = {
         "date": conflict_date,
         "name": str(
@@ -388,8 +403,8 @@ def build_recovery_replan_variant(
     day_changes = [
         {
             "date": conflict_date,
-            "before_sessions": _day_sessions_for_card(goal_plan, target_index),
-            "after_sessions": _day_sessions_for_card(preview_plan, target_index),
+            "before_sessions": before_sessions,
+            "after_sessions": after_sessions,
         }
     ]
     options = [

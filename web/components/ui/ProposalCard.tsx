@@ -99,9 +99,29 @@ function asRecord(value: unknown): Record<string, unknown> {
 
 const RECOVERY_VARIANT_LABELS: Record<RecoveryVariantKind, string> = {
   keep: "Оставить как есть",
-  downgrade_today: "Снизить нагрузку сегодня",
+  downgrade_today: "Снизить нагрузку",
   transfer_1_3d: "Перенести на 1–3 дня",
 };
+
+function recoveryVariantLabel(
+  kind: RecoveryVariantKind,
+  targetDate: unknown,
+  asOf: unknown,
+): string {
+  if (kind !== "downgrade_today") return RECOVERY_VARIANT_LABELS[kind];
+  const target = asString(targetDate).slice(0, 10);
+  const base = asString(asOf).slice(0, 10);
+  if (!target || !base) return RECOVERY_VARIANT_LABELS[kind];
+  const targetMs = Date.parse(`${target}T00:00:00Z`);
+  const baseMs = Date.parse(`${base}T00:00:00Z`);
+  if (!Number.isFinite(targetMs) || !Number.isFinite(baseMs)) {
+    return RECOVERY_VARIANT_LABELS[kind];
+  }
+  const dayOffset = Math.round((targetMs - baseMs) / 86_400_000);
+  if (dayOffset === 0) return "Снизить нагрузку сегодня";
+  if (dayOffset === 1) return "Снизить нагрузку завтра";
+  return `Снизить нагрузку ${target}`;
+}
 
 const RECOVERY_REJECTION_LABELS: Record<string, string> = {
   unavailable: "день недоступен",
@@ -659,7 +679,11 @@ export function ProposalCard({
                   >
                     <span className="flex items-center gap-2 text-sm font-medium text-ink">
                       <span className={`h-3 w-3 rounded-full border ${variantRadioClass(selected)}`} />
-                      {RECOVERY_VARIANT_LABELS[kind]}
+                      {recoveryVariantLabel(
+                        kind,
+                        asRecord(variant.session).date ?? recommendedSession.date,
+                        params.as_of,
+                      )}
                     </span>
                     <span className="mt-1 block text-xs text-ink-soft">
                       {variantDescription(variant, currentSession, recommendedSession)}

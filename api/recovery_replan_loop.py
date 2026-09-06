@@ -204,6 +204,8 @@ def _proposal_payload(
     *,
     report: dict[str, Any],
     base_checkpoint_id: int,
+    evidence_fingerprint: str,
+    evidence_revision: int,
     transfer_variant: dict[str, Any] | None,
     transfer_candidates: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -219,6 +221,8 @@ def _proposal_payload(
     ]
     params = {
         "base_checkpoint_id": int(base_checkpoint_id),
+        "evidence_fingerprint": str(evidence_fingerprint),
+        "evidence_revision": int(evidence_revision),
         "horizon_days": int(variant["horizon_days"]),
         "post_edit_strategy": str(variant["post_edit_strategy"]),
         "draft_rows": draft_rows,
@@ -267,6 +271,8 @@ def _proposal_payload(
 
     recommended_protection = by_variant[recommended_kind]
     preview = {
+        "evidence_fingerprint": str(evidence_fingerprint),
+        "evidence_revision": int(evidence_revision),
         "reason": variant.get("reason"),
         "severity": selected_conflict.get("severity"),
         "current_session": dict(variant["current_session"]),
@@ -331,8 +337,6 @@ def run_recovery_replan_loop(
     checkpoint_id = checkpoint.get("id") if isinstance(checkpoint, dict) else None
     fingerprint = _fingerprint(report, checkpoint_id)
     standalone_scheduled_check = decision_event_id is None
-    if standalone_scheduled_check:
-        decision_event_id = f"scheduled_check:{fingerprint}"
     saved = db.save_recovery_decision(
         fingerprint=fingerprint,
         outcome=outcome,
@@ -342,6 +346,10 @@ def run_recovery_replan_loop(
         date=f"{str(report.get('as_of') or today.isoformat())[:10]}T00:00:00",
     )
     decision = saved["decision"]
+    evidence_revision = saved.get("evidence_revision")
+    evidence_token = saved.get("evidence_token")
+    if standalone_scheduled_check:
+        decision_event_id = f"scheduled_check:{evidence_token or fingerprint}"
     proposal = None
     proposal_gap = None
 
@@ -387,22 +395,44 @@ def run_recovery_replan_loop(
                 variant,
                 report=report,
                 base_checkpoint_id=int(checkpoint_id),
+                evidence_fingerprint=str(decision["fingerprint"]),
+                evidence_revision=int(evidence_revision),
                 transfer_variant=transfer_variant,
                 transfer_candidates=transfer_candidates,
             )
-            proposal = db.save_coach_proposal(
-                action="recovery_replan",
+            publication = db.publish_current_recovery_proposal(
                 params=params,
                 preview=preview,
-                source="recovery_replan",
-                source_key=fingerprint,
+                source_key=str(evidence_token),
                 active_key=_active_proposal_key(report, variant, int(checkpoint_id)),
+                decision_id=decision["id"],
                 date=f"{str(report.get('as_of') or today.isoformat())[:10]}T00:00:00",
                 decision_event_id=decision_event_id,
             )
-            if proposal["status"] == "pending" and proposal.get("preview") != preview:
-                proposal = db.update_coach_proposal_preview(proposal["id"], preview)
-            decision = db.link_recovery_decision_proposal(decision["id"], proposal["id"])
+            publication_state = publication["state"]
+            proposal = publication["proposal"]
+            if publication_state == "stale_evidence":
+                proposal_gap = "recovery evidence changed before proposal publication"
+            elif publication_state == "in_flight":
+                proposal_gap = "recovery proposal publication is waiting for in-flight apply"
+            elif publication_state == "published" and proposal is not None:
+                decision = db.link_recovery_decision_proposal(
+                    decision["id"], proposal["id"]
+                )
+
+    # A complete evaluation owns proposal actionability for its checkpoint.
+    # Missing data cannot disprove the prior conflict, but silence or an
+    # unaddressable/new conflict makes every older pending card non-actionable.
+    if (
+        outcome != "data_gap"
+        and checkpoint_id is not None
+        and proposal is None
+    ):
+        db.supersede_pending_recovery_proposals(
+            int(checkpoint_id),
+            evidence_fingerprint=str(decision["fingerprint"]),
+            evidence_revision=evidence_revision,
+        )
 
     # A recovery evaluation invoked directly by /today is its own scheduled
     # agent event.  When the same loop runs inside a coach turn, the outer
@@ -449,6 +479,8 @@ def run_recovery_replan_loop(
     return {
         "outcome": outcome,
         "decision": decision,
+        "evidence_revision": evidence_revision,
+        "evidence_token": evidence_token,
         "proposal": proposal,
         "proposal_gap": proposal_gap,
         "readiness_conflicts": report,

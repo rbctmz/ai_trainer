@@ -139,6 +139,8 @@ def derive_decision_outcome(
         return "rolled_back"
     if _has("pending") or _has("applying"):
         return "proposed"
+    if _has("superseded"):
+        return "no_change"
     if _has("failed"):
         return "failed"
     if _has("rejected"):

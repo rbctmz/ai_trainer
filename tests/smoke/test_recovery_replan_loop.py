@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 import json
 import sqlite3
@@ -254,6 +255,70 @@ def test_medium_quality_conflict_downgrades_to_easy_without_llm() -> None:
     assert variant["recommended_session"]["delta_tss"] == -25
 
 
+def test_recovery_duration_uses_materialized_composite_day_only() -> None:
+    today = date(2026, 7, 10)
+    target_date = today + timedelta(days=1)
+    goal_plan = _goal_plan(today, conflict_days_until=1)
+    target_index = next(
+        index
+        for index, item in enumerate(goal_plan["daily_plan"])
+        if item[0].date() == target_date
+    )
+    goal_plan["daily_plan"][target_index] = (
+        goal_plan["daily_plan"][target_index][0],
+        90.0,
+        {"bike": 60.0, "swim": 30.0},
+    )
+    goal_plan["session_templates"][target_index].update(
+        {
+            "kind": "composite",
+            "duration_minutes": 50,
+            "sessions": [
+                {
+                    "session_id": "bike-leg",
+                    "sport": "bike",
+                    "sport_label": "вело",
+                    "session_role": "quality",
+                    "session_focus": "Tempo bike",
+                    "total_tss": 60.0,
+                    "duration_minutes": 50,
+                },
+                {
+                    "session_id": "swim-leg",
+                    "sport": "swim",
+                    "sport_label": "плавание",
+                    "session_role": "easy",
+                    "session_focus": "Endurance swim",
+                    "total_tss": 30.0,
+                    "duration_minutes": 50,
+                },
+            ],
+        }
+    )
+
+    variant = build_recovery_replan_variant(
+        goal_plan,
+        _conflict_report(today, days_until=1),
+        today=today,
+    )
+
+    assert variant is not None
+    change = variant["day_changes"][0]
+    before_duration = sum(row["duration_minutes"] for row in change["before_sessions"])
+    after_duration = sum(row["duration_minutes"] for row in change["after_sessions"])
+    assert before_duration == 100
+    assert variant["current_session"]["duration_minutes"] == before_duration
+    assert variant["recommended_session"]["duration_minutes"] == after_duration
+    assert variant["draft_summary"]["total_delta_duration_minutes"] == (
+        after_duration - before_duration
+    )
+    assert all(
+        row["target_duration_minutes"] == row["current_duration_minutes"]
+        for row in variant["draft_rows"]
+        if not row["changed"]
+    )
+
+
 def test_recovery_variant_never_targets_race_protected_date() -> None:
     today = date(2026, 7, 10)
     target_date = today + timedelta(days=4)
@@ -364,6 +429,437 @@ def test_database_reuses_active_proposal_key_until_terminal_status(tmp_path) -> 
     assert replacement["id"] != pending["id"]
     assert replacement["status"] == "pending"
     assert len(db.get_coach_proposals(days=36500)) == 2
+
+
+def test_new_complete_silence_supersedes_pending_recovery_proposal(
+    tmp_path, monkeypatch
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 10)
+    reports = [_conflict_report(today, days_until=1), _silence_report(today)]
+    monkeypatch.setattr(
+        loop_module,
+        "build_readiness_conflict_report",
+        lambda _db, **_kwargs: reports.pop(0),
+    )
+    db = Database(str(tmp_path / "supersede-on-silence.db"))
+    _save_plan(db, _goal_plan(today, conflict_days_until=1))
+
+    first = run_recovery_replan_loop(db, today=today)
+    second = run_recovery_replan_loop(db, today=today)
+
+    expired = db.get_coach_proposal(first["proposal"]["id"])
+    assert second["outcome"] == "silence"
+    assert second["proposal"] is None
+    assert expired["status"] == "superseded"
+    assert expired["result"]["reason"] == "superseded_by_newer_recovery_evidence"
+
+
+def test_data_gap_does_not_supersede_last_complete_conflict(tmp_path, monkeypatch) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 10)
+    reports = [
+        _conflict_report(today, days_until=1),
+        _silence_report(today, data_gap=True),
+    ]
+    monkeypatch.setattr(
+        loop_module,
+        "build_readiness_conflict_report",
+        lambda _db, **_kwargs: reports.pop(0),
+    )
+    db = Database(str(tmp_path / "data-gap-keeps-proposal.db"))
+    _save_plan(db, _goal_plan(today, conflict_days_until=1))
+
+    first = run_recovery_replan_loop(db, today=today)
+    second = run_recovery_replan_loop(db, today=today)
+
+    assert second["outcome"] == "data_gap"
+    assert db.get_coach_proposal(first["proposal"]["id"])["status"] == "pending"
+
+
+def test_same_target_conflict_replaces_prior_proposal_and_keeps_one_active(
+    tmp_path, monkeypatch
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 10)
+    first_report = _conflict_report(today, days_until=1)
+    second_report = _conflict_report(today, days_until=1, status="limited", severity="medium")
+    reports = [first_report, second_report]
+    monkeypatch.setattr(
+        loop_module,
+        "build_readiness_conflict_report",
+        lambda _db, **_kwargs: reports.pop(0),
+    )
+    db = Database(str(tmp_path / "refresh-active-proposal.db"))
+    _save_plan(db, _goal_plan(today, conflict_days_until=1))
+
+    first = run_recovery_replan_loop(db, today=today)
+    second = run_recovery_replan_loop(db, today=today)
+
+    assert second["proposal"]["id"] != first["proposal"]["id"]
+    assert db.get_coach_proposal(first["proposal"]["id"])["status"] == "superseded"
+    assert second["proposal"]["params"]["evidence_fingerprint"] == second["decision"][
+        "fingerprint"
+    ]
+    assert second["proposal"]["preview"]["evidence_fingerprint"] == second[
+        "decision"
+    ]["fingerprint"]
+    assert len(db.get_coach_proposals(days=36500, status="pending")) == 1
+
+
+def test_identical_conflict_recurrence_after_silence_gets_new_evidence_revision(
+    tmp_path, monkeypatch
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 10)
+    conflict = _conflict_report(today, days_until=1)
+    reports = [deepcopy(conflict), _silence_report(today), deepcopy(conflict)]
+    monkeypatch.setattr(
+        loop_module,
+        "build_readiness_conflict_report",
+        lambda _db, **_kwargs: reports.pop(0),
+    )
+    db = Database(str(tmp_path / "identical-conflict-recurrence.db"))
+    _save_plan(db, _goal_plan(today, conflict_days_until=1))
+
+    first = run_recovery_replan_loop(db, today=today)
+    run_recovery_replan_loop(db, today=today)
+    recurring = run_recovery_replan_loop(db, today=today)
+
+    assert recurring["decision"]["id"] == first["decision"]["id"]
+    assert recurring["evidence_revision"] > first["evidence_revision"]
+    assert db.get_coach_proposal(first["proposal"]["id"])["status"] == "superseded"
+    assert recurring["proposal"]["status"] == "pending"
+    assert recurring["proposal"]["id"] != first["proposal"]["id"]
+    assert recurring["proposal"]["params"]["evidence_revision"] == recurring[
+        "evidence_revision"
+    ]
+    recurring_decision = next(
+        row
+        for row in db.get_recovery_decisions(days=36500)
+        if row["fingerprint"] == recurring["decision"]["fingerprint"]
+    )
+    assert recurring_decision["proposal_id"] == recurring["proposal"]["id"]
+
+
+def test_stale_conflict_cannot_publish_after_newer_complete_evidence(tmp_path) -> None:
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "stale-publication.db"))
+    checkpoint = _save_plan(db, _goal_plan(today, conflict_days_until=1))
+    conflict = _conflict_report(today, days_until=1)
+    old = db.save_recovery_decision(
+        fingerprint="older-conflict",
+        outcome="conflict",
+        reason=conflict["reason"],
+        report=conflict,
+        plan_checkpoint_id=checkpoint["id"],
+    )
+    silence = _silence_report(today)
+    db.save_recovery_decision(
+        fingerprint="newer-silence",
+        outcome="silence",
+        reason=silence["reason"],
+        report=silence,
+        plan_checkpoint_id=checkpoint["id"],
+    )
+
+    publication = db.publish_current_recovery_proposal(
+        params={
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "older-conflict",
+            "evidence_revision": old["evidence_revision"],
+        },
+        preview={"evidence_fingerprint": "older-conflict"},
+        source_key=old["evidence_token"],
+        active_key="same-target",
+        decision_id=old["decision"]["id"],
+    )
+
+    assert publication["state"] == "stale_evidence"
+    assert publication["proposal"] is None
+    assert db.get_coach_proposals(days=36500, status="pending") == []
+
+
+def test_newer_conflict_atomically_replaces_active_proposal_ownership(tmp_path) -> None:
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "newer-conflict-publication.db"))
+    checkpoint = _save_plan(db, _goal_plan(today, conflict_days_until=1))
+    report = _conflict_report(today, days_until=1)
+    first = db.save_recovery_decision(
+        fingerprint="conflict-c1",
+        outcome="conflict",
+        reason=report["reason"],
+        report=report,
+        plan_checkpoint_id=checkpoint["id"],
+    )
+    first_publication = db.publish_current_recovery_proposal(
+        params={
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "conflict-c1",
+            "evidence_revision": first["evidence_revision"],
+        },
+        preview={"evidence_fingerprint": "conflict-c1"},
+        source_key=first["evidence_token"],
+        active_key="same-target",
+        decision_id=first["decision"]["id"],
+        decision_event_id="scheduled-check-c1",
+    )
+    second = db.save_recovery_decision(
+        fingerprint="conflict-c2",
+        outcome="conflict",
+        reason=report["reason"],
+        report={**report, "readiness": {"score": 42.0}},
+        plan_checkpoint_id=checkpoint["id"],
+    )
+
+    second_publication = db.publish_current_recovery_proposal(
+        params={
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "conflict-c2",
+            "evidence_revision": second["evidence_revision"],
+        },
+        preview={"evidence_fingerprint": "conflict-c2"},
+        source_key=second["evidence_token"],
+        active_key="same-target",
+        decision_id=second["decision"]["id"],
+        decision_event_id="scheduled-check-c2",
+    )
+
+    assert second_publication["state"] == "published"
+    assert second_publication["proposal"]["id"] != first_publication["proposal"]["id"]
+    assert db.get_coach_proposal(first_publication["proposal"]["id"])["status"] == (
+        "superseded"
+    )
+    assert second_publication["proposal"]["source_key"] == second["evidence_token"]
+    assert second_publication["proposal"]["decision_event_id"] == "scheduled-check-c2"
+    assert second_publication["proposal"]["params"]["evidence_fingerprint"] == (
+        "conflict-c2"
+    )
+    stale_retry = db.publish_current_recovery_proposal(
+        params={
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "conflict-c1",
+            "evidence_revision": first["evidence_revision"],
+        },
+        preview={"evidence_fingerprint": "conflict-c1"},
+        source_key=first["evidence_token"],
+        active_key="same-target",
+        decision_id=first["decision"]["id"],
+    )
+    assert stale_retry == {"state": "stale_evidence", "proposal": None}
+    current = db.get_coach_proposals(days=36500, status="pending")[0]
+    assert current["params"]["evidence_fingerprint"] == "conflict-c2"
+
+
+def test_newer_conflict_waits_for_applying_proposal_then_republishes(tmp_path) -> None:
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "applying-conflict-publication.db"))
+    checkpoint = _save_plan(db, _goal_plan(today, conflict_days_until=1))
+    report = _conflict_report(today, days_until=1)
+    first = db.save_recovery_decision(
+        fingerprint="applying-c1",
+        outcome="conflict",
+        reason=report["reason"],
+        report=report,
+        plan_checkpoint_id=checkpoint["id"],
+    )
+    first_publication = db.publish_current_recovery_proposal(
+        params={
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "applying-c1",
+            "evidence_revision": first["evidence_revision"],
+        },
+        preview={"evidence_fingerprint": "applying-c1"},
+        source_key=first["evidence_token"],
+        active_key="same-target",
+        decision_id=first["decision"]["id"],
+        decision_event_id="applying-event-c1",
+    )
+    first_id = first_publication["proposal"]["id"]
+    assert db.claim_current_recovery_proposal(first_id)["state"] == "claimed"
+    second = db.save_recovery_decision(
+        fingerprint="waiting-c2",
+        outcome="conflict",
+        reason=report["reason"],
+        report={**report, "readiness": {"score": 41.0}},
+        plan_checkpoint_id=checkpoint["id"],
+    )
+    publish_args = {
+        "params": {
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "waiting-c2",
+            "evidence_revision": second["evidence_revision"],
+        },
+        "preview": {"evidence_fingerprint": "waiting-c2"},
+        "source_key": second["evidence_token"],
+        "active_key": "same-target",
+        "decision_id": second["decision"]["id"],
+        "decision_event_id": "waiting-event-c2",
+    }
+
+    blocked = db.publish_current_recovery_proposal(**publish_args)
+
+    assert blocked["state"] == "in_flight"
+    assert blocked["proposal"] is None
+    assert blocked["blocking_proposal"]["id"] == first_id
+    assert blocked["blocking_proposal"]["status"] == "applying"
+    assert db.get_coach_proposals(days=36500, status="pending") == []
+
+    db.update_coach_proposal_status(first_id, "failed", error="delivery failed")
+    republished = db.publish_current_recovery_proposal(**publish_args)
+
+    assert republished["state"] == "published"
+    assert republished["proposal"]["status"] == "pending"
+    assert republished["proposal"]["id"] != first_id
+    assert republished["proposal"]["decision_event_id"] == "waiting-event-c2"
+
+
+def test_approval_fails_closed_after_newer_committed_silence(
+    tmp_path, monkeypatch
+) -> None:
+    from api import recovery_replan_loop as loop_module
+    from api.routers import decisions as decisions_router
+    from api.routers.decisions import approve_proposal
+
+    today = date(2026, 7, 10)
+    report = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(
+        loop_module,
+        "build_readiness_conflict_report",
+        lambda _db, **_kwargs: report,
+    )
+    delivery_calls = []
+    monkeypatch.setattr(
+        decisions_router,
+        "safe_deliver_active_plan",
+        lambda *_args, **_kwargs: delivery_calls.append(True),
+    )
+    db = Database(str(tmp_path / "approval-evidence-cas.db"))
+    base = _save_plan(db, _goal_plan(today, conflict_days_until=1))
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    silence = _silence_report(today)
+    db.save_recovery_decision(
+        fingerprint="newer-complete-silence",
+        outcome="silence",
+        reason=silence["reason"],
+        report=silence,
+        plan_checkpoint_id=base["id"],
+        date=f"{today.isoformat()}T00:00:00",
+    )
+
+    with pytest.raises(HTTPException) as error:
+        approve_proposal(proposal["id"], db=db, variant_kind="downgrade_today")
+
+    assert error.value.status_code == 409
+    assert error.value.detail == "proposal evidence is no longer current"
+    assert db.get_coach_proposal(proposal["id"])["status"] == "superseded"
+    assert db.get_latest_planning_checkpoint()["id"] == base["id"]
+    assert delivery_calls == []
+
+
+@pytest.mark.parametrize("new_evidence_first", [False, True])
+def test_recovery_claim_and_supersession_have_one_terminal_winner(
+    tmp_path, monkeypatch, new_evidence_first: bool
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 10)
+    conflict = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(
+        loop_module,
+        "build_readiness_conflict_report",
+        lambda _db, **_kwargs: conflict,
+    )
+    db = Database(str(tmp_path / f"ordered-race-{new_evidence_first}.db"))
+    base = _save_plan(db, _goal_plan(today, conflict_days_until=1))
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    silence = _silence_report(today)
+
+    def persist_new_evidence() -> None:
+        db.save_recovery_decision(
+            fingerprint="newer-race-silence",
+            outcome="silence",
+            reason=silence["reason"],
+            report=silence,
+            plan_checkpoint_id=base["id"],
+            date=f"{today.isoformat()}T00:00:00",
+        )
+        db.supersede_pending_recovery_proposals(
+            base["id"], evidence_fingerprint="newer-race-silence"
+        )
+
+    if new_evidence_first:
+        persist_new_evidence()
+        claim = db.claim_current_recovery_proposal(proposal["id"])
+        assert claim["state"] == "not_pending"
+        assert claim["proposal"]["status"] == "superseded"
+    else:
+        claim = db.claim_current_recovery_proposal(proposal["id"])
+        assert claim["state"] == "claimed"
+        persist_new_evidence()
+        db.update_coach_proposal_status(proposal["id"], "approved", result={})
+        assert db.get_coach_proposal(proposal["id"])["status"] == "approved"
+
+    terminal = db.get_coach_proposal(proposal["id"])["status"]
+    assert terminal in {"approved", "superseded"}
+
+
+def test_recovery_claim_and_supersession_are_safe_when_concurrent(
+    tmp_path, monkeypatch
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 10)
+    conflict = _conflict_report(today, days_until=1)
+    monkeypatch.setattr(
+        loop_module,
+        "build_readiness_conflict_report",
+        lambda _db, **_kwargs: conflict,
+    )
+    db = Database(str(tmp_path / "concurrent-evidence-claim.db"))
+    base = _save_plan(db, _goal_plan(today, conflict_days_until=1))
+    proposal = run_recovery_replan_loop(db, today=today)["proposal"]
+    silence = _silence_report(today)
+    barrier = Barrier(2)
+
+    def claim() -> str:
+        barrier.wait()
+        result = db.claim_current_recovery_proposal(proposal["id"])
+        if result["state"] == "claimed":
+            db.update_coach_proposal_status(proposal["id"], "approved", result={})
+        return str(result["state"])
+
+    def supersede() -> int:
+        barrier.wait()
+        db.save_recovery_decision(
+            fingerprint="concurrent-complete-silence",
+            outcome="silence",
+            reason=silence["reason"],
+            report=silence,
+            plan_checkpoint_id=base["id"],
+            date=f"{today.isoformat()}T00:00:00",
+        )
+        return db.supersede_pending_recovery_proposals(
+            base["id"], evidence_fingerprint="concurrent-complete-silence"
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        claim_future = executor.submit(claim)
+        supersede_future = executor.submit(supersede)
+        claim_state = claim_future.result()
+        supersede_future.result()
+
+    terminal = db.get_coach_proposal(proposal["id"])["status"]
+    assert terminal in {"approved", "superseded"}
+    if claim_state == "claimed":
+        assert terminal == "approved"
+    else:
+        assert claim_state in {"not_pending", "superseded"}
+        assert terminal == "superseded"
 
 
 def test_database_serializes_concurrent_active_proposal_creation(tmp_path) -> None:
@@ -511,11 +1007,12 @@ def test_loop_creates_one_recovery_proposal_and_exposes_it_in_decisions_api(
     assert recovery["report"]["conflicts"][0]["severity"] == "high"
 
 
-def test_loop_keeps_intraday_decisions_but_reuses_target_session_proposal(
+def test_loop_keeps_intraday_decisions_with_revision_scoped_proposals(
     tmp_path,
     monkeypatch,
 ) -> None:
     from api import recovery_replan_loop as loop_module
+    from api.routers.decisions import list_decisions
 
     today = date(2026, 7, 10)
     first_report = _conflict_report(today, days_until=4)
@@ -540,11 +1037,23 @@ def test_loop_keeps_intraday_decisions_but_reuses_target_session_proposal(
     second = run_recovery_replan_loop(db, today=today)
 
     assert second["decision"]["id"] != first["decision"]["id"]
-    assert second["decision"]["proposal_id"] == first["proposal"]["id"]
-    assert second["proposal"]["id"] == first["proposal"]["id"]
+    assert second["decision"]["proposal_id"] == second["proposal"]["id"]
+    assert second["proposal"]["id"] != first["proposal"]["id"]
+    assert db.get_coach_proposal(first["proposal"]["id"])["status"] == "superseded"
     assert second["proposal"]["active_key"] == first["proposal"]["active_key"]
     assert len(db.get_recovery_decisions(days=36500)) == 2
-    assert len(db.get_coach_proposals(days=36500)) == 1
+    assert len(db.get_coach_proposals(days=36500)) == 2
+    decisions = {
+        row["decision_event_id"]: row
+        for day in list_decisions(days=36500, db=db)["days"]
+        for row in day["decisions"]
+    }
+    assert decisions[f"scheduled_check:{first['evidence_token']}"]["outcome"] == (
+        "no_change"
+    )
+    assert decisions[f"scheduled_check:{second['evidence_token']}"]["outcome"] == (
+        "proposed"
+    )
 
 
 def test_recovery_proposal_reject_approve_and_append_only_rollback(
@@ -900,8 +1409,10 @@ def test_loop_keeps_single_current_proposal_when_readiness_shifts_but_target_ses
     second = run_recovery_replan_loop(db, today=today)
 
     assert second["decision"]["id"] != first["decision"]["id"]
-    assert second["proposal"]["id"] == first["proposal"]["id"]
-    assert len(db.get_coach_proposals(days=36500)) == 1
+    assert second["proposal"]["id"] != first["proposal"]["id"]
+    assert db.get_coach_proposal(first["proposal"]["id"])["status"] == "superseded"
+    assert len(db.get_coach_proposals(days=36500, status="pending")) == 1
+    assert len(db.get_coach_proposals(days=36500)) == 2
     assert len(db.get_recovery_decisions(days=36500)) == 2
     assert "transfer_1_3d" in _variant_kinds(second["proposal"])
 

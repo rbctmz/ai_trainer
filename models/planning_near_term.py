@@ -620,6 +620,16 @@ def build_near_term_edit_rows(
     for idx in range(resolved_horizon):
         dt, total, parts = daily_plan[idx]
         template = session_templates[idx]
+        template_sessions = [
+            dict(session)
+            for session in list(template.get("sessions") or [])
+            if isinstance(session, Mapping)
+        ]
+        current_duration_minutes = (
+            sum(int(session.get("duration_minutes") or 0) for session in template_sessions)
+            if template_sessions
+            else int(template.get("duration_minutes", 0) or 0)
+        )
         sport = _normalize_sport(template.get("sport") or _dominant_sport(parts))
         role = _normalize_session_role(template.get("session_role") or ("off" if total <= 0 else "easy"))
         focus = str(template.get("session_focus") or _build_day_focus_label(role, sport))
@@ -634,7 +644,7 @@ def build_near_term_edit_rows(
                 "current_kind": str(template.get("kind") or "single"),
                 "current_role": role,
                 "current_focus": focus,
-                "current_duration_minutes": int(template.get("duration_minutes", 0) or 0),
+                "current_duration_minutes": current_duration_minutes,
                 "original_parts": dict(parts),
                 # Issue #205: expose the day's executable sessions so an edit can
                 # address one specific session_id instead of the whole day.
@@ -648,7 +658,7 @@ def build_near_term_edit_rows(
                         "duration_minutes": int(session.get("duration_minutes") or 0),
                         "kind": str(session.get("kind") or "single"),
                     }
-                    for session in list(template.get("sessions") or [])
+                    for session in template_sessions
                 ],
             }
         )
@@ -690,18 +700,22 @@ def build_near_term_edit_draft_rows(
             target_total_tss = 0.0
 
         target_focus = _build_day_focus_label(target_role, target_sport)
-        target_duration_minutes = _estimate_session_duration_minutes(
-            target_total_tss,
-            target_sport,
-            target_role,
-        )
-        target_export_name = _build_session_export_name(goal_type, distance, target_focus)
         delta_tss = round(target_total_tss - current_total_tss, 1)
         changed = (
             current_role != target_role
             or current_sport != target_sport
             or current_total_tss != target_total_tss
         )
+        target_duration_minutes = (
+            _estimate_session_duration_minutes(
+                target_total_tss,
+                target_sport,
+                target_role,
+            )
+            if changed
+            else _normalize_duration_minutes(row.get("current_duration_minutes"))
+        )
+        target_export_name = _build_session_export_name(goal_type, distance, target_focus)
 
         draft_rows.append(
             {

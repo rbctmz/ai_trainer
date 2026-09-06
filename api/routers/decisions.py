@@ -1,13 +1,16 @@
 """Coach decision audit trail endpoint."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from api import planning_service
 from api.deps import get_database
 from api.operational_state import build_operational_state
+from config.settings import Settings
 from data.database import Database
 from models.coach_decisions import (
     NO_REVISIT_REQUIRED,
@@ -41,7 +44,7 @@ def list_decisions(
     recovery_by_date: dict[str, list[dict[str, Any]]] = {}
 
     for row in rows:
-        day = str(row.get("date") or "")[:10]
+        day = _display_day(row)
         if not day:
             continue
         item = _project_agent_log_v2_row(row, proposal_rows)
@@ -78,7 +81,7 @@ def list_decisions(
             day_items.append(item)
 
     for row in proposal_rows:
-        day = str(row.get("date") or "")[:10]
+        day = _display_day(row)
         if not day:
             continue
         item = dict(row)
@@ -97,7 +100,7 @@ def list_decisions(
             pending_proposals_by_date[day].append(item)
 
     for row in recovery_rows:
-        day = str(row.get("date") or "")[:10]
+        day = _display_day(row)
         if not day:
             continue
         item = dict(row)
@@ -184,6 +187,57 @@ def _format_time(value: Any) -> str:
     return ""
 
 
+def _athlete_zone() -> ZoneInfo | None:
+    try:
+        return ZoneInfo(str(Settings.ATHLETE_TIMEZONE))
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
+def _parse_persisted_utc(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def _uses_recovery_business_date(row: dict[str, Any]) -> bool:
+    """Whether a midnight/bare `date` is a recovery evaluation date, not a clock."""
+    clock = _format_time(row.get("date"))
+    if clock not in {"", "00:00"}:
+        return False
+    action = str(row.get("action") or "")
+    source = str(row.get("source") or "")
+    trigger_source = str(row.get("trigger_source") or "")
+    recovery_decision_shape = (
+        "fingerprint" in row and "report" in row and "decision_type" not in row
+    )
+    return bool(
+        recovery_decision_shape
+        or action == "recovery_replan"
+        or source == "recovery_replan"
+        or trigger_source.startswith("recovery_check:")
+    )
+
+
+def _display_day(row: dict[str, Any]) -> str:
+    """Athlete-local grouping day, preserving explicit business dates."""
+    raw_date = row.get("date")
+    stored_day = str(raw_date or "")[:10]
+    stored_clock = _format_time(raw_date)
+    if not stored_day or not stored_clock or _uses_recovery_business_date(row):
+        return stored_day
+    parsed = _parse_persisted_utc(raw_date)
+    if parsed is None:
+        return stored_day
+    zone = _athlete_zone() or timezone.utc
+    return parsed.astimezone(zone).date().isoformat()
+
+
 def _display_time(row: dict[str, Any]) -> str:
     """Clock time to show for one audit row.
 
@@ -191,14 +245,27 @@ def _display_time(row: dict[str, Any]) -> str:
     pure business date (`<as_of>T00:00:00`), so their real creation clock lives
     in `created_at`. Coach decisions (and coach-created proposals) carry their
     real time-of-day in `date` itself. Prefer `date`'s time, and fall back to
-    `created_at` only when `date` has no meaningful time (`00:00` or absent) —
-    both columns already store the same UTC-based clock, so the fallback stays
-    consistent with the times this surface has always shown.
+    `created_at` only when `date` has no meaningful time (`00:00` or absent).
+    Persisted clocks are UTC and are converted only for presentation into the
+    configured athlete timezone. Invalid timezone configuration is labelled
+    explicitly as UTC instead of looking like athlete-local time.
     """
-    from_date = _format_time(row.get("date"))
-    if from_date and from_date != "00:00":
+    raw_date = row.get("date")
+    from_date = _format_time(raw_date)
+    raw_value = (
+        raw_date
+        if from_date and not _uses_recovery_business_date(row)
+        else row.get("created_at")
+    )
+    if not raw_value:
         return from_date
-    return _format_time(row.get("created_at")) or from_date
+    parsed = _parse_persisted_utc(raw_value)
+    if parsed is None:
+        return _format_time(raw_value) or from_date
+    athlete_zone = _athlete_zone()
+    if athlete_zone is None:
+        return f"{parsed.astimezone(timezone.utc).strftime('%H:%M')} UTC"
+    return parsed.astimezone(athlete_zone).strftime("%H:%M")
 
 
 def _dedupe_conflict_rules(conflicts: Any) -> list[dict[str, str]]:
@@ -247,13 +314,24 @@ def approve_proposal(
             # can immediately choose an offered variant; no plan/provider
             # mutation has started.
             raise HTTPException(status_code=422, detail=str(exc))
-    proposal = db.transition_coach_proposal_status(
-        proposal_id,
-        "pending",
-        "applying",
-    )
-    if proposal is None:
-        raise HTTPException(status_code=409, detail="proposal is already being applied")
+    if proposal.get("action") == "recovery_replan":
+        claim = db.claim_current_recovery_proposal(proposal_id)
+        proposal = claim.get("proposal")
+        if claim.get("state") == "superseded":
+            raise HTTPException(
+                status_code=409,
+                detail="proposal evidence is no longer current",
+            )
+        if claim.get("state") != "claimed" or proposal is None:
+            raise HTTPException(status_code=409, detail="proposal is already being applied")
+    else:
+        proposal = db.transition_coach_proposal_status(
+            proposal_id,
+            "pending",
+            "applying",
+        )
+        if proposal is None:
+            raise HTTPException(status_code=409, detail="proposal is already being applied")
     try:
         result = _apply_proposal(db, proposal, variant_kind=variant_kind)
     except planning_service.StalePlanningCheckpointError as exc:
@@ -399,6 +477,14 @@ def _pending_proposal_or_error(db: Database, proposal_id: int) -> dict[str, Any]
     if not proposal:
         raise HTTPException(status_code=404, detail="proposal not found")
     if proposal.get("status") != "pending":
+        if (
+            proposal.get("action") == "recovery_replan"
+            and proposal.get("status") == "superseded"
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="proposal evidence is no longer current",
+            )
         raise HTTPException(status_code=409, detail=f"proposal is already {proposal.get('status')}")
     return proposal
 
