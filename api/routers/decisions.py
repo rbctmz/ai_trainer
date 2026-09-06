@@ -44,7 +44,7 @@ def list_decisions(
     recovery_by_date: dict[str, list[dict[str, Any]]] = {}
 
     for row in rows:
-        day = str(row.get("date") or "")[:10]
+        day = _display_day(row)
         if not day:
             continue
         item = _project_agent_log_v2_row(row, proposal_rows)
@@ -81,7 +81,7 @@ def list_decisions(
             day_items.append(item)
 
     for row in proposal_rows:
-        day = str(row.get("date") or "")[:10]
+        day = _display_day(row)
         if not day:
             continue
         item = dict(row)
@@ -100,7 +100,7 @@ def list_decisions(
             pending_proposals_by_date[day].append(item)
 
     for row in recovery_rows:
-        day = str(row.get("date") or "")[:10]
+        day = _display_day(row)
         if not day:
             continue
         item = dict(row)
@@ -187,6 +187,38 @@ def _format_time(value: Any) -> str:
     return ""
 
 
+def _athlete_zone() -> ZoneInfo | None:
+    try:
+        return ZoneInfo(str(Settings.ATHLETE_TIMEZONE))
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+
+
+def _parse_persisted_utc(value: Any) -> datetime | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
+
+
+def _display_day(row: dict[str, Any]) -> str:
+    """Athlete-local grouping day, preserving explicit business dates."""
+    raw_date = row.get("date")
+    stored_day = str(raw_date or "")[:10]
+    stored_clock = _format_time(raw_date)
+    if not stored_day or not stored_clock or stored_clock == "00:00":
+        return stored_day
+    parsed = _parse_persisted_utc(raw_date)
+    if parsed is None:
+        return stored_day
+    zone = _athlete_zone() or timezone.utc
+    return parsed.astimezone(zone).date().isoformat()
+
+
 def _display_time(row: dict[str, Any]) -> str:
     """Clock time to show for one audit row.
 
@@ -207,16 +239,11 @@ def _display_time(row: dict[str, Any]) -> str:
     )
     if not raw_value:
         return from_date
-    text = str(raw_value).strip()
-    try:
-        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
-    except ValueError:
-        return _format_time(text) or from_date
-    if parsed.tzinfo is None:
-        parsed = parsed.replace(tzinfo=timezone.utc)
-    try:
-        athlete_zone = ZoneInfo(str(Settings.ATHLETE_TIMEZONE))
-    except (ZoneInfoNotFoundError, ValueError):
+    parsed = _parse_persisted_utc(raw_value)
+    if parsed is None:
+        return _format_time(raw_value) or from_date
+    athlete_zone = _athlete_zone()
+    if athlete_zone is None:
         return f"{parsed.astimezone(timezone.utc).strftime('%H:%M')} UTC"
     return parsed.astimezone(athlete_zone).strftime("%H:%M")
 
@@ -430,6 +457,14 @@ def _pending_proposal_or_error(db: Database, proposal_id: int) -> dict[str, Any]
     if not proposal:
         raise HTTPException(status_code=404, detail="proposal not found")
     if proposal.get("status") != "pending":
+        if (
+            proposal.get("action") == "recovery_replan"
+            and proposal.get("status") == "superseded"
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail="proposal evidence is no longer current",
+            )
         raise HTTPException(status_code=409, detail=f"proposal is already {proposal.get('status')}")
     return proposal
 

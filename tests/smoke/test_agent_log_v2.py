@@ -114,6 +114,8 @@ def test_model_exposes_stable_agent_log_v2_contract():
     assert derive_decision_outcome({"decision_event_id": "e1"}, keep) == "no_change"
     rejected = [{"decision_event_id": "e1", "status": "rejected"}]
     assert derive_decision_outcome({"decision_event_id": "e1"}, rejected) == "rejected"
+    superseded = [{"decision_event_id": "e1", "status": "superseded"}]
+    assert derive_decision_outcome({"decision_event_id": "e1"}, superseded) == "no_change"
     failed = [{"decision_event_id": "e1", "status": "failed"}]
     assert derive_decision_outcome({"decision_event_id": "e1"}, failed) == "failed"
     rolled_back = [{"decision_event_id": "e1", "status": "rolled_back",

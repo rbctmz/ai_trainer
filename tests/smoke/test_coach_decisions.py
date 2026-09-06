@@ -224,7 +224,7 @@ def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path
 
 
 def test_display_time_converts_utc_to_athlete_timezone_and_falls_back(monkeypatch):
-    from api.routers.decisions import _display_time
+    from api.routers.decisions import _display_day, _display_time
     from config.settings import Settings
 
     monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "Europe/Moscow")
@@ -250,6 +250,14 @@ def test_display_time_converts_utc_to_athlete_timezone_and_falls_back(monkeypatc
 
     monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "invalid/timezone")
     assert _display_time({"date": "2026-07-20T08:19:56"}) == "08:19 UTC"
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "Europe/Moscow")
+    after_midnight = {"date": "2026-07-02T22:30:00Z"}
+    assert _display_time(after_midnight) == "01:30"
+    assert _display_day(after_midnight) == "2026-07-03"
+    assert _display_day({"date": "2026-07-02T00:00:00", "created_at": "2026-07-03"}) == (
+        "2026-07-02"
+    )
 
 
 def test_decisions_api_shows_local_recovery_creation_time_not_business_midnight(
@@ -278,6 +286,45 @@ def test_decisions_api_shows_local_recovery_creation_time_not_business_midnight(
     # come from created_at instead of the hard-coded midnight.
     assert _format_time("2026-07-20T00:00:00") == "00:00"
     assert recovery["time"] == _display_time({"created_at": created_at})
+
+
+def test_decisions_api_groups_real_utc_clocks_by_athlete_local_day(
+    tmp_path, monkeypatch
+) -> None:
+    from api.routers.decisions import list_decisions
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "Europe/Moscow")
+    db = Database(str(tmp_path / "local-day-grouping.db"))
+    db.save_coach_decision(
+        decision_type="Monitor",
+        reason="Late UTC decision.",
+        decision_event_id="late-decision",
+        outcome="no_change",
+        date="2026-07-02T22:30:00Z",
+    )
+    db.save_coach_proposal(
+        action="build_plan",
+        params={},
+        preview={},
+        source_key="late-proposal",
+        date="2026-07-02T22:45:00Z",
+    )
+    db.save_recovery_decision(
+        fingerprint="business-date-midnight",
+        outcome="silence",
+        reason="Business date stays authoritative.",
+        report={},
+        date="2026-07-02T00:00:00",
+    )
+
+    payload = list_decisions(days=36500, db=db)
+
+    assert payload["days"][0]["date"] == "2026-07-03"
+    assert payload["days"][0]["decisions"][0]["time"] == "01:30"
+    assert payload["proposal_days"][0]["date"] == "2026-07-03"
+    assert payload["proposal_days"][0]["proposals"][0]["time"] == "01:45"
+    assert payload["recovery_days"][0]["date"] == "2026-07-02"
 
 
 def test_decisions_api_dedupes_recovery_conflict_rules(tmp_path):

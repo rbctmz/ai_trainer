@@ -4,7 +4,7 @@ This ExecPlan is a living document maintained under `.agent/PLANS.md`. It implem
 
 ## Purpose / Big Picture
 
-After this change, a pending Recovery Replan is actionable only while the recovery-decision fingerprint that produced it is the latest complete evaluation for its planning checkpoint. A newer `silence` decision supersedes the card without deleting history, and an approval racing that decision is resolved atomically. The proposal preview describes the materialized child sessions on affected dates, future targets are not called “today”, and decision times use the configured athlete timezone.
+After this change, a pending Recovery Replan is actionable only while the recovery-evidence revision and fingerprint that produced it are the latest complete evaluation for its planning checkpoint. A newer `silence` decision supersedes the card without deleting history, and publication or approval racing that decision is resolved atomically. The proposal preview describes the materialized child sessions on affected dates, future targets are not called “today”, and decision times use the configured athlete timezone.
 
 ## Progress
 
@@ -15,6 +15,8 @@ After this change, a pending Recovery Replan is actionable only while the recove
 - [x] (2026-09-06 08:15Z) Implemented materialized composite duration totals, unchanged-row neutrality, target-date wording, and athlete-local audit clocks.
 - [x] (2026-09-06 08:18Z) Completed Ruff, web lint/build, contract freshness, and contributor-safe pytest validation.
 - [x] (2026-09-06 08:20Z) Published implementation commit `370af4b` and opened issue-linked PR #553; product CI passed and human review remains the merge gate.
+- [x] (2026-09-06 09:30Z) Reproduced all four review findings: identical A → silence → A recurrence, superseded audit outcome, stale publication interleavings, and UTC-day grouping.
+- [x] (2026-09-06 09:55Z) Added a monotonic per-checkpoint evidence head, atomic publication ownership, explicit superseded outcome mapping, and athlete-local grouping-day tests.
 
 ## Surprises & Discoveries
 
@@ -30,14 +32,23 @@ After this change, a pending Recovery Replan is actionable only while the recove
 - **Observed**: a newer recovery decision commits before the proposal payload refresh because the decision journal and proposal lifecycle intentionally use separate short transactions.
   **Inferred**: an approval in that narrow interval must reject the old preview, but the continuing conflict still needs a fresh card after the race.
   **Verified by**: the implementation retries proposal creation only when the competing evidence claim has already changed the reused active-key row to `superseded`; an `applying` row is never replaced.
+- **Observed**: immutable `recovery_decisions` deduplicate identical content by fingerprint, so row order cannot represent A → silence → identical A evaluation recency.
+  **Inferred**: freshness ownership needs a monotonic evaluation revision separate from immutable content identity.
+  **Verified by**: the review regression replays the sequence and requires a new pending proposal owned by a higher revision while reusing the immutable A decision row.
+- **Observed**: saving evidence and publishing its proposal in separate transactions allowed C → silence or C1 → C2 to leave the older finisher advertising stale payload.
+  **Inferred**: the publish/refresh operation itself must compare-and-set against the current complete evidence head under one write lock.
+  **Verified by**: direct database tests reject stale publication and prove C2 owns the single active proposal's payload, source key, and decision event.
+- **Observed**: localized clocks around UTC midnight were grouped under the raw UTC date.
+  **Inferred**: the grouping day and display clock must derive from the same timestamp and athlete timezone, except for explicit business-date midnight rows.
+  **Verified by**: the API groups `2026-07-02T22:30:00Z` under `2026-07-03` in `Europe/Moscow` while retaining recovery business date `2026-07-02`.
 
 ## Decision Log
 
-- Decision: Store the owning recovery decision fingerprint in proposal params and preview instead of adding a mandatory schema column.
-  Rationale: params are already durable and backward-compatible; legacy rows remain readable, while legacy pending recovery proposals fail closed at approval because they cannot prove current evidence ownership.
+- Decision: Store the owning evidence revision and fingerprint in proposal params and preview, backed by an additive mutable `recovery_evidence_heads` row per checkpoint.
+  Rationale: immutable decisions remain content-deduplicated for audit, while the monotonic head preserves evaluation recency. Legacy rows remain readable, and legacy pending recovery proposals fail closed because they cannot prove revision ownership.
   Date/Author: 2026-09-06 / Codex.
-- Decision: Serialize approval ownership with `BEGIN IMMEDIATE`, reading the latest recovery decision and changing `pending` to `applying` in one transaction.
-  Rationale: if newer evidence commits first, approval supersedes and refuses the proposal; if approval claims first, the later loop cannot supersede the applying proposal. This yields one terminal lifecycle without holding a transaction across provider delivery.
+- Decision: Serialize proposal publication and approval ownership with `BEGIN IMMEDIATE`, reading the evidence head before either publishing/refreshing `pending` or changing it to `applying`.
+  Rationale: an older evaluation cannot publish or overwrite a card after newer complete evidence commits. If approval claims first, the later loop cannot supersede the applying proposal. This yields one terminal lifecycle without holding a transaction across provider delivery.
   Date/Author: 2026-09-06 / Codex.
 - Decision: `data_gap` does not supersede a proposal; only a newer complete `conflict` or `silence` evaluation does.
   Rationale: missing evidence cannot prove that the original conflict ended.
@@ -45,11 +56,11 @@ After this change, a pending Recovery Replan is actionable only while the recove
 
 ## Outcomes & Retrospective
 
-The implementation now gives recovery proposals an explicit evidence owner, removes invalidated cards from the confirmation queue without deleting their audit rows, and places the evidence comparison and `pending` to `applying` claim under one SQLite write lock. A real two-writer test allows either valid ordering and proves the row finishes as exactly `approved` or `superseded`; a stale committed decision produces HTTP 409 before a checkpoint or provider call.
+The implementation now gives recovery proposals an explicit revisioned evidence owner, removes invalidated cards from the confirmation queue without deleting their audit rows, and places both publication ownership and the `pending` to `applying` claim under SQLite write locks. A real two-writer test allows either valid ordering and proves the row finishes as exactly `approved` or `superseded`; a stale committed decision produces HTTP 409 before a checkpoint or provider call. Identical evidence can recur after an intervening complete evaluation without losing freshness history.
 
 The card projection now sums the materialized child sessions on the affected composite day. Unchanged prefix rows retain their real duration and contribute zero, while the displayed protected-duration delta is the before/after difference for the selected affected day. The web label is derived from the proposal target date and `as_of`, and all decision clocks convert persisted UTC through `ATHLETE_TIMEZONE` with an explicit UTC fallback for invalid configuration.
 
-Validation at the candidate tree: focused recovery/Today/decision/UI contour `100 passed`; contributor-safe suite `2332 passed, 3 skipped, 26 deselected`; Ruff passed; Next.js lint and production build passed; the TypeScript contract artifact is current. GitHub PR #553 independently passed contributor-safe pytest, Playwright, the web contract check, and secret scanning. The three local skips and three warnings are the known environment/deprecation items recorded by the baseline, not regressions from this change. No local athlete database or provider was accessed.
+Validation at the reviewed candidate tree: focused recovery/Today/decision/UI contour `120 passed`; contributor-safe suite `2336 passed, 3 skipped, 26 deselected`; Ruff passed; Next.js lint and production build passed; the TypeScript contract artifact is current. The pre-review GitHub head for PR #553 independently passed contributor-safe pytest, Playwright, the web contract check, and secret scanning; CI for the review-fix commit must still run after push. The three local skips and three warnings are the known environment/deprecation items recorded by the baseline, not regressions from this change. No local athlete database or provider was accessed.
 
 ## Context and Orientation
 
@@ -59,9 +70,9 @@ The affected architecture requirements are ASR-REL-1, because a stale action mus
 
 ## Plan of Work
 
-First add database primitives that refresh the params and preview of one still-pending active proposal, supersede pending recovery proposals after newer complete evidence, and atomically claim a proposal only when its evidence fingerprint equals the latest recovery decision for the same checkpoint. Extend the allowed terminal statuses with `superseded`, retaining result reason and resolution time.
+First add database primitives that maintain one monotonic complete-evidence head per checkpoint, atomically publish or refresh one still-pending active proposal only for that head, supersede pending recovery proposals after newer complete evidence, and atomically claim a proposal only when its evidence revision and fingerprint equal the head. Extend the allowed terminal statuses with `superseded`, retaining result reason and resolution time.
 
-Then make the loop attach the immutable recovery-decision fingerprint to proposal params/preview. A complete silence supersedes pending proposals for that checkpoint. A complete conflict refreshes the one same-target active proposal and supersedes other target proposals; a data gap leaves actionability unchanged.
+Then make the loop attach the complete-evidence revision and immutable recovery-decision fingerprint to proposal params/preview. A complete silence supersedes pending proposals for that checkpoint. A complete conflict refreshes the one same-target active proposal and supersedes other target proposals; a data gap leaves actionability unchanged.
 
 Next make recovery day cards sum materialized child-session durations before and after the selected change, and make unchanged draft rows retain their current duration. Derive the Russian downgrade label from target date relative to `as_of`. Convert persisted UTC audit clocks through `Settings.ATHLETE_TIMEZONE`, with an explicit UTC fallback when configuration is invalid.
 
@@ -75,11 +86,11 @@ Then run Ruff, web lint/build, contract freshness, and contributor-safe pytest e
 
 ## Validation and Acceptance
 
-Tests must prove newer silence supersedes a pending proposal but preserves its row, data gap does not supersede, approval after a newer committed decision returns 409 with no checkpoint or provider write, and two racing operations yield one terminal result. A continuing same-target conflict keeps one active proposal whose fingerprint and preview match the newest decision. A composite-day fixture must show duration from the sums of materialized child sessions and zero contribution from unchanged rows. Source/UI tests must prove tomorrow/date wording, and API tests must prove UTC conversion into the athlete timezone plus honest invalid-timezone fallback.
+Tests must prove newer silence supersedes a pending proposal but preserves its row, data gap does not supersede, approval after a newer committed decision returns 409 with no checkpoint or provider write, and two racing operations yield one terminal result. A continuing same-target conflict keeps one active proposal whose revision, fingerprint, source key, and preview match the newest evidence; A → silence → identical A creates a fresh actionable revision. A composite-day fixture must show duration from the sums of materialized child sessions and zero contribution from unchanged rows. Source/UI tests must prove tomorrow/date wording, and API tests must prove UTC conversion and local-day grouping in the athlete timezone plus honest invalid-timezone fallback.
 
 ## Idempotence and Recovery
 
-Schema initialization remains additive and repeatable. Recovery decisions and planning checkpoints are never deleted or rewritten. Superseding is a conditional update from `pending` only. Re-running an identical loop reuses the same decision/proposal; retrying approval after a terminal transition returns 409. Provider delivery happens only after a successful evidence-current claim.
+Schema initialization remains additive and repeatable. Recovery decisions and planning checkpoints are never deleted or rewritten; only the separate per-checkpoint evidence head advances. Superseding is a conditional update from `pending` only. Re-running an identical current evaluation reuses the same decision/proposal, while recurrence after intervening complete evidence receives a new revision; retrying approval after a terminal transition returns 409. Provider delivery happens only after a successful evidence-current claim.
 
 ## Artifacts and Notes
 
@@ -87,6 +98,6 @@ Baseline at `d05b7e3`: focused recovery/Today/web contour 76 passed; contributor
 
 ## Interfaces and Dependencies
 
-`data.database.Database` will expose conditional recovery lifecycle methods returning deserialized proposal rows and machine-readable reasons. `api.recovery_replan_loop._proposal_payload` will accept the owning decision fingerprint. `api.routers.decisions.approve_proposal` will use the recovery-specific atomic claim before any plan/provider mutation. No external dependency is added; timezone conversion uses Python `zoneinfo`.
+`data.database.Database` exposes revision-head and conditional recovery lifecycle methods returning deserialized proposal rows and machine-readable reasons. `api.recovery_replan_loop._proposal_payload` accepts the owning evidence fingerprint and revision. `api.routers.decisions.approve_proposal` uses the recovery-specific atomic claim before any plan/provider mutation. No external dependency is added; timezone conversion uses Python `zoneinfo`.
 
-Revision note: initial executable specification created for issue #552 after source inspection and isolated falsifying probes. Updated after implementation to record the concurrent refresh edge, completed milestones, local validation evidence, and publication as PR #553; external review and merge remain explicit human-gated workflow steps.
+Revision note: initial executable specification created for issue #552 after source inspection and isolated falsifying probes. Updated after implementation to record the concurrent refresh edge, completed milestones, local validation evidence, and publication as PR #553. Updated again after the first consolidated review to record all reproduced findings and the revisioned publication CAS; merge remains an explicit human-gated workflow step.

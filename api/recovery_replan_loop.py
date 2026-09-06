@@ -205,6 +205,7 @@ def _proposal_payload(
     report: dict[str, Any],
     base_checkpoint_id: int,
     evidence_fingerprint: str,
+    evidence_revision: int,
     transfer_variant: dict[str, Any] | None,
     transfer_candidates: list[dict[str, Any]],
 ) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -221,6 +222,7 @@ def _proposal_payload(
     params = {
         "base_checkpoint_id": int(base_checkpoint_id),
         "evidence_fingerprint": str(evidence_fingerprint),
+        "evidence_revision": int(evidence_revision),
         "horizon_days": int(variant["horizon_days"]),
         "post_edit_strategy": str(variant["post_edit_strategy"]),
         "draft_rows": draft_rows,
@@ -270,6 +272,7 @@ def _proposal_payload(
     recommended_protection = by_variant[recommended_kind]
     preview = {
         "evidence_fingerprint": str(evidence_fingerprint),
+        "evidence_revision": int(evidence_revision),
         "reason": variant.get("reason"),
         "severity": selected_conflict.get("severity"),
         "current_session": dict(variant["current_session"]),
@@ -334,8 +337,6 @@ def run_recovery_replan_loop(
     checkpoint_id = checkpoint.get("id") if isinstance(checkpoint, dict) else None
     fingerprint = _fingerprint(report, checkpoint_id)
     standalone_scheduled_check = decision_event_id is None
-    if standalone_scheduled_check:
-        decision_event_id = f"scheduled_check:{fingerprint}"
     saved = db.save_recovery_decision(
         fingerprint=fingerprint,
         outcome=outcome,
@@ -345,6 +346,10 @@ def run_recovery_replan_loop(
         date=f"{str(report.get('as_of') or today.isoformat())[:10]}T00:00:00",
     )
     decision = saved["decision"]
+    evidence_revision = saved.get("evidence_revision")
+    evidence_token = saved.get("evidence_token")
+    if standalone_scheduled_check:
+        decision_event_id = f"scheduled_check:{evidence_token or fingerprint}"
     proposal = None
     proposal_gap = None
 
@@ -391,55 +396,26 @@ def run_recovery_replan_loop(
                 report=report,
                 base_checkpoint_id=int(checkpoint_id),
                 evidence_fingerprint=str(decision["fingerprint"]),
+                evidence_revision=int(evidence_revision),
                 transfer_variant=transfer_variant,
                 transfer_candidates=transfer_candidates,
             )
-            proposal = db.save_coach_proposal(
-                action="recovery_replan",
+            publication = db.publish_current_recovery_proposal(
                 params=params,
                 preview=preview,
-                source="recovery_replan",
-                source_key=fingerprint,
+                source_key=str(evidence_token),
                 active_key=_active_proposal_key(report, variant, int(checkpoint_id)),
+                decision_id=decision["id"],
                 date=f"{str(report.get('as_of') or today.isoformat())[:10]}T00:00:00",
                 decision_event_id=decision_event_id,
             )
-            if proposal["status"] == "pending" and (
-                proposal.get("preview") != preview or proposal.get("params") != params
-            ):
-                proposal = db.update_pending_coach_proposal_payload(
-                    proposal["id"], params, preview
+            proposal = publication["proposal"]
+            if publication["state"] == "stale_evidence":
+                proposal_gap = "recovery evidence changed before proposal publication"
+            elif proposal is not None:
+                decision = db.link_recovery_decision_proposal(
+                    decision["id"], proposal["id"]
                 )
-            if (
-                proposal["status"] == "superseded"
-                and proposal.get("source_key") != fingerprint
-            ):
-                # A concurrent approval can observe the just-committed newer
-                # decision before this loop refreshes the active-key row. It
-                # correctly expires the old preview; now publish one fresh
-                # proposal for this new evidence instead of leaving the still-
-                # present conflict without an actionable card.
-                proposal = db.save_coach_proposal(
-                    action="recovery_replan",
-                    params=params,
-                    preview=preview,
-                    source="recovery_replan",
-                    source_key=fingerprint,
-                    active_key=_active_proposal_key(
-                        report, variant, int(checkpoint_id)
-                    ),
-                    date=(
-                        f"{str(report.get('as_of') or today.isoformat())[:10]}"
-                        "T00:00:00"
-                    ),
-                    decision_event_id=decision_event_id,
-                )
-            decision = db.link_recovery_decision_proposal(decision["id"], proposal["id"])
-            db.supersede_pending_recovery_proposals(
-                int(checkpoint_id),
-                evidence_fingerprint=str(decision["fingerprint"]),
-                except_proposal_id=proposal["id"],
-            )
 
     # A complete evaluation owns proposal actionability for its checkpoint.
     # Missing data cannot disprove the prior conflict, but silence or an
@@ -452,6 +428,7 @@ def run_recovery_replan_loop(
         db.supersede_pending_recovery_proposals(
             int(checkpoint_id),
             evidence_fingerprint=str(decision["fingerprint"]),
+            evidence_revision=evidence_revision,
         )
 
     # A recovery evaluation invoked directly by /today is its own scheduled
@@ -499,6 +476,8 @@ def run_recovery_replan_loop(
     return {
         "outcome": outcome,
         "decision": decision,
+        "evidence_revision": evidence_revision,
+        "evidence_token": evidence_token,
         "proposal": proposal,
         "proposal_gap": proposal_gap,
         "readiness_conflicts": report,

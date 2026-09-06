@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 from datetime import date, datetime, timedelta
 import json
 import sqlite3
@@ -506,6 +507,142 @@ def test_same_target_conflict_refreshes_one_active_proposal_evidence(
         "decision"
     ]["fingerprint"]
     assert len(db.get_coach_proposals(days=36500, status="pending")) == 1
+
+
+def test_identical_conflict_recurrence_after_silence_gets_new_evidence_revision(
+    tmp_path, monkeypatch
+) -> None:
+    from api import recovery_replan_loop as loop_module
+
+    today = date(2026, 7, 10)
+    conflict = _conflict_report(today, days_until=1)
+    reports = [deepcopy(conflict), _silence_report(today), deepcopy(conflict)]
+    monkeypatch.setattr(
+        loop_module,
+        "build_readiness_conflict_report",
+        lambda _db, **_kwargs: reports.pop(0),
+    )
+    db = Database(str(tmp_path / "identical-conflict-recurrence.db"))
+    _save_plan(db, _goal_plan(today, conflict_days_until=1))
+
+    first = run_recovery_replan_loop(db, today=today)
+    run_recovery_replan_loop(db, today=today)
+    recurring = run_recovery_replan_loop(db, today=today)
+
+    assert recurring["decision"]["id"] == first["decision"]["id"]
+    assert recurring["evidence_revision"] > first["evidence_revision"]
+    assert db.get_coach_proposal(first["proposal"]["id"])["status"] == "superseded"
+    assert recurring["proposal"]["status"] == "pending"
+    assert recurring["proposal"]["id"] != first["proposal"]["id"]
+    assert recurring["proposal"]["params"]["evidence_revision"] == recurring[
+        "evidence_revision"
+    ]
+
+
+def test_stale_conflict_cannot_publish_after_newer_complete_evidence(tmp_path) -> None:
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "stale-publication.db"))
+    checkpoint = _save_plan(db, _goal_plan(today, conflict_days_until=1))
+    conflict = _conflict_report(today, days_until=1)
+    old = db.save_recovery_decision(
+        fingerprint="older-conflict",
+        outcome="conflict",
+        reason=conflict["reason"],
+        report=conflict,
+        plan_checkpoint_id=checkpoint["id"],
+    )
+    silence = _silence_report(today)
+    db.save_recovery_decision(
+        fingerprint="newer-silence",
+        outcome="silence",
+        reason=silence["reason"],
+        report=silence,
+        plan_checkpoint_id=checkpoint["id"],
+    )
+
+    publication = db.publish_current_recovery_proposal(
+        params={
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "older-conflict",
+            "evidence_revision": old["evidence_revision"],
+        },
+        preview={"evidence_fingerprint": "older-conflict"},
+        source_key=old["evidence_token"],
+        active_key="same-target",
+        decision_id=old["decision"]["id"],
+    )
+
+    assert publication["state"] == "stale_evidence"
+    assert publication["proposal"] is None
+    assert db.get_coach_proposals(days=36500, status="pending") == []
+
+
+def test_newer_conflict_atomically_refreshes_active_proposal_ownership(tmp_path) -> None:
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "newer-conflict-publication.db"))
+    checkpoint = _save_plan(db, _goal_plan(today, conflict_days_until=1))
+    report = _conflict_report(today, days_until=1)
+    first = db.save_recovery_decision(
+        fingerprint="conflict-c1",
+        outcome="conflict",
+        reason=report["reason"],
+        report=report,
+        plan_checkpoint_id=checkpoint["id"],
+    )
+    first_publication = db.publish_current_recovery_proposal(
+        params={
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "conflict-c1",
+            "evidence_revision": first["evidence_revision"],
+        },
+        preview={"evidence_fingerprint": "conflict-c1"},
+        source_key=first["evidence_token"],
+        active_key="same-target",
+        decision_id=first["decision"]["id"],
+        decision_event_id="scheduled-check-c1",
+    )
+    second = db.save_recovery_decision(
+        fingerprint="conflict-c2",
+        outcome="conflict",
+        reason=report["reason"],
+        report={**report, "readiness": {"score": 42.0}},
+        plan_checkpoint_id=checkpoint["id"],
+    )
+
+    second_publication = db.publish_current_recovery_proposal(
+        params={
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "conflict-c2",
+            "evidence_revision": second["evidence_revision"],
+        },
+        preview={"evidence_fingerprint": "conflict-c2"},
+        source_key=second["evidence_token"],
+        active_key="same-target",
+        decision_id=second["decision"]["id"],
+        decision_event_id="scheduled-check-c2",
+    )
+
+    assert second_publication["state"] == "published"
+    assert second_publication["proposal"]["id"] == first_publication["proposal"]["id"]
+    assert second_publication["proposal"]["source_key"] == second["evidence_token"]
+    assert second_publication["proposal"]["decision_event_id"] == "scheduled-check-c2"
+    assert second_publication["proposal"]["params"]["evidence_fingerprint"] == (
+        "conflict-c2"
+    )
+    stale_retry = db.publish_current_recovery_proposal(
+        params={
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "conflict-c1",
+            "evidence_revision": first["evidence_revision"],
+        },
+        preview={"evidence_fingerprint": "conflict-c1"},
+        source_key=first["evidence_token"],
+        active_key="same-target",
+        decision_id=first["decision"]["id"],
+    )
+    assert stale_retry == {"state": "stale_evidence", "proposal": None}
+    current = db.get_coach_proposals(days=36500, status="pending")[0]
+    assert current["params"]["evidence_fingerprint"] == "conflict-c2"
 
 
 def test_approval_fails_closed_after_newer_committed_silence(
