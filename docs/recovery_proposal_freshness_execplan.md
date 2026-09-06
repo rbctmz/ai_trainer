@@ -14,7 +14,7 @@ After this change, a pending Recovery Replan is actionable only while the recove
 - [x] (2026-09-06 08:14Z) Implemented conditional supersession and an evidence-current SQLite claim before any plan or provider mutation.
 - [x] (2026-09-06 08:15Z) Implemented materialized composite duration totals, unchanged-row neutrality, target-date wording, and athlete-local audit clocks.
 - [x] (2026-09-06 08:18Z) Completed Ruff, web lint/build, contract freshness, and contributor-safe pytest validation.
-- [ ] Publish the reviewed commit and open the issue-linked PR; GitHub CI and human review remain after this local plan.
+- [x] (2026-09-06 08:20Z) Published implementation commit `370af4b` and opened issue-linked PR #553; product CI passed and human review remains the merge gate.
 
 ## Surprises & Discoveries
 
@@ -49,7 +49,7 @@ The implementation now gives recovery proposals an explicit evidence owner, remo
 
 The card projection now sums the materialized child sessions on the affected composite day. Unchanged prefix rows retain their real duration and contribute zero, while the displayed protected-duration delta is the before/after difference for the selected affected day. The web label is derived from the proposal target date and `as_of`, and all decision clocks convert persisted UTC through `ATHLETE_TIMEZONE` with an explicit UTC fallback for invalid configuration.
 
-Validation at the candidate tree: focused recovery/Today/decision/UI contour `100 passed`; contributor-safe suite `2332 passed, 3 skipped, 26 deselected`; Ruff passed; Next.js lint and production build passed; the TypeScript contract artifact is current. The three skips and three warnings are the known environment/deprecation items recorded by the baseline, not regressions from this change. No local athlete database or provider was accessed.
+Validation at the candidate tree: focused recovery/Today/decision/UI contour `100 passed`; contributor-safe suite `2332 passed, 3 skipped, 26 deselected`; Ruff passed; Next.js lint and production build passed; the TypeScript contract artifact is current. GitHub PR #553 independently passed contributor-safe pytest, Playwright, the web contract check, and secret scanning. The three local skips and three warnings are the known environment/deprecation items recorded by the baseline, not regressions from this change. No local athlete database or provider was accessed.
 
 ## Context and Orientation
 
@@ -89,4 +89,4 @@ Baseline at `d05b7e3`: focused recovery/Today/web contour 76 passed; contributor
 
 `data.database.Database` will expose conditional recovery lifecycle methods returning deserialized proposal rows and machine-readable reasons. `api.recovery_replan_loop._proposal_payload` will accept the owning decision fingerprint. `api.routers.decisions.approve_proposal` will use the recovery-specific atomic claim before any plan/provider mutation. No external dependency is added; timezone conversion uses Python `zoneinfo`.
 
-Revision note: initial executable specification created for issue #552 after source inspection and isolated falsifying probes. Updated after implementation to record the concurrent refresh edge, completed milestones, and final local validation evidence; publication and external review remain explicit workflow steps.
+Revision note: initial executable specification created for issue #552 after source inspection and isolated falsifying probes. Updated after implementation to record the concurrent refresh edge, completed milestones, local validation evidence, and publication as PR #553; external review and merge remain explicit human-gated workflow steps.
