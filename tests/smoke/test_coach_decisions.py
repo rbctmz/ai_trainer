@@ -236,7 +236,13 @@ def test_display_time_converts_utc_to_athlete_timezone_and_falls_back(monkeypatc
     )
     # Recovery/loop rows persist `<as_of>T00:00:00` -> use the creation clock.
     assert (
-        _display_time({"date": "2026-07-20T00:00:00", "created_at": "2026-07-20 08:19:56"})
+        _display_time(
+            {
+                "date": "2026-07-20T00:00:00",
+                "created_at": "2026-07-20 08:19:56",
+                "source": "recovery_replan",
+            }
+        )
         == "11:19"
     )
     # A bare date with no time component also falls back to created_at.
@@ -246,7 +252,9 @@ def test_display_time_converts_utc_to_athlete_timezone_and_falls_back(monkeypatc
     # Nothing to show anywhere stays empty (renders as "--:--" in the UI).
     assert _display_time({"date": "", "created_at": ""}) == ""
     # 00:00 business date with no created_at keeps the honest 00:00.
-    assert _display_time({"date": "2026-07-20T00:00:00"}) == "00:00"
+    assert _display_time(
+        {"date": "2026-07-20T00:00:00", "source": "recovery_replan"}
+    ) == "00:00"
 
     monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "invalid/timezone")
     assert _display_time({"date": "2026-07-20T08:19:56"}) == "08:19 UTC"
@@ -255,9 +263,13 @@ def test_display_time_converts_utc_to_athlete_timezone_and_falls_back(monkeypatc
     after_midnight = {"date": "2026-07-02T22:30:00Z"}
     assert _display_time(after_midnight) == "01:30"
     assert _display_day(after_midnight) == "2026-07-03"
-    assert _display_day({"date": "2026-07-02T00:00:00", "created_at": "2026-07-03"}) == (
-        "2026-07-02"
-    )
+    assert _display_day(
+        {
+            "date": "2026-07-02T00:00:00",
+            "created_at": "2026-07-03",
+            "source": "recovery_replan",
+        }
+    ) == "2026-07-02"
 
 
 def test_decisions_api_shows_local_recovery_creation_time_not_business_midnight(
@@ -325,6 +337,45 @@ def test_decisions_api_groups_real_utc_clocks_by_athlete_local_day(
     assert payload["proposal_days"][0]["date"] == "2026-07-03"
     assert payload["proposal_days"][0]["proposals"][0]["time"] == "01:45"
     assert payload["recovery_days"][0]["date"] == "2026-07-02"
+
+
+def test_decisions_api_localizes_real_midnight_by_row_semantics(
+    tmp_path, monkeypatch
+) -> None:
+    from api.routers.decisions import list_decisions
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "America/Los_Angeles")
+    db = Database(str(tmp_path / "real-midnight-grouping.db"))
+    db.save_coach_proposal(
+        action="build_plan",
+        params={},
+        preview={},
+        source_key="real-midnight-proposal",
+        date="2026-07-03T00:00:00Z",
+    )
+    db.save_coach_decision(
+        decision_type="Monitor",
+        reason="Real midnight decision.",
+        decision_event_id="real-midnight-decision",
+        outcome="no_change",
+        date="2026-07-03T00:00:00Z",
+    )
+    db.save_recovery_decision(
+        fingerprint="recovery-business-midnight",
+        outcome="silence",
+        reason="Recovery business date remains authoritative.",
+        report={},
+        date="2026-07-03T00:00:00Z",
+    )
+
+    payload = list_decisions(days=36500, db=db)
+
+    assert payload["proposal_days"][0]["date"] == "2026-07-02"
+    assert payload["proposal_days"][0]["proposals"][0]["time"] == "17:00"
+    assert payload["days"][0]["date"] == "2026-07-02"
+    assert payload["days"][0]["decisions"][0]["time"] == "17:00"
+    assert payload["recovery_days"][0]["date"] == "2026-07-03"
 
 
 def test_decisions_api_dedupes_recovery_conflict_rules(tmp_path):

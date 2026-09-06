@@ -2209,7 +2209,7 @@ class Database:
         cursor.execute(
             '''
             UPDATE recovery_decisions
-            SET proposal_id = COALESCE(proposal_id, ?)
+            SET proposal_id = ?
             WHERE id = ?
             ''',
             (int(proposal_id), int(decision_id)),
@@ -3531,7 +3531,7 @@ class Database:
         date=None,
         decision_event_id=None,
     ):
-        """Atomically publish/refresh a proposal owned by the evidence head."""
+        """Atomically publish/reuse a proposal owned by the evidence head."""
         if not isinstance(params, dict) or not isinstance(preview, dict):
             raise ValueError("params and preview must be dicts")
         checkpoint_id = self._optional_int(params.get("base_checkpoint_id"))
@@ -3569,86 +3569,111 @@ class Database:
             conn.close()
             return {"state": "stale_evidence", "proposal": None}
 
-        values = (
-            self.clean_value(date),
-            json.dumps(params, ensure_ascii=False, default=str),
-            json.dumps(preview, ensure_ascii=False, default=str),
-            "recovery_replan",
-            self.clean_value(source_key),
-            self.clean_value(active_key),
-            self.clean_value(decision_event_id),
-            checkpoint_id,
-        )
+        proposal_columns = '''
+            id, date, action, status, params_json, preview_json, result_json,
+            error, chat_id, message_id, resolved_at, created_at, source, source_key,
+            active_key, decision_event_id, base_checkpoint_id,
+            applied_checkpoint_id, rollback_checkpoint_id
+        '''
+        serialized_params = json.dumps(params, ensure_ascii=False, default=str)
+        serialized_preview = json.dumps(preview, ensure_ascii=False, default=str)
         cursor.execute(
-            '''
-            INSERT OR IGNORE INTO coach_proposals
-                (date, action, status, params_json, preview_json, source,
-                 source_key, active_key, decision_event_id, base_checkpoint_id)
-            VALUES (?, 'recovery_replan', 'pending', ?, ?, ?, ?, ?, ?, ?)
-            ''',
-            values,
+            f"SELECT {proposal_columns} FROM coach_proposals "
+            "WHERE source_key = ? LIMIT 1",
+            (self.clean_value(source_key),),
         )
-        inserted = cursor.rowcount == 1
-        proposal_id = cursor.lastrowid if inserted else None
-        refresh_identity = False
-        if proposal_id is None:
-            cursor.execute(
-                "SELECT id FROM coach_proposals WHERE source_key = ? LIMIT 1",
-                (self.clean_value(source_key),),
-            )
-            matched = cursor.fetchone()
-            if matched is None:
-                cursor.execute(
-                    '''
-                    SELECT id FROM coach_proposals
-                    WHERE active_key = ? AND status IN ('pending', 'applying')
-                    LIMIT 1
-                    ''',
-                    (self.clean_value(active_key),),
-                )
-                matched = cursor.fetchone()
-                refresh_identity = matched is not None
-            if matched is None:
-                conn.rollback()
+        existing = self._deserialize_coach_proposal_row(cursor.fetchone())
+        if existing is not None:
+            if existing.get("status") == "applying":
+                conn.commit()
                 conn.close()
-                raise RuntimeError("proposal insert was ignored without an idempotency match")
-            proposal_id = int(matched[0])
-
-        cursor.execute(
-            '''
-            UPDATE coach_proposals
-            SET params_json = ?, preview_json = ?,
-                base_checkpoint_id = COALESCE(?, base_checkpoint_id)
-            WHERE id = ? AND status = 'pending'
-            ''',
-            (
-                json.dumps(params, ensure_ascii=False, default=str),
-                json.dumps(preview, ensure_ascii=False, default=str),
-                checkpoint_id,
-                proposal_id,
-            ),
-        )
-        if refresh_identity:
+                return {
+                    "state": "in_flight",
+                    "proposal": None,
+                    "blocking_proposal": existing,
+                }
+            if existing.get("status") != "pending":
+                conn.commit()
+                conn.close()
+                return {"state": "terminal", "proposal": existing}
             cursor.execute(
                 '''
                 UPDATE coach_proposals
-                SET source_key = ?, decision_event_id = ?
+                SET params_json = ?, preview_json = ?,
+                    base_checkpoint_id = COALESCE(?, base_checkpoint_id)
                 WHERE id = ? AND status = 'pending'
                 ''',
                 (
-                    self.clean_value(source_key),
-                    self.clean_value(decision_event_id),
-                    proposal_id,
+                    serialized_params,
+                    serialized_preview,
+                    checkpoint_id,
+                    int(existing["id"]),
                 ),
             )
-        cursor.execute(
-            '''
-            UPDATE recovery_decisions
-            SET proposal_id = COALESCE(proposal_id, ?)
-            WHERE id = ?
-            ''',
-            (proposal_id, int(decision_id)),
-        )
+            cursor.execute(
+                "UPDATE recovery_decisions SET proposal_id = ? WHERE id = ?",
+                (int(existing["id"]), int(decision_id)),
+            )
+            proposal_id = int(existing["id"])
+        else:
+            cursor.execute(
+                f"SELECT {proposal_columns} FROM coach_proposals "
+                "WHERE active_key = ? AND status IN ('pending', 'applying') LIMIT 1",
+                (self.clean_value(active_key),),
+            )
+            active = self._deserialize_coach_proposal_row(cursor.fetchone())
+            if active is not None and active.get("status") == "applying":
+                conn.commit()
+                conn.close()
+                return {
+                    "state": "in_flight",
+                    "proposal": None,
+                    "blocking_proposal": active,
+                }
+
+            resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            result_json = json.dumps(
+                {
+                    "reason": "superseded_by_newer_recovery_evidence",
+                    "evidence_fingerprint": expected_fingerprint,
+                    "evidence_revision": expected_revision,
+                },
+                ensure_ascii=False,
+            )
+            if active is not None:
+                cursor.execute(
+                    '''
+                    UPDATE coach_proposals
+                    SET status = 'superseded', result_json = ?, error = NULL,
+                        resolved_at = ?
+                    WHERE id = ? AND status = 'pending'
+                    ''',
+                    (result_json, resolved_at, int(active["id"])),
+                )
+            cursor.execute(
+                '''
+                INSERT INTO coach_proposals
+                    (date, action, status, params_json, preview_json, source,
+                     source_key, active_key, decision_event_id, base_checkpoint_id)
+                VALUES (?, 'recovery_replan', 'pending', ?, ?, ?, ?, ?, ?, ?)
+                ''',
+                (
+                    self.clean_value(date),
+                    serialized_params,
+                    serialized_preview,
+                    "recovery_replan",
+                    self.clean_value(source_key),
+                    self.clean_value(active_key),
+                    self.clean_value(decision_event_id),
+                    checkpoint_id,
+                ),
+            )
+            proposal_id = int(cursor.lastrowid)
+            cursor.execute(
+                "UPDATE recovery_decisions SET proposal_id = ? WHERE id = ?",
+                (proposal_id, int(decision_id)),
+            )
+
         resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
         result_json = json.dumps(
             {
@@ -3670,13 +3695,7 @@ class Database:
             (result_json, resolved_at, checkpoint_id, proposal_id),
         )
         cursor.execute(
-            '''
-            SELECT id, date, action, status, params_json, preview_json, result_json,
-                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
-                   active_key, decision_event_id, base_checkpoint_id,
-                   applied_checkpoint_id, rollback_checkpoint_id
-            FROM coach_proposals WHERE id = ?
-            ''',
+            f"SELECT {proposal_columns} FROM coach_proposals WHERE id = ?",
             (proposal_id,),
         )
         proposal = self._deserialize_coach_proposal_row(cursor.fetchone())

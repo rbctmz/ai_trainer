@@ -479,7 +479,7 @@ def test_data_gap_does_not_supersede_last_complete_conflict(tmp_path, monkeypatc
     assert db.get_coach_proposal(first["proposal"]["id"])["status"] == "pending"
 
 
-def test_same_target_conflict_refreshes_one_active_proposal_evidence(
+def test_same_target_conflict_replaces_prior_proposal_and_keeps_one_active(
     tmp_path, monkeypatch
 ) -> None:
     from api import recovery_replan_loop as loop_module
@@ -499,7 +499,8 @@ def test_same_target_conflict_refreshes_one_active_proposal_evidence(
     first = run_recovery_replan_loop(db, today=today)
     second = run_recovery_replan_loop(db, today=today)
 
-    assert second["proposal"]["id"] == first["proposal"]["id"]
+    assert second["proposal"]["id"] != first["proposal"]["id"]
+    assert db.get_coach_proposal(first["proposal"]["id"])["status"] == "superseded"
     assert second["proposal"]["params"]["evidence_fingerprint"] == second["decision"][
         "fingerprint"
     ]
@@ -537,6 +538,12 @@ def test_identical_conflict_recurrence_after_silence_gets_new_evidence_revision(
     assert recurring["proposal"]["params"]["evidence_revision"] == recurring[
         "evidence_revision"
     ]
+    recurring_decision = next(
+        row
+        for row in db.get_recovery_decisions(days=36500)
+        if row["fingerprint"] == recurring["decision"]["fingerprint"]
+    )
+    assert recurring_decision["proposal_id"] == recurring["proposal"]["id"]
 
 
 def test_stale_conflict_cannot_publish_after_newer_complete_evidence(tmp_path) -> None:
@@ -577,7 +584,7 @@ def test_stale_conflict_cannot_publish_after_newer_complete_evidence(tmp_path) -
     assert db.get_coach_proposals(days=36500, status="pending") == []
 
 
-def test_newer_conflict_atomically_refreshes_active_proposal_ownership(tmp_path) -> None:
+def test_newer_conflict_atomically_replaces_active_proposal_ownership(tmp_path) -> None:
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "newer-conflict-publication.db"))
     checkpoint = _save_plan(db, _goal_plan(today, conflict_days_until=1))
@@ -623,7 +630,10 @@ def test_newer_conflict_atomically_refreshes_active_proposal_ownership(tmp_path)
     )
 
     assert second_publication["state"] == "published"
-    assert second_publication["proposal"]["id"] == first_publication["proposal"]["id"]
+    assert second_publication["proposal"]["id"] != first_publication["proposal"]["id"]
+    assert db.get_coach_proposal(first_publication["proposal"]["id"])["status"] == (
+        "superseded"
+    )
     assert second_publication["proposal"]["source_key"] == second["evidence_token"]
     assert second_publication["proposal"]["decision_event_id"] == "scheduled-check-c2"
     assert second_publication["proposal"]["params"]["evidence_fingerprint"] == (
@@ -643,6 +653,69 @@ def test_newer_conflict_atomically_refreshes_active_proposal_ownership(tmp_path)
     assert stale_retry == {"state": "stale_evidence", "proposal": None}
     current = db.get_coach_proposals(days=36500, status="pending")[0]
     assert current["params"]["evidence_fingerprint"] == "conflict-c2"
+
+
+def test_newer_conflict_waits_for_applying_proposal_then_republishes(tmp_path) -> None:
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "applying-conflict-publication.db"))
+    checkpoint = _save_plan(db, _goal_plan(today, conflict_days_until=1))
+    report = _conflict_report(today, days_until=1)
+    first = db.save_recovery_decision(
+        fingerprint="applying-c1",
+        outcome="conflict",
+        reason=report["reason"],
+        report=report,
+        plan_checkpoint_id=checkpoint["id"],
+    )
+    first_publication = db.publish_current_recovery_proposal(
+        params={
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "applying-c1",
+            "evidence_revision": first["evidence_revision"],
+        },
+        preview={"evidence_fingerprint": "applying-c1"},
+        source_key=first["evidence_token"],
+        active_key="same-target",
+        decision_id=first["decision"]["id"],
+        decision_event_id="applying-event-c1",
+    )
+    first_id = first_publication["proposal"]["id"]
+    assert db.claim_current_recovery_proposal(first_id)["state"] == "claimed"
+    second = db.save_recovery_decision(
+        fingerprint="waiting-c2",
+        outcome="conflict",
+        reason=report["reason"],
+        report={**report, "readiness": {"score": 41.0}},
+        plan_checkpoint_id=checkpoint["id"],
+    )
+    publish_args = {
+        "params": {
+            "base_checkpoint_id": checkpoint["id"],
+            "evidence_fingerprint": "waiting-c2",
+            "evidence_revision": second["evidence_revision"],
+        },
+        "preview": {"evidence_fingerprint": "waiting-c2"},
+        "source_key": second["evidence_token"],
+        "active_key": "same-target",
+        "decision_id": second["decision"]["id"],
+        "decision_event_id": "waiting-event-c2",
+    }
+
+    blocked = db.publish_current_recovery_proposal(**publish_args)
+
+    assert blocked["state"] == "in_flight"
+    assert blocked["proposal"] is None
+    assert blocked["blocking_proposal"]["id"] == first_id
+    assert blocked["blocking_proposal"]["status"] == "applying"
+    assert db.get_coach_proposals(days=36500, status="pending") == []
+
+    db.update_coach_proposal_status(first_id, "failed", error="delivery failed")
+    republished = db.publish_current_recovery_proposal(**publish_args)
+
+    assert republished["state"] == "published"
+    assert republished["proposal"]["status"] == "pending"
+    assert republished["proposal"]["id"] != first_id
+    assert republished["proposal"]["decision_event_id"] == "waiting-event-c2"
 
 
 def test_approval_fails_closed_after_newer_committed_silence(
@@ -934,11 +1007,12 @@ def test_loop_creates_one_recovery_proposal_and_exposes_it_in_decisions_api(
     assert recovery["report"]["conflicts"][0]["severity"] == "high"
 
 
-def test_loop_keeps_intraday_decisions_but_reuses_target_session_proposal(
+def test_loop_keeps_intraday_decisions_with_revision_scoped_proposals(
     tmp_path,
     monkeypatch,
 ) -> None:
     from api import recovery_replan_loop as loop_module
+    from api.routers.decisions import list_decisions
 
     today = date(2026, 7, 10)
     first_report = _conflict_report(today, days_until=4)
@@ -963,11 +1037,23 @@ def test_loop_keeps_intraday_decisions_but_reuses_target_session_proposal(
     second = run_recovery_replan_loop(db, today=today)
 
     assert second["decision"]["id"] != first["decision"]["id"]
-    assert second["decision"]["proposal_id"] == first["proposal"]["id"]
-    assert second["proposal"]["id"] == first["proposal"]["id"]
+    assert second["decision"]["proposal_id"] == second["proposal"]["id"]
+    assert second["proposal"]["id"] != first["proposal"]["id"]
+    assert db.get_coach_proposal(first["proposal"]["id"])["status"] == "superseded"
     assert second["proposal"]["active_key"] == first["proposal"]["active_key"]
     assert len(db.get_recovery_decisions(days=36500)) == 2
-    assert len(db.get_coach_proposals(days=36500)) == 1
+    assert len(db.get_coach_proposals(days=36500)) == 2
+    decisions = {
+        row["decision_event_id"]: row
+        for day in list_decisions(days=36500, db=db)["days"]
+        for row in day["decisions"]
+    }
+    assert decisions[f"scheduled_check:{first['evidence_token']}"]["outcome"] == (
+        "no_change"
+    )
+    assert decisions[f"scheduled_check:{second['evidence_token']}"]["outcome"] == (
+        "proposed"
+    )
 
 
 def test_recovery_proposal_reject_approve_and_append_only_rollback(
@@ -1323,8 +1409,10 @@ def test_loop_keeps_single_current_proposal_when_readiness_shifts_but_target_ses
     second = run_recovery_replan_loop(db, today=today)
 
     assert second["decision"]["id"] != first["decision"]["id"]
-    assert second["proposal"]["id"] == first["proposal"]["id"]
-    assert len(db.get_coach_proposals(days=36500)) == 1
+    assert second["proposal"]["id"] != first["proposal"]["id"]
+    assert db.get_coach_proposal(first["proposal"]["id"])["status"] == "superseded"
+    assert len(db.get_coach_proposals(days=36500, status="pending")) == 1
+    assert len(db.get_coach_proposals(days=36500)) == 2
     assert len(db.get_recovery_decisions(days=36500)) == 2
     assert "transfer_1_3d" in _variant_kinds(second["proposal"])
 

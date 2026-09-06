@@ -409,10 +409,13 @@ def run_recovery_replan_loop(
                 date=f"{str(report.get('as_of') or today.isoformat())[:10]}T00:00:00",
                 decision_event_id=decision_event_id,
             )
+            publication_state = publication["state"]
             proposal = publication["proposal"]
-            if publication["state"] == "stale_evidence":
+            if publication_state == "stale_evidence":
                 proposal_gap = "recovery evidence changed before proposal publication"
-            elif proposal is not None:
+            elif publication_state == "in_flight":
+                proposal_gap = "recovery proposal publication is waiting for in-flight apply"
+            elif publication_state == "published" and proposal is not None:
                 decision = db.link_recovery_decision_proposal(
                     decision["id"], proposal["id"]
                 )

@@ -205,12 +205,31 @@ def _parse_persisted_utc(value: Any) -> datetime | None:
     return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=timezone.utc)
 
 
+def _uses_recovery_business_date(row: dict[str, Any]) -> bool:
+    """Whether a midnight/bare `date` is a recovery evaluation date, not a clock."""
+    clock = _format_time(row.get("date"))
+    if clock not in {"", "00:00"}:
+        return False
+    action = str(row.get("action") or "")
+    source = str(row.get("source") or "")
+    trigger_source = str(row.get("trigger_source") or "")
+    recovery_decision_shape = (
+        "fingerprint" in row and "report" in row and "decision_type" not in row
+    )
+    return bool(
+        recovery_decision_shape
+        or action == "recovery_replan"
+        or source == "recovery_replan"
+        or trigger_source.startswith("recovery_check:")
+    )
+
+
 def _display_day(row: dict[str, Any]) -> str:
     """Athlete-local grouping day, preserving explicit business dates."""
     raw_date = row.get("date")
     stored_day = str(raw_date or "")[:10]
     stored_clock = _format_time(raw_date)
-    if not stored_day or not stored_clock or stored_clock == "00:00":
+    if not stored_day or not stored_clock or _uses_recovery_business_date(row):
         return stored_day
     parsed = _parse_persisted_utc(raw_date)
     if parsed is None:
@@ -231,10 +250,11 @@ def _display_time(row: dict[str, Any]) -> str:
     configured athlete timezone. Invalid timezone configuration is labelled
     explicitly as UTC instead of looking like athlete-local time.
     """
-    from_date = _format_time(row.get("date"))
+    raw_date = row.get("date")
+    from_date = _format_time(raw_date)
     raw_value = (
-        row.get("date")
-        if from_date and from_date != "00:00"
+        raw_date
+        if from_date and not _uses_recovery_business_date(row)
         else row.get("created_at")
     )
     if not raw_value:
