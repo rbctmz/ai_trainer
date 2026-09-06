@@ -376,41 +376,36 @@ def test_today_conflict_without_safe_proposal_is_explicitly_unactionable(
     assert "План в силе" not in payload["reason"]
 
 
-def test_today_keeps_current_pending_proposal_visible_when_latest_loop_is_silent(
+def test_today_supersedes_current_pending_proposal_when_latest_loop_is_silent(
     tmp_path, monkeypatch
 ) -> None:
-    from api import today_snapshot as snapshot_module
     from api.routers.today import today_view
 
     today = date(2026, 7, 10)
     db = Database(str(tmp_path / "pending-survives.db"))
-    checkpoint = db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
-    proposal = db.save_coach_proposal(
-        action="recovery_replan",
-        params={"base_checkpoint_id": checkpoint["id"]},
-        preview={"reason": "earlier conflict"},
-        source="recovery_replan",
-        source_key="earlier-conflict",
-        active_key="same-session",
+    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    day_session = _session(today, days_until=0, role="quality", tss=60.0)
+    conflict = _report(
+        today,
+        sessions=[day_session],
+        conflicts=[_conflict_for(day_session)],
+        score=35.0,
+        status="low",
     )
+    _patch_report(monkeypatch, conflict)
+    _patch_snapshot(monkeypatch, _snapshot(score=35.0, status="low"))
+    first = today_view(db=db)
+    proposal = first["pending_proposal"]
+
     report = _report(today)
-    monkeypatch.setattr(
-        snapshot_module,
-        "_run_loop",
-        lambda _db, **_kwargs: {
-            "outcome": "silence",
-            "decision": {"id": 18, "fingerprint": "later-silence"},
-            "proposal": None,
-            "readiness_conflicts": report,
-        },
-    )
+    _patch_report(monkeypatch, report)
     _patch_snapshot(monkeypatch, _snapshot())
 
     payload = today_view(db=db)
 
-    assert payload["state"] == "conflict_actionable"
-    assert payload["pending_proposal"]["id"] == proposal["id"]
-    assert payload["proposal"]["relation"] == "current"
+    assert payload["state"] == "silence"
+    assert payload["pending_proposal"] is None
+    assert db.get_coach_proposal(proposal["id"])["status"] == "superseded"
 
 
 def test_today_stale_pending_proposal_is_evidence_without_controls(

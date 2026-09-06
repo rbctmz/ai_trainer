@@ -1,13 +1,16 @@
 """Coach decision audit trail endpoint."""
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from api import planning_service
 from api.deps import get_database
 from api.operational_state import build_operational_state
+from config.settings import Settings
 from data.database import Database
 from models.coach_decisions import (
     NO_REVISIT_REQUIRED,
@@ -191,14 +194,31 @@ def _display_time(row: dict[str, Any]) -> str:
     pure business date (`<as_of>T00:00:00`), so their real creation clock lives
     in `created_at`. Coach decisions (and coach-created proposals) carry their
     real time-of-day in `date` itself. Prefer `date`'s time, and fall back to
-    `created_at` only when `date` has no meaningful time (`00:00` or absent) —
-    both columns already store the same UTC-based clock, so the fallback stays
-    consistent with the times this surface has always shown.
+    `created_at` only when `date` has no meaningful time (`00:00` or absent).
+    Persisted clocks are UTC and are converted only for presentation into the
+    configured athlete timezone. Invalid timezone configuration is labelled
+    explicitly as UTC instead of looking like athlete-local time.
     """
     from_date = _format_time(row.get("date"))
-    if from_date and from_date != "00:00":
+    raw_value = (
+        row.get("date")
+        if from_date and from_date != "00:00"
+        else row.get("created_at")
+    )
+    if not raw_value:
         return from_date
-    return _format_time(row.get("created_at")) or from_date
+    text = str(raw_value).strip()
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return _format_time(text) or from_date
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    try:
+        athlete_zone = ZoneInfo(str(Settings.ATHLETE_TIMEZONE))
+    except (ZoneInfoNotFoundError, ValueError):
+        return f"{parsed.astimezone(timezone.utc).strftime('%H:%M')} UTC"
+    return parsed.astimezone(athlete_zone).strftime("%H:%M")
 
 
 def _dedupe_conflict_rules(conflicts: Any) -> list[dict[str, str]]:
@@ -247,13 +267,24 @@ def approve_proposal(
             # can immediately choose an offered variant; no plan/provider
             # mutation has started.
             raise HTTPException(status_code=422, detail=str(exc))
-    proposal = db.transition_coach_proposal_status(
-        proposal_id,
-        "pending",
-        "applying",
-    )
-    if proposal is None:
-        raise HTTPException(status_code=409, detail="proposal is already being applied")
+    if proposal.get("action") == "recovery_replan":
+        claim = db.claim_current_recovery_proposal(proposal_id)
+        proposal = claim.get("proposal")
+        if claim.get("state") == "superseded":
+            raise HTTPException(
+                status_code=409,
+                detail="proposal evidence is no longer current",
+            )
+        if claim.get("state") != "claimed" or proposal is None:
+            raise HTTPException(status_code=409, detail="proposal is already being applied")
+    else:
+        proposal = db.transition_coach_proposal_status(
+            proposal_id,
+            "pending",
+            "applying",
+        )
+        if proposal is None:
+            raise HTTPException(status_code=409, detail="proposal is already being applied")
     try:
         result = _apply_proposal(db, proposal, variant_kind=variant_kind)
     except planning_service.StalePlanningCheckpointError as exc:

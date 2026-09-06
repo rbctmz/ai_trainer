@@ -3363,6 +3363,180 @@ class Database:
         conn.close()
         return self._deserialize_coach_proposal_row(row)
 
+    def update_pending_coach_proposal_payload(self, proposal_id, params, preview):
+        """Refresh one still-pending proposal from newer canonical evidence."""
+        if not isinstance(params, dict) or not isinstance(preview, dict):
+            raise ValueError("params and preview must be dicts")
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute(
+            '''
+            UPDATE coach_proposals
+            SET params_json = ?, preview_json = ?,
+                base_checkpoint_id = COALESCE(?, base_checkpoint_id)
+            WHERE id = ? AND status = 'pending'
+            ''',
+            (
+                json.dumps(params, ensure_ascii=False, default=str),
+                json.dumps(preview, ensure_ascii=False, default=str),
+                self._optional_int(params.get("base_checkpoint_id")),
+                int(proposal_id),
+            ),
+        )
+        cursor.execute(
+            '''
+            SELECT id, date, action, status, params_json, preview_json, result_json,
+                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                   active_key, decision_event_id, base_checkpoint_id,
+                   applied_checkpoint_id, rollback_checkpoint_id
+            FROM coach_proposals WHERE id = ?
+            ''',
+            (int(proposal_id),),
+        )
+        row = cursor.fetchone()
+        conn.commit()
+        conn.close()
+        return self._deserialize_coach_proposal_row(row)
+
+    def supersede_pending_recovery_proposals(
+        self,
+        plan_checkpoint_id,
+        *,
+        evidence_fingerprint,
+        except_proposal_id=None,
+    ):
+        """Expire pending recovery cards invalidated by newer complete evidence."""
+        resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        result_json = json.dumps(
+            {
+                "reason": "superseded_by_newer_recovery_evidence",
+                "evidence_fingerprint": str(evidence_fingerprint or ""),
+            },
+            ensure_ascii=False,
+        )
+        conn = self._connect()
+        cursor = conn.cursor()
+        query = '''
+            UPDATE coach_proposals
+            SET status = 'superseded', result_json = ?, error = NULL, resolved_at = ?
+            WHERE action = 'recovery_replan'
+              AND status = 'pending'
+              AND base_checkpoint_id = ?
+        '''
+        params = [result_json, resolved_at, int(plan_checkpoint_id)]
+        if except_proposal_id is not None:
+            query += " AND id != ?"
+            params.append(int(except_proposal_id))
+        cursor.execute(query, tuple(params))
+        changed = int(cursor.rowcount)
+        conn.commit()
+        conn.close()
+        return changed
+
+    def claim_current_recovery_proposal(self, proposal_id):
+        """Atomically claim a proposal only while its complete evidence is latest.
+
+        `data_gap` rows are deliberately ignored: missing evidence cannot revoke
+        the last complete conflict. The write lock orders this claim against a
+        concurrently persisted recovery decision.
+        """
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            '''
+            SELECT id, date, action, status, params_json, preview_json, result_json,
+                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                   active_key, decision_event_id, base_checkpoint_id,
+                   applied_checkpoint_id, rollback_checkpoint_id
+            FROM coach_proposals WHERE id = ? LIMIT 1
+            ''',
+            (int(proposal_id),),
+        )
+        row = cursor.fetchone()
+        proposal = self._deserialize_coach_proposal_row(row)
+        if proposal is None:
+            conn.commit()
+            conn.close()
+            return {"state": "missing", "proposal": None}
+        if proposal.get("status") != "pending":
+            conn.commit()
+            conn.close()
+            return {"state": "not_pending", "proposal": proposal}
+
+        expected = str((proposal.get("params") or {}).get("evidence_fingerprint") or "")
+        checkpoint_id = self._optional_int(
+            (proposal.get("params") or {}).get("base_checkpoint_id")
+        )
+        cursor.execute(
+            '''
+            SELECT fingerprint, outcome
+            FROM recovery_decisions
+            WHERE plan_checkpoint_id = ? AND outcome != 'data_gap'
+            ORDER BY id DESC LIMIT 1
+            ''',
+            (checkpoint_id,),
+        )
+        evidence = cursor.fetchone()
+        evidence_current = bool(
+            expected
+            and evidence
+            and str(evidence[0]) == expected
+            and str(evidence[1]) == "conflict"
+        )
+        if not evidence_current:
+            resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+            result_json = json.dumps(
+                {
+                    "reason": "superseded_by_newer_recovery_evidence",
+                    "expected_evidence_fingerprint": expected or None,
+                    "latest_evidence_fingerprint": str(evidence[0]) if evidence else None,
+                },
+                ensure_ascii=False,
+            )
+            cursor.execute(
+                '''
+                UPDATE coach_proposals
+                SET status = 'superseded', result_json = ?, error = NULL, resolved_at = ?
+                WHERE id = ? AND status = 'pending'
+                ''',
+                (result_json, resolved_at, int(proposal_id)),
+            )
+            cursor.execute(
+                '''
+                SELECT id, date, action, status, params_json, preview_json, result_json,
+                       error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                       active_key, decision_event_id, base_checkpoint_id,
+                       applied_checkpoint_id, rollback_checkpoint_id
+                FROM coach_proposals WHERE id = ?
+                ''',
+                (int(proposal_id),),
+            )
+            updated = self._deserialize_coach_proposal_row(cursor.fetchone())
+            conn.commit()
+            conn.close()
+            return {"state": "superseded", "proposal": updated}
+
+        cursor.execute(
+            "UPDATE coach_proposals SET status = 'applying' WHERE id = ? AND status = 'pending'",
+            (int(proposal_id),),
+        )
+        claimed = cursor.rowcount == 1
+        cursor.execute(
+            '''
+            SELECT id, date, action, status, params_json, preview_json, result_json,
+                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                   active_key, decision_event_id, base_checkpoint_id,
+                   applied_checkpoint_id, rollback_checkpoint_id
+            FROM coach_proposals WHERE id = ?
+            ''',
+            (int(proposal_id),),
+        )
+        updated = self._deserialize_coach_proposal_row(cursor.fetchone())
+        conn.commit()
+        conn.close()
+        return {"state": "claimed" if claimed else "not_pending", "proposal": updated}
+
     def get_coach_proposal(self, proposal_id):
         """Возвращает одно предложение коуча по id или None."""
         if proposal_id is None:
@@ -3424,7 +3598,9 @@ class Database:
 
     def update_coach_proposal_status(self, proposal_id, status, result=None, error=None):
         """Обновляет lifecycle proposal: approved/rejected/failed."""
-        allowed_statuses = {"pending", "approved", "rejected", "failed", "rolled_back"}
+        allowed_statuses = {
+            "pending", "approved", "rejected", "failed", "rolled_back", "superseded"
+        }
         status = str(status or "").strip()
         if status not in allowed_statuses:
             raise ValueError(f"status must be one of {sorted(allowed_statuses)}")

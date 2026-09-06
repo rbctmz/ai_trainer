@@ -51,6 +51,16 @@ def test_proposal_card_variant_selection_defaults_to_recommended_and_is_reselect
     assert "availableRecoveryVariants.some" in source
 
 
+def test_recovery_downgrade_label_is_derived_from_target_date() -> None:
+    source = _source("web/components/ui/ProposalCard.tsx")
+
+    assert "function recoveryVariantLabel(" in source
+    assert 'if (dayOffset === 0) return "Снизить нагрузку сегодня"' in source
+    assert 'if (dayOffset === 1) return "Снизить нагрузку завтра"' in source
+    assert "asRecord(variant.session).date ?? recommendedSession.date" in source
+    assert "params.as_of" in source
+
+
 def test_proposal_card_selection_is_scoped_to_the_exact_proposal_id() -> None:
     """React may reuse the shared component when an approved recovery proposal
     immediately yields another proposal for the new checkpoint. A selection

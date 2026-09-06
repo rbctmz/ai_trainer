@@ -100,8 +100,11 @@ def test_database_persists_coach_proposals(tmp_path):
     assert [row["id"] for row in rows] == [proposal["id"]]
 
 
-def test_decisions_api_groups_by_day_and_exposes_empty_state(tmp_path):
+def test_decisions_api_groups_by_day_and_exposes_empty_state(tmp_path, monkeypatch):
     from api.routers.decisions import list_decisions
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "UTC")
 
     db = Database(str(tmp_path / "decisions.db"))
 
@@ -128,8 +131,11 @@ def test_decisions_api_groups_by_day_and_exposes_empty_state(tmp_path):
     assert payload["operational_state"]["status"] == "ready"
 
 
-def test_decisions_api_collapses_consecutive_identical_decisions(tmp_path):
+def test_decisions_api_collapses_consecutive_identical_decisions(tmp_path, monkeypatch):
     from api.routers.decisions import list_decisions
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "UTC")
 
     db = Database(str(tmp_path / "decision_dedup.db"))
     # Date-safe fixtures (issue #320): keep dates inside the rolling 30-day
@@ -217,31 +223,42 @@ def test_decisions_api_exposes_proposals_without_changing_decision_days(tmp_path
     assert payload["pending_proposal_days"][0]["proposals"][0]["status"] == "pending"
 
 
-def test_display_time_prefers_business_time_and_falls_back_to_created_at():
+def test_display_time_converts_utc_to_athlete_timezone_and_falls_back(monkeypatch):
     from api.routers.decisions import _display_time
+    from config.settings import Settings
 
-    # Coach rows carry the real time-of-day in `date` -> keep it.
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "Europe/Moscow")
+
+    # Coach rows carry a UTC clock in `date` -> render it for the athlete.
     assert (
         _display_time({"date": "2026-07-02T12:00:00", "created_at": "2026-07-02 09:00:00"})
-        == "12:00"
+        == "15:00"
     )
     # Recovery/loop rows persist `<as_of>T00:00:00` -> use the creation clock.
     assert (
         _display_time({"date": "2026-07-20T00:00:00", "created_at": "2026-07-20 08:19:56"})
-        == "08:19"
+        == "11:19"
     )
     # A bare date with no time component also falls back to created_at.
     assert (
-        _display_time({"date": "2026-07-20", "created_at": "2026-07-20 08:19:56"}) == "08:19"
+        _display_time({"date": "2026-07-20", "created_at": "2026-07-20 08:19:56"}) == "11:19"
     )
     # Nothing to show anywhere stays empty (renders as "--:--" in the UI).
     assert _display_time({"date": "", "created_at": ""}) == ""
     # 00:00 business date with no created_at keeps the honest 00:00.
     assert _display_time({"date": "2026-07-20T00:00:00"}) == "00:00"
 
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "invalid/timezone")
+    assert _display_time({"date": "2026-07-20T08:19:56"}) == "08:19 UTC"
 
-def test_decisions_api_shows_recovery_creation_time_not_business_midnight(tmp_path):
-    from api.routers.decisions import _format_time, list_decisions
+
+def test_decisions_api_shows_local_recovery_creation_time_not_business_midnight(
+    tmp_path, monkeypatch
+):
+    from api.routers.decisions import _format_time, _display_time, list_decisions
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "Europe/Moscow")
 
     db = Database(str(tmp_path / "recovery_time.db"))
     saved = db.save_recovery_decision(
@@ -260,7 +277,7 @@ def test_decisions_api_shows_recovery_creation_time_not_business_midnight(tmp_pa
     # The stored business date carries no clock (00:00); the displayed time must
     # come from created_at instead of the hard-coded midnight.
     assert _format_time("2026-07-20T00:00:00") == "00:00"
-    assert recovery["time"] == _format_time(created_at)
+    assert recovery["time"] == _display_time({"created_at": created_at})
 
 
 def test_decisions_api_dedupes_recovery_conflict_rules(tmp_path):
