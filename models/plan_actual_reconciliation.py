@@ -972,9 +972,11 @@ def apply_weekly_rebalance_preview(
             after_duration,
             after_parts,
         )
-        if template.get("materialization_status") == "materialized":
+        if template.get("sessions") or template.get("materialization_status") in {"materialized", "infeasible"}:
+            session_rows = list(template.get("sessions") or [])
+            source_session = dict(session_rows[0] or {}) if len(session_rows) == 1 else template
             refreshed = rescale_materialized_session(
-                template,
+                source_session,
                 target_tss=after_total,
                 parts=after_parts,
             )
@@ -984,7 +986,13 @@ def apply_weekly_rebalance_preview(
                 int(refreshed.get("duration_minutes") or after_duration),
                 after_parts,
             )
-            templates[index] = refreshed
+            if len(session_rows) == 1:
+                template["sessions"] = [refreshed]
+                from models.training_planner import project_day_scalars
+                project_day_scalars(template)
+                templates[index] = template
+            else:
+                templates[index] = refreshed
 
     updated["daily_plan"] = daily_plan
     updated["session_templates"] = templates

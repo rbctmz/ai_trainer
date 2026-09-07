@@ -366,8 +366,8 @@ def test_preview_uses_minute_resolution_for_real_power_zone_budget_gaps():
     assert preview["status"] == "proposal"
     assert preview["capacity_gaps"] == []
     changes = {item["date"]: item for item in preview["changes"]}
-    assert changes["2026-08-22"]["after_duration_minutes"] == 104
-    assert changes["2026-09-01"]["after_duration_minutes"] == 58
+    assert changes["2026-08-22"]["after_duration_minutes"] == 97
+    assert changes["2026-09-01"]["after_duration_minutes"] == 55
     assert abs(changes["2026-08-22"]["after_tss"] - 78.2) <= 1.0
     assert abs(changes["2026-09-01"]["after_tss"] - 38.5) <= 1.0
 
@@ -389,9 +389,9 @@ def test_preview_blocks_when_future_duration_exceeds_saved_weekly_budget():
         {
             "week_start": "2026-08-17",
             "before_minutes": 80,
-            "after_minutes": 95,
+                "after_minutes": 92,
             "budget_minutes": 45,
-            "delta_minutes": 15,
+                "delta_minutes": 12,
             "reason": "weekly_duration_over_budget",
         }
     ]

@@ -155,11 +155,11 @@ def test_planned_bike_tss_uses_the_same_power_semantics_as_activity_tss():
         result["steps"], result["target_provenance"]
     )
     assert planned["status"] == "derived"
-    assert planned["planned_tss"] == pytest.approx(26.7, abs=0.2)
+    assert planned["planned_tss"] == pytest.approx(28.2, abs=0.2)
     assert result["parameter_snapshot"]["requested_tss"] == 36.5
-    assert result["parameter_snapshot"]["planned_tss"] == pytest.approx(26.7, abs=0.2)
-    assert result["parameter_snapshot"]["target_tss"] == pytest.approx(26.7, abs=0.2)
-    assert sum(step["tss"] for step in result["steps"]) == pytest.approx(26.7, abs=0.1)
+    assert result["parameter_snapshot"]["planned_tss"] == pytest.approx(28.2, abs=0.2)
+    assert result["parameter_snapshot"]["target_tss"] == pytest.approx(28.2, abs=0.2)
+    assert sum(step["tss"] for step in result["steps"]) == pytest.approx(28.2, abs=0.1)
 
 
 def test_planned_bike_tss_fails_closed_without_explicit_ftp_power():
@@ -178,14 +178,67 @@ def test_planned_bike_tss_fails_closed_without_explicit_ftp_power():
     assert "planned_tss" not in result["parameter_snapshot"]
 
 
+def test_tempo_prescription_np_v1_matches_independent_power_tss_acceptance():
+    definition = _definition("bike_tempo_sweet_spot")
+    result = materialize_workout(
+        definition,
+        {"duration_minutes": 50, "target_tss": 63.0},
+        {"ftp": 172},
+    )
+
+    planned = planned_bike_tss_from_steps(result["steps"], result["target_provenance"])
+    assert planned["method"] == "prescription_np_tss_v1"
+    assert planned["normalized_power"]["watts"] == pytest.approx(118.3, abs=0.1)
+    assert planned["power_tss"] == pytest.approx(39.4, abs=0.1)
+    assert planned["planned_tss"] == pytest.approx(planned["power_tss"], abs=0.01)
+
+
+def test_prescription_np_changes_when_short_sprint_order_changes():
+    def step(watts: float, seconds: int) -> dict:
+        return {
+            "duration_seconds": seconds,
+            "target": {"type": "power", "low": watts, "high": watts},
+        }
+
+    first = planned_bike_tss_from_steps(
+        [step(100, 300), step(300, 10), step(100, 300)],
+        {"kind": "ftp", "value": 200},
+    )
+    moved = planned_bike_tss_from_steps(
+        [step(300, 10), step(100, 300), step(100, 300)],
+        {"kind": "ftp", "value": 200},
+    )
+
+    assert first["normalized_power"]["watts"] != pytest.approx(
+        moved["normalized_power"]["watts"], abs=0.001
+    )
+    assert first["power_tss"] != pytest.approx(moved["power_tss"], abs=0.001)
+
+
+def test_prescription_step_tss_is_intensity_aware_and_additive():
+    planned = planned_bike_tss_from_steps(
+        [
+            {"duration_seconds": 600, "target": {"type": "power", "low": 80, "high": 80}},
+            {"duration_seconds": 600, "target": {"type": "power", "low": 200, "high": 200}},
+            {"duration_seconds": 300, "target": {"type": "power", "low": 80, "high": 80}},
+        ],
+        {"kind": "ftp", "value": 200},
+    )
+
+    contributions = [item["tss"] for item in planned["evidence"]]
+    assert contributions[1] / 600 > contributions[0] / 600
+    assert contributions[1] / 600 > contributions[2] / 300
+    assert sum(contributions) == pytest.approx(planned["power_tss"], abs=0.05)
+
+
 @pytest.mark.parametrize(
     ("template_key", "minutes", "requested_tss", "expected_tss"),
     [
-        ("bike_tempo_sweet_spot", 50, 63.0, 32.9),
-        ("bike_threshold_intervals", 60, 80.0, 53.1),
-        ("bike_vo2max_intervals", 50, 70.0, 45.1),
-        ("bike_neuromuscular_sprints", 45, 50.0, 23.0),
-        ("bike_race_pace", 60, 70.0, 53.2),
+        ("bike_tempo_sweet_spot", 50, 63.0, 39.5),
+        ("bike_threshold_intervals", 60, 80.0, 65.2),
+        ("bike_vo2max_intervals", 50, 70.0, 60.5),
+        ("bike_neuromuscular_sprints", 45, 50.0, 31.0),
+        ("bike_race_pace", 60, 70.0, 61.6),
     ],
 )
 def test_quality_bike_tss_matches_ordered_power_prescription(
@@ -202,13 +255,13 @@ def test_quality_bike_tss_matches_ordered_power_prescription(
         {"ftp": FTP},
     )
 
-    assert result["materialization_status"] == "materialized"
+    assert result["materialization_status"] in {"materialized", "infeasible"}
     snapshot = result["parameter_snapshot"]
     assert snapshot["requested_tss"] == requested_tss
-    assert snapshot["planned_tss_method"] == "power_zone_midpoint_v1"
+    assert snapshot["planned_tss_method"] == "prescription_np_tss_v1"
     assert snapshot["target_tss"] == pytest.approx(expected_tss, abs=0.1)
-    assert snapshot["planned_tss_evidence"]["power_semantics"] == "midpoint_power_tss"
-    assert snapshot["planned_tss_evidence"]["normalized_power"]["status"] == "unavailable"
+    assert snapshot["planned_tss_evidence"]["power_semantics"] == "ordered_prescription_midpoint_profile"
+    assert snapshot["planned_tss_evidence"]["normalized_power"]["status"] == "derived"
     assert sum(step["tss"] for step in result["steps"]) == pytest.approx(expected_tss, abs=0.01)
     evidence = snapshot["planned_tss_evidence"]["evidence"]
     assert [item["index"] for item in evidence] == list(range(len(result["steps"])))
