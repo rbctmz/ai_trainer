@@ -176,3 +176,57 @@ def test_planned_bike_tss_fails_closed_without_explicit_ftp_power():
     assert planned["status"] == "data_gap"
     assert planned["reason"] == "missing_ftp"
     assert "planned_tss" not in result["parameter_snapshot"]
+
+
+@pytest.mark.parametrize(
+    ("template_key", "minutes", "requested_tss", "expected_tss"),
+    [
+        ("bike_tempo_sweet_spot", 50, 63.0, 32.9),
+        ("bike_threshold_intervals", 60, 80.0, 53.1),
+        ("bike_vo2max_intervals", 50, 70.0, 45.1),
+        ("bike_neuromuscular_sprints", 45, 50.0, 23.0),
+        ("bike_race_pace", 60, 70.0, 53.2),
+    ],
+)
+def test_quality_bike_tss_matches_ordered_power_prescription(
+    template_key: str,
+    minutes: int,
+    requested_tss: float,
+    expected_tss: float,
+) -> None:
+    """Issue #554: quality plans use their own FTP targets as the source of truth."""
+    definition = _definition(template_key)
+    result = materialize_workout(
+        definition,
+        {"duration_minutes": minutes, "target_tss": requested_tss},
+        {"ftp": FTP},
+    )
+
+    assert result["materialization_status"] == "materialized"
+    snapshot = result["parameter_snapshot"]
+    assert snapshot["requested_tss"] == requested_tss
+    assert snapshot["planned_tss_method"] == "power_zone_midpoint_v1"
+    assert snapshot["target_tss"] == pytest.approx(expected_tss, abs=0.1)
+    assert snapshot["planned_tss_evidence"]["power_semantics"] == "midpoint_power_tss"
+    assert snapshot["planned_tss_evidence"]["normalized_power"]["status"] == "unavailable"
+    assert sum(step["tss"] for step in result["steps"]) == pytest.approx(expected_tss, abs=0.01)
+    evidence = snapshot["planned_tss_evidence"]["evidence"]
+    assert [item["index"] for item in evidence] == list(range(len(result["steps"])))
+    assert [item["duration_seconds"] for item in evidence] == [
+        float(step["duration_seconds"]) for step in result["steps"]
+    ]
+
+    work = [step for step in result["steps"] if step.get("segment_kind") == "work"]
+    warmup = next(step for step in result["steps"] if step.get("segment_kind") == "warmup")
+    recoveries = [step for step in result["steps"] if step.get("segment_kind") == "recovery"]
+    assert work and all(
+        step["tss"] / step["duration_seconds"]
+        > warmup["tss"] / warmup["duration_seconds"]
+        for step in work
+    )
+    if recoveries:
+        assert all(
+            step["tss"] / step["duration_seconds"]
+            < work[0]["tss"] / work[0]["duration_seconds"]
+            for step in recoveries
+        )

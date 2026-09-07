@@ -950,10 +950,32 @@ def planned_bike_tss_from_steps(
         "status": "derived",
         "planned_tss": round(total, 1),
         "method": "power_zone_midpoint_v1",
+        "power_semantics": "midpoint_power_tss",
+        # A materialized prescription contains target ranges, not an observed
+        # second-by-second power stream.  Keep this explicit so consumers do
+        # not mistake the deterministic planning estimate for provider NP.
+        "normalized_power": {
+            "status": "unavailable",
+            "reason": "prescription_has_no_observed_power_stream",
+        },
         "ftp": ftp,
         "step_count": len(steps),
         "evidence": evidence,
     }
+
+
+_POWER_DERIVED_BIKE_BUILDERS = frozenset(
+    {
+        "recovery",
+        "endurance",
+        "progression",
+        "tempo",
+        "threshold",
+        "vo2",
+        "neuromuscular",
+        "race_pace",
+    }
+)
 
 
 def materialize_workout(
@@ -1012,15 +1034,32 @@ def materialize_workout(
             step["repeat_index"] = spec.repeat_index
         steps.append(step)
     planned_evidence = None
-    if definition.sport == "bike" and definition.step_builder_key in {
-        "recovery",
-        "endurance",
-        "progression",
-    }:
+    if (
+        definition.sport == "bike"
+        and definition.step_builder_key in _POWER_DERIVED_BIKE_BUILDERS
+    ):
         planned_evidence = planned_bike_tss_from_steps(steps, provenance)
         if planned_evidence.get("status") == "derived":
             effective_tss = float(planned_evidence["planned_tss"])
-            tss_values = _exact_distribution(effective_tss, duration_shares, 1)
+            # Step load follows the prescribed power intensity.  Distributing
+            # the effective total by duration alone made warm-ups and
+            # recoveries appear as hard as work intervals.  The calculator's
+            # evidence already contains one raw TSS contribution per step;
+            # preserve those relative contributions while rounding to an exact
+            # session total.
+            raw_step_tss = [
+                float(item.get("tss") or 0.0)
+                for item in planned_evidence.get("evidence") or []
+            ]
+            raw_total = sum(raw_step_tss)
+            if raw_total > 0 and len(raw_step_tss) == len(steps):
+                tss_values = _exact_distribution(
+                    effective_tss,
+                    [value / raw_total for value in raw_step_tss],
+                    1,
+                )
+            else:
+                tss_values = _exact_distribution(effective_tss, duration_shares, 1)
             for index, value in enumerate(tss_values):
                 steps[index]["tss"] = value
             parameter_snapshot = {

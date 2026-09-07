@@ -157,7 +157,9 @@ def test_materializer_preserves_exact_seconds_tss_and_ftp_provenance():
     assert result["materialization_status"] == "materialized"
     assert result["rule_version"] == MATERIALIZER_RULE_VERSION
     assert sum(step["duration_seconds"] for step in result["steps"]) == 3600
-    assert sum(step["tss"] for step in result["steps"]) == pytest.approx(80.0, abs=0.01)
+    effective_tss = result["parameter_snapshot"]["target_tss"]
+    assert effective_tss == pytest.approx(53.1, abs=0.1)
+    assert sum(step["tss"] for step in result["steps"]) == pytest.approx(effective_tss, abs=0.01)
     assert result["target_provenance"] == {
         "kind": "ftp",
         "source": "athlete_profile.ftp",
@@ -331,7 +333,9 @@ def test_session_templates_store_phase_specific_materialized_prescriptions():
     assert base["materialization_status"] == "materialized"
     assert build["materialization_status"] == "materialized"
     assert sum(step["duration_seconds"] for step in build["materialized_steps"]) == 3600
-    assert sum(step["tss"] for step in build["materialized_steps"]) == pytest.approx(80.0)
+    assert sum(step["tss"] for step in build["materialized_steps"]) == pytest.approx(53.1, abs=0.1)
+    assert build["sessions"][0]["total_tss"] == pytest.approx(53.1, abs=0.1)
+    assert build["parameter_snapshot"]["requested_tss"] == 80.0
     assert build["definition_snapshot"]["template_key"] == "bike_threshold_intervals"
     assert build["selection_evidence"]["phase"] == "Build"
 
