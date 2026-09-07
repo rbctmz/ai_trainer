@@ -2310,7 +2310,12 @@ def project_daily_plan_from_session_templates(
         if str((template or {}).get("session_role") or "") in {"off", "race"} or (template or {}).get("is_race_event"):
             projected.append((dt, round(float(original_total or 0.0), 1), dict(original_parts or {})))
             continue
-        parts: Dict[str, float] = {}
+        original_parts_map = dict(original_parts or {})
+        parts: Dict[str, float] = {
+            sport: 0.0
+            for sport in ("run", "bike", "swim")
+            if sport in original_parts_map
+        }
         for session in list((template or {}).get("sessions") or []):
             if not isinstance(session, Mapping):
                 continue
@@ -2395,6 +2400,7 @@ def derive_weekly_sport_buckets_from_sessions(
                         buckets[sport] + float(leaf.get("total_tss") or 0.0), 1
                     )
         row.update(buckets)
+        row["weekly_tss"] = int(round(sum(buckets.values())))
     return derived
 
 

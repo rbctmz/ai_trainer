@@ -132,17 +132,19 @@ _CATALOG = (
     _definition(
         "bike_tempo_sweet_spot", "Tempo / Sweet Spot", "bike", ("quality",),
         "sustained sub-threshold work", ("Build", "Peak", "Maintenance"),
-        (45, 150), (35, 180), (60, 95), (2, 1, 1), 30, ("ftp", "relative_rpe"), "tempo",
+        # NP includes the prescribed recoveries and 30s transitions, so its
+        # effective density is below the old midpoint-sum floor.
+        (45, 150), (35, 180), (45, 95), (2, 1, 1), 30, ("ftp", "relative_rpe"), "tempo",
     ),
     _definition(
         "bike_threshold_intervals", "Threshold Intervals", "bike", ("quality",),
         "lactate-threshold development", ("Build", "Peak"),
-        (40, 120), (35, 160), (70, 110), (3, 1, 1), 36, ("ftp", "relative_rpe"), "threshold",
+        (40, 120), (35, 160), (55, 110), (3, 1, 1), 36, ("ftp", "relative_rpe"), "threshold",
     ),
     _definition(
         "bike_vo2max_intervals", "VO2max Intervals", "bike", ("quality",),
         "maximal aerobic power", ("Build", "Peak", "Taper", "Race Week"),
-        (35, 90), (30, 125), (75, 120), (3, 1, 2), 42, ("ftp", "relative_rpe"), "vo2",
+        (35, 90), (30, 125), (70, 120), (3, 1, 2), 42, ("ftp", "relative_rpe"), "vo2",
     ),
     _definition(
         "bike_neuromuscular_sprints", "Neuromuscular Sprints", "bike", ("quality", "easy"),
@@ -1574,7 +1576,14 @@ def rescale_materialized_session(
     if updated.get("materialization_status") not in {"materialized", "infeasible"}:
         return updated
     old_parameters = dict(updated.get("parameter_snapshot") or {})
-    old_tss = float(old_parameters.get("target_tss") or 0.0)
+    # ``target_tss`` is the effective NP load after materialization. Rescale
+    # duration against the requested budget so reducing a plan budget cannot
+    # lengthen a session merely because the old prescription delivered less NP.
+    old_tss = float(
+        old_parameters.get("requested_tss")
+        or old_parameters.get("target_tss")
+        or 0.0
+    )
     target_tss = round(float(target_tss or 0.0), 1)
     if old_tss <= 0 or target_tss <= 0:
         return updated
@@ -1632,6 +1641,7 @@ def rescale_materialized_session(
             "target_tss": effective_parent_tss,
             "tss_per_hour": round(effective_parent_tss * 60.0 / duration, 1),
         }
+        updated["total_tss"] = effective_parent_tss
         updated["materialization_status"] = (
             "infeasible"
             if any(leg.get("materialization_status", "materialized") != "materialized" for leg in legs)
@@ -1673,6 +1683,10 @@ def rescale_materialized_session(
                     updated["parameter_snapshot"]["tss_per_hour"] = round(
                         target_tss * 60.0 / old_minutes, 1
                     ) if old_minutes > 0 else 0.0
+        updated["total_tss"] = round(
+            float((updated.get("parameter_snapshot") or {}).get("target_tss") or target_tss),
+            1,
+        )
         prescription = {
             "definition_snapshot": updated.get("definition_snapshot"),
             "parameter_snapshot": updated.get("parameter_snapshot"),

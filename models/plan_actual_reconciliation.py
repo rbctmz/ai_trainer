@@ -986,8 +986,20 @@ def apply_weekly_rebalance_preview(
                 int(refreshed.get("duration_minutes") or after_duration),
                 after_parts,
             )
+            previous_session_id = str(refreshed.get("session_id") or "").strip()
+            if previous_session_id:
+                refreshed["replaces_session_id"] = previous_session_id
+                refreshed.pop("session_id", None)
+            refreshed["duration_minutes"] = int(refreshed.get("duration_minutes") or after_duration)
+            refreshed["total_tss"] = round(
+                float((refreshed.get("parameter_snapshot") or {}).get("target_tss") or after_total),
+                1,
+            )
             if len(session_rows) == 1:
                 template["sessions"] = [refreshed]
+                if previous_session_id:
+                    template["replaces_session_id"] = previous_session_id
+                    template.pop("session_id", None)
                 from models.training_planner import project_day_scalars
                 project_day_scalars(template)
                 templates[index] = template
@@ -996,9 +1008,13 @@ def apply_weekly_rebalance_preview(
 
     updated["daily_plan"] = daily_plan
     updated["session_templates"] = templates
+    from models.training_planner import project_daily_plan_from_session_templates
+    updated["daily_plan"] = project_daily_plan_from_session_templates(
+        updated["daily_plan"], updated["session_templates"]
+    )
     weekly_summary = [dict(row or {}) for row in list(updated.get("weekly_summary") or [])]
     for week_index, row in enumerate(weekly_summary):
-        week_days = daily_plan[week_index * 7 : week_index * 7 + 7]
+        week_days = updated["daily_plan"][week_index * 7 : week_index * 7 + 7]
         row["weekly_tss"] = int(round(sum(float(item[1] or 0.0) for item in week_days)))
         for sport in ("bike", "run", "swim"):
             row[sport] = round(sum(float((item[2] or {}).get(sport, 0.0) or 0.0) for item in week_days), 1)

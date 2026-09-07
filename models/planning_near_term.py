@@ -23,6 +23,7 @@ from models.training_planner import (
     WEEKDAY_LABELS_RU,
     materialize_day_sessions,
     project_day_scalars,
+    project_daily_plan_from_session_templates,
     _build_day_focus_label,
     _build_session_description,
     _build_session_export_name,
@@ -573,7 +574,10 @@ def _apply_week_total_delta(
                     "session_focus": focus,
                     "sport": "brick",
                     "sport_label": SPORT_LABELS_RU["brick"],
-                    "total_tss": day_total,
+                    "total_tss": float(
+                        (rescaled.get("parameter_snapshot") or {}).get("target_tss")
+                        or day_total
+                    ),
                     "description": description,
                 }
             )
@@ -599,6 +603,10 @@ def _apply_week_total_delta(
         session_templates[day_index] = next_template
         actual_week_total += day_total
 
+    projected = project_daily_plan_from_session_templates(daily_plan, session_templates)
+    for index in range(start, end):
+        daily_plan[index] = projected[index]
+    actual_week_total = round(sum(float(item[1] or 0.0) for item in daily_plan[start:end]), 1)
     return round(actual_week_total - current_week_total, 1)
 
 
@@ -1547,6 +1555,9 @@ def apply_near_term_day_edits(
                 target_tss=target_total_tss,
                 parts=new_parts,
             )
+            rescaled_session = deepcopy(rescaled)
+            rescaled_session.pop("sessions", None)
+            rescaled["sessions"] = [rescaled_session]
             next_template.update(rescaled)
             resolved_duration = int(rescaled.get("duration_minutes") or duration_minutes)
             next_template.update(
@@ -1573,23 +1584,31 @@ def apply_near_term_day_edits(
                     ),
                 }
             )
-        next_template = _rebuild_sessions_after_day_edit(
-            next_template,
-            current_template,
-            new_parts=new_parts,
-            role=target_role,
-            sport=target_sport,
-            phase=phase,
-            goal_type=goal_type,
-            distance=distance,
-            zone_snapshot=zone_snapshot,
-            load_state=load_state,
-            recent_template_keys=_recent_template_keys_before(
-                session_templates,
-                day_index,
-            ),
-        )
+            project_day_scalars(next_template)
+        if not (
+            str(current_template.get("kind") or "") == "composite"
+            and target_sport == "brick"
+            and target_total_tss > 0
+        ):
+            next_template = _rebuild_sessions_after_day_edit(
+                next_template,
+                current_template,
+                new_parts=new_parts,
+                role=target_role,
+                sport=target_sport,
+                phase=phase,
+                goal_type=goal_type,
+                distance=distance,
+                zone_snapshot=zone_snapshot,
+                load_state=load_state,
+                recent_template_keys=_recent_template_keys_before(
+                    session_templates,
+                    day_index,
+                ),
+            )
         session_templates[day_index] = next_template
+
+    daily_plan = project_daily_plan_from_session_templates(daily_plan, session_templates)
 
     refreshed_weekly_summary: List[Dict[str, Any]] = []
     for week_index, week_row in enumerate(weekly_summary):

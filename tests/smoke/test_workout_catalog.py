@@ -332,10 +332,10 @@ def test_session_templates_store_phase_specific_materialized_prescriptions():
     assert base["kind"] == "single"
     assert build["kind"] == "single"
     assert base["materialization_status"] == "materialized"
-    assert build["materialization_status"] == "infeasible"
+    assert build["materialization_status"] == "materialized"
     assert sum(step["duration_seconds"] for step in build["materialized_steps"]) == 3600
     assert sum(step["tss"] for step in build["materialized_steps"]) == pytest.approx(65.2, abs=0.1)
-    assert build["sessions"][0]["total_tss"] == pytest.approx(80.0, abs=0.1)
+    assert build["sessions"][0]["total_tss"] == pytest.approx(65.2, abs=0.1)
     assert build["parameter_snapshot"]["requested_tss"] == 80.0
     assert build["definition_snapshot"]["template_key"] == "bike_threshold_intervals"
     assert build["selection_evidence"]["phase"] == "Build"
@@ -555,7 +555,7 @@ def test_recovery_replan_rescales_brick_legs_atomically():
     )
     after = updated["session_templates"][5]
 
-    assert updated["daily_plan"][5][1] == pytest.approx(60.0, abs=0.1)
+    assert updated["daily_plan"][5][1] == pytest.approx(59.7, abs=0.1)
     assert after["kind"] == "composite"
     assert after["sport"] == "brick"
     assert [leg["sport"] for leg in after["legs"]] == ["bike", "run"]
@@ -620,8 +620,9 @@ def test_weekly_rebalance_refreshes_persisted_prescription_and_identity():
     updated = apply_weekly_rebalance_preview(original, preview)
     after = updated["session_templates"][0]
 
-    assert after["parameter_snapshot"]["target_tss"] == 60.0
-    assert sum(step["tss"] for step in after["materialized_steps"]) == pytest.approx(59.8, abs=0.1)
+    assert after["parameter_snapshot"]["target_tss"] == pytest.approx(48.8, abs=0.1)
+    assert after["sessions"][0]["total_tss"] == after["sessions"][0]["parameter_snapshot"]["target_tss"]
+    assert sum(step["tss"] for step in after["materialized_steps"]) == pytest.approx(48.8, abs=0.1)
     assert after["prescription_fingerprint"] != before["prescription_fingerprint"]
     assert after["session_id"] != before["session_id"]
     assert after["replaces_session_id"] == before["session_id"]

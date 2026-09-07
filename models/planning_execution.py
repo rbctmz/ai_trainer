@@ -1269,6 +1269,18 @@ def rebuild_goal_plan_with_adjustment(
             )
             rebuilt_constraint_summary["notes"] = notes
 
+    from models.training_planner import project_daily_plan_from_session_templates
+    daily_plan = project_daily_plan_from_session_templates(daily_plan, session_templates)
+    for week_index, row in enumerate(weekly_summary):
+        week_days = daily_plan[week_index * 7 : week_index * 7 + 7]
+        row["weekly_tss"] = int(round(sum(float(item[1] or 0.0) for item in week_days)))
+        for sport in ("bike", "run", "swim"):
+            row[sport] = round(
+                sum(float((item[2] or {}).get(sport, 0.0) or 0.0) for item in week_days),
+                1,
+            )
+    weekly_tss_plan = [int(row.get("weekly_tss") or 0) for row in weekly_summary]
+
     return synchronize_goal_plan_events({
         **goal_plan,
         "goal_type": goal_type,

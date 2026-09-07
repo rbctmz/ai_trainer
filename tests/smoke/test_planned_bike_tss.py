@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from datetime import datetime
+from datetime import datetime, timedelta
 import re
 
 import pytest
@@ -13,7 +13,12 @@ from models.planned_bike_tss import (
 )
 from models.planning_checkpoints import build_planning_checkpoint
 from models.session_identity import ensure_session_identities
-from models.workout_catalog import catalog_definitions, materialize_workout
+from models.training_planner import (
+    build_daily_session_templates,
+    derive_weekly_sport_buckets_from_sessions,
+    project_daily_plan_from_session_templates,
+)
+from models.workout_catalog import catalog_definitions, materialize_workout, rescale_materialized_session
 
 
 pytestmark = pytest.mark.smoke
@@ -395,6 +400,75 @@ def test_preview_blocks_when_future_duration_exceeds_saved_weekly_budget():
             "reason": "weekly_duration_over_budget",
         }
     ]
+
+
+def test_planned_quality_bike_preserves_effective_tss_across_plan_views():
+    start = datetime(2026, 8, 17)
+    daily = [
+        (
+            start + timedelta(days=index),
+            63.0 if index == 0 else 0.0,
+            {"run": 0.0, "bike": 63.0 if index == 0 else 0.0, "swim": 0.0},
+        )
+        for index in range(7)
+    ]
+    weekly = [{
+        "phase": "Build",
+        "day_roles": ["quality"] + ["off"] * 6,
+        "day_focuses": ["Качество • вело"] + ["Отдых"] * 6,
+        "weekly_tss": 63,
+    }]
+
+    templates = build_daily_session_templates(
+        daily,
+        weekly,
+        "Вело",
+        "—",
+        zone_snapshot={"ftp": 172},
+    )
+    session = templates[0]["sessions"][0]
+    assert session["materialization_status"] == "materialized"
+    effective = float(session["parameter_snapshot"]["target_tss"])
+    assert session["total_tss"] == pytest.approx(effective, abs=0.01)
+    assert sum(step["tss"] for step in session["materialized_steps"]) == pytest.approx(effective, abs=0.01)
+
+    projected_daily = project_daily_plan_from_session_templates(daily, templates)
+    assert projected_daily[0][1] == pytest.approx(effective, abs=0.01)
+    assert projected_daily[0][2]["bike"] == pytest.approx(effective, abs=0.01)
+    projected_weekly = derive_weekly_sport_buckets_from_sessions(weekly, templates)
+    assert projected_weekly[0]["bike"] == pytest.approx(effective, abs=0.01)
+    assert projected_weekly[0]["weekly_tss"] == int(round(effective))
+    assert [int(row["weekly_tss"]) for row in projected_weekly] == [int(round(effective))]
+
+
+def test_rescaling_lower_requested_tss_does_not_increase_tempo_duration():
+    definition = _definition("bike_tempo_sweet_spot")
+    materialized = materialize_workout(
+        definition,
+        {"duration_minutes": 50, "target_tss": 63.0},
+        {"ftp": 172},
+    )
+    session = {
+        "sport": "bike",
+        "materialization_status": materialized["materialization_status"],
+        "duration_minutes": 50,
+        "total_tss": materialized["parameter_snapshot"]["target_tss"],
+        "parameter_snapshot": materialized["parameter_snapshot"],
+        "materialized_steps": materialized["steps"],
+        "target_provenance": materialized["target_provenance"],
+        "definition_snapshot": materialized["definition_snapshot"],
+    }
+    scaled = rescale_materialized_session(
+        session,
+        target_tss=60.0,
+        parts={"bike": 60.0},
+    )
+
+    assert scaled["materialization_status"] == "materialized"
+    assert scaled["duration_minutes"] <= session["duration_minutes"]
+    effective = scaled["parameter_snapshot"]["target_tss"]
+    assert scaled["total_tss"] == pytest.approx(effective, abs=0.01)
+    assert sum(step["tss"] for step in scaled["materialized_steps"]) == pytest.approx(effective, abs=0.01)
 
 
 def test_preview_fails_closed_when_weekly_duration_budget_is_missing():
