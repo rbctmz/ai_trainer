@@ -565,3 +565,17 @@ role contract, импорт `@AGENTS.md`, отсутствие дублиров�
 | [ADR-0008](adr_0008_intervals_activity_ingestion.md) | Multi-provider ingest, provider links и provenance |
 | [ADR-0009](adr_0009_versioned_scientific_plan_policy.md) | Версионированная научная проверка плана без runtime-зависимости от Blocks |
 | [ADR-0010](adr_0010_coach_autonomy_boundary.md) | Три оси автономии коуча и DDA для мутаций |
+
+### Intervals subjective observations (#555)
+
+Eight ordinal wellness fields are stored in the separate provider/day
+`subjective_wellness` table. They do not enter readiness arithmetic or overwrite
+sleepScore/device stress. ASR-REL-2: missing/invalid/stale observations remain
+explicit; a fresh activity cannot refresh the observation date. ASR-REL-3:
+observations and the existing wellness cursor commit together, with serialized
+fetch-order/provider-revision checks. ASR-MOD-2: Today, dashboard and Coach read
+the shared labeled projection. ASR-MOD-3: the table and API block are additive,
+and full reset removes observations. Verified locally by
+`test_issue_555_subjective_wellness.py`, M4/readiness compatibility tests and
+synthetic desktop/mobile browser checks. Independent review is pending; this
+entry does not claim release or live-provider verification.

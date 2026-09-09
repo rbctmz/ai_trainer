@@ -12,7 +12,7 @@ An athlete who already records feelings in Intervals sees those observations in 
 - [x] (2026-09-09) Official OpenAPI downloaded without credentials; eight integer fields and updated timestamp confirmed. Provider author documents 1–4, lower is better. Labels cross-checked against owner screenshot.
 - [x] (2026-09-09) Mapping/storage RED (missing module) → GREEN; clear, invalid, retry, restart/reset and transaction rollback verified.
 - [x] (2026-09-09) Eight new tests pass, including real TestClient API and AITools agreement from temporary SQLite.
-- [ ] (2026-09-09) UI handoff completed; component, contract extraction, lint and production build pass; browser evidence in progress.
+- [x] (2026-09-09) UI handoff, component, contract extraction, lint/build and desktop/mobile browser checks complete. Screenshots visually inspected; no horizontal overflow.
 - [ ] Broad tests, OpenCode review, disposition, commit and draft PR.
 
 ## Surprises & Discoveries
@@ -29,7 +29,7 @@ Serialize storage with BEGIN IMMEDIATE inside the existing chunk transaction. Co
 
 ## Outcomes & Retrospective
 
-Initial broad run: 2340 passed, 6 skipped, 26 deselected (before three additional route/date tests). Focused suite: 47 passed before those additions; new suite now 8 passed. Web lint/build and contract extraction passed. No live athlete data read or changed.
+Initial broad run: 2340 passed, 6 skipped, 26 deselected (before three additional route/date tests). Focused suite: 47 passed before those additions; new suite now 8 passed. Web lint/build and contract extraction passed; 67 contract checks and final 50 focused tests passed. No live athlete data read or changed. Screenshots: docs/assets/issue_555_dashboard.png and docs/assets/issue_555_today.png. Browser fixture initially returned malformed empty objects to unrelated endpoints; corrected to explicit 503 responses. The feature rendered on both routes from real synthetic API data.
 
 ## Context and Orientation
 
@@ -57,6 +57,8 @@ Sources checked 2026-09-09: https://intervals.icu/api/v1/docs (Wellness properti
 
 ## Interfaces and Dependencies
 
-No new dependency. Store ownership remains Intervals regardless of PRIMARY_WELLNESS_SOURCE, because these are separate observations. Mapping preserves provider field keys and emits Russian labels from shared Python. Settings.ATHLETE_TIMEZONE determines the read date unless explicitly supplied. ASR-REL-2 (missing evidence), ASR-MOD-1 (provider boundary), ADR-0001 (web primary) apply. The slice spec is docs/issue_555_slice_spec.md.
+No new dependency. Store ownership remains Intervals regardless of PRIMARY_WELLNESS_SOURCE, because these are separate observations. Mapping preserves provider field keys and emits Russian labels from shared Python. Settings.ATHLETE_TIMEZONE determines the read date unless explicitly supplied. ASR-REL-2 (missing evidence), ASR-REL-3 (atomic cursor), ASR-MOD-2 (web projection), ASR-MOD-3 (additive schema), ADR-0001 (web primary) apply. The slice spec is docs/issue_555_slice_spec.md.
 
 Revision 2026-09-09: updated completed checks and corrected the Coach tool handoff after tracing its independent measured-readiness path.
+
+Revision 2026-09-09: corrected ASR IDs against the catalog, recorded UI evidence. External reviewer export awaits explicit permission after automatic approval rejection.
