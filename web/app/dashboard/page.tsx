@@ -5,6 +5,7 @@ import useSWR from "swr";
 import { fetcher, isDemo, postJSON, setDemo } from "@/lib/api";
 import { DashboardResponse, DashboardWidgets } from "@/lib/types";
 import { ActivitiesWidget } from "@/components/dashboard/ActivitiesWidget";
+import { SubjectiveWellnessCard } from "@/components/dashboard/SubjectiveWellnessCard";
 import { StatusRow } from "@/components/dashboard/StatusRow";
 import { TodayCard } from "@/components/dashboard/TodayCard";
 import { WeekCard } from "@/components/dashboard/WeekCard";
@@ -41,6 +42,7 @@ export default function DashboardPage() {
           <SyncControl onDone={() => mutate()} />
         </div>
       </header>
+      <SubjectiveWellnessCard data={data?.readiness_snapshot?.subjective_wellness} />
 
       <ActivitiesWidget />
 

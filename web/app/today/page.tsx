@@ -9,6 +9,7 @@ import type { TodayResponse, WorkoutStep } from "@/lib/types";
 import { ProposalCard } from "@/components/ui/ProposalCard";
 import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackCard";
 import { AdherenceStrip } from "@/components/today/AdherenceStrip";
+import { SubjectiveWellnessCard } from "@/components/dashboard/SubjectiveWellnessCard";
 import { WorkoutStrip } from "@/components/WorkoutStrip";
 
 const STATE_META: Record<
@@ -139,6 +140,8 @@ export default function TodayPage() {
               {frequency === "conflicts_only" ? "Только конфликты" : "Каждое утро"}
             </button>
           </header>
+
+          <SubjectiveWellnessCard data={data.subjective_wellness} />
 
           {isCompact ? (
             <section className="rounded-card border border-surface-border bg-surface p-4 shadow-card">

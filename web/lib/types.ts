@@ -17,7 +17,26 @@ export interface ReadinessSnapshotFactor {
   source: string;
 }
 
+export interface SubjectiveWellness {
+  status: "current" | "stale" | "missing" | "unavailable";
+  source: string;
+  date: string | null;
+  age_days: number | null;
+  provider_updated_at: string | null;
+  received_at: string | null;
+  mapping_version: string;
+  answered_current_keys: string[];
+  items: {
+    key: string;
+    label: string;
+    value: number | null;
+    state: "present" | "missing" | "invalid";
+    value_label: string;
+  }[];
+}
+
 export interface ReadinessSnapshot {
+  subjective_wellness?: SubjectiveWellness;
   score: number | null;
   status: ReadinessSnapshotStatus | string;
   computed_at: string | null;
@@ -1797,6 +1816,7 @@ export interface TodayBriefing {
 }
 
 export interface TodayResponse {
+  subjective_wellness?: SubjectiveWellness | null;
   snapshot_version: "today_decision_snapshot_v2" | string;
   date: string;
   state: TodayScreenState | string;

@@ -744,6 +744,9 @@ class AITools:
         Тот же `compute_readiness_today`, что питает сайдбар «Сигналы» и гейт
         конфликтов — чтобы чат не расходился с контуром по readiness/TSB.
         """
+        from services.subjective_wellness import build_subjective_wellness
+
+        subjective = build_subjective_wellness(self.db)
         today = date.today()
         try:
             sleep_df = self.db.get_sleep_data(36500)
@@ -752,7 +755,8 @@ class AITools:
             training_df = self.db.get_training_status_history(36500)
             activities_df = self.db.get_activities(COACH_LOAD_METRICS_WINDOW_DAYS)
         except Exception as exc:
-            return {"success": False, "error": f"Нет данных готовности: {exc}"}
+            return {"success": False, "error": f"Нет данных готовности: {exc}",
+                    "subjective_wellness": subjective}
 
         snapshot = compute_readiness_today(
             sleep_df, hrv_df, health_df, training_df, activities_df, today=today
@@ -761,9 +765,11 @@ class AITools:
             return {
                 "success": True,
                 "computed_for": today.isoformat(),
+                "subjective_wellness": subjective,
                 "message": "Недостаточно данных для расчёта готовности",
             }
-        return {"success": True, "computed_for": today.isoformat(), "readiness": snapshot}
+        return {"success": True, "computed_for": today.isoformat(), "readiness": snapshot,
+                "subjective_wellness": subjective}
 
     def get_pending_proposals(self) -> Dict[str, Any]:
         """Активные предложения контура (pending) — recovery replan и правки плана.

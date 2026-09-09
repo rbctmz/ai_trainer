@@ -153,6 +153,7 @@ def build_today_decision_snapshot(
         "primary_action": primary_action,
         "readiness": readiness,
         "readiness_source": "canonical_snapshot",
+        "subjective_wellness": snapshot.get("subjective_wellness"),
         "session": session,
         "device_sync_hint": _device_sync_hint(
             checkpoint, as_of, db.get_approved_recovery_replan_deliveries()

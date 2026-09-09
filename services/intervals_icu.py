@@ -26,6 +26,13 @@ WELLNESS_FIELDS = (
     "sleepSecs",
     "sleepScore",
     "sleepQuality",
+    "soreness",
+    "fatigue",
+    "stress",
+    "mood",
+    "motivation",
+    "injury",
+    "hydration",
     "steps",
 )
 MIN_RUNNING_THRESHOLD_PACE_SECONDS_PER_KM = 120.0

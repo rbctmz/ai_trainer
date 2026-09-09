@@ -21,6 +21,10 @@ from data.activity_store import (
     ActivityStore,
     create_activity_card_tables,
 )
+from data.subjective_wellness_store import (
+    create_subjective_wellness_table, save_subjective_wellness,
+)
+from models.subjective_wellness import utc_timestamp
 from data.data_coverage_store import DataCoverageStore
 from config.settings import Settings
 
@@ -349,6 +353,7 @@ class Database:
         # get_athlete_profile() читает последнюю. DDL/миграция/CRUD вынесены в
         # data/athlete_profile_store.py (TD-006, #371).
         create_athlete_profile_table(conn)
+        create_subjective_wellness_table(conn)
 
         # Таблица данных сна
         conn.execute('''
@@ -4725,6 +4730,21 @@ class Database:
             conn.close()
         return effective.isoformat()
 
+    def get_subjective_wellness(self, as_of: str) -> dict[str, Any] | None:
+        """Return latest Intervals observation on/before the provider-local day."""
+        day = parse_cursor_date(as_of).isoformat()
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT date, payload_json, received_at FROM subjective_wellness "
+                "WHERE provider='intervals' AND date<=? ORDER BY date DESC LIMIT 1", (day,),
+            ).fetchone()
+            return None if row is None else {
+                "date": row[0], "observation": json.loads(row[1]), "received_at": row[2],
+            }
+        finally:
+            conn.close()
+
     def sync_wellness_batch(
         self,
         records,
@@ -4732,6 +4752,7 @@ class Database:
         provider,
         cursor_value,
         primary_source=None,
+        received_at=None,
     ):
         """Atomically project one provider wellness chunk and its cursor.
 
@@ -4757,6 +4778,8 @@ class Database:
             "health_new": 0,
             "health_updated": 0,
             "skipped": 0,
+            "subjective_new": 0,
+            "subjective_updated": 0,
         }
 
         def should_replace(current, current_source, current_provider=None):
@@ -4771,6 +4794,7 @@ class Database:
 
         conn = self._connect()
         try:
+            conn.execute("BEGIN IMMEDIATE")
             cursor = conn.cursor()
             for record in records or []:
                 day = parse_cursor_date(record.get("date")).isoformat()
@@ -4921,6 +4945,17 @@ class Database:
                                 [*updates.values(), day],
                             )
                             counts["health_updated"] += 1
+                    touched = True
+
+                if provider == "intervals" and record.get("subjective"):
+                    stamp = utc_timestamp(received_at)
+                    if stamp is None:
+                        raise ValueError("subjective wellness requires aware fetch timestamp")
+                    change = save_subjective_wellness(
+                        cursor, day, record["subjective"], stamp,
+                    )
+                    if change:
+                        counts[f"subjective_{change}"] += 1
                     touched = True
 
                 if not touched:
@@ -5390,6 +5425,7 @@ class Database:
             pass
 
         for table in (
+            'subjective_wellness',
             'session_feedback',
             'athlete_feedback_facts',
             'session_feedback_prompt_events',
