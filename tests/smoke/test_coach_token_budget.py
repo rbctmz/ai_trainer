@@ -83,6 +83,9 @@ def test_stream_tokens_uses_configured_response_cap(monkeypatch):
 
 def test_stream_tokens_disables_thinking_for_deepseek(monkeypatch):
     monkeypatch.setattr(Settings, "AI_RESPONSE_MAX_TOKENS", 1800, raising=False)
+    # Explicit policy: a developer who enables thinking globally must not turn
+    # this assertion into an environment-dependent test (issue #558).
+    monkeypatch.setattr(Settings, "AI_DEEPSEEK_THINKING", False, raising=False)
     provider = DeepSeekProvider(api_key=None, settings=Settings)
     provider.client = _DummyStreamingClient()
     provider.api_key = "test"

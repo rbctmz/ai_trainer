@@ -86,8 +86,12 @@ def stream_tokens(
     }
     if isinstance(provider, DeepSeekProvider):
         # Final synthesis must reserve the output budget for athlete-facing
-        # text. Hidden reasoning_content is neither displayed nor persisted.
-        request["extra_body"] = {"thinking": {"type": "disabled"}}
+        # text. Hidden reasoning_content is neither displayed nor persisted, and
+        # it is billed from that same budget (#558) — the provider decides
+        # whether thinking is on (AI_DEEPSEEK_THINKING).
+        extra_body = provider.chat_completion_extra_body()
+        if extra_body:
+            request["extra_body"] = extra_body
 
     response = client.chat.completions.create(**request)
     for chunk in response:

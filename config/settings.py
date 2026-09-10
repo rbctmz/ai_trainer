@@ -74,6 +74,14 @@ class Settings:
     # to 0.0 while free-text responses keep the higher sampling temperature
     # (see DeepSeek native-tools spike, issue #440).
     AI_TOOLS_TEMPERATURE = float(os.getenv("AI_TOOLS_TEMPERATURE", "0.0"))
+
+    # DeepSeek V4.1 Flash runs with thinking enabled by default (effort=high) and
+    # bills the hidden reasoning from the same output budget as the visible
+    # answer. With AI_RESPONSE_MAX_TOKENS=1800 that emptied athlete-facing
+    # answers (issue #558), and thinking mode ignores `temperature`, which is how
+    # #440 gets deterministic tool selection. Coach calls therefore disable
+    # thinking unless this is switched on explicitly.
+    AI_DEEPSEEK_THINKING = _env_flag("AI_DEEPSEEK_THINKING", "0")
     
     # Провайдер по умолчанию
     DEFAULT_AI_PROVIDER = os.getenv("DEFAULT_AI_PROVIDER", "openai")

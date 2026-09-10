@@ -12,7 +12,7 @@ AI Coaching в AI Trainer работает поверх локального т�
 |---|---|---|
 | OpenAI | cloud | `OPENAI_API_KEY`, `OPENAI_MODEL` |
 | Anthropic | cloud | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL` |
-| DeepSeek | cloud/OpenAI-compatible | `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL` |
+| DeepSeek | cloud/OpenAI-compatible | `DEEPSEEK_API_KEY`, `DEEPSEEK_MODEL`, `DEEPSEEK_BASE_URL`, `AI_DEEPSEEK_THINKING` |
 | Google Gemini | cloud | `GOOGLE_API_KEY`, `GOOGLE_MODEL` |
 | Ollama | local | `OLLAMA_HOST`, `OLLAMA_MODEL` |
 | Mock AI | local demo | no secrets required |
@@ -37,6 +37,7 @@ ANTHROPIC_MODEL=claude-3-haiku-20240307
 DEEPSEEK_API_KEY=your_deepseek_key
 DEEPSEEK_MODEL=deepseek-flash
 DEEPSEEK_BASE_URL=https://api.deepseek.com
+AI_DEEPSEEK_THINKING=0
 
 GOOGLE_API_KEY=your_google_key
 GOOGLE_MODEL=gemini-2.5-flash
@@ -46,6 +47,8 @@ OLLAMA_MODEL=gemma3:4b
 
 DEFAULT_AI_PROVIDER=deepseek
 ```
+
+DeepSeek V4.1 Flash runs with thinking enabled by default, and the hidden reasoning is billed from the same output budget as the visible answer (`AI_RESPONSE_MAX_TOKENS`). Coach calls therefore disable thinking (`AI_DEEPSEEK_THINKING=0`, the default) so athlete-facing answers are not truncated to nothing, and so the deterministic tool sampling of `AI_TOOLS_TEMPERATURE` actually applies — thinking mode ignores `temperature`. Set `AI_DEEPSEEK_THINKING=1` only together with a much larger `AI_RESPONSE_MAX_TOKENS`; if the budget still runs out, the provider now returns an explicit "answer not received" message instead of an empty string (issue #558).
 
 Secrets from `.env` must not be rendered back into the UI. The provider setup form intentionally leaves password fields empty; when the user does not type an override, the hidden `.env` value is used automatically.
 

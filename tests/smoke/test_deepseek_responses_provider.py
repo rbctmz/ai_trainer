@@ -34,9 +34,11 @@ def _function_call_item(call_id: str, name: str, arguments: dict) -> SimpleNames
 class _StubResponsesClient:
     """Fake client: records responses.create kwargs and returns a canned output."""
 
-    def __init__(self, output=None, error=None) -> None:
+    def __init__(self, output=None, error=None, status=None, output_text=None) -> None:
         self.output = output or []
         self.error = error
+        self.status = status
+        self.output_text = output_text
         self.last_kwargs = None
         self.calls = 0
         self.responses = self._Responses(self)
@@ -52,8 +54,33 @@ class _StubResponsesClient:
                 raise self.owner.error
             return SimpleNamespace(
                 output=list(self.owner.output),
-                output_text=None,
+                output_text=self.owner.output_text,
+                status=self.owner.status,
             )
+
+
+class _StubResponsesSettings:
+    """Settings double: independent of the developer's .env (issue #558)."""
+
+    DEEPSEEK_API_KEY = "stub-key"
+    DEEPSEEK_MODEL = "deepseek-flash"
+    DEEPSEEK_BASE_URL = "https://api.deepseek.com"
+    AI_RESPONSE_MAX_TOKENS = 1800
+    AI_TOOLS_TEMPERATURE = 0.0
+
+    def __init__(self, thinking: bool = False) -> None:
+        self.AI_DEEPSEEK_THINKING = thinking
+
+
+def _stub_responses_provider(*, thinking: bool = False, **client_kwargs):
+    from models.ai_providers import DeepSeekResponsesProvider
+
+    client = _StubResponsesClient(**client_kwargs)
+    provider = DeepSeekResponsesProvider(
+        api_key=None, settings=_StubResponsesSettings(thinking=thinking)
+    )
+    provider.client = client
+    return provider, client
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +290,53 @@ def test_picker_exposes_responses_option():
 
     options = _build_provider_options(demo_mode=False)
     assert options.get("DeepSeek (Responses API)") == "deepseek_responses"
+
+
+# ---------------------------------------------------------------------------
+# Thinking policy and answer budget (issue #558)
+# ---------------------------------------------------------------------------
+
+
+def test_responses_requests_disable_reasoning_by_default():
+    """Live probe: without `reasoning={"effort": "none"}` the whole 1800-token
+    budget went to hidden reasoning and output_text came back empty."""
+    provider, client = _stub_responses_provider(output=[_message_item("готово")])
+
+    provider.generate_with_tools([{"role": "user", "content": "q"}], [])
+    assert client.last_kwargs["reasoning"] == {"effort": "none"}
+
+    provider.generate_response("Как моя форма?")
+    assert client.last_kwargs["reasoning"] == {"effort": "none"}
+
+
+def test_responses_requests_keep_reasoning_when_explicitly_enabled():
+    provider, client = _stub_responses_provider(output=[_message_item("готово")], thinking=True)
+
+    provider.generate_with_tools([{"role": "user", "content": "q"}], [])
+    assert "reasoning" not in client.last_kwargs
+
+    provider.generate_response("Как моя форма?")
+    assert "reasoning" not in client.last_kwargs
+
+
+def test_responses_provider_reports_incomplete_status_instead_of_empty_answer():
+    """Live probe: status=incomplete with all output tokens spent on reasoning."""
+    provider, _ = _stub_responses_provider(output=[], status="incomplete")
+
+    answer = provider.generate_response("Собери план на 6 недель")
+
+    assert answer.strip()
+    assert "1800" in answer
+
+
+def test_responses_adapter_reports_incomplete_tool_turn_without_tool_calls():
+    provider, _ = _stub_responses_provider(output=[], status="incomplete")
+
+    result = provider.generate_with_tools([{"role": "user", "content": "q"}], [])
+
+    assert result["tool_calls"] == []
+    assert result["text"].strip()
+    assert "1800" in result["text"]
 
 
 # ---------------------------------------------------------------------------
