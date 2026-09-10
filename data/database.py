@@ -111,6 +111,7 @@ class Database:
         'training_load_7d',
         'training_status',
         'training_readiness',
+        'training_readiness_observed_at',
         'recovery_time_hours',
         'load_ratio',
         'training_feedback_code',
@@ -144,6 +145,8 @@ class Database:
         'training_load_7d': 'REAL',
         'training_status': 'TEXT',
         'training_readiness': 'REAL',
+        # Issue #557 M3: дата измерения readiness из payload (NULL = не подтверждена).
+        'training_readiness_observed_at': 'TEXT',
         'recovery_time_hours': 'REAL',
         'load_ratio': 'REAL',
         'training_feedback_code': 'TEXT',
@@ -210,6 +213,8 @@ class Database:
 
     _HRV_COLUMN_TYPES = {
         'rmssd_source': "TEXT DEFAULT 'legacy_unknown'",
+        # Issue #557 M3: дата измерения HRV из payload (NULL = не подтверждена).
+        'rmssd_observed_at': 'TEXT',
     }
 
     _COACH_DECISION_COLUMN_TYPES = {
@@ -343,6 +348,7 @@ class Database:
                 date DATE PRIMARY KEY,
                 rmssd REAL,
                 rmssd_source TEXT DEFAULT 'legacy_unknown',
+                rmssd_observed_at TEXT,
                 stress_score REAL,
                 recovery_score REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -423,6 +429,7 @@ class Database:
                 training_load_7d REAL,
                 training_status TEXT,
                 training_readiness REAL,
+                training_readiness_observed_at TEXT,
                 recovery_time_hours REAL,
                 load_ratio REAL,
                 training_feedback_code TEXT,
@@ -4462,7 +4469,8 @@ class Database:
         
         # Используем параметризованный запрос для надежности
         query = """
-            SELECT date, rmssd, rmssd_source, stress_score, recovery_score
+            SELECT date, rmssd, rmssd_source, stress_score, recovery_score,
+                   rmssd_observed_at
             FROM hrv_data
             WHERE date >= ?
             ORDER BY date DESC
@@ -4823,14 +4831,17 @@ class Database:
                     incoming = self.clean_value(hrv.get("rmssd"))
                     if row is None:
                         cursor.execute(
-                            "INSERT INTO hrv_data(date, rmssd, rmssd_source) VALUES (?, ?, ?)",
-                            (day, incoming, provider),
+                            "INSERT INTO hrv_data(date, rmssd, rmssd_source, "
+                            "rmssd_observed_at) VALUES (?, ?, ?, ?)",
+                            (day, incoming, provider, day),
                         )
                         counts["hrv_new"] += 1
                     elif should_replace(row[0], row[1]):
+                        # Provider-local `id` is the observation date (issue #557).
                         cursor.execute(
-                            "UPDATE hrv_data SET rmssd=?, rmssd_source=? WHERE date=?",
-                            (incoming, provider, day),
+                            "UPDATE hrv_data SET rmssd=?, rmssd_source=?, "
+                            "rmssd_observed_at=? WHERE date=?",
+                            (incoming, provider, day, day),
                         )
                         counts["hrv_updated"] += 1
                     touched = True
@@ -5339,8 +5350,10 @@ class Database:
         cursor = conn.cursor()
         
         # Получаем существующие даты
-        cursor.execute('SELECT date, rmssd, rmssd_source FROM hrv_data')
-        existing = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+        cursor.execute(
+            'SELECT date, rmssd, rmssd_source, rmssd_observed_at FROM hrv_data'
+        )
+        existing = {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
         
         new_count = 0
         updated_count = 0
@@ -5352,7 +5365,7 @@ class Database:
                 data.get('rmssd_source') or 'legacy_unknown'
             )
             if clean_date in existing:
-                current_rmssd, current_source = existing[clean_date]
+                current_rmssd, current_source, _current_observed = existing[clean_date]
                 replace_rmssd = (
                     current_rmssd is None
                     or current_source == incoming_source
@@ -5366,6 +5379,11 @@ class Database:
                 if replace_rmssd and 'rmssd' in data:
                     updates['rmssd'] = self.clean_value(data.get('rmssd'))
                     updates['rmssd_source'] = incoming_source
+                    # Provenance едет только с принятой метрикой и не стирается
+                    # повторным sync без даты (issue #557).
+                    observed = data.get('rmssd_observed_at')
+                    if observed:
+                        updates['rmssd_observed_at'] = self.clean_value(observed)
                 clause = ', '.join(f"{column}=?" for column in updates)
                 cursor.execute(
                     f'UPDATE hrv_data SET {clause} WHERE date=?',
@@ -5376,18 +5394,21 @@ class Database:
                 # Вставляем новую запись
                 cursor.execute('''
                     INSERT INTO hrv_data
-                        (date, rmssd, rmssd_source, stress_score, recovery_score)
-                    VALUES (?, ?, ?, ?, ?)
+                        (date, rmssd, rmssd_source, stress_score, recovery_score,
+                         rmssd_observed_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 ''', (
                     clean_date,
                     self.clean_value(data.get('rmssd')),
                     incoming_source,
                     self.clean_value(data.get('stress_score')),
-                    self.clean_value(data.get('recovery_score'))
+                    self.clean_value(data.get('recovery_score')),
+                    self.clean_value(data.get('rmssd_observed_at'))
                 ))
                 existing[clean_date] = (
                     self.clean_value(data.get('rmssd')),
                     incoming_source,
+                    self.clean_value(data.get('rmssd_observed_at')),
                 )
                 new_count += 1
         
@@ -5986,9 +6007,16 @@ class Database:
         conn = self._connect()
         cursor = conn.cursor()
         
-        # Получаем существующие даты
-        cursor.execute('SELECT date FROM training_status')
-        existing_dates = {row[0] for row in cursor.fetchall()}
+        # Получаем существующие даты и известную provenance
+        cursor.execute(
+            'SELECT date, training_readiness_observed_at FROM training_status'
+        )
+        existing_rows = cursor.fetchall()
+        existing_dates = {row[0] for row in existing_rows}
+        existing_observed = {row[0]: row[1] for row in existing_rows}
+        observed_index = self._TRAINING_STATUS_COLUMN_ORDER.index(
+            'training_readiness_observed_at'
+        )
         
         new_count = 0
         updated_count = 0
@@ -5996,6 +6024,9 @@ class Database:
         for date_str, data in status_data.items():
             clean_date = self.clean_value(date_str)
             column_values = [self.clean_value(data.get(column)) for column in self._TRAINING_STATUS_COLUMN_ORDER]
+            # Пустое значение не должно стирать известную дату наблюдения.
+            if not column_values[observed_index] and existing_observed.get(clean_date):
+                column_values[observed_index] = existing_observed[clean_date]
             update_clause = ', '.join(f"{column}=?" for column in self._TRAINING_STATUS_COLUMN_ORDER)
             insert_columns = ['date'] + self._TRAINING_STATUS_COLUMN_ORDER
             insert_placeholders = ', '.join('?' for _ in insert_columns)
@@ -6012,6 +6043,7 @@ class Database:
                     [clean_date] + column_values
                 )
                 existing_dates.add(clean_date)
+                existing_observed[clean_date] = column_values[observed_index]
                 new_count += 1
         
         conn.commit()

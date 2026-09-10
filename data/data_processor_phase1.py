@@ -800,8 +800,25 @@ class Phase1DataProcessor:
             if readiness_data:
                 if isinstance(readiness_data, dict):
                     processed_data['training_readiness'] = readiness_data.get('readinessScore')
+                    # Дата измерения readiness из payload (issue #557).
+                    from utils.observation_provenance import observation_local_date
+
+                    observed = None
+                    for field, source in (
+                        ('calendarDate', 'athlete_local'),
+                        ('startTimestampLocal', 'athlete_local'),
+                        ('timestamp', 'utc'),
+                        ('startTimestampGMT', 'utc'),
+                        ('date', 'athlete_local'),
+                    ):
+                        resolved = observation_local_date(readiness_data.get(field), source=source)
+                        if resolved is not None:
+                            observed = resolved.isoformat()
+                            break
+                    processed_data['training_readiness_observed_at'] = observed
                 else:
                     processed_data['training_readiness'] = readiness_data
+                    processed_data['training_readiness_observed_at'] = None
         
             # Удаляем пустые значения
             processed_data = {

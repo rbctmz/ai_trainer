@@ -906,14 +906,36 @@ def _collect_hrv_data(
             if hrv_day_data:
                 logger.debug("DEBUG HRV: Структура данных: %s", hrv_day_data)
 
+            rmssd_observed_at = None
             if isinstance(hrv_day_data, dict):
-                if "hrvSummary" in hrv_day_data and isinstance(hrv_day_data["hrvSummary"], dict):
-                    hrv_summary = hrv_day_data["hrvSummary"]
+                hrv_summary = (
+                    hrv_day_data["hrvSummary"]
+                    if isinstance(hrv_day_data.get("hrvSummary"), dict)
+                    else None
+                )
+                if hrv_summary is not None:
                     rmssd_value = hrv_summary.get("rmssd") or hrv_summary.get("lastNightAvg")
                 elif "daily_rmssd" in hrv_day_data:
                     rmssd_value = hrv_day_data["daily_rmssd"]
                 elif "rmssd" in hrv_day_data:
                     rmssd_value = hrv_day_data["rmssd"]
+                # Дата измерения из payload (issue #557): календарная дата
+                # athlete-local берётся как есть, GMT-таймстамп переводится в
+                # таймзону атлета. Мусор -> None (фактор unverified).
+                from utils.observation_provenance import observation_local_date
+
+                source_payload = hrv_summary or hrv_day_data
+                for field, source in (
+                    ("calendarDate", "athlete_local"),
+                    ("startTimestampGMT", "utc"),
+                    ("startTimestampLocal", "athlete_local"),
+                    ("timestamp", "utc"),
+                    ("date", "athlete_local"),
+                ):
+                    resolved = observation_local_date(source_payload.get(field), source=source)
+                    if resolved is not None:
+                        rmssd_observed_at = resolved.isoformat()
+                        break
 
             stress_score = None
             stress_data, stress_error = _call_client_method(
@@ -952,6 +974,7 @@ def _collect_hrv_data(
                     "rmssd": rmssd_value,
                     "stress_score": stress_score,
                     "recovery_score": recovery_score,
+                    "rmssd_observed_at": rmssd_observed_at,
                 }
 
         progress = 70 + batch_index / total_batches * 10
@@ -1094,7 +1117,21 @@ def _collect_training_status_data(client: Any) -> tuple[dict[str, dict[str, Any]
                 readiness_data,
             )
             if processed_status:
-                training_status_data[datetime.now().strftime("%Y-%m-%d")] = processed_status
+                # Ключ строки — дата измерения из payload (issue #557): раньше
+                # здесь стоял datetime.now(), и старый device readiness
+                # выглядел сегодняшним. Без подтверждённой даты строка всё
+                # равно сохраняется, но фактор остаётся unverified.
+                observed = processed_status.get("training_readiness_observed_at")
+                if observed:
+                    row_key = str(observed)
+                else:
+                    try:
+                        from utils.athlete_time import athlete_local_date
+
+                        row_key = athlete_local_date().isoformat()
+                    except ValueError:
+                        row_key = datetime.now().strftime("%Y-%m-%d")
+                training_status_data[row_key] = processed_status
     except Exception as exc:
         _append_warning(warnings, f"⚠️ Обработка training status: {exc}")
 
