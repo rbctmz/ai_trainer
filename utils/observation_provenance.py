@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime, timezone
 from typing import Any, Literal
 
-from utils.athlete_time import athlete_local_date
+from utils.athlete_time import athlete_zone
 
 ObservationSource = Literal["utc", "athlete_local"]
 
@@ -33,12 +33,15 @@ def observation_local_date(value: Any, *, source: ObservationSource) -> date | N
     parsed = _parse(value, assume_utc=source == "utc")
     if parsed is None:
         return None
+    try:
+        zone = athlete_zone()
+    except ValueError:
+        # Unusable athlete timezone: an observation date cannot be established
+        # honestly for either source, so the factor must stay unverified.
+        return None
     if source == "athlete_local":
         return parsed.date()
-    try:
-        return athlete_local_date(parsed)
-    except ValueError:
-        return None
+    return parsed.astimezone(zone).date()
 
 
 def _parse(value: Any, *, assume_utc: bool) -> datetime | None:

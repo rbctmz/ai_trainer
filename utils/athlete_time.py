@@ -12,17 +12,25 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from config.settings import Settings
 
 
+def athlete_zone() -> ZoneInfo:
+    """Resolve the configured athlete timezone, raising when it is unusable.
+
+    Single validation point for every consumer: an invalid configuration must
+    never be silently replaced by a guess (issue #557).
+    """
+    timezone_name = str(Settings.ATHLETE_TIMEZONE or "").strip()
+    try:
+        return ZoneInfo(timezone_name)
+    except (ZoneInfoNotFoundError, ValueError) as exc:
+        raise ValueError("ATHLETE_TIMEZONE must be a valid IANA timezone") from exc
+
+
 def athlete_local_date(observed_at_utc: datetime | None = None) -> date:
     """Resolve a calendar date in the configured athlete timezone."""
     observed = observed_at_utc or datetime.now(timezone.utc)
     if observed.tzinfo is None:
         raise ValueError("observed_at_utc must be timezone-aware")
-    timezone_name = str(Settings.ATHLETE_TIMEZONE or "").strip()
-    try:
-        zone = ZoneInfo(timezone_name)
-    except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise ValueError("ATHLETE_TIMEZONE must be a valid IANA timezone") from exc
-    return observed.astimezone(zone).date()
+    return observed.astimezone(athlete_zone()).date()
 
 
-__all__ = ["athlete_local_date"]
+__all__ = ["athlete_local_date", "athlete_zone"]
