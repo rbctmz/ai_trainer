@@ -55,11 +55,16 @@ EVIDENCE_KIND_DERIVED_STATE = "derived_state"
 # Измерение без них не может доказать, когда оно сделано, поэтому остаётся
 # описательным: значение показывается с пометкой, но не влияет на вмешательство.
 OBSERVATION_DATE_COLUMNS: dict[str, str] = {
-    "sleep": "sleep_observed_at",
     "hrv": "rmssd_observed_at",
     "resting_hr": "resting_hr_observed_at",
     "training_readiness": "training_readiness_observed_at",
 }
+
+# Сон имеет две метрики с независимой provenance: `_sleep_factor` предпочитает
+# score, и дата измерения обязана принадлежать именно той метрике, которая
+# победила (issue #557 review P1).
+SLEEP_SCORE_OBSERVED_COLUMN = "sleep_score_observed_at"
+SLEEP_DURATION_OBSERVED_COLUMN = "total_sleep_observed_at"
 
 INTERVENTION_BLOCKED_NO_PRIMARY = "no_confirmed_today_primary_recovery_measurement"
 INTERVENTION_BLOCKED_NO_ELIGIBLE = "no_intervention_eligible_factors"
@@ -493,14 +498,15 @@ def _deviation_factor(
 def _sleep_factor(
     sleep_df: pd.DataFrame | None, anchor: date, max_age: int | None
 ) -> dict[str, Any] | None:
-    # Строка сна хранится под датой из payload (`sleep_date`), поэтому дата
-    # хранения и есть дата наблюдения.
+    # Дата хранения строки сна — это дата запроса, когда payload не несёт дату,
+    # поэтому датой наблюдения считается только явная provider-дата из
+    # `sleep_score_observed_at` / `total_sleep_observed_at` (issue #557).
     score_window = _split_frame(
         sleep_df,
         "sleep_score",
         anchor,
         max_age,
-        observation_column=OBSERVATION_DATE_COLUMNS["sleep"],
+        observation_column=SLEEP_SCORE_OBSERVED_COLUMN,
     )
     score_value = score_window.value
     as_of = score_window.as_of
@@ -550,7 +556,7 @@ def _sleep_factor(
         "total_sleep_minutes",
         anchor,
         max_age,
-        observation_column=OBSERVATION_DATE_COLUMNS["sleep"],
+        observation_column=SLEEP_DURATION_OBSERVED_COLUMN,
     )
     minutes = minutes_window.value
     if minutes is None or minutes <= 0:

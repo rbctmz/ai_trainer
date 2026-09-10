@@ -197,9 +197,13 @@ class Phase1DataProcessor:
                     ).date()
                 except (TypeError, ValueError):
                     observed_date = None
-            processed_data['sleep_observed_at'] = (
-                observed_date.strftime('%Y-%m-%d') if observed_date else None
-            )
+            observed_iso = observed_date.strftime('%Y-%m-%d') if observed_date else None
+            # Provenance пишется по метрике: значение и его дата принимаются
+            # или отклоняются вместе (issue #557 review P1).
+            if 'sleep_score' in processed_data:
+                processed_data['sleep_score_observed_at'] = observed_iso
+            if 'total_sleep_minutes' in processed_data:
+                processed_data['total_sleep_observed_at'] = observed_iso
 
             # 5. Рассчитываем производные метрики, если их нет
             if 'sleep_score' not in processed_data and total_minutes > 0:

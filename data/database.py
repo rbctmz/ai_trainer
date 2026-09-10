@@ -195,8 +195,10 @@ class Database:
         'total_sleep_source': "TEXT DEFAULT 'legacy_unknown'",
         'sleep_score_source': "TEXT DEFAULT 'legacy_unknown'",
         'sleep_efficiency_source': "TEXT DEFAULT 'legacy_unknown'",
-        # Issue #557 M3: дата измерения сна из payload (NULL = не подтверждена).
-        'sleep_observed_at': 'TEXT',
+        # Issue #557 M3: дата измерения сна из payload, отдельно по метрике —
+        # provenance обязана ехать вместе с принятым значением (NULL = неизвестна).
+        'sleep_score_observed_at': 'TEXT',
+        'total_sleep_observed_at': 'TEXT',
     }
 
     _HRV_COLUMN_TYPES = {
@@ -374,7 +376,8 @@ class Database:
                 total_sleep_source TEXT DEFAULT 'legacy_unknown',
                 sleep_score_source TEXT DEFAULT 'legacy_unknown',
                 sleep_efficiency_source TEXT DEFAULT 'legacy_unknown',
-                sleep_observed_at TEXT,
+                sleep_score_observed_at TEXT,
+                total_sleep_observed_at TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -4852,9 +4855,14 @@ class Database:
                         if "total_sleep_minutes" in sleep:
                             columns.append("total_sleep_source")
                             values.append(provider)
+                            # The provider-local `id` IS the observation date.
+                            columns.append("total_sleep_observed_at")
+                            values.append(day)
                         if "sleep_score" in sleep:
                             columns.append("sleep_score_source")
                             values.append(provider)
+                            columns.append("sleep_score_observed_at")
+                            values.append(day)
                         placeholders = ", ".join("?" for _ in columns)
                         cursor.execute(
                             f"INSERT INTO sleep_data ({', '.join(columns)}) "
@@ -4872,6 +4880,7 @@ class Database:
                                 sleep.get("total_sleep_minutes")
                             )
                             updates["total_sleep_source"] = provider
+                            updates["total_sleep_observed_at"] = day
                         score_provider = (
                             row[1] if row[1] in supported else row[3]
                         )
@@ -4882,6 +4891,7 @@ class Database:
                         ):
                             updates["sleep_score"] = self.clean_value(sleep.get("sleep_score"))
                             updates["sleep_score_source"] = provider
+                            updates["sleep_score_observed_at"] = day
                         for column in (
                             "deep_sleep_minutes",
                             "light_sleep_minutes",
@@ -5740,15 +5750,9 @@ class Database:
                     'sleep_efficiency',
                     'awake_sleep_minutes',
                     'sleep_efficiency_source',
-                    'sleep_observed_at',
                 ):
-                    if column not in data:
-                        continue
-                    # A re-sync without a payload date must never erase a known
-                    # observation date (issue #557 M3).
-                    if column == 'sleep_observed_at' and not data.get(column):
-                        continue
-                    updates[column] = self.clean_value(data.get(column))
+                    if column in data:
+                        updates[column] = self.clean_value(data.get(column))
                 current_total_source = current['total_sleep_source']
                 if 'total_sleep_minutes' in data and (
                     current['total_sleep_minutes'] is None
@@ -5760,6 +5764,11 @@ class Database:
                         data.get('total_sleep_minutes')
                     )
                     updates['total_sleep_source'] = total_source
+                    # Provenance rides with the accepted value: a rejected or
+                    # dateless incoming metric must not move it (issue #557).
+                    observed = data.get('total_sleep_observed_at')
+                    if observed:
+                        updates['total_sleep_observed_at'] = self.clean_value(observed)
                 current_score_source = current['sleep_score_source']
                 current_score_provider = (
                     current['total_sleep_source']
@@ -5774,6 +5783,9 @@ class Database:
                 ):
                     updates['sleep_score'] = self.clean_value(data.get('sleep_score'))
                     updates['sleep_score_source'] = score_source
+                    observed = data.get('sleep_score_observed_at')
+                    if observed:
+                        updates['sleep_score_observed_at'] = self.clean_value(observed)
                 if updates:
                     clause = ', '.join(f"{column}=?" for column in updates)
                     cursor.execute(
@@ -5789,8 +5801,8 @@ class Database:
                      rem_sleep_minutes, awakenings_count, sleep_score, bedtime, 
                      wakeup_time, sleep_efficiency, awake_sleep_minutes,
                      total_sleep_source, sleep_score_source, sleep_efficiency_source,
-                     sleep_observed_at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     sleep_score_observed_at, total_sleep_observed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     clean_date,
                     self.clean_value(data.get('total_sleep_minutes')),
@@ -5806,7 +5818,8 @@ class Database:
                     total_source,
                     score_source,
                     self.clean_value(data.get('sleep_efficiency_source') or 'legacy_unknown'),
-                    self.clean_value(data.get('sleep_observed_at')),
+                    self.clean_value(data.get('sleep_score_observed_at')),
+                    self.clean_value(data.get('total_sleep_observed_at')),
                 ))
                 existing[clean_date] = {
                     'total_sleep_minutes': self.clean_value(
