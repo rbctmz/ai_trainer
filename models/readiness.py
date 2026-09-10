@@ -40,6 +40,9 @@ OBSERVATION_CONFIRMED_TODAY = "confirmed_today"
 OBSERVATION_OUTDATED = "outdated"
 OBSERVATION_UNVERIFIED = "unverified"
 OBSERVATION_MISSING = "missing"
+# Измерение, датированное позже anchor-даты, не доказывает сегодняшнее состояние:
+# это не «свежо», а недостоверно (fail closed).
+OBSERVATION_INVALID = "invalid"
 
 # Первичные recovery-измерения: actionable-вмешательство требует хотя бы одного
 # подтверждённо сегодняшнего (AC2 issue #557).
@@ -62,6 +65,7 @@ INTERVENTION_BLOCKED_NO_ELIGIBLE = "no_intervention_eligible_factors"
 
 INELIGIBLE_REASON_UNVERIFIED = "observation_date_unverified"
 INELIGIBLE_REASON_OUTDATED = "observation_outdated"
+INELIGIBLE_REASON_INVALID_OBSERVATION = "observation_in_future"
 
 FACTOR_WEIGHTS: dict[str, float] = {
     "hrv": 0.30,
@@ -189,15 +193,20 @@ def compute_readiness_today(
     # подтверждённо сегодняшним измерениям.
     eligible = [f for f in factors if f.get("intervention_eligible")]
     eligible_keys = [f["key"] for f in eligible]
+
+    def _ineligible_reason(factor: dict[str, Any]) -> str:
+        status = factor.get("observation_status")
+        if status == OBSERVATION_UNVERIFIED:
+            return INELIGIBLE_REASON_UNVERIFIED
+        if status == OBSERVATION_INVALID:
+            return INELIGIBLE_REASON_INVALID_OBSERVATION
+        return INELIGIBLE_REASON_OUTDATED
+
     ineligible = [
         {
             "key": f["key"],
             "observation_status": f.get("observation_status"),
-            "reason": (
-                INELIGIBLE_REASON_UNVERIFIED
-                if f.get("observation_status") == OBSERVATION_UNVERIFIED
-                else INELIGIBLE_REASON_OUTDATED
-            ),
+            "reason": _ineligible_reason(f),
         }
         for f in factors
         if not f.get("intervention_eligible")
@@ -236,6 +245,7 @@ def compute_readiness_today(
                 "score": f["score"],
                 "evidence": f["evidence"],
                 "as_of": f.get("as_of"),
+                "observation_as_of": f.get("observation_as_of"),
                 "age_days": f.get("age_days"),
                 "observation_status": f.get("observation_status"),
                 "intervention_eligible": bool(f.get("intervention_eligible")),
@@ -281,19 +291,26 @@ def _band_score(bands_key: str, value: float) -> float:
 
 @dataclass(frozen=True)
 class FactorWindow:
-    """Последнее датированное значение фактора вместе с его provenance.
+    """Последнее значение фактора в двух независимых каналах (issue #557).
 
-    ``as_of`` — дата измерения, когда она подтверждена провайдером, иначе дата
-    строки хранения (frozen legacy-семантика). ``verified`` говорит, известна ли
-    дата измерения вообще, а ``age_days``/``stale`` считаются от ``as_of``.
+    Legacy-канал (``value``/``as_of``/``age_days``/``stale``/``history``) выбран и
+    посчитан по дате строки хранения — ровно так, как это делал расчёт до #557:
+    его читают session-quality forecast, recovery analytics и другие подсистемы,
+    поэтому он заморожен.
+
+    Provenance-канал (``observation_*``) описывает *измерение* той же выбранной
+    строки: когда оно сделано по данным провайдера. Именно он решает, пригоден
+    ли фактор для вмешательства в план.
     """
 
     value: float | None
     as_of: str | None
     age_days: int | None
-    verified: bool
     stale: bool
     history: pd.Series
+    observation_as_of: str | None = None
+    observation_age_days: int | None = None
+    observation_verified: bool = False
 
 
 def _split_frame(
@@ -305,84 +322,108 @@ def _split_frame(
     observation_column: str | None = None,
     stored_date_is_observation: bool = False,
 ) -> FactorWindow:
-    """Return (current value, observation date, provenance, stale flag, history).
+    """Return the latest stored value (frozen legacy) plus its observation provenance.
 
-    Ряд фактора ключуется датой измерения, когда она известна, и датой хранения
-    иначе: повторный ingest одного и того же наблюдения под другой датой запроса
-    схлопывается в один sample и не искажает базлайн (issue #557).
-
-    История для базлайна анкерится к дате последнего измерения (не к anchor):
-    строго более ранние ключи в 28-дневном окне. Так базлайн никогда не
-    содержит само сравниваемое значение — в том числе когда свежайшая строка
-    отстаёт от сегодняшнего дня.
+    Выбор значения, ``as_of``, ``stale`` и окно базлайна считаются по дате строки
+    хранения и остаются байт-в-байт прежними. Даты измерения читаются отдельно и
+    только для provenance: они не переключают выбранную строку (issue #557
+    delta-review P2).
     """
-    empty = FactorWindow(None, None, None, False, False, pd.Series(dtype=float))
+    empty = FactorWindow(None, None, None, False, pd.Series(dtype=float))
     if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
         return empty
     if column not in frame.columns or "date" not in frame.columns:
         return empty
 
     selected = ["date", column]
-    if observation_column and observation_column in frame.columns:
+    has_observation = bool(observation_column and observation_column in frame.columns)
+    if has_observation:
         selected.append(observation_column)
     df = frame[selected].copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
     df[column] = pd.to_numeric(df[column], errors="coerce")
-    df = df.dropna(subset=[column])
+    df = df.dropna(subset=[column]).sort_values("date")
     if df.empty:
         return empty
 
-    stored_date = df["date"].dt.normalize()
-    if observation_column and observation_column in df.columns:
-        parsed_observation = pd.to_datetime(df[observation_column], errors="coerce").dt.normalize()
-    else:
-        parsed_observation = pd.Series(pd.NaT, index=df.index)
-    observed_date = (
-        parsed_observation.fillna(stored_date) if stored_date_is_observation else parsed_observation
-    )
-    df["_observed"] = observed_date
-    df["_key"] = observed_date.fillna(stored_date)
-
-    # Одно наблюдение — один sample: при повторе побеждает последняя запись.
-    df = df.sort_values("date").drop_duplicates(subset=["_key"], keep="last")
-    df = df.sort_values("_key")
-
     latest = df.iloc[-1]
-    latest_key = latest["_key"]
-    verified = bool(not pd.isna(latest["_observed"]))
-    age_days = int((pd.Timestamp(anchor) - latest_key).days)
-    baseline_cutoff = latest_key - pd.Timedelta(days=BASELINE_WINDOW_DAYS)
-    history_window = df[(df["_key"] < latest_key) & (df["_key"] >= baseline_cutoff)][column]
+    latest_ts = latest["date"]
+    latest_date = latest_ts.date()
+    baseline_cutoff = latest_ts - pd.Timedelta(days=BASELINE_WINDOW_DAYS)
+    history_window = df[(df["date"] < latest_ts) & (df["date"] >= baseline_cutoff)][column]
+
+    age_days = (anchor - latest_date).days
+
+    observation_date: date | None = None
+    if has_observation:
+        parsed_observation = pd.to_datetime(latest[observation_column], errors="coerce")
+        if not pd.isna(parsed_observation):
+            observation_date = parsed_observation.date()
+    if observation_date is None and stored_date_is_observation:
+        # Строки, которые ingest ключует датой из payload (сон), доказывают дату
+        # измерения самой датой строки.
+        observation_date = latest_date
+    observation_age_days = (
+        (anchor - observation_date).days if observation_date is not None else None
+    )
+    observation_fields = {
+        "observation_as_of": observation_date.isoformat() if observation_date else None,
+        "observation_age_days": observation_age_days,
+        "observation_verified": observation_date is not None,
+    }
 
     if max_age is not None and age_days > max_age:
-        return FactorWindow(None, None, age_days, verified, False, history_window)
+        return FactorWindow(None, None, age_days, False, history_window, **observation_fields)
 
     return FactorWindow(
         value=float(latest[column]),
-        as_of=latest_key.date().isoformat(),
+        as_of=latest_date.isoformat(),
         age_days=age_days,
-        verified=verified,
         stale=age_days > 0,
         history=history_window,
+        **observation_fields,
     )
 
 
 def _observation_status(*, verified: bool, age_days: int | None) -> str:
-    """Стабильный статус наблюдения фактора (issue #557)."""
-    if not verified:
+    """Стабильный статус наблюдения фактора (issue #557).
+
+    Пригодным к вмешательству считается только измерение ровно за anchor-дату:
+    будущая дата — недостоверные данные, а не «свежие».
+    """
+    if not verified or age_days is None:
         return OBSERVATION_UNVERIFIED
-    if age_days is not None and age_days <= 0:
+    if age_days < 0:
+        return OBSERVATION_INVALID
+    if age_days == 0:
         return OBSERVATION_CONFIRMED_TODAY
     return OBSERVATION_OUTDATED
 
 
-def _provenance_fields(status: str, age_days: int | None, evidence_kind: str) -> dict[str, Any]:
+def _provenance_fields(
+    window: FactorWindow, evidence_kind: str
+) -> dict[str, Any]:
+    status = _observation_status(
+        verified=window.observation_verified, age_days=window.observation_age_days
+    )
     return {
-        "age_days": age_days,
+        "observation_as_of": window.observation_as_of,
+        "age_days": window.observation_age_days,
         "observation_status": status,
         "intervention_eligible": status == OBSERVATION_CONFIRMED_TODAY,
         "evidence_kind": evidence_kind,
+    }
+
+
+def _derived_state_provenance(as_of: str | None) -> dict[str, Any]:
+    """Provenance производного состояния нагрузки (TSB): дата = anchor."""
+    return {
+        "observation_as_of": as_of,
+        "age_days": 0,
+        "observation_status": OBSERVATION_CONFIRMED_TODAY,
+        "intervention_eligible": True,
+        "evidence_kind": EVIDENCE_KIND_DERIVED_STATE,
     }
 
 
@@ -449,11 +490,7 @@ def _deviation_factor(
         "source": f"{column}",
         "stale_input": window.stale,
         "as_of": as_of,
-        **_provenance_fields(
-            _observation_status(verified=window.verified, age_days=window.age_days),
-            window.age_days,
-            EVIDENCE_KIND_MEASUREMENT,
-        ),
+        **_provenance_fields(window, EVIDENCE_KIND_MEASUREMENT),
     }
 
 
@@ -505,13 +542,7 @@ def _sleep_factor(
             "metric_source": metric_source,
             "stale_input": score_window.stale,
             "as_of": as_of,
-            **_provenance_fields(
-                _observation_status(
-                    verified=score_window.verified, age_days=score_window.age_days
-                ),
-                score_window.age_days,
-                EVIDENCE_KIND_MEASUREMENT,
-            ),
+            **_provenance_fields(score_window, EVIDENCE_KIND_MEASUREMENT),
         }
 
     minutes_window = _split_frame(
@@ -534,13 +565,7 @@ def _sleep_factor(
         "metric_source": "duration",
         "stale_input": minutes_window.stale,
         "as_of": minutes_window.as_of,
-        **_provenance_fields(
-            _observation_status(
-                verified=minutes_window.verified, age_days=minutes_window.age_days
-            ),
-            minutes_window.age_days,
-            EVIDENCE_KIND_MEASUREMENT,
-        ),
+        **_provenance_fields(minutes_window, EVIDENCE_KIND_MEASUREMENT),
     }
 
 
@@ -570,11 +595,7 @@ def _garmin_factor(
         "source": "training_readiness",
         "stale_input": window.stale,
         "as_of": window.as_of,
-        **_provenance_fields(
-            _observation_status(verified=window.verified, age_days=window.age_days),
-            window.age_days,
-            EVIDENCE_KIND_MEASUREMENT,
-        ),
+        **_provenance_fields(window, EVIDENCE_KIND_MEASUREMENT),
     }
 
 
@@ -632,9 +653,5 @@ def _tsb_factor(tsb_payload: dict[str, Any]) -> dict[str, Any]:
         "source": "activities.tss → Banister",
         "stale_input": False,
         "as_of": tsb_payload.get("as_of"),
-        **_provenance_fields(
-            OBSERVATION_CONFIRMED_TODAY,
-            0,
-            EVIDENCE_KIND_DERIVED_STATE,
-        ),
+        **_derived_state_provenance(tsb_payload.get("as_of")),
     }
