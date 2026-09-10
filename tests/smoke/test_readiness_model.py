@@ -9,8 +9,10 @@ import pytest
 from models.readiness import (
     BASELINE_WINDOW_DAYS,
     FACTOR_WEIGHTS,
+    INELIGIBLE_REASON_INVALID_OBSERVATION,
     LOAD_METRICS_WINDOW_DAYS,
     OBSERVATION_CONFIRMED_TODAY,
+    OBSERVATION_INVALID,
     OBSERVATION_OUTDATED,
     OBSERVATION_UNVERIFIED,
     PRIMARY_RECOVERY_KEYS,
@@ -294,6 +296,7 @@ def test_observation_status_classifies_factors_by_provenance():
     rhr = _factor(result, "resting_hr")
     assert rhr["observation_status"] == OBSERVATION_CONFIRMED_TODAY
     assert rhr["age_days"] == 0
+    assert rhr["observation_as_of"] == TODAY.isoformat()
     assert rhr["intervention_eligible"] is True
 
     training = _factor(result, "training_readiness")
@@ -360,26 +363,98 @@ def test_intervention_requires_a_primary_recovery_measurement():
     assert result["intervention_score"] is None
 
 
-def test_repeated_observation_across_query_dates_is_counted_once():
+def test_repeated_observation_is_dated_by_its_observation_not_the_query_date():
+    """Re-ingesting one observation under today's query date must not make it fresh."""
     duplicated = _observations_frame(
         "rmssd",
         [(0, 37.0, 1), (1, 37.0, 1), *_history_rows(37.0, start_offset=2)],
         "rmssd_observed_at",
     )
-    single = _observations_frame(
-        "rmssd", [(1, 37.0, 1), *_history_rows(37.0, start_offset=2)], "rmssd_observed_at"
+    result = compute_readiness_today(
+        **{**_verified_full_inputs(), "hrv_df": duplicated}, today=TODAY
     )
-    base = _verified_full_inputs()
 
-    with_duplicate = compute_readiness_today(**{**base, "hrv_df": duplicated}, today=TODAY)
-    without_duplicate = compute_readiness_today(**{**base, "hrv_df": single}, today=TODAY)
-
-    hrv = _factor(with_duplicate, "hrv")
-    assert hrv["as_of"] == (TODAY - timedelta(days=1)).isoformat()
+    hrv = _factor(result, "hrv")
+    # Provenance: the observation is yesterday, so the factor is not eligible.
+    assert hrv["observation_as_of"] == (TODAY - timedelta(days=1)).isoformat()
     assert hrv["age_days"] == 1
     assert hrv["observation_status"] == OBSERVATION_OUTDATED
-    # Same observation, same baseline: the duplicate row is not a second sample.
-    assert hrv == _factor(without_duplicate, "hrv")
+    assert hrv["intervention_eligible"] is False
+    # Frozen legacy channel: selection and as_of still follow the stored date.
+    assert hrv["as_of"] == TODAY.isoformat()
+    assert hrv["stale_input"] is False
+
+
+def test_future_observation_is_not_intervention_eligible():
+    """A measurement dated after the anchor cannot prove today's state (AC2)."""
+    inputs = _mixed_inputs(rhr_observed=-1)  # observation dated tomorrow
+    result = compute_readiness_today(**inputs, today=TODAY)
+
+    rhr = _factor(result, "resting_hr")
+    assert rhr["age_days"] == -1
+    assert rhr["observation_status"] == OBSERVATION_INVALID
+    assert rhr["intervention_eligible"] is False
+    assert result["eligible_inputs"] == ["tsb"]
+    assert result["intervention_confidence"] == 0.2
+    assert result["intervention_score"] is None
+    assert (
+        result["intervention_blocked_reason"]
+        == "no_confirmed_today_primary_recovery_measurement"
+    )
+    invalid = next(item for item in result["ineligible_inputs"] if item["key"] == "resting_hr")
+    assert invalid["reason"] == INELIGIBLE_REASON_INVALID_OBSERVATION
+
+
+def test_legacy_selection_uses_stored_date_and_provenance_is_a_separate_channel():
+    """Baselines captured from main 72f69b4 for the same provenance fixtures."""
+    # Fixture A: the newer observation sits on the older stored row. Main selects
+    # the latest *stored* row (80 -> score 40); provenance must not switch rows.
+    fixture_a = _observations_frame(
+        "resting_hr", [(1, 50.0, 0), (0, 80.0, 1)], "resting_hr_observed_at"
+    )
+    result_a = compute_readiness_today(
+        sleep_df=None,
+        hrv_df=None,
+        health_df=fixture_a,
+        training_df=None,
+        activities_df=None,
+        today=TODAY,
+        max_value_age_days=None,
+    )
+    rhr_a = _factor(result_a, "resting_hr")
+    assert rhr_a["raw_value"] == 80.0
+    assert rhr_a["score"] == 40.0
+    assert rhr_a["as_of"] == TODAY.isoformat()
+    assert rhr_a["stale_input"] is False
+    # ... while its own observation is yesterday: descriptive only, not eligible.
+    assert rhr_a["observation_as_of"] == (TODAY - timedelta(days=1)).isoformat()
+    assert rhr_a["observation_status"] == OBSERVATION_OUTDATED
+    assert rhr_a["intervention_eligible"] is False
+
+    # Fixture B: stored today, observed yesterday. Legacy stays today/not-stale,
+    # provenance reports yesterday/stale (this is what readiness_snapshot reads).
+    fixture_b = _observations_frame(
+        "resting_hr", [(0, 55.0, 1), *_history_rows(55.0)], "resting_hr_observed_at"
+    )
+    result_b = compute_readiness_today(
+        sleep_df=None,
+        hrv_df=None,
+        health_df=fixture_b,
+        training_df=None,
+        activities_df=None,
+        today=TODAY,
+        max_value_age_days=None,
+    )
+    rhr_b = _factor(result_b, "resting_hr")
+    assert rhr_b["raw_value"] == 55.0
+    assert rhr_b["score"] == 85.0
+    assert rhr_b["baseline"] == 55.0
+    assert rhr_b["as_of"] == TODAY.isoformat()
+    assert rhr_b["stale_input"] is False
+    assert rhr_b["observation_as_of"] == (TODAY - timedelta(days=1)).isoformat()
+    assert rhr_b["age_days"] == 1
+    assert rhr_b["observation_status"] == OBSERVATION_OUTDATED
+    assert rhr_b["intervention_eligible"] is False
 
 
 def test_unverified_measurement_stays_descriptive_but_not_intervention():
@@ -399,6 +474,7 @@ def test_drivers_carry_provenance_fields():
     assert result["drivers"]
     for driver in result["drivers"]:
         assert "as_of" in driver
+        assert "observation_as_of" in driver
         assert "age_days" in driver
         assert driver["observation_status"] in {
             OBSERVATION_CONFIRMED_TODAY,
