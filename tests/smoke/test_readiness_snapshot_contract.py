@@ -252,3 +252,132 @@ def test_coach_stream_meta_exposes_readiness_snapshot(tmp_path, monkeypatch):
     snapshot = events[0]["readiness_snapshot"]
     assert snapshot["score"] is not None
     assert snapshot["source_completeness"] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Issue #557 M2: additive freshness / intervention contract on the snapshot.
+# Legacy keys (score, confidence, stale, source_completeness, is_provisional)
+# keep their semantics; freshness and intervention_* are new channels.
+# ---------------------------------------------------------------------------
+
+
+def test_snapshot_exposes_freshness_buckets_and_intervention_aggregates(tmp_path):
+    from api.readiness_snapshot import build_readiness_snapshot
+
+    db = Database(str(tmp_path / "freshness.db"))
+    _seed_full_readiness(db)  # no provenance columns yet -> only sleep is confirmed
+
+    snapshot = build_readiness_snapshot(db)
+
+    # Additive channel.
+    freshness = snapshot["freshness"]
+    assert freshness["state"] == "provisional"
+    assert freshness["anchor"] == datetime.now().strftime("%Y-%m-%d")
+    assert freshness["confirmed_today"] == ["sleep"]
+    assert set(freshness["unverified"]) == {"hrv", "resting_hr", "training_readiness"}
+    assert freshness["outdated"] == []
+    assert freshness["invalid"] == []
+    assert freshness["missing"] == ["tsb"]
+    assert freshness["intervention_eligible"] == ["sleep"]
+    assert freshness["blocked_reason"] is None
+    # The stress reference factor is not a weighted input and never lands in a bucket.
+    for bucket in ("confirmed_today", "outdated", "unverified", "invalid", "missing"):
+        assert "stress" not in freshness[bucket]
+
+    assert snapshot["eligible_inputs"] == ["sleep"]
+    assert {item["key"] for item in snapshot["ineligible_inputs"]} == {
+        "hrv",
+        "resting_hr",
+        "training_readiness",
+    }
+    assert snapshot["intervention_confidence"] == 0.2
+    assert snapshot["intervention_score"] is not None
+    assert snapshot["intervention_blocked_reason"] is None
+
+    # Frozen legacy channel keeps its own (presence-based) verdict.
+    assert snapshot["is_provisional"] is False
+    assert snapshot["score"] is not None
+    assert snapshot["confidence"] == 0.8
+    assert snapshot["stale"] is False
+
+
+def test_snapshot_empty_db_reports_data_gap_freshness(tmp_path):
+    from api.readiness_snapshot import build_readiness_snapshot
+
+    snapshot = build_readiness_snapshot(Database(str(tmp_path / "empty_v2.db")))
+
+    freshness = snapshot["freshness"]
+    assert freshness["state"] == "data_gap"
+    assert freshness["confirmed_today"] == []
+    assert freshness["outdated"] == []
+    assert freshness["unverified"] == []
+    assert freshness["invalid"] == []
+    assert set(freshness["missing"]) == {"sleep", "hrv", "resting_hr", "training_readiness", "tsb"}
+    assert freshness["intervention_eligible"] == []
+    assert freshness["blocked_reason"] == "no_intervention_eligible_factors"
+
+    assert snapshot["intervention_score"] is None
+    assert snapshot["intervention_confidence"] == 0.0
+    assert snapshot["eligible_inputs"] == []
+    assert snapshot["ineligible_inputs"] == []
+    assert snapshot["intervention_blocked_reason"] == "no_intervention_eligible_factors"
+
+
+def test_snapshot_stale_data_blocks_intervention_but_keeps_stale_flag(tmp_path):
+    from api.readiness_snapshot import build_readiness_snapshot
+
+    db = Database(str(tmp_path / "stale_v2.db"))
+    old = (datetime.now() - timedelta(days=8)).strftime("%Y-%m-%d")
+    _seed_full_readiness(db, old)
+
+    snapshot = build_readiness_snapshot(db, stale_after_days=2)
+
+    freshness = snapshot["freshness"]
+    assert freshness["state"] == "data_gap"
+    assert freshness["outdated"] == ["sleep"]
+    assert set(freshness["unverified"]) == {"hrv", "resting_hr", "training_readiness"}
+    assert snapshot["intervention_score"] is None
+    assert snapshot["intervention_confidence"] == 0.0
+    assert snapshot["intervention_blocked_reason"] == "no_intervention_eligible_factors"
+    # Frozen legacy verdict is untouched by the new channel.
+    assert snapshot["stale"] is True
+    assert snapshot["status"] == "stale"
+
+
+def test_snapshot_keeps_invalid_observations_in_their_own_bucket(tmp_path, monkeypatch):
+    from datetime import date
+
+    from models.readiness import compute_readiness_today as real_compute
+
+    from services import readiness_snapshot as snapshot_module
+
+    def _with_future_rhr(sleep_df, hrv_df, health_df, training_df, activities_df, **kwargs):
+        """Inject a provider observation dated tomorrow into the health frame."""
+        if health_df is not None and not health_df.empty:
+            anchor = kwargs.get("today") or date.today()
+            health_df = health_df.assign(
+                resting_hr_observed_at=(anchor + timedelta(days=1)).isoformat()
+            )
+        return real_compute(
+            sleep_df, hrv_df, health_df, training_df, activities_df, **kwargs
+        )
+
+    monkeypatch.setattr(snapshot_module, "compute_readiness_today", _with_future_rhr)
+
+    db = Database(str(tmp_path / "invalid_obs.db"))
+    db.sync_sleep_data(
+        {datetime.now().strftime("%Y-%m-%d"): {"total_sleep_minutes": 480, "sleep_score": 82.0}}
+    )
+    db.sync_daily_health({datetime.now().strftime("%Y-%m-%d"): {"resting_hr": 52}})
+
+    snapshot = snapshot_module._build_measured_readiness_snapshot(db)
+
+    freshness = snapshot["freshness"]
+    assert freshness["invalid"] == ["resting_hr"]
+    assert "resting_hr" not in freshness["unverified"]
+    assert freshness["confirmed_today"] == ["sleep"]
+    assert freshness["state"] == "provisional"
+    assert "resting_hr" not in snapshot["eligible_inputs"]
+    invalid = next(item for item in snapshot["ineligible_inputs"] if item["key"] == "resting_hr")
+    assert invalid["observation_status"] == "invalid"
+    assert invalid["reason"] == "observation_in_future"
