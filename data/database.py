@@ -171,9 +171,16 @@ class Database:
         'monthly_load_anaerobic_target_max': 'REAL'
     }
 
+    # Provenance column owned by each arbitrated health metric (issue #557).
+    _HEALTH_PROVENANCE_COLUMNS = {
+        'resting_hr': 'resting_hr_observed_at',
+    }
+
     _DAILY_HEALTH_COLUMN_TYPES = {
         'resting_hr': 'INTEGER',
         'resting_hr_source': "TEXT DEFAULT 'legacy_unknown'",
+        # Issue #557 M3: дата измерения RHR из payload (NULL = не подтверждена).
+        'resting_hr_observed_at': 'TEXT',
         'steps': 'INTEGER',
         'steps_source': "TEXT DEFAULT 'legacy_unknown'",
         'floors_climbed': 'INTEGER',
@@ -388,6 +395,7 @@ class Database:
                 date DATE PRIMARY KEY,
                 resting_hr INTEGER,
                 resting_hr_source TEXT DEFAULT 'legacy_unknown',
+                resting_hr_observed_at TEXT,
                 steps INTEGER,
                 steps_source TEXT DEFAULT 'legacy_unknown',
                 floors_climbed INTEGER,
@@ -4924,6 +4932,9 @@ class Database:
                         ("resting_hr", "resting_hr_source", 0, 1),
                         ("steps", "steps_source", 2, 3),
                     )
+                    # Provider-local `id` is the observation date of every metric
+                    # accepted from this wellness record (issue #557).
+                    provenance_columns = {"resting_hr": "resting_hr_observed_at"}
                     if row is None:
                         columns = ["date"]
                         values = [day]
@@ -4933,6 +4944,10 @@ class Database:
                                 values.extend(
                                     (self.clean_value(health.get(metric)), provider)
                                 )
+                                provenance = provenance_columns.get(metric)
+                                if provenance:
+                                    columns.append(provenance)
+                                    values.append(day)
                         if len(columns) > 1:
                             placeholders = ", ".join("?" for _ in columns)
                             cursor.execute(
@@ -4949,6 +4964,9 @@ class Database:
                             ):
                                 updates[metric] = self.clean_value(health.get(metric))
                                 updates[source_column] = provider
+                                provenance = provenance_columns.get(metric)
+                                if provenance:
+                                    updates[provenance] = day
                         if updates:
                             clause = ", ".join(
                                 f"{column}=?" for column in updates
@@ -5891,9 +5909,16 @@ class Database:
                     ('resting_hr', 'resting_hr_source'),
                     ('steps', 'steps_source'),
                 ):
+                    provenance_column = self._HEALTH_PROVENANCE_COLUMNS.get(metric)
+
+                    def _drop_provenance():
+                        if provenance_column and provenance_column in present_columns:
+                            present_columns.remove(provenance_column)
+
                     if metric not in present_columns:
                         if source_column in present_columns:
                             present_columns.remove(source_column)
+                        _drop_provenance()
                         continue
                     incoming_source = prepared[source_column]
                     if not (
@@ -5905,6 +5930,11 @@ class Database:
                         present_columns.remove(metric)
                         if source_column in present_columns:
                             present_columns.remove(source_column)
+                        _drop_provenance()
+                    elif provenance_column and not prepared.get(provenance_column):
+                        # Датированный повтор без даты не должен стирать
+                        # известную provenance (issue #557).
+                        _drop_provenance()
                 if not present_columns:
                     continue
                 update_clause = ', '.join(f"{column}=?" for column in present_columns)

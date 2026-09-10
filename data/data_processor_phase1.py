@@ -278,11 +278,23 @@ class Phase1DataProcessor:
             
             # Обработка пульса покоя
             if resting_hr_data:
+                from utils.observation_provenance import observation_local_date
+
                 if isinstance(resting_hr_data, dict):
                     processed_data['resting_hr'] = resting_hr_data.get('restingHeartRate')
+                    # Дата измерения из payload (issue #557). Значение уже
+                    # приведено клиентом к дате атлета, поэтому читается как
+                    # локальная календарная дата; мусор -> None (unverified).
+                    observed = observation_local_date(
+                        resting_hr_data.get('observedAt'), source='athlete_local'
+                    )
+                    processed_data['resting_hr_observed_at'] = (
+                        observed.isoformat() if observed else None
+                    )
                 else:
                     # Если это просто значение
                     processed_data['resting_hr'] = resting_hr_data
+                    processed_data['resting_hr_observed_at'] = None
 
             respiration_avg = Phase1DataProcessor._extract_numeric_by_keys(
                 respiration_data,

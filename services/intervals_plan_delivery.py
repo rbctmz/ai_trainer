@@ -1,9 +1,8 @@
 """Headless bounded delivery of the active plan to Intervals.icu."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta
 from typing import Any, Sequence
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from config.settings import Settings
 from data.database import Database
@@ -16,19 +15,16 @@ from models.intervals_workout_delivery import (
 )
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from services.intervals_icu import IntervalsICUClient, get_client
+from utils.athlete_time import athlete_local_date as _athlete_local_date
 
 
 def athlete_local_date(observed_at_utc: datetime | None = None) -> date:
-    """Resolve today's delivery boundary in the configured athlete timezone."""
-    observed = observed_at_utc or datetime.now(timezone.utc)
-    if observed.tzinfo is None:
-        raise ValueError("observed_at_utc must be timezone-aware")
-    timezone_name = str(Settings.ATHLETE_TIMEZONE or "").strip()
-    try:
-        zone = ZoneInfo(timezone_name)
-    except (ZoneInfoNotFoundError, ValueError) as exc:
-        raise ValueError("ATHLETE_TIMEZONE must be a valid IANA timezone") from exc
-    return observed.astimezone(zone).date()
+    """Delivery boundary in the athlete timezone (canonical helper in utils).
+
+    Kept as a delegate so existing delivery callers and tests stay unchanged
+    while ingest uses the neutral module directly (issue #557 review P2).
+    """
+    return _athlete_local_date(observed_at_utc)
 
 
 def _selected_dates(
