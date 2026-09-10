@@ -11,7 +11,18 @@ from typing import Any
 import pandas as pd
 
 from data.database import Database
-from models.readiness import LOAD_METRICS_WINDOW_DAYS, compute_readiness_today
+from models.readiness import (
+    FACTOR_WEIGHTS,
+    INTERVENTION_BLOCKED_NO_ELIGIBLE,
+    LOAD_METRICS_WINDOW_DAYS,
+    OBSERVATION_CONFIRMED_TODAY,
+    OBSERVATION_INVALID,
+    OBSERVATION_MISSING,
+    OBSERVATION_OUTDATED,
+    OBSERVATION_UNVERIFIED,
+    PRIMARY_RECOVERY_KEYS,
+    compute_readiness_today,
+)
 from models.recovery_response import READINESS_SNAPSHOT_RULE_VERSION
 
 
@@ -143,6 +154,70 @@ def _build_measured_readiness_snapshot(
         "tsb": tsb,
         "confidence": result["confidence"],
         "input_provenance": provenance,
+        # Issue #557 M2: additive freshness/intervention channel. Legacy keys
+        # above (score, confidence, stale, source_completeness, is_provisional)
+        # keep their exact previous semantics.
+        "freshness": _freshness(result, anchor=anchor),
+        "intervention_score": result.get("intervention_score"),
+        "intervention_confidence": float(result.get("intervention_confidence") or 0.0),
+        "eligible_inputs": list(result.get("eligible_inputs") or []),
+        "ineligible_inputs": list(result.get("ineligible_inputs") or []),
+        "intervention_blocked_reason": result.get("intervention_blocked_reason"),
+    }
+
+
+def _freshness(result: dict[str, Any], *, anchor: date) -> dict[str, Any]:
+    """Per-factor freshness verdict plus the aggregate intervention state.
+
+    Пять корзин повторяют статусы модели; `invalid` (дата измерения позже
+    anchor) не сливается с `unverified`, чтобы поверхность могла честно показать
+    некорректную будущую дату. Reference-факторы вне ``FACTOR_WEIGHTS``
+    (например ``stress``) в корзины не попадают: они не влияют на вмешательство.
+
+    ``state``: ``data_gap``, когда интервенционный score не посчитан;
+    ``provisional``, когда хотя бы одно primary-измерение не подтверждено
+    сегодня; ``fresh`` только когда все primary-измерения подтверждены.
+    """
+    buckets: dict[str, list[str]] = {
+        OBSERVATION_CONFIRMED_TODAY: [],
+        OBSERVATION_OUTDATED: [],
+        OBSERVATION_UNVERIFIED: [],
+        OBSERVATION_INVALID: [],
+        OBSERVATION_MISSING: [],
+    }
+    seen: set[str] = set()
+    for factor in result.get("factors") or []:
+        key = str(factor.get("key") or "")
+        status = factor.get("observation_status")
+        if key not in FACTOR_WEIGHTS or status not in buckets:
+            continue
+        buckets[status].append(key)
+        seen.add(key)
+    for key in FACTOR_WEIGHTS:
+        if key not in seen:
+            buckets[OBSERVATION_MISSING].append(key)
+
+    intervention_score = result.get("intervention_score")
+    primary_confirmed = all(
+        key in buckets[OBSERVATION_CONFIRMED_TODAY] for key in PRIMARY_RECOVERY_KEYS
+    )
+    if intervention_score is None:
+        state = "data_gap"
+    elif not primary_confirmed:
+        state = "provisional"
+    else:
+        state = "fresh"
+
+    return {
+        "state": state,
+        "anchor": anchor.isoformat(),
+        "confirmed_today": buckets[OBSERVATION_CONFIRMED_TODAY],
+        "outdated": buckets[OBSERVATION_OUTDATED],
+        "unverified": buckets[OBSERVATION_UNVERIFIED],
+        "invalid": buckets[OBSERVATION_INVALID],
+        "missing": buckets[OBSERVATION_MISSING],
+        "intervention_eligible": list(result.get("eligible_inputs") or []),
+        "blocked_reason": result.get("intervention_blocked_reason"),
     }
 
 
@@ -169,6 +244,24 @@ def _unknown_snapshot(*, reason: str, anchor: date, observed_at_utc: str) -> dic
             "as_of": anchor.isoformat(),
         },
         "confidence": 0.0,
+        # Issue #557 M2: same additive shape as a measured snapshot, so consumers
+        # never branch on key presence.
+        "freshness": {
+            "state": "data_gap",
+            "anchor": anchor.isoformat(),
+            "confirmed_today": [],
+            "outdated": [],
+            "unverified": [],
+            "invalid": [],
+            "missing": list(FACTOR_WEIGHTS),
+            "intervention_eligible": [],
+            "blocked_reason": INTERVENTION_BLOCKED_NO_ELIGIBLE,
+        },
+        "intervention_score": None,
+        "intervention_confidence": 0.0,
+        "eligible_inputs": [],
+        "ineligible_inputs": [],
+        "intervention_blocked_reason": INTERVENTION_BLOCKED_NO_ELIGIBLE,
         "input_provenance": {
             "as_of_date": anchor.isoformat(),
             "observed_at_utc": observed_at_utc,

@@ -163,7 +163,9 @@ def test_readiness_builder_filters_every_source_to_as_of(tmp_path) -> None:
     )
 
     assert result["as_of_date"] == "2026-07-14"
-    assert result["rule_version"] == "readiness_snapshot_v2"
+    from models.recovery_response import READINESS_SNAPSHOT_RULE_VERSION
+
+    assert result["rule_version"] == READINESS_SNAPSHOT_RULE_VERSION
     assert all(
         factor.get("as_of") is None or factor["as_of"] <= "2026-07-14"
         for factor in result["factors"]
