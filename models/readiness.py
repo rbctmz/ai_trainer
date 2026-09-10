@@ -55,6 +55,7 @@ EVIDENCE_KIND_DERIVED_STATE = "derived_state"
 # Измерение без них не может доказать, когда оно сделано, поэтому остаётся
 # описательным: значение показывается с пометкой, но не влияет на вмешательство.
 OBSERVATION_DATE_COLUMNS: dict[str, str] = {
+    "sleep": "sleep_observed_at",
     "hrv": "rmssd_observed_at",
     "resting_hr": "resting_hr_observed_at",
     "training_readiness": "training_readiness_observed_at",
@@ -320,7 +321,6 @@ def _split_frame(
     max_age: int | None,
     *,
     observation_column: str | None = None,
-    stored_date_is_observation: bool = False,
 ) -> FactorWindow:
     """Return the latest stored value (frozen legacy) plus its observation provenance.
 
@@ -360,10 +360,6 @@ def _split_frame(
         parsed_observation = pd.to_datetime(latest[observation_column], errors="coerce")
         if not pd.isna(parsed_observation):
             observation_date = parsed_observation.date()
-    if observation_date is None and stored_date_is_observation:
-        # Строки, которые ingest ключует датой из payload (сон), доказывают дату
-        # измерения самой датой строки.
-        observation_date = latest_date
     observation_age_days = (
         (anchor - observation_date).days if observation_date is not None else None
     )
@@ -500,7 +496,11 @@ def _sleep_factor(
     # Строка сна хранится под датой из payload (`sleep_date`), поэтому дата
     # хранения и есть дата наблюдения.
     score_window = _split_frame(
-        sleep_df, "sleep_score", anchor, max_age, stored_date_is_observation=True
+        sleep_df,
+        "sleep_score",
+        anchor,
+        max_age,
+        observation_column=OBSERVATION_DATE_COLUMNS["sleep"],
     )
     score_value = score_window.value
     as_of = score_window.as_of
@@ -546,7 +546,11 @@ def _sleep_factor(
         }
 
     minutes_window = _split_frame(
-        sleep_df, "total_sleep_minutes", anchor, max_age, stored_date_is_observation=True
+        sleep_df,
+        "total_sleep_minutes",
+        anchor,
+        max_age,
+        observation_column=OBSERVATION_DATE_COLUMNS["sleep"],
     )
     minutes = minutes_window.value
     if minutes is None or minutes <= 0:

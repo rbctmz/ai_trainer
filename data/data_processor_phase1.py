@@ -183,6 +183,24 @@ class Phase1DataProcessor:
                 # Используем дату окончания сна для определения даты записи
                 processed_data['sleep_date'] = end_dt.date().strftime('%Y-%m-%d')
 
+            # Наблюдаемая дата сна (issue #557 M3). Ключ строки (`sleep_date`)
+            # остаётся как раньше, а observation date пишется отдельно и
+            # остаётся None, когда payload её не несёт: дата запроса не является
+            # доказательством того, когда сон измерен.
+            observed_date = None
+            if start_dt and end_dt:
+                observed_date = end_dt.date()
+            elif calendar_date:
+                try:
+                    observed_date = datetime.fromisoformat(
+                        str(calendar_date).replace('Z', '+00:00')
+                    ).date()
+                except (TypeError, ValueError):
+                    observed_date = None
+            processed_data['sleep_observed_at'] = (
+                observed_date.strftime('%Y-%m-%d') if observed_date else None
+            )
+
             # 5. Рассчитываем производные метрики, если их нет
             if 'sleep_score' not in processed_data and total_minutes > 0:
                 deep_rem_ratio = (processed_data.get('deep_sleep_minutes', 0) + processed_data.get('rem_sleep_minutes', 0)) / total_minutes

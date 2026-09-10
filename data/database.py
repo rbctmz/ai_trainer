@@ -195,6 +195,8 @@ class Database:
         'total_sleep_source': "TEXT DEFAULT 'legacy_unknown'",
         'sleep_score_source': "TEXT DEFAULT 'legacy_unknown'",
         'sleep_efficiency_source': "TEXT DEFAULT 'legacy_unknown'",
+        # Issue #557 M3: дата измерения сна из payload (NULL = не подтверждена).
+        'sleep_observed_at': 'TEXT',
     }
 
     _HRV_COLUMN_TYPES = {
@@ -372,6 +374,7 @@ class Database:
                 total_sleep_source TEXT DEFAULT 'legacy_unknown',
                 sleep_score_source TEXT DEFAULT 'legacy_unknown',
                 sleep_efficiency_source TEXT DEFAULT 'legacy_unknown',
+                sleep_observed_at TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -5737,9 +5740,15 @@ class Database:
                     'sleep_efficiency',
                     'awake_sleep_minutes',
                     'sleep_efficiency_source',
+                    'sleep_observed_at',
                 ):
-                    if column in data:
-                        updates[column] = self.clean_value(data.get(column))
+                    if column not in data:
+                        continue
+                    # A re-sync without a payload date must never erase a known
+                    # observation date (issue #557 M3).
+                    if column == 'sleep_observed_at' and not data.get(column):
+                        continue
+                    updates[column] = self.clean_value(data.get(column))
                 current_total_source = current['total_sleep_source']
                 if 'total_sleep_minutes' in data and (
                     current['total_sleep_minutes'] is None
@@ -5779,8 +5788,9 @@ class Database:
                     (date, total_sleep_minutes, deep_sleep_minutes, light_sleep_minutes,
                      rem_sleep_minutes, awakenings_count, sleep_score, bedtime, 
                      wakeup_time, sleep_efficiency, awake_sleep_minutes,
-                     total_sleep_source, sleep_score_source, sleep_efficiency_source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     total_sleep_source, sleep_score_source, sleep_efficiency_source,
+                     sleep_observed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     clean_date,
                     self.clean_value(data.get('total_sleep_minutes')),
@@ -5795,7 +5805,8 @@ class Database:
                     self.clean_value(data.get('awake_sleep_minutes')),
                     total_source,
                     score_source,
-                    self.clean_value(data.get('sleep_efficiency_source') or 'legacy_unknown')
+                    self.clean_value(data.get('sleep_efficiency_source') or 'legacy_unknown'),
+                    self.clean_value(data.get('sleep_observed_at')),
                 ))
                 existing[clean_date] = {
                     'total_sleep_minutes': self.clean_value(
