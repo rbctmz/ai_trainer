@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from datetime import date, datetime
 from typing import Any
 
@@ -31,6 +32,36 @@ MIN_BASELINE_SAMPLES = 5
 
 # Значение старше 2 дней считаем отставшим (но всё ещё пригодным с пометкой).
 STALE_AFTER_DAYS = 2
+
+# --- Observation provenance и intervention eligibility (issue #557) ---------
+# Наличие строки в базе и наличие *измерения за сегодня* — разные факты:
+# вовлекать план можно только по подтверждённо сегодняшнему primary-измерению.
+OBSERVATION_CONFIRMED_TODAY = "confirmed_today"
+OBSERVATION_OUTDATED = "outdated"
+OBSERVATION_UNVERIFIED = "unverified"
+OBSERVATION_MISSING = "missing"
+
+# Первичные recovery-измерения: actionable-вмешательство требует хотя бы одного
+# подтверждённо сегодняшнего (AC2 issue #557).
+PRIMARY_RECOVERY_KEYS: tuple[str, ...] = ("sleep", "hrv", "resting_hr")
+
+EVIDENCE_KIND_MEASUREMENT = "measurement"
+EVIDENCE_KIND_DERIVED_STATE = "derived_state"
+
+# Provider-колонки с датой измерения (заполняются ingest'ом в milestone M3).
+# Измерение без них не может доказать, когда оно сделано, поэтому остаётся
+# описательным: значение показывается с пометкой, но не влияет на вмешательство.
+OBSERVATION_DATE_COLUMNS: dict[str, str] = {
+    "hrv": "rmssd_observed_at",
+    "resting_hr": "resting_hr_observed_at",
+    "training_readiness": "training_readiness_observed_at",
+}
+
+INTERVENTION_BLOCKED_NO_PRIMARY = "no_confirmed_today_primary_recovery_measurement"
+INTERVENTION_BLOCKED_NO_ELIGIBLE = "no_intervention_eligible_factors"
+
+INELIGIBLE_REASON_UNVERIFIED = "observation_date_unverified"
+INELIGIBLE_REASON_OUTDATED = "observation_outdated"
 
 FACTOR_WEIGHTS: dict[str, float] = {
     "hrv": 0.30,
@@ -100,6 +131,7 @@ def compute_readiness_today(
         absolute_bands="hrv_absolute",
         unit="мс",
         higher_is_better=True,
+        observation_column=OBSERVATION_DATE_COLUMNS["hrv"],
     )
     if hrv_factor:
         factors.append(hrv_factor)
@@ -115,6 +147,7 @@ def compute_readiness_today(
         absolute_bands="rhr_absolute",
         unit="уд/мин",
         higher_is_better=False,
+        observation_column=OBSERVATION_DATE_COLUMNS["resting_hr"],
     )
     if rhr_factor:
         factors.append(rhr_factor)
@@ -149,6 +182,47 @@ def compute_readiness_today(
 
     as_of_dates = [f["as_of"] for f in factors if f.get("as_of")]
 
+    # --- Intervention eligibility (issue #557) ------------------------------
+    # Описательные агрегаты выше (score/confidence/as_of_date) остаются ровно
+    # такими, как были: их читают session-quality forecast, recovery analytics
+    # и другие подсистемы. Вмешательство в план считает отдельно и только по
+    # подтверждённо сегодняшним измерениям.
+    eligible = [f for f in factors if f.get("intervention_eligible")]
+    eligible_keys = [f["key"] for f in eligible]
+    ineligible = [
+        {
+            "key": f["key"],
+            "observation_status": f.get("observation_status"),
+            "reason": (
+                INELIGIBLE_REASON_UNVERIFIED
+                if f.get("observation_status") == OBSERVATION_UNVERIFIED
+                else INELIGIBLE_REASON_OUTDATED
+            ),
+        }
+        for f in factors
+        if not f.get("intervention_eligible")
+    ]
+    intervention_confidence = round(len(eligible) / len(FACTOR_WEIGHTS), 2)
+    primary_eligible = [
+        f
+        for f in eligible
+        if f["key"] in PRIMARY_RECOVERY_KEYS and f.get("evidence_kind") == EVIDENCE_KIND_MEASUREMENT
+    ]
+    if not eligible:
+        intervention_score = None
+        intervention_blocked_reason: str | None = INTERVENTION_BLOCKED_NO_ELIGIBLE
+    elif not primary_eligible:
+        # Current TSB is a derived load state, not an overnight measurement: it
+        # can never open an intervention on its own.
+        intervention_score = None
+        intervention_blocked_reason = INTERVENTION_BLOCKED_NO_PRIMARY
+    else:
+        eligible_weight = sum(FACTOR_WEIGHTS[f["key"]] for f in eligible)
+        intervention_score = round(
+            sum(f["score"] * FACTOR_WEIGHTS[f["key"]] / eligible_weight for f in eligible), 1
+        )
+        intervention_blocked_reason = None
+
     return {
         "score": score,
         "status": status,
@@ -156,10 +230,26 @@ def compute_readiness_today(
         "confidence": round(len(factors) / len(FACTOR_WEIGHTS), 2),
         "factors": factors,
         "drivers": [
-            {"key": f["key"], "label": f["label"], "score": f["score"], "evidence": f["evidence"]}
+            {
+                "key": f["key"],
+                "label": f["label"],
+                "score": f["score"],
+                "evidence": f["evidence"],
+                "as_of": f.get("as_of"),
+                "age_days": f.get("age_days"),
+                "observation_status": f.get("observation_status"),
+                "intervention_eligible": bool(f.get("intervention_eligible")),
+                "evidence_kind": f.get("evidence_kind"),
+                "source": f.get("source"),
+            }
             for f in drivers
         ],
         "missing_inputs": [key for key in FACTOR_WEIGHTS if key not in {f["key"] for f in factors}],
+        "intervention_score": intervention_score,
+        "intervention_confidence": intervention_confidence,
+        "eligible_inputs": eligible_keys,
+        "ineligible_inputs": ineligible,
+        "intervention_blocked_reason": intervention_blocked_reason,
         "tsb": tsb_payload or {"ctl": None, "atl": None, "tsb": None, "window_days": LOAD_METRICS_WINDOW_DAYS},
     }
 
@@ -173,6 +263,11 @@ def _empty_result() -> dict[str, Any]:
         "factors": [],
         "drivers": [],
         "missing_inputs": list(FACTOR_WEIGHTS),
+        "intervention_score": None,
+        "intervention_confidence": 0.0,
+        "eligible_inputs": [],
+        "ineligible_inputs": [],
+        "intervention_blocked_reason": INTERVENTION_BLOCKED_NO_ELIGIBLE,
         "tsb": {"ctl": None, "atl": None, "tsb": None, "window_days": LOAD_METRICS_WINDOW_DAYS},
     }
 
@@ -184,43 +279,111 @@ def _band_score(bands_key: str, value: float) -> float:
     return float(FACTOR_BANDS[bands_key][-1][1])
 
 
+@dataclass(frozen=True)
+class FactorWindow:
+    """Последнее датированное значение фактора вместе с его provenance.
+
+    ``as_of`` — дата измерения, когда она подтверждена провайдером, иначе дата
+    строки хранения (frozen legacy-семантика). ``verified`` говорит, известна ли
+    дата измерения вообще, а ``age_days``/``stale`` считаются от ``as_of``.
+    """
+
+    value: float | None
+    as_of: str | None
+    age_days: int | None
+    verified: bool
+    stale: bool
+    history: pd.Series
+
+
 def _split_frame(
     frame: pd.DataFrame | None,
     column: str,
     anchor: date,
     max_age: int | None,
-) -> tuple[float | None, str | None, bool, pd.Series]:
-    """Return (current value, its ISO date, stale flag, baseline history series).
+    *,
+    observation_column: str | None = None,
+    stored_date_is_observation: bool = False,
+) -> FactorWindow:
+    """Return (current value, observation date, provenance, stale flag, history).
 
-    История для базлайна анкерится к дате текущего значения (не к anchor):
-    строго более ранние строки в 28-дневном окне. Так базлайн никогда не
+    Ряд фактора ключуется датой измерения, когда она известна, и датой хранения
+    иначе: повторный ingest одного и того же наблюдения под другой датой запроса
+    схлопывается в один sample и не искажает базлайн (issue #557).
+
+    История для базлайна анкерится к дате последнего измерения (не к anchor):
+    строго более ранние ключи в 28-дневном окне. Так базлайн никогда не
     содержит само сравниваемое значение — в том числе когда свежайшая строка
     отстаёт от сегодняшнего дня.
     """
+    empty = FactorWindow(None, None, None, False, False, pd.Series(dtype=float))
     if frame is None or not isinstance(frame, pd.DataFrame) or frame.empty:
-        return None, None, False, pd.Series(dtype=float)
+        return empty
     if column not in frame.columns or "date" not in frame.columns:
-        return None, None, False, pd.Series(dtype=float)
+        return empty
 
-    df = frame[["date", column]].copy()
+    selected = ["date", column]
+    if observation_column and observation_column in frame.columns:
+        selected.append(observation_column)
+    df = frame[selected].copy()
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df = df.dropna(subset=["date"])
     df[column] = pd.to_numeric(df[column], errors="coerce")
-    df = df.dropna(subset=[column]).sort_values("date")
+    df = df.dropna(subset=[column])
     if df.empty:
-        return None, None, False, pd.Series(dtype=float)
+        return empty
+
+    stored_date = df["date"].dt.normalize()
+    if observation_column and observation_column in df.columns:
+        parsed_observation = pd.to_datetime(df[observation_column], errors="coerce").dt.normalize()
+    else:
+        parsed_observation = pd.Series(pd.NaT, index=df.index)
+    observed_date = (
+        parsed_observation.fillna(stored_date) if stored_date_is_observation else parsed_observation
+    )
+    df["_observed"] = observed_date
+    df["_key"] = observed_date.fillna(stored_date)
+
+    # Одно наблюдение — один sample: при повторе побеждает последняя запись.
+    df = df.sort_values("date").drop_duplicates(subset=["_key"], keep="last")
+    df = df.sort_values("_key")
 
     latest = df.iloc[-1]
-    latest_ts = latest["date"]
-    latest_date = latest_ts.date()
-    baseline_cutoff = latest_ts - pd.Timedelta(days=BASELINE_WINDOW_DAYS)
-    history_window = df[(df["date"] < latest_ts) & (df["date"] >= baseline_cutoff)][column]
+    latest_key = latest["_key"]
+    verified = bool(not pd.isna(latest["_observed"]))
+    age_days = int((pd.Timestamp(anchor) - latest_key).days)
+    baseline_cutoff = latest_key - pd.Timedelta(days=BASELINE_WINDOW_DAYS)
+    history_window = df[(df["_key"] < latest_key) & (df["_key"] >= baseline_cutoff)][column]
 
-    age_days = (anchor - latest_date).days
     if max_age is not None and age_days > max_age:
-        return None, None, False, history_window
+        return FactorWindow(None, None, age_days, verified, False, history_window)
 
-    return float(latest[column]), latest_date.isoformat(), age_days > 0, history_window
+    return FactorWindow(
+        value=float(latest[column]),
+        as_of=latest_key.date().isoformat(),
+        age_days=age_days,
+        verified=verified,
+        stale=age_days > 0,
+        history=history_window,
+    )
+
+
+def _observation_status(*, verified: bool, age_days: int | None) -> str:
+    """Стабильный статус наблюдения фактора (issue #557)."""
+    if not verified:
+        return OBSERVATION_UNVERIFIED
+    if age_days is not None and age_days <= 0:
+        return OBSERVATION_CONFIRMED_TODAY
+    return OBSERVATION_OUTDATED
+
+
+def _provenance_fields(status: str, age_days: int | None, evidence_kind: str) -> dict[str, Any]:
+    return {
+        "age_days": age_days,
+        "observation_status": status,
+        "intervention_eligible": status == OBSERVATION_CONFIRMED_TODAY,
+        "evidence_kind": evidence_kind,
+    }
 
 
 def _baseline(history: pd.Series) -> float | None:
@@ -241,12 +404,20 @@ def _deviation_factor(
     absolute_bands: str,
     unit: str,
     higher_is_better: bool,
+    observation_column: str | None = None,
 ) -> dict[str, Any] | None:
-    value, as_of, stale, history = _split_frame(frame, column, anchor, max_age)
+    window = _split_frame(
+        frame,
+        column,
+        anchor,
+        max_age,
+        observation_column=observation_column,
+    )
+    value = window.value
     if value is None:
         return None
-
-    baseline = _baseline(history)
+    as_of = window.as_of
+    baseline = _baseline(window.history)
     if baseline is not None and baseline > 0:
         if deviation_mode == "percent":
             deviation = (value - baseline) / baseline * 100.0
@@ -276,15 +447,26 @@ def _deviation_factor(
         "deviation": round(deviation, 1) if deviation is not None else None,
         "evidence": evidence,
         "source": f"{column}",
-        "stale_input": stale,
+        "stale_input": window.stale,
         "as_of": as_of,
+        **_provenance_fields(
+            _observation_status(verified=window.verified, age_days=window.age_days),
+            window.age_days,
+            EVIDENCE_KIND_MEASUREMENT,
+        ),
     }
 
 
 def _sleep_factor(
     sleep_df: pd.DataFrame | None, anchor: date, max_age: int | None
 ) -> dict[str, Any] | None:
-    score_value, as_of, stale, _ = _split_frame(sleep_df, "sleep_score", anchor, max_age)
+    # Строка сна хранится под датой из payload (`sleep_date`), поэтому дата
+    # хранения и есть дата наблюдения.
+    score_window = _split_frame(
+        sleep_df, "sleep_score", anchor, max_age, stored_date_is_observation=True
+    )
+    score_value = score_window.value
+    as_of = score_window.as_of
     if score_value is not None:
         metric_source = "legacy_unknown"
         if (
@@ -321,11 +503,21 @@ def _sleep_factor(
             ),
             "source": "sleep_score",
             "metric_source": metric_source,
-            "stale_input": stale,
+            "stale_input": score_window.stale,
             "as_of": as_of,
+            **_provenance_fields(
+                _observation_status(
+                    verified=score_window.verified, age_days=score_window.age_days
+                ),
+                score_window.age_days,
+                EVIDENCE_KIND_MEASUREMENT,
+            ),
         }
 
-    minutes, as_of, stale, _ = _split_frame(sleep_df, "total_sleep_minutes", anchor, max_age)
+    minutes_window = _split_frame(
+        sleep_df, "total_sleep_minutes", anchor, max_age, stored_date_is_observation=True
+    )
+    minutes = minutes_window.value
     if minutes is None or minutes <= 0:
         return None
     hours = minutes / 60.0
@@ -340,15 +532,29 @@ def _sleep_factor(
         "evidence": f"Сон {hours:.1f} ч",
         "source": "total_sleep_minutes",
         "metric_source": "duration",
-        "stale_input": stale,
-        "as_of": as_of,
+        "stale_input": minutes_window.stale,
+        "as_of": minutes_window.as_of,
+        **_provenance_fields(
+            _observation_status(
+                verified=minutes_window.verified, age_days=minutes_window.age_days
+            ),
+            minutes_window.age_days,
+            EVIDENCE_KIND_MEASUREMENT,
+        ),
     }
 
 
 def _garmin_factor(
     training_df: pd.DataFrame | None, anchor: date, max_age: int | None
 ) -> dict[str, Any] | None:
-    value, as_of, stale, _ = _split_frame(training_df, "training_readiness", anchor, max_age)
+    window = _split_frame(
+        training_df,
+        "training_readiness",
+        anchor,
+        max_age,
+        observation_column=OBSERVATION_DATE_COLUMNS["training_readiness"],
+    )
+    value = window.value
     if value is None:
         return None
     clamped = max(0.0, min(100.0, value))
@@ -362,8 +568,13 @@ def _garmin_factor(
         "deviation": None,
         "evidence": f"Garmin readiness {clamped:.0f}/100",
         "source": "training_readiness",
-        "stale_input": stale,
-        "as_of": as_of,
+        "stale_input": window.stale,
+        "as_of": window.as_of,
+        **_provenance_fields(
+            _observation_status(verified=window.verified, age_days=window.age_days),
+            window.age_days,
+            EVIDENCE_KIND_MEASUREMENT,
+        ),
     }
 
 
@@ -421,4 +632,9 @@ def _tsb_factor(tsb_payload: dict[str, Any]) -> dict[str, Any]:
         "source": "activities.tss → Banister",
         "stale_input": False,
         "as_of": tsb_payload.get("as_of"),
+        **_provenance_fields(
+            OBSERVATION_CONFIRMED_TODAY,
+            0,
+            EVIDENCE_KIND_DERIVED_STATE,
+        ),
     }
