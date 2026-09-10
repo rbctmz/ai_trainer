@@ -320,7 +320,7 @@ def test_snapshot_confirms_sleep_only_with_payload_observation_date(tmp_path):
             today: {
                 "total_sleep_minutes": 480,
                 "sleep_score": 82.0,
-                "sleep_observed_at": today,
+                "sleep_score_observed_at": today,
             }
         }
     )
@@ -341,7 +341,7 @@ def test_snapshot_confirms_sleep_only_with_payload_observation_date(tmp_path):
             today: {
                 "total_sleep_minutes": 480,
                 "sleep_score": 82.0,
-                "sleep_observed_at": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+                "sleep_score_observed_at": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
             }
         }
     )
@@ -426,7 +426,7 @@ def test_snapshot_keeps_invalid_observations_in_their_own_bucket(tmp_path, monke
             today: {
                 "total_sleep_minutes": 480,
                 "sleep_score": 82.0,
-                "sleep_observed_at": today,
+                "sleep_score_observed_at": today,
             }
         }
     )

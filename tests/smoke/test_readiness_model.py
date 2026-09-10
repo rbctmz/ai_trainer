@@ -244,7 +244,7 @@ def _verified_full_inputs() -> dict:
     """All four measurements confirmed for TODAY, TSB present."""
     return {
         "sleep_df": _observations_frame(
-            "sleep_score", [(0, 80.0, 0)], "sleep_observed_at"
+            "sleep_score", [(0, 80.0, 0)], "sleep_score_observed_at"
         ),
         "hrv_df": _observations_frame(
             "rmssd", [(0, 37.0, 0), *_history_rows(37.0)], "rmssd_observed_at"
@@ -467,7 +467,7 @@ def test_sleep_with_payload_observation_date_is_confirmed_today():
     """M3: sleep eligibility follows the payload date, not the stored row date."""
     inputs = _verified_full_inputs()
     inputs["sleep_df"] = _observations_frame(
-        "sleep_score", [(0, 80.0, 0)], "sleep_observed_at"
+        "sleep_score", [(0, 80.0, 0)], "sleep_score_observed_at"
     )
     result = compute_readiness_today(**inputs, today=TODAY)
 
@@ -478,7 +478,7 @@ def test_sleep_with_payload_observation_date_is_confirmed_today():
 
     # Yesterday's payload date on a row stored today is outdated, not fresh.
     stale = compute_readiness_today(
-        **{**inputs, "sleep_df": _observations_frame("sleep_score", [(0, 80.0, 1)], "sleep_observed_at")},
+        **{**inputs, "sleep_df": _observations_frame("sleep_score", [(0, 80.0, 1)], "sleep_score_observed_at")},
         today=TODAY,
     )
     stale_sleep = _factor(stale, "sleep")
