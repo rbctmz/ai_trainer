@@ -108,6 +108,7 @@ def test_m4_list_wellness_uses_bounded_fields_and_exact_local_dates():
         "sleepSecs",
         "sleepScore",
         "sleepQuality",
+        "soreness", "fatigue", "stress", "mood", "motivation", "injury", "hydration",
         "steps",
     }
     assert {"readiness", "ctl", "atl"}.isdisjoint(params["fields"].split(","))
@@ -488,8 +489,8 @@ def test_m4_intervals_sync_populates_separate_wellness_cursor(tmp_path):
 
     assert result.halted is False
     assert result.wellness_halted is False
-    # Change counters are row/domain based: HRV + sleep + daily_health.
-    assert result.recovery_changes == 3
+    # Change counters include the independent subjective day observation.
+    assert result.recovery_changes == 4
     assert result.wellness_skipped == 0
     assert db.get_sync_cursor("intervals", "activities") == "2026-07-27"
     assert db.get_sync_cursor("intervals", "wellness") == "2026-07-27"

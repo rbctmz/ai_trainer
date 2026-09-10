@@ -158,7 +158,7 @@ def _patch_report(monkeypatch, report: dict) -> None:
 def _patch_snapshot(monkeypatch, snapshot: dict) -> None:
     from api import today_snapshot as today_module
 
-    monkeypatch.setattr(today_module, "build_readiness_snapshot", lambda _db: snapshot)
+    monkeypatch.setattr(today_module, "build_readiness_snapshot", lambda _db, **_kwargs: snapshot)
 
 
 def test_briefing_defaults_to_daily_and_marks_a_silent_day_quiet(tmp_path, monkeypatch) -> None:

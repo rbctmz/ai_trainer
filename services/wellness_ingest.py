@@ -3,9 +3,10 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Mapping
 
+from models.subjective_wellness import normalize_subjective
 from config.settings import Settings
 from data.database import Database, parse_cursor_date
 from services.intervals_icu import IntervalsICUClient, IntervalsICUError
@@ -20,6 +21,7 @@ class WellnessRecord:
     hrv: dict[str, Any] = field(default_factory=dict)
     sleep: dict[str, Any] = field(default_factory=dict)
     health: dict[str, Any] = field(default_factory=dict)
+    subjective: dict[str, Any] = field(default_factory=dict)
 
     @property
     def mapped_metric_count(self) -> int:
@@ -40,6 +42,7 @@ class WellnessRecord:
             "hrv": dict(self.hrv),
             "sleep": dict(self.sleep),
             "health": dict(self.health),
+            "subjective": dict(self.subjective),
         }
 
 
@@ -134,7 +137,10 @@ def normalize_intervals_wellness(row: Mapping[str, Any]) -> WellnessRecord:
             }
         )
 
-    return WellnessRecord(date=day, hrv=hrv, sleep=sleep, health=health)
+    return WellnessRecord(
+        date=day, hrv=hrv, sleep=sleep, health=health,
+        subjective=normalize_subjective(row),
+    )
 
 
 def sync_intervals_wellness(
@@ -175,6 +181,7 @@ def sync_intervals_wellness(
     seen: set[str] = set()
     for chunk_start, chunk_end in iter_chunks(start, end, chunk_days):
         try:
+            received_at = datetime.now(timezone.utc).isoformat(timespec="microseconds")
             rows = client.list_wellness(chunk_start.date(), chunk_end.date())
             normalized: list[dict[str, Any]] = []
             for row in rows:
@@ -193,14 +200,17 @@ def sync_intervals_wellness(
             provider="intervals",
             cursor_value=chunk_end.date().isoformat(),
             primary_source=Settings.PRIMARY_WELLNESS_SOURCE,
+            received_at=received_at,
         )
         result.new += (
             counts["hrv_new"] + counts["sleep_new"] + counts["health_new"]
+            + counts.get("subjective_new", 0)
         )
         result.updated += (
             counts["hrv_updated"]
             + counts["sleep_updated"]
             + counts["health_updated"]
+            + counts.get("subjective_updated", 0)
         )
         result.skipped += counts["skipped"]
         result.changes += counts["changes"]

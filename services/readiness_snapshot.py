@@ -37,7 +37,7 @@ def _bounded(frame: pd.DataFrame | None, as_of: date) -> pd.DataFrame | None:
     return result.loc[parsed.notna() & (parsed.dt.date <= as_of)].copy()
 
 
-def build_readiness_snapshot(
+def _build_measured_readiness_snapshot(
     db: Database,
     *,
     stale_after_days: int = 2,
@@ -263,3 +263,19 @@ def _reason(
         labels = ", ".join(FACTOR_LABELS.get(key, key) for key in missing_inputs)
         return f"Readiness рассчитан по частичным данным; отсутствуют: {labels}."
     return "Readiness рассчитан по полному набору основных recovery-сигналов."
+
+
+def build_readiness_snapshot(
+    db: Database, *, stale_after_days: int = 2, as_of: date | None = None,
+    observed_at_utc: datetime | None = None,
+) -> dict[str, Any]:
+    """Attach independent self-reports without changing measured readiness."""
+    from services.subjective_wellness import build_subjective_wellness
+
+    anchor = as_of or datetime.now().date()
+    result = _build_measured_readiness_snapshot(
+        db, stale_after_days=stale_after_days, as_of=anchor,
+        observed_at_utc=observed_at_utc,
+    )
+    result["subjective_wellness"] = build_subjective_wellness(db, as_of=anchor)
+    return result
