@@ -17,7 +17,7 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 - [x] (2026-09-10) Создан этот ExecPlan для ревью; реализация не начата.
 - [x] (2026-09-10) Ревизия v2: закрыты три блокирующих разрыва delta-review (AC6-механизм, аддитивность legacy-полей, provenance `training_readiness`) и три дополнительных замечания; см. `Change log`.
 - [x] (2026-09-10) Ревизия v3: версия правила доведена до approval API, у helper'а задана явная семантика источника и нейтральный модуль, head-колонка `rule_version` убрана как неиспользуемая, исправлен владелец `_proposal_payload`, escape hatch согласован с контрактом guard; см. `Change log`.
-- [ ] M1. `models/readiness.py`: per-factor `age_days`/`observation_status`/`intervention_eligible`/`evidence_kind`, аддитивные агрегаты `intervention_score`/`intervention_confidence`; legacy `score`/`confidence`/`stale` заморожены (RED→GREEN в `tests/smoke/test_readiness_model.py`).
+- [x] M1. `models/readiness.py`: per-factor `age_days`/`observation_status`/`intervention_eligible`/`evidence_kind`, аддитивные агрегаты `intervention_score`/`intervention_confidence`; legacy `score`/`confidence`/`stale` заморожены (RED→GREEN в `tests/smoke/test_readiness_model.py`). Выполнено 2026-09-10: RED `6238ba2` (ImportError на новых константах), GREEN с 10 новыми тестами; детали и цифры — `Artifacts and Notes`.
 - [ ] M2. `services/readiness_snapshot.py`: аддитивный контракт `freshness`/`intervention_score`/`intervention_confidence` без изменения legacy-полей (RED→GREEN в `tests/smoke/test_readiness_snapshot_contract.py`).
 - [ ] M3. Provenance измерений: observation date для RHR, HRV и `training_readiness` от payload до модели, явная семантика источника (`utc` vs `athlete_local`), конверсия в `ATHLETE_TIMEZONE` через нейтральный `utils/athlete_time.py`, дедупликация повторов observation, аддитивные nullable-колонки (RED→GREEN в Garmin/sync-тестах).
 - [ ] M4. `models/readiness_conflicts.py` + `api/recovery_replan_loop.py` + `data/database.py` + `api/routers/decisions.py`: fail-closed gate и version-qualified ownership (AC6) поверх lifecycle #552, с передачей версий из API в атомарные DB-методы.
@@ -62,6 +62,9 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 - Decision: legacy-поля `score`, `confidence`, `stale`, `source_completeness`, `is_provisional` **сохраняют текущую семантику без изменений**; вся новая информация идёт аддитивно: `intervention_score`, `intervention_confidence`, `freshness`, `eligible_inputs`, `ineligible_inputs`, `intervention_blocked_reason` (+ per-factor поля из предыдущего решения).
   Rationale: переопределение `confidence`/`stale` сломало бы `models/session_quality_forecast.py`, `services/recovery_analytics.py`, `models/recovery_response.py`, `models/coach_narrative_evidence.py`, `services/comparable_sessions.py`, `api/session_quality_forecast.py` и противоречило AC8 (additive/backward-compatible). Дефолт-направление безопасности достигается в gate, а не подменой общего поля.
   Date/Author: 2026-09-10 / agent (ревизия v2 по ревью).
+- Decision: `_split_frame` возвращает frozen dataclass `FactorWindow(value, as_of, age_days, verified, stale, history)` вместо кортежа; `ineligible_inputs[].reason` — стабильные коды `observation_date_unverified` / `observation_outdated`.
+  Rationale: шесть позиционных значений в кортеже читались бы как лотерея, а `verified` (дата измерения известна?) нужен вызывающему, чтобы вывести `observation_status`; коды причин устойчивы для тестов и будущей локализации в UI.
+  Date/Author: 2026-09-10 / agent (M1).
 - Decision: единственный мигрирующий потребитель — salience-gate `models/readiness_conflicts.py::detect_readiness_conflicts`: он читает `intervention_score` (вместо `score`) и `intervention_confidence` (вместо `confidence`) и дополнительно требует хотя бы одно `intervention_eligible` primary-измерение (sleep/HRV/RHR). Все остальные потребители остаются на legacy-полях, и на каждого пишется regression-тест, фиксирующий неизменность прежнего поведения.
   Rationale: AC2/AC3 требуют fail-closed именно на входе в интервенцию; менять остальные подсистемы в рамках этой задачи — scope creep с риском для session-quality forecast и recovery analytics.
   Date/Author: 2026-09-10 / agent (ревизия v2 по ревью).
@@ -226,7 +229,17 @@ Version-qualified ownership идемпотентен: сравнение идё�
 
 ## Artifacts and Notes
 
-(Появится после реализации: вывод RED-падений по слоям, GREEN-прогонов, независимого чтения `/api/today`, diff'ы аддитивной миграции, baseline «до/после» в одном окружении, выдержки из `ts_contract.json`.)
+### M1 (2026-09-10)
+
+Frozen legacy baseline, снятый на `main` `72f69b4` до реализации (фикстура `_full_inputs()` из `tests/smoke/test_readiness_model.py`, `today=2026-07-09`): `score=76.5`, `status="strong"`, `confidence=1.0`, `as_of_date="2026-07-09"`, факторы `hrv=70.0 / resting_hr=85.0 / sleep=80.0 / training_readiness=80.0 / tsb=70.0`. После M1 те же числа проверяются тестом `test_legacy_aggregates_are_frozen_and_new_keys_are_additive`, то есть описательный контракт не сдвинулся.
+
+RED: `./ai_trainer_env/bin/python -m pytest tests/smoke/test_readiness_model.py -q` на коммите `6238ba2` падал на сборе (`ImportError: cannot import name 'OBSERVATION_CONFIRMED_TODAY'`). GREEN после реализации: `19 passed` (9 существующих + 10 новых тестов M1).
+
+Потребители legacy-полей (проверка аддитивности): `test_readiness_snapshot_contract.py`, `test_readiness_conflicts.py`, `test_readiness_bio_signals.py`, `test_readiness_plan_purity.py`, `test_api_today.py` — `80 passed`; `test_session_quality_forecast.py`, `test_api_session_quality_router_contract.py`, `test_api_recovery_analytics.py`, `test_signals_engine.py`, `test_comparable_sessions.py`, `test_coach_narrative_evidence_gate.py`, `test_today_snapshot_perf_gate.py` — `218 passed`. `ruff check` по изменённым файлам чист.
+
+Отклонение от плана (записано в Decision Log): `_split_frame` возвращает не кортеж из пяти элементов, а frozen dataclass `FactorWindow(value, as_of, age_days, verified, stale, history)` — шесть полей в кортеже читались бы как позиционная лотерея, а `verified` нужен вызывающему для статуса. Публичный контракт `compute_readiness_today` при этом не менялся, только аддитивные ключи.
+
+Остальные артефакты (M2–M6) появятся по мере реализации: независимое чтение `/api/today`, diff'ы аддитивной миграции, выдержки из `ts_contract.json`.
 
 ## Interfaces and Dependencies
 
