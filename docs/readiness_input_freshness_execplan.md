@@ -4,7 +4,7 @@
 
 Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A — Full. Базовая точка: `main` = `72f69b4` (в main уже влиты #552 — revisioned evidence head и lifecycle суперсессии, и #555/#556 — датированный subjective wellness).
 
-Ревизия документа: v2 (после delta-review, см. `Change log`). Реализация M1 не начинается до принятия этой ревизии.
+Ревизия документа: v3.1 (после delta-review M1 и docs-amend, см. `Change log`). Реализован и принят M1; M2–M6 не начаты.
 
 ## Purpose / Big Picture
 
@@ -17,9 +17,10 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 - [x] (2026-09-10) Создан этот ExecPlan для ревью; реализация не начата.
 - [x] (2026-09-10) Ревизия v2: закрыты три блокирующих разрыва delta-review (AC6-механизм, аддитивность legacy-полей, provenance `training_readiness`) и три дополнительных замечания; см. `Change log`.
 - [x] (2026-09-10) Ревизия v3: версия правила доведена до approval API, у helper'а задана явная семантика источника и нейтральный модуль, head-колонка `rule_version` убрана как неиспользуемая, исправлен владелец `_proposal_payload`, escape hatch согласован с контрактом guard; см. `Change log`.
-- [x] M1. `models/readiness.py`: per-factor `age_days`/`observation_status`/`intervention_eligible`/`evidence_kind`, аддитивные агрегаты `intervention_score`/`intervention_confidence`; legacy `score`/`confidence`/`stale` заморожены (RED→GREEN в `tests/smoke/test_readiness_model.py`). Выполнено 2026-09-10: RED `6238ba2` (ImportError на новых константах), GREEN с 10 новыми тестами; детали и цифры — `Artifacts and Notes`.
-- [ ] M2. `services/readiness_snapshot.py`: аддитивный контракт `freshness`/`intervention_score`/`intervention_confidence` без изменения legacy-полей (RED→GREEN в `tests/smoke/test_readiness_snapshot_contract.py`).
-- [ ] M3. Provenance измерений: observation date для RHR, HRV и `training_readiness` от payload до модели, явная семантика источника (`utc` vs `athlete_local`), конверсия в `ATHLETE_TIMEZONE` через нейтральный `utils/athlete_time.py`, дедупликация повторов observation, аддитивные nullable-колонки (RED→GREEN в Garmin/sync-тестах).
+- [x] M1. `models/readiness.py`: per-factor `age_days`/`observation_status`/`intervention_eligible`/`evidence_kind`, аддитивные агрегаты `intervention_score`/`intervention_confidence`; legacy `score`/`confidence`/`stale` заморожены (RED→GREEN в `tests/smoke/test_readiness_model.py`). Выполнено 2026-09-10: RED `6238ba2`, GREEN; после ревью исправлены future-observation и разделение legacy/provenance-каналов (RED `99d4b82`), итог — `21 passed`, дифференциальный паритет с `origin/main` на 7 фикстурах; детали и цифры — `Artifacts and Notes`.
+- [x] (2026-09-10) Ревизия v3.1: исправления по ревью M1 (future observation → `invalid`; legacy-выборка снова по дате хранения, provenance отдельным каналом; дедупликация baseline отложена на M3+); см. `Change log`.
+- [ ] M2. `services/readiness_snapshot.py`: аддитивный контракт `freshness` (пять корзин, включая `invalid`)/`intervention_score`/`intervention_confidence` без изменения legacy-полей (RED→GREEN в `tests/smoke/test_readiness_snapshot_contract.py`).
+- [ ] M3. Provenance измерений: observation date для RHR, HRV и `training_readiness` от payload до модели, явная семантика источника (`utc` vs `athlete_local`), конверсия в `ATHLETE_TIMEZONE` через нейтральный `utils/athlete_time.py`, аддитивные nullable-колонки (RED→GREEN в Garmin/sync-тестах). Дедупликация повторов observation — **только** для интервенционного расчёта через `intervention_score_input`; legacy `score`/`baseline`/`deviation` остаются побайтово совместимыми (см. Decision Log).
 - [ ] M4. `models/readiness_conflicts.py` + `api/recovery_replan_loop.py` + `data/database.py` + `api/routers/decisions.py`: fail-closed gate и version-qualified ownership (AC6) поверх lifecycle #552, с передачей версий из API в атомарные DB-методы.
 - [ ] M5. `/today`: проекция и UI с датами факторов; `ts_contract.json` перегенерирован.
 - [ ] M6. Верификация (AC10), обновление `docs/architecture/asr_catalog.md`, `Outcomes & Retrospective`.
@@ -56,22 +57,30 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 
 ## Decision Log
 
-- Decision: у фактора появляется явная пригодность. `observation_status ∈ {"confirmed_today", "outdated", "unverified", "missing"}`; `intervention_eligible = (observation_status == "confirmed_today")`; `evidence_kind ∈ {"measurement", "derived_state"}`; `age_days` считается от observation date.
-  Rationale: AC1/AC3 требуют, чтобы вчерашний фактор не делал свежими остальные и не поднимал интервенционную уверенность, а наблюдаемое состояние оставалось датированным.
-  Date/Author: 2026-09-10 / agent (по issue #557).
+- Decision: у фактора появляется явная пригодность. `observation_status ∈ {"confirmed_today", "outdated", "unverified", "invalid", "missing"}` (пятый статус `invalid` добавлен в v3.1 — см. ниже); `intervention_eligible = (observation_status == "confirmed_today")`; `evidence_kind ∈ {"measurement", "derived_state"}`; `age_days` — возраст наблюдения выбранной строки (для `invalid` он отрицательный).
+  Rationale: AC1/AC3 требуют, чтобы вчерашний фактор не делал свежими остальные и не поднимал интервенционную уверенность, а наблюдаемое состояние оставалось датированным. `missing` зарезервирован для фактора, которого нет вовсе (в списке факторов он не появляется, но статус нужен контракту M2/M5).
+  Date/Author: 2026-09-10 / agent (по issue #557; набор статусов расширен в v3.1).
 - Decision: legacy-поля `score`, `confidence`, `stale`, `source_completeness`, `is_provisional` **сохраняют текущую семантику без изменений**; вся новая информация идёт аддитивно: `intervention_score`, `intervention_confidence`, `freshness`, `eligible_inputs`, `ineligible_inputs`, `intervention_blocked_reason` (+ per-factor поля из предыдущего решения).
   Rationale: переопределение `confidence`/`stale` сломало бы `models/session_quality_forecast.py`, `services/recovery_analytics.py`, `models/recovery_response.py`, `models/coach_narrative_evidence.py`, `services/comparable_sessions.py`, `api/session_quality_forecast.py` и противоречило AC8 (additive/backward-compatible). Дефолт-направление безопасности достигается в gate, а не подменой общего поля.
   Date/Author: 2026-09-10 / agent (ревизия v2 по ревью).
-- Decision: `_split_frame` возвращает frozen dataclass `FactorWindow(value, as_of, age_days, verified, stale, history)` вместо кортежа; `ineligible_inputs[].reason` — стабильные коды `observation_date_unverified` / `observation_outdated`.
-  Rationale: шесть позиционных значений в кортеже читались бы как лотерея, а `verified` (дата измерения известна?) нужен вызывающему, чтобы вывести `observation_status`; коды причин устойчивы для тестов и будущей локализации в UI.
-  Date/Author: 2026-09-10 / agent (M1).
+- Decision: `_split_frame` возвращает frozen dataclass `FactorWindow` вместо кортежа, и он разделён на **два независимых канала**: legacy (`value`, `as_of`, `age_days`, `stale`, `history`) и provenance (`observation_as_of`, `observation_age_days`, `observation_verified`). `ineligible_inputs[].reason` — стабильные коды `observation_date_unverified` / `observation_outdated` / `observation_in_future`.
+  Rationale: шесть позиционных значений в кортеже читались бы как лотерея; каналы нельзя смешивать — legacy-поля читают session-quality forecast, recovery analytics, recovery_response и другие подсистемы, поэтому выбор значения, `as_of`, `stale` и окно базлайна остаются строго по дате строки хранения (как до #557). Даты измерения живут только в provenance-канале и не переключают выбранную строку; коды причин устойчивы для тестов и будущей локализации в UI.
+  Date/Author: 2026-09-10 / agent (M1, ревизия по delta-review).
+- Decision (amends previous, M1 fix): `intervention_eligible` возникает **только при `observation_age_days == 0`**. Отрицательный возраст (измерение датировано позже anchor) — не «свежесть», а недостоверные данные: `observation_status = "invalid"`, `reason = "observation_in_future"`, фактор неучаствует во вмешательстве.
+  Rationale: условие `age_days <= 0` делало будущее измерение подтверждённо сегодняшним и открывало gate на данных, которых ещё не было (нарушение AC2). Отдельный статус `invalid` честнее, чем `unverified`: дата известна, но недопустима.
+  Date/Author: 2026-09-10 / agent (M1 fix по delta-review).
+- Decision (amends M1 dedupe decision, действующее поведение M1): повторное наблюдение под другой датой запроса **не переключает выбранную строку и не становится «сегодняшним»** — факт пригодности определяется observation-датой выбранной (последней по дате хранения) строки. Никакой дедупликации ряда в M1 нет; объём и инварианты будущей дедупликации зафиксированы в записи «заменяет отменённую выше» ниже.
+  Rationale: предыдущая формулировка (ряд ключуется observation-датой) меняла замороженные `raw_value`/`score`/`as_of`/`stale_input` — это ловится фикстурой prov_a: main выбирает последнюю сохранённую строку (RHR 80 → score 40), а выбор по observation-дате выбрал бы RHR 50 → score 70. Прямое требование AC8 (обратная совместимость) важнее, а защита от «повтора под новой датой» достигается тем, что провенанс берётся у используемой строки.
+  Date/Author: 2026-09-10 / agent (M1 fix по delta-review).
 - Decision: единственный мигрирующий потребитель — salience-gate `models/readiness_conflicts.py::detect_readiness_conflicts`: он читает `intervention_score` (вместо `score`) и `intervention_confidence` (вместо `confidence`) и дополнительно требует хотя бы одно `intervention_eligible` primary-измерение (sleep/HRV/RHR). Все остальные потребители остаются на legacy-полях, и на каждого пишется regression-тест, фиксирующий неизменность прежнего поведения.
   Rationale: AC2/AC3 требуют fail-closed именно на входе в интервенцию; менять остальные подсистемы в рамках этой задачи — scope creep с риском для session-quality forecast и recovery analytics.
   Date/Author: 2026-09-10 / agent (ревизия v2 по ревью).
 - Decision: `intervention_confidence = len(intervention_eligible факторов) / len(FACTOR_WEIGHTS)` — знаменатель 5 сохраняется; `intervention_score` — взвешенное среднее по `intervention_eligible`-факторам с перенормировкой весов, `None`, если пригодных факторов нет **или** нет ни одного пригодного primary-измерения (`intervention_blocked_reason = "no_confirmed_today_primary_recovery_measurement"`).
   Rationale: AC3 фиксирует ровно `0.4` для пары {подтверждённо сегодняшний RHR, текущий TSB} = 2/5 и `0.2` для одного TSB = 1/5; сохранение шкалы и порога `MIN_CONFIDENCE = 0.5` даёт fail-closed без изменения policy. `intervention_score = None` напрямую переводит gate в `data_gap` тем же кодом, что и сегодня (`score is None`).
   Date/Author: 2026-09-10 / agent (ревизия v2 по ревью).
-- Decision: `freshness` — новый объект снапшота (`state ∈ {"fresh","provisional","data_gap"}`, `anchor`, `confirmed_today`, `outdated`, `unverified`, `missing`, `intervention_eligible`, `blocked_reason`). Легаси-поле `stale` не переопределяется; UI читает `freshness.state`.
+- Decision: `freshness` — новый объект снапшота (`state ∈ {"fresh","provisional","data_gap"}`, `anchor`, `confirmed_today`, `outdated`, `unverified`, `invalid`, `missing`, `intervention_eligible`, `blocked_reason`). Легаси-поле `stale` не переопределяется; UI читает `freshness.state`. Корзина `invalid` отдельная (не слита с `unverified`), чтобы UI честно показывал некорректную будущую дату измерения.
+  Rationale: AC5 требует не подавать `stale=false` как доказательство общей свежести, но legacy-читатели `stale` должны продолжать работать ровно как раньше; пять статусов модели должны иметь однозначное отображение в контракт снапшота (иначе будущая дата потерялась бы в `unverified` и выглядела бы как «дата неизвестна»).
+  Date/Author: 2026-09-10 / agent (ревизия v2 по ревью; корзина `invalid` добавлена в v3.1).
   Rationale: AC5 требует не подавать `stale=false` как доказательство общей свежести, но legacy-читатели `stale` должны продолжать работать ровно как раньше.
   Date/Author: 2026-09-10 / agent (ревизия v2 по ревью).
 - Decision: AC6 закрывается **version-qualified ownership**, а не правилом «data_gap суперсидит». Четыре аддитивных элемента. (1) `api/recovery_replan_loop.py::_proposal_payload` штампует pending-предложение: `params["rule_version"] = READINESS_CONFLICT_RULE_VERSION` (`"readiness_conflicts_v2"`, новый констант в `models/readiness_conflicts.py`) и то же значение в `preview`. (2) `data/database.py::claim_current_recovery_proposal(proposal_id, *, current_rule_version, compatible_rule_versions=())` получает независимую проверку версии: если штамп отсутствует (legacy) или не входит в множество совместимых — предложение переводится в `superseded` с `reason = "superseded_by_rule_version_change"`, без мутации head, чекпойнтов и provider-вызовов. **Версии передаются аргументами**: `data/` не импортирует доменные константы из `models/`, а production-вызов находится в `api/routers/decisions.py::approve_proposal` (этот файл входит в M4), рядом с уже существующим вызовом claim. (3) Новый атомарный `db.supersede_incompatible_recovery_proposals(current_rule_version, compatible_rule_versions=())` вызывается из `api/recovery_replan_loop.py` на **каждом** прогоне, включая `data_gap`, и суперсидит только `status='pending'` с отсутствующим/несовместимым штампом, никогда не трогая `applying`. (4) `_fingerprint` включает `rule_version` как defence in depth, но это не механизм AC6.
@@ -91,10 +100,14 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 - Decision: хранение — ровно три аддитивные nullable-колонки: `daily_health.resting_hr_observed_at TEXT`, `hrv_data.rmssd_observed_at TEXT`, `training_status.training_readiness_observed_at TEXT`; `NULL` означает «дата измерения не подтверждена». Для `training_status` одновременно обновляются `_TRAINING_STATUS_COLUMN_TYPES` (миграция) и `_TRAINING_STATUS_COLUMN_ORDER` (путь записи в `sync_training_status`). Строка по-прежнему пишется (данные не теряем), но при `NULL` фактор `unverified`. Колонка `recovery_evidence_heads.rule_version` **не добавляется**: version-guard сравнивает штамп предложения с версией, переданной вызывающим кодом, а `recovery_evidence_heads` читается только внутри `data/database.py` (внешних потребителей нет — проверено grep), поэтому колонка осталась бы неиспользуемым расширением схемы. Audit-провенанс версии живёт там, где ему место: в неизменяемых строках `recovery_decisions.report_json` (отчёт содержит `rule_version`) и в штампе `params`/`preview` самого предложения.
   Rationale: ASR-MOD-3 требует обратно совместимой смены схемы и минимальной поверхности; legacy-строки без колонки деградируют в `unverified`, а не получают выдуманную сегодняшнюю дату.
   Date/Author: 2026-09-10 / agent (ревизия v3 по ревью).
-- Decision: дедупликация по identity наблюдения. Ряд фактора строится по ключу `observation_date or stored_row_date`, при повторе одной и той же observation побеждает последняя запись; `age_days` считается от выбранного ключа. Там, где observation date не подтверждена, поведение остаётся прежним (ключ = дата хранения).
-  Rationale: повторный sync одной и той же observation под разными query dates не должен дважды попадать в 28-дневный baseline и искажать отклонение.
-  Осознанное исключение из «заморозки»: для строк с **подтверждённой** observation date дедупликация меняет и описательный baseline (раньше дубль считался дважды) — это требуемое ревью исправление качества данных, а не дрейф контракта. Оно покрывается отдельным тестом на дублирующей фикстуре (значение и `age_days` совпадают с одиночной фикстурой), а фикстуры S1/S3, доказывающие неизменность legacy-полей, дублей не содержат.
-  Date/Author: 2026-09-10 / agent (ревизия v2 по ревью).
+- Decision (~~дедупликация по identity наблюдения~~ **SUPERSEDED в v3.1**, см. запись «amends M1 dedupe decision» ниже; **не реализовывать в M1/M2**): ряд фактора строится по ключу `observation_date or stored_row_date`, при повторе одной и той же observation побеждает последняя запись; `age_days` считается от выбранного ключа. Там, где observation date не подтверждена, поведение остаётся прежним (ключ = дата хранения).
+  Rationale (историческая): повторный sync одной и той же observation под разными query dates не должен дважды попадать в 28-дневный baseline и искажать отклонение.
+  Почему отменено: ключевание ряда по observation-дате меняло замороженные legacy-поля (`raw_value`, `score`, `deviation`, `as_of`, `stale_input`, baseline) — фикстура `prov_a` показала расхождение с `main` (main выбирает последнюю сохранённую строку RHR 80 → score 40, ключевание по observation выбрало бы RHR 50 → score 70), что нарушает AC8. Действующая формулировка — в записи ниже.
+  Date/Author: 2026-09-10 / agent (v2); отменено 2026-09-10 (v3.1).
+- Decision (заменяет отменённую выше, действующая формулировка дедупликации на M3+): дедупликация повторов наблюдения разрешена **только внутри интервенционного расчёта**. Инвариант M3: `factor.score`, `factor.baseline`, `factor.deviation` и остальные legacy-поля остаются побайтово совместимыми с `main`; дедуплицированный baseline не подменяет их, а питает отдельное внутреннее значение фактора.
+  Название поля фиксируется заранее: per-factor `intervention_score_input` (аддитивное, внутреннее для расчёта; в M1 равно `factor["score"]`, в M3+ может считаться по дедуплицированному baseline по observation-датам), и агрегатор `intervention_score` использует **только** `intervention_score_input`, а не `score`.
+  Rationale: до появления заполненных provenance-колонок дедупликацию нельзя реализовать достоверно; заранее названное поле не даёт M3 тронуть замороженные legacy-значения и делает переход проверяемым (в M3 `intervention_score_input == score` на фикстурах без дублей).
+  Date/Author: 2026-09-10 / agent (v3.1 по ревью M1).
 - Decision: `training_readiness` перестаёт быть «сегодняшним по дате строки»: фактор `intervention_eligible` только при подтверждённой observation date, равной anchor. Ключ строки в `services/sync.py` меняется с `datetime.now().strftime("%Y-%m-%d")` на athlete-local дату, полученную из payload; если observation date не подтверждена, строка сохраняется, но фактор — `unverified`.
   Rationale: иначе старое device readiness вместе с RHR и TSB даёт 3/5 = 0.6 и открывает gate (сценарий из ревью).
   Date/Author: 2026-09-10 / agent (ревизия v2 по ревью).
@@ -107,7 +120,7 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 
 ## Outcomes & Retrospective
 
-(Заполняется по завершении реализации: что реально изменилось, какие проверки прошли на финальном дереве, что осталось за скоупом. На момент ревизии v2 реализация не начиналась.)
+(Заполняется по завершении реализации: что реально изменилось, какие проверки прошли на финальном дереве, что осталось за скоупом. На момент ревизии v3.1 выполнены M1 и docs-amend; код M2–M6 не начат.)
 
 ## Context and Orientation
 
@@ -139,15 +152,15 @@ ASR-связи: ASR-REL-2 (`docs/architecture/asr_catalog.md`, строка 16) 
 
 Работа идёт по слоям; каждый слой заканчивается зелёным прогоном своих тестов. RED-тесты пишутся первыми и должны падать на текущем `main`.
 
-**M1 — пригодность фактора (models/readiness.py), без изменения legacy-агрегатов.** Вводим константы `OBSERVATION_CONFIRMED_TODAY/OBSERVATION_OUTDATED/OBSERVATION_UNVERIFIED/OBSERVATION_MISSING`, `PRIMARY_RECOVERY_KEYS = ("sleep","hrv","resting_hr")`. `_split_frame` дополнительно возвращает `age_days` и опорный ключ ряда (observation date при подтверждении, иначе дата строки), а ряд схлопывает повторы по этому ключу. Каждый фактор получает `age_days`, `observation_status`, `intervention_eligible`, `evidence_kind`. `compute_readiness_today` продолжает считать **прежние** `score`/`confidence`/`as_of_date`/`drivers` по прежним правилам (заморозка, см. Decision Log) и добавляет `intervention_score`, `intervention_confidence`, `eligible_inputs`, `ineligible_inputs` (с причинами), `intervention_blocked_reason`; `drivers` обогащаются `as_of`, `age_days`, `observation_status`, `intervention_eligible`, `evidence_kind`, `source`. TSB — `evidence_kind="derived_state"`, `intervention_eligible=True`, но не primary.
+**M1 — пригодность фактора (models/readiness.py), без изменения legacy-агрегатов.** Вводим константы статусов (`OBSERVATION_CONFIRMED_TODAY`, `OBSERVATION_OUTDATED`, `OBSERVATION_UNVERIFIED`, `OBSERVATION_INVALID`, `OBSERVATION_MISSING`) и `PRIMARY_RECOVERY_KEYS = ("sleep","hrv","resting_hr")`. `_split_frame` возвращает `FactorWindow` с двумя каналами: legacy-выборка по **дате хранения** (значение, `as_of`, `stale`, окно базлайна — без изменений относительно `main`) и provenance выбранной строки (`observation_as_of`, `observation_age_days`, `observation_verified`). Каждый фактор получает `observation_as_of`, `age_days`, `observation_status`, `intervention_eligible`, `evidence_kind`. `compute_readiness_today` продолжает считать **прежние** `score`/`confidence`/`as_of_date`/`drivers` по прежним правилам (заморозка, см. Decision Log) и добавляет `intervention_score`, `intervention_confidence`, `eligible_inputs`, `ineligible_inputs` (с причинами), `intervention_blocked_reason`; `drivers` обогащаются `as_of`, `observation_as_of`, `age_days`, `observation_status`, `intervention_eligible`, `evidence_kind`, `source`. TSB — `evidence_kind="derived_state"`, `intervention_eligible=True`, но не primary. Дедупликация повторов наблюдения в M1 **не выполняется** (отложена на M3+ через `intervention_score_input`).
 
-**M2 — аддитивный контракт снапшота (services/readiness_snapshot.py).** Добавляем `freshness` (см. Decision Log), `intervention_score`, `intervention_confidence`, `eligible_inputs`, `ineligible_inputs`, `intervention_blocked_reason`; `stale`, `confidence`, `source_completeness`, `is_provisional`, `score` остаются ровно как есть. `state` считается так: `data_gap`, если `intervention_score is None`; `provisional`, если есть хоть один primary-фактор не `confirmed_today`; иначе `fresh`. `_unknown_snapshot` получает те же новые ключи, чтобы форма ответа не различалась. `READINESS_SNAPSHOT_RULE_VERSION` → `readiness_snapshot_v3` (метаданные).
+**M2 — аддитивный контракт снапшота (services/readiness_snapshot.py).** Добавляем `freshness` (см. Decision Log, пять корзин включая `invalid`), `intervention_score`, `intervention_confidence`, `eligible_inputs`, `ineligible_inputs`, `intervention_blocked_reason`; `stale`, `confidence`, `source_completeness`, `is_provisional`, `score` остаются ровно как есть. `state` считается так: `data_gap`, если `intervention_score is None`; `provisional`, если есть хоть один primary-фактор не `confirmed_today` (в том числе `outdated`, `unverified`, `invalid`); иначе `fresh`. Фактор со статусом `invalid` попадает в отдельную корзину `freshness.invalid` и никогда не считается подтверждённым. `_unknown_snapshot` получает те же новые ключи, чтобы форма ответа не различалась. `READINESS_SNAPSHOT_RULE_VERSION` → `readiness_snapshot_v3` (метаданные).
 
 **M3 — provenance измерений.** Канонический timezone-хелпер переезжает в `utils/athlete_time.py::athlete_local_date`; `services/intervals_plan_delivery.py` сохраняет тонкий delegate и имя в `__all__` (импортеры `api/routers/coach.py:48`, `api/today_snapshot.py:23` и тесты не меняются). Новый `services/observation_provenance.py::observation_local_date(value, *, source)` задаёт явную семантику: `source="utc"` (ISO/epoch/`*GMT`/`timestamp`) → tz-aware момент → `Settings.ATHLETE_TIMEZONE` → календарная дата; `source="athlete_local"` (`startTimeLocal`, `calendarDate`, `sleep_date`) → дата как есть; невалидное/неизвестная зона → `None`. `data/garmin_client.py::_normalize_rhr_payload` возвращает `{'restingHeartRate': N, 'observedAt': <ISO|None>}`, разбирая по порядку `startTimeGMT` (utc), `startTimeLocal` (athlete_local), `timestamp` (utc), `calendarDate`/`date` (athlete_local). `data/data_processor_phase1.py::process_daily_health_data` прокидывает `resting_hr_observed_at`; `services/sync.py::_collect_phase1_hrv` пишет `rmssd_observed_at` из `hrvSummary` (`calendarDate` как athlete_local, `startTimestampGMT` как utc); `_collect_training_status_data` пишет `training_readiness_observed_at` и ключует строку athlete-local датой из payload вместо `datetime.now()`. `data/database.py`: `resting_hr_observed_at` в `_DAILY_HEALTH_COLUMN_TYPES`, `rmssd_observed_at` в `_HRV_COLUMN_TYPES`, `training_readiness_observed_at` в **обеих** структурах `training_status` (`_TRAINING_STATUS_COLUMN_TYPES` и `_TRAINING_STATUS_COLUMN_ORDER`) + строки в соответствующих `CREATE TABLE`; проверить, что «умная» запись обновляет строку, когда изменилась только observation date.
 
 **M4 — fail-closed gate и version-qualified ownership.** `models/readiness_conflicts.py`: новый `READINESS_CONFLICT_RULE_VERSION = "readiness_conflicts_v2"` и `RECOVERY_EVIDENCE_COMPATIBLE_RULE_VERSIONS: tuple[str, ...] = ()`; `detect_readiness_conflicts` читает `intervention_score`/`intervention_confidence`, требует пригодное primary-измерение, кладёт в отчёт `rule_version`, `freshness` (echo) и `readiness.intervention_score` (так `rule_version` попадает и в неизменяемый `recovery_decisions.report_json`). `api/recovery_replan_loop.py::_proposal_payload` штампует `params["rule_version"]`/`preview["rule_version"]` (это API-слой, не `data/`), `run_recovery_replan_loop` вызывает `db.supersede_incompatible_recovery_proposals(current_rule_version, compatible_rule_versions=...)` на каждом прогоне, включая `data_gap`, до логики публикации, и добавляет `rule_version` в `_fingerprint`. `data/database.py`: `claim_current_recovery_proposal(proposal_id, *, current_rule_version, compatible_rule_versions=())` с version-guard'ом (данные приходят аргументами, доменных импортов в `data/` нет) и новый атомарный `supersede_incompatible_recovery_proposals` (только `pending`, `applying` не трогает, head не мутирует). `api/routers/decisions.py::approve_proposal` передаёт обе версии в claim и отдаёт 409 на несовместимый штамп — этот файл входит в M4, потому что именно там живёт production-вызов.
 
-**M5 — поверхность `/today`.** `api/today_snapshot.py::_project_readiness` прокидывает новые аддитивные поля и обогащённые `drivers`/`factors`. `web/lib/types.ts`: типизированные `ReadinessObservationStatus`, `ReadinessFactor`, `ReadinessDriver`, `ReadinessFreshness`; новые nullable-поля снапшота; `tests/contracts/ts_contract.json` перегенерируется. `web/app/today/page.tsx`: дата у каждого драйвера (`сегодня` / `вчера · <дата>` / `дата измерения неизвестна`), баннер provisional/data_gap при `freshness.state != "fresh"`, подпись «покрытие факторов», пометка provisional у описательного score. Доменных расчётов в TypeScript нет.
+**M5 — поверхность `/today`.** `api/today_snapshot.py::_project_readiness` прокидывает новые аддитивные поля и обогащённые `drivers`/`factors`. `web/lib/types.ts`: типизированные `ReadinessObservationStatus` (пять значений, включая `invalid`), `ReadinessFactor`, `ReadinessDriver`, `ReadinessFreshness`; новые nullable-поля снапшота; `tests/contracts/ts_contract.json` перегенерируется. `web/app/today/page.tsx`: дата у каждого драйвера (`сегодня` / `вчера · <дата>` / `дата измерения неизвестна` / `некорректная дата измерения` для `invalid`), баннер provisional/data_gap при `freshness.state != "fresh"`, подпись «покрытие факторов», пометка provisional у описательного score. Доменных расчётов в TypeScript нет.
 
 **M6 — верификация и документация.** Фокусный прогон, `contract:extract -- --check`, `web lint/build`, Ruff, contributor-safe pytest; независимое чтение `/api/today` на изолированной temp-SQLite с проверкой отсутствия чекпойнтов и provider-вызовов; обновление строк ASR-REL-2/ASR-REL-1/ASR-MOD-3 в `docs/architecture/asr_catalog.md`; заполнение `Artifacts and Notes` и `Outcomes & Retrospective`.
 
@@ -167,9 +180,9 @@ ASR-связи: ASR-REL-2 (`docs/architecture/asr_catalog.md`, строка 16) 
 
 Покрытие RED-тестов (AC9):
 
-`tests/smoke/test_readiness_model.py`: смешанные даты дают корректные `observation_status`/`intervention_eligible` по факту; `intervention_confidence == 0.4` для {подтверждённо сегодняшний RHR, TSB} и `0.2` для одного TSB; `intervention_score` взвешен по пригодным факторам и `None` при отсутствии пригодного primary; **frozen-legacy тест**: `score`, `confidence`, `stale`, `as_of_date` численно совпадают с эталонами, снятыми на `main` (эталоны фиксируются в тесте до реализации, фикстура без дублей observation); отдельный тест на дублирующей фикстуре: одна и та же подтверждённая observation под двумя query dates даёт то же значение фактора и `age_days`, что и одиночная фикстура.
+`tests/smoke/test_readiness_model.py`: смешанные даты дают корректные `observation_status`/`intervention_eligible` по факту; `intervention_confidence == 0.4` для {подтверждённо сегодняшний RHR, TSB} и `0.2` для одного TSB; `intervention_score` взвешен по пригодным факторам и `None` при отсутствии пригодного primary; **future-observation**: наблюдение, датированное позже anchor, даёт `observation_status="invalid"`, `intervention_eligible=false` и `reason="observation_in_future"`, gate остаётся закрытым; **frozen-legacy тесты**: (а) `score`, `confidence`, `stale`, `as_of_date` численно совпадают с эталонами, снятыми на `main`; (б) для фикстур с несовпадающими stored/observation датами legacy-выборка, `as_of`, `stale_input`, `baseline` равны значениям `main` (случаи `prov_a` и `prov_b`), а провенанс живёт отдельным каналом; (в) повтор наблюдения под новой датой запроса не делает фактор свежим, но и не меняет legacy-поля.
 
-`tests/smoke/test_readiness_snapshot_contract.py`: нет ночных измерений → `freshness.state == "data_gap"`, `intervention_score is None`, пустые конфликты, при этом legacy `stale`/`confidence` равны прежним значениям на той же фикстуре; вчерашние sleep/HRV + текущий TSB → `provisional`; RHR без observation date → `unverified` и не `confirmed_today`; legacy-строка без новых колонок → `unverified`, без выдуманной даты.
+`tests/smoke/test_readiness_snapshot_contract.py`: нет ночных измерений → `freshness.state == "data_gap"`, `intervention_score is None`, пустые конфликты, при этом legacy `stale`/`confidence` равны прежним значениям на той же фикстуре; вчерашние sleep/HRV + текущий TSB → `provisional`; RHR без observation date → `unverified` и не `confirmed_today`; будущая дата измерения → отдельная корзина `freshness.invalid` (не `unverified`) и `state == "provisional"`; legacy-строка без новых колонок → `unverified`, без выдуманной даты.
 
 Garmin/sync-тесты: payload с `startTimeGMT` → observation date равна дате измерения (а не дате запроса), включая случай около полуночи, где UTC-дата и athlete-local дата различаются; payload только с `restingHeartRate` → `None`/`unverified`; невалидная дата → `unverified`; HRV payload с `calendarDate` вчера при запросе на сегодня → `outdated`; `training_readiness` пишется с athlete-local ключом и `training_readiness_observed_at` из payload, а при отсутствии даты — ключ не выдумывается, фактор `unverified`.
 
@@ -179,7 +192,7 @@ Garmin/sync-тесты: payload с `startTimeGMT` → observation date равн�
 
 `tests/smoke/test_api_today.py`: на изолированной temp-SQLite без сегодняшних ночных строк `GET /api/today` даёт `data_gap`/provisional, пустые `conflicts`, отсутствие actionable-предложения; счётчики `planning_checkpoints` и provider-delivery записей до/после не меняются, провайдер замокан.
 
-Новый `tests/smoke/test_readiness_today_freshness_ui_contract.py` (по образцу `tests/smoke/test_recovery_transfer_product_surface_web.py`): типизированные readiness-типы в `web/lib/types.ts`, метки `вчера`/`дата измерения неизвестна` и баннер provisional в `web/app/today/page.tsx`, наличие `as_of`/`observation_status` в `drivers` проекции API.
+Новый `tests/smoke/test_readiness_today_freshness_ui_contract.py` (по образцу `tests/smoke/test_recovery_transfer_product_surface_web.py`): типизированные readiness-типы в `web/lib/types.ts` (включая `invalid` в `ReadinessObservationStatus`), метки `вчера`/`дата измерения неизвестна`/`некорректная дата измерения` и баннер provisional в `web/app/today/page.tsx`, наличие `as_of`/`observation_as_of`/`observation_status` в `drivers` проекции API.
 
 Baseline'ы (сравнивать только like-for-like в своём окружении). На `72f69b4` в изолированном worktree: `pytest tests/smoke -q` → `2285 passed, 22 skipped, 1 failed`; `pytest -m "not live and not debug and not e2e" tests/ -q` → `2328 passed, 27 skipped, 26 deselected, 1 failed`. Единственный фейл — `tests/smoke/test_run_web_preflight.py::test_run_web_rejects_busy_api_port_before_startup`, воспроизводится на чистом `main` из-за занятого порта :8000 (в окружении issue с установленными `web/node_modules` и свободным портом тот же smoke даёт `2307 passed, 1 skipped`). Перед реализацией снять baseline в своём окружении той же командой.
 
@@ -198,6 +211,8 @@ Baseline'ы (сравнивать только like-for-like в своём ок�
 **S5 «нулевая мутация»**: в сценарии S1 после вызова recovery-лупа счётчики `planning_checkpoints` и provider-delivery записей не изменились, провайдер не вызывался.
 
 **S6 «старый device readiness»**: payload training status без подтверждённой даты + RHR без даты + текущий TSB → `training_readiness` и `resting_hr` в `unverified`, пригоден только TSB → `intervention_confidence == 0.2`, gate закрыт (регрессия сценария 3/5 = 0.6 из ревью).
+
+**S7 «будущая дата измерения»**: RHR с `resting_hr_observed_at` = завтра, sleep/HRV вчера, текущий TSB → фактор получает `observation_status="invalid"` и `reason="observation_in_future"`, попадает в `freshness.invalid` (а не в `unverified`), `intervention_eligible=false`, `intervention_confidence == 0.2`, `intervention_score is None`, gate закрыт.
 
 Команды и ожидаемый результат:
 
@@ -237,7 +252,15 @@ RED: `./ai_trainer_env/bin/python -m pytest tests/smoke/test_readiness_model.py 
 
 Потребители legacy-полей (проверка аддитивности): `test_readiness_snapshot_contract.py`, `test_readiness_conflicts.py`, `test_readiness_bio_signals.py`, `test_readiness_plan_purity.py`, `test_api_today.py` — `80 passed`; `test_session_quality_forecast.py`, `test_api_session_quality_router_contract.py`, `test_api_recovery_analytics.py`, `test_signals_engine.py`, `test_comparable_sessions.py`, `test_coach_narrative_evidence_gate.py`, `test_today_snapshot_perf_gate.py` — `218 passed`. `ruff check` по изменённым файлам чист.
 
-Отклонение от плана (записано в Decision Log): `_split_frame` возвращает не кортеж из пяти элементов, а frozen dataclass `FactorWindow(value, as_of, age_days, verified, stale, history)` — шесть полей в кортеже читались бы как позиционная лотерея, а `verified` нужен вызывающему для статуса. Публичный контракт `compute_readiness_today` при этом не менялся, только аддитивные ключи.
+Отклонение от плана (записано в Decision Log): `_split_frame` возвращает не кортеж из пяти элементов, а frozen dataclass `FactorWindow` с двумя каналами — legacy (`value`, `as_of`, `age_days`, `stale`, `history`) и provenance (`observation_as_of`, `observation_age_days`, `observation_verified`). Публичный контракт `compute_readiness_today` при этом не менялся, только аддитивные ключи.
+
+### M1 fix (2026-09-10, по delta-review)
+
+Закрыты два нарушения инвариантов плана: будущая дата измерения больше не считается сегодняшней (`age_days < 0` → `observation_status="invalid"`, `reason="observation_in_future"`, фактор вне вмешательства), а provenance перестал влиять на замороженный legacy-расчёт — выбор строки, `as_of`, `stale` и окно базлайна снова строго по дате хранения.
+
+Дифференциальный пробник `legacy_parity_probe.py` (импортирует `models.readiness` и сравнивает legacy-ключи: `score`, `status`, `as_of_date`, `confidence`, `missing_inputs` и по каждому фактору `key`, `score`, `raw_value`, `baseline`, `deviation`, `as_of`, `stale_input`, `source`) прогнан на `origin/main` `9a46087` в отдельном worktree и на ветке: **вывод побайтово идентичен на 7 фикстурах**, включая присланные ревьюером случаи — `prov_a` (более новая observation на старой stored-строке: main выбирает RHR 80 → score 40) и `prov_b` (stored сегодня / observed вчера: legacy `as_of`=сегодня, `stale_input`=false). Эти же числа закреплены тестом `test_legacy_selection_uses_stored_date_and_provenance_is_a_separate_channel`; future-observation — тестом `test_future_observation_is_not_intervention_eligible`.
+
+RED: `99d4b82` падал на сборе (`ImportError: cannot import name 'INELIGIBLE_REASON_INVALID_OBSERVATION'`). GREEN: `tests/smoke/test_readiness_model.py` — `21 passed`; потребители (`readiness_snapshot_contract`, `readiness_conflicts`, `readiness_bio_signals`, `readiness_plan_purity`, `api_today`, `session_quality_forecast`, `api_recovery_analytics`, `signals_engine`, `coach_narrative_evidence_gate`) — `237 passed`; `ruff check` чист.
 
 Остальные артефакты (M2–M6) появятся по мере реализации: независимое чтение `/api/today`, diff'ы аддитивной миграции, выдержки из `ts_contract.json`.
 
@@ -248,12 +271,33 @@ RED: `./ai_trainer_env/bin/python -m pytest tests/smoke/test_readiness_model.py 
     OBSERVATION_CONFIRMED_TODAY = "confirmed_today"
     OBSERVATION_OUTDATED = "outdated"
     OBSERVATION_UNVERIFIED = "unverified"
-    OBSERVATION_MISSING = "missing"
+    OBSERVATION_INVALID = "invalid"          # дата измерения позже anchor (fail closed)
+    OBSERVATION_MISSING = "missing"          # фактора нет вовсе (для контракта M2/M5)
     PRIMARY_RECOVERY_KEYS = ("sleep", "hrv", "resting_hr")
+    INTERVENTION_BLOCKED_NO_PRIMARY = "no_confirmed_today_primary_recovery_measurement"
+    INTERVENTION_BLOCKED_NO_ELIGIBLE = "no_intervention_eligible_factors"
 
-    def _split_frame(frame, column, anchor, max_age)
-        -> tuple[float | None, str | None, bool, int | None, pd.Series]
-        # ряд схлопывает повторы по ключу observation_date or stored_row_date
+    @dataclass(frozen=True)
+    class FactorWindow:
+        # legacy-канал (заморожен, ровно как до #557): выбор значения, as_of и
+        # окно базлайна — строго по дате СТРОКИ ХРАНЕНИЯ
+        value: float | None
+        as_of: str | None
+        age_days: int | None
+        stale: bool
+        history: pd.Series
+        # provenance-канал выбранной строки: даты измерения из payload
+        observation_as_of: str | None = None
+        observation_age_days: int | None = None
+        observation_verified: bool = False
+
+    def _split_frame(frame, column, anchor, max_age, *,
+                     observation_column=None, stored_date_is_observation=False) -> FactorWindow
+        # выбранная строка НЕ переключается на observation-дату; дубли строк
+        # с разными query dates не схлопываются в M1 (дедупликация отложена на M3+)
+
+    def _observation_status(*, verified: bool, age_days: int | None) -> str
+        # не verified → "unverified"; age < 0 → "invalid"; age == 0 → "confirmed_today"; иначе "outdated"
 
     def compute_readiness_today(sleep_df, hrv_df, health_df, training_df, activities_df,
                                 *, today, max_value_age_days=STALE_AFTER_DAYS) -> dict
@@ -262,11 +306,16 @@ RED: `./ai_trainer_env/bin/python -m pytest tests/smoke/test_readiness_model.py 
         #   "intervention_score": float | None      # None без пригодного primary
         #   "intervention_confidence": float        # eligible / len(FACTOR_WEIGHTS)
         #   "eligible_inputs": list[str]
-        #   "ineligible_inputs": list[dict]         # [{"key","observation_status","reason"}]
+        #   "ineligible_inputs": list[dict]         # [{"key","observation_status","reason"}],
+        #                                           # reason ∈ {observation_date_unverified,
+        #                                           #           observation_outdated, observation_in_future}
         #   "intervention_blocked_reason": str | None
-        # каждый фактор: + "age_days", "observation_status", "intervention_eligible", "evidence_kind"
-        # каждый driver: + "as_of", "age_days", "observation_status", "intervention_eligible",
-        #                  "evidence_kind", "source"
+        # каждый фактор: + "observation_as_of", "age_days" (возраст наблюдения),
+        #                "observation_status", "intervention_eligible", "evidence_kind"
+        #                (M3+ добавит "intervention_score_input" — источник для intervention_score,
+        #                 в M1 равен "score"; legacy "score"/"baseline"/"deviation" не меняются)
+        # каждый driver: + "as_of", "observation_as_of", "age_days", "observation_status",
+        #                  "intervention_eligible", "evidence_kind", "source"
 
 `services/observation_provenance.py` (новый; импортирует только `utils/athlete_time.py`):
 
@@ -283,7 +332,9 @@ RED: `./ai_trainer_env/bin/python -m pytest tests/smoke/test_readiness_model.py 
     "freshness": {
         "state": "fresh" | "provisional" | "data_gap",
         "anchor": "YYYY-MM-DD",
-        "confirmed_today": [str], "outdated": [str], "unverified": [str], "missing": [str],
+        "confirmed_today": [str], "outdated": [str], "unverified": [str],
+        "invalid": [str],          # дата измерения позже anchor; отдельная корзина, не слита с unverified
+        "missing": [str],
         "intervention_eligible": [str],
         "blocked_reason": str | None,
     }
@@ -364,10 +415,19 @@ RED: `./ai_trainer_env/bin/python -m pytest tests/smoke/test_readiness_model.py 
   P1-2 (аддитивность): legacy `confidence`/`stale`/`score`/`source_completeness` заморожены; новые `intervention_confidence`/`intervention_score`/`freshness`; перечислены все текущие читатели legacy-полей и зафиксировано, что мигрирует только gate, а на остальных — regression-тесты.
   P1-3 (provenance `training_readiness`): добавлен `training_readiness_observed_at`, ключ строки training status перестаёт быть `datetime.now()`, фактор `unverified` без подтверждённой даты; отмечено, что нужно менять и карту миграции, и `_TRAINING_STATUS_COLUMN_ORDER`.
   P2 (числа): сценарии разделены — S1 «нет ночных данных, RHR без даты» даёт `0.2`, S2 «RHR подтверждён сегодня + TSB» даёт `0.4`; добавлен S6 «старый device readiness» как регрессия сценария 3/5 = 0.6.
-  Дополнительно: observation date переводится в `ATHLETE_TIMEZONE` (UTC-поля через `athlete_local_date`, athlete-local поля как есть), добавлена дедупликация повторов observation при разных query dates; добавлен раздел `Outcomes & Retrospective`; пункт создания плана отмечен выполненным с датой; baseline'ы разделены (smoke vs contributor-safe) и сняты в изолированном worktree с оговоркой про средовой фейл занятого порта.
+  Дополнительно: observation date переводится в `ATHLETE_TIMEZONE` (UTC-поля через `athlete_local_date`, athlete-local поля как есть), дедупликация повторов observation при разных query dates заявлена (в v3.1 отменена — см. ниже); добавлен раздел `Outcomes & Retrospective`; пункт создания плана отмечен выполненным с датой; baseline'ы разделены (smoke vs contributor-safe) и сняты в изолированном worktree с оговоркой про средовой фейл занятого порта.
 - v3 (2026-09-10): исправления по результатам второго delta-review (`c57cfcf..67fced7`).
   P1 (версия не доведена до approval API): в M4 и в интерфейсы добавлен `api/routers/decisions.py::approve_proposal` как production-вызов; `claim_current_recovery_proposal` и `supersede_incompatible_recovery_proposals` принимают `current_rule_version` и `compatible_rule_versions` аргументами, поэтому `data/` не импортирует доменные константы из `models/`; добавлен API-тест на 409 без чекпойнтов и provider-вызовов.
   P2 (семантика observation helper'а): у `observation_local_date` появился обязательный keyword `source: Literal["utc","athlete_local"]` (без догадок о природе значения); канонический timezone-хелпер вынесен в нейтральный `utils/athlete_time.py`, а `services/intervals_plan_delivery.athlete_local_date` остаётся тонким delegate, поэтому ingest не зависит от delivery-слоя и существующие импортеры/тесты не меняются.
   P2 (неиспользуемая head-колонка): `recovery_evidence_heads.rule_version` убрана из плана; audit-провенанс версии несут неизменяемые `recovery_decisions.report_json` и штамп `params`/`preview` предложения; зафиксировано, что `recovery_evidence_heads` читается только внутри `data/database.py`.
   P3 (владелец `_proposal_payload`): исправлено — штамп версии ставит `api/recovery_replan_loop.py::_proposal_payload`, а не `data/database.py`; формирование API-payload не переносится в слой хранения.
   Escape hatch: обещание согласовано с контрактом guard — совместимость определяется множеством `{current} | set(compatible)` в обоих методах с самого начала, по умолчанию строгое равенство.
+- v3.1 (2026-09-10): исправления по итогам ревью M1 (два блокирующих нарушения собственных инвариантов плана).
+  P1 (будущая дата): `intervention_eligible` теперь только при `observation_age_days == 0`; измерение из будущего получает `observation_status="invalid"` и `reason="observation_in_future"` (fail closed) с regression-тестом.
+  P2 (provenance менял замороженный расчёт): `FactorWindow` разделён на legacy- и provenance-канал; выбор значения, `as_of`, `stale`, окно базлайна снова строго по дате хранения, даты измерения только описывают выбранную строку; добавлен дифференциальный пробник против `origin/main` на 7 фикстурах (идентично) и тест с эталонными числами main для случаев «новая observation на старой stored-строке» и «stored сегодня / observed вчера».
+  Уточнение: прежняя формулировка дедупликации (ряд по observation-дате) отменена — она меняла замороженные агрегаты; дедуплицированный baseline для интервенционного score отложен на M3+ вместе с заполнением provenance-колонок.
+- v3.2 (2026-09-10, docs-only amend по ревью M1): устранены взаимоисключающие инструкции.
+  P2-1 (старые решения): набор статусов в первой Decision-записи расширен пятым значением `invalid`; отменённая дедупликация по observation key помечена `SUPERSEDED в v3.1` с причиной (расхождение с `main` на фикстуре `prov_a`), вместо неё действует запись об интервенционном-only варианте с заранее названным полем `intervention_score_input`.
+  P2-2 (Interfaces): сигнатура `_split_frame` заменена на `FactorWindow` с двумя каналами и пометкой, что legacy-выборка идёт по дате хранения, а дубли строк не схлопываются; добавлены `OBSERVATION_INVALID`, `observation_as_of` и `intervention_score_input`.
+  P2-3 (контракт M2): в `freshness` добавлена отдельная корзина `invalid: [str]`, правило `state` явно относит `invalid` к `provisional`, в M5 добавлена метка «некорректная дата измерения», в Acceptance — сценарий S7.
+  Механически: заголовок ревизии обновлён до v3.1/v3.2, описание M1 и покрытия тестов больше не заявляют выполненную дедупликацию.
