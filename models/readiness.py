@@ -11,7 +11,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
 
@@ -234,7 +234,13 @@ def compute_readiness_today(
     else:
         eligible_weight = sum(FACTOR_WEIGHTS[f["key"]] for f in eligible)
         intervention_score = round(
-            sum(f["score"] * FACTOR_WEIGHTS[f["key"]] / eligible_weight for f in eligible), 1
+            sum(
+                f.get("intervention_score_input", f["score"])
+                * FACTOR_WEIGHTS[f["key"]]
+                / eligible_weight
+                for f in eligible
+            ),
+            1,
         )
         intervention_blocked_reason = None
 
@@ -249,6 +255,7 @@ def compute_readiness_today(
                 "key": f["key"],
                 "label": f["label"],
                 "score": f["score"],
+                "intervention_score_input": f.get("intervention_score_input"),
                 "evidence": f["evidence"],
                 "as_of": f.get("as_of"),
                 "observation_as_of": f.get("observation_as_of"),
@@ -317,6 +324,11 @@ class FactorWindow:
     observation_as_of: str | None = None
     observation_age_days: int | None = None
     observation_verified: bool = False
+    # Интервенционная серия (issue #557): по одному sample на дату наблюдения,
+    # поэтому повторно загруженное наблюдение не считается дважды. Legacy
+    # `history` при этом остаётся ровно тем же, что и до среза.
+    intervention_history: pd.Series = field(default_factory=lambda: pd.Series(dtype=float))
+    intervention_duplicates_collapsed: bool = False
 
 
 def _split_frame(
@@ -365,6 +377,31 @@ def _split_frame(
         parsed_observation = pd.to_datetime(latest[observation_column], errors="coerce")
         if not pd.isna(parsed_observation):
             observation_date = parsed_observation.date()
+
+    # Интервенционная серия: ключ — дата наблюдения, когда она известна, иначе
+    # дата строки; при повторе одной и той же даты побеждает последняя запись.
+    if has_observation:
+        intervention_keys = pd.to_datetime(
+            df[observation_column], errors="coerce"
+        ).dt.normalize()
+        intervention_keys = intervention_keys.fillna(df["date"].dt.normalize())
+    else:
+        intervention_keys = df["date"].dt.normalize()
+    deduped = (
+        df.assign(_intervention_key=intervention_keys)
+        .sort_values("date")
+        .drop_duplicates(subset=["_intervention_key"], keep="last")
+        .sort_values("_intervention_key")
+    )
+    anchor_key = pd.Timestamp(observation_date).normalize() if observation_date else latest_ts.normalize()
+    intervention_window = deduped[
+        (deduped["_intervention_key"] < anchor_key)
+        & (deduped["_intervention_key"] >= anchor_key - pd.Timedelta(days=BASELINE_WINDOW_DAYS))
+    ][column]
+    intervention_fields = {
+        "intervention_history": intervention_window,
+        "intervention_duplicates_collapsed": len(deduped) < len(df),
+    }
     observation_age_days = (
         (anchor - observation_date).days if observation_date is not None else None
     )
@@ -375,7 +412,15 @@ def _split_frame(
     }
 
     if max_age is not None and age_days > max_age:
-        return FactorWindow(None, None, age_days, False, history_window, **observation_fields)
+        return FactorWindow(
+            None,
+            None,
+            age_days,
+            False,
+            history_window,
+            **observation_fields,
+            **intervention_fields,
+        )
 
     return FactorWindow(
         value=float(latest[column]),
@@ -384,6 +429,7 @@ def _split_frame(
         stale=age_days > 0,
         history=history_window,
         **observation_fields,
+        **intervention_fields,
     )
 
 
@@ -479,10 +525,28 @@ def _deviation_factor(
         score = _band_score(absolute_bands, value)
         evidence = f"{FACTOR_LABELS[key]} {value:.1f} {unit} (базлайн ещё не накоплен)"
 
+    # Интервенционный вход (issue #557): если одно наблюдение пришло дважды под
+    # разными датами запроса, его вклад в базлайн не удваивается. Legacy
+    # `score`/`baseline`/`deviation` при этом не меняются.
+    intervention_score_input = score
+    if window.intervention_duplicates_collapsed:
+        intervention_baseline = _baseline(window.intervention_history)
+        if intervention_baseline is not None and intervention_baseline > 0:
+            if deviation_mode == "percent":
+                intervention_deviation = (
+                    (value - intervention_baseline) / intervention_baseline * 100.0
+                )
+            else:
+                intervention_deviation = value - intervention_baseline
+            intervention_score_input = _band_score(
+                deviation_bands, intervention_deviation
+            )
+
     return {
         "key": key,
         "label": FACTOR_LABELS[key],
         "score": score,
+        "intervention_score_input": intervention_score_input,
         "weight": None,  # заполняется после перенормировки
         "raw_value": round(value, 1),
         "baseline": round(baseline, 1) if baseline is not None else None,
@@ -536,6 +600,7 @@ def _sleep_factor(
             "key": "sleep",
             "label": FACTOR_LABELS["sleep"],
             "score": float(score_value),
+            "intervention_score_input": float(score_value),
             "weight": None,
             "raw_value": round(score_value, 1),
             "baseline": None,
@@ -562,10 +627,12 @@ def _sleep_factor(
     if minutes is None or minutes <= 0:
         return None
     hours = minutes / 60.0
+    sleep_hours_score = _band_score("sleep_hours", hours)
     return {
         "key": "sleep",
         "label": FACTOR_LABELS["sleep"],
-        "score": _band_score("sleep_hours", hours),
+        "score": sleep_hours_score,
+        "intervention_score_input": sleep_hours_score,
         "weight": None,
         "raw_value": round(hours, 1),
         "baseline": None,
@@ -597,6 +664,7 @@ def _garmin_factor(
         "key": "training_readiness",
         "label": FACTOR_LABELS["training_readiness"],
         "score": clamped,
+        "intervention_score_input": clamped,
         "weight": None,
         "raw_value": round(clamped, 1),
         "baseline": None,
@@ -651,10 +719,12 @@ def _tsb_factor(tsb_payload: dict[str, Any]) -> dict[str, Any]:
         note = "усталость выше нормы"
     else:
         note = "глубокая усталость"
+    tsb_score = _band_score("tsb", tsb)
     return {
         "key": "tsb",
         "label": FACTOR_LABELS["tsb"],
-        "score": _band_score("tsb", tsb),
+        "score": tsb_score,
+        "intervention_score_input": tsb_score,
         "weight": None,
         "raw_value": tsb,
         "baseline": None,
