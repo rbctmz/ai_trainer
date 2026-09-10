@@ -8,7 +8,12 @@ from __future__ import annotations
 from typing import Iterator, Optional
 
 from config.settings import Settings
-from models.ai_providers import AIProvider, AIProviderFactory, DeepSeekProvider
+from models.ai_providers import (
+    AIProvider,
+    AIProviderFactory,
+    DeepSeekProvider,
+    missing_answer_notice,
+)
 
 # Providers exposing an OpenAI-compatible streaming client.
 _STREAMABLE = {"DeepSeekProvider", "OpenAIProvider"}
@@ -94,11 +99,25 @@ def stream_tokens(
             request["extra_body"] = extra_body
 
     response = client.chat.completions.create(**request)
+    emitted = False
+    finish_reason = None
     for chunk in response:
         choices = getattr(chunk, "choices", None)
         if not choices:
             continue
-        delta = getattr(choices[0], "delta", None)
+        choice = choices[0]
+        delta = getattr(choice, "delta", None)
         content = getattr(delta, "content", None) if delta else None
         if content:
+            emitted = True
             yield content
+        if getattr(choice, "finish_reason", None):
+            finish_reason = choice.finish_reason
+    if not emitted:
+        # Codex review (PR #561): with AI_DEEPSEEK_THINKING=1 the whole budget
+        # can go to reasoning_content, which this path discards — the caller
+        # then saw a truncated-to-nothing stream instead of the explicit notice
+        # the non-streaming paths already return (#558).
+        yield missing_answer_notice(
+            type(provider).__name__, Settings.AI_RESPONSE_MAX_TOKENS, finish_reason
+        )

@@ -48,7 +48,7 @@ OLLAMA_MODEL=gemma3:4b
 DEFAULT_AI_PROVIDER=deepseek
 ```
 
-DeepSeek V4.1 Flash runs with thinking enabled by default, and the hidden reasoning is billed from the same output budget as the visible answer (`AI_RESPONSE_MAX_TOKENS`). Coach calls therefore disable thinking (`AI_DEEPSEEK_THINKING=0`, the default) so athlete-facing answers are not truncated to nothing, and so the deterministic tool sampling of `AI_TOOLS_TEMPERATURE` actually applies — thinking mode ignores `temperature`. Set `AI_DEEPSEEK_THINKING=1` only together with a much larger `AI_RESPONSE_MAX_TOKENS`; if the budget still runs out, the provider now returns an explicit "answer not received" message instead of an empty string (issue #558).
+DeepSeek V4.1 Flash runs with thinking enabled by default, and the hidden reasoning is billed from the same output budget as the visible answer (`AI_RESPONSE_MAX_TOKENS`). Coach calls therefore disable thinking (`AI_DEEPSEEK_THINKING=0`, the default) so athlete-facing answers are not truncated to nothing, and so the deterministic tool sampling of `AI_TOOLS_TEMPERATURE` actually applies — thinking mode ignores `temperature`. Set `AI_DEEPSEEK_THINKING=1` only together with a much larger `AI_RESPONSE_MAX_TOKENS`; if the budget still runs out, the coach surfaces an explicit "answer not received" message instead of an empty answer (non-streaming, Responses and streaming synthesis paths alike) — the failure is intermittent, since it depends on how long the model chooses to reason for a given prompt (issue #558).
 
 Secrets from `.env` must not be rendered back into the UI. The provider setup form intentionally leaves password fields empty; when the user does not type an override, the hidden `.env` value is used automatically.
 

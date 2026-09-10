@@ -20,7 +20,7 @@ _DEEPSEEK_THINKING_DISABLED: Dict[str, Any] = {"thinking": {"type": "disabled"}}
 _DEEPSEEK_REASONING_NONE: Dict[str, Any] = {"effort": "none"}
 
 
-def _missing_answer_notice(provider_label: str, max_tokens: object, finish_reason: object = None) -> str:
+def missing_answer_notice(provider_label: str, max_tokens: object, finish_reason: object = None) -> str:
     """Explain an empty provider answer instead of silently returning "".
 
     DeepSeek V4.1 Flash reasons before answering and hidden reasoning is billed
@@ -236,7 +236,7 @@ class OpenAICompatibleToolsMixin:
         if not tool_calls and not text.strip():
             # A tool-call turn legitimately carries no text; a plain empty answer
             # does not, and the runtime must not treat it as a coach reply.
-            text = _missing_answer_notice(
+            text = missing_answer_notice(
                 type(self).__name__, self.settings.AI_RESPONSE_MAX_TOKENS, getattr(choice, "finish_reason", None)
             )
         return {"text": text, "tool_calls": tool_calls}
@@ -588,7 +588,7 @@ class DeepSeekProvider(OpenAICompatibleToolsMixin, AIProvider):
             choice = response.choices[0]
             content = str(getattr(choice.message, "content", None) or "")
             if not content.strip():
-                return _missing_answer_notice(
+                return missing_answer_notice(
                     "DeepSeek",
                     self.settings.AI_RESPONSE_MAX_TOKENS,
                     getattr(choice, "finish_reason", None),
@@ -712,7 +712,7 @@ class DeepSeekResponsesToolsMixin:
         if not result["text"].strip() and not result["tool_calls"]:
             # Issue #558: `status=incomplete` with an all-reasoning output means
             # the budget ran out; the coach must not receive empty text.
-            result["text"] = _missing_answer_notice(
+            result["text"] = missing_answer_notice(
                 type(self).__name__,
                 self.settings.AI_RESPONSE_MAX_TOKENS,
                 getattr(response, "status", None),
@@ -876,7 +876,7 @@ class DeepSeekResponsesProvider(DeepSeekResponsesToolsMixin, AIProvider):
             result = responses_output_to_result(getattr(response, "output", None))
             text = result["text"] or str(getattr(response, "output_text", None) or "")
             if not text.strip():
-                return _missing_answer_notice(
+                return missing_answer_notice(
                     "DeepSeek Responses",
                     self.settings.AI_RESPONSE_MAX_TOKENS,
                     getattr(response, "status", None),
