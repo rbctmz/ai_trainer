@@ -9,6 +9,8 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
+import pytest
+
 from data.database import Database
 
 
@@ -261,44 +263,92 @@ def test_coach_stream_meta_exposes_readiness_snapshot(tmp_path, monkeypatch):
 # ---------------------------------------------------------------------------
 
 
-def test_snapshot_exposes_freshness_buckets_and_intervention_aggregates(tmp_path):
+def test_snapshot_without_provenance_reports_data_gap_and_keeps_legacy_verdict(tmp_path):
     from api.readiness_snapshot import build_readiness_snapshot
 
     db = Database(str(tmp_path / "freshness.db"))
-    _seed_full_readiness(db)  # no provenance columns yet -> only sleep is confirmed
+    _seed_full_readiness(db)  # M3 provenance columns stay NULL in this fixture
 
     snapshot = build_readiness_snapshot(db)
 
-    # Additive channel.
+    # Additive channel: a stored row proves nothing about *when* it was measured,
+    # so no measurement is confirmed for today and the gate input is blocked.
     freshness = snapshot["freshness"]
-    assert freshness["state"] == "provisional"
+    assert freshness["state"] == "data_gap"
     assert freshness["anchor"] == datetime.now().strftime("%Y-%m-%d")
-    assert freshness["confirmed_today"] == ["sleep"]
-    assert set(freshness["unverified"]) == {"hrv", "resting_hr", "training_readiness"}
-    assert freshness["outdated"] == []
-    assert freshness["invalid"] == []
-    assert freshness["missing"] == ["tsb"]
-    assert freshness["intervention_eligible"] == ["sleep"]
-    assert freshness["blocked_reason"] is None
-    # The stress reference factor is not a weighted input and never lands in a bucket.
-    for bucket in ("confirmed_today", "outdated", "unverified", "invalid", "missing"):
-        assert "stress" not in freshness[bucket]
-
-    assert snapshot["eligible_inputs"] == ["sleep"]
-    assert {item["key"] for item in snapshot["ineligible_inputs"]} == {
+    assert freshness["confirmed_today"] == []
+    assert set(freshness["unverified"]) == {
+        "sleep",
         "hrv",
         "resting_hr",
         "training_readiness",
     }
-    assert snapshot["intervention_confidence"] == 0.2
-    assert snapshot["intervention_score"] is not None
-    assert snapshot["intervention_blocked_reason"] is None
+    assert freshness["outdated"] == []
+    assert freshness["invalid"] == []
+    assert freshness["missing"] == ["tsb"]
+    assert freshness["intervention_eligible"] == []
+    assert freshness["blocked_reason"] == "no_intervention_eligible_factors"
+    # The stress reference factor is not a weighted input and never lands in a bucket.
+    for bucket in ("confirmed_today", "outdated", "unverified", "invalid", "missing"):
+        assert "stress" not in freshness[bucket]
+
+    assert snapshot["eligible_inputs"] == []
+    assert {item["key"] for item in snapshot["ineligible_inputs"]} == {
+        "sleep",
+        "hrv",
+        "resting_hr",
+        "training_readiness",
+    }
+    assert snapshot["intervention_score"] is None
+    assert snapshot["intervention_confidence"] == 0.0
+    assert snapshot["intervention_blocked_reason"] == "no_intervention_eligible_factors"
 
     # Frozen legacy channel keeps its own (presence-based) verdict.
     assert snapshot["is_provisional"] is False
     assert snapshot["score"] is not None
     assert snapshot["confidence"] == 0.8
     assert snapshot["stale"] is False
+
+
+def test_snapshot_confirms_sleep_only_with_payload_observation_date(tmp_path):
+    from api.readiness_snapshot import build_readiness_snapshot
+
+    db = Database(str(tmp_path / "sleep_provenance_snapshot.db"))
+    today = datetime.now().strftime("%Y-%m-%d")
+    db.sync_sleep_data(
+        {
+            today: {
+                "total_sleep_minutes": 480,
+                "sleep_score": 82.0,
+                "sleep_observed_at": today,
+            }
+        }
+    )
+
+    snapshot = build_readiness_snapshot(db)
+
+    freshness = snapshot["freshness"]
+    assert freshness["confirmed_today"] == ["sleep"]
+    assert "sleep" not in freshness["unverified"]
+    assert freshness["state"] == "provisional"  # HRV/RHR are still unconfirmed
+    assert snapshot["eligible_inputs"] == ["sleep"]
+    assert snapshot["intervention_confidence"] == 0.2
+    assert snapshot["intervention_score"] == pytest.approx(82.0)
+    assert snapshot["intervention_blocked_reason"] is None
+    # Another-day payload date on the same row is outdated, never fresh.
+    db.sync_sleep_data(
+        {
+            today: {
+                "total_sleep_minutes": 480,
+                "sleep_score": 82.0,
+                "sleep_observed_at": (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d"),
+            }
+        }
+    )
+    outdated = build_readiness_snapshot(db)
+    assert outdated["freshness"]["confirmed_today"] == []
+    assert outdated["freshness"]["outdated"] == ["sleep"]
+    assert outdated["intervention_score"] is None
 
 
 def test_snapshot_empty_db_reports_data_gap_freshness(tmp_path):
@@ -334,8 +384,13 @@ def test_snapshot_stale_data_blocks_intervention_but_keeps_stale_flag(tmp_path):
 
     freshness = snapshot["freshness"]
     assert freshness["state"] == "data_gap"
-    assert freshness["outdated"] == ["sleep"]
-    assert set(freshness["unverified"]) == {"hrv", "resting_hr", "training_readiness"}
+    assert freshness["outdated"] == []
+    assert set(freshness["unverified"]) == {
+        "sleep",
+        "hrv",
+        "resting_hr",
+        "training_readiness",
+    }
     assert snapshot["intervention_score"] is None
     assert snapshot["intervention_confidence"] == 0.0
     assert snapshot["intervention_blocked_reason"] == "no_intervention_eligible_factors"
@@ -365,10 +420,17 @@ def test_snapshot_keeps_invalid_observations_in_their_own_bucket(tmp_path, monke
     monkeypatch.setattr(snapshot_module, "compute_readiness_today", _with_future_rhr)
 
     db = Database(str(tmp_path / "invalid_obs.db"))
+    today = datetime.now().strftime("%Y-%m-%d")
     db.sync_sleep_data(
-        {datetime.now().strftime("%Y-%m-%d"): {"total_sleep_minutes": 480, "sleep_score": 82.0}}
+        {
+            today: {
+                "total_sleep_minutes": 480,
+                "sleep_score": 82.0,
+                "sleep_observed_at": today,
+            }
+        }
     )
-    db.sync_daily_health({datetime.now().strftime("%Y-%m-%d"): {"resting_hr": 52}})
+    db.sync_daily_health({today: {"resting_hr": 52}})
 
     snapshot = snapshot_module._build_measured_readiness_snapshot(db)
 

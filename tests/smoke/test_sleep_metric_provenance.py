@@ -188,3 +188,91 @@ def test_readiness_and_signal_do_not_call_derived_score_garmin():
     assert "расчёт" in factor["evidence"].lower()
     assert factor["metric_source"] == "derived"
     assert signal["score_source"] == "derived"
+
+
+# ---------------------------------------------------------------------------
+# Issue #557 M3: sleep observation provenance. The stored row date is the query
+# date when the payload carries no date, so it can never prove *when* the sleep
+# was measured: only an explicitly parsed payload date may become
+# `sleep_observed_at`.
+# ---------------------------------------------------------------------------
+
+
+def test_sleep_observation_date_uses_calendar_date_without_timestamps():
+    payload = _nested_garmin_payload()
+    payload["dailySleepDTO"].pop("sleepStartTimestampLocal")
+    payload["dailySleepDTO"].pop("sleepEndTimestampLocal")
+
+    result = Phase1DataProcessor.process_sleep_data(payload)
+
+    assert result is not None
+    # The pair of local timestamps is absent, so the processor never sets
+    # `sleep_date`; the payload calendar date is still a real observation date.
+    assert result.get("sleep_date") is None
+    assert result["sleep_observed_at"] == "2026-07-16"
+
+
+def test_sleep_observation_date_uses_wake_date_when_timestamps_exist():
+    result = Phase1DataProcessor.process_sleep_data(_nested_garmin_payload())
+
+    assert result is not None
+    assert result["sleep_date"] == "2026-07-16"
+    assert result["sleep_observed_at"] == "2026-07-16"
+
+
+def test_sleep_observation_date_is_none_without_any_payload_date():
+    payload = _nested_garmin_payload()
+    payload.pop("calendarDate")
+    payload["dailySleepDTO"].pop("sleepStartTimestampLocal")
+    payload["dailySleepDTO"].pop("sleepEndTimestampLocal")
+
+    result = Phase1DataProcessor.process_sleep_data(payload)
+
+    assert result is not None
+    assert result["sleep_observed_at"] is None
+
+
+def test_sleep_observation_date_is_none_for_invalid_calendar_date():
+    payload = _nested_garmin_payload()
+    payload["calendarDate"] = "not-a-date"
+    payload["dailySleepDTO"].pop("sleepStartTimestampLocal")
+    payload["dailySleepDTO"].pop("sleepEndTimestampLocal")
+
+    result = Phase1DataProcessor.process_sleep_data(payload)
+
+    assert result is not None
+    assert result["sleep_observed_at"] is None
+
+
+def test_sleep_provenance_round_trips_and_stays_null_for_legacy_rows(tmp_path):
+    db = Database(str(tmp_path / "sleep_provenance.db"))
+
+    # Row whose payload date is known -> provenance stored.
+    db.sync_sleep_data(
+        {
+            "2026-07-16": {
+                "total_sleep_minutes": 402,
+                "sleep_score": 62.0,
+                "sleep_observed_at": "2026-07-16",
+            }
+        }
+    )
+    # Legacy/undated row -> column stays NULL, never the query date.
+    db.sync_sleep_data({"2026-07-17": {"total_sleep_minutes": 400, "sleep_score": 60.0}})
+
+    rows = db.get_sleep_data(days=36500).set_index("date")
+    assert rows.loc["2026-07-16", "sleep_observed_at"] == "2026-07-16"
+    assert pd.isna(rows.loc["2026-07-17", "sleep_observed_at"])
+
+    # A re-sync that learns the observation date updates the same row.
+    db.sync_sleep_data(
+        {
+            "2026-07-17": {
+                "total_sleep_minutes": 400,
+                "sleep_score": 60.0,
+                "sleep_observed_at": "2026-07-16",
+            }
+        }
+    )
+    refreshed = db.get_sleep_data(days=36500).set_index("date")
+    assert refreshed.loc["2026-07-17", "sleep_observed_at"] == "2026-07-16"

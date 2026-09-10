@@ -243,7 +243,9 @@ def _factor(result: dict, key: str) -> dict:
 def _verified_full_inputs() -> dict:
     """All four measurements confirmed for TODAY, TSB present."""
     return {
-        "sleep_df": _daily_frame("sleep_score", {0: 80.0}),
+        "sleep_df": _observations_frame(
+            "sleep_score", [(0, 80.0, 0)], "sleep_observed_at"
+        ),
         "hrv_df": _observations_frame(
             "rmssd", [(0, 37.0, 0), *_history_rows(37.0)], "rmssd_observed_at"
         ),
@@ -290,7 +292,9 @@ def test_observation_status_classifies_factors_by_provenance():
     assert hrv["evidence_kind"] == "measurement"
 
     sleep = _factor(result, "sleep")
-    assert sleep["observation_status"] == OBSERVATION_OUTDATED
+    # Sleep rows without a payload observation date prove nothing (issue #557 M3):
+    # the stored date is the query date, so the factor stays unverified.
+    assert sleep["observation_status"] == OBSERVATION_UNVERIFIED
     assert sleep["intervention_eligible"] is False
 
     rhr = _factor(result, "resting_hr")
@@ -314,6 +318,8 @@ def test_observation_status_classifies_factors_by_provenance():
         "sleep",
         "training_readiness",
     }
+    sleep_item = next(item for item in result["ineligible_inputs"] if item["key"] == "sleep")
+    assert sleep_item["reason"] == "observation_date_unverified"
 
 
 def test_intervention_confidence_counts_eligible_factors_only():
@@ -457,6 +463,31 @@ def test_legacy_selection_uses_stored_date_and_provenance_is_a_separate_channel(
     assert rhr_b["intervention_eligible"] is False
 
 
+def test_sleep_with_payload_observation_date_is_confirmed_today():
+    """M3: sleep eligibility follows the payload date, not the stored row date."""
+    inputs = _verified_full_inputs()
+    inputs["sleep_df"] = _observations_frame(
+        "sleep_score", [(0, 80.0, 0)], "sleep_observed_at"
+    )
+    result = compute_readiness_today(**inputs, today=TODAY)
+
+    sleep = _factor(result, "sleep")
+    assert sleep["observation_status"] == OBSERVATION_CONFIRMED_TODAY
+    assert sleep["observation_as_of"] == TODAY.isoformat()
+    assert sleep["intervention_eligible"] is True
+
+    # Yesterday's payload date on a row stored today is outdated, not fresh.
+    stale = compute_readiness_today(
+        **{**inputs, "sleep_df": _observations_frame("sleep_score", [(0, 80.0, 1)], "sleep_observed_at")},
+        today=TODAY,
+    )
+    stale_sleep = _factor(stale, "sleep")
+    assert stale_sleep["observation_status"] == OBSERVATION_OUTDATED
+    assert stale_sleep["intervention_eligible"] is False
+    assert stale_sleep["as_of"] == TODAY.isoformat()
+    assert stale_sleep["stale_input"] is False
+
+
 def test_unverified_measurement_stays_descriptive_but_not_intervention():
     legacy = compute_readiness_today(**_full_inputs(), today=TODAY)
     rhr = _factor(legacy, "resting_hr")
@@ -502,11 +533,15 @@ def test_legacy_aggregates_are_frozen_and_new_keys_are_additive():
         "tsb": 70.0,
     }
 
-    # Sleep rows carry their payload date, so they stay intervention-eligible
-    # without a provenance column; RHR/HRV/training readiness do not.
-    assert result["eligible_inputs"] == ["sleep", "tsb"]
-    assert result["intervention_confidence"] == 0.4
-    assert result["intervention_score"] == pytest.approx(75.7)
+    # Without provenance columns no measurement is confirmed for today: only the
+    # derived load state stays eligible, and the gate input is blocked (M3).
+    assert result["eligible_inputs"] == ["tsb"]
+    assert result["intervention_confidence"] == 0.2
+    assert result["intervention_score"] is None
+    assert (
+        result["intervention_blocked_reason"]
+        == "no_confirmed_today_primary_recovery_measurement"
+    )
 
 
 def test_empty_inputs_block_intervention_without_eligibility():
