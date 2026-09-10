@@ -73,7 +73,7 @@ def test_gitleaks_exceptions_are_only_verified_non_secret_shapes() -> None:
     }
 
     assert fingerprints == {
-        ".env.example:generic-api-key:37",
+        ".env.example:generic-api-key:42",
         "docs/intervals_primary_quickstart.md:generic-api-key:20",
         "docs/self_hosted_deployment_execplan.md:curl-auth-user:331",
         "tests/smoke/test_garmin_auth_messages.py:generic-api-key:79",

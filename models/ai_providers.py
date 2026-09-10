@@ -12,6 +12,45 @@ from config.settings import Settings
 # Консервативный runtime default для Google/gRPC stack в локальном окружении.
 os.environ.setdefault('PROTOCOL_BUFFERS_PYTHON_IMPLEMENTATION', 'python')
 
+# DeepSeek thinking control (issue #558). V4.1 Flash enables thinking by default
+# and counts the hidden reasoning against the same output budget as the visible
+# answer, so a truncated turn used to reach the coach as an empty string.
+_DEEPSEEK_THINKING_DISABLED: Dict[str, Any] = {"thinking": {"type": "disabled"}}
+# Value for the Responses API `reasoning` parameter (not the whole body field).
+_DEEPSEEK_REASONING_NONE: Dict[str, Any] = {"effort": "none"}
+
+
+def missing_answer_notice(provider_label: str, max_tokens: object, finish_reason: object = None) -> str:
+    """Explain an empty provider answer instead of silently returning "".
+
+    DeepSeek V4.1 Flash reasons before answering and hidden reasoning is billed
+    from the same output budget, so an exhausted budget used to reach the coach
+    as an empty string (issue #558).
+    """
+    if str(finish_reason or "") in {"length", "max_tokens", "incomplete"}:
+        cause = (
+            f"бюджет вывода исчерпан (AI_RESPONSE_MAX_TOKENS={max_tokens}); "
+            "увеличьте лимит или оставьте thinking выключенным"
+        )
+    else:
+        cause = "модель вернула пустой ответ"
+    return f"{provider_label}: ответ не получен — {cause}."
+
+
+def probe_success_message(response_text: str) -> str:
+    """Success text for `test_connection` that stays honest about an empty probe.
+
+    Codex review on PR #561: the probe budget is five tokens, so with thinking
+    enabled the model answers with reasoning only and no visible text. The
+    connection still works, and calling that a plain success is misleading.
+    """
+    if response_text.strip():
+        return "Подключение успешно"
+    return (
+        "Подключение успешно, но проба вернула пустой текст: лимит пробы (5 токенов) "
+        "израсходован на рассуждения модели"
+    )
+
 
 class AIProvider(ABC):
     """Базовый класс для всех AI провайдеров"""
@@ -104,6 +143,15 @@ class OpenAICompatibleToolsMixin:
     def supports_native_tools(self) -> bool:
         return True
 
+    def chat_completion_extra_body(self) -> Optional[Dict[str, Any]]:
+        """Provider-specific `extra_body` for chat.completions requests.
+
+        Providers differ here — DeepSeek needs its thinking control (issue #558)
+        while OpenAI rejects unknown body fields — so the shared default is "no
+        extras" and only providers that need it override this hook.
+        """
+        return None
+
     @staticmethod
     def _messages_for_chat_completions(
         messages: List[Dict[str, Any]],
@@ -174,6 +222,9 @@ class OpenAICompatibleToolsMixin:
             # Tool selection/arguments must be deterministic (issue #440).
             "temperature": self.settings.AI_TOOLS_TEMPERATURE,
         }
+        extra_body = self.chat_completion_extra_body()
+        if extra_body:
+            request["extra_body"] = extra_body
         payload = [
             {
                 "type": "function",
@@ -193,11 +244,17 @@ class OpenAICompatibleToolsMixin:
         except Exception as exc:
             return {"text": f"Ошибка {type(self).__name__}: {exc}", "tool_calls": []}
 
-        message = response.choices[0].message
-        return {
-            "text": str(getattr(message, "content", None) or ""),
-            "tool_calls": _native_tool_calls_from_openai_message(message),
-        }
+        choice = response.choices[0]
+        message = choice.message
+        tool_calls = _native_tool_calls_from_openai_message(message)
+        text = str(getattr(message, "content", None) or "")
+        if not tool_calls and not text.strip():
+            # A tool-call turn legitimately carries no text; a plain empty answer
+            # does not, and the runtime must not treat it as a coach reply.
+            text = missing_answer_notice(
+                type(self).__name__, self.settings.AI_RESPONSE_MAX_TOKENS, getattr(choice, "finish_reason", None)
+            )
+        return {"text": text, "tool_calls": tool_calls}
 
 
 class OpenAIProvider(OpenAICompatibleToolsMixin, AIProvider):
@@ -510,6 +567,18 @@ class DeepSeekProvider(OpenAICompatibleToolsMixin, AIProvider):
             except Exception as e:
                 print(f"Ошибка инициализации DeepSeek: {e}")
 
+    def chat_completion_extra_body(self) -> Optional[Dict[str, Any]]:
+        """Disable DeepSeek thinking unless AI_DEEPSEEK_THINKING is enabled.
+
+        Thinking mode ignores `temperature`, so leaving it on would also defeat
+        the deterministic tool selection of issue #440, and its reasoning is
+        billed from the answer budget (issue #558). Stub settings without the
+        flag get the same non-thinking behaviour as production defaults.
+        """
+        if getattr(self.settings, "AI_DEEPSEEK_THINKING", False):
+            return None
+        return dict(_DEEPSEEK_THINKING_DISABLED)
+
     def generate_response(self, prompt: str, system_prompt: str = "") -> str:
         if not self.client:
             return "DeepSeek провайдер не настроен"
@@ -520,14 +589,26 @@ class DeepSeekProvider(OpenAICompatibleToolsMixin, AIProvider):
                 messages.append({"role": "system", "content": system_prompt})
             messages.append({"role": "user", "content": prompt})
 
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                max_tokens=self.settings.AI_RESPONSE_MAX_TOKENS,
-                temperature=0.7,
-            )
+            request: Dict[str, Any] = {
+                "model": self.model,
+                "messages": messages,
+                "max_tokens": self.settings.AI_RESPONSE_MAX_TOKENS,
+                "temperature": 0.7,
+            }
+            extra_body = self.chat_completion_extra_body()
+            if extra_body:
+                request["extra_body"] = extra_body
 
-            return response.choices[0].message.content
+            response = self.client.chat.completions.create(**request)
+            choice = response.choices[0]
+            content = str(getattr(choice.message, "content", None) or "")
+            if not content.strip():
+                return missing_answer_notice(
+                    "DeepSeek",
+                    self.settings.AI_RESPONSE_MAX_TOKENS,
+                    getattr(choice, "finish_reason", None),
+                )
+            return content
 
         except Exception as e:
             return f"Ошибка DeepSeek: {e}"
@@ -546,17 +627,28 @@ class DeepSeekProvider(OpenAICompatibleToolsMixin, AIProvider):
             }
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": "Test"}],
-                max_tokens=5,
-            )
+            request: Dict[str, Any] = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": "Test"}],
+                "max_tokens": 5,
+            }
+            # Codex review on PR #561: the probe must use the same thinking
+            # policy as generation, otherwise it measures hidden reasoning and
+            # rejects a setup that works.
+            extra_body = self.chat_completion_extra_body()
+            if extra_body:
+                request["extra_body"] = extra_body
+
+            response = self.client.chat.completions.create(**request)
+            # `content` is None on a reasoning-only answer; `len(None)` crashed
+            # the probe and reported a working connection as broken (#558).
+            response_text = str(getattr(response.choices[0].message, "content", None) or "")
             return {
                 'success': True,
-                'message': 'Подключение успешно',
+                'message': probe_success_message(response_text),
                 'model': self.model,
                 'base_url': self.base_url,
-                'response_length': len(response.choices[0].message.content),
+                'response_length': len(response_text),
             }
         except Exception as e:
             return {
@@ -586,6 +678,19 @@ class DeepSeekResponsesToolsMixin:
     def supports_native_tools(self) -> bool:
         return True
 
+    def responses_reasoning_control(self) -> Optional[Dict[str, Any]]:
+        """Disable Responses-API reasoning unless AI_DEEPSEEK_THINKING is enabled.
+
+        `reasoning={"effort": "none"}` is the Responses-format equivalent of the
+        chat `thinking` toggle and was verified against the live API (issue
+        #558): with it the same prompt returns `status=completed` and text,
+        without it the whole 1800-token budget went to reasoning and
+        `output_text` came back empty with `status=incomplete`.
+        """
+        if getattr(self.settings, "AI_DEEPSEEK_THINKING", False):
+            return None
+        return dict(_DEEPSEEK_REASONING_NONE)
+
     def generate_with_tools(
         self,
         messages: List[Dict[str, Any]],
@@ -603,6 +708,9 @@ class DeepSeekResponsesToolsMixin:
             # Tool selection/arguments must be deterministic (issue #440).
             "temperature": self.settings.AI_TOOLS_TEMPERATURE,
         }
+        reasoning_control = self.responses_reasoning_control()
+        if reasoning_control:
+            request["reasoning"] = reasoning_control
         payload = [
             {
                 "type": "function",
@@ -627,6 +735,14 @@ class DeepSeekResponsesToolsMixin:
             fallback = getattr(response, "output_text", None)
             if isinstance(fallback, str) and fallback:
                 result["text"] = fallback
+        if not result["text"].strip() and not result["tool_calls"]:
+            # Issue #558: `status=incomplete` with an all-reasoning output means
+            # the budget ran out; the coach must not receive empty text.
+            result["text"] = missing_answer_notice(
+                type(self).__name__,
+                self.settings.AI_RESPONSE_MAX_TOKENS,
+                getattr(response, "status", None),
+            )
         return result
 
 
@@ -773,13 +889,24 @@ class DeepSeekResponsesProvider(DeepSeekResponsesToolsMixin, AIProvider):
                 input_items.append({"role": "system", "content": system_prompt})
             input_items.append({"role": "user", "content": prompt})
 
-            response = self.client.responses.create(
-                model=self.model,
-                input=input_items,
-                max_output_tokens=self.settings.AI_RESPONSE_MAX_TOKENS,
-            )
+            request: Dict[str, Any] = {
+                "model": self.model,
+                "input": input_items,
+                "max_output_tokens": self.settings.AI_RESPONSE_MAX_TOKENS,
+            }
+            reasoning_control = self.responses_reasoning_control()
+            if reasoning_control:
+                request["reasoning"] = reasoning_control
+
+            response = self.client.responses.create(**request)
             result = responses_output_to_result(getattr(response, "output", None))
             text = result["text"] or str(getattr(response, "output_text", None) or "")
+            if not text.strip():
+                return missing_answer_notice(
+                    "DeepSeek Responses",
+                    self.settings.AI_RESPONSE_MAX_TOKENS,
+                    getattr(response, "status", None),
+                )
             return text
 
         except Exception as e:
@@ -799,18 +926,24 @@ class DeepSeekResponsesProvider(DeepSeekResponsesToolsMixin, AIProvider):
             }
 
         try:
-            response = self.client.responses.create(
-                model=self.model,
-                input=[{"role": "user", "content": "Test"}],
-                max_output_tokens=5,
-            )
+            request: Dict[str, Any] = {
+                "model": self.model,
+                "input": [{"role": "user", "content": "Test"}],
+                "max_output_tokens": 5,
+            }
+            # Codex review on PR #561: same thinking policy as generation.
+            reasoning_control = self.responses_reasoning_control()
+            if reasoning_control:
+                request["reasoning"] = reasoning_control
+
+            response = self.client.responses.create(**request)
             # Codex P2 (#496): текст живёт в output-элементах, output_text может
             # быть None — меряем нормализованный текст, а не сырое поле.
             parsed = responses_output_to_result(getattr(response, "output", None))
             response_text = parsed["text"] or str(getattr(response, "output_text", None) or "")
             return {
                 'success': True,
-                'message': 'Подключение успешно',
+                'message': probe_success_message(response_text),
                 'model': self.model,
                 'base_url': self.base_url,
                 'response_length': len(response_text),
