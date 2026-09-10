@@ -387,6 +387,82 @@ def test_accepted_metric_updates_value_source_and_provenance_atomically(tmp_path
     assert row["sleep_score_observed_at"] == "2026-07-15"
 
 
+def test_derived_sleep_score_keeps_payload_provenance(tmp_path):
+    """Review P2: the derived score comes from the same payload and must be dated."""
+    payload = _nested_garmin_payload()
+    payload["dailySleepDTO"].pop("sleepScores")
+
+    processed = Phase1DataProcessor.process_sleep_data(payload)
+
+    assert processed is not None
+    assert processed["sleep_score_source"] == "derived"
+    assert processed["sleep_score_observed_at"] == "2026-07-16"
+    assert processed["total_sleep_observed_at"] == "2026-07-16"
+
+    db = Database(str(tmp_path / "derived_score.db"))
+    db.sync_sleep_data({"2026-07-16": processed})
+
+    from models.readiness import OBSERVATION_CONFIRMED_TODAY, _sleep_factor
+
+    factor = _sleep_factor(db.get_sleep_data(days=36500), date(2026, 7, 16), max_age=2)
+    assert factor is not None
+    assert factor["source"] == "sleep_score"
+    assert factor["metric_source"] == "derived"
+    assert factor["observation_as_of"] == "2026-07-16"
+    assert factor["observation_status"] == OBSERVATION_CONFIRMED_TODAY
+    assert factor["intervention_eligible"] is True
+
+
+def test_derived_sleep_score_without_payload_date_is_unverified(tmp_path):
+    payload = _nested_garmin_payload()
+    payload.pop("calendarDate")
+    payload["dailySleepDTO"].pop("sleepScores")
+    payload["dailySleepDTO"].pop("sleepStartTimestampLocal")
+    payload["dailySleepDTO"].pop("sleepEndTimestampLocal")
+
+    processed = Phase1DataProcessor.process_sleep_data(payload)
+
+    assert processed is not None
+    assert processed["sleep_score_source"] == "derived"
+    assert processed["sleep_score_observed_at"] is None
+
+    db = Database(str(tmp_path / "dateless_derived.db"))
+    db.sync_sleep_data({"2026-07-16": processed})
+
+    from models.readiness import OBSERVATION_UNVERIFIED, _sleep_factor
+
+    factor = _sleep_factor(db.get_sleep_data(days=36500), date(2026, 7, 16), max_age=2)
+    assert factor is not None
+    assert factor["observation_status"] == OBSERVATION_UNVERIFIED
+    assert factor["intervention_eligible"] is False
+
+
+def test_derived_sleep_score_reaches_the_snapshot_as_confirmed(tmp_path):
+    from datetime import datetime, timezone
+
+    from api.readiness_snapshot import build_readiness_snapshot
+
+    payload = _nested_garmin_payload()
+    payload["dailySleepDTO"].pop("sleepScores")
+    processed = Phase1DataProcessor.process_sleep_data(payload)
+
+    db = Database(str(tmp_path / "derived_snapshot.db"))
+    db.sync_sleep_data({"2026-07-16": processed})
+
+    snapshot = build_readiness_snapshot(
+        db,
+        as_of=date(2026, 7, 16),
+        observed_at_utc=datetime(2026, 7, 16, 6, 0, tzinfo=timezone.utc),
+    )
+
+    assert snapshot["freshness"]["confirmed_today"] == ["sleep"]
+    assert "sleep" not in snapshot["freshness"]["unverified"]
+    assert snapshot["eligible_inputs"] == ["sleep"]
+    assert snapshot["intervention_confidence"] == 0.2
+    assert snapshot["intervention_score"] is not None
+    assert snapshot["intervention_blocked_reason"] is None
+
+
 def test_score_and_duration_provenance_stay_independent(tmp_path, monkeypatch):
     from config.settings import Settings
 
