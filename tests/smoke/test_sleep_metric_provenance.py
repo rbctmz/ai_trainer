@@ -208,7 +208,7 @@ def test_readiness_and_signal_do_not_call_derived_score_garmin():
 # Issue #557 M3: sleep observation provenance. The stored row date is the query
 # date when the payload carries no date, so it can never prove *when* the sleep
 # was measured: only an explicitly parsed payload date may become
-# `sleep_observed_at`.
+# `sleep_score_observed_at` / `total_sleep_observed_at`.
 # ---------------------------------------------------------------------------
 
 
