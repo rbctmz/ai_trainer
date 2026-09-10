@@ -198,12 +198,6 @@ class Phase1DataProcessor:
                 except (TypeError, ValueError):
                     observed_date = None
             observed_iso = observed_date.strftime('%Y-%m-%d') if observed_date else None
-            # Provenance пишется по метрике: значение и его дата принимаются
-            # или отклоняются вместе (issue #557 review P1).
-            if 'sleep_score' in processed_data:
-                processed_data['sleep_score_observed_at'] = observed_iso
-            if 'total_sleep_minutes' in processed_data:
-                processed_data['total_sleep_observed_at'] = observed_iso
 
             # 5. Рассчитываем производные метрики, если их нет
             if 'sleep_score' not in processed_data and total_minutes > 0:
@@ -217,6 +211,15 @@ class Phase1DataProcessor:
 
             if 'sleep_score_source' not in processed_data:
                 processed_data['sleep_score_source'] = 'legacy_unknown'
+
+            # Provenance пишется по метрике и только после derivation: derived
+            # score тоже происходит из этого payload и обязан получить его дату,
+            # иначе `_sleep_factor` (он предпочитает score) объявит датированный
+            # сон неподтверждённым (issue #557 review P2/P1).
+            if 'total_sleep_minutes' in processed_data:
+                processed_data['total_sleep_observed_at'] = observed_iso
+            if 'sleep_score' in processed_data:
+                processed_data['sleep_score_observed_at'] = observed_iso
 
             # Awakening count is not awakening duration. Prefer Garmin's
             # actual awake time, then the observed sleep window; otherwise
