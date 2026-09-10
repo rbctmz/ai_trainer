@@ -292,6 +292,61 @@ def test_dated_rhr_is_confirmed_today_and_dateless_is_not(tmp_path):
 # ------------------------------------------------------------------- helpers
 
 
+def test_athlete_local_observation_requires_a_valid_timezone(monkeypatch):
+    """Review P2: an unusable athlete timezone must fail closed for both sources."""
+    from config.settings import Settings
+
+    from utils.observation_provenance import observation_local_date
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "not/a-zone", raising=False)
+
+    assert observation_local_date("2026-07-16", source="athlete_local") is None
+    assert observation_local_date("2026-07-16T00:20:00Z", source="utc") is None
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "Europe/Moscow", raising=False)
+    assert observation_local_date("2026-07-16", source="athlete_local") == date(2026, 7, 16)
+
+
+def test_invalid_timezone_keeps_rhr_unverified_end_to_end(tmp_path, monkeypatch):
+    from config.settings import Settings
+
+    from api.readiness_snapshot import build_readiness_snapshot
+    from data.garmin_client import GarminClient
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "not/a-zone", raising=False)
+
+    normalized = GarminClient._normalize_rhr_payload(
+        {"restingHeartRate": 52, "calendarDate": "2026-07-16"}
+    )
+    assert normalized["observedAt"] is None
+
+    processed = Phase1DataProcessor.process_daily_health_data(None, normalized)
+    assert processed is not None
+    assert processed["resting_hr_observed_at"] is None
+
+    db = Database(str(tmp_path / "invalid_tz.db"))
+    db.sync_daily_health(
+        {
+            "2026-07-16": {
+                "resting_hr": processed["resting_hr"],
+                "resting_hr_source": "garmin",
+                "resting_hr_observed_at": processed["resting_hr_observed_at"],
+            }
+        }
+    )
+    snapshot = build_readiness_snapshot(
+        db,
+        as_of=_date_of(),
+        observed_at_utc=datetime(2026, 7, 16, 6, 0, tzinfo=timezone.utc),
+    )
+
+    assert snapshot["freshness"]["confirmed_today"] == []
+    assert snapshot["freshness"]["unverified"] == ["resting_hr"]
+    assert snapshot["eligible_inputs"] == []
+    assert snapshot["intervention_score"] is None
+    assert snapshot["intervention_blocked_reason"] == "no_intervention_eligible_factors"
+
+
 def test_neutral_timezone_helper_matches_the_delivery_delegate():
     from services.intervals_plan_delivery import athlete_local_date as delegate
     from utils.athlete_time import athlete_local_date as canonical
