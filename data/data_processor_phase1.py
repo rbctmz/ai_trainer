@@ -501,7 +501,9 @@ class Phase1DataProcessor:
     @staticmethod
     def process_training_status_data(status_raw_data, vo2_data=None, readiness_data=None):
         """Обработка данных статуса тренированности"""
-        if not status_raw_data and not vo2_data:
+        # Readiness — самостоятельный источник (issue #557 review P2): без него
+        # валидный readiness-only payload молча терялся.
+        if not status_raw_data and not vo2_data and not readiness_data:
             return None
         
         processed_data: Dict[str, Any] = {}

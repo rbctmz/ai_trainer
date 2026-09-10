@@ -68,6 +68,16 @@ def parse_cursor_date(value):
         ) from exc
 
 
+def _same_metric_value(current, incoming) -> bool:
+    """Numeric-aware comparison for metric updates (issue #557)."""
+    if current is None or incoming is None:
+        return current is None and incoming is None
+    try:
+        return float(current) == float(incoming)
+    except (TypeError, ValueError):
+        return str(current) == str(incoming)
+
+
 class Database:
     _ACTIVITY_COLUMN_ORDER = ACTIVITY_COLUMN_ORDER
 
@@ -1131,6 +1141,23 @@ class Database:
                 if "duplicate column name" not in str(exc).lower():
                     raise
         conn.commit()
+
+    @staticmethod
+    def _observation_provenance_update(
+        *, incoming_observed, incoming_value, stored_value
+    ):
+        """Fail-closed provenance decision for one metric update (issue #557).
+
+        Returns ``(write, value)``. A dated update always writes the incoming
+        date; an undated update keeps the stored date only when the value did
+        not change; an undated *changed* value clears provenance, because the old
+        date is not evidence for the new measurement.
+        """
+        if incoming_observed:
+            return True, incoming_observed
+        if _same_metric_value(stored_value, incoming_value):
+            return False, None
+        return True, None
 
     def _ensure_coach_decision_columns(self, conn: sqlite3.Connection) -> None:
         """Добавление недостающих колонок coach_decisions для audit metadata."""
@@ -5377,13 +5404,18 @@ class Database:
                     'recovery_score': self.clean_value(data.get('recovery_score')),
                 }
                 if replace_rmssd and 'rmssd' in data:
-                    updates['rmssd'] = self.clean_value(data.get('rmssd'))
+                    incoming_rmssd = self.clean_value(data.get('rmssd'))
+                    updates['rmssd'] = incoming_rmssd
                     updates['rmssd_source'] = incoming_source
-                    # Provenance едет только с принятой метрикой и не стирается
-                    # повторным sync без даты (issue #557).
-                    observed = data.get('rmssd_observed_at')
-                    if observed:
-                        updates['rmssd_observed_at'] = self.clean_value(observed)
+                    # Provenance следует за значением: дата сохраняется только
+                    # при неизменном значении, иначе очищается (issue #557).
+                    write_observed, resolved = self._observation_provenance_update(
+                        incoming_observed=data.get('rmssd_observed_at'),
+                        incoming_value=incoming_rmssd,
+                        stored_value=current_rmssd,
+                    )
+                    if write_observed:
+                        updates['rmssd_observed_at'] = self.clean_value(resolved)
                 clause = ', '.join(f"{column}=?" for column in updates)
                 cursor.execute(
                     f'UPDATE hrv_data SET {clause} WHERE date=?',
@@ -5803,11 +5835,15 @@ class Database:
                         data.get('total_sleep_minutes')
                     )
                     updates['total_sleep_source'] = total_source
-                    # Provenance rides with the accepted value: a rejected or
-                    # dateless incoming metric must not move it (issue #557).
-                    observed = data.get('total_sleep_observed_at')
-                    if observed:
-                        updates['total_sleep_observed_at'] = self.clean_value(observed)
+                    # Provenance follows its metric: a dateless update keeps the
+                    # stored date only when the value is unchanged (issue #557).
+                    write_observed, resolved = self._observation_provenance_update(
+                        incoming_observed=data.get('total_sleep_observed_at'),
+                        incoming_value=data.get('total_sleep_minutes'),
+                        stored_value=current['total_sleep_minutes'],
+                    )
+                    if write_observed:
+                        updates['total_sleep_observed_at'] = self.clean_value(resolved)
                 current_score_source = current['sleep_score_source']
                 current_score_provider = (
                     current['total_sleep_source']
@@ -5822,9 +5858,13 @@ class Database:
                 ):
                     updates['sleep_score'] = self.clean_value(data.get('sleep_score'))
                     updates['sleep_score_source'] = score_source
-                    observed = data.get('sleep_score_observed_at')
-                    if observed:
-                        updates['sleep_score_observed_at'] = self.clean_value(observed)
+                    write_observed, resolved = self._observation_provenance_update(
+                        incoming_observed=data.get('sleep_score_observed_at'),
+                        incoming_value=data.get('sleep_score'),
+                        stored_value=current['sleep_score'],
+                    )
+                    if write_observed:
+                        updates['sleep_score_observed_at'] = self.clean_value(resolved)
                 if updates:
                     clause = ', '.join(f"{column}=?" for column in updates)
                     cursor.execute(
@@ -5952,10 +5992,20 @@ class Database:
                         if source_column in present_columns:
                             present_columns.remove(source_column)
                         _drop_provenance()
-                    elif provenance_column and not prepared.get(provenance_column):
-                        # Датированный повтор без даты не должен стирать
-                        # известную provenance (issue #557).
-                        _drop_provenance()
+                    elif provenance_column:
+                        # Provenance следует за значением: неизменное значение
+                        # сохраняет дату, изменённое без даты её очищает.
+                        write_observed, resolved = self._observation_provenance_update(
+                            incoming_observed=prepared.get(provenance_column),
+                            incoming_value=prepared.get(metric),
+                            stored_value=current.get(metric),
+                        )
+                        if write_observed:
+                            prepared[provenance_column] = self.clean_value(resolved)
+                            if provenance_column not in present_columns:
+                                present_columns.append(provenance_column)
+                        else:
+                            _drop_provenance()
                 if not present_columns:
                     continue
                 update_clause = ', '.join(f"{column}=?" for column in present_columns)
@@ -6009,13 +6059,18 @@ class Database:
         
         # Получаем существующие даты и известную provenance
         cursor.execute(
-            'SELECT date, training_readiness_observed_at FROM training_status'
+            'SELECT date, training_readiness_observed_at, training_readiness '
+            'FROM training_status'
         )
         existing_rows = cursor.fetchall()
         existing_dates = {row[0] for row in existing_rows}
         existing_observed = {row[0]: row[1] for row in existing_rows}
+        existing_readiness = {row[0]: row[2] for row in existing_rows}
         observed_index = self._TRAINING_STATUS_COLUMN_ORDER.index(
             'training_readiness_observed_at'
+        )
+        readiness_index = self._TRAINING_STATUS_COLUMN_ORDER.index(
+            'training_readiness'
         )
         
         new_count = 0
@@ -6024,9 +6079,18 @@ class Database:
         for date_str, data in status_data.items():
             clean_date = self.clean_value(date_str)
             column_values = [self.clean_value(data.get(column)) for column in self._TRAINING_STATUS_COLUMN_ORDER]
-            # Пустое значение не должно стирать известную дату наблюдения.
-            if not column_values[observed_index] and existing_observed.get(clean_date):
-                column_values[observed_index] = existing_observed[clean_date]
+            # Provenance следует за значением: дата сохраняется только при
+            # неизменном значении, изменённое без даты её очищает (issue #557).
+            write_observed, resolved = self._observation_provenance_update(
+                incoming_observed=data.get('training_readiness_observed_at'),
+                incoming_value=data.get('training_readiness'),
+                stored_value=existing_readiness.get(clean_date),
+            )
+            column_values[observed_index] = (
+                self.clean_value(resolved)
+                if write_observed
+                else existing_observed.get(clean_date)
+            )
             update_clause = ', '.join(f"{column}=?" for column in self._TRAINING_STATUS_COLUMN_ORDER)
             insert_columns = ['date'] + self._TRAINING_STATUS_COLUMN_ORDER
             insert_placeholders = ', '.join('?' for _ in insert_columns)
@@ -6044,6 +6108,7 @@ class Database:
                 )
                 existing_dates.add(clean_date)
                 existing_observed[clean_date] = column_values[observed_index]
+                existing_readiness[clean_date] = column_values[readiness_index]
                 new_count += 1
         
         conn.commit()

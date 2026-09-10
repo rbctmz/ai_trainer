@@ -1110,7 +1110,7 @@ def _collect_training_status_data(client: Any) -> tuple[dict[str, dict[str, Any]
         if readiness_error:
             _append_warning(warnings, f"⚠️ Garmin readiness: {readiness_error.get('message')}")
 
-        if training_status or vo2_data:
+        if training_status or vo2_data or readiness_data:
             processed_status = Phase1DataProcessor.process_training_status_data(
                 training_status,
                 vo2_data,
