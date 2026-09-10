@@ -19,7 +19,7 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 - [x] (2026-09-10) Ревизия v3: версия правила доведена до approval API, у helper'а задана явная семантика источника и нейтральный модуль, head-колонка `rule_version` убрана как неиспользуемая, исправлен владелец `_proposal_payload`, escape hatch согласован с контрактом guard; см. `Change log`.
 - [x] M1. `models/readiness.py`: per-factor `age_days`/`observation_status`/`intervention_eligible`/`evidence_kind`, аддитивные агрегаты `intervention_score`/`intervention_confidence`; legacy `score`/`confidence`/`stale` заморожены (RED→GREEN в `tests/smoke/test_readiness_model.py`). Выполнено 2026-09-10: RED `6238ba2`, GREEN; после ревью исправлены future-observation и разделение legacy/provenance-каналов (RED `99d4b82`), итог — `21 passed`, дифференциальный паритет с `origin/main` на 7 фикстурах; детали и цифры — `Artifacts and Notes`.
 - [x] (2026-09-10) Ревизия v3.1: исправления по ревью M1 (future observation → `invalid`; legacy-выборка снова по дате хранения, provenance отдельным каналом; дедупликация baseline отложена на M3+); см. `Change log`.
-- [ ] M2. `services/readiness_snapshot.py`: аддитивный контракт `freshness` (пять корзин, включая `invalid`)/`intervention_score`/`intervention_confidence` без изменения legacy-полей (RED→GREEN в `tests/smoke/test_readiness_snapshot_contract.py`).
+- [x] M2. `services/readiness_snapshot.py`: аддитивный контракт `freshness` (пять корзин, включая `invalid`)/`intervention_score`/`intervention_confidence` без изменения legacy-полей (RED→GREEN в `tests/smoke/test_readiness_snapshot_contract.py`). Выполнено 2026-09-10: RED — 4 падения `KeyError: 'freshness'`; GREEN — `49 passed` в контуре снапшота и `test_recovery_response`; `READINESS_SNAPSHOT_RULE_VERSION` → `readiness_snapshot_v3` (литерал в `test_recovery_response.py` заменён на константу).
 - [ ] M3. Provenance измерений: observation date для RHR, HRV и `training_readiness` от payload до модели, явная семантика источника (`utc` vs `athlete_local`), конверсия в `ATHLETE_TIMEZONE` через нейтральный `utils/athlete_time.py`, аддитивные nullable-колонки (RED→GREEN в Garmin/sync-тестах). Дедупликация повторов observation — **только** для интервенционного расчёта через `intervention_score_input`; legacy `score`/`baseline`/`deviation` остаются побайтово совместимыми (см. Decision Log).
 - [ ] M4. `models/readiness_conflicts.py` + `api/recovery_replan_loop.py` + `data/database.py` + `api/routers/decisions.py`: fail-closed gate и version-qualified ownership (AC6) поверх lifecycle #552, с передачей версий из API в атомарные DB-методы.
 - [ ] M5. `/today`: проекция и UI с датами факторов; `ts_contract.json` перегенерирован.
@@ -262,7 +262,17 @@ RED: `./ai_trainer_env/bin/python -m pytest tests/smoke/test_readiness_model.py 
 
 RED: `99d4b82` падал на сборе (`ImportError: cannot import name 'INELIGIBLE_REASON_INVALID_OBSERVATION'`). GREEN: `tests/smoke/test_readiness_model.py` — `21 passed`; потребители (`readiness_snapshot_contract`, `readiness_conflicts`, `readiness_bio_signals`, `readiness_plan_purity`, `api_today`, `session_quality_forecast`, `api_recovery_analytics`, `signals_engine`, `coach_narrative_evidence_gate`) — `237 passed`; `ruff check` чист.
 
-Остальные артефакты (M2–M6) появятся по мере реализации: независимое чтение `/api/today`, diff'ы аддитивной миграции, выдержки из `ts_contract.json`.
+### M2 (2026-09-10)
+
+RED: `tests/smoke/test_readiness_snapshot_contract.py` — четыре новых теста падали с `KeyError: 'freshness'` на ветке до реализации. GREEN: тот же файл + `test_recovery_response.py` — `49 passed`.
+
+Что наблюдаемо в снапшоте (фикстура `_seed_full_readiness` без provenance-колонок, `M3` их ещё не заполняет): `freshness.state == "provisional"`, `confirmed_today == ["sleep"]`, `unverified == ["hrv", "resting_hr", "training_readiness"]`, `missing == ["tsb"]`, `intervention_confidence == 0.2`, `intervention_score == 82.0`, при этом **legacy-канал не сдвинулся**: `is_provisional is False` (presence-based), `confidence == 0.8`, `stale is False`. Пустая база даёт `freshness.state == "data_gap"`, `missing` из пяти ключей и `blocked_reason == "no_intervention_eligible_factors"`; восьмидневная база — `data_gap` при неизменном legacy `stale is True`/`status == "stale"`.
+
+Сценарий `invalid` проверен сквозь реальную модель: тест `test_snapshot_keeps_invalid_observations_in_their_own_bucket` подменяет `compute_readiness_today` в модуле снапшота обёрткой, которая добавляет в health-frame `resting_hr_observed_at` = завтра, и требует отдельную корзину `freshness.invalid == ["resting_hr"]`, отсутствие ключа в `unverified`/`eligible_inputs` и `reason == "observation_in_future"` в `ineligible_inputs`.
+
+`READINESS_SNAPSHOT_RULE_VERSION` повышен `readiness_snapshot_v2` → `readiness_snapshot_v3` (метаданные, поведенческих читателей нет); единственная литеральная проверка в `tests/smoke/test_recovery_response.py` переведена на импорт константы, чтобы будущие бампы не требовали правки теста.
+
+Остальные артефакты (M3–M6) появятся по мере реализации: независимое чтение `/api/today`, diff'ы аддитивной миграции, выдержки из `ts_contract.json`.
 
 ## Interfaces and Dependencies
 
