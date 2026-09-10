@@ -21,6 +21,16 @@ PROVIDER_CLASS_NAMES = {
     "mock": "MockAIProvider",
 }
 
+# Issue #559: the picker resolves `Settings.DEEPSEEK_MODEL` with list.index() and
+# silently falls back to index 0 when the value is missing, so the live model
+# name must come first and retired names must not be offered.
+DEEPSEEK_MODEL_OPTIONS = (
+    "deepseek-flash",
+    "deepseek-v4-pro",
+    "deepseek-chat",
+    "deepseek-reasoner",
+)
+
 
 def _render_hidden_api_key_input(label: str, field_key: str, env_value: Optional[str]) -> str:
     """Render a secret input without pre-filling the underlying environment value."""
@@ -302,12 +312,7 @@ def render_ai_provider_setup(state: StateManager) -> Dict[str, Any]:
                 value=Settings.DEEPSEEK_BASE_URL,
                 help="Оставьте стандартный DeepSeek endpoint, если не используете прокси.",
             )
-            available_models = [
-                "deepseek-v4-flash",
-                "deepseek-v4-pro",
-                "deepseek-chat",
-                "deepseek-reasoner",
-            ]
+            available_models = list(DEEPSEEK_MODEL_OPTIONS)
             current_model = Settings.DEEPSEEK_MODEL
             try:
                 default_index = available_models.index(current_model)
@@ -317,9 +322,13 @@ def render_ai_provider_setup(state: StateManager) -> Dict[str, Any]:
                 f"Модель: ({len(available_models)} доступно)",
                 available_models,
                 index=default_index,
-                help="Для новых подключений предпочтительнее deepseek-v4-flash или deepseek-v4-pro.",
+                help="Актуальное имя — deepseek-flash (DeepSeek V4.1 Flash).",
             )
-            st.caption("Модели `deepseek-chat` и `deepseek-reasoner` оставлены для совместимости со старыми конфигурациями.")
+            st.caption(
+                "`deepseek-v4-pro` выводится из эксплуатации: с 14.09.2026 запросы к нему "
+                "обслуживает V4.1 Flash. Устаревшие имена `deepseek-chat` и "
+                "`deepseek-reasoner` также обслуживаются V4.1 Flash."
+            )
             provider_kwargs = {"api_key": api_key, "model": model, "base_url": base_url}
 
         elif selected_provider == "google":

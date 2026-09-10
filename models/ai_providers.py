@@ -565,8 +565,10 @@ class DeepSeekProvider(OpenAICompatibleToolsMixin, AIProvider):
             }
 
     def get_available_models(self) -> List[str]:
+        # "deepseek-flash" is the live name (DeepSeek V4.1 Flash). The legacy
+        # names are accepted by the API but all resolve to that same model.
         return [
-            "deepseek-v4-flash",
+            "deepseek-flash",
             "deepseek-v4-pro",
             "deepseek-chat",
             "deepseek-reasoner",
@@ -820,8 +822,10 @@ class DeepSeekResponsesProvider(DeepSeekResponsesToolsMixin, AIProvider):
             }
 
     def get_available_models(self) -> List[str]:
+        # "deepseek-flash" is the live name (DeepSeek V4.1 Flash). The legacy
+        # names are accepted by the API but all resolve to that same model.
         return [
-            "deepseek-v4-flash",
+            "deepseek-flash",
             "deepseek-v4-pro",
             "deepseek-chat",
             "deepseek-reasoner",
