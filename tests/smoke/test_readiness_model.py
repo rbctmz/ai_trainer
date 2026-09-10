@@ -8,7 +8,12 @@ import pytest
 
 from models.readiness import (
     BASELINE_WINDOW_DAYS,
+    FACTOR_WEIGHTS,
     LOAD_METRICS_WINDOW_DAYS,
+    OBSERVATION_CONFIRMED_TODAY,
+    OBSERVATION_OUTDATED,
+    OBSERVATION_UNVERIFIED,
+    PRIMARY_RECOVERY_KEYS,
     compute_readiness_today,
 )
 
@@ -185,3 +190,260 @@ def test_stale_input_is_marked_but_used():
 
 def test_baseline_window_is_28_days():
     assert BASELINE_WINDOW_DAYS == 28
+
+
+# ---------------------------------------------------------------------------
+# Issue #557 M1: per-factor observation status and intervention eligibility.
+# The provenance columns below are populated by ingest in M3; the model must
+# classify a measurement as verified only when the observation date is known.
+# ---------------------------------------------------------------------------
+
+
+def _observations_frame(column: str, rows, observation_column: str) -> pd.DataFrame:
+    """Frame with `date`, one value column and one provider observation column.
+
+    `rows` is an iterable of (stored_offset, value, observed_offset | None); all
+    offsets are days back from TODAY.
+    """
+    return pd.DataFrame(
+        [
+            {
+                "date": pd.Timestamp(TODAY - timedelta(days=stored)),
+                column: value,
+                observation_column: (
+                    None
+                    if observed is None
+                    else (TODAY - timedelta(days=observed)).isoformat()
+                ),
+            }
+            for stored, value, observed in rows
+        ]
+    )
+
+
+def _history_rows(value: float, *, days: int = 28, start_offset: int = 1):
+    return [(offset, value, None) for offset in range(start_offset, start_offset + days)]
+
+
+def _activities() -> pd.DataFrame:
+    return pd.DataFrame(
+        [
+            {"date": pd.Timestamp(TODAY - timedelta(days=offset)), "tss": 40.0}
+            for offset in range(1, 60)
+        ]
+    )
+
+
+def _factor(result: dict, key: str) -> dict:
+    return next(f for f in result["factors"] if f["key"] == key)
+
+
+def _verified_full_inputs() -> dict:
+    """All four measurements confirmed for TODAY, TSB present."""
+    return {
+        "sleep_df": _daily_frame("sleep_score", {0: 80.0}),
+        "hrv_df": _observations_frame(
+            "rmssd", [(0, 37.0, 0), *_history_rows(37.0)], "rmssd_observed_at"
+        ),
+        "health_df": _observations_frame(
+            "resting_hr", [(0, 55.0, 0), *_history_rows(55.0)], "resting_hr_observed_at"
+        ),
+        "training_df": _observations_frame(
+            "training_readiness",
+            [(0, 80.0, 0)],
+            "training_readiness_observed_at",
+        ),
+        "activities_df": _activities(),
+    }
+
+
+def _mixed_inputs(*, rhr_observed: int | None) -> dict:
+    """Yesterday's sleep/HRV, RHR observed today only when requested, TSB today."""
+    return {
+        "sleep_df": _daily_frame("sleep_score", {1: 80.0}),
+        "hrv_df": _observations_frame(
+            "rmssd", [(1, 37.0, 1), *_history_rows(37.0, start_offset=2)], "rmssd_observed_at"
+        ),
+        "health_df": _observations_frame(
+            "resting_hr",
+            [(0, 55.0, rhr_observed), *_history_rows(55.0)],
+            "resting_hr_observed_at",
+        ),
+        "training_df": _observations_frame(
+            "training_readiness",
+            [(0, 80.0, None)],
+            "training_readiness_observed_at",
+        ),
+        "activities_df": _activities(),
+    }
+
+
+def test_observation_status_classifies_factors_by_provenance():
+    result = compute_readiness_today(**_mixed_inputs(rhr_observed=0), today=TODAY)
+
+    hrv = _factor(result, "hrv")
+    assert hrv["observation_status"] == OBSERVATION_OUTDATED
+    assert hrv["age_days"] == 1
+    assert hrv["intervention_eligible"] is False
+    assert hrv["evidence_kind"] == "measurement"
+
+    sleep = _factor(result, "sleep")
+    assert sleep["observation_status"] == OBSERVATION_OUTDATED
+    assert sleep["intervention_eligible"] is False
+
+    rhr = _factor(result, "resting_hr")
+    assert rhr["observation_status"] == OBSERVATION_CONFIRMED_TODAY
+    assert rhr["age_days"] == 0
+    assert rhr["intervention_eligible"] is True
+
+    training = _factor(result, "training_readiness")
+    assert training["observation_status"] == OBSERVATION_UNVERIFIED
+    assert training["intervention_eligible"] is False
+
+    tsb = _factor(result, "tsb")
+    assert tsb["observation_status"] == OBSERVATION_CONFIRMED_TODAY
+    assert tsb["intervention_eligible"] is True
+    assert tsb["evidence_kind"] == "derived_state"
+
+    assert result["eligible_inputs"] == ["resting_hr", "tsb"]
+    assert {item["key"] for item in result["ineligible_inputs"]} == {
+        "hrv",
+        "sleep",
+        "training_readiness",
+    }
+
+
+def test_intervention_confidence_counts_eligible_factors_only():
+    # Confirmed today RHR + current TSB: 2/5 = 0.4 (issue #557 AC3).
+    with_rhr = compute_readiness_today(**_mixed_inputs(rhr_observed=0), today=TODAY)
+    assert with_rhr["intervention_confidence"] == 0.4
+    assert with_rhr["intervention_score"] is not None
+    assert with_rhr["intervention_blocked_reason"] is None
+    # Legacy presence-based confidence is frozen and still counts every factor.
+    assert with_rhr["confidence"] == 1.0
+
+    # RHR without an observation date: only TSB is eligible -> 1/5 = 0.2 and the
+    # gate input is blocked because no primary measurement is confirmed today.
+    without_rhr = compute_readiness_today(**_mixed_inputs(rhr_observed=None), today=TODAY)
+    assert without_rhr["intervention_confidence"] == 0.2
+    assert without_rhr["intervention_score"] is None
+    assert (
+        without_rhr["intervention_blocked_reason"]
+        == "no_confirmed_today_primary_recovery_measurement"
+    )
+    assert without_rhr["confidence"] == 1.0
+
+
+def test_intervention_score_uses_renormalized_eligible_weights():
+    mixed = compute_readiness_today(**_mixed_inputs(rhr_observed=0), today=TODAY)
+    eligible = [f for f in mixed["factors"] if f["intervention_eligible"]]
+    total_weight = sum(FACTOR_WEIGHTS[f["key"]] for f in eligible)
+    expected = round(
+        sum(f["score"] * FACTOR_WEIGHTS[f["key"]] / total_weight for f in eligible), 1
+    )
+    assert mixed["intervention_score"] == pytest.approx(expected)
+    # Ineligible factors still shape the descriptive score, so the two differ.
+    assert mixed["intervention_score"] != mixed["score"]
+
+    verified = compute_readiness_today(**_verified_full_inputs(), today=TODAY)
+    assert verified["intervention_confidence"] == verified["confidence"] == 1.0
+    assert verified["intervention_score"] == verified["score"]
+    assert verified["intervention_blocked_reason"] is None
+
+
+def test_intervention_requires_a_primary_recovery_measurement():
+    assert PRIMARY_RECOVERY_KEYS == ("sleep", "hrv", "resting_hr")
+    result = compute_readiness_today(**_mixed_inputs(rhr_observed=None), today=TODAY)
+    eligible_keys = {f["key"] for f in result["factors"] if f["intervention_eligible"]}
+    assert eligible_keys == {"tsb"}
+    assert not (eligible_keys & set(PRIMARY_RECOVERY_KEYS))
+    assert result["intervention_score"] is None
+
+
+def test_repeated_observation_across_query_dates_is_counted_once():
+    duplicated = _observations_frame(
+        "rmssd",
+        [(0, 37.0, 1), (1, 37.0, 1), *_history_rows(37.0, start_offset=2)],
+        "rmssd_observed_at",
+    )
+    single = _observations_frame(
+        "rmssd", [(1, 37.0, 1), *_history_rows(37.0, start_offset=2)], "rmssd_observed_at"
+    )
+    base = _verified_full_inputs()
+
+    with_duplicate = compute_readiness_today(**{**base, "hrv_df": duplicated}, today=TODAY)
+    without_duplicate = compute_readiness_today(**{**base, "hrv_df": single}, today=TODAY)
+
+    hrv = _factor(with_duplicate, "hrv")
+    assert hrv["as_of"] == (TODAY - timedelta(days=1)).isoformat()
+    assert hrv["age_days"] == 1
+    assert hrv["observation_status"] == OBSERVATION_OUTDATED
+    # Same observation, same baseline: the duplicate row is not a second sample.
+    assert hrv == _factor(without_duplicate, "hrv")
+
+
+def test_unverified_measurement_stays_descriptive_but_not_intervention():
+    legacy = compute_readiness_today(**_full_inputs(), today=TODAY)
+    rhr = _factor(legacy, "resting_hr")
+
+    assert rhr["observation_status"] == OBSERVATION_UNVERIFIED
+    assert rhr["intervention_eligible"] is False
+    # Frozen legacy behaviour: the value is still used and not marked stale.
+    assert rhr["score"] is not None
+    assert rhr["stale_input"] is False
+    assert any(item["key"] == "resting_hr" for item in legacy["ineligible_inputs"])
+
+
+def test_drivers_carry_provenance_fields():
+    result = compute_readiness_today(**_mixed_inputs(rhr_observed=0), today=TODAY)
+    assert result["drivers"]
+    for driver in result["drivers"]:
+        assert "as_of" in driver
+        assert "age_days" in driver
+        assert driver["observation_status"] in {
+            OBSERVATION_CONFIRMED_TODAY,
+            OBSERVATION_OUTDATED,
+            OBSERVATION_UNVERIFIED,
+        }
+        assert isinstance(driver["intervention_eligible"], bool)
+        assert driver["evidence_kind"] in {"measurement", "derived_state"}
+        assert driver["source"]
+
+
+def test_legacy_aggregates_are_frozen_and_new_keys_are_additive():
+    """Baseline captured from main 72f69b4 before M1 (no provenance columns)."""
+    result = compute_readiness_today(**_full_inputs(), today=TODAY)
+
+    assert result["score"] == 76.5
+    assert result["status"] == "strong"
+    assert result["confidence"] == 1.0
+    assert result["as_of_date"] == TODAY.isoformat()
+    assert {f["key"]: f["score"] for f in result["factors"]} == {
+        "hrv": 70.0,
+        "resting_hr": 85.0,
+        "sleep": 80.0,
+        "training_readiness": 80.0,
+        "tsb": 70.0,
+    }
+
+    # Sleep rows carry their payload date, so they stay intervention-eligible
+    # without a provenance column; RHR/HRV/training readiness do not.
+    assert result["eligible_inputs"] == ["sleep", "tsb"]
+    assert result["intervention_confidence"] == 0.4
+    assert result["intervention_score"] == pytest.approx(75.7)
+
+
+def test_empty_inputs_block_intervention_without_eligibility():
+    result = compute_readiness_today(
+        sleep_df=None,
+        hrv_df=None,
+        health_df=None,
+        training_df=None,
+        activities_df=None,
+        today=TODAY,
+    )
+    assert result["score"] is None
+    assert result["intervention_score"] is None
+    assert result["intervention_confidence"] == 0.0
+    assert result["intervention_blocked_reason"] == "no_intervention_eligible_factors"
+    assert result["eligible_inputs"] == []
