@@ -1,6 +1,6 @@
 # Slice spec and review — #555
 
-Author/integrator: Codex. Checker: OpenCode (pending availability smoke). Merge owner: human. Class A — Full due to persistence/provider and public-contract changes. Review mode manual, budget 0/2, acceptance head pending.
+Author/integrator: Codex. Checker: native Codex review of 6f24b36, requested by human. Merge owner: human. Class A — Full due to persistence/provider and public-contract changes. Review mode manual, budget 1/2, acceptance head pending.
 
 ## Scope and contracts
 
@@ -39,4 +39,16 @@ ASR-REL-2, ASR-REL-3, ASR-MOD-2, ASR-MOD-3 and ADR-0001. Spec owner owns scales 
 
 ## Evidence bundle / review
 
-Implementation complete pending browser/checker. Broad: 2340 passed, 6 skipped, 26 deselected; additional route/date tests subsequently passed. Web lint/build passed; contract checks 67 passed; final focused 50 passed. Desktop/mobile screenshots visually inspected. External reviewer permission pending automatic export gate. Reviewer findings must be reproduced and dispositioned fixed-in SHA / disputed with evidence / follow-up. Two full-diff maximum; subsequent checks only changed delta. Final verdict BLOCK until validation. Human owns merge and later worktree cleanup.
+Initial implementation verified in browser and subsequently independently reviewed. Broad: 2340 passed, 6 skipped, 26 deselected; additional route/date tests subsequently passed. Web lint/build passed; contract checks 67 passed; final focused 50 passed. Desktop/mobile screenshots visually inspected. Independent native review received; three reproduced findings fixed locally, publication and scoped delta pending. Reviewer findings must be reproduced and dispositioned fixed-in SHA / disputed with evidence / follow-up. Two full-diff maximum; subsequent checks only changed delta. Final verdict BLOCK until validation. Human owns merge and later worktree cleanup.
+
+## Review findings — first full round
+
+| Finding | Evidence | Disposition |
+| --- | --- | --- |
+| P2 r3972974019 date mismatch | UTC-host and historical Today tests initially fail | fixed, commit recorded in PR reply |
+| P1 r3972974023 formatter loss | native message and synthesis both omit labels before fix | fixed, dedicated bounded formatter |
+| P2 r3972974028 partial failure loss | execute_tool drops observation after measured DB failure | fixed, successful partial response with explicit unavailable status |
+
+Seven review-regression tests pass; original issue route suite passes with the enclosing-date fixture. Further review is scoped delta only. OpenCode was not run; independent review is provided by the human-triggered native review above. Verdict remains pending final-head CI and review gate, no merge authority exercised.
+
+Final local review-fix validation: 2350 passed, 6 skipped, 26 deselected. Ruff and contract freshness passed. Three initial broad failures were obsolete one-argument briefing test doubles; updating them to accept the explicit as_of contract restored the expected unchanged briefing behavior (17 focused passed).

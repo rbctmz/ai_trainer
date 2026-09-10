@@ -175,7 +175,7 @@ def _patch_report(monkeypatch, report: dict) -> None:
 def _patch_snapshot(monkeypatch, snapshot: dict) -> None:
     from api import today_snapshot as today_module
 
-    monkeypatch.setattr(today_module, "build_readiness_snapshot", lambda _db: snapshot)
+    monkeypatch.setattr(today_module, "build_readiness_snapshot", lambda _db, **_kwargs: snapshot)
 
 
 def test_today_empty_db_is_no_plan(tmp_path) -> None:

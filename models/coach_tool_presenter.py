@@ -1,6 +1,7 @@
 """Headless Markdown presentation for AI coach tool results."""
 from __future__ import annotations
 
+import json
 import math
 from typing import Any, Dict, Optional
 
@@ -34,6 +35,22 @@ def _subjective_evidence_line(label: str, evidence: Any) -> str:
 
 def format_tool_result(tool_name: str, data: Any) -> str:
     """Форматирует результат инструмента для красивого отображения."""
+    if tool_name == "get_readiness_today":
+        # This bounded tool contains at most eight self-reports and the measured
+        # factors. Preserve evidence through both native and synthesis prompts;
+        # the generic presenter truncates nested structures and drops messages.
+        evidence = {
+            key: data[key]
+            for key in (
+                "computed_for", "measured_status", "message", "readiness",
+                "subjective_wellness",
+            )
+            if key in data
+        }
+        return "## Готовность и дневные самооценки\n\n" + json.dumps(
+            evidence, ensure_ascii=False, indent=2, default=str,
+        )
+
     if tool_name == "get_performance_metrics":
         tsb_emoji = "🟢" if data["tsb"] > 5 else "🟡" if data["tsb"] > -10 else "🟠" if data["tsb"] > -25 else "🔴"
 

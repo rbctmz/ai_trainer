@@ -272,9 +272,10 @@ def build_readiness_snapshot(
     """Attach independent self-reports without changing measured readiness."""
     from services.subjective_wellness import build_subjective_wellness
 
+    anchor = as_of or datetime.now().date()
     result = _build_measured_readiness_snapshot(
-        db, stale_after_days=stale_after_days, as_of=as_of,
+        db, stale_after_days=stale_after_days, as_of=anchor,
         observed_at_utc=observed_at_utc,
     )
-    result["subjective_wellness"] = build_subjective_wellness(db, as_of=as_of)
+    result["subjective_wellness"] = build_subjective_wellness(db, as_of=anchor)
     return result

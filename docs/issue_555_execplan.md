@@ -1,6 +1,6 @@
 # Import daily Intervals self-reports
 
-This living ExecPlan follows .agent/PLANS.md. Issue #555 is Class A — Full. The owner implements specification, then domain/API, then explicitly hands off to the UI role; OpenCode is a read-only checker. The human owns merge.
+This living ExecPlan follows .agent/PLANS.md. Issue #555 is Class A — Full. The owner implements specification, then domain/API, then explicitly hands off to the UI role; an independent reviewer is read-only. The human owns merge.
 
 ## Purpose / Big Picture
 
@@ -13,7 +13,8 @@ An athlete who already records feelings in Intervals sees those observations in 
 - [x] (2026-09-09) Mapping/storage RED (missing module) → GREEN; clear, invalid, retry, restart/reset and transaction rollback verified.
 - [x] (2026-09-09) Eight new tests pass, including real TestClient API and AITools agreement from temporary SQLite.
 - [x] (2026-09-09) UI handoff, component, contract extraction, lint/build and desktop/mobile browser checks complete. Screenshots visually inspected; no horizontal overflow.
-- [ ] Broad tests, OpenCode review, disposition, commit and draft PR.
+- [x] (2026-09-10) Published draft PR #556. Initial CI passed except the expected review gate. Native Codex review on 6f24b36 supplied three actionable findings.
+- [ ] (2026-09-10) Review fixes reproduced and implemented; publish dispositions and request only scoped delta verification.
 
 ## Surprises & Discoveries
 
@@ -57,8 +58,20 @@ Sources checked 2026-09-09: https://intervals.icu/api/v1/docs (Wellness properti
 
 ## Interfaces and Dependencies
 
-No new dependency. Store ownership remains Intervals regardless of PRIMARY_WELLNESS_SOURCE, because these are separate observations. Mapping preserves provider field keys and emits Russian labels from shared Python. Settings.ATHLETE_TIMEZONE determines the read date unless explicitly supplied. ASR-REL-2 (missing evidence), ASR-REL-3 (atomic cursor), ASR-MOD-2 (web projection), ASR-MOD-3 (additive schema), ADR-0001 (web primary) apply. The slice spec is docs/issue_555_slice_spec.md.
+No new dependency. Store ownership remains Intervals regardless of PRIMARY_WELLNESS_SOURCE, because these are separate observations. Mapping preserves provider field keys and emits Russian labels from shared Python. The standalone observation reader uses Settings.ATHLETE_TIMEZONE when no date is supplied. Enclosing readiness/Today/tool snapshots resolve their existing date once and explicitly pass it; no global calendar policy changes in this slice. ASR-REL-2 (missing evidence), ASR-REL-3 (atomic cursor), ASR-MOD-2 (web projection), ASR-MOD-3 (additive schema), ADR-0001 (web primary) apply. The slice spec is docs/issue_555_slice_spec.md.
 
 Revision 2026-09-09: updated completed checks and corrected the Coach tool handoff after tracing its independent measured-readiness path.
 
 Revision 2026-09-09: corrected ASR IDs against the catalog, recorded UI evidence. External reviewer export awaits explicit permission after automatic approval rejection.
+
+## Review round 1 — 2026-09-10
+
+Observed: native review of 6f24b36 identified mismatched default dates (P2), nested wellness disappearing in the generic formatter (P1), and failed measured reads discarding usable self-reports in execute_tool (P2). Verified by five initially failing cases in test_issue_555_review_regressions.py, including captured native tool messages and synthesis prompts, not merely raw getters. All are accepted findings.
+
+Resolve one date per enclosing snapshot, propagate the Today report/request date, and pass the tool computed_for date to the observation reader. Add a dedicated bounded formatter for get_readiness_today so labels, values, states and answered_current_keys reach the actual model input. Measured-read failure returns a successful partial tool result with measured_status=unavailable and the error message, without inventing a score. Seven regression tests now cover defaults, explicit historical date, successful/empty/failed measurements, message shortcut and the tool date.
+
+Native review is the independent check for this iteration; no additional OpenCode export is needed. One full-diff round has been used. Subsequent request is restricted to this delta. Do not merge without the human gate.
+
+Revision 2026-09-10: corrected actual LLM boundary and enclosing date contract after independent reproductions; raw API agreement alone was insufficient evidence for Coach delivery.
+
+Final local review-fix validation: 2350 passed, 6 skipped, 26 deselected; Ruff and contract freshness pass. No web changes in the review delta; previous lint/build/browser evidence still applies. Briefing test doubles now accept the explicit as_of keyword.

@@ -103,10 +103,10 @@ def build_today_decision_snapshot(
     goal_plan = restore_goal_plan_from_checkpoint(checkpoint) if checkpoint else None
     loop_result = _run_loop(db, today=today)
     report = dict(loop_result.get("readiness_conflicts") or {})
-    snapshot, readiness_error = _readiness_snapshot(db)
 
     fallback_date = (today or datetime.now().date()).isoformat()
     as_of = str(report.get("as_of") or fallback_date)[:10]
+    snapshot, readiness_error = _readiness_snapshot(db, as_of=date.fromisoformat(as_of))
     readiness = _project_readiness(snapshot)
     session = _day_session(report, goal_plan, as_of)
     proposal = _resolve_proposal(db, loop_result, checkpoint)
@@ -272,9 +272,11 @@ def _run_loop(db: Database, *, today: date | None = None) -> dict[str, Any]:
         }
 
 
-def _readiness_snapshot(db: Database) -> tuple[dict[str, Any], str | None]:
+def _readiness_snapshot(
+    db: Database, *, as_of: date,
+) -> tuple[dict[str, Any], str | None]:
     try:
-        value = build_readiness_snapshot(db)
+        value = build_readiness_snapshot(db, as_of=as_of)
     except Exception as exc:
         return {}, str(exc)
     return (dict(value), None) if isinstance(value, Mapping) else ({}, "invalid snapshot")

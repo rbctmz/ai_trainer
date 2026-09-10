@@ -111,8 +111,6 @@ def test_partial_invalid_clear_and_atomic_failure(tmp_path):
 
 
 def test_api_and_tool_agree_on_subjective_only_day(tmp_path):
-    from zoneinfo import ZoneInfo
-    from config.settings import Settings
     from fastapi.testclient import TestClient
     from api.main import app
     from api.deps import get_database
@@ -120,13 +118,13 @@ def test_api_and_tool_agree_on_subjective_only_day(tmp_path):
     from services.subjective_wellness import build_subjective_wellness
 
     db = Database(str(tmp_path / 'api.db'))
-    day = datetime.now(ZoneInfo(Settings.ATHLETE_TIMEZONE)).date()
+    day = date.today()
     client = FakeIntervalsClient(wellness=[{
         'id': day.isoformat(), 'sleepQuality': 4, 'soreness': 1, 'fatigue': 2,
         'stress': 3, 'mood': 2, 'motivation': 3, 'injury': 1, 'hydration': 2,
     }])
     sync_intervals_wellness(db, client, now=datetime.combine(day, datetime.min.time()), window_days=1)
-    expected = build_subjective_wellness(db)
+    expected = build_subjective_wellness(db, as_of=day)
     previous = dict(app.dependency_overrides)
     app.dependency_overrides[get_database] = lambda: db
     try:
