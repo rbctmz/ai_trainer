@@ -517,6 +517,95 @@ def test_drivers_carry_provenance_fields():
         assert driver["source"]
 
 
+# ---------------------------------------------------------------------------
+# Issue #557 M3 slice 3.4: the intervention channel has its own score input so
+# an observation re-ingested under another query date is not counted twice,
+# while the frozen legacy score/baseline/deviation stay untouched.
+# ---------------------------------------------------------------------------
+
+
+def _dedup_hrv_frame(*, history_days: int = 6):
+    """Selected observation today, one duplicated older observation, plain history."""
+    rows = [(0, 40.0, 0), (1, 20.0, 1), (2, 20.0, 1)]
+    rows += [(offset, 50.0, None) for offset in range(3, 3 + history_days)]
+    return _observations_frame("rmssd", rows, "rmssd_observed_at")
+
+
+def test_intervention_score_input_equals_score_without_duplicates():
+    result = compute_readiness_today(**_verified_full_inputs(), today=TODAY)
+
+    for factor in result["factors"]:
+        assert factor["intervention_score_input"] == factor["score"]
+
+
+def test_intervention_dedup_changes_only_the_intervention_result():
+    """Legacy numbers captured from main 72f69b4 for this exact fixture."""
+    result = compute_readiness_today(
+        sleep_df=None,
+        hrv_df=_dedup_hrv_frame(),
+        health_df=None,
+        training_df=None,
+        activities_df=None,
+        today=TODAY,
+        max_value_age_days=None,
+    )
+
+    hrv = _factor(result, "hrv")
+    # Frozen legacy channel: the duplicate observation still counts twice.
+    assert hrv["raw_value"] == 40.0
+    assert hrv["baseline"] == 42.5
+    assert hrv["deviation"] == -5.9
+    assert hrv["score"] == 55.0
+
+    # Intervention channel deduplicates by observation day: one 20-sample
+    # instead of two, so the deviation crosses into the next band.
+    assert hrv["intervention_score_input"] == 40.0
+    assert result["intervention_score"] == 40.0
+
+
+def test_intervention_dedup_falls_back_when_dedup_history_is_too_short():
+    result = compute_readiness_today(
+        sleep_df=None,
+        hrv_df=_dedup_hrv_frame(history_days=2),
+        health_df=None,
+        training_df=None,
+        activities_df=None,
+        today=TODAY,
+        max_value_age_days=None,
+    )
+
+    hrv = _factor(result, "hrv")
+    # Fewer than MIN_BASELINE_SAMPLES observations after dedup: no dedup
+    # baseline exists, so the intervention input stays the legacy score.
+    assert hrv["baseline"] is None
+    assert hrv["intervention_score_input"] == hrv["score"]
+
+
+def test_intervention_aggregate_uses_the_intervention_inputs():
+    result = compute_readiness_today(
+        sleep_df=None,
+        hrv_df=_dedup_hrv_frame(),
+        health_df=None,
+        training_df=None,
+        activities_df=None,
+        today=TODAY,
+        max_value_age_days=None,
+    )
+
+    eligible = [f for f in result["factors"] if f["intervention_eligible"]]
+    total_weight = sum(FACTOR_WEIGHTS[f["key"]] for f in eligible)
+    expected = round(
+        sum(
+            f["intervention_score_input"] * FACTOR_WEIGHTS[f["key"]] / total_weight
+            for f in eligible
+        ),
+        1,
+    )
+    assert result["intervention_score"] == pytest.approx(expected)
+    # The legacy descriptive score still reflects the duplicated baseline.
+    assert result["score"] != result["intervention_score"]
+
+
 def test_legacy_aggregates_are_frozen_and_new_keys_are_additive():
     """Baseline captured from main 72f69b4 before M1 (no provenance columns)."""
     result = compute_readiness_today(**_full_inputs(), today=TODAY)
