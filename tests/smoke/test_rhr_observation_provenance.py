@@ -129,6 +129,33 @@ def test_rhr_provenance_round_trips_and_survives_a_dateless_resync(tmp_path):
     assert kept.loc["2026-07-16", "resting_hr_observed_at"] == "2026-07-16"
 
 
+def test_changed_undated_rhr_clears_inherited_provenance(tmp_path, monkeypatch):
+    """Review P1 audit: the same rule applies to the RHR writer."""
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "PRIMARY_WELLNESS_SOURCE", "garmin", raising=False)
+
+    db = Database(str(tmp_path / "rhr_inherit.db"))
+    db.sync_daily_health(
+        {"2026-07-16": {"resting_hr": 52, "resting_hr_source": "garmin",
+                        "resting_hr_observed_at": "2026-07-15"}}
+    )
+
+    db.sync_daily_health({"2026-07-16": {"resting_hr": 60, "resting_hr_source": "garmin"}})
+    changed = _health_row(db)
+    assert changed["resting_hr"] == 60
+    assert pd.isna(changed["resting_hr_observed_at"])
+
+    # Unchanged value without a date keeps the known provenance.
+    db.sync_daily_health(
+        {"2026-07-16": {"resting_hr": 60, "resting_hr_source": "garmin",
+                        "resting_hr_observed_at": "2026-07-15"}}
+    )
+    db.sync_daily_health({"2026-07-16": {"resting_hr": 60, "resting_hr_source": "garmin"}})
+    kept = _health_row(db)
+    assert kept["resting_hr_observed_at"] == "2026-07-15"
+
+
 def test_legacy_daily_health_table_migrates_and_exposes_null_provenance(tmp_path):
     db_path = tmp_path / "legacy_health.db"
     conn = sqlite3.connect(db_path)

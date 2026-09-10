@@ -313,6 +313,71 @@ def test_sleep_provenance_round_trips_and_stays_null_for_legacy_rows(tmp_path):
     assert kept.loc["2026-07-17", "total_sleep_observed_at"] == "2026-07-16"
 
 
+def test_changed_undated_sleep_metrics_clear_inherited_provenance(tmp_path, monkeypatch):
+    """Review P1 audit: score and duration must not inherit a stale date."""
+    from config.settings import Settings
+
+    monkeypatch.setattr(Settings, "PRIMARY_WELLNESS_SOURCE", "garmin", raising=False)
+
+    db = Database(str(tmp_path / "sleep_inherit.db"))
+    db.sync_sleep_data(
+        {
+            "2026-07-16": {
+                "total_sleep_minutes": 400.0,
+                "total_sleep_source": "garmin",
+                "total_sleep_observed_at": "2026-07-15",
+                "sleep_score": 40.0,
+                "sleep_score_source": "garmin",
+                "sleep_score_observed_at": "2026-07-15",
+            }
+        }
+    )
+
+    # A new, undated value replaces both metrics.
+    db.sync_sleep_data(
+        {
+            "2026-07-16": {
+                "total_sleep_minutes": 450.0,
+                "total_sleep_source": "garmin",
+                "sleep_score": 70.0,
+                "sleep_score_source": "garmin",
+            }
+        }
+    )
+    changed = _sleep_row(db, "2026-07-16")
+    assert changed["total_sleep_minutes"] == 450.0
+    assert changed["sleep_score"] == 70.0
+    assert pd.isna(changed["total_sleep_observed_at"])
+    assert pd.isna(changed["sleep_score_observed_at"])
+
+    # Unchanged undated re-syncs keep the known dates.
+    db.sync_sleep_data(
+        {
+            "2026-07-16": {
+                "total_sleep_minutes": 450.0,
+                "total_sleep_source": "garmin",
+                "total_sleep_observed_at": "2026-07-15",
+                "sleep_score": 70.0,
+                "sleep_score_source": "garmin",
+                "sleep_score_observed_at": "2026-07-15",
+            }
+        }
+    )
+    db.sync_sleep_data(
+        {
+            "2026-07-16": {
+                "total_sleep_minutes": 450.0,
+                "total_sleep_source": "garmin",
+                "sleep_score": 70.0,
+                "sleep_score_source": "garmin",
+            }
+        }
+    )
+    kept = _sleep_row(db, "2026-07-16")
+    assert kept["total_sleep_observed_at"] == "2026-07-15"
+    assert kept["sleep_score_observed_at"] == "2026-07-15"
+
+
 def _sleep_row(db: Database, day: str):
     return db.get_sleep_data(days=36500).set_index("date").loc[day]
 

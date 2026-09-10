@@ -212,6 +212,42 @@ def test_intervals_wellness_rejected_hrv_keeps_existing_provenance(tmp_path, mon
     assert row["rmssd_observed_at"] == "2026-07-15"
 
 
+def test_changed_undated_hrv_clears_inherited_provenance(tmp_path):
+    """Review P1: provenance must not survive a value change (fail closed)."""
+    db = Database(str(tmp_path / "hrv_inherit.db"))
+    db.sync_hrv_data(
+        {"2026-07-16": {"rmssd": 45.0, "rmssd_source": "garmin",
+                        "rmssd_observed_at": "2026-07-16"}}
+    )
+
+    # A new, undated measurement replaces the value: the old date is no longer
+    # evidence for it.
+    db.sync_hrv_data({"2026-07-16": {"rmssd": 70.0, "rmssd_source": "garmin"}})
+    changed = db.get_hrv_data(days=36500).set_index("date").loc["2026-07-16"]
+    assert changed["rmssd"] == 70.0
+    assert pd.isna(changed["rmssd_observed_at"])
+
+    from api.readiness_snapshot import build_readiness_snapshot
+
+    snapshot = build_readiness_snapshot(
+        db,
+        as_of=date(2026, 7, 16),
+        observed_at_utc=datetime(2026, 7, 16, 6, 0, tzinfo=timezone.utc),
+    )
+    assert snapshot["freshness"]["confirmed_today"] == []
+    assert snapshot["freshness"]["unverified"] == ["hrv"]
+    assert snapshot["eligible_inputs"] == []
+
+    # An unchanged undated re-sync may keep the known date.
+    db.sync_hrv_data(
+        {"2026-07-16": {"rmssd": 70.0, "rmssd_source": "garmin",
+                        "rmssd_observed_at": "2026-07-16"}}
+    )
+    db.sync_hrv_data({"2026-07-16": {"rmssd": 70.0, "rmssd_source": "garmin"}})
+    kept = db.get_hrv_data(days=36500).set_index("date").loc["2026-07-16"]
+    assert kept["rmssd_observed_at"] == "2026-07-16"
+
+
 # ---------------------------------------------------------- training readiness
 
 
@@ -267,6 +303,55 @@ def test_training_readiness_without_a_payload_date_is_unverified(monkeypatch):
     # The processor strips empty values, so "no date" may be absent or None;
     # both mean unknown provenance for the persistence layer.
     assert entry.get("training_readiness_observed_at") is None
+
+
+def test_changed_undated_training_readiness_clears_inherited_provenance(tmp_path):
+    """Review P1: the same fail-closed rule for device readiness."""
+    db = Database(str(tmp_path / "training_inherit.db"))
+    db.sync_training_status(
+        {"2026-07-16": {"training_readiness": 78.0,
+                        "training_readiness_observed_at": "2026-07-16"}}
+    )
+
+    db.sync_training_status({"2026-07-16": {"training_readiness": 20.0}})
+    changed = db.get_training_status_history(days=36500).set_index("date").loc["2026-07-16"]
+    assert changed["training_readiness"] == 20.0
+    assert pd.isna(changed["training_readiness_observed_at"])
+
+    # Unchanged value without a date keeps the known provenance.
+    db.sync_training_status(
+        {"2026-07-16": {"training_readiness": 20.0,
+                        "training_readiness_observed_at": "2026-07-16"}}
+    )
+    db.sync_training_status({"2026-07-16": {"training_readiness": 20.0}})
+    kept = db.get_training_status_history(days=36500).set_index("date").loc["2026-07-16"]
+    assert kept["training_readiness_observed_at"] == "2026-07-16"
+
+
+def test_readiness_only_payload_is_not_dropped(monkeypatch):
+    """Review P2: a valid readiness payload without training status/VO2 must survive."""
+    from services import sync as sync_module
+
+    class _ReadinessOnlyStub:
+        def get_training_status(self):
+            return None
+
+        def get_vo2_max(self):
+            return None
+
+        def get_training_readiness(self):
+            return {"readinessScore": 78, "calendarDate": "2026-07-16"}
+
+    monkeypatch.setattr(
+        sync_module, "_call_client_method",
+        lambda client, method, *args, **kwargs: (getattr(client, method)(), None),
+    )
+    data, warnings = sync_module._collect_training_status_data(_ReadinessOnlyStub())
+
+    assert list(data) == ["2026-07-16"]
+    assert data["2026-07-16"]["training_readiness"] == 78
+    assert data["2026-07-16"]["training_readiness_observed_at"] == "2026-07-16"
+    assert warnings == []
 
 
 def test_training_status_provenance_round_trips_and_survives_a_dateless_resync(tmp_path):
