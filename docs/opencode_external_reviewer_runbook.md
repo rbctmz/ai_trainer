@@ -138,6 +138,15 @@ The final report must state:
 
 This is historical evidence, not a permanent availability promise.
 
+**Model-name lifecycle note (2026-09-10).** DeepSeek released V4.1 Flash and made
+`deepseek-flash` the live model name; `deepseek-v4-flash` (and the vision
+experimental name) are retired and routed to V4.1 Flash. `deepseek-v4-pro` is
+being retired in order: from 12:00 Beijing Time on 2026-09-14 its requests are
+served by V4.1 Flash. The OpenCode catalog was not re-checked here (the CLI
+could not run in this sandbox), so before the next review session run
+`opencode models` and re-verify the model actually used. A direct DeepSeek API
+probe on 2026-09-10 confirmed `deepseek-v4-pro` still serves itself.
+
 - `deepseek/deepseek-v4-pro`: minimal smoke returned `MODEL_OK`; completed the
   read-only post-merge audit of PR #532.
 - `deepseek/deepseek-v4-flash`, `neuraldeep/gpt-oss-120b`,

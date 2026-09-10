@@ -1,7 +1,11 @@
 """Smoke coverage for DeepSeek provider wiring."""
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
+import textwrap
+from pathlib import Path
 
 import pytest
 
@@ -10,6 +14,53 @@ from ui.pages import ai_coaching
 
 
 pytestmark = pytest.mark.smoke
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_deepseek_default_model_is_representable_in_every_picker():
+    """Issue #559: the DeepSeek picker resolves the configured model with
+    ``list.index()`` and silently falls back to index 0, so a default that the
+    lists do not contain would swap the model behind the user's back.
+
+    Runs in a clean interpreter on purpose: a developer checkout may set
+    ``DEEPSEEK_MODEL`` to a legacy alias in ``.env``, while the invariant under
+    test is about the default value.
+    """
+    script = textwrap.dedent(
+        """
+        import dotenv
+        dotenv.load_dotenv = lambda *args, **kwargs: False  # ignore the local .env
+        from config.settings import Settings
+        from models.ai_providers import DeepSeekProvider, DeepSeekResponsesProvider
+        from ui.components.ai_coach_provider import DEEPSEEK_MODEL_OPTIONS
+
+        default = Settings.DEEPSEEK_MODEL
+        assert default == "deepseek-flash", default
+
+        option_lists = {
+            "DeepSeekProvider": DeepSeekProvider(api_key=None).get_available_models(),
+            "DeepSeekResponsesProvider": DeepSeekResponsesProvider(api_key=None).get_available_models(),
+            "DeepSeek picker": list(DEEPSEEK_MODEL_OPTIONS),
+        }
+        for name, options in option_lists.items():
+            assert options[0] == default, (name, options)
+            assert "deepseek-v4-flash" not in options, (name, options)
+        print("OK")
+        """
+    )
+    env = {key: value for key, value in os.environ.items() if key != "DEEPSEEK_MODEL"}
+
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=ROOT,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == "OK"
 
 
 def test_deepseek_is_listed_in_provider_options():

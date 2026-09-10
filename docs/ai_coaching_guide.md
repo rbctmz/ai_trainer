@@ -35,7 +35,7 @@ ANTHROPIC_API_KEY=your_anthropic_key
 ANTHROPIC_MODEL=claude-3-haiku-20240307
 
 DEEPSEEK_API_KEY=your_deepseek_key
-DEEPSEEK_MODEL=deepseek-v4-flash
+DEEPSEEK_MODEL=deepseek-flash
 DEEPSEEK_BASE_URL=https://api.deepseek.com
 
 GOOGLE_API_KEY=your_google_key
