@@ -37,6 +37,21 @@ def missing_answer_notice(provider_label: str, max_tokens: object, finish_reason
     return f"{provider_label}: ответ не получен — {cause}."
 
 
+def probe_success_message(response_text: str) -> str:
+    """Success text for `test_connection` that stays honest about an empty probe.
+
+    Codex review on PR #561: the probe budget is five tokens, so with thinking
+    enabled the model answers with reasoning only and no visible text. The
+    connection still works, and calling that a plain success is misleading.
+    """
+    if response_text.strip():
+        return "Подключение успешно"
+    return (
+        "Подключение успешно, но проба вернула пустой текст: лимит пробы (5 токенов) "
+        "израсходован на рассуждения модели"
+    )
+
+
 class AIProvider(ABC):
     """Базовый класс для всех AI провайдеров"""
     
@@ -612,17 +627,28 @@ class DeepSeekProvider(OpenAICompatibleToolsMixin, AIProvider):
             }
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=[{"role": "user", "content": "Test"}],
-                max_tokens=5,
-            )
+            request: Dict[str, Any] = {
+                "model": self.model,
+                "messages": [{"role": "user", "content": "Test"}],
+                "max_tokens": 5,
+            }
+            # Codex review on PR #561: the probe must use the same thinking
+            # policy as generation, otherwise it measures hidden reasoning and
+            # rejects a setup that works.
+            extra_body = self.chat_completion_extra_body()
+            if extra_body:
+                request["extra_body"] = extra_body
+
+            response = self.client.chat.completions.create(**request)
+            # `content` is None on a reasoning-only answer; `len(None)` crashed
+            # the probe and reported a working connection as broken (#558).
+            response_text = str(getattr(response.choices[0].message, "content", None) or "")
             return {
                 'success': True,
-                'message': 'Подключение успешно',
+                'message': probe_success_message(response_text),
                 'model': self.model,
                 'base_url': self.base_url,
-                'response_length': len(response.choices[0].message.content),
+                'response_length': len(response_text),
             }
         except Exception as e:
             return {
@@ -900,18 +926,24 @@ class DeepSeekResponsesProvider(DeepSeekResponsesToolsMixin, AIProvider):
             }
 
         try:
-            response = self.client.responses.create(
-                model=self.model,
-                input=[{"role": "user", "content": "Test"}],
-                max_output_tokens=5,
-            )
+            request: Dict[str, Any] = {
+                "model": self.model,
+                "input": [{"role": "user", "content": "Test"}],
+                "max_output_tokens": 5,
+            }
+            # Codex review on PR #561: same thinking policy as generation.
+            reasoning_control = self.responses_reasoning_control()
+            if reasoning_control:
+                request["reasoning"] = reasoning_control
+
+            response = self.client.responses.create(**request)
             # Codex P2 (#496): текст живёт в output-элементах, output_text может
             # быть None — меряем нормализованный текст, а не сырое поле.
             parsed = responses_output_to_result(getattr(response, "output", None))
             response_text = parsed["text"] or str(getattr(response, "output_text", None) or "")
             return {
                 'success': True,
-                'message': 'Подключение успешно',
+                'message': probe_success_message(response_text),
                 'model': self.model,
                 'base_url': self.base_url,
                 'response_length': len(response_text),

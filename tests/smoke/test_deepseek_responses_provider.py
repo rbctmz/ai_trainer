@@ -373,3 +373,27 @@ def test_connection_measures_text_from_output_items():
     probe = provider.test_connection()
     assert probe["success"] is True
     assert probe["response_length"] == 5
+
+
+def test_connection_probe_uses_the_reasoning_policy():
+    """Codex review on PR #561: the probe must send the same control as
+    generation, otherwise its five-token budget goes to hidden reasoning."""
+    provider, client = _stub_responses_provider(output=[_message_item("OK")])
+
+    probe = provider.test_connection()
+
+    assert probe["success"] is True
+    assert probe["response_length"] == 2
+    assert client.last_kwargs["reasoning"] == {"effort": "none"}
+
+
+def test_connection_probe_reports_an_empty_answer_honestly():
+    """An empty probe answer proves the connection but is not a plain success."""
+    provider, _ = _stub_responses_provider(output=[], status="incomplete")
+
+    probe = provider.test_connection()
+
+    assert probe["success"] is True
+    assert probe["response_length"] == 0
+    assert "пустой текст" in probe["message"]
+

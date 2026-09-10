@@ -219,3 +219,30 @@ def test_deepseek_chat_reports_empty_tool_turn_without_tool_calls():
     assert result["text"].strip()
     assert "1800" in result["text"]
 
+
+# ---------------------------------------------------------------------------
+# Connection probe policy (Codex review on PR #561)
+# ---------------------------------------------------------------------------
+
+
+def test_deepseek_connection_probe_uses_the_thinking_policy():
+    provider, recorded = _stub_chat_provider(content="OK")
+
+    probe = provider.test_connection()
+
+    assert probe["success"] is True
+    assert probe["response_length"] == 2
+    assert recorded[0]["extra_body"] == {"thinking": {"type": "disabled"}}
+
+
+def test_deepseek_connection_probe_survives_a_reasoning_only_answer():
+    """A reasoning-only probe answer has `content=None`; `len(None)` used to
+    report a working connection as broken."""
+    provider, _ = _stub_chat_provider(content=None, finish_reason="length")
+
+    probe = provider.test_connection()
+
+    assert probe["success"] is True
+    assert probe["response_length"] == 0
+    assert "пустой текст" in probe["message"]
+
