@@ -4,7 +4,7 @@
 
 Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A — Full. Базовая точка: `main` = `72f69b4` (в main уже влиты #552 — revisioned evidence head и lifecycle суперсессии, и #555/#556 — датированный subjective wellness).
 
-Ревизия документа: v3.1 (после delta-review M1 и docs-amend, см. `Change log`). Реализован и принят M1; M2–M6 не начаты.
+Ревизия документа: v3.3 (после приёмки M1 и M2; идёт M3, первый срез — provenance сна, см. `Change log`).
 
 ## Purpose / Big Picture
 
@@ -20,7 +20,7 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 - [x] M1. `models/readiness.py`: per-factor `age_days`/`observation_status`/`intervention_eligible`/`evidence_kind`, аддитивные агрегаты `intervention_score`/`intervention_confidence`; legacy `score`/`confidence`/`stale` заморожены (RED→GREEN в `tests/smoke/test_readiness_model.py`). Выполнено 2026-09-10: RED `6238ba2`, GREEN; после ревью исправлены future-observation и разделение legacy/provenance-каналов (RED `99d4b82`), итог — `21 passed`, дифференциальный паритет с `origin/main` на 7 фикстурах; детали и цифры — `Artifacts and Notes`.
 - [x] (2026-09-10) Ревизия v3.1: исправления по ревью M1 (future observation → `invalid`; legacy-выборка снова по дате хранения, provenance отдельным каналом; дедупликация baseline отложена на M3+); см. `Change log`.
 - [x] M2. `services/readiness_snapshot.py`: аддитивный контракт `freshness` (пять корзин, включая `invalid`)/`intervention_score`/`intervention_confidence` без изменения legacy-полей (RED→GREEN в `tests/smoke/test_readiness_snapshot_contract.py`). Выполнено 2026-09-10: RED — 4 падения `KeyError: 'freshness'`; GREEN — `49 passed` в контуре снапшота и `test_recovery_response`; `READINESS_SNAPSHOT_RULE_VERSION` → `readiness_snapshot_v3` (литерал в `test_recovery_response.py` заменён на константу).
-- [ ] M3. Provenance измерений: observation date для RHR, HRV и `training_readiness` от payload до модели, явная семантика источника (`utc` vs `athlete_local`), конверсия в `ATHLETE_TIMEZONE` через нейтральный `utils/athlete_time.py`, аддитивные nullable-колонки (RED→GREEN в Garmin/sync-тестах). Дедупликация повторов observation — **только** для интервенционного расчёта через `intervention_score_input`; legacy `score`/`baseline`/`deviation` остаются побайтово совместимыми (см. Decision Log).
+- [~] M3. Provenance измерений (идёт). Срез 3.1 — **provenance сна** (`sleep_observed_at` от payload до модели, RED→GREEN, legacy parity повторён) выполнен 2026-09-10. Осталось: 3.2 RHR (`_normalize_rhr_payload` → `resting_hr_observed_at`), 3.3 HRV и `training_readiness` (sync + athlete-local ключ + `*_observed_at`), 3.4 `utils/athlete_time.py`/`observation_local_date` и `intervention_score_input` с observation-дедупликацией; legacy `score`/`baseline`/`deviation` остаются побайтово совместимыми (см. Decision Log).
 - [ ] M4. `models/readiness_conflicts.py` + `api/recovery_replan_loop.py` + `data/database.py` + `api/routers/decisions.py`: fail-closed gate и version-qualified ownership (AC6) поверх lifecycle #552, с передачей версий из API в атомарные DB-методы.
 - [ ] M5. `/today`: проекция и UI с датами факторов; `ts_contract.json` перегенерирован.
 - [ ] M6. Верификация (AC10), обновление `docs/architecture/asr_catalog.md`, `Outcomes & Retrospective`.
@@ -108,6 +108,10 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
   Название поля фиксируется заранее: per-factor `intervention_score_input` (аддитивное, внутреннее для расчёта; в M1 равно `factor["score"]`, в M3+ может считаться по дедуплицированному baseline по observation-датам), и агрегатор `intervention_score` использует **только** `intervention_score_input`, а не `score`.
   Rationale: до появления заполненных provenance-колонок дедупликацию нельзя реализовать достоверно; заранее названное поле не даёт M3 тронуть замороженные legacy-значения и делает переход проверяемым (в M3 `intervention_score_input == score` на фикстурах без дублей).
   Date/Author: 2026-09-10 / agent (v3.1 по ревью M1).
+- Decision (M3, срез 3.1): provenance сна — отдельная nullable-колонка `sleep_data.sleep_observed_at`, заполняемая только датой из payload (`calendarDate`, иначе дата окончания сна из `sleepEndTimestampLocal`); при отсутствии/невалидности даты пишется `NULL`, и фактор сна читает именно эту колонку, а не дату строки.
+  Rationale: `process_sleep_data` вычисляет `calendar_date`, но сохраняет `sleep_date` только при наличии пары start/end timestamps, после чего sync ключует строку датой запроса — то есть дата строки не доказывает дату измерения. Параметр `stored_date_is_observation` из M1 удалён: он был escape hatch'ом именно для этого случая и после появления колонки стал бы источником ложной свежести.
+  Побочные инварианты: ключ строки (`sleep_date or date_str`) не меняется — правда о наблюдении живёт в отдельной колонке; повторный sync без payload-даты не стирает уже известную provenance (UPDATE пропускает пустое значение); legacy-строки остаются `NULL` и деградируют в `unverified`.
+  Date/Author: 2026-09-10 / agent (M3 slice 3.1).
 - Decision: `training_readiness` перестаёт быть «сегодняшним по дате строки»: фактор `intervention_eligible` только при подтверждённой observation date, равной anchor. Ключ строки в `services/sync.py` меняется с `datetime.now().strftime("%Y-%m-%d")` на athlete-local дату, полученную из payload; если observation date не подтверждена, строка сохраняется, но фактор — `unverified`.
   Rationale: иначе старое device readiness вместе с RHR и TSB даёт 3/5 = 0.6 и открывает gate (сценарий из ревью).
   Date/Author: 2026-09-10 / agent (ревизия v2 по ревью).
@@ -272,7 +276,17 @@ RED: `tests/smoke/test_readiness_snapshot_contract.py` — четыре новы
 
 `READINESS_SNAPSHOT_RULE_VERSION` повышен `readiness_snapshot_v2` → `readiness_snapshot_v3` (метаданные, поведенческих читателей нет); единственная литеральная проверка в `tests/smoke/test_recovery_response.py` переведена на импорт константы, чтобы будущие бампы не требовали правки теста.
 
-Остальные артефакты (M3–M6) появятся по мере реализации: независимое чтение `/api/today`, diff'ы аддитивной миграции, выдержки из `ts_contract.json`.
+### M3, срез 3.1 — provenance сна (2026-09-10)
+
+RED: `tests/smoke/test_sleep_metric_provenance.py` (пять новых тестов: `calendarDate` без timestamps, дата из timestamps, payload вообще без даты, невалидная `calendarDate`, round-trip через БД с legacy-NULL) плюс обновлённые ожидания модели и снапшота — 8 падений на трёх слоях (процессор → БД → модель). GREEN: `test_sleep_metric_provenance.py` + `test_readiness_model.py` + `test_readiness_snapshot_contract.py` — `48 passed`; потребители readiness/recovery/coach/session-quality/dashboard — `267 passed`.
+
+Наблюдаемое поведение: payload с `calendarDate` и без пары timestamps даёт `sleep_observed_at == "2026-07-16"` при `sleep_date is None` (то есть строка уедет под дату запроса, а провенанс сохранит правду); payload без даты и с невалидной `calendarDate` — `NULL`; полный payload с timestamps — дата пробуждения. `db.sync_sleep_data` пишет и обновляет колонку, а повторный sync без даты её не стирает.
+
+Следствие для контракта (ожидаемое, зафиксировано тестами): фикстура `_seed_full_readiness` без provenance теперь даёт `freshness.state == "data_gap"`, `confirmed_today == []`, `intervention_confidence == 0.0` и `blocked_reason == "no_intervention_eligible_factors"` — при неизменных legacy `score`/`confidence == 0.8`/`stale == False`/`is_provisional == False`. Позитивный путь проверен тестом `test_snapshot_confirms_sleep_only_with_payload_observation_date` (`sleep_observed_at` = сегодня → `confirmed_today == ["sleep"]`, `intervention_score == 82.0`, `state == "provisional"`), а дата «вчера» на строке «сегодня» — как `outdated`.
+
+Дифференциальный пробник `legacy_parity_probe.py` повторён против `origin/main` `9a46087`: **legacy-вывод побайтово идентичен** на тех же 7 фикстурах. `ruff check` по изменённым файлам чист.
+
+Остальные артефакты (M3.2–M6) появятся по мере реализации: независимое чтение `/api/today`, diff'ы аддитивной миграции, выдержки из `ts_contract.json`.
 
 ## Interfaces and Dependencies
 
@@ -441,3 +455,7 @@ RED: `tests/smoke/test_readiness_snapshot_contract.py` — четыре новы
   P2-2 (Interfaces): сигнатура `_split_frame` заменена на `FactorWindow` с двумя каналами и пометкой, что legacy-выборка идёт по дате хранения, а дубли строк не схлопываются; добавлены `OBSERVATION_INVALID`, `observation_as_of` и `intervention_score_input`.
   P2-3 (контракт M2): в `freshness` добавлена отдельная корзина `invalid: [str]`, правило `state` явно относит `invalid` к `provisional`, в M5 добавлена метка «некорректная дата измерения», в Acceptance — сценарий S7.
   Механически: заголовок ревизии обновлён до v3.1/v3.2, описание M1 и покрытия тестов больше не заявляют выполненную дедупликацию.
+- v3.3 (2026-09-10): приёмка M1/M2 и первый срез M3.
+  M2 принят ревьюером без блокирующих замечаний (независимо: `49 passed`, матрица `fresh`/`provisional`/`data_gap`, `invalid` отдельной корзиной, legacy-поля не переопределены).
+  M3, срез 3.1 (provenance сна): добавлена nullable-колонка `sleep_data.sleep_observed_at`, процессор пишет дату только из payload, sync и схема обновлены, модель читает колонку вместо удалённого escape hatch'а `stored_date_is_observation`; RED по трём слоям → GREEN `48 passed`, потребители `267 passed`, legacy parity повторён (идентично), ruff чист.
+  Шапка документа приведена в соответствие с Progress (было v3.1 и «M2–M6 не начаты») — замечание P3 предыдущего ревью закрыто.
