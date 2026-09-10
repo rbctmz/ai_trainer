@@ -4,7 +4,7 @@
 
 Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A — Full. Базовая точка: `main` = `72f69b4` (в main уже влиты #552 — revisioned evidence head и lifecycle суперсессии, и #555/#556 — датированный subjective wellness).
 
-Ревизия документа: v3.5 (после приёмки M1 и M2; M3, срез 3.1 переработан по двум раундам ревью, см. `Change log`).
+Ревизия документа: v3.6 (M1, M2 и срез 3.1 приняты; идёт срез 3.2 — provenance RHR, см. `Change log`).
 
 ## Purpose / Big Picture
 
@@ -20,7 +20,7 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 - [x] M1. `models/readiness.py`: per-factor `age_days`/`observation_status`/`intervention_eligible`/`evidence_kind`, аддитивные агрегаты `intervention_score`/`intervention_confidence`; legacy `score`/`confidence`/`stale` заморожены (RED→GREEN в `tests/smoke/test_readiness_model.py`). Выполнено 2026-09-10: RED `6238ba2`, GREEN; после ревью исправлены future-observation и разделение legacy/provenance-каналов (RED `99d4b82`), итог — `21 passed`, дифференциальный паритет с `origin/main` на 7 фикстурах; детали и цифры — `Artifacts and Notes`.
 - [x] (2026-09-10) Ревизия v3.1: исправления по ревью M1 (future observation → `invalid`; legacy-выборка снова по дате хранения, provenance отдельным каналом; дедупликация baseline отложена на M3+); см. `Change log`.
 - [x] M2. `services/readiness_snapshot.py`: аддитивный контракт `freshness` (пять корзин, включая `invalid`)/`intervention_score`/`intervention_confidence` без изменения legacy-полей (RED→GREEN в `tests/smoke/test_readiness_snapshot_contract.py`). Выполнено 2026-09-10: RED — 4 падения `KeyError: 'freshness'`; GREEN — `49 passed` в контуре снапшота и `test_recovery_response`; `READINESS_SNAPSHOT_RULE_VERSION` → `readiness_snapshot_v3` (литерал в `test_recovery_response.py` заменён на константу).
-- [~] M3. Provenance измерений (идёт). Срез 3.1 — **provenance сна** выполнен 2026-09-10 и переработан после ревью: метрико-скоупные колонки `sleep_score_observed_at` / `total_sleep_observed_at`, запись только вместе с принятой метрикой (P1), назначение даты **после derivation** derived score (P2), путь Intervals.icu (`id` → observation date) и collision-тесты; legacy parity повторён трижды (идентично). Осталось: 3.2 RHR (`_normalize_rhr_payload` → `resting_hr_observed_at`) — отдельным срезом, 3.3 HRV и `training_readiness` (sync + athlete-local ключ + `*_observed_at`, проверять оба провайдера), 3.4 `utils/athlete_time.py`/`observation_local_date`, 3.5 `intervention_score_input` с observation-дедупликацией; legacy `score`/`baseline`/`deviation` остаются побайтово совместимыми (см. Decision Log).
+- [~] M3. Provenance измерений (идёт). Срез 3.1 — **provenance сна** выполнен 2026-09-10 и переработан после ревью: метрико-скоупные колонки `sleep_score_observed_at` / `total_sleep_observed_at`, запись только вместе с принятой метрикой (P1), назначение даты **после derivation** derived score (P2), путь Intervals.icu (`id` → observation date) и collision-тесты; legacy parity повторён трижды (идентично). Срез 3.2 (RHR) выполнен 2026-09-10: `_normalize_rhr_payload` → `observedAt` (GMT/UTC → таймзона атлета через нейтральные `utils/athlete_time.py` + `utils/observation_provenance.py`), колонка `daily_health.resting_hr_observed_at`, атомарная запись в обоих writer'ах (Garmin `sync_daily_health` и Intervals `sync_wellness_batch`), collision-тесты, legacy parity. Осталось: 3.3 HRV и `training_readiness` (sync + athlete-local ключ + `*_observed_at`, проверять обоих провайдеров), 3.4 `intervention_score_input` с observation-дедупликацией; legacy `score`/`baseline`/`deviation` остаются побайтово совместимыми (см. Decision Log).
 - [ ] M4. `models/readiness_conflicts.py` + `api/recovery_replan_loop.py` + `data/database.py` + `api/routers/decisions.py`: fail-closed gate и version-qualified ownership (AC6) поверх lifecycle #552, с передачей версий из API в атомарные DB-методы.
 - [ ] M5. `/today`: проекция и UI с датами факторов; `ts_contract.json` перегенерирован.
 - [ ] M6. Верификация (AC10), обновление `docs/architecture/asr_catalog.md`, `Outcomes & Retrospective`.
@@ -113,6 +113,12 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
   Rationale: `process_sleep_data` вычисляет `calendar_date`, но сохраняет `sleep_date` только при наличии пары start/end timestamps, после чего sync ключует строку датой запроса — то есть дата строки не доказывает дату измерения. Параметр `stored_date_is_observation` из M1 удалён: он был escape hatch'ом именно для этого случая и после появления колонки стал бы источником ложной свежести.
   Побочные инварианты: ключ строки (`sleep_date or date_str`) не меняется — правда о наблюдении живёт в отдельной колонке; повторный sync без payload-даты не стирает уже известную provenance (UPDATE пропускает пустое значение); legacy-строки остаются `NULL` и деградируют в `unverified`.
   Date/Author: 2026-09-10 / agent (M3 slice 3.1).
+- Decision (M3, срез 3.2): дата измерения RHR берётся из payload (`startTimeGMT`, `startTimeLocal`, `timestamp`, `calendarDate`, `date` — в этом порядке), GMT/UTC-значения конвертируются в `Settings.ATHLETE_TIMEZONE`, локальные/календарные читаются как есть; невалидное значение → `NULL`/`unverified`. Хранение — аддитивная nullable-колонка `daily_health.resting_hr_observed_at`, запись **внутри ветки принятия метрики** в `sync_daily_health` (provider-priority) и в `sync_wellness_batch` (`should_replace`), где датой служит provider-local `id` записи wellness.
+  Rationale: `daily_health.date` — дата запроса, а не дата измерения; оба источника (Garmin payload и Intervals.icu wellness) должны давать проверяемую дату, при этом отклонённая метрика не имеет права «одолжить» свою дату принятой (P1 среза 3.1, повторённый здесь как collision-тест).
+  Date/Author: 2026-09-10 / agent (M3 slice 3.2).
+- Decision (M3, срез 3.2, уточнение плана): нейтральные helper'ы живут в `utils/`, а не в `services/`: `utils/athlete_time.py::athlete_local_date` (канонический, с delegate-реэкспортом в `services/intervals_plan_delivery.py`) и `utils/observation_provenance.py::observation_local_date(value, *, source)`.
+  Rationale: ingest-слой (`data/garmin_client.py`, `data/data_processor_phase1.py`) обязан пользоваться тем же разбором дат, но не должен импортировать `services/` (это была бы связка ingest → delivery, против которой возражало ревью P2); `utils/` — нейтральный слой, уже используемый `data/`.
+  Date/Author: 2026-09-10 / agent (M3 slice 3.2).
 - Decision (M3, срез 3.1, P2): дата измерения сна назначается метрике **после** блока derivation, то есть derived `sleep_score` тоже получает payload-дату.
   Rationale: назначение до derivation оставляло `sleep_score_observed_at = None` у датированного Garmin-сна без нативного score, и `_sleep_factor` (он предпочитает score перед duration) объявлял свежий сон `unverified`/непригодным — при том что `total_sleep_observed_at` был заполнен. Инвариант: любая метрика, попавшая в `processed_data`, получает дату этого payload.
   Date/Author: 2026-09-10 / agent (M3 slice 3.1, P2).
@@ -293,7 +299,15 @@ RED: `tests/smoke/test_sleep_metric_provenance.py` — 11 падений, вкл
 
 Дифференциальный пробник `legacy_parity_probe.py` против `origin/main` `9a46087` — **идентично** (повторён после переработки; третий прогон за срез). `ruff check` по изменённым файлам чист.
 
-Остальные артефакты (M3.2–M6) появятся по мере реализации: независимое чтение `/api/today`, diff'ы аддитивной миграции, выдержки из `ts_contract.json`.
+### M3, срез 3.2 — provenance RHR (2026-09-10)
+
+RED: новый `tests/smoke/test_rhr_observation_provenance.py` — 13 падений до реализации. GREEN: тот же файл — `13 passed`; контур `test_intervals_plan_delivery.py` — `21 passed` (delegate сохранил прежнее поведение).
+
+Покрытие: `startTimeGMT = 2026-07-15T22:30:00.0` при `ATHLETE_TIMEZONE=Europe/Moscow` → `observedAt = 2026-07-16` (конверсия, а не срез UTC-строки); `calendarDate` не конвертируется; форма `allMetrics.metricsMap.WELLNESS_RESTING_HEART_RATE` читается; payload без даты и невалидная дата → `None`; процессор прокидывает `resting_hr_observed_at`; круг «persist → get_daily_health» и сохранение даты при повторном sync без даты; legacy-таблица `daily_health` мигрирует с новой колонкой и `NULL` в старых строках; отклонённый Intervals-RHR при primary=garmin не меняет ни значение, ни source, ни дату, а принятый Garmin-RHR меняет все три вместе; `sync_wellness_batch` пишет provider-local `id` как дату наблюдения (и не трогает её при отклонённом апдейте); датированный RHR доходит до снапшота как `confirmed_today`/`eligible`, недатированный — как `unverified`.
+
+Дифференциальный пробник `legacy_parity_probe.py` против `origin/main` `9a46087` — **идентично**. `ruff check` по изменённым файлам чист.
+
+Остальные артефакты (M3.3–M6) появятся по мере реализации: независимое чтение `/api/today`, diff'ы аддитивной миграции, выдержки из `ts_contract.json`.
 
 ## Interfaces and Dependencies
 
@@ -471,5 +485,7 @@ RED: `tests/smoke/test_sleep_metric_provenance.py` — 11 падений, вкл
   P2 (тест миграции не проверял колонку): тест теперь требует обе колонки среди мигрированных и читает `NULL` старой строки.
   P3 (устаревший комментарий модели): комментарий у `_sleep_factor` переписан на новую семантику (дата хранения — это дата запроса, датой наблюдения считается только явная provider-дата), чтобы следующий реализатор не вернул удалённый escape hatch.
   Процесс: срезы 3.2 (RHR) и 3.3 (HRV/training_readiness) выполняются раздельно и с проверкой обоих источников — Garmin и Intervals.icu.
+- v3.6 (2026-09-10): срез 3.2 — provenance RHR (принят к исполнению после приёмки 3.1).
+  Добавлены `utils/athlete_time.py` (канонический `athlete_local_date`, delivery остаётся delegate'ом) и `utils/observation_provenance.py::observation_local_date(value, *, source)`; `_normalize_rhr_payload` извлекает `observedAt`, процессор прокидывает его, `daily_health.resting_hr_observed_at` пишется атомарно с принятой метрикой в обоих writer'ах; collision-тесты и legacy-миграция покрыты; legacy parity повторён (идентично). Отклонение от плана: helper'ы переехали из `services/` в `utils/`, чтобы ingest не зависел от delivery-слоя (см. Decision Log).
 - v3.5 (2026-09-10): закрытие P2 среза 3.1.
   P2 (derived sleep score терял provenance): назначение `sleep_score_observed_at`/`total_sleep_observed_at` перенесено после ветки derivation, поэтому derived score датирован; добавлены три сквозных теста (датированный derived score → `confirmed_today`/eligible, derived score без payload-даты → `unverified`, и путь до снапшота с `confirmed_today`). Тесты среза: `20 passed` в файле provenance сна, `97 passed` в контуре sleep/model/snapshot/wellness, legacy parity повторён (идентично).
