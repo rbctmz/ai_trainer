@@ -19,6 +19,16 @@ from typing import Any, Mapping
 # вмешательство на 2 факторах из 5 ложно-положительно по построению.
 MIN_CONFIDENCE = 0.5
 
+# Issue #557 M4: identity of the intervention-eligibility rules. Recovery
+# proposals carry this stamp; a proposal whose stamp is neither the current
+# version nor an explicitly compatible one can never be claimed (AC6).
+READINESS_CONFLICT_RULE_VERSION = "readiness_conflicts_v2"
+
+# Old proposal versions that stay claimable under the current rules. Empty by
+# default (strict equality); extending it requires a Decision Log entry and
+# evidence that the proposal semantics did not change.
+RECOVERY_EVIDENCE_COMPATIBLE_RULE_VERSIONS: tuple[str, ...] = ()
+
 DEFAULT_HORIZON_DAYS = 3
 # Policy from issues #152/#315: always inspect the base horizon, then extend
 # through the nearest quality or structured high-load session inside this cap.
@@ -306,14 +316,25 @@ def detect_readiness_conflicts(
     readiness — результат models/readiness.py::compute_readiness_today.
     sessions — список из upcoming_plan_sessions (или совместимый).
     """
-    score = readiness.get("score")
+    # Вмешательство считается только по интервенционному каналу (issue #557):
+    # legacy score/confidence читают описательные подсистемы и порог гейта
+    # больше не поднимают.
+    score = readiness.get("intervention_score")
     status = str(readiness.get("status") or "unknown")
-    confidence = float(readiness.get("confidence") or 0.0)
+    confidence = float(readiness.get("intervention_confidence") or 0.0)
 
     report: dict[str, Any] = {
         "as_of": readiness.get("as_of_date") or today.isoformat(),
         "horizon_days": horizon_days,
-        "readiness": {"score": score, "status": status, "confidence": confidence},
+        "rule_version": READINESS_CONFLICT_RULE_VERSION,
+        "readiness": {
+            "score": score,
+            "status": status,
+            "confidence": confidence,
+            "intervention_score": readiness.get("intervention_score"),
+            "legacy_score": readiness.get("score"),
+            "legacy_confidence": readiness.get("confidence"),
+        },
         "sessions_evaluated": [],
         "conflicts": [],
         "silence": True,

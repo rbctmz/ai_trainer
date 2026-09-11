@@ -12,6 +12,10 @@ from api.deps import get_database
 from api.operational_state import build_operational_state
 from config.settings import Settings
 from data.database import Database
+from models.readiness_conflicts import (
+    READINESS_CONFLICT_RULE_VERSION,
+    RECOVERY_EVIDENCE_COMPATIBLE_RULE_VERSIONS,
+)
 from models.coach_decisions import (
     NO_REVISIT_REQUIRED,
     derive_decision_outcome,
@@ -315,7 +319,11 @@ def approve_proposal(
             # mutation has started.
             raise HTTPException(status_code=422, detail=str(exc))
     if proposal.get("action") == "recovery_replan":
-        claim = db.claim_current_recovery_proposal(proposal_id)
+        claim = db.claim_current_recovery_proposal(
+            proposal_id,
+            current_rule_version=READINESS_CONFLICT_RULE_VERSION,
+            compatible_rule_versions=RECOVERY_EVIDENCE_COMPATIBLE_RULE_VERSIONS,
+        )
         proposal = claim.get("proposal")
         if claim.get("state") == "superseded":
             raise HTTPException(

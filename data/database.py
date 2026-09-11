@@ -3756,12 +3756,109 @@ class Database:
         conn.close()
         return {"state": "published", "proposal": proposal}
 
-    def claim_current_recovery_proposal(self, proposal_id):
+    @staticmethod
+    def _version_compatible(
+        stamp, current_rule_version, compatible_rule_versions=()
+    ) -> bool:
+        """Proposal provenance is claimable only under compatible rules (AC6).
+
+        A missing stamp (legacy proposal created before version-qualified
+        ownership) is always incompatible: it cannot prove which rules produced
+        its preview.
+        """
+        text = str(stamp or "").strip()
+        if not text:
+            return False
+        allowed = {str(current_rule_version or "").strip()}
+        allowed.update(str(item).strip() for item in compatible_rule_versions or ())
+        allowed.discard("")
+        return text in allowed
+
+    def _supersede_proposal_row(self, cursor, proposal_id, result_payload):
+        """Mark one pending proposal superseded and return its fresh row."""
+        resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        cursor.execute(
+            '''
+            UPDATE coach_proposals
+            SET status = 'superseded', result_json = ?, error = NULL, resolved_at = ?
+            WHERE id = ? AND status = 'pending'
+            ''',
+            (
+                json.dumps(result_payload, ensure_ascii=False),
+                resolved_at,
+                int(proposal_id),
+            ),
+        )
+        cursor.execute(
+            '''
+            SELECT id, date, action, status, params_json, preview_json, result_json,
+                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                   active_key, decision_event_id, base_checkpoint_id,
+                   applied_checkpoint_id, rollback_checkpoint_id
+            FROM coach_proposals WHERE id = ?
+            ''',
+            (int(proposal_id),),
+        )
+        return self._deserialize_coach_proposal_row(cursor.fetchone())
+
+    def supersede_incompatible_recovery_proposals(
+        self, current_rule_version, *, compatible_rule_versions=()
+    ):
+        """Expire pending recovery cards produced by incompatible rules.
+
+        Runs under the same write lock as claim/publication and never touches
+        `applying` proposals or the evidence head, so the #552 policy for
+        transient `data_gap` stays intact (issue #557 M4).
+        """
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            '''
+            SELECT id, params_json
+            FROM coach_proposals
+            WHERE action = 'recovery_replan' AND status = 'pending'
+            '''
+        )
+        rows = cursor.fetchall()
+        superseded: list[int] = []
+        for proposal_id, params_json in rows:
+            try:
+                params = json.loads(params_json or "{}")
+            except (TypeError, json.JSONDecodeError):
+                params = {}
+            if not isinstance(params, dict):
+                params = {}
+            if self._version_compatible(
+                params.get("rule_version"),
+                current_rule_version,
+                compatible_rule_versions,
+            ):
+                continue
+            self._supersede_proposal_row(
+                cursor,
+                proposal_id,
+                {
+                    "reason": "superseded_by_rule_version_change",
+                    "obsolete_rule_version": params.get("rule_version") or None,
+                    "current_rule_version": str(current_rule_version or "") or None,
+                },
+            )
+            superseded.append(int(proposal_id))
+        conn.commit()
+        conn.close()
+        return len(superseded)
+
+    def claim_current_recovery_proposal(
+        self, proposal_id, *, current_rule_version, compatible_rule_versions=()
+    ):
         """Atomically claim a proposal only while its complete evidence is latest.
 
         `data_gap` rows are deliberately ignored: missing evidence cannot revoke
         the last complete conflict. The write lock orders this claim against a
-        concurrently persisted recovery decision.
+        concurrently persisted recovery decision. Version-qualified ownership is
+        checked independently of the head, so an old-rule proposal cannot be
+        applied even when the head still holds its conflict (issue #557 M4).
         """
         conn = self._connect()
         cursor = conn.cursor()
@@ -3786,6 +3883,23 @@ class Database:
             conn.commit()
             conn.close()
             return {"state": "not_pending", "proposal": proposal}
+
+        params = proposal.get("params") or {}
+        if not self._version_compatible(
+            params.get("rule_version"), current_rule_version, compatible_rule_versions
+        ):
+            updated = self._supersede_proposal_row(
+                cursor,
+                proposal_id,
+                {
+                    "reason": "superseded_by_rule_version_change",
+                    "obsolete_rule_version": params.get("rule_version") or None,
+                    "current_rule_version": str(current_rule_version or "") or None,
+                },
+            )
+            conn.commit()
+            conn.close()
+            return {"state": "superseded", "proposal": updated}
 
         expected = str((proposal.get("params") or {}).get("evidence_fingerprint") or "")
         expected_revision = self._optional_int(
@@ -3812,8 +3926,9 @@ class Database:
             and int(evidence[2]) == expected_revision
         )
         if not evidence_current:
-            resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-            result_json = json.dumps(
+            updated = self._supersede_proposal_row(
+                cursor,
+                proposal_id,
                 {
                     "reason": "superseded_by_newer_recovery_evidence",
                     "expected_evidence_fingerprint": expected or None,
@@ -3821,27 +3936,7 @@ class Database:
                     "expected_evidence_revision": expected_revision,
                     "latest_evidence_revision": int(evidence[2]) if evidence else None,
                 },
-                ensure_ascii=False,
             )
-            cursor.execute(
-                '''
-                UPDATE coach_proposals
-                SET status = 'superseded', result_json = ?, error = NULL, resolved_at = ?
-                WHERE id = ? AND status = 'pending'
-                ''',
-                (result_json, resolved_at, int(proposal_id)),
-            )
-            cursor.execute(
-                '''
-                SELECT id, date, action, status, params_json, preview_json, result_json,
-                       error, chat_id, message_id, resolved_at, created_at, source, source_key,
-                       active_key, decision_event_id, base_checkpoint_id,
-                       applied_checkpoint_id, rollback_checkpoint_id
-                FROM coach_proposals WHERE id = ?
-                ''',
-                (int(proposal_id),),
-            )
-            updated = self._deserialize_coach_proposal_row(cursor.fetchone())
             conn.commit()
             conn.close()
             return {"state": "superseded", "proposal": updated}

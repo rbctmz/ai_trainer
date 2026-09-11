@@ -11,6 +11,10 @@ from api.session_quality_forecast import record_shadow_session_quality_forecast
 from data.database import Database
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.recovery_replan import build_recovery_replan_variant
+from models.readiness_conflicts import (
+    READINESS_CONFLICT_RULE_VERSION,
+    RECOVERY_EVIDENCE_COMPATIBLE_RULE_VERSIONS,
+)
 from models.recovery_transfer import build_transfer_variant, rank_transfer_candidates
 from services.agent_log import (
     NEXT_SCHEDULED_CHECK,
@@ -64,6 +68,9 @@ def _outcome(report: dict[str, Any]) -> str:
 def _fingerprint(report: dict[str, Any], checkpoint_id: Any) -> str:
     payload = {
         "as_of": report.get("as_of"),
+        # Правила, по которым посчитано evidence: смена версии делает прежнюю
+        # identity несовместимой (issue #557 M4).
+        "rule_version": report.get("rule_version"),
         "checkpoint_id": checkpoint_id,
         "readiness": report.get("readiness"),
         "horizon_days": report.get("horizon_days"),
@@ -223,6 +230,7 @@ def _proposal_payload(
         "base_checkpoint_id": int(base_checkpoint_id),
         "evidence_fingerprint": str(evidence_fingerprint),
         "evidence_revision": int(evidence_revision),
+        "rule_version": READINESS_CONFLICT_RULE_VERSION,
         "horizon_days": int(variant["horizon_days"]),
         "post_edit_strategy": str(variant["post_edit_strategy"]),
         "draft_rows": draft_rows,
@@ -273,6 +281,7 @@ def _proposal_payload(
     preview = {
         "evidence_fingerprint": str(evidence_fingerprint),
         "evidence_revision": int(evidence_revision),
+        "rule_version": READINESS_CONFLICT_RULE_VERSION,
         "reason": variant.get("reason"),
         "severity": selected_conflict.get("severity"),
         "current_session": dict(variant["current_session"]),
@@ -419,6 +428,15 @@ def run_recovery_replan_loop(
                 decision = db.link_recovery_decision_proposal(
                     decision["id"], proposal["id"]
                 )
+
+    # Смена версии правил инвалидирует предложения, созданные прежними
+    # правилами, на каждом прогоне — включая `data_gap`: transient data_gap не
+    # отменяет последнее полное evidence, но и не сохраняет actionable-карточку,
+    # которую текущие правила уже не могут обосновать (issue #557 M4, AC6).
+    db.supersede_incompatible_recovery_proposals(
+        READINESS_CONFLICT_RULE_VERSION,
+        compatible_rule_versions=RECOVERY_EVIDENCE_COMPATIBLE_RULE_VERSIONS,
+    )
 
     # A complete evaluation owns proposal actionability for its checkpoint.
     # Missing data cannot disprove the prior conflict, but silence or an
