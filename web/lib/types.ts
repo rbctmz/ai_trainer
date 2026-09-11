@@ -9,12 +9,52 @@ export type Tone = "danger" | "warning" | "success" | "neutral";
 
 export type ReadinessSnapshotStatus = "unknown" | "low" | "limited" | "ready" | "strong" | "stale";
 
+// Issue #557: observation provenance carried by every readiness factor.
+export type ReadinessObservationStatus =
+  | "confirmed_today"
+  | "outdated"
+  | "unverified"
+  | "invalid"
+  | "missing";
+
+export type ReadinessEvidenceKind = "measurement" | "derived_state";
+
+export type ReadinessFreshnessState = "fresh" | "provisional" | "data_gap";
+
+export interface ReadinessFreshness {
+  state: ReadinessFreshnessState | string;
+  anchor: string;
+  confirmed_today: string[];
+  outdated: string[];
+  unverified: string[];
+  invalid: string[];
+  missing: string[];
+  intervention_eligible: string[];
+  blocked_reason: string | null;
+}
+
+export interface ReadinessIneligibleInput {
+  key: string;
+  observation_status: ReadinessObservationStatus | string | null;
+  reason: string;
+}
+
 export interface ReadinessSnapshotFactor {
   key: string;
   label: string;
   score: number | null;
+  /** Score the intervention channel uses (deduplicated baseline). */
+  intervention_score_input?: number | null;
   raw_value: number | null;
   source: string;
+  as_of?: string | null;
+  observation_as_of?: string | null;
+  age_days?: number | null;
+  observation_status?: ReadinessObservationStatus | string | null;
+  intervention_eligible?: boolean;
+  evidence_kind?: ReadinessEvidenceKind | string | null;
+  /** Human-readable evidence string produced by the server. */
+  evidence?: string | null;
 }
 
 export interface SubjectiveWellness {
@@ -46,6 +86,13 @@ export interface ReadinessSnapshot {
   missing_inputs: string[];
   stale: boolean;
   reason: string;
+  // Issue #557 additive channel: freshness verdict and intervention inputs.
+  freshness?: ReadinessFreshness | null;
+  intervention_score?: number | null;
+  intervention_confidence?: number;
+  eligible_inputs?: string[];
+  ineligible_inputs?: ReadinessIneligibleInput[];
+  intervention_blocked_reason?: string | null;
 }
 
 export interface TodayState {
@@ -1542,18 +1589,30 @@ export interface TodayPrimaryAction {
   reason: string;
 }
 
+export interface TodayReadinessDriver extends ReadinessSnapshotFactor {
+  evidence?: string;
+}
+
 export interface TodayReadiness {
   score: number;
   status: string;
   confidence: number | null;
   computed_at?: string | null;
   source_completeness?: number | null;
-  drivers: Array<Record<string, unknown>>;
-  factors: Array<Record<string, unknown>>;
+  drivers: TodayReadinessDriver[];
+  factors: ReadinessSnapshotFactor[];
   missing_inputs?: string[];
   tsb: { ctl: number | null; atl: number | null; tsb: number | null; window_days: number } | null;
   stale: boolean;
   reason: string | null;
+  /** Server-owned freshness verdict: the UI renders it, never recomputes it. */
+  is_provisional?: boolean;
+  freshness?: ReadinessFreshness | null;
+  intervention_score?: number | null;
+  intervention_confidence?: number;
+  eligible_inputs?: string[];
+  ineligible_inputs?: ReadinessIneligibleInput[];
+  intervention_blocked_reason?: string | null;
 }
 
 export interface TodayLeafSession {

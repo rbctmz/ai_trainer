@@ -324,16 +324,14 @@ export default function TodayPage() {
               <div className="mt-3 space-y-1.5 text-sm text-ink-soft">
                 {(readiness.drivers.length > 0 ? readiness.drivers : readiness.factors).map(
                   (item, index) => {
-                    const evidence = String(
-                      (item as Record<string, unknown>).evidence ?? "",
-                    );
+                    const evidence = String(item.evidence ?? "");
                     return evidence ? <p key={index}>• {evidence}</p> : null;
                   },
                 )}
                 {readiness.tsb &&
                 readiness.tsb.tsb != null &&
                 !(readiness.drivers.length > 0 ? readiness.drivers : readiness.factors).some(
-                  (item) => (item as Record<string, unknown>).key === "tsb",
+                  (item) => item.key === "tsb",
                 ) ? (
                   <p>
                     • TSB {readiness.tsb.tsb} (CTL {readiness.tsb.ctl ?? "—"}, окно{" "}
