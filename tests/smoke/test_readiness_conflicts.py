@@ -40,12 +40,16 @@ def _readiness(
         intervention_score = score
     if intervention_confidence is None:
         intervention_confidence = confidence
+    eligible = (
+        [] if intervention_score is None else ["resting_hr", "tsb"]
+    )
     return {
         "score": score,
         "status": status,
         "confidence": confidence,
         "intervention_score": intervention_score,
         "intervention_confidence": intervention_confidence,
+        "eligible_inputs": eligible,
         "drivers": [
             {"key": "hrv", "label": "HRV", "score": 40.0, "evidence": "HRV 30.0 мс против базовых 37.0 (−18.9%)"}
         ],

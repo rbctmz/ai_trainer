@@ -15,6 +15,7 @@ from datetime import date, timedelta
 import pytest
 
 from data.database import Database
+from models.readiness import readiness_status_for_score
 from models.readiness_conflicts import (
     READINESS_CONFLICT_RULE_VERSION,
     detect_readiness_conflicts,
@@ -304,11 +305,11 @@ def _readiness(
 ) -> dict:
     return {
         "score": legacy_score,
-        "status": "low" if legacy_score is not None else "unknown",
+        "status": readiness_status_for_score(legacy_score),
         "confidence": legacy_confidence,
         "intervention_score": intervention_score,
         "intervention_confidence": intervention_confidence,
-        "eligible_inputs": [] if intervention_score is None else ["resting_hr", "tsb"],
+        "eligible_inputs": () if intervention_score is None else ("resting_hr", "tsb"),
         "drivers": [],
         "as_of_date": TODAY.isoformat(),
     }
@@ -361,3 +362,145 @@ def test_gate_reports_conflicts_from_intervention_inputs():
     assert report["conflicts"]
     assert report["conflicts"][0]["severity"] == "high"
     assert report["rule_version"] == READINESS_CONFLICT_RULE_VERSION
+
+
+def test_gate_derives_intervention_status_from_the_intervention_score():
+    """Review P1: severity must follow the intervention score, not legacy status."""
+    healthy_intervention = detect_readiness_conflicts(
+        _readiness(
+            legacy_score=38.0,          # legacy says low...
+            legacy_confidence=1.0,
+            intervention_score=80.0,    # ...but the intervention channel is strong
+            intervention_confidence=1.0,
+        ),
+        [_quality_session()],
+        today=TODAY,
+    )
+    assert healthy_intervention["data_gap"] is False
+    assert healthy_intervention["conflicts"] == []
+    assert healthy_intervention["readiness"]["status"] == "strong"
+    assert healthy_intervention["readiness"]["legacy_status"] == "low"
+
+    weak_intervention = detect_readiness_conflicts(
+        _readiness(
+            legacy_score=65.0,          # legacy says ready...
+            legacy_confidence=1.0,
+            intervention_score=38.0,    # ...but the intervention channel is low
+            intervention_confidence=1.0,
+        ),
+        [_quality_session()],
+        today=TODAY,
+    )
+    assert weak_intervention["conflicts"]
+    assert weak_intervention["conflicts"][0]["severity"] == "high"
+    assert weak_intervention["readiness"]["status"] == "low"
+    assert weak_intervention["readiness"]["legacy_status"] == "ready"
+
+
+def test_gate_requires_an_eligible_primary_measurement():
+    """Review P1: without an eligible primary measurement the gate must stay silent."""
+    device_only = detect_readiness_conflicts(
+        {
+            **_readiness(
+                legacy_score=38.0,
+                legacy_confidence=1.0,
+                intervention_score=38.0,
+                intervention_confidence=0.6,
+            ),
+            "eligible_inputs": ["training_readiness", "tsb"],
+        },
+        [_quality_session()],
+        today=TODAY,
+    )
+    assert device_only["data_gap"] is True
+    assert device_only["conflicts"] == []
+    assert "первичн" in device_only["reason"].lower()
+
+    empty_eligible = detect_readiness_conflicts(
+        {
+            **_readiness(
+                legacy_score=38.0,
+                legacy_confidence=1.0,
+                intervention_score=38.0,
+                intervention_confidence=0.6,
+            ),
+            "eligible_inputs": [],
+        },
+        [_quality_session()],
+        today=TODAY,
+    )
+    assert empty_eligible["data_gap"] is True
+
+    # A malformed eligible_inputs payload fails closed as well.
+    malformed = detect_readiness_conflicts(
+        {
+            **_readiness(
+                legacy_score=38.0,
+                legacy_confidence=1.0,
+                intervention_score=38.0,
+                intervention_confidence=0.6,
+            ),
+            "eligible_inputs": "resting_hr",
+        },
+        [_quality_session()],
+        today=TODAY,
+    )
+    assert malformed["data_gap"] is True
+
+    with_primary = detect_readiness_conflicts(
+        {
+            **_readiness(
+                legacy_score=38.0,
+                legacy_confidence=1.0,
+                intervention_score=38.0,
+                intervention_confidence=0.6,
+            ),
+            "eligible_inputs": ["resting_hr"],
+        },
+        [_quality_session()],
+        today=TODAY,
+    )
+    assert with_primary["data_gap"] is False
+    assert with_primary["conflicts"]
+
+
+def test_report_echoes_freshness_and_eligible_inputs_into_the_evidence_block():
+    """Review P2: audit/evidence identity must reflect the fresh-factor set."""
+    from api.recovery_replan_loop import _fingerprint
+
+    freshness = {
+        "state": "provisional",
+        "anchor": TODAY.isoformat(),
+        "confirmed_today": ["resting_hr"],
+        "outdated": [],
+        "unverified": ["sleep", "hrv"],
+        "invalid": [],
+        "missing": [],
+        "intervention_eligible": ["resting_hr"],
+        "blocked_reason": None,
+    }
+    readiness = {
+        **_readiness(
+            legacy_score=38.0,
+            legacy_confidence=1.0,
+            intervention_score=38.0,
+            intervention_confidence=0.6,
+        ),
+        "eligible_inputs": ["resting_hr"],
+        "freshness": freshness,
+    }
+
+    report = detect_readiness_conflicts(readiness, [_quality_session()], today=TODAY)
+
+    block = report["readiness"]
+    assert block["eligible_inputs"] == ["resting_hr"]
+    assert block["freshness"] == freshness
+
+    # The evidence identity hashes that block, so a changed fresh-factor set
+    # produces a different fingerprint.
+    other = detect_readiness_conflicts(
+        {**readiness, "freshness": {**freshness, "state": "fresh", "confirmed_today": ["resting_hr", "hrv"]}},
+        [_quality_session()],
+        today=TODAY,
+    )
+    assert _fingerprint(report, 1) != _fingerprint(other, 1)
