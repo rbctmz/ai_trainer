@@ -23,11 +23,29 @@ pytestmark = pytest.mark.smoke
 TODAY = date(2026, 7, 9)
 
 
-def _readiness(score: float | None, status: str, confidence: float = 1.0) -> dict:
+def _readiness(
+    score: float | None,
+    status: str,
+    confidence: float = 1.0,
+    *,
+    intervention_score: float | None = None,
+    intervention_confidence: float | None = None,
+) -> dict:
+    """Readiness fixture.
+
+    The intervention gate reads `intervention_*` (issue #557 M4); the matrix
+    tests keep both channels equal, and the fail-closed cases override them.
+    """
+    if intervention_score is None and score is not None:
+        intervention_score = score
+    if intervention_confidence is None:
+        intervention_confidence = confidence
     return {
         "score": score,
         "status": status,
         "confidence": confidence,
+        "intervention_score": intervention_score,
+        "intervention_confidence": intervention_confidence,
         "drivers": [
             {"key": "hrv", "label": "HRV", "score": 40.0, "evidence": "HRV 30.0 мс против базовых 37.0 (−18.9%)"}
         ],
@@ -495,7 +513,16 @@ def _seed_fresh_recovery(db, *, rmssd_today: float, rhr_today: float) -> None:
         d = (today - timedelta(days=offset)).isoformat()
         hrv[d] = {"rmssd": rmssd_today if offset == 0 else 40.0, "stress_score": 25.0}
         health[d] = {"resting_hr": rhr_today if offset == 0 else 50.0, "steps": 8000}
-    sleep[today.isoformat()] = {"total_sleep_minutes": 300, "sleep_score": 35.0}
+        if offset == 0:
+            # Сегодняшние измерения должны быть подтверждены датой наблюдения,
+            # иначе интервенционный канал их не видит (issue #557).
+            hrv[d]["rmssd_observed_at"] = d
+            health[d]["resting_hr_observed_at"] = d
+    sleep[today.isoformat()] = {
+        "total_sleep_minutes": 300,
+        "sleep_score": 35.0,
+        "sleep_score_observed_at": today.isoformat(),
+    }
     db.sync_hrv_data(hrv)
     db.sync_daily_health(health)
     db.sync_sleep_data(sleep)

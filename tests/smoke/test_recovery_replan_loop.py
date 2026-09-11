@@ -16,6 +16,7 @@ from api.recovery_replan_loop import (
     run_recovery_replan_loop,
 )
 from data.database import Database
+from models.readiness_conflicts import READINESS_CONFLICT_RULE_VERSION
 from models.planning_checkpoints import (
     build_planning_checkpoint,
     restore_goal_plan_from_checkpoint,
@@ -672,6 +673,7 @@ def test_newer_conflict_waits_for_applying_proposal_then_republishes(tmp_path) -
             "base_checkpoint_id": checkpoint["id"],
             "evidence_fingerprint": "applying-c1",
             "evidence_revision": first["evidence_revision"],
+            "rule_version": READINESS_CONFLICT_RULE_VERSION,
         },
         preview={"evidence_fingerprint": "applying-c1"},
         source_key=first["evidence_token"],
@@ -680,7 +682,12 @@ def test_newer_conflict_waits_for_applying_proposal_then_republishes(tmp_path) -
         decision_event_id="applying-event-c1",
     )
     first_id = first_publication["proposal"]["id"]
-    assert db.claim_current_recovery_proposal(first_id)["state"] == "claimed"
+    assert (
+        db.claim_current_recovery_proposal(
+            first_id, current_rule_version=READINESS_CONFLICT_RULE_VERSION
+        )["state"]
+        == "claimed"
+    )
     second = db.save_recovery_decision(
         fingerprint="waiting-c2",
         outcome="conflict",
@@ -693,6 +700,7 @@ def test_newer_conflict_waits_for_applying_proposal_then_republishes(tmp_path) -
             "base_checkpoint_id": checkpoint["id"],
             "evidence_fingerprint": "waiting-c2",
             "evidence_revision": second["evidence_revision"],
+            "rule_version": READINESS_CONFLICT_RULE_VERSION,
         },
         "preview": {"evidence_fingerprint": "waiting-c2"},
         "source_key": second["evidence_token"],
@@ -794,11 +802,15 @@ def test_recovery_claim_and_supersession_have_one_terminal_winner(
 
     if new_evidence_first:
         persist_new_evidence()
-        claim = db.claim_current_recovery_proposal(proposal["id"])
+        claim = db.claim_current_recovery_proposal(
+            proposal["id"], current_rule_version=READINESS_CONFLICT_RULE_VERSION
+        )
         assert claim["state"] == "not_pending"
         assert claim["proposal"]["status"] == "superseded"
     else:
-        claim = db.claim_current_recovery_proposal(proposal["id"])
+        claim = db.claim_current_recovery_proposal(
+            proposal["id"], current_rule_version=READINESS_CONFLICT_RULE_VERSION
+        )
         assert claim["state"] == "claimed"
         persist_new_evidence()
         db.update_coach_proposal_status(proposal["id"], "approved", result={})
@@ -828,7 +840,9 @@ def test_recovery_claim_and_supersession_are_safe_when_concurrent(
 
     def claim() -> str:
         barrier.wait()
-        result = db.claim_current_recovery_proposal(proposal["id"])
+        result = db.claim_current_recovery_proposal(
+            proposal["id"], current_rule_version=READINESS_CONFLICT_RULE_VERSION
+        )
         if result["state"] == "claimed":
             db.update_coach_proposal_status(proposal["id"], "approved", result={})
         return str(result["state"])
