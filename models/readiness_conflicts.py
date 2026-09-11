@@ -9,6 +9,14 @@ ExecPlan: docs/readiness_conflict_gate_execplan.md.
 """
 from __future__ import annotations
 
+import math
+
+from models.readiness import (
+    FACTOR_WEIGHTS,
+    PRIMARY_RECOVERY_KEYS,
+    readiness_status_for_score,
+)
+
 from datetime import date
 from math import isfinite
 from numbers import Real
@@ -18,6 +26,20 @@ from typing import Any, Mapping
 # Ниже этого порога уверенности готовности детектор молчит с data_gap=True:
 # вмешательство на 2 факторах из 5 ложно-положительно по построению.
 MIN_CONFIDENCE = 0.5
+
+# Нейтральный уровень фактора: как и в models/readiness.py, драйверы
+# ранжируются по вкладу отклонения от него.
+_NEUTRAL_SCORE = 70.0
+
+# Issue #557 M4: identity of the intervention-eligibility rules. Recovery
+# proposals carry this stamp; a proposal whose stamp is neither the current
+# version nor an explicitly compatible one can never be claimed (AC6).
+READINESS_CONFLICT_RULE_VERSION = "readiness_conflicts_v2"
+
+# Old proposal versions that stay claimable under the current rules. Empty by
+# default (strict equality); extending it requires a Decision Log entry and
+# evidence that the proposal semantics did not change.
+RECOVERY_EVIDENCE_COMPATIBLE_RULE_VERSIONS: tuple[str, ...] = ()
 
 DEFAULT_HORIZON_DAYS = 3
 # Policy from issues #152/#315: always inspect the base horizon, then extend
@@ -294,6 +316,24 @@ def resolve_effective_horizon(
     }
 
 
+def _finite_in_range(value: Any, *, minimum: float, maximum: float) -> float | None:
+    """Accept only finite numbers of the declared range (issue #557, review P2).
+
+    Strings, booleans, NaN, infinities and out-of-range values are all invalid:
+    the gate must fail closed instead of crashing or trusting them.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float)):
+        return None
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        return None
+    if parsed < minimum or parsed > maximum:
+        return None
+    return parsed
+
+
 def detect_readiness_conflicts(
     readiness: dict[str, Any],
     sessions: list[dict[str, Any]],
@@ -306,14 +346,55 @@ def detect_readiness_conflicts(
     readiness — результат models/readiness.py::compute_readiness_today.
     sessions — список из upcoming_plan_sessions (или совместимый).
     """
-    score = readiness.get("score")
-    status = str(readiness.get("status") or "unknown")
-    confidence = float(readiness.get("confidence") or 0.0)
+    # Вмешательство считается только по интервенционному каналу (issue #557):
+    # legacy score/confidence читают описательные подсистемы и порог гейта
+    # больше не поднимают.
+    raw_score = readiness.get("intervention_score")
+    raw_confidence = readiness.get("intervention_confidence")
+    score = _finite_in_range(raw_score, minimum=0.0, maximum=100.0)
+    confidence = _finite_in_range(raw_confidence, minimum=0.0, maximum=1.0)
+    invalid_inputs = [
+        name
+        for name, raw, parsed in (
+            ("intervention_score", raw_score, score),
+            ("intervention_confidence", raw_confidence, confidence),
+        )
+        if raw is not None and parsed is None
+    ]
+    if score is None:
+        # Любой невалидный score — это не «низкая готовность», а отсутствие
+        # пригодного входа: статус остаётся unknown, гейт закрыт.
+        status = "unknown"
+    else:
+        # Статус выводится из интервенционного score по каноническим порогам:
+        # legacy `status` описывает другой канал и для severity не годится.
+        status = readiness_status_for_score(score)
+    legacy_status = str(readiness.get("status") or "unknown")
+    raw_eligible = readiness.get("eligible_inputs")
+    eligible_inputs = (
+        [str(key) for key in raw_eligible]
+        if isinstance(raw_eligible, (list, tuple, set, frozenset))
+        else []
+    )
+    primary_eligible = sorted(set(eligible_inputs) & set(PRIMARY_RECOVERY_KEYS))
 
     report: dict[str, Any] = {
         "as_of": readiness.get("as_of_date") or today.isoformat(),
         "horizon_days": horizon_days,
-        "readiness": {"score": score, "status": status, "confidence": confidence},
+        "rule_version": READINESS_CONFLICT_RULE_VERSION,
+        "readiness": {
+            "score": score,
+            "status": status,
+            "confidence": confidence,
+            "intervention_score": score,
+            "intervention_status": status,
+            "eligible_inputs": eligible_inputs,
+            "freshness": readiness.get("freshness"),
+            "invalid_inputs": invalid_inputs,
+            "legacy_score": readiness.get("score"),
+            "legacy_confidence": readiness.get("confidence"),
+            "legacy_status": legacy_status,
+        },
         "sessions_evaluated": [],
         "conflicts": [],
         "silence": True,
@@ -321,18 +402,37 @@ def detect_readiness_conflicts(
         "reason": "",
     }
 
-    if score is None or confidence < MIN_CONFIDENCE:
+    if (
+        score is None
+        or confidence is None
+        or confidence < MIN_CONFIDENCE
+        or not primary_eligible
+    ):
         report["data_gap"] = True
-        report["reason"] = (
-            "Недостаточно свежих данных о восстановлении "
-            f"(confidence {confidence:.2f} < {MIN_CONFIDENCE}) — детектор молчит."
-        )
+        if invalid_inputs:
+            report["reason"] = (
+                "Некорректные значения интервенционного канала "
+                f"({', '.join(invalid_inputs)}) — детектор молчит."
+            )
+        elif not primary_eligible and score is not None and confidence is not None and confidence >= MIN_CONFIDENCE:
+            # Ни одного подтверждённо сегодняшнего первичного измерения:
+            # производное состояние нагрузки не может обосновать вмешательство.
+            report["reason"] = (
+                "Нет подтверждённого сегодняшнего первичного измерения "
+                "восстановления (сон/HRV/пульс покоя) — детектор молчит."
+            )
+        else:
+            report["reason"] = (
+                "Недостаточно свежих данных о восстановлении "
+                f"(confidence {confidence if confidence is not None else 0.0:.2f} "
+                f"< {MIN_CONFIDENCE}) — детектор молчит."
+            )
         return report
 
     evaluated = [s for s in sessions if 0 <= int(s.get("days_until", -1)) < horizon_days]
     report["sessions_evaluated"] = evaluated
 
-    readiness_evidence = _readiness_evidence(readiness)
+    readiness_evidence = _readiness_evidence(readiness, score=score, status=status)
 
     for session in evaluated:
         salient_role = _salience_role(session)
@@ -382,16 +482,48 @@ def detect_readiness_conflicts(
     return report
 
 
-def _readiness_evidence(readiness: dict[str, Any]) -> str:
-    score = readiness.get("score")
-    status = readiness.get("status")
-    driver_bits = [
-        str(d.get("evidence"))
-        for d in (readiness.get("drivers") or [])
-        if d.get("evidence")
+def _readiness_evidence(
+    readiness: dict[str, Any], *, score: float | None, status: str
+) -> str:
+    """Human-readable evidence of the *intervention* channel that decided.
+
+    Только пригодные к интервенции факторы: описательный топ-драйвер может быть
+    устаревшим или недатированным, и упоминать его как причину вмешательства
+    нельзя (issue #557 review P2).
+    """
+    eligible_keys = {
+        str(key) for key in (readiness.get("eligible_inputs") or []) if str(key)
+    }
+    pool: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for candidate in list(readiness.get("drivers") or []) + list(readiness.get("factors") or []):
+        key = str(candidate.get("key") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        pool.append(candidate)
+    eligible = [
+        factor
+        for factor in pool
+        if factor.get("intervention_eligible") is True
+        or (
+            "intervention_eligible" not in factor
+            and str(factor.get("key") or "") in eligible_keys
+        )
     ]
-    drivers = "; ".join(driver_bits[:3]) or "драйверы недоступны"
-    return f"Готовность {score}/100 ({status}): {drivers}"
+    ordered = sorted(
+        eligible,
+        key=lambda d: FACTOR_WEIGHTS.get(str(d.get("key")), 0.0)
+        * abs(float(d.get("intervention_score_input", d.get("score")) or 0.0) - _NEUTRAL_SCORE),
+        reverse=True,
+    )
+    bits = []
+    for factor in ordered[:3]:
+        label = str(factor.get("label") or factor.get("key") or "фактор")
+        detail = str(factor.get("evidence") or "").strip()
+        bits.append(f"{label}: {detail}" if detail else label)
+    drivers_text = "; ".join(bits) or "пригодные факторы не описаны"
+    return f"Готовность {score}/100 ({status}): {drivers_text}"
 
 
 def _session_evidence(session: dict[str, Any]) -> str:

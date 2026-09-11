@@ -23,16 +23,24 @@ class UTCHostClock(datetime):
 
 
 def test_snapshot_uses_one_date_on_utc_host(tmp_path, monkeypatch):
+    """Both surfaces share one *athlete-local* date (issue #557 anchor review).
+
+    The pinned instant is 2026-09-09T22:00Z, already 2026-09-10 in the
+    athlete's Moscow calendar: the anchor must follow the athlete, so
+    readiness and subjective wellness agree on 09-10, not on the UTC date.
+    """
     from services import readiness_snapshot, subjective_wellness
     from config.settings import Settings
+    from utils import athlete_time
     monkeypatch.setattr(Settings, 'ATHLETE_TIMEZONE', 'Europe/Moscow')
+    monkeypatch.setattr(athlete_time, 'datetime', UTCHostClock)
     monkeypatch.setattr(readiness_snapshot, 'datetime', UTCHostClock)
     monkeypatch.setattr(subjective_wellness, 'datetime', UTCHostClock)
     db = Database(str(tmp_path / 'clock.db'))
     seed(db, '2026-09-09', 1)
     seed(db, '2026-09-10', 4)
     result = readiness_snapshot.build_readiness_snapshot(db)
-    assert result['subjective_wellness']['date'] == result['as_of_date'] == '2026-09-09'
+    assert result['subjective_wellness']['date'] == result['as_of_date'] == '2026-09-10'
 
 
 def test_today_historical_anchor_reaches_observations(tmp_path):

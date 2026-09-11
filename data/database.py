@@ -68,6 +68,16 @@ def parse_cursor_date(value):
         ) from exc
 
 
+def _same_metric_value(current, incoming) -> bool:
+    """Numeric-aware comparison for metric updates (issue #557)."""
+    if current is None or incoming is None:
+        return current is None and incoming is None
+    try:
+        return float(current) == float(incoming)
+    except (TypeError, ValueError):
+        return str(current) == str(incoming)
+
+
 class Database:
     _ACTIVITY_COLUMN_ORDER = ACTIVITY_COLUMN_ORDER
 
@@ -111,6 +121,7 @@ class Database:
         'training_load_7d',
         'training_status',
         'training_readiness',
+        'training_readiness_observed_at',
         'recovery_time_hours',
         'load_ratio',
         'training_feedback_code',
@@ -144,6 +155,8 @@ class Database:
         'training_load_7d': 'REAL',
         'training_status': 'TEXT',
         'training_readiness': 'REAL',
+        # Issue #557 M3: дата измерения readiness из payload (NULL = не подтверждена).
+        'training_readiness_observed_at': 'TEXT',
         'recovery_time_hours': 'REAL',
         'load_ratio': 'REAL',
         'training_feedback_code': 'TEXT',
@@ -171,9 +184,16 @@ class Database:
         'monthly_load_anaerobic_target_max': 'REAL'
     }
 
+    # Provenance column owned by each arbitrated health metric (issue #557).
+    _HEALTH_PROVENANCE_COLUMNS = {
+        'resting_hr': 'resting_hr_observed_at',
+    }
+
     _DAILY_HEALTH_COLUMN_TYPES = {
         'resting_hr': 'INTEGER',
         'resting_hr_source': "TEXT DEFAULT 'legacy_unknown'",
+        # Issue #557 M3: дата измерения RHR из payload (NULL = не подтверждена).
+        'resting_hr_observed_at': 'TEXT',
         'steps': 'INTEGER',
         'steps_source': "TEXT DEFAULT 'legacy_unknown'",
         'floors_climbed': 'INTEGER',
@@ -195,10 +215,16 @@ class Database:
         'total_sleep_source': "TEXT DEFAULT 'legacy_unknown'",
         'sleep_score_source': "TEXT DEFAULT 'legacy_unknown'",
         'sleep_efficiency_source': "TEXT DEFAULT 'legacy_unknown'",
+        # Issue #557 M3: дата измерения сна из payload, отдельно по метрике —
+        # provenance обязана ехать вместе с принятым значением (NULL = неизвестна).
+        'sleep_score_observed_at': 'TEXT',
+        'total_sleep_observed_at': 'TEXT',
     }
 
     _HRV_COLUMN_TYPES = {
         'rmssd_source': "TEXT DEFAULT 'legacy_unknown'",
+        # Issue #557 M3: дата измерения HRV из payload (NULL = не подтверждена).
+        'rmssd_observed_at': 'TEXT',
     }
 
     _COACH_DECISION_COLUMN_TYPES = {
@@ -332,6 +358,7 @@ class Database:
                 date DATE PRIMARY KEY,
                 rmssd REAL,
                 rmssd_source TEXT DEFAULT 'legacy_unknown',
+                rmssd_observed_at TEXT,
                 stress_score REAL,
                 recovery_score REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -372,6 +399,8 @@ class Database:
                 total_sleep_source TEXT DEFAULT 'legacy_unknown',
                 sleep_score_source TEXT DEFAULT 'legacy_unknown',
                 sleep_efficiency_source TEXT DEFAULT 'legacy_unknown',
+                sleep_score_observed_at TEXT,
+                total_sleep_observed_at TEXT,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         ''')
@@ -382,6 +411,7 @@ class Database:
                 date DATE PRIMARY KEY,
                 resting_hr INTEGER,
                 resting_hr_source TEXT DEFAULT 'legacy_unknown',
+                resting_hr_observed_at TEXT,
                 steps INTEGER,
                 steps_source TEXT DEFAULT 'legacy_unknown',
                 floors_climbed INTEGER,
@@ -409,6 +439,7 @@ class Database:
                 training_load_7d REAL,
                 training_status TEXT,
                 training_readiness REAL,
+                training_readiness_observed_at TEXT,
                 recovery_time_hours REAL,
                 load_ratio REAL,
                 training_feedback_code TEXT,
@@ -924,9 +955,9 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(activities)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._ACTIVITY_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE activities ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'activities', self._ACTIVITY_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     @staticmethod
@@ -1071,9 +1102,9 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(training_status)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._TRAINING_STATUS_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE training_status ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'training_status', self._TRAINING_STATUS_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     def _ensure_daily_health_columns(self, conn: sqlite3.Connection) -> None:
@@ -1081,9 +1112,9 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(daily_health)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._DAILY_HEALTH_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE daily_health ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'daily_health', self._DAILY_HEALTH_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     def _ensure_hrv_columns(self, conn: sqlite3.Connection) -> None:
@@ -1091,34 +1122,63 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(hrv_data)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._HRV_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE hrv_data ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'hrv_data', self._HRV_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
+
+    @staticmethod
+    def _add_missing_columns(cursor, table, column_types, existing_columns):
+        """ALTER ADD COLUMN with duplicate-column tolerance (issue #557 review P2).
+
+        Two initializers can read the column list before either commits, so the
+        loser of that race must not abort startup with `duplicate column name`.
+        """
+        for column, column_type in column_types.items():
+            if column in existing_columns:
+                continue
+            try:
+                cursor.execute(f'ALTER TABLE {table} ADD COLUMN {column} {column_type}')
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+        return None
 
     def _ensure_sleep_columns(self, conn: sqlite3.Connection) -> None:
         """Add provenance columns without rewriting legacy sleep metrics."""
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(sleep_data)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._SLEEP_COLUMN_TYPES.items():
-            if column in existing_columns:
-                continue
-            try:
-                cursor.execute(f'ALTER TABLE sleep_data ADD COLUMN {column} {column_type}')
-            except sqlite3.OperationalError as exc:
-                if "duplicate column name" not in str(exc).lower():
-                    raise
+        self._add_missing_columns(
+            cursor, 'sleep_data', self._SLEEP_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
+
+    @staticmethod
+    def _observation_provenance_update(
+        *, incoming_observed, incoming_value, stored_value
+    ):
+        """Fail-closed provenance decision for one metric update (issue #557).
+
+        Returns ``(write, value)``. A dated update always writes the incoming
+        date; an undated update keeps the stored date only when the value did
+        not change; an undated *changed* value clears provenance, because the old
+        date is not evidence for the new measurement.
+        """
+        if incoming_observed:
+            return True, incoming_observed
+        if _same_metric_value(stored_value, incoming_value):
+            return False, None
+        return True, None
 
     def _ensure_coach_decision_columns(self, conn: sqlite3.Connection) -> None:
         """Добавление недостающих колонок coach_decisions для audit metadata."""
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(coach_decisions)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._COACH_DECISION_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE coach_decisions ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'coach_decisions', self._COACH_DECISION_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     def _ensure_coach_proposal_columns(self, conn: sqlite3.Connection) -> None:
@@ -1126,9 +1186,9 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(coach_proposals)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._COACH_PROPOSAL_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE coach_proposals ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'coach_proposals', self._COACH_PROPOSAL_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     @staticmethod
@@ -3708,12 +3768,109 @@ class Database:
         conn.close()
         return {"state": "published", "proposal": proposal}
 
-    def claim_current_recovery_proposal(self, proposal_id):
+    @staticmethod
+    def _version_compatible(
+        stamp, current_rule_version, compatible_rule_versions=()
+    ) -> bool:
+        """Proposal provenance is claimable only under compatible rules (AC6).
+
+        A missing stamp (legacy proposal created before version-qualified
+        ownership) is always incompatible: it cannot prove which rules produced
+        its preview.
+        """
+        text = str(stamp or "").strip()
+        if not text:
+            return False
+        allowed = {str(current_rule_version or "").strip()}
+        allowed.update(str(item).strip() for item in compatible_rule_versions or ())
+        allowed.discard("")
+        return text in allowed
+
+    def _supersede_proposal_row(self, cursor, proposal_id, result_payload):
+        """Mark one pending proposal superseded and return its fresh row."""
+        resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+        cursor.execute(
+            '''
+            UPDATE coach_proposals
+            SET status = 'superseded', result_json = ?, error = NULL, resolved_at = ?
+            WHERE id = ? AND status = 'pending'
+            ''',
+            (
+                json.dumps(result_payload, ensure_ascii=False),
+                resolved_at,
+                int(proposal_id),
+            ),
+        )
+        cursor.execute(
+            '''
+            SELECT id, date, action, status, params_json, preview_json, result_json,
+                   error, chat_id, message_id, resolved_at, created_at, source, source_key,
+                   active_key, decision_event_id, base_checkpoint_id,
+                   applied_checkpoint_id, rollback_checkpoint_id
+            FROM coach_proposals WHERE id = ?
+            ''',
+            (int(proposal_id),),
+        )
+        return self._deserialize_coach_proposal_row(cursor.fetchone())
+
+    def supersede_incompatible_recovery_proposals(
+        self, current_rule_version, *, compatible_rule_versions=()
+    ):
+        """Expire pending recovery cards produced by incompatible rules.
+
+        Runs under the same write lock as claim/publication and never touches
+        `applying` proposals or the evidence head, so the #552 policy for
+        transient `data_gap` stays intact (issue #557 M4).
+        """
+        conn = self._connect()
+        cursor = conn.cursor()
+        cursor.execute("BEGIN IMMEDIATE")
+        cursor.execute(
+            '''
+            SELECT id, params_json
+            FROM coach_proposals
+            WHERE action = 'recovery_replan' AND status = 'pending'
+            '''
+        )
+        rows = cursor.fetchall()
+        superseded: list[int] = []
+        for proposal_id, params_json in rows:
+            try:
+                params = json.loads(params_json or "{}")
+            except (TypeError, json.JSONDecodeError):
+                params = {}
+            if not isinstance(params, dict):
+                params = {}
+            if self._version_compatible(
+                params.get("rule_version"),
+                current_rule_version,
+                compatible_rule_versions,
+            ):
+                continue
+            self._supersede_proposal_row(
+                cursor,
+                proposal_id,
+                {
+                    "reason": "superseded_by_rule_version_change",
+                    "obsolete_rule_version": params.get("rule_version") or None,
+                    "current_rule_version": str(current_rule_version or "") or None,
+                },
+            )
+            superseded.append(int(proposal_id))
+        conn.commit()
+        conn.close()
+        return len(superseded)
+
+    def claim_current_recovery_proposal(
+        self, proposal_id, *, current_rule_version, compatible_rule_versions=()
+    ):
         """Atomically claim a proposal only while its complete evidence is latest.
 
         `data_gap` rows are deliberately ignored: missing evidence cannot revoke
         the last complete conflict. The write lock orders this claim against a
-        concurrently persisted recovery decision.
+        concurrently persisted recovery decision. Version-qualified ownership is
+        checked independently of the head, so an old-rule proposal cannot be
+        applied even when the head still holds its conflict (issue #557 M4).
         """
         conn = self._connect()
         cursor = conn.cursor()
@@ -3738,6 +3895,23 @@ class Database:
             conn.commit()
             conn.close()
             return {"state": "not_pending", "proposal": proposal}
+
+        params = proposal.get("params") or {}
+        if not self._version_compatible(
+            params.get("rule_version"), current_rule_version, compatible_rule_versions
+        ):
+            updated = self._supersede_proposal_row(
+                cursor,
+                proposal_id,
+                {
+                    "reason": "superseded_by_rule_version_change",
+                    "obsolete_rule_version": params.get("rule_version") or None,
+                    "current_rule_version": str(current_rule_version or "") or None,
+                },
+            )
+            conn.commit()
+            conn.close()
+            return {"state": "superseded", "proposal": updated}
 
         expected = str((proposal.get("params") or {}).get("evidence_fingerprint") or "")
         expected_revision = self._optional_int(
@@ -3764,8 +3938,9 @@ class Database:
             and int(evidence[2]) == expected_revision
         )
         if not evidence_current:
-            resolved_at = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
-            result_json = json.dumps(
+            updated = self._supersede_proposal_row(
+                cursor,
+                proposal_id,
                 {
                     "reason": "superseded_by_newer_recovery_evidence",
                     "expected_evidence_fingerprint": expected or None,
@@ -3773,27 +3948,7 @@ class Database:
                     "expected_evidence_revision": expected_revision,
                     "latest_evidence_revision": int(evidence[2]) if evidence else None,
                 },
-                ensure_ascii=False,
             )
-            cursor.execute(
-                '''
-                UPDATE coach_proposals
-                SET status = 'superseded', result_json = ?, error = NULL, resolved_at = ?
-                WHERE id = ? AND status = 'pending'
-                ''',
-                (result_json, resolved_at, int(proposal_id)),
-            )
-            cursor.execute(
-                '''
-                SELECT id, date, action, status, params_json, preview_json, result_json,
-                       error, chat_id, message_id, resolved_at, created_at, source, source_key,
-                       active_key, decision_event_id, base_checkpoint_id,
-                       applied_checkpoint_id, rollback_checkpoint_id
-                FROM coach_proposals WHERE id = ?
-                ''',
-                (int(proposal_id),),
-            )
-            updated = self._deserialize_coach_proposal_row(cursor.fetchone())
             conn.commit()
             conn.close()
             return {"state": "superseded", "proposal": updated}
@@ -4448,7 +4603,8 @@ class Database:
         
         # Используем параметризованный запрос для надежности
         query = """
-            SELECT date, rmssd, rmssd_source, stress_score, recovery_score
+            SELECT date, rmssd, rmssd_source, stress_score, recovery_score,
+                   rmssd_observed_at
             FROM hrv_data
             WHERE date >= ?
             ORDER BY date DESC
@@ -4809,14 +4965,17 @@ class Database:
                     incoming = self.clean_value(hrv.get("rmssd"))
                     if row is None:
                         cursor.execute(
-                            "INSERT INTO hrv_data(date, rmssd, rmssd_source) VALUES (?, ?, ?)",
-                            (day, incoming, provider),
+                            "INSERT INTO hrv_data(date, rmssd, rmssd_source, "
+                            "rmssd_observed_at) VALUES (?, ?, ?, ?)",
+                            (day, incoming, provider, day),
                         )
                         counts["hrv_new"] += 1
                     elif should_replace(row[0], row[1]):
+                        # Provider-local `id` is the observation date (issue #557).
                         cursor.execute(
-                            "UPDATE hrv_data SET rmssd=?, rmssd_source=? WHERE date=?",
-                            (incoming, provider, day),
+                            "UPDATE hrv_data SET rmssd=?, rmssd_source=?, "
+                            "rmssd_observed_at=? WHERE date=?",
+                            (incoming, provider, day, day),
                         )
                         counts["hrv_updated"] += 1
                     touched = True
@@ -4849,9 +5008,14 @@ class Database:
                         if "total_sleep_minutes" in sleep:
                             columns.append("total_sleep_source")
                             values.append(provider)
+                            # The provider-local `id` IS the observation date.
+                            columns.append("total_sleep_observed_at")
+                            values.append(day)
                         if "sleep_score" in sleep:
                             columns.append("sleep_score_source")
                             values.append(provider)
+                            columns.append("sleep_score_observed_at")
+                            values.append(day)
                         placeholders = ", ".join("?" for _ in columns)
                         cursor.execute(
                             f"INSERT INTO sleep_data ({', '.join(columns)}) "
@@ -4869,6 +5033,7 @@ class Database:
                                 sleep.get("total_sleep_minutes")
                             )
                             updates["total_sleep_source"] = provider
+                            updates["total_sleep_observed_at"] = day
                         score_provider = (
                             row[1] if row[1] in supported else row[3]
                         )
@@ -4879,6 +5044,7 @@ class Database:
                         ):
                             updates["sleep_score"] = self.clean_value(sleep.get("sleep_score"))
                             updates["sleep_score_source"] = provider
+                            updates["sleep_score_observed_at"] = day
                         for column in (
                             "deep_sleep_minutes",
                             "light_sleep_minutes",
@@ -4911,6 +5077,9 @@ class Database:
                         ("resting_hr", "resting_hr_source", 0, 1),
                         ("steps", "steps_source", 2, 3),
                     )
+                    # Provider-local `id` is the observation date of every metric
+                    # accepted from this wellness record (issue #557).
+                    provenance_columns = {"resting_hr": "resting_hr_observed_at"}
                     if row is None:
                         columns = ["date"]
                         values = [day]
@@ -4920,6 +5089,10 @@ class Database:
                                 values.extend(
                                     (self.clean_value(health.get(metric)), provider)
                                 )
+                                provenance = provenance_columns.get(metric)
+                                if provenance:
+                                    columns.append(provenance)
+                                    values.append(day)
                         if len(columns) > 1:
                             placeholders = ", ".join("?" for _ in columns)
                             cursor.execute(
@@ -4936,6 +5109,9 @@ class Database:
                             ):
                                 updates[metric] = self.clean_value(health.get(metric))
                                 updates[source_column] = provider
+                                provenance = provenance_columns.get(metric)
+                                if provenance:
+                                    updates[provenance] = day
                         if updates:
                             clause = ", ".join(
                                 f"{column}=?" for column in updates
@@ -5308,8 +5484,10 @@ class Database:
         cursor = conn.cursor()
         
         # Получаем существующие даты
-        cursor.execute('SELECT date, rmssd, rmssd_source FROM hrv_data')
-        existing = {row[0]: (row[1], row[2]) for row in cursor.fetchall()}
+        cursor.execute(
+            'SELECT date, rmssd, rmssd_source, rmssd_observed_at FROM hrv_data'
+        )
+        existing = {row[0]: (row[1], row[2], row[3]) for row in cursor.fetchall()}
         
         new_count = 0
         updated_count = 0
@@ -5321,7 +5499,7 @@ class Database:
                 data.get('rmssd_source') or 'legacy_unknown'
             )
             if clean_date in existing:
-                current_rmssd, current_source = existing[clean_date]
+                current_rmssd, current_source, _current_observed = existing[clean_date]
                 replace_rmssd = (
                     current_rmssd is None
                     or current_source == incoming_source
@@ -5333,8 +5511,18 @@ class Database:
                     'recovery_score': self.clean_value(data.get('recovery_score')),
                 }
                 if replace_rmssd and 'rmssd' in data:
-                    updates['rmssd'] = self.clean_value(data.get('rmssd'))
+                    incoming_rmssd = self.clean_value(data.get('rmssd'))
+                    updates['rmssd'] = incoming_rmssd
                     updates['rmssd_source'] = incoming_source
+                    # Provenance следует за значением: дата сохраняется только
+                    # при неизменном значении, иначе очищается (issue #557).
+                    write_observed, resolved = self._observation_provenance_update(
+                        incoming_observed=data.get('rmssd_observed_at'),
+                        incoming_value=incoming_rmssd,
+                        stored_value=current_rmssd,
+                    )
+                    if write_observed:
+                        updates['rmssd_observed_at'] = self.clean_value(resolved)
                 clause = ', '.join(f"{column}=?" for column in updates)
                 cursor.execute(
                     f'UPDATE hrv_data SET {clause} WHERE date=?',
@@ -5345,18 +5533,21 @@ class Database:
                 # Вставляем новую запись
                 cursor.execute('''
                     INSERT INTO hrv_data
-                        (date, rmssd, rmssd_source, stress_score, recovery_score)
-                    VALUES (?, ?, ?, ?, ?)
+                        (date, rmssd, rmssd_source, stress_score, recovery_score,
+                         rmssd_observed_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
                 ''', (
                     clean_date,
                     self.clean_value(data.get('rmssd')),
                     incoming_source,
                     self.clean_value(data.get('stress_score')),
-                    self.clean_value(data.get('recovery_score'))
+                    self.clean_value(data.get('recovery_score')),
+                    self.clean_value(data.get('rmssd_observed_at'))
                 ))
                 existing[clean_date] = (
                     self.clean_value(data.get('rmssd')),
                     incoming_source,
+                    self.clean_value(data.get('rmssd_observed_at')),
                 )
                 new_count += 1
         
@@ -5751,6 +5942,15 @@ class Database:
                         data.get('total_sleep_minutes')
                     )
                     updates['total_sleep_source'] = total_source
+                    # Provenance follows its metric: a dateless update keeps the
+                    # stored date only when the value is unchanged (issue #557).
+                    write_observed, resolved = self._observation_provenance_update(
+                        incoming_observed=data.get('total_sleep_observed_at'),
+                        incoming_value=data.get('total_sleep_minutes'),
+                        stored_value=current['total_sleep_minutes'],
+                    )
+                    if write_observed:
+                        updates['total_sleep_observed_at'] = self.clean_value(resolved)
                 current_score_source = current['sleep_score_source']
                 current_score_provider = (
                     current['total_sleep_source']
@@ -5765,6 +5965,13 @@ class Database:
                 ):
                     updates['sleep_score'] = self.clean_value(data.get('sleep_score'))
                     updates['sleep_score_source'] = score_source
+                    write_observed, resolved = self._observation_provenance_update(
+                        incoming_observed=data.get('sleep_score_observed_at'),
+                        incoming_value=data.get('sleep_score'),
+                        stored_value=current['sleep_score'],
+                    )
+                    if write_observed:
+                        updates['sleep_score_observed_at'] = self.clean_value(resolved)
                 if updates:
                     clause = ', '.join(f"{column}=?" for column in updates)
                     cursor.execute(
@@ -5779,8 +5986,9 @@ class Database:
                     (date, total_sleep_minutes, deep_sleep_minutes, light_sleep_minutes,
                      rem_sleep_minutes, awakenings_count, sleep_score, bedtime, 
                      wakeup_time, sleep_efficiency, awake_sleep_minutes,
-                     total_sleep_source, sleep_score_source, sleep_efficiency_source)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     total_sleep_source, sleep_score_source, sleep_efficiency_source,
+                     sleep_score_observed_at, total_sleep_observed_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     clean_date,
                     self.clean_value(data.get('total_sleep_minutes')),
@@ -5795,7 +6003,9 @@ class Database:
                     self.clean_value(data.get('awake_sleep_minutes')),
                     total_source,
                     score_source,
-                    self.clean_value(data.get('sleep_efficiency_source') or 'legacy_unknown')
+                    self.clean_value(data.get('sleep_efficiency_source') or 'legacy_unknown'),
+                    self.clean_value(data.get('sleep_score_observed_at')),
+                    self.clean_value(data.get('total_sleep_observed_at')),
                 ))
                 existing[clean_date] = {
                     'total_sleep_minutes': self.clean_value(
@@ -5867,9 +6077,16 @@ class Database:
                     ('resting_hr', 'resting_hr_source'),
                     ('steps', 'steps_source'),
                 ):
+                    provenance_column = self._HEALTH_PROVENANCE_COLUMNS.get(metric)
+
+                    def _drop_provenance():
+                        if provenance_column and provenance_column in present_columns:
+                            present_columns.remove(provenance_column)
+
                     if metric not in present_columns:
                         if source_column in present_columns:
                             present_columns.remove(source_column)
+                        _drop_provenance()
                         continue
                     incoming_source = prepared[source_column]
                     if not (
@@ -5881,6 +6098,21 @@ class Database:
                         present_columns.remove(metric)
                         if source_column in present_columns:
                             present_columns.remove(source_column)
+                        _drop_provenance()
+                    elif provenance_column:
+                        # Provenance следует за значением: неизменное значение
+                        # сохраняет дату, изменённое без даты её очищает.
+                        write_observed, resolved = self._observation_provenance_update(
+                            incoming_observed=prepared.get(provenance_column),
+                            incoming_value=prepared.get(metric),
+                            stored_value=current.get(metric),
+                        )
+                        if write_observed:
+                            prepared[provenance_column] = self.clean_value(resolved)
+                            if provenance_column not in present_columns:
+                                present_columns.append(provenance_column)
+                        else:
+                            _drop_provenance()
                 if not present_columns:
                     continue
                 update_clause = ', '.join(f"{column}=?" for column in present_columns)
@@ -5932,9 +6164,21 @@ class Database:
         conn = self._connect()
         cursor = conn.cursor()
         
-        # Получаем существующие даты
-        cursor.execute('SELECT date FROM training_status')
-        existing_dates = {row[0] for row in cursor.fetchall()}
+        # Получаем существующие даты и известную provenance
+        cursor.execute(
+            'SELECT date, training_readiness_observed_at, training_readiness '
+            'FROM training_status'
+        )
+        existing_rows = cursor.fetchall()
+        existing_dates = {row[0] for row in existing_rows}
+        existing_observed = {row[0]: row[1] for row in existing_rows}
+        existing_readiness = {row[0]: row[2] for row in existing_rows}
+        observed_index = self._TRAINING_STATUS_COLUMN_ORDER.index(
+            'training_readiness_observed_at'
+        )
+        readiness_index = self._TRAINING_STATUS_COLUMN_ORDER.index(
+            'training_readiness'
+        )
         
         new_count = 0
         updated_count = 0
@@ -5942,6 +6186,18 @@ class Database:
         for date_str, data in status_data.items():
             clean_date = self.clean_value(date_str)
             column_values = [self.clean_value(data.get(column)) for column in self._TRAINING_STATUS_COLUMN_ORDER]
+            # Provenance следует за значением: дата сохраняется только при
+            # неизменном значении, изменённое без даты её очищает (issue #557).
+            write_observed, resolved = self._observation_provenance_update(
+                incoming_observed=data.get('training_readiness_observed_at'),
+                incoming_value=data.get('training_readiness'),
+                stored_value=existing_readiness.get(clean_date),
+            )
+            column_values[observed_index] = (
+                self.clean_value(resolved)
+                if write_observed
+                else existing_observed.get(clean_date)
+            )
             update_clause = ', '.join(f"{column}=?" for column in self._TRAINING_STATUS_COLUMN_ORDER)
             insert_columns = ['date'] + self._TRAINING_STATUS_COLUMN_ORDER
             insert_placeholders = ', '.join('?' for _ in insert_columns)
@@ -5958,6 +6214,8 @@ class Database:
                     [clean_date] + column_values
                 )
                 existing_dates.add(clean_date)
+                existing_observed[clean_date] = column_values[observed_index]
+                existing_readiness[clean_date] = column_values[readiness_index]
                 new_count += 1
         
         conn.commit()

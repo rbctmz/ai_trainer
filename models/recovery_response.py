@@ -17,7 +17,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 RECOVERY_RESPONSE_RULE_VERSION = "recovery_response_v1"
-READINESS_SNAPSHOT_RULE_VERSION = "readiness_snapshot_v2"
+READINESS_SNAPSHOT_RULE_VERSION = "readiness_snapshot_v3"
 BOOTSTRAP_RULE_VERSION = "iso_week_cluster_bootstrap_v1"
 BOOTSTRAP_RESAMPLES = 2_000
 BOOTSTRAP_BASE_SEED = 176

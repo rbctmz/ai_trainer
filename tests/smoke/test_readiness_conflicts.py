@@ -4,10 +4,11 @@ ExecPlan: docs/readiness_conflict_gate_execplan.md.
 """
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 import pytest
 
+from utils.athlete_time import athlete_local_date
 from models.readiness_conflicts import (
     DEFAULT_HORIZON_DAYS,
     MAX_QUALITY_LOOKAHEAD_DAYS,
@@ -23,13 +24,42 @@ pytestmark = pytest.mark.smoke
 TODAY = date(2026, 7, 9)
 
 
-def _readiness(score: float | None, status: str, confidence: float = 1.0) -> dict:
+def _readiness(
+    score: float | None,
+    status: str,
+    confidence: float = 1.0,
+    *,
+    intervention_score: float | None = None,
+    intervention_confidence: float | None = None,
+) -> dict:
+    """Readiness fixture.
+
+    The intervention gate reads `intervention_*` (issue #557 M4); the matrix
+    tests keep both channels equal, and the fail-closed cases override them.
+    """
+    if intervention_score is None and score is not None:
+        intervention_score = score
+    if intervention_confidence is None:
+        intervention_confidence = confidence
+    eligible = (
+        [] if intervention_score is None else ["hrv", "resting_hr", "tsb"]
+    )
     return {
         "score": score,
         "status": status,
         "confidence": confidence,
+        "intervention_score": intervention_score,
+        "intervention_confidence": intervention_confidence,
+        "eligible_inputs": eligible,
         "drivers": [
-            {"key": "hrv", "label": "HRV", "score": 40.0, "evidence": "HRV 30.0 мс против базовых 37.0 (−18.9%)"}
+            {
+                "key": "hrv",
+                "label": "HRV",
+                "score": 40.0,
+                "evidence": "HRV 30.0 мс против базовых 37.0 (−18.9%)",
+                "intervention_eligible": True,
+                "intervention_score_input": 40.0,
+            }
         ],
         "as_of_date": TODAY.isoformat(),
     }
@@ -489,13 +519,22 @@ def test_effective_horizon_extends_to_easy_high_load_session() -> None:
 # ---------------------------------------------------------------------------
 
 def _seed_fresh_recovery(db, *, rmssd_today: float, rhr_today: float) -> None:
-    today = datetime.now().date()
+    today = athlete_local_date()
     hrv, health, sleep = {}, {}, {}
     for offset in range(0, 29):
         d = (today - timedelta(days=offset)).isoformat()
         hrv[d] = {"rmssd": rmssd_today if offset == 0 else 40.0, "stress_score": 25.0}
         health[d] = {"resting_hr": rhr_today if offset == 0 else 50.0, "steps": 8000}
-    sleep[today.isoformat()] = {"total_sleep_minutes": 300, "sleep_score": 35.0}
+        if offset == 0:
+            # Сегодняшние измерения должны быть подтверждены датой наблюдения,
+            # иначе интервенционный канал их не видит (issue #557).
+            hrv[d]["rmssd_observed_at"] = d
+            health[d]["resting_hr_observed_at"] = d
+    sleep[today.isoformat()] = {
+        "total_sleep_minutes": 300,
+        "sleep_score": 35.0,
+        "sleep_score_observed_at": today.isoformat(),
+    }
     db.sync_hrv_data(hrv)
     db.sync_daily_health(health)
     db.sync_sleep_data(sleep)
@@ -504,7 +543,7 @@ def _seed_fresh_recovery(db, *, rmssd_today: float, rhr_today: float) -> None:
 def _seed_plan_with_quality_tomorrow(db) -> None:
     from models.planning_checkpoints import build_planning_checkpoint
 
-    today = datetime.now().date()
+    today = athlete_local_date()
     start_week = today - timedelta(days=today.weekday())
     days, templates = [], []
     # 8 дней (Пн–следующий Пн): в воскресенье «завтра» — уже следующая неделя,
@@ -566,7 +605,7 @@ def test_build_report_extends_to_quality_session_on_day_four(tmp_path, monkeypat
     monkeypatch.setattr(
         api_conflicts,
         "get_active_plan",
-        lambda _db: _goal_plan_with_key_session(4, today=datetime.now().date()),
+        lambda _db: _goal_plan_with_key_session(4, today=athlete_local_date()),
     )
     monkeypatch.setattr(
         api_conflicts,
@@ -602,7 +641,7 @@ def test_build_report_extends_to_structured_high_load_easy_session(
             days_until=4,
             fatigue_cost=[1, 1, 3],
             expected_recovery_hours=30,
-            today=datetime.now().date(),
+            today=athlete_local_date(),
         ),
     )
     monkeypatch.setattr(
@@ -648,6 +687,129 @@ def test_build_report_empty_db_is_data_gap(tmp_path) -> None:
 
     assert report["silence"] is True
     assert report["data_gap"] is True
+
+
+# ---------------------------------------------------------------------------
+# Anchor свежести: календарь атлета, а не дата сервера (issue #557, review P1)
+# ---------------------------------------------------------------------------
+
+_HOST_UTC_INSTANT = datetime(2026, 9, 11, 22, 30, tzinfo=timezone.utc)
+_ATHLETE_TODAY_IN_AUCKLAND = "2026-09-12"
+_ATHLETE_YESTERDAY_IN_AUCKLAND = "2026-09-11"
+
+
+class _HostClock(datetime):
+    """Хост в UTC: дата сервера (09-11) отстаёт от календаря атлета (09-12)."""
+
+    @classmethod
+    def now(cls, tz=None):
+        if tz is None:
+            return _HOST_UTC_INSTANT.replace(tzinfo=None)
+        return _HOST_UTC_INSTANT.astimezone(tz)
+
+
+def _seed_dated_night(db, day: str) -> None:
+    """Полная ночь с датированной провенансой: сон, HRV, RHR + фон активностей."""
+    db.sync_sleep_data(
+        {
+            day: {
+                "total_sleep_minutes": 420,
+                "sleep_score": 72.0,
+                "sleep_score_observed_at": day,
+                "total_sleep_observed_at": day,
+            }
+        }
+    )
+    db.sync_hrv_data({day: {"rmssd": 38.0, "rmssd_source": "garmin", "rmssd_observed_at": day}})
+    db.sync_daily_health(
+        {day: {"resting_hr": 52, "resting_hr_source": "garmin", "resting_hr_observed_at": day}}
+    )
+    base = date.fromisoformat(day)
+    db.save_activities(
+        [
+            {
+                "activity_id": f"anchor-{offset}",
+                "date": (base - timedelta(days=offset)).isoformat(),
+                "sport": "running",
+                "duration_minutes": 40,
+                "distance_km": 7.0,
+                "tss": 35.0,
+            }
+            for offset in range(1, 20)
+        ]
+    )
+
+
+def _pin_utc_host(monkeypatch) -> None:
+    from config.settings import Settings
+    from utils import athlete_time
+
+    monkeypatch.setattr(Settings, "ATHLETE_TIMEZONE", "Pacific/Auckland")
+    monkeypatch.setattr(athlete_time, "datetime", _HostClock)
+
+
+def test_conflict_report_anchors_on_the_athlete_calendar_not_the_host_date(
+    tmp_path, monkeypatch
+) -> None:
+    """Свежая ночь атлета подтверждена, даже когда сервер ещё на прошлой дате.
+
+    Falsifier (review P1): при anchor по дате хоста измерение атлета «сегодня»
+    становится будущим — `invalid`, гейт падает в `data_gap` и карточка
+    Recovery Replan не появляется, хотя ночь измерена.
+    """
+    from api.readiness_conflicts import build_readiness_conflict_report
+    from data.database import Database
+
+    _pin_utc_host(monkeypatch)
+    db = Database(str(tmp_path / "anchor.db"))
+    _seed_dated_night(db, _ATHLETE_TODAY_IN_AUCKLAND)
+
+    report = build_readiness_conflict_report(db)
+    freshness = report["readiness"]["freshness"]
+
+    assert freshness["anchor"] == _ATHLETE_TODAY_IN_AUCKLAND
+    assert set(freshness["confirmed_today"]) >= {"sleep", "hrv", "resting_hr"}
+    assert freshness["invalid"] == []
+    assert report["data_gap"] is False
+    assert report["readiness"]["intervention_score"] is not None
+
+    # Дата хоста (поведение до фикса) классифицирует ту же ночь как будущую.
+    host_report = build_readiness_conflict_report(db, today=date(2026, 9, 11))
+    host_freshness = host_report["readiness"]["freshness"]
+    assert set(host_freshness["invalid"]) >= {"sleep", "hrv", "resting_hr"}
+    assert host_report["data_gap"] is True
+    assert host_report["readiness"]["intervention_score"] is None
+
+
+def test_yesterdays_measurements_do_not_authorize_today_intervention(
+    tmp_path, monkeypatch
+) -> None:
+    """Falsifier (review P1, обратная сторона): вчерашняя ночь — не `confirmed_today`.
+
+    При anchor по дате хоста вчерашнее измерение получало age 0 и открывало
+    вмешательство сегодняшнего дня — именно этот сценарий закрыт.
+    """
+    from api.readiness_conflicts import build_readiness_conflict_report
+    from data.database import Database
+
+    _pin_utc_host(monkeypatch)
+    db = Database(str(tmp_path / "anchor-yesterday.db"))
+    _seed_dated_night(db, _ATHLETE_YESTERDAY_IN_AUCKLAND)
+
+    report = build_readiness_conflict_report(db)
+    freshness = report["readiness"]["freshness"]
+
+    assert freshness["anchor"] == _ATHLETE_TODAY_IN_AUCKLAND
+    assert set(freshness["confirmed_today"]) & {"sleep", "hrv", "resting_hr"} == set()
+    assert set(freshness["outdated"]) >= {"sleep", "hrv", "resting_hr"}
+    assert report["data_gap"] is True
+    assert report["readiness"]["intervention_score"] is None
+
+    # Anchor по дате хоста (поведение до фикса) открывал гейт вчерашними данными.
+    host_report = build_readiness_conflict_report(db, today=date(2026, 9, 11))
+    host_freshness = host_report["readiness"]["freshness"]
+    assert set(host_freshness["confirmed_today"]) >= {"sleep", "hrv", "resting_hr"}
+    assert host_report["readiness"]["intervention_score"] is not None
 
 
 def test_coach_stream_meta_exposes_readiness_conflicts(tmp_path, monkeypatch) -> None:

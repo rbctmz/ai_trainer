@@ -147,22 +147,60 @@ def _conflict_for(session: dict, *, status: str = "low", severity: str = "high")
     }
 
 
-def _snapshot(*, score: float | None = 72.0, status: str = "ready") -> dict:
+def _snapshot(
+    *,
+    score: float | None = 72.0,
+    status: str = "ready",
+    intervention_score: float | None = 38.0,
+    freshness_state: str = "provisional",
+    intervention_blocked_reason: str | None = None,
+) -> dict:
+    factor = {
+        "key": "hrv",
+        "label": "HRV",
+        "evidence": "HRV 41 (+17% к базе)",
+        "score": 70.0,
+        "intervention_score_input": 70.0,
+        "as_of": "2026-07-09",
+        "observation_as_of": "2026-07-08",
+        "age_days": 1,
+        "observation_status": "outdated",
+        "intervention_eligible": False,
+        "evidence_kind": "measurement",
+        "source": "rmssd",
+    }
     return {
         "score": score,
         "status": status if score is not None else "unknown",
         "computed_at": None,
         "is_provisional": False,
         "source_completeness": 1.0,
-        "factors": [
-            {"key": "hrv", "label": "HRV", "evidence": "HRV 41 (+17% к базе)"},
-        ],
+        "factors": [dict(factor)],
         "missing_inputs": [],
         "stale": False,
         "reason": "Readiness рассчитан по полному набору основных recovery-сигналов.",
-        "drivers": [{"key": "hrv", "evidence": "HRV 41 (+17% к базе)"}],
+        "drivers": [dict(factor)],
         "tsb": {"ctl": 18.7, "atl": 36.2, "tsb": -17.5, "window_days": 90},
         "confidence": 0.8,
+        # Issue #557 M5 (slice 5a): additive freshness/intervention channel.
+        "intervention_score": intervention_score,
+        "intervention_confidence": 0.6 if intervention_score is not None else 0.0,
+        "eligible_inputs": ["resting_hr", "tsb"] if intervention_score is not None else [],
+        "ineligible_inputs": [
+            {"key": "hrv", "observation_status": "outdated", "reason": "observation_outdated"}
+        ],
+        "intervention_blocked_reason": intervention_blocked_reason,
+        "freshness": {
+            "state": freshness_state,
+            "anchor": "2026-07-09",
+            "confirmed_today": ["resting_hr"],
+            "outdated": ["hrv"],
+            "unverified": ["sleep"],
+            "invalid": [],
+            "missing": [],
+            "intervention_eligible": ["resting_hr", "tsb"],
+            "blocked_reason": intervention_blocked_reason,
+        },
     }
 
 
@@ -194,6 +232,86 @@ def test_today_empty_db_is_no_plan(tmp_path) -> None:
     assert payload["reason"]
     assert payload["readiness_source"] == "canonical_snapshot"
     assert payload["operational_state"]["status"] == "empty"
+
+
+def test_today_projects_freshness_and_intervention_fields(tmp_path, monkeypatch) -> None:
+    """Issue #557 M5 slice 5a: /today must expose the additive readiness channel."""
+    from api.routers.today import today_view
+
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "readiness_channel.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    _patch_report(monkeypatch, _report(today))
+    _patch_snapshot(monkeypatch, _snapshot())
+
+    payload = today_view(db=db)
+    readiness = payload["readiness"]
+
+    # Legacy keys are untouched.
+    assert readiness["score"] == 72.0
+    assert readiness["confidence"] == 0.8
+    assert readiness["source_completeness"] == 1.0
+    assert readiness["stale"] is False
+    assert readiness["is_provisional"] is False
+
+    # Additive channel.
+    assert readiness["intervention_score"] == 38.0
+    assert readiness["intervention_confidence"] == 0.6
+    assert readiness["eligible_inputs"] == ["resting_hr", "tsb"]
+    assert readiness["ineligible_inputs"] == [
+        {"key": "hrv", "observation_status": "outdated", "reason": "observation_outdated"}
+    ]
+    assert readiness["intervention_blocked_reason"] is None
+
+    freshness = readiness["freshness"]
+    assert freshness["state"] == "provisional"
+    assert freshness["anchor"] == "2026-07-09"
+    assert freshness["confirmed_today"] == ["resting_hr"]
+    assert freshness["outdated"] == ["hrv"]
+    assert freshness["unverified"] == ["sleep"]
+    assert freshness["invalid"] == []
+    assert freshness["intervention_eligible"] == ["resting_hr", "tsb"]
+
+    # Drivers carry the per-factor provenance the UI renders as dates.
+    driver = readiness["drivers"][0]
+    assert driver["observation_as_of"] == "2026-07-08"
+    assert driver["as_of"] == "2026-07-09"
+    assert driver["age_days"] == 1
+    assert driver["observation_status"] == "outdated"
+    assert driver["intervention_eligible"] is False
+    assert driver["evidence_kind"] == "measurement"
+    assert driver["source"] == "rmssd"
+
+
+def test_today_readiness_keeps_the_data_gap_freshness_verdict(tmp_path, monkeypatch) -> None:
+    from api.routers.today import today_view
+
+    today = date(2026, 7, 10)
+    db = Database(str(tmp_path / "readiness_data_gap.db"))
+    db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
+    _patch_report(monkeypatch, _report(today))
+    _patch_snapshot(
+        monkeypatch,
+        _snapshot(
+            intervention_score=None,
+            freshness_state="data_gap",
+            intervention_blocked_reason="no_confirmed_today_primary_recovery_measurement",
+        ),
+    )
+
+    readiness = today_view(db=db)["readiness"]
+
+    # The descriptive score still exists, but the freshness verdict says the
+    # intervention channel has nothing to stand on.
+    assert readiness["score"] == 72.0
+    assert readiness["freshness"]["state"] == "data_gap"
+    assert readiness["intervention_score"] is None
+    assert readiness["intervention_confidence"] == 0.0
+    assert readiness["eligible_inputs"] == []
+    assert (
+        readiness["intervention_blocked_reason"]
+        == "no_confirmed_today_primary_recovery_measurement"
+    )
 
 
 def test_today_data_gap_names_reason_without_proposal(tmp_path, monkeypatch) -> None:

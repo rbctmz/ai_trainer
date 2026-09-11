@@ -183,6 +183,30 @@ class Phase1DataProcessor:
                 # Используем дату окончания сна для определения даты записи
                 processed_data['sleep_date'] = end_dt.date().strftime('%Y-%m-%d')
 
+            # Наблюдаемая дата сна (issue #557 M3). Ключ строки (`sleep_date`)
+            # остаётся как раньше, а observation date пишется отдельно и
+            # остаётся None, когда payload её не несёт: дата запроса не является
+            # доказательством того, когда сон измерен.
+            observed_date = None
+            if start_dt and end_dt:
+                observed_date = end_dt.date()
+            else:
+                # Реальный payload Garmin держит calendarDate внутри
+                # dailySleepDTO (см. tests/test_real_garmin_data_from_logs.py),
+                # поэтому верхнеуровневого поля недостаточно (review P2).
+                dto_calendar_date = (
+                    sleep_dto.get('calendarDate') if isinstance(sleep_dto, dict) else None
+                )
+                candidate = calendar_date or dto_calendar_date
+                if candidate:
+                    try:
+                        observed_date = datetime.fromisoformat(
+                            str(candidate).replace('Z', '+00:00')
+                        ).date()
+                    except (TypeError, ValueError):
+                        observed_date = None
+            observed_iso = observed_date.strftime('%Y-%m-%d') if observed_date else None
+
             # 5. Рассчитываем производные метрики, если их нет
             if 'sleep_score' not in processed_data and total_minutes > 0:
                 deep_rem_ratio = (processed_data.get('deep_sleep_minutes', 0) + processed_data.get('rem_sleep_minutes', 0)) / total_minutes
@@ -195,6 +219,15 @@ class Phase1DataProcessor:
 
             if 'sleep_score_source' not in processed_data:
                 processed_data['sleep_score_source'] = 'legacy_unknown'
+
+            # Provenance пишется по метрике и только после derivation: derived
+            # score тоже происходит из этого payload и обязан получить его дату,
+            # иначе `_sleep_factor` (он предпочитает score) объявит датированный
+            # сон неподтверждённым (issue #557 review P2/P1).
+            if 'total_sleep_minutes' in processed_data:
+                processed_data['total_sleep_observed_at'] = observed_iso
+            if 'sleep_score' in processed_data:
+                processed_data['sleep_score_observed_at'] = observed_iso
 
             # Awakening count is not awakening duration. Prefer Garmin's
             # actual awake time, then the observed sleep window; otherwise
@@ -253,11 +286,23 @@ class Phase1DataProcessor:
             
             # Обработка пульса покоя
             if resting_hr_data:
+                from utils.observation_provenance import observation_local_date
+
                 if isinstance(resting_hr_data, dict):
                     processed_data['resting_hr'] = resting_hr_data.get('restingHeartRate')
+                    # Дата измерения из payload (issue #557). Значение уже
+                    # приведено клиентом к дате атлета, поэтому читается как
+                    # локальная календарная дата; мусор -> None (unverified).
+                    observed = observation_local_date(
+                        resting_hr_data.get('observedAt'), source='athlete_local'
+                    )
+                    processed_data['resting_hr_observed_at'] = (
+                        observed.isoformat() if observed else None
+                    )
                 else:
                     # Если это просто значение
                     processed_data['resting_hr'] = resting_hr_data
+                    processed_data['resting_hr_observed_at'] = None
 
             respiration_avg = Phase1DataProcessor._extract_numeric_by_keys(
                 respiration_data,
@@ -464,7 +509,9 @@ class Phase1DataProcessor:
     @staticmethod
     def process_training_status_data(status_raw_data, vo2_data=None, readiness_data=None):
         """Обработка данных статуса тренированности"""
-        if not status_raw_data and not vo2_data:
+        # Readiness — самостоятельный источник (issue #557 review P2): без него
+        # валидный readiness-only payload молча терялся.
+        if not status_raw_data and not vo2_data and not readiness_data:
             return None
         
         processed_data: Dict[str, Any] = {}
@@ -763,8 +810,25 @@ class Phase1DataProcessor:
             if readiness_data:
                 if isinstance(readiness_data, dict):
                     processed_data['training_readiness'] = readiness_data.get('readinessScore')
+                    # Дата измерения readiness из payload (issue #557).
+                    from utils.observation_provenance import observation_local_date
+
+                    observed = None
+                    for field, source in (
+                        ('calendarDate', 'athlete_local'),
+                        ('startTimestampLocal', 'athlete_local'),
+                        ('timestamp', 'utc'),
+                        ('startTimestampGMT', 'utc'),
+                        ('date', 'athlete_local'),
+                    ):
+                        resolved = observation_local_date(readiness_data.get(field), source=source)
+                        if resolved is not None:
+                            observed = resolved.isoformat()
+                            break
+                    processed_data['training_readiness_observed_at'] = observed
                 else:
                     processed_data['training_readiness'] = readiness_data
+                    processed_data['training_readiness_observed_at'] = None
         
             # Удаляем пустые значения
             processed_data = {

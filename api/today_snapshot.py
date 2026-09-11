@@ -15,12 +15,12 @@ from api.session_feedback import (
 )
 from api.session_quality_forecast import _forecast_lifecycle_reason
 from data.database import Database
+from utils.athlete_time import athlete_local_date
 from models.planning_checkpoints import (
     restore_goal_plan_from_checkpoint,
     summarize_checkpoint_provenance,
 )
 from models.readiness_conflicts import ROLE_LABELS_RU
-from services.intervals_plan_delivery import athlete_local_date
 
 TODAY_SNAPSHOT_VERSION = "today_decision_snapshot_v2"
 
@@ -104,7 +104,7 @@ def build_today_decision_snapshot(
     loop_result = _run_loop(db, today=today)
     report = dict(loop_result.get("readiness_conflicts") or {})
 
-    fallback_date = (today or datetime.now().date()).isoformat()
+    fallback_date = (today or athlete_local_date()).isoformat()
     as_of = str(report.get("as_of") or fallback_date)[:10]
     snapshot, readiness_error = _readiness_snapshot(db, as_of=date.fromisoformat(as_of))
     readiness = _project_readiness(snapshot)
@@ -286,6 +286,7 @@ def _project_readiness(snapshot: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(snapshot, Mapping) or snapshot.get("score") is None:
         return None
     return {
+        # Legacy descriptive channel: unchanged semantics.
         "score": snapshot.get("score"),
         "status": snapshot.get("status"),
         "confidence": snapshot.get("confidence"),
@@ -297,6 +298,15 @@ def _project_readiness(snapshot: Mapping[str, Any]) -> dict[str, Any] | None:
         "tsb": snapshot.get("tsb"),
         "stale": bool(snapshot.get("stale")),
         "reason": snapshot.get("reason"),
+        # Issue #557: additive freshness/intervention channel. The browser only
+        # renders these server-owned values, it never derives them itself.
+        "is_provisional": bool(snapshot.get("is_provisional")),
+        "freshness": snapshot.get("freshness"),
+        "intervention_score": snapshot.get("intervention_score"),
+        "intervention_confidence": snapshot.get("intervention_confidence"),
+        "eligible_inputs": list(snapshot.get("eligible_inputs") or []),
+        "ineligible_inputs": list(snapshot.get("ineligible_inputs") or []),
+        "intervention_blocked_reason": snapshot.get("intervention_blocked_reason"),
     }
 
 
@@ -453,7 +463,7 @@ def _resolve_forecast(
     try:
         anchor = date.fromisoformat(as_of)
     except ValueError:
-        anchor = datetime.now().date()
+        anchor = athlete_local_date()
     end = anchor + timedelta(days=_FORECAST_HORIZON_DAYS)
     try:
         rows = db.get_session_quality_predictions(days=36500, limit=1000)
@@ -624,7 +634,7 @@ def _yesterday_reconciliation(
     try:
         anchor = date.fromisoformat(as_of)
     except ValueError:
-        anchor = datetime.now().date()
+        anchor = athlete_local_date()
     target = anchor - timedelta(days=1)
     empty = _empty_yesterday(target)
     if not has_plan:

@@ -46,14 +46,22 @@ class _LegacyRhrStub:
 def test_rhr_modern_client_normalized(monkeypatch: pytest.MonkeyPatch):
     client = _make_client(monkeypatch, _ModernRhrStub())
 
-    assert client.get_resting_heart_rate(_DATE) == {"restingHeartRate": 48}
+    # Issue #557 M3: the provider measurement date rides along with the value.
+    assert client.get_resting_heart_rate(_DATE) == {
+        "restingHeartRate": 48,
+        "observedAt": "2026-07-01",
+    }
     assert client.pop_last_error() is None
 
 
 def test_rhr_legacy_client_passthrough(monkeypatch: pytest.MonkeyPatch):
     client = _make_client(monkeypatch, _LegacyRhrStub())
 
-    assert client.get_resting_heart_rate(_DATE) == {"restingHeartRate": 50}
+    # No provider date in the legacy payload -> provenance stays unknown.
+    assert client.get_resting_heart_rate(_DATE) == {
+        "restingHeartRate": 50,
+        "observedAt": None,
+    }
 
 
 # --- VO2 max ---

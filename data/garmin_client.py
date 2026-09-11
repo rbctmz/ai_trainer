@@ -493,19 +493,45 @@ class GarminClient:
             self._remember_error("resting_heart_rate", f"Ошибка получения пульса покоя за {date_str}: {'; '.join(method_errors[:2])}")
         return None
 
-    @staticmethod
-    def _normalize_rhr_payload(rhr_data):
-        """Привести ответ RHR к форме {'restingHeartRate': N} для процессора"""
+    # Порядок полей фиксирован (issue #557): GMT/UTC-значения конвертируются в
+    # таймзону атлета, локальные/календарные берутся как есть.
+    _RHR_OBSERVATION_FIELDS = (
+        ('startTimeGMT', 'utc'),
+        ('startTimeLocal', 'athlete_local'),
+        ('timestamp', 'utc'),
+        ('calendarDate', 'athlete_local'),
+        ('date', 'athlete_local'),
+    )
+
+    @classmethod
+    def _rhr_observed_at(cls, entry):
+        """Дата измерения RHR из payload или None, если её там нет."""
+        from utils.observation_provenance import observation_local_date
+
+        if not isinstance(entry, dict):
+            return None
+        for field, source in cls._RHR_OBSERVATION_FIELDS:
+            resolved = observation_local_date(entry.get(field), source=source)
+            if resolved is not None:
+                return resolved.isoformat()
+        return None
+
+    @classmethod
+    def _normalize_rhr_payload(cls, rhr_data):
+        """Привести ответ RHR к {'restingHeartRate': N, 'observedAt': дата|None}"""
         if isinstance(rhr_data, dict):
             if rhr_data.get('restingHeartRate') is not None:
-                return rhr_data
+                return {**rhr_data, 'observedAt': cls._rhr_observed_at(rhr_data)}
             # get_rhr_day (garminconnect >= 0.3) отдаёт allMetrics.metricsMap
             metrics = rhr_data.get('allMetrics') or {}
             entries = (metrics.get('metricsMap') or {}).get('WELLNESS_RESTING_HEART_RATE')
             if isinstance(entries, list) and entries and isinstance(entries[0], dict):
                 value = entries[0].get('value')
                 if value is not None:
-                    return {'restingHeartRate': value}
+                    return {
+                        'restingHeartRate': value,
+                        'observedAt': cls._rhr_observed_at(entries[0]),
+                    }
         return rhr_data
     
     def get_daily_steps(self, date):
