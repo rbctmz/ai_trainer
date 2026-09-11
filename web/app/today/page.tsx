@@ -5,7 +5,12 @@ import Link from "next/link";
 import useSWR from "swr";
 import { fetcher, putJSON } from "@/lib/api";
 import { showDevTools } from "@/lib/flags";
-import type { TodayResponse, WorkoutStep } from "@/lib/types";
+import type {
+  ReadinessFreshness,
+  TodayReadinessDriver,
+  TodayResponse,
+  WorkoutStep,
+} from "@/lib/types";
 import { ProposalCard } from "@/components/ui/ProposalCard";
 import { PostWorkoutFeedbackCard } from "@/components/today/PostWorkoutFeedbackCard";
 import { AdherenceStrip } from "@/components/today/AdherenceStrip";
@@ -44,6 +49,53 @@ function formatHumanDate(iso: string): string {
     return iso;
   }
 }
+
+// Issue #557: the browser only *labels* server-owned provenance values; it never
+// derives freshness, scores or eligibility itself.
+function observationDateLabel(driver: TodayReadinessDriver): string {
+  switch (driver.observation_status) {
+    case "confirmed_today":
+      return "сегодня";
+    case "outdated": {
+      const date = driver.observation_as_of ? ` · ${driver.observation_as_of}` : "";
+      if (driver.age_days === 1) return `вчера${date}`;
+      if (typeof driver.age_days === "number" && driver.age_days > 1) {
+        return `${driver.age_days} дн. назад${date}`;
+      }
+      return `не за сегодня${date}`;
+    }
+    case "invalid":
+      return "некорректная дата измерения";
+    default:
+      return "дата измерения неизвестна";
+  }
+}
+
+function freshnessSummary(freshness: ReadinessFreshness): string {
+  const parts: string[] = [];
+  if (freshness.confirmed_today.length > 0) {
+    parts.push(`подтверждено сегодня: ${freshness.confirmed_today.join(", ")}`);
+  }
+  if (freshness.outdated.length > 0) {
+    parts.push(`не за сегодня: ${freshness.outdated.join(", ")}`);
+  }
+  if (freshness.unverified.length > 0) {
+    parts.push(`дата неизвестна: ${freshness.unverified.join(", ")}`);
+  }
+  if (freshness.invalid.length > 0) {
+    parts.push(`некорректная дата: ${freshness.invalid.join(", ")}`);
+  }
+  if (freshness.missing.length > 0) {
+    parts.push(`нет данных: ${freshness.missing.join(", ")}`);
+  }
+  return parts.join(" · ");
+}
+
+const blockedReasonLabels: Record<string, string> = {
+  no_confirmed_today_primary_recovery_measurement:
+    "нет подтверждённого сегодняшнего первичного измерения (сон, HRV, пульс покоя)",
+  no_intervention_eligible_factors: "нет ни одного пригодного измерения восстановления",
+};
 
 export default function TodayPage() {
   const { data, error, isLoading, mutate } = useSWR<TodayResponse>(
@@ -317,15 +369,54 @@ export default function TodayPage() {
             <details className="rounded-card border border-surface-border bg-surface p-4 shadow-card">
               <summary className="cursor-pointer text-sm font-medium text-ink">
                 Готовность {Math.round(readiness.score)}/100
+                {readiness.freshness && readiness.freshness.state !== "fresh" ? (
+                  <span className="ml-2 text-xs font-normal text-tone-warning">
+                    предварительно
+                  </span>
+                ) : null}
                 <span className="ml-2 text-xs font-normal text-ink-faint">
                   почему — {readiness.drivers.length || readiness.factors.length} факторов
                 </span>
               </summary>
+              {readiness.freshness && readiness.freshness.state !== "fresh" ? (
+                <div
+                  className={`mt-3 rounded-card border p-3 text-xs ${
+                    readiness.freshness.state === "data_gap"
+                      ? "border-tone-warning/30 bg-tone-warning/10 text-tone-warning"
+                      : "border-surface-border bg-surface-muted text-ink-soft"
+                  }`}
+                >
+                  <p className="font-medium">
+                    {readiness.freshness.state === "data_gap"
+                      ? "Сегодняшнего измерения восстановления нет — оценка предварительная"
+                      : "Часть ночных измерений не подтверждена за сегодня"}
+                  </p>
+                  {readiness.freshness.blocked_reason ? (
+                    <p className="mt-1">
+                      {blockedReasonLabels[readiness.freshness.blocked_reason] ??
+                        readiness.freshness.blocked_reason}
+                    </p>
+                  ) : null}
+                  <p className="mt-1">{freshnessSummary(readiness.freshness)}</p>
+                </div>
+              ) : null}
               <div className="mt-3 space-y-1.5 text-sm text-ink-soft">
                 {(readiness.drivers.length > 0 ? readiness.drivers : readiness.factors).map(
                   (item, index) => {
                     const evidence = String(item.evidence ?? "");
-                    return evidence ? <p key={index}>• {evidence}</p> : null;
+                    if (!evidence) return null;
+                    const driver = item as TodayReadinessDriver;
+                    const dateLabel = driver.observation_status
+                      ? observationDateLabel(driver)
+                      : null;
+                    return (
+                      <p key={index}>
+                        • {evidence}
+                        {dateLabel ? (
+                          <span className="ml-1 text-xs text-ink-faint">({dateLabel})</span>
+                        ) : null}
+                      </p>
+                    );
                   },
                 )}
                 {readiness.tsb &&
@@ -338,9 +429,14 @@ export default function TodayPage() {
                     {readiness.tsb.window_days} дн.)
                   </p>
                 ) : null}
+                {readiness.source_completeness != null ? (
+                  <p className="text-xs text-ink-faint">
+                    покрытие факторов {Math.round(readiness.source_completeness * 100)}%
+                  </p>
+                ) : null}
                 {readiness.confidence != null ? (
                   <p className="text-xs text-ink-faint">
-                    confidence {readiness.confidence}
+                    описательная уверенность {readiness.confidence}
                     {readiness.stale ? " · данные устарели" : ""}
                   </p>
                 ) : null}

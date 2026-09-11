@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "dda0c1579ea6c6414b5bf91924187dd25f820272fcc2a827629fd78ab1b3f62c",
+    "source_sha256": "2fc4529a2b7d273303bc16e6441e95b1cee77b6c4a6a133892b85989aadb8e20",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "a8b1bf6dfe79c12d94a8e1ddab9697db93f2304b0714facfeeefebe0c6848a5e"
   },
@@ -23093,7 +23093,7 @@
           }
         },
         "evidence": {
-          "optional": true,
+          "optional": false,
           "spec": {
             "kinds": [
               "string"
@@ -23241,24 +23241,6 @@
             "array_length": null
           }
         },
-        "raw_value": {
-          "optional": false,
-          "spec": {
-            "kinds": [
-              "null",
-              "number"
-            ],
-            "literals": [],
-            "widened": false,
-            "items": null,
-            "fields": null,
-            "ref": null,
-            "wildcard": false,
-            "variants": null,
-            "record_values": null,
-            "array_length": null
-          }
-        },
         "score": {
           "optional": false,
           "spec": {
@@ -23278,7 +23260,7 @@
           }
         },
         "source": {
-          "optional": false,
+          "optional": true,
           "spec": {
             "kinds": [
               "string"

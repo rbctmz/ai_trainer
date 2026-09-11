@@ -1589,8 +1589,21 @@ export interface TodayPrimaryAction {
   reason: string;
 }
 
-export interface TodayReadinessDriver extends ReadinessSnapshotFactor {
-  evidence?: string;
+/** One rendered readiness driver. The server emits exactly these fields (it is
+ *  not the full factor contract: drivers carry no raw_value/baseline). */
+export interface TodayReadinessDriver {
+  key: string;
+  label: string;
+  score: number | null;
+  evidence: string;
+  intervention_score_input?: number | null;
+  as_of?: string | null;
+  observation_as_of?: string | null;
+  age_days?: number | null;
+  observation_status?: ReadinessObservationStatus | string | null;
+  intervention_eligible?: boolean;
+  evidence_kind?: ReadinessEvidenceKind | string | null;
+  source?: string;
 }
 
 export interface TodayReadiness {
