@@ -1,10 +1,13 @@
-"""Issue #557 M6 acceptance: the data-gap scenario reads back from a real
-isolated SQLite database through `GET /api/today` with zero writes.
+"""Issue #557 M6 acceptance: `GET /api/today` on an isolated SQLite database.
 
 The scenario is the incident itself: yesterday's sleep and HRV, an RHR row
-without a provider measurement date and a current TSB. The morning screen must
-report a data gap instead of an actionable Recovery Replan, and evaluating it
-must not create checkpoints, proposals, recovery decisions or provider calls.
+without a provider measurement date and a current TSB. The HTTP surface must
+report a data gap instead of an actionable Recovery Replan.
+
+Invariant held by the acceptance run: evaluating the morning screen performs
+**zero checkpoint, proposal, provider-delivery and provider-call mutations** and
+exactly **one** audit decision row (the recovery journal is the record of that
+evaluation, not a plan mutation).
 """
 from __future__ import annotations
 
@@ -12,7 +15,11 @@ import sqlite3
 from datetime import date, datetime, timedelta
 
 import pytest
+from fastapi import Query
+from fastapi.testclient import TestClient
 
+from api.deps import get_database
+from api.main import app
 from data.database import Database
 from models.planning_checkpoints import build_planning_checkpoint
 
@@ -111,6 +118,12 @@ def _seed_stale_night(db: Database, today: date) -> None:
     )
 
 
+def _http_client(db: Database) -> TestClient:
+    """Real HTTP client whose get_database dependency points at this database."""
+    app.dependency_overrides[get_database] = lambda demo=Query(False): db
+    return TestClient(app)
+
+
 def _counts(db_path: str) -> dict[str, int]:
     conn = sqlite3.connect(db_path)
     try:
@@ -127,9 +140,12 @@ def _counts(db_path: str) -> dict[str, int]:
         conn.close()
 
 
-def test_today_reports_data_gap_without_any_write_or_provider_call(tmp_path, monkeypatch):
-    from api.routers.today import today_view
+def test_get_api_today_reports_data_gap_with_zero_plan_mutations(tmp_path, monkeypatch):
+    """HTTP acceptance: 200, data gap, no plan/proposal/delivery/provider writes.
 
+    Exactly one recovery journal row is expected: it is the audit record of this
+    evaluation, not a mutation of planning state.
+    """
     # `/api/today` anchors readiness on the athlete's current date, so the
     # scenario has to be built around it (mirrors the real morning screen).
     today = datetime.now().date()
@@ -145,15 +161,22 @@ def test_today_reports_data_gap_without_any_write_or_provider_call(tmp_path, mon
 
     monkeypatch.setattr(intervals_module, "get_client", _no_provider, raising=False)
 
-    before = _counts(db.db_path)
-    payload = today_view(db=db)
-    after = _counts(db.db_path)
+    client = _http_client(db)
+    try:
+        before = _counts(db.db_path)
+        response = client.get("/api/today")
+        after = _counts(db.db_path)
+    finally:
+        app.dependency_overrides.pop(get_database, None)
 
-    # No mutation of planning/proposal/delivery state. The recovery journal is
-    # the audit record of this evaluation, so exactly one row is expected there.
+    assert response.status_code == 200
+    payload = response.json()
+
+    # Zero checkpoint / proposal / delivery mutations...
     assert after["planning_checkpoints"] == before["planning_checkpoints"]
     assert after["coach_proposals"] == 0
     assert after["intervals_plan_deliveries"] == 0
+    # ...and exactly one audit decision row (+1), which records the evaluation.
     assert after["recovery_decisions"] == before["recovery_decisions"] + 1
 
     # The morning screen reports the gap instead of an actionable card.
@@ -196,10 +219,13 @@ def test_today_reports_data_gap_without_any_write_or_provider_call(tmp_path, mon
         assert "intervention_eligible" in driver
 
 
-def test_today_confirms_a_freshly_dated_measurement(tmp_path):
-    """Control: with a provider-dated primary measurement the gate is open."""
-    from api.routers.today import today_view
+def test_get_api_today_confirms_a_freshly_dated_measurement(tmp_path):
+    """Control: a provider-dated primary measurement opens the intervention channel.
 
+    RHR + TSB give `intervention_confidence == 0.4`, so the intervention score
+    becomes available while the salience gate still stays silent (below
+    `MIN_CONFIDENCE`); the test asserts both halves honestly.
+    """
     today = datetime.now().date()
     db = Database(str(tmp_path / "fresh.db"))
     db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
@@ -215,7 +241,15 @@ def test_today_confirms_a_freshly_dated_measurement(tmp_path):
         }
     )
 
-    readiness = today_view(db=db)["readiness"]
+    client = _http_client(db)
+    try:
+        response = client.get("/api/today")
+    finally:
+        app.dependency_overrides.pop(get_database, None)
+
+    assert response.status_code == 200
+    payload = response.json()
+    readiness = payload["readiness"]
 
     # TSB is a derived state, so it is always dated to the anchor.
     assert readiness["freshness"]["confirmed_today"] == ["resting_hr", "tsb"]
@@ -223,3 +257,8 @@ def test_today_confirms_a_freshly_dated_measurement(tmp_path):
     assert readiness["intervention_score"] is not None
     assert readiness["intervention_blocked_reason"] is None
     assert readiness["freshness"]["state"] == "provisional"
+    # Two eligible inputs of five keep confidence at 0.4: the intervention score
+    # exists, but the salience gate remains closed below MIN_CONFIDENCE.
+    assert readiness["intervention_confidence"] == 0.4
+    assert payload["gate"]["data_gap"] is True
+    assert payload["gate"]["conflicts"] == []
