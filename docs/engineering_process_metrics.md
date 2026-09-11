@@ -97,7 +97,7 @@ gate; issue #507 owns the short agent-visible stop rule.
 
 - Class A architecture-changing PR: **done — PR #496** (prospective row above) and **PR #563 / issue #557** (post-merge record above).
 - Class C UI/docs PR: **done — PR #497** (prospective row above; сам пилот — пост-мержевая запись метрик).
-- Routing/lead-time verdict: **routing verified on both pilots** (Class A провёл полный контур, Class C прошёл fast track; P0/P1 coverage сохранился — оба P1 пойманы до merge). Сокращение lead time с n=2 не доказывается; thresholds и trend остаются на Revisit Gate (5–10 prospective PR).
+- Routing/lead-time verdict: **routing verified across the prospective records — Class A n=2 (PR #496, PR #563), Class C n=1 (PR #497), total n=3** (Class A прошёл полный контур дважды, Class C — fast track; P0/P1 coverage сохранился: пойманы до merge все P1 — 1 в #496, 1 в #497 (Class C-пилот) и 2 в #563). Сокращение lead time с n=3 не доказывается; thresholds и trend остаются на Revisit Gate (5–10 prospective PR).
 
 ## Revisit Gate
 
