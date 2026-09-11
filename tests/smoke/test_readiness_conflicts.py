@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 
 import pytest
 
+from utils.athlete_time import athlete_local_date
 from models.readiness_conflicts import (
     DEFAULT_HORIZON_DAYS,
     MAX_QUALITY_LOOKAHEAD_DAYS,
@@ -41,7 +42,7 @@ def _readiness(
     if intervention_confidence is None:
         intervention_confidence = confidence
     eligible = (
-        [] if intervention_score is None else ["resting_hr", "tsb"]
+        [] if intervention_score is None else ["hrv", "resting_hr", "tsb"]
     )
     return {
         "score": score,
@@ -51,7 +52,14 @@ def _readiness(
         "intervention_confidence": intervention_confidence,
         "eligible_inputs": eligible,
         "drivers": [
-            {"key": "hrv", "label": "HRV", "score": 40.0, "evidence": "HRV 30.0 мс против базовых 37.0 (−18.9%)"}
+            {
+                "key": "hrv",
+                "label": "HRV",
+                "score": 40.0,
+                "evidence": "HRV 30.0 мс против базовых 37.0 (−18.9%)",
+                "intervention_eligible": True,
+                "intervention_score_input": 40.0,
+            }
         ],
         "as_of_date": TODAY.isoformat(),
     }
@@ -511,7 +519,7 @@ def test_effective_horizon_extends_to_easy_high_load_session() -> None:
 # ---------------------------------------------------------------------------
 
 def _seed_fresh_recovery(db, *, rmssd_today: float, rhr_today: float) -> None:
-    today = datetime.now().date()
+    today = athlete_local_date()
     hrv, health, sleep = {}, {}, {}
     for offset in range(0, 29):
         d = (today - timedelta(days=offset)).isoformat()
@@ -535,7 +543,7 @@ def _seed_fresh_recovery(db, *, rmssd_today: float, rhr_today: float) -> None:
 def _seed_plan_with_quality_tomorrow(db) -> None:
     from models.planning_checkpoints import build_planning_checkpoint
 
-    today = datetime.now().date()
+    today = athlete_local_date()
     start_week = today - timedelta(days=today.weekday())
     days, templates = [], []
     # 8 дней (Пн–следующий Пн): в воскресенье «завтра» — уже следующая неделя,
@@ -597,7 +605,7 @@ def test_build_report_extends_to_quality_session_on_day_four(tmp_path, monkeypat
     monkeypatch.setattr(
         api_conflicts,
         "get_active_plan",
-        lambda _db: _goal_plan_with_key_session(4, today=datetime.now().date()),
+        lambda _db: _goal_plan_with_key_session(4, today=athlete_local_date()),
     )
     monkeypatch.setattr(
         api_conflicts,
@@ -633,7 +641,7 @@ def test_build_report_extends_to_structured_high_load_easy_session(
             days_until=4,
             fatigue_cost=[1, 1, 3],
             expected_recovery_hours=30,
-            today=datetime.now().date(),
+            today=athlete_local_date(),
         ),
     )
     monkeypatch.setattr(

@@ -190,13 +190,21 @@ class Phase1DataProcessor:
             observed_date = None
             if start_dt and end_dt:
                 observed_date = end_dt.date()
-            elif calendar_date:
-                try:
-                    observed_date = datetime.fromisoformat(
-                        str(calendar_date).replace('Z', '+00:00')
-                    ).date()
-                except (TypeError, ValueError):
-                    observed_date = None
+            else:
+                # Реальный payload Garmin держит calendarDate внутри
+                # dailySleepDTO (см. tests/test_real_garmin_data_from_logs.py),
+                # поэтому верхнеуровневого поля недостаточно (review P2).
+                dto_calendar_date = (
+                    sleep_dto.get('calendarDate') if isinstance(sleep_dto, dict) else None
+                )
+                candidate = calendar_date or dto_calendar_date
+                if candidate:
+                    try:
+                        observed_date = datetime.fromisoformat(
+                            str(candidate).replace('Z', '+00:00')
+                        ).date()
+                    except (TypeError, ValueError):
+                        observed_date = None
             observed_iso = observed_date.strftime('%Y-%m-%d') if observed_date else None
 
             # 5. Рассчитываем производные метрики, если их нет

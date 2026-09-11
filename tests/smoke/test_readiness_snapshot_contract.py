@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 from data.database import Database
+from utils.athlete_time import athlete_local_date
 
 
 def _events(streaming_response) -> list[dict[str, Any]]:
@@ -27,7 +28,7 @@ def _events(streaming_response) -> list[dict[str, Any]]:
 
 
 def _seed_activity(db: Database, date_str: str | None = None) -> None:
-    date_str = date_str or datetime.now().strftime("%Y-%m-%d")
+    date_str = date_str or athlete_local_date().isoformat()
     db.save_activities(
         [
             {
@@ -43,7 +44,7 @@ def _seed_activity(db: Database, date_str: str | None = None) -> None:
 
 
 def _seed_full_readiness(db: Database, date_str: str | None = None) -> None:
-    date_str = date_str or datetime.now().strftime("%Y-%m-%d")
+    date_str = date_str or athlete_local_date().isoformat()
     db.sync_sleep_data(
         {
             date_str: {
@@ -96,7 +97,7 @@ def test_readiness_snapshot_full_data_is_complete_and_anchored(tmp_path):
 
     assert snapshot["score"] is not None
     assert snapshot["status"] in {"limited", "ready", "strong"}
-    assert snapshot["computed_at"] == datetime.now().strftime("%Y-%m-%d")
+    assert snapshot["computed_at"] == athlete_local_date().isoformat()
     assert snapshot["is_provisional"] is False
     assert snapshot["source_completeness"] == 1.0
     assert snapshot["missing_inputs"] == []
@@ -113,7 +114,7 @@ def test_readiness_snapshot_partial_data_lists_missing_inputs(tmp_path):
     from api.readiness_snapshot import build_readiness_snapshot
 
     db = Database(str(tmp_path / "partial.db"))
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = athlete_local_date().isoformat()
     db.sync_sleep_data({today: {"total_sleep_minutes": 420, "sleep_score": 68.0}})
     db.sync_hrv_data({today: {"rmssd": 35.0, "stress_score": 30.0}})
 
@@ -275,7 +276,7 @@ def test_snapshot_without_provenance_reports_data_gap_and_keeps_legacy_verdict(t
     # so no measurement is confirmed for today and the gate input is blocked.
     freshness = snapshot["freshness"]
     assert freshness["state"] == "data_gap"
-    assert freshness["anchor"] == datetime.now().strftime("%Y-%m-%d")
+    assert freshness["anchor"] == athlete_local_date().isoformat()
     assert freshness["confirmed_today"] == []
     assert set(freshness["unverified"]) == {
         "sleep",
@@ -314,7 +315,7 @@ def test_snapshot_confirms_sleep_only_with_payload_observation_date(tmp_path):
     from api.readiness_snapshot import build_readiness_snapshot
 
     db = Database(str(tmp_path / "sleep_provenance_snapshot.db"))
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = athlete_local_date().isoformat()
     db.sync_sleep_data(
         {
             today: {
@@ -420,7 +421,7 @@ def test_snapshot_keeps_invalid_observations_in_their_own_bucket(tmp_path, monke
     monkeypatch.setattr(snapshot_module, "compute_readiness_today", _with_future_rhr)
 
     db = Database(str(tmp_path / "invalid_obs.db"))
-    today = datetime.now().strftime("%Y-%m-%d")
+    today = athlete_local_date().isoformat()
     db.sync_sleep_data(
         {
             today: {

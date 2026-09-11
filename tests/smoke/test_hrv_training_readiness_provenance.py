@@ -9,7 +9,7 @@ actually accepted.
 from __future__ import annotations
 
 import sqlite3
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 
 import pandas as pd
 
@@ -283,14 +283,21 @@ def _collect_training_status(monkeypatch, readiness):
     return data
 
 
-def test_training_readiness_key_and_provenance_come_from_the_payload(monkeypatch):
+def test_training_readiness_row_is_dated_by_the_sync_day_and_keeps_payload_provenance(
+    monkeypatch,
+):
+    """The composite status row belongs to the sync day (review P1)."""
+    from utils.athlete_time import athlete_local_date
+
     data = _collect_training_status(
         monkeypatch, {"readinessScore": 78, "calendarDate": "2026-07-16"}
     )
 
-    assert list(data) == ["2026-07-16"]
-    entry = data["2026-07-16"]
+    sync_day = athlete_local_date().isoformat()
+    assert list(data) == [sync_day]
+    entry = data[sync_day]
     assert entry["training_readiness"] == 78
+    # Readiness keeps its own provider date, which is what gates the factor.
     assert entry["training_readiness_observed_at"] == "2026-07-16"
 
 
@@ -348,10 +355,51 @@ def test_readiness_only_payload_is_not_dropped(monkeypatch):
     )
     data, warnings = sync_module._collect_training_status_data(_ReadinessOnlyStub())
 
-    assert list(data) == ["2026-07-16"]
-    assert data["2026-07-16"]["training_readiness"] == 78
-    assert data["2026-07-16"]["training_readiness_observed_at"] == "2026-07-16"
+    from utils.athlete_time import athlete_local_date
+
+    sync_day = athlete_local_date().isoformat()
+    assert list(data) == [sync_day]
+    assert data[sync_day]["training_readiness"] == 78
+    assert data[sync_day]["training_readiness_observed_at"] == "2026-07-16"
     assert warnings == []
+
+
+def test_stale_readiness_does_not_move_the_composite_training_row(monkeypatch):
+    """Review P1: the composite status row belongs to the sync date, not to readiness."""
+    from services import sync as sync_module
+    from utils.athlete_time import athlete_local_date
+
+    class _StaleReadinessStub:
+        def get_training_status(self):
+            return {
+                "mostRecentTrainingStatus": {
+                    "latestTrainingStatusData": {
+                        "dev-1": {"trainingStatusFeedbackPhrase": "PRODUCTIVE_1"}
+                    }
+                }
+            }
+
+        def get_vo2_max(self):
+            return {"vo2MaxValue": 52.0, "fitnessAge": 31}
+
+        def get_training_readiness(self):
+            yesterday = (athlete_local_date() - timedelta(days=1)).isoformat()
+            return {"readinessScore": 78, "calendarDate": yesterday}
+
+    monkeypatch.setattr(
+        sync_module, "_call_client_method",
+        lambda client, method, *args, **kwargs: (getattr(client, method)(), None),
+    )
+    data, _warnings = sync_module._collect_training_status_data(_StaleReadinessStub())
+
+    today = athlete_local_date().isoformat()
+    yesterday = (athlete_local_date() - timedelta(days=1)).isoformat()
+    assert list(data) == [today], "the composite row must stay on the sync date"
+    entry = data[today]
+    assert entry["vo2_max"] == 52.0
+    assert entry["training_readiness"] == 78
+    # Readiness keeps its own observation date, so the factor is gated honestly.
+    assert entry["training_readiness_observed_at"] == yesterday
 
 
 def test_training_status_provenance_round_trips_and_survives_a_dateless_resync(tmp_path):

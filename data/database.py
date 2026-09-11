@@ -955,9 +955,9 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(activities)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._ACTIVITY_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE activities ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'activities', self._ACTIVITY_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     @staticmethod
@@ -1102,9 +1102,9 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(training_status)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._TRAINING_STATUS_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE training_status ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'training_status', self._TRAINING_STATUS_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     def _ensure_daily_health_columns(self, conn: sqlite3.Connection) -> None:
@@ -1112,9 +1112,9 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(daily_health)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._DAILY_HEALTH_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE daily_health ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'daily_health', self._DAILY_HEALTH_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     def _ensure_hrv_columns(self, conn: sqlite3.Connection) -> None:
@@ -1122,24 +1122,36 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(hrv_data)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._HRV_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE hrv_data ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'hrv_data', self._HRV_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
+
+    @staticmethod
+    def _add_missing_columns(cursor, table, column_types, existing_columns):
+        """ALTER ADD COLUMN with duplicate-column tolerance (issue #557 review P2).
+
+        Two initializers can read the column list before either commits, so the
+        loser of that race must not abort startup with `duplicate column name`.
+        """
+        for column, column_type in column_types.items():
+            if column in existing_columns:
+                continue
+            try:
+                cursor.execute(f'ALTER TABLE {table} ADD COLUMN {column} {column_type}')
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+        return None
 
     def _ensure_sleep_columns(self, conn: sqlite3.Connection) -> None:
         """Add provenance columns without rewriting legacy sleep metrics."""
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(sleep_data)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._SLEEP_COLUMN_TYPES.items():
-            if column in existing_columns:
-                continue
-            try:
-                cursor.execute(f'ALTER TABLE sleep_data ADD COLUMN {column} {column_type}')
-            except sqlite3.OperationalError as exc:
-                if "duplicate column name" not in str(exc).lower():
-                    raise
+        self._add_missing_columns(
+            cursor, 'sleep_data', self._SLEEP_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     @staticmethod
@@ -1164,9 +1176,9 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(coach_decisions)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._COACH_DECISION_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE coach_decisions ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'coach_decisions', self._COACH_DECISION_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     def _ensure_coach_proposal_columns(self, conn: sqlite3.Connection) -> None:
@@ -1174,9 +1186,9 @@ class Database:
         cursor = conn.cursor()
         cursor.execute("PRAGMA table_info(coach_proposals)")
         existing_columns = {row[1] for row in cursor.fetchall()}
-        for column, column_type in self._COACH_PROPOSAL_COLUMN_TYPES.items():
-            if column not in existing_columns:
-                cursor.execute(f'ALTER TABLE coach_proposals ADD COLUMN {column} {column_type}')
+        self._add_missing_columns(
+            cursor, 'coach_proposals', self._COACH_PROPOSAL_COLUMN_TYPES, existing_columns
+        )
         conn.commit()
 
     @staticmethod

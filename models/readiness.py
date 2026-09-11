@@ -13,12 +13,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 import pandas as pd
 
 from models.banister import BanisterModel
+from utils.athlete_time import athlete_local_date
 
 
 # Стабильное окно расчёта CTL/ATL/TSB (issue #134): метрики не должны зависеть
@@ -127,7 +128,10 @@ def compute_readiness_today(
     """max_value_age_days=None разрешает сколь угодно старые значения:
     потребитель (например, readiness_snapshot) сам помечает результат stale
     по as_of_date вместо того, чтобы терять score."""
-    anchor = today or datetime.now().date()
+    # Anchor — календарь атлета: даты наблюдений приходят в ATHLETE_TIMEZONE, и
+    # серверная дата вокруг полуночи классифицировала бы свежее измерение как
+    # будущее, а вчерашнее — как сегодняшнее (issue #557, review P1).
+    anchor = today or athlete_local_date()
 
     factors: list[dict[str, Any]] = []
 

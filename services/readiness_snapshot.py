@@ -24,6 +24,7 @@ from models.readiness import (
     compute_readiness_today,
 )
 from models.recovery_response import READINESS_SNAPSHOT_RULE_VERSION
+from utils.athlete_time import athlete_local_date
 
 
 PRIMARY_INPUTS = ("sleep", "hrv", "resting_hr")
@@ -56,7 +57,7 @@ def _build_measured_readiness_snapshot(
     observed_at_utc: datetime | None = None,
 ) -> dict[str, Any]:
     """Build the canonical JSON-safe readiness fact without look-ahead."""
-    anchor = as_of or datetime.now().date()
+    anchor = as_of or athlete_local_date()
     observed = observed_at_utc or datetime.now(timezone.utc)
     if observed.tzinfo is None:
         raise ValueError("observed_at_utc must be timezone-aware")
@@ -365,7 +366,7 @@ def build_readiness_snapshot(
     """Attach independent self-reports without changing measured readiness."""
     from services.subjective_wellness import build_subjective_wellness
 
-    anchor = as_of or datetime.now().date()
+    anchor = as_of or athlete_local_date()
     result = _build_measured_readiness_snapshot(
         db, stale_after_days=stale_after_days, as_of=anchor,
         observed_at_utc=observed_at_utc,

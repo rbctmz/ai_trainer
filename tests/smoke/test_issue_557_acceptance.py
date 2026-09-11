@@ -21,6 +21,7 @@ from fastapi.testclient import TestClient
 from api.deps import get_database
 from api.main import app
 from data.database import Database
+from utils.athlete_time import athlete_local_date
 from models.planning_checkpoints import build_planning_checkpoint
 
 pytestmark = pytest.mark.smoke
@@ -148,7 +149,7 @@ def test_get_api_today_reports_data_gap_with_zero_plan_mutations(tmp_path, monke
     """
     # `/api/today` anchors readiness on the athlete's current date, so the
     # scenario has to be built around it (mirrors the real morning screen).
-    today = datetime.now().date()
+    today = athlete_local_date()
     db = Database(str(tmp_path / "acceptance.db"))
     db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
     _seed_stale_night(db, today)
@@ -226,7 +227,7 @@ def test_get_api_today_confirms_a_freshly_dated_measurement(tmp_path):
     becomes available while the salience gate still stays silent (below
     `MIN_CONFIDENCE`); the test asserts both halves honestly.
     """
-    today = datetime.now().date()
+    today = athlete_local_date()
     db = Database(str(tmp_path / "fresh.db"))
     db.save_planning_checkpoint(build_planning_checkpoint(_goal_plan(today)))
     _seed_stale_night(db, today)

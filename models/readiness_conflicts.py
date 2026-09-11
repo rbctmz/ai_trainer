@@ -11,7 +11,11 @@ from __future__ import annotations
 
 import math
 
-from models.readiness import PRIMARY_RECOVERY_KEYS, readiness_status_for_score
+from models.readiness import (
+    FACTOR_WEIGHTS,
+    PRIMARY_RECOVERY_KEYS,
+    readiness_status_for_score,
+)
 
 from datetime import date
 from math import isfinite
@@ -22,6 +26,10 @@ from typing import Any, Mapping
 # Ниже этого порога уверенности готовности детектор молчит с data_gap=True:
 # вмешательство на 2 факторах из 5 ложно-положительно по построению.
 MIN_CONFIDENCE = 0.5
+
+# Нейтральный уровень фактора: как и в models/readiness.py, драйверы
+# ранжируются по вкладу отклонения от него.
+_NEUTRAL_SCORE = 70.0
 
 # Issue #557 M4: identity of the intervention-eligibility rules. Recovery
 # proposals carry this stamp; a proposal whose stamp is neither the current
@@ -477,14 +485,45 @@ def detect_readiness_conflicts(
 def _readiness_evidence(
     readiness: dict[str, Any], *, score: float | None, status: str
 ) -> str:
-    """Human-readable evidence of the *intervention* channel that decided."""
-    driver_bits = [
-        str(d.get("evidence"))
-        for d in (readiness.get("drivers") or [])
-        if d.get("evidence")
+    """Human-readable evidence of the *intervention* channel that decided.
+
+    Только пригодные к интервенции факторы: описательный топ-драйвер может быть
+    устаревшим или недатированным, и упоминать его как причину вмешательства
+    нельзя (issue #557 review P2).
+    """
+    eligible_keys = {
+        str(key) for key in (readiness.get("eligible_inputs") or []) if str(key)
+    }
+    pool: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for candidate in list(readiness.get("drivers") or []) + list(readiness.get("factors") or []):
+        key = str(candidate.get("key") or "")
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        pool.append(candidate)
+    eligible = [
+        factor
+        for factor in pool
+        if factor.get("intervention_eligible") is True
+        or (
+            "intervention_eligible" not in factor
+            and str(factor.get("key") or "") in eligible_keys
+        )
     ]
-    drivers = "; ".join(driver_bits[:3]) or "драйверы недоступны"
-    return f"Готовность {score}/100 ({status}): {drivers}"
+    ordered = sorted(
+        eligible,
+        key=lambda d: FACTOR_WEIGHTS.get(str(d.get("key")), 0.0)
+        * abs(float(d.get("intervention_score_input", d.get("score")) or 0.0) - _NEUTRAL_SCORE),
+        reverse=True,
+    )
+    bits = []
+    for factor in ordered[:3]:
+        label = str(factor.get("label") or factor.get("key") or "фактор")
+        detail = str(factor.get("evidence") or "").strip()
+        bits.append(f"{label}: {detail}" if detail else label)
+    drivers_text = "; ".join(bits) or "пригодные факторы не описаны"
+    return f"Готовность {score}/100 ({status}): {drivers_text}"
 
 
 def _session_evidence(session: dict[str, Any]) -> str:

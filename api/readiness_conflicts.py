@@ -9,11 +9,12 @@
 """
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from typing import Any
 
 from api.planning_service import get_active_plan
 from data.database import Database
+from utils.athlete_time import athlete_local_date
 from models.readiness import LOAD_METRICS_WINDOW_DAYS, compute_readiness_today
 from services.readiness_snapshot import build_readiness_freshness
 from models.readiness_conflicts import (
@@ -32,7 +33,7 @@ def build_readiness_conflict_report(
     max_quality_lookahead_days: int = MAX_QUALITY_LOOKAHEAD_DAYS,
     today: date | None = None,
 ) -> dict[str, Any]:
-    today = today or datetime.now().date()
+    today = today or athlete_local_date()
 
     try:
         sleep_df = db.get_sleep_data(36500)

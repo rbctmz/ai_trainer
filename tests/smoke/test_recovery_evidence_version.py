@@ -526,6 +526,47 @@ def test_status_helper_is_robust_to_invalid_scores():
     assert readiness_status_for_score(38.0) == "low"
 
 
+def test_conflict_evidence_describes_only_intervention_eligible_factors():
+    """Review P2: audit text must not claim an excluded factor drove the decision."""
+    readiness = {
+        **_readiness(
+            legacy_score=38.0,
+            legacy_confidence=1.0,
+            intervention_score=38.0,
+            intervention_confidence=0.6,
+        ),
+        "eligible_inputs": ["resting_hr", "tsb"],
+        "drivers": [
+            {
+                "key": "hrv",
+                "label": "HRV",
+                "score": 20.0,
+                "intervention_score_input": 20.0,
+                "evidence": "HRV 30.0 мс против базовых 37.0 (−18.9%)",
+                "observation_status": "unverified",
+                "intervention_eligible": False,
+            },
+            {
+                "key": "resting_hr",
+                "label": "Пульс покоя",
+                "score": 35.0,
+                "intervention_score_input": 35.0,
+                "evidence": "Пульс покоя 68.0 уд/мин против базовых 50.0",
+                "observation_status": "confirmed_today",
+                "intervention_eligible": True,
+            },
+        ],
+        "factors": [],
+    }
+
+    report = detect_readiness_conflicts(readiness, [_quality_session()], today=TODAY)
+
+    assert report["conflicts"], "the gate must still fire"
+    evidence = " | ".join(report["conflicts"][0]["evidence"])
+    assert "Пульс покоя" in evidence
+    assert "HRV" not in evidence, "an ineligible factor must not be quoted as the driver"
+
+
 def test_report_echoes_freshness_and_eligible_inputs_into_the_evidence_block():
     """Review P2: audit/evidence identity must reflect the fresh-factor set."""
     from api.recovery_replan_loop import _fingerprint

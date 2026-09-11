@@ -1117,20 +1117,17 @@ def _collect_training_status_data(client: Any) -> tuple[dict[str, dict[str, Any]
                 readiness_data,
             )
             if processed_status:
-                # Ключ строки — дата измерения из payload (issue #557): раньше
-                # здесь стоял datetime.now(), и старый device readiness
-                # выглядел сегодняшним. Без подтверждённой даты строка всё
-                # равно сохраняется, но фактор остаётся unverified.
-                observed = processed_status.get("training_readiness_observed_at")
-                if observed:
-                    row_key = str(observed)
-                else:
-                    try:
-                        from utils.athlete_time import athlete_local_date
+                # Композитная строка (training status, VO2, load balance) относится
+                # ко дню синка, а не к дате readiness: устаревший readiness в том
+                # же payload переписал бы чужой день и не создал бы строку за
+                # сегодня (review P1). Дату измерения несёт отдельная колонка
+                # `training_readiness_observed_at`, по ней фактор и гейтится.
+                try:
+                    from utils.athlete_time import athlete_local_date
 
-                        row_key = athlete_local_date().isoformat()
-                    except ValueError:
-                        row_key = datetime.now().strftime("%Y-%m-%d")
+                    row_key = athlete_local_date().isoformat()
+                except ValueError:
+                    row_key = datetime.now().strftime("%Y-%m-%d")
                 training_status_data[row_key] = processed_status
     except Exception as exc:
         _append_warning(warnings, f"⚠️ Обработка training status: {exc}")

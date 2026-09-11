@@ -262,6 +262,30 @@ def test_sleep_observation_date_is_none_for_invalid_calendar_date():
     assert result["total_sleep_observed_at"] is None
 
 
+def test_sleep_observation_date_falls_back_to_the_dto_calendar_date():
+    """Review P2: the captured real Garmin payload keeps calendarDate in the DTO."""
+    payload = {
+        "dailySleepDTO": {
+            "id": 1755032275000,
+            "calendarDate": "2025-08-13",
+            "sleepTimeSeconds": 26100,
+            "deepSleepSeconds": 3360,
+            "lightSleepSeconds": 17520,
+            "remSleepSeconds": 5220,
+            "awakeSleepSeconds": 420,
+            "awakeCount": 1,
+        },
+        "sleepScores": {"overall": {"value": 82, "qualifierKey": "GOOD"}},
+    }
+
+    result = Phase1DataProcessor.process_sleep_data(payload)
+
+    assert result is not None
+    assert result["sleep_score"] == 82
+    assert result["sleep_score_observed_at"] == "2025-08-13"
+    assert result["total_sleep_observed_at"] == "2025-08-13"
+
+
 def test_sleep_provenance_round_trips_and_stays_null_for_legacy_rows(tmp_path):
     db = Database(str(tmp_path / "sleep_provenance.db"))
 

@@ -1,7 +1,7 @@
 """Headless orchestration for the auditable Recovery Replan loop."""
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from hashlib import sha256
 import json
 from typing import Any
@@ -9,6 +9,7 @@ from typing import Any
 from api.readiness_conflicts import build_readiness_conflict_report
 from api.session_quality_forecast import record_shadow_session_quality_forecast
 from data.database import Database
+from utils.athlete_time import athlete_local_date
 from models.planning_checkpoints import restore_goal_plan_from_checkpoint
 from models.recovery_replan import build_recovery_replan_variant
 from models.readiness_conflicts import (
@@ -332,7 +333,7 @@ def run_recovery_replan_loop(
     decision_event_id: str | None = None,
 ) -> dict[str, Any]:
     """Evaluate, audit, and optionally create one idempotent recovery proposal."""
-    today = today or datetime.now().date()
+    today = today or athlete_local_date()
     try:
         report = build_readiness_conflict_report(db, today=today)
     except TypeError as exc:
