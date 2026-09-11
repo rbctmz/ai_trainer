@@ -4,7 +4,7 @@
 
 Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A — Full. Базовая точка: `main` = `72f69b4` (в main уже влиты #552 — revisioned evidence head и lifecycle суперсессии, и #555/#556 — датированный subjective wellness).
 
-Ревизия документа: v3.12 (M1–M3 закрыты и приняты; M4 — fail-closed gate и version-qualified ownership — переработан по ревью, см. `Change log`).
+Ревизия документа: v3.13 (M1–M3 приняты; M4 — fail-closed gate и version-qualified ownership — переработан по двум раундам ревью, см. `Change log`).
 
 ## Purpose / Big Picture
 
@@ -119,6 +119,9 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 - Decision (M4, закрытие P1 ревью): гейт дополнительно требует **пригодное первичное измерение**: `eligible_inputs` должен быть непустым списком и пересекаться с `PRIMARY_RECOVERY_KEYS = ("sleep", "hrv", "resting_hr")`. Отсутствующий, пустой или неразбираемый `eligible_inputs` (например, только `training_readiness` + `tsb`) даёт `data_gap` с явной причиной.
   Rationale: производное состояние нагрузки и device readiness не являются ночным измерением; без этой проверки сценарий `eligible_inputs=[]` при confidence 0.6 всё ещё открывал конфликт. В модели правило уже выражено через `intervention_score is None`, но гейт обязан проверять свой вход сам — он публичный и вызывается с разными словарями.
   Date/Author: 2026-09-10 / agent (M4, review P1).
+- Decision (M4, закрытие P2 второго раунда ревью): интервенционный канал валидируется как числа. `_finite_in_range` принимает **только** `int`/`float`, конечные и в объявленном диапазоне (`score` 0…100, `confidence` 0…1); строки, булевы значения, `NaN`, `±inf` и выход за диапазон считаются невалидным входом → `data_gap` без конфликтов, а имена полей попадают в `readiness.invalid_inputs`. `readiness_status_for_score` стал строгим (нечисловой/нефинитный вход → `unknown`, без приведения типов), поэтому `StopIteration`/`TypeError` из гейта невозможны.
+  Rationale: раньше `intervention_score="38"` ронял детектор, `NaN`-score давал `StopIteration`, а `NaN`/`inf` confidence проходили порог `MIN_CONFIDENCE` и открывали actionable Recovery Replan — прямое нарушение ASR-REL-2 и заявленного fail-closed контракта. Приведение типов на границе сознательно запрещено: «38» — это не измерение.
+  Date/Author: 2026-09-10 / agent (M4, review P2).
 - Decision (M4, закрытие P2 ревью): в хешируемый блок `readiness` добавлены `freshness` (echo снапшотного вердикта, собранного `services/readiness_snapshot.py::build_readiness_freshness`) и `eligible_inputs`, поэтому evidence identity и audit-карточка объясняют, какие свежие факторы обосновали вмешательство. Смена состава свежих факторов меняет fingerprint — это осознанное следствие: одна и та же интервенционная оценка при другом наборе пригодных измерений не является тем же evidence.
   Rationale: без этого отчёт терял причину решения; AC6/kарточка требуют объяснимости, а `_fingerprint` хеширует именно блок `readiness`.
   Date/Author: 2026-09-10 / agent (M4, review P2).
@@ -337,6 +340,8 @@ RED: новый `tests/smoke/test_rhr_observation_provenance.py` — 13 паде
 
 Дополнительно (закрытие P1/P2 второго раунда ревью M4): `intervention_status` выводится каноническим хелпером из `intervention_score` (проверено в обе стороны: legacy `low` + intervention `80` → тишина, legacy `ready` + intervention `38` → конфликт `high`); гейт требует непустой `eligible_inputs` с пересечением по `("sleep","hrv","resting_hr")` — `["training_readiness","tsb"]`, `[]` и неразбираемое значение дают `data_gap`, а `["resting_hr"]` открывает конфликт; в блок `readiness` добавлены `freshness` и `eligible_inputs`, и смена состава свежих факторов меняет `_fingerprint`. Фикстуры `test_readiness_conflicts.py` дополнены полем `eligible_inputs` (иначе матрица severity проверяла бы отказ, а не матрицу).
 
+Дополнительно (валидация чисел, второй раунд ревью M4): параметризованный RED-тест покрывает десять невалидных входов (`"38"`, `NaN`, `inf`, отрицательный и >100 score; строковая, `NaN`, `inf`, отрицательная и >1 confidence) — все дают `data_gap`, пустые конфликты и запись в `readiness.invalid_inputs`; отдельный тест отличает «невалидный вход» от «валидный, но низкий confidence» (в причине остаётся confidence), а хелпер статуса проверен на `NaN`, строке и `None`.
+
 Дифференциальный пробник `legacy_parity_probe.py` против `origin/main` `9a46087` — **идентично**. `ruff check` по изменённым файлам чист.
 
 ### M3, срез 3.3 — provenance HRV и training readiness (2026-09-10)
@@ -348,6 +353,8 @@ RED: новый `tests/smoke/test_hrv_training_readiness_provenance.py` — 15 �
 Дополнительно (закрытие P1/P2 второго раунда ревью среза 3.3): provenance теперь очищается, когда новое недатированное значение заменяет прежнее — проверено для HRV, `training_readiness`, RHR и обоих метрик сна (`total_sleep_minutes`, `sleep_score`), а также сквозным тестом «HRV 45→70 без даты»: снапшот даёт `unverified`, `eligible_inputs == []`, а не `confirmed_today`. Readiness-only payload больше не теряется: тест `test_readiness_only_payload_is_not_dropped` требует строку с датой при отсутствии training status и VO2.
 
 Дополнительно (закрытие P1/P2 второго раунда ревью M4): `intervention_status` выводится каноническим хелпером из `intervention_score` (проверено в обе стороны: legacy `low` + intervention `80` → тишина, legacy `ready` + intervention `38` → конфликт `high`); гейт требует непустой `eligible_inputs` с пересечением по `("sleep","hrv","resting_hr")` — `["training_readiness","tsb"]`, `[]` и неразбираемое значение дают `data_gap`, а `["resting_hr"]` открывает конфликт; в блок `readiness` добавлены `freshness` и `eligible_inputs`, и смена состава свежих факторов меняет `_fingerprint`. Фикстуры `test_readiness_conflicts.py` дополнены полем `eligible_inputs` (иначе матрица severity проверяла бы отказ, а не матрицу).
+
+Дополнительно (валидация чисел, второй раунд ревью M4): параметризованный RED-тест покрывает десять невалидных входов (`"38"`, `NaN`, `inf`, отрицательный и >100 score; строковая, `NaN`, `inf`, отрицательная и >1 confidence) — все дают `data_gap`, пустые конфликты и запись в `readiness.invalid_inputs`; отдельный тест отличает «невалидный вход» от «валидный, но низкий confidence» (в причине остаётся confidence), а хелпер статуса проверен на `NaN`, строке и `None`.
 
 Дифференциальный пробник `legacy_parity_probe.py` против `origin/main` `9a46087` — **идентично**. `ruff check` по изменённым файлам чист.
 
@@ -368,6 +375,8 @@ RED: новый `tests/smoke/test_recovery_evidence_version.py` (10 тестов
 Контрактные обновления в существующих тестах (следствие смены канала и версии): фикстура `_readiness` в `tests/smoke/test_readiness_conflicts.py` заполняет оба канала, а `_seed_fresh_recovery` даёт сегодняшним измерениям дату наблюдения; тесты lifecycle в `tests/smoke/test_recovery_replan_loop.py` передают версию в claim, а вручную собранные proposals штампуются `rule_version`.
 
 Дополнительно (закрытие P1/P2 второго раунда ревью M4): `intervention_status` выводится каноническим хелпером из `intervention_score` (проверено в обе стороны: legacy `low` + intervention `80` → тишина, legacy `ready` + intervention `38` → конфликт `high`); гейт требует непустой `eligible_inputs` с пересечением по `("sleep","hrv","resting_hr")` — `["training_readiness","tsb"]`, `[]` и неразбираемое значение дают `data_gap`, а `["resting_hr"]` открывает конфликт; в блок `readiness` добавлены `freshness` и `eligible_inputs`, и смена состава свежих факторов меняет `_fingerprint`. Фикстуры `test_readiness_conflicts.py` дополнены полем `eligible_inputs` (иначе матрица severity проверяла бы отказ, а не матрицу).
+
+Дополнительно (валидация чисел, второй раунд ревью M4): параметризованный RED-тест покрывает десять невалидных входов (`"38"`, `NaN`, `inf`, отрицательный и >100 score; строковая, `NaN`, `inf`, отрицательная и >1 confidence) — все дают `data_gap`, пустые конфликты и запись в `readiness.invalid_inputs`; отдельный тест отличает «невалидный вход» от «валидный, но низкий confidence» (в причине остаётся confidence), а хелпер статуса проверен на `NaN`, строке и `None`.
 
 Дифференциальный пробник `legacy_parity_probe.py` против `origin/main` `9a46087` — **идентично**. `ruff check` по изменённым файлам чист.
 
@@ -567,5 +576,7 @@ RED: новый `tests/smoke/test_recovery_evidence_version.py` (10 тестов
   P1-b: гейт требует непустой `eligible_inputs` с пересечением по `("sleep","hrv","resting_hr")`; отсутствие/мусор → `data_gap` с отдельной причиной.
   P2: в хешируемый блок `readiness` добавлены `freshness` (echo `build_readiness_freshness`, хелпер снапшота сделан публичным) и `eligible_inputs`; `api/readiness_conflicts.py` обогащает readiness-факт перед вызовом детектора.
   Проверки: новый файл — `13 passed`, контур конфликтов и lifecycle — `98+35 passed`, полный contributor-safe — `2410 passed, 27 skipped, 1 failed` (средовой `test_run_web_preflight`), legacy parity повторён (идентично).
+- v3.13 (2026-09-10): закрытие P2 (валидация чисел интервенционного канала).
+  `_finite_in_range` принимает только конечные `int`/`float` в диапазонах score 0…100 и confidence 0…1; строки/`NaN`/`inf`/выход за диапазон → `data_gap` с `readiness.invalid_inputs`; `readiness_status_for_score` строгий (без приведения типов). Параметризованный RED-тест на десять невалидных входов + различение «невалидно» и «низкий confidence». Полный contributor-safe — `2422 passed, 27 skipped, 1 failed` (средовой preflight), legacy parity повторён (идентично).
 - v3.5 (2026-09-10): закрытие P2 среза 3.1.
   P2 (derived sleep score терял provenance): назначение `sleep_score_observed_at`/`total_sleep_observed_at` перенесено после ветки derivation, поэтому derived score датирован; добавлены три сквозных теста (датированный derived score → `confirmed_today`/eligible, derived score без payload-даты → `unverified`, и путь до снапшота с `confirmed_today`). Тесты среза: `20 passed` в файле provenance сна, `97 passed` в контуре sleep/model/snapshot/wellness, legacy parity повторён (идентично).
