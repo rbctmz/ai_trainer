@@ -4,7 +4,7 @@
 
 Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A — Full. Базовая точка: `main` = `72f69b4` (в main уже влиты #552 — revisioned evidence head и lifecycle суперсессии, и #555/#556 — датированный subjective wellness).
 
-Ревизия документа: v3.14 (M1–M4 приняты; M5 — проекция `/today` и UI — выполнен двумя срезами, см. `Change log`).
+Ревизия документа: v3.15 (M1–M5 приняты; M6 — приёмка и финальная верификация на rebased-дереве — выполнен, см. `Change log`).
 
 ## Purpose / Big Picture
 
@@ -23,7 +23,7 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 - [~] M3. Provenance измерений (идёт). Срез 3.1 — **provenance сна** выполнен 2026-09-10 и переработан после ревью: метрико-скоупные колонки `sleep_score_observed_at` / `total_sleep_observed_at`, запись только вместе с принятой метрикой (P1), назначение даты **после derivation** derived score (P2), путь Intervals.icu (`id` → observation date) и collision-тесты; legacy parity повторён трижды (идентично). Срез 3.2 (RHR) выполнен 2026-09-10: `_normalize_rhr_payload` → `observedAt` (GMT/UTC → таймзона атлета через нейтральные `utils/athlete_time.py` + `utils/observation_provenance.py`), колонка `daily_health.resting_hr_observed_at`, атомарная запись в обоих writer'ах (Garmin `sync_daily_health` и Intervals `sync_wellness_batch`), collision-тесты, legacy parity. Срез 3.3 (HRV + `training_readiness`) выполнен 2026-09-10: `rmssd_observed_at` из `hrvSummary` (`calendarDate` как athlete_local, GMT-таймстемпы через таймзону атлета) и в Intervals `sync_wellness_batch`; `training_readiness_observed_at` плюс ключ строки training status из payload вместо `datetime.now()`. Срез 3.4 (`intervention_score_input` + observation-дедупликация только интервенционного канала) выполнен 2026-09-10: дедуп-серия по дате наблюдения, `intervention_score` агрегируется по `intervention_score_input`, legacy `score`/`baseline`/`deviation` подтверждены differential parity. **M3 закрыт.**
 - [x] M4. `models/readiness_conflicts.py` + `api/recovery_replan_loop.py` + `data/database.py` + `api/routers/decisions.py`: fail-closed gate и version-qualified ownership (AC6) поверх lifecycle #552, с передачей версий из API в атомарные DB-методы. Выполнено 2026-09-10: gate читает `intervention_score`/`intervention_confidence`, отчёт несёт `rule_version`; штамп версии в proposal, guard в claim, атомарный sweep на каждом прогоне (включая `data_gap`), версии передаёт `approve_proposal`; RED→GREEN `10 passed` в новом файле, контур lifecycle/конфликтов — `98 passed`.
 - [x] M5. `/today`: проекция и UI с датами факторов; `ts_contract.json` перегенерирован. Выполнено 2026-09-10 двумя срезами: 5a — проекция `_project_readiness` + типизированный TS-контракт (RED→GREEN `25 passed` в `test_api_today.py`), 5b — UI-ярлыки дат/баннер `freshness`/честные подписи + новый UI-контрактный тест (`4 passed`); `lint`, `build`, `contract:extract -- --check` — зелёные.
-- [ ] M6. Верификация (AC10), обновление `docs/architecture/asr_catalog.md`, `Outcomes & Retrospective`.
+- [x] M6. Верификация (AC10) на rebased-дереве, обновление `docs/architecture/asr_catalog.md` (ASR-REL-1/REL-2/MOD-2/MOD-3), `Outcomes & Retrospective`. Выполнено 2026-09-11: ветка перебазирована на `origin/main` `9a46087`; AC10-приёмка оформлена тестом `tests/smoke/test_issue_557_acceptance.py` (data-gap сценарий через `today_view` на изолированной temp-SQLite: ноль чекпойнтов/proposal/delivery-записей, ноль provider-вызовов, одна audit-строка журнала).
 
 ## Surprises & Discoveries
 
@@ -175,7 +175,19 @@ Issue: [#557](https://github.com/rbctmz/ai_trainer/issues/557). Change Class: A 
 
 ## Outcomes & Retrospective
 
-(Заполняется по завершении реализации: что реально изменилось, какие проверки прошли на финальном дереве, что осталось за скоупом. На момент ревизии v3.1 выполнены M1 и docs-amend; код M2–M6 не начат.)
+Реализация завершена 2026-09-11 на ветке `codex/issue-557-readiness-freshness`, перебазированной на `origin/main` `9a46087` (48 коммитов, 32 файла).
+
+Что изменилось для человека: утренний экран больше не выдаёт старые или недатированные сигналы за сегодняшнюю готовность. Каждый фактор несёт дату измерения, `/today` показывает `freshness` (подтверждено сегодня / не за сегодня / дата неизвестна / некорректная дата / нет данных) и помечает описательную оценку как предварительную, а Recovery Replan создаётся только при подтверждённо сегодняшнем первичном измерении (сон/HRV/RHR). При отсутствии таких данных гейт молчит (`data_gap`), но ручное решение по плану остаётся доступным.
+
+Инварианты, которые держат решение: описательный канал (`score`/`confidence`/`stale`/`source_completeness`/`is_provisional`) не переопределён (подтверждено differential parity на 7 фикстурах и эталонными числами в тестах); интервенционный канал живёт отдельно (`intervention_score`/`intervention_confidence`/`freshness`/`eligible_inputs`, `intervention_score_input` с дедупликацией по дате наблюдения); provenance следует за значением (датированный апдейт пишет дату, недатированный при неизменном значении её сохраняет, при изменённом — очищает); версия правил входит в evidence identity, поэтому предложения прежних правил не могут быть применены.
+
+Проверки на финальном (rebased) дереве: `python -m ruff check .` — чисто; полный contributor-safe `python -m pytest -m "not live and not debug and not e2e" tests/` — `2468 passed, 5 skipped, 1 failed`, где единственное падение — средовой `tests/smoke/test_run_web_preflight.py::test_run_web_rejects_busy_api_port_before_startup` (занятый порт :8000, воспроизводится на чистом `main`); веб — `npm --prefix web run lint`, `npm --prefix web run build`, `npm --prefix web run contract:extract -- --check` — зелёные; differential parity `legacy_parity_probe.py` против `origin/main` `9a46087` — идентично.
+
+Ожидаемое поведение при выкате (важно для PR): блок `readiness` в evidence identity изменился (intervention-значения, `eligible_inputs`, `freshness`) и появилась версия правил, поэтому первая полная оценка после деплоя создаёт новую ревизию, а ранее созданные pending-карточки Recovery Replan переходят в `superseded` (причина `superseded_by_rule_version_change` или `superseded_by_newer_recovery_evidence`). Audit-история сохраняется полностью, ручное подтверждение и откат не затрагиваются.
+
+Что осталось за скоупом: subjective wellness (#555) в расчёт не смешивался; severity-матрица не менялась — изменился только вход в неё; автономного планировщика пересмотра решений по-прежнему нет (revisit-поля Agent Log v2 заполняются продуктовыми писателями); расчёт `intervention_score_input` на дедуплицированном baseline применяется только при фактически схлопнутых дублях, поэтому на исторических данных без провенанса поведение остаётся прежним.
+
+Замечания по артефактам: ссылки на SHA в разделах `Artifacts and Notes` ниже относятся к коммитам **до** rebase на `9a46087` (ветка переписана, содержимое идентично, в PR фигурируют новые SHA); `M5` закрыт как slice 5a/5b, а `M6` добавлен тестом приёмки.
 
 ## Context and Orientation
 
@@ -359,7 +371,17 @@ RED: новый `tests/smoke/test_rhr_observation_provenance.py` — 13 паде
 
 Веб-проверки на финальном дереве: `npm --prefix web run lint` — чисто, `npm --prefix web run build` — успешно, `contract:extract -- --check` — артефакт актуален. Полный contributor-safe — `2450 passed, 5 skipped, 1 failed` (средовой `test_run_web_preflight`; skip'ов 5 вместо 27, потому что в рабочем дереве появился `web/node_modules` и node-зависимые тесты теперь выполняются).
 
-Остальные артефакты (M6) появятся по мере реализации: финальная верификация, обновление `docs/architecture/asr_catalog.md`, `Outcomes & Retrospective`.
+### M6 — приёмка и финальная верификация (2026-09-11)
+
+Rebase: ветка перебазирована на `origin/main` `9a46087` (merge-base до этого был `72f69b4`); конфликтов не возникло.
+
+AC10 оформлена как воспроизводимый тест `tests/smoke/test_issue_557_acceptance.py` (`2 passed`), а не одноразовый скрипт: он строит изолированную temp-SQLite с планом, вчерашними сном/HRV, RHR **без** даты измерения и текущим TSB, подменяет `services.intervals_icu.get_client` на падающую заглушку и читает реальный `api.routers.today.today_view(db=db)`. Утверждения: `planning_checkpoints`/`coach_proposals`/`intervals_plan_deliveries` не изменились (proposal'ов и доставок ноль), `recovery_decisions` выросла ровно на одну audit-строку, `gate.data_gap is True`, `pending_proposal is None`, `freshness.state == "data_gap"`, ни одного подтверждённого измерения, `intervention_score is None` и `blocked_reason == "no_confirmed_today_primary_recovery_measurement"`. Контрольный сценарий: после появления provider-даты у RHR канал открывается (`confirmed_today` содержит `resting_hr` и `tsb`, `intervention_score` непустой, состояние `provisional`).
+
+Побочное наблюдение теста (зафиксировано в нём же): legacy-флаг `stale` в этом сценарии остаётся `False`, потому что берёт максимальную дату среди факторов, а TSB датирован сегодня — ровно тот дефект, ради которого введён канал `freshness`; тест утверждает оба факта рядом.
+
+Обновлён `docs/architecture/asr_catalog.md`: в строки ASR-REL-1 (version-qualified ownership), ASR-REL-2 (интервенционный канал, fail-closed на невалидных числах и отсутствии primary), ASR-MOD-2 (`/today` только рендерит server-owned freshness/даты) и ASR-MOD-3 (аддитивные nullable-колонки провенанса, legacy → `NULL`/`unverified`) добавлены тактики и тестовые ссылки.
+
+Финальные проверки: `ruff check .` чисто; contributor-safe `2468 passed, 5 skipped, 1 failed` (единственный фейл — средовой `test_run_web_preflight`, воспроизводится на чистом `main`); `npm --prefix web run lint`/`build`/`contract:extract -- --check` зелёные; `legacy_parity_probe.py` против `origin/main` `9a46087` — идентично.
 
 Дополнительно (валидация чисел, второй раунд ревью M4): параметризованный RED-тест покрывает десять невалидных входов (`"38"`, `NaN`, `inf`, отрицательный и >100 score; строковая, `NaN`, `inf`, отрицательная и >1 confidence) — все дают `data_gap`, пустые конфликты и запись в `readiness.invalid_inputs`; отдельный тест отличает «невалидный вход» от «валидный, но низкий confidence» (в причине остаётся confidence), а хелпер статуса проверен на `NaN`, строке и `None`.
 
@@ -601,5 +623,7 @@ RED: новый `tests/smoke/test_recovery_evidence_version.py` (10 тестов
   `_finite_in_range` принимает только конечные `int`/`float` в диапазонах score 0…100 и confidence 0…1; строки/`NaN`/`inf`/выход за диапазон → `data_gap` с `readiness.invalid_inputs`; `readiness_status_for_score` строгий (без приведения типов). Параметризованный RED-тест на десять невалидных входов + различение «невалидно» и «низкий confidence». Полный contributor-safe — `2422 passed, 27 skipped, 1 failed` (средовой preflight), legacy parity повторён (идентично).
 - v3.14 (2026-09-10): M5 — проекция `/today` и UI, двумя срезами с соблюдением ролевой границы.
   Срез 5a: аддитивная проекция (`freshness`, `intervention_*`, `eligible/ineligible_inputs`, `blocked_reason`) и типизированный TS-контракт (`ReadinessObservationStatus` с `invalid`, `ReadinessFreshness`, `ReadinessIneligibleInput`, поля провенанса), артефакт перегенерирован. Срез 5b: UI-ярлыки дат по серверному статусу, баннер `freshness`, пометка «предварительно», честные подписи покрытия — без пересчётов в браузере, что закреплено UI-контрактным тестом. Drift-тест поймал наследование драйвером факторного контракта, контракт разделён. Веб-проверки `lint`/`build`/`contract:extract -- --check` зелёные; полный contributor-safe — `2450 passed, 5 skipped, 1 failed`.
+- v3.15 (2026-09-11): M6 — приёмка на rebased-дереве.
+  Ветка перебазирована на `origin/main` `9a46087`. AC10 оформлена тестом `test_issue_557_acceptance.py` (data-gap сценарий через реальный `today_view` на изолированной temp-SQLite: ноль чекпойнтов/proposal/delivery-записей, ноль provider-вызовов, +1 audit-строка журнала, контрольный «свежий» сценарий открывает канал). Обновлён `asr_catalog.md` (ASR-REL-1/REL-2/MOD-2/MOD-3). Заполнен `Outcomes & Retrospective`, включая ожидаемую инвалидацию старых pending-карточек после выката и оговорку, что SHA в `Artifacts` относятся к коммитам до rebase. Финальные проверки: `ruff` чисто, contributor-safe `2468 passed, 5 skipped, 1 failed` (средовой preflight), web `lint`/`build`/`contract:extract -- --check` зелёные, parity против `9a46087` идентично.
 - v3.5 (2026-09-10): закрытие P2 среза 3.1.
   P2 (derived sleep score терял provenance): назначение `sleep_score_observed_at`/`total_sleep_observed_at` перенесено после ветки derivation, поэтому derived score датирован; добавлены три сквозных теста (датированный derived score → `confirmed_today`/eligible, derived score без payload-даты → `unverified`, и путь до снапшота с `confirmed_today`). Тесты среза: `20 passed` в файле provenance сна, `97 passed` в контуре sleep/model/snapshot/wellness, legacy parity повторён (идентично).
