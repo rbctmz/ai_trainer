@@ -286,6 +286,7 @@ def _project_readiness(snapshot: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(snapshot, Mapping) or snapshot.get("score") is None:
         return None
     return {
+        # Legacy descriptive channel: unchanged semantics.
         "score": snapshot.get("score"),
         "status": snapshot.get("status"),
         "confidence": snapshot.get("confidence"),
@@ -297,6 +298,15 @@ def _project_readiness(snapshot: Mapping[str, Any]) -> dict[str, Any] | None:
         "tsb": snapshot.get("tsb"),
         "stale": bool(snapshot.get("stale")),
         "reason": snapshot.get("reason"),
+        # Issue #557: additive freshness/intervention channel. The browser only
+        # renders these server-owned values, it never derives them itself.
+        "is_provisional": bool(snapshot.get("is_provisional")),
+        "freshness": snapshot.get("freshness"),
+        "intervention_score": snapshot.get("intervention_score"),
+        "intervention_confidence": snapshot.get("intervention_confidence"),
+        "eligible_inputs": list(snapshot.get("eligible_inputs") or []),
+        "ineligible_inputs": list(snapshot.get("ineligible_inputs") or []),
+        "intervention_blocked_reason": snapshot.get("intervention_blocked_reason"),
     }
 
 
