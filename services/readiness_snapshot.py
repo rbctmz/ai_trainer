@@ -157,7 +157,7 @@ def _build_measured_readiness_snapshot(
         # Issue #557 M2: additive freshness/intervention channel. Legacy keys
         # above (score, confidence, stale, source_completeness, is_provisional)
         # keep their exact previous semantics.
-        "freshness": _freshness(result, anchor=anchor),
+        "freshness": build_readiness_freshness(result, anchor=anchor),
         "intervention_score": result.get("intervention_score"),
         "intervention_confidence": float(result.get("intervention_confidence") or 0.0),
         "eligible_inputs": list(result.get("eligible_inputs") or []),
@@ -166,7 +166,7 @@ def _build_measured_readiness_snapshot(
     }
 
 
-def _freshness(result: dict[str, Any], *, anchor: date) -> dict[str, Any]:
+def build_readiness_freshness(result: dict[str, Any], *, anchor: date) -> dict[str, Any]:
     """Per-factor freshness verdict plus the aggregate intervention state.
 
     Пять корзин повторяют статусы модели; `invalid` (дата измерения позже

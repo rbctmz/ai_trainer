@@ -182,7 +182,7 @@ def compute_readiness_today(
         factor["weight"] = round(FACTOR_WEIGHTS[factor["key"]] / total_weight, 3)
 
     score = round(sum(f["score"] * f["weight"] for f in factors), 1)
-    status = next(label for threshold, label in _STATUS_THRESHOLDS if score >= threshold)
+    status = readiness_status_for_score(score)
 
     drivers = sorted(
         factors,
@@ -431,6 +431,18 @@ def _split_frame(
         **observation_fields,
         **intervention_fields,
     )
+
+
+def readiness_status_for_score(score: float | None) -> str:
+    """Канонический статус готовности по score (issue #557).
+
+    Единственный источник порогов: и описательный расчёт, и интервенционный
+    гейт используют эту функцию, поэтому `low (80/100)` или `ready (38/100)`
+    из смешения каналов невозможны.
+    """
+    if score is None:
+        return "unknown"
+    return next(label for threshold, label in _STATUS_THRESHOLDS if score >= threshold)
 
 
 def _observation_status(*, verified: bool, age_days: int | None) -> str:

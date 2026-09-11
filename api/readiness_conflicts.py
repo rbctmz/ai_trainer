@@ -15,6 +15,7 @@ from typing import Any
 from api.planning_service import get_active_plan
 from data.database import Database
 from models.readiness import LOAD_METRICS_WINDOW_DAYS, compute_readiness_today
+from services.readiness_snapshot import build_readiness_freshness
 from models.readiness_conflicts import (
     DEFAULT_HORIZON_DAYS,
     MAX_QUALITY_LOOKAHEAD_DAYS,
@@ -50,6 +51,9 @@ def build_readiness_conflict_report(
         activities_df,
         today=today,
     )
+    # Свежесть как часть evidence: гейт и его отчёт должны объяснять, какие
+    # факторы обосновали вмешательство (issue #557, review P2).
+    readiness["freshness"] = build_readiness_freshness(readiness, anchor=today)
 
     goal_plan = None
     try:

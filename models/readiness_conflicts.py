@@ -9,6 +9,8 @@ ExecPlan: docs/readiness_conflict_gate_execplan.md.
 """
 from __future__ import annotations
 
+from models.readiness import PRIMARY_RECOVERY_KEYS, readiness_status_for_score
+
 from datetime import date
 from math import isfinite
 from numbers import Real
@@ -320,8 +322,18 @@ def detect_readiness_conflicts(
     # legacy score/confidence читают описательные подсистемы и порог гейта
     # больше не поднимают.
     score = readiness.get("intervention_score")
-    status = str(readiness.get("status") or "unknown")
     confidence = float(readiness.get("intervention_confidence") or 0.0)
+    # Статус выводится из интервенционного score по каноническим порогам:
+    # legacy `status` описывает другой канал и для severity не годится.
+    status = readiness_status_for_score(score)
+    legacy_status = str(readiness.get("status") or "unknown")
+    raw_eligible = readiness.get("eligible_inputs")
+    eligible_inputs = (
+        [str(key) for key in raw_eligible]
+        if isinstance(raw_eligible, (list, tuple, set, frozenset))
+        else []
+    )
+    primary_eligible = sorted(set(eligible_inputs) & set(PRIMARY_RECOVERY_KEYS))
 
     report: dict[str, Any] = {
         "as_of": readiness.get("as_of_date") or today.isoformat(),
@@ -331,9 +343,13 @@ def detect_readiness_conflicts(
             "score": score,
             "status": status,
             "confidence": confidence,
-            "intervention_score": readiness.get("intervention_score"),
+            "intervention_score": score,
+            "intervention_status": status,
+            "eligible_inputs": eligible_inputs,
+            "freshness": readiness.get("freshness"),
             "legacy_score": readiness.get("score"),
             "legacy_confidence": readiness.get("confidence"),
+            "legacy_status": legacy_status,
         },
         "sessions_evaluated": [],
         "conflicts": [],
@@ -342,18 +358,26 @@ def detect_readiness_conflicts(
         "reason": "",
     }
 
-    if score is None or confidence < MIN_CONFIDENCE:
+    if score is None or confidence < MIN_CONFIDENCE or not primary_eligible:
         report["data_gap"] = True
-        report["reason"] = (
-            "Недостаточно свежих данных о восстановлении "
-            f"(confidence {confidence:.2f} < {MIN_CONFIDENCE}) — детектор молчит."
-        )
+        if not primary_eligible and score is not None and confidence >= MIN_CONFIDENCE:
+            # Ни одного подтверждённо сегодняшнего первичного измерения:
+            # производное состояние нагрузки не может обосновать вмешательство.
+            report["reason"] = (
+                "Нет подтверждённого сегодняшнего первичного измерения "
+                "восстановления (сон/HRV/пульс покоя) — детектор молчит."
+            )
+        else:
+            report["reason"] = (
+                "Недостаточно свежих данных о восстановлении "
+                f"(confidence {confidence:.2f} < {MIN_CONFIDENCE}) — детектор молчит."
+            )
         return report
 
     evaluated = [s for s in sessions if 0 <= int(s.get("days_until", -1)) < horizon_days]
     report["sessions_evaluated"] = evaluated
 
-    readiness_evidence = _readiness_evidence(readiness)
+    readiness_evidence = _readiness_evidence(readiness, score=score, status=status)
 
     for session in evaluated:
         salient_role = _salience_role(session)
@@ -403,9 +427,10 @@ def detect_readiness_conflicts(
     return report
 
 
-def _readiness_evidence(readiness: dict[str, Any]) -> str:
-    score = readiness.get("score")
-    status = readiness.get("status")
+def _readiness_evidence(
+    readiness: dict[str, Any], *, score: float | None, status: str
+) -> str:
+    """Human-readable evidence of the *intervention* channel that decided."""
     driver_bits = [
         str(d.get("evidence"))
         for d in (readiness.get("drivers") or [])
