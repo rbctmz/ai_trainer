@@ -464,6 +464,68 @@ def test_gate_requires_an_eligible_primary_measurement():
     assert with_primary["conflicts"]
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("intervention_score", "38"),          # a string is not a measurement
+        ("intervention_score", float("nan")),
+        ("intervention_score", float("inf")),
+        ("intervention_score", -5.0),
+        ("intervention_score", 140.0),
+        ("intervention_confidence", "0.6"),
+        ("intervention_confidence", float("nan")),
+        ("intervention_confidence", float("inf")),
+        ("intervention_confidence", -0.2),
+        ("intervention_confidence", 1.5),
+    ],
+)
+def test_gate_fails_closed_on_invalid_intervention_numbers(field, value):
+    """Review P2: malformed numbers must give data_gap, never a crash or a conflict."""
+    readiness = {
+        **_readiness(
+            legacy_score=38.0,
+            legacy_confidence=1.0,
+            intervention_score=38.0,
+            intervention_confidence=0.6,
+        ),
+        "eligible_inputs": ["resting_hr"],
+        field: value,
+    }
+
+    report = detect_readiness_conflicts(readiness, [_quality_session()], today=TODAY)
+
+    assert report["data_gap"] is True
+    assert report["conflicts"] == []
+    assert report["silence"] is True
+    assert field in report["readiness"]["invalid_inputs"]
+
+
+def test_gate_reports_invalid_inputs_separately_from_a_low_confidence():
+    valid_but_weak = detect_readiness_conflicts(
+        {
+            **_readiness(
+                legacy_score=38.0,
+                legacy_confidence=1.0,
+                intervention_score=38.0,
+                intervention_confidence=0.2,
+            ),
+            "eligible_inputs": ["resting_hr"],
+        },
+        [_quality_session()],
+        today=TODAY,
+    )
+    assert valid_but_weak["data_gap"] is True
+    assert valid_but_weak["readiness"]["invalid_inputs"] == []
+    assert "confidence" in valid_but_weak["reason"]
+
+
+def test_status_helper_is_robust_to_invalid_scores():
+    assert readiness_status_for_score(float("nan")) == "unknown"
+    assert readiness_status_for_score("38") == "unknown"
+    assert readiness_status_for_score(None) == "unknown"
+    assert readiness_status_for_score(38.0) == "low"
+
+
 def test_report_echoes_freshness_and_eligible_inputs_into_the_evidence_block():
     """Review P2: audit/evidence identity must reflect the fresh-factor set."""
     from api.recovery_replan_loop import _fingerprint
