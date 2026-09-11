@@ -393,6 +393,15 @@ def sync_garmin_data(
         result.health_result = database.sync_daily_health(daily_health_data)
     if training_status_data:
         result.training_status_result = database.sync_training_status(training_status_data)
+        # Issue #565: отклонённая более старая запись readiness не теряется молча.
+        rejected_readiness = int(
+            result.training_status_result.get("stale_readiness_rejected", 0) or 0
+        )
+        if rejected_readiness:
+            result.warnings.append(
+                "⚠️ Garmin readiness: пропущено записей с более старой датой измерения — "
+                f"{rejected_readiness}"
+            )
 
     clear_data_caches()
 

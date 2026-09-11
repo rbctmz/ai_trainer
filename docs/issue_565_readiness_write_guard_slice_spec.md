@@ -7,7 +7,7 @@
 - Issue / PR: [#565](https://github.com/rbctmz/ai_trainer/issues/565) (PR: TBD)
 - Author / checker / merge owner: agent (Domain / API Implementer) / независимый checker на PR (`@codex review`) / rbctmz
 - Date: 2026-09-11
-- Candidate head SHA: TBD
+- Candidate head SHA: ветка `codex/issue-565-readiness-write-guard` (актуальный head — в PR; отдельные коммиты на спеку и реализацию)
 
 ## Change Class
 
@@ -125,14 +125,16 @@
 
 ## Evidence Bundle
 
-- Head SHA: TBD
+- Head SHA: (заполняется в PR; коммит `fix: keep the newest readiness observation on a same-day resync`)
 - Changed invariants: дата измерения `training_readiness` монотонна в пределах строки дня синка; значение и дата двигаются атомарно.
-- Focused and broad tests: TBD
-- CI checks/reruns/flakes: TBD
-- Lifecycle/probe evidence: TBD
-- Changed contracts: аддитивный ключ результата + текст warning (см. Public Contracts).
-- Unresolved review-thread count: TBD
-- Residual risks and follow-ups: неформатные даты наблюдения (fail-open к семантике #557) — кандидат в отдельный issue, если checker подтвердит риск; #564 остаётся отдельным follow-up.
+- RED (до реализации, `tests/smoke/test_hrv_training_readiness_provenance.py`): `assert 30.0 == 80.0` — сохранённое измерение откатывалось; `assert (30.0, '2026-09-11') == (80.0, '2026-09-12')` — обе колонки принимали устаревшее наблюдение; warning-тест синк-слоя падал на отсутствии предупреждения. Всего 8 падений, из них поведенческих — 3 (остальные падали на отсутствии нового ключа).
+- GREEN: focused-контур провенансы/readiness/sync/demo/migration — `231 passed`; файл провенансы + `test_garmin_sync_service.py` — `41 passed`; `ruff check` чисто.
+- Broad Python contour: см. `Progress`/Change log ExecPlan (contributor-safe прогон).
+- Lifecycle/probe evidence: независимый probe вне тестов на том же дереве — stale-запись даёт `{'new': 0, 'updated': 1, 'stale_readiness_rejected': 1}` и строку `readiness=80.0 observed=2026-09-12 status=UNPRODUCTIVE vo2=55.0` (композитные поля обновились, измерение сохранено), последующая более новая запись — `85 / 2026-09-13` с нулевым счётчиком.
+- Changed contracts: аддитивный ключ `stale_readiness_rejected` + одна строка warning (см. Public Contracts); схема, миграции, `api/`, `web/`, `ts_contract.json` не менялись.
+- Unresolved review-thread count: 0 на момент открытия PR (заполняется после раунда checker'а).
+- Residual risks and follow-ups: неформатные даты наблюдения (`2026-7-1` и подобные) остаются вне guard'а — SQLite `date()` даёт `NULL`, применяется семантика #557 (fail-open); зафиксировано characterization-тестом. Кандидат в отдельный issue, если checker подтвердит риск: #564 остаётся отдельным follow-up.
+- Механизм счётчика: отклонение определяется **по факту записи** (сравнение фактически сохранённой даты с ожидаемой), а не отдельным разбором дат в Python — первая версия дизайна расходилась с SQLite на `2026-7-1`, что и поймал characterization-тест.
 
 ## Review Findings
 
@@ -150,7 +152,7 @@
 ## Final Verdict
 
 - Verdict: READY (до раунда checker'а)
-- Blocking findings remaining: нет на момент написания
+- Blocking findings remaining: нет на момент написания; найденный собственный дефект реализации (CASE сравнивал дату от значения, а не от колонки-даты) исправлен до коммита и закреплён тестом на атомарность
 - Review rounds used: 0 / 2
 - Accepted risk or follow-up issue: неформатные даты — вне scope, зафиксировано в Residual risks
 - Merge owner final gate: rbctmz
