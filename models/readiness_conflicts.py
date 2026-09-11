@@ -9,6 +9,8 @@ ExecPlan: docs/readiness_conflict_gate_execplan.md.
 """
 from __future__ import annotations
 
+import math
+
 from models.readiness import PRIMARY_RECOVERY_KEYS, readiness_status_for_score
 
 from datetime import date
@@ -306,6 +308,24 @@ def resolve_effective_horizon(
     }
 
 
+def _finite_in_range(value: Any, *, minimum: float, maximum: float) -> float | None:
+    """Accept only finite numbers of the declared range (issue #557, review P2).
+
+    Strings, booleans, NaN, infinities and out-of-range values are all invalid:
+    the gate must fail closed instead of crashing or trusting them.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if not isinstance(value, (int, float)):
+        return None
+    parsed = float(value)
+    if not math.isfinite(parsed):
+        return None
+    if parsed < minimum or parsed > maximum:
+        return None
+    return parsed
+
+
 def detect_readiness_conflicts(
     readiness: dict[str, Any],
     sessions: list[dict[str, Any]],
@@ -321,11 +341,26 @@ def detect_readiness_conflicts(
     # Вмешательство считается только по интервенционному каналу (issue #557):
     # legacy score/confidence читают описательные подсистемы и порог гейта
     # больше не поднимают.
-    score = readiness.get("intervention_score")
-    confidence = float(readiness.get("intervention_confidence") or 0.0)
-    # Статус выводится из интервенционного score по каноническим порогам:
-    # legacy `status` описывает другой канал и для severity не годится.
-    status = readiness_status_for_score(score)
+    raw_score = readiness.get("intervention_score")
+    raw_confidence = readiness.get("intervention_confidence")
+    score = _finite_in_range(raw_score, minimum=0.0, maximum=100.0)
+    confidence = _finite_in_range(raw_confidence, minimum=0.0, maximum=1.0)
+    invalid_inputs = [
+        name
+        for name, raw, parsed in (
+            ("intervention_score", raw_score, score),
+            ("intervention_confidence", raw_confidence, confidence),
+        )
+        if raw is not None and parsed is None
+    ]
+    if score is None:
+        # Любой невалидный score — это не «низкая готовность», а отсутствие
+        # пригодного входа: статус остаётся unknown, гейт закрыт.
+        status = "unknown"
+    else:
+        # Статус выводится из интервенционного score по каноническим порогам:
+        # legacy `status` описывает другой канал и для severity не годится.
+        status = readiness_status_for_score(score)
     legacy_status = str(readiness.get("status") or "unknown")
     raw_eligible = readiness.get("eligible_inputs")
     eligible_inputs = (
@@ -347,6 +382,7 @@ def detect_readiness_conflicts(
             "intervention_status": status,
             "eligible_inputs": eligible_inputs,
             "freshness": readiness.get("freshness"),
+            "invalid_inputs": invalid_inputs,
             "legacy_score": readiness.get("score"),
             "legacy_confidence": readiness.get("confidence"),
             "legacy_status": legacy_status,
@@ -358,9 +394,19 @@ def detect_readiness_conflicts(
         "reason": "",
     }
 
-    if score is None or confidence < MIN_CONFIDENCE or not primary_eligible:
+    if (
+        score is None
+        or confidence is None
+        or confidence < MIN_CONFIDENCE
+        or not primary_eligible
+    ):
         report["data_gap"] = True
-        if not primary_eligible and score is not None and confidence >= MIN_CONFIDENCE:
+        if invalid_inputs:
+            report["reason"] = (
+                "Некорректные значения интервенционного канала "
+                f"({', '.join(invalid_inputs)}) — детектор молчит."
+            )
+        elif not primary_eligible and score is not None and confidence is not None and confidence >= MIN_CONFIDENCE:
             # Ни одного подтверждённо сегодняшнего первичного измерения:
             # производное состояние нагрузки не может обосновать вмешательство.
             report["reason"] = (
@@ -370,7 +416,8 @@ def detect_readiness_conflicts(
         else:
             report["reason"] = (
                 "Недостаточно свежих данных о восстановлении "
-                f"(confidence {confidence:.2f} < {MIN_CONFIDENCE}) — детектор молчит."
+                f"(confidence {confidence if confidence is not None else 0.0:.2f} "
+                f"< {MIN_CONFIDENCE}) — детектор молчит."
             )
         return report
 

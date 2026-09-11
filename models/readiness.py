@@ -11,6 +11,7 @@
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any
@@ -440,9 +441,14 @@ def readiness_status_for_score(score: float | None) -> str:
     гейт используют эту функцию, поэтому `low (80/100)` или `ready (38/100)`
     из смешения каналов невозможны.
     """
-    if score is None:
+    # Строго: строка или иное нечисловое значение — это unknown, а не «низкая
+    # готовность» (issue #557, review P2). Приведение типов здесь запрещено.
+    if score is None or isinstance(score, bool) or not isinstance(score, (int, float)):
         return "unknown"
-    return next(label for threshold, label in _STATUS_THRESHOLDS if score >= threshold)
+    parsed = float(score)
+    if not math.isfinite(parsed):
+        return "unknown"
+    return next(label for threshold, label in _STATUS_THRESHOLDS if parsed >= threshold)
 
 
 def _observation_status(*, verified: bool, age_days: int | None) -> str:
