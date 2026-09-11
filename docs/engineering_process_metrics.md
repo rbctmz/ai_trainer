@@ -81,11 +81,23 @@ Codex findings, the 15-commit history, and the pre-fix
 `.github/workflows/pr-ready-to-merge.yml`. Issue #506 owns the executable review
 gate; issue #507 owns the short agent-visible stop rule.
 
+## Class A Post-Merge Record — PR #563 / issue #557 (2026-09-11)
+
+| PR | Retrospective class proxy | Issue lead time | PR cycle time | Review rounds | Pre-merge P0/P1 | Pre-merge blocking P2 | Escaped defects | CI reruns/flakes | Follow-up P2 | Agent wait time |
+| --- | --- | ---: | ---: | --- | --- | --- | --- | --- | --- | --- |
+| [PR #563](https://github.com/rbctmz/ai_trainer/pull/563) / [issue #557](https://github.com/rbctmz/ai_trainer/issues/557) | **Class A — Full** (prospective; merged as `a82be7b`, 36 files, +6684/−328) | 33h 10m 1s | 2h 31m 31s | 2 native Codex rounds at the 2-round budget: round 1 = full diff on `a04aca3` (2 P1 + 3 P2, all triggered changes), round 2 = scoped delta on `4b2db94` (2 new P2, triaged as issues with no code changes; 3 round-1 comments re-anchored without new content) | 2 P1 fixed pre-merge in `73645be`: server-date freshness anchor replaced by the athlete calendar; composite training-status row kept on the sync day instead of the readiness date | 3 fixed pre-merge in `73645be`: `dailySleepDTO.calendarDate` provenance fallback, duplicate-column-tolerant provenance migrations, conflict evidence restricted to intervention-eligible factors | 0 linked defects observed as of 2026-09-11; absence at snapshot time is not proof, the observation stays open | 1 manual re-run (Review gate, after the native round landed on the current head); 4 red gate runs by design while awaiting the native review and the owner acceptance; 0 test-job failures or flakes (CI, Contributor-safe pytest, Web E2E, Web contract artifact green on every head) | 2 non-blocking P2 with reproductions and owned issues: [#564](https://github.com/rbctmz/ai_trainer/issues/564) (conflict evidence quotes the descriptive channel), [#565](https://github.com/rbctmz/ai_trainer/issues/565) (same-day resync rolls `training_readiness` back to an older observation date) | not captured |
+
+**Observed:** the review budget held: two native rounds, no third round requested, no `review-budget-exception` needed. Round 1 produced five findings and all five were fixed in `73645be` with a reproduction or a named invariant plus regression tests (anchor probe across the UTC/Auckland boundary, same-day resync row, captured DTO payload shape, lost `ALTER TABLE` race, stale-HRV driver). Round 2 produced two further findings; both reproduce, neither violates the issue acceptance criteria, so both were answered in writing as `follow-up` with owned issues instead of widening the merged diff. Issue/PR timestamps, the two review objects, the seven resolved threads, the label transitions and the check conclusions come from the linked GitHub records as observed on 2026-09-11.
+
+**Inferred:** the stop rule plus the acceptance step is what ended the loop here, not the absence of findings — round 2 still returned suggestions, and merging on zero open P1 with every P2 triaged in writing is the behaviour the policy intends. Classifying both round-2 findings as non-blocking depended on judging them against acceptance criteria rather than on severity alone.
+
+**Verified by:** the merge commit `a82be7b` (tree identical to the reviewed head `4b2db94`), the green `CI` / `Secret scan` / `Project roadmap sync` / `PR ready to merge` runs on it, the closed issue #557, the seven resolved review threads, and the reproduction steps recorded in issues #564 and #565. Active and wait time remain `not captured`; lead and cycle times are calendar time and include queue, human and agent waits.
+
 ## Prospective Validation Status
 
-- Class A architecture-changing PR: **done — PR #496** (prospective row above).
+- Class A architecture-changing PR: **done — PR #496** (prospective row above) and **PR #563 / issue #557** (post-merge record above).
 - Class C UI/docs PR: **done — PR #497** (prospective row above; сам пилот — пост-мержевая запись метрик).
-- Routing/lead-time verdict: **routing verified on both pilots** (Class A провёл полный контур, Class C прошёл fast track; P0/P1 coverage сохранился — оба P1 пойманы до merge). Сокращение lead time с n=2 не доказывается; thresholds и trend остаются на Revisit Gate (5–10 prospective PR).
+- Routing/lead-time verdict: **routing verified across the prospective records — Class A n=2 (PR #496, PR #563), Class C n=1 (PR #497), total n=3** (Class A прошёл полный контур дважды, Class C — fast track; P0/P1 coverage сохранился: пойманы до merge все P1 — 1 в #496, 1 в #497 (Class C-пилот) и 2 в #563). Сокращение lead time с n=3 не доказывается; thresholds и trend остаются на Revisit Gate (5–10 prospective PR).
 
 ## Revisit Gate
 
