@@ -5,7 +5,7 @@
 - Issue / PR: [#562](https://github.com/rbctmz/ai_trainer/issues/562) (PR: plan-only этап — см. ветку плана)
 - Author / checker / merge owner: agent (Spec / Architecture Owner на plan-only этапе; реализация M1–M4 — Domain / API Implementer, M5 — UI / Design Specialist) / независимый checker на PR (`@codex review`) / rbctmz
 - Date: 2026-09-12
-- Candidate head SHA: plan-only (SHA ветки плана фиксируется в PR; код не изменён)
+- Candidate head SHA: `3a4a39d` (ветка плана; код не изменён — диф состоит только из этого файла и ExecPlan)
 
 ## Change Class
 
@@ -18,9 +18,9 @@
   - security boundary/permissions/secrets — **нет**;
   - irreversible action — **нет**: откат = revert коммита, исторические строки не мутируются;
   - новый cross-module public contract или архитектурная граница — **да**: `recovery_capture` в ответе синхронизации и в `web/lib/types.ts`; новая архитектурная граница не создаётся (провайдер-нейтральный владелец capture уже существует в `services/recovery_analytics.py`).
-- Review budget used: 0 / 2 rounds
+- Review budget used: **1 / 2 rounds** (раунд 1 на `4ae3f4b`: 6 находок — 1 P1 + 5 P2, все `fixed-in 3a4a39d`)
 - Review trigger mode: automatic (`@codex review` на PR)
-- Review acceptance head SHA: TBD
+- Review acceptance head SHA: TBD — ожидается scoped delta-раунд 2 на `3a4a39d`
 - Review budget exception: N/A — бюджет не превышен
 
 **Устаревшая зависимость issue.** В теле issue сказано «Related but deliberately separate from **open** #557». На дату плана #557 **закрыт** (смержен PR #563, merge-коммит `a82be7b`), и в main уже живут его семантики: metric-scoped provenance (`sleep_score_observed_at`, `total_sleep_observed_at`, `rmssd_observed_at`, `resting_hr_observed_at`, `training_readiness_observed_at`), аддитивный канал `freshness`/`intervention_*`, fail-closed гейт и athlete-local (а не серверные) anchor'ы дат. План **опирается** на эти семантики и не дублирует их: capture по-прежнему строит канонический snapshot через `services/readiness_snapshot.py`, а `freshness`/`intervention_*` — часть этого snapshot'а. Разделение из issue сохраняется: #562 отвечает за *паритет и видимость capture*, а не за свежесть входов readiness.
@@ -61,7 +61,7 @@
 
 ## Failure, Reset, Rollback, Idempotency
 
-- Failure modes and safe result: ошибка derived capture → `recovery_capture.status = "capture_failed"` с причиной, данные провайдера и статус основного sync не откатываются (см. ExecPlan D4 — вынесено на подтверждение владельцу); отсутствие provenance старта активности → `activity_start_missing` (fail-closed, без утверждения о pre-anchor); непригодный снимок → `ineligible` + причины eligibility без приватных значений.
+- Failure modes and safe result: ошибка derived capture → данные провайдера сохранены, `sync_state="partial"` и warning **сохраняются**, а `recovery_capture.status = "capture_failed"` с причиной объясняет, какая производная операция не выполнилась (решение владельца по D4: fail-open — это отсутствие отката, а не ложный `succeeded`); отсутствие provenance старта активности → `activity_start_missing` (fail-closed, без утверждения о pre-anchor); непригодный снимок → `ineligible` + причины eligibility без приватных значений.
 - Retry/idempotency key: `capture_run_id` — **полный UUID**, генерируемый на job (короткий `job_id` остаётся display handle и в идентичность не попадает: 32-битное пространство при глобальном дедупе по `(capture_mode, capture_run_id)` дало бы молчаливую потерю дневной ревизии). Повтор того же рана → `created: false`, новая ревизия не создаётся; новый job в тот же день → новая монотонная ревизия в `target_key = readiness:prospective:<local_date>`; `fingerprint = sha256({capture_run_id, capture_mode})` остаётся неизменным по смыслу.
 - Rollback procedure and proof: revert коммитов слайсов; журнал append-only, исторические строки не переписываются; доказательство — тест «после отката/повторного sync состояние читается и совпадает с ожидаемым» + отсутствие миграций в диффе.
 - [x] Does this add **new persistent state**? Нет: используется существующий журнал `readiness_snapshots`; состояние capture вычисляется.
@@ -138,38 +138,43 @@
    - GREEN: рендер локального времени, статуса и причины в строке синка; утверждение целится в видимый вариант строки (`<p>` на `:147` против `hidden … sm:inline` на `:155`).
    - Verification: статический UI-контракт + web `lint`/`build`.
 6. Slice M6 — приёмка и evidence bundle. Каталог `tests/e2e/fixtures/` отсутствует и создаётся этим слайсом; `PRIMARY_ACTIVITY_SOURCE` и `ACCEPTANCE_*` в web-стенд не подключены (только Streamlit), поэтому сценарий строится на перехвате маршрутов.
-   - RED/GREEN: **параметризованные браузерные сценарии на все пять состояний × оба провайдера** (D5) — иначе UI-маппинг `activity_start_missing`/`ineligible`/`capture_failed` не проверяется ничем исполняемым и падение отображается общим «Синхронизация завершена»; тест «фикстура ↔ форма ответа», `test_existing_snapshots_and_episodes_remain_readable`, обновление `asr_catalog.md` (ASR-REL-3/REL-2/MOD-2/3).
+   - RED/GREEN: **browser contract/UX acceptance — параметризованные сценарии на все пять состояний × оба провайдера** (D5; это не provider E2E, сервисный и API-контур доказывается Python-тестами с инъекцией клиентов) — иначе UI-маппинг `activity_start_missing`/`ineligible`/`capture_failed` не проверяется ничем исполняемым и падение отображается общим «Синхронизация завершена»; тест «фикстура ↔ форма ответа», `test_existing_snapshots_and_episodes_remain_readable`, обновление `asr_catalog.md` (ASR-REL-3/REL-2/MOD-2/3).
    - Verification: `pytest -m e2e tests/e2e -q` + широкий Python-контур + запись метрик после мержа.
 
 ## Evidence Bundle
 
-- Head SHA: plan-only (SHA ветки плана — в PR)
+- Head SHA плана: `3a4a39d` (ветка плана; реализация идёт отдельной веткой от обновлённого `main` — D8, там же будет её собственный evidence bundle)
 - Changed invariants: capture выполняется обоими провайдерами через один контракт; идентичность рана стабильна на job; пять состояний выводимы и согласованы с дневным anchor'ом; ошибка capture не откатывает основной sync.
-- Focused and broad tests: TBD (заполняется в M1–M6)
-- CI checks/reruns/flakes: TBD
-- Lifecycle/probe evidence: TBD (прогоны до/после по каждому слайсу; браузерные тексты для обоих провайдеров)
+- Focused and broad tests: N/A на plan-этапе — заполняется в M1–M6 на ветке реализации (D8)
+- CI checks/reruns/flakes: N/A на plan-этапе; проверки плана — `pytest tests/smoke/test_dev_workflow_v2_docs.py` (`6 passed`), `ruff check .` (чисто), диф только из двух docs-файлов; прогоны реализации — в её PR
+- Lifecycle/probe evidence: N/A на plan-этапе — прогоны до/после по каждому слайсу и тексты browser contract/UX acceptance будут в ветке реализации
 - Changed contracts: аддитивный `recovery_capture` в ответе синхронизации + `RecoveryCapture` в `web/lib/types.ts` + регенерированный `tests/contracts/ts_contract.json`
-- Unresolved review-thread count: TBD
-- Residual risks and follow-ups: изменение статуса синка при сбое capture (D4) — на подтверждении владельца; подход к browser-приёмке (D5) — на подтверждении владельца; разделение ролей на UI-слайсе (D6); **эфемерность терминального readback** — исход capture (включая `capture_failed`) не переживает рестарт API и не хранится в журнале, персистенция вынесена в non-goals и требует решения владельца (review P2)
+- Unresolved review-thread count: 0 (6 тредов раунда 1 закрыто, новых нет)
+- Residual risks and follow-ups: решения владельца получены — D4 отклонён в первоначальном виде (сохраняются `sync_state="partial"` и warning), D5 подтверждён (browser contract/UX acceptance, не provider E2E); разделение ролей на UI-слайсе (D6); **эфемерность терминального readback** — исход capture (включая `capture_failed`) не переживает рестарт API и не хранится в журнале, персистенция вынесена в non-goals и требует решения владельца (review P2)
 
 ## Review Findings
 
 | Severity | Evidence and falsifying check | Gate | Owner/status |
 | --- | --- | --- | --- |
-| — | Findings появятся после ревью плана владельцем и раунда независимого checker'а | — | — |
+| **P1** | D3: статус `saved_before_load` выводился из наличия дневного anchor'а и ломался при нескольких ревизиях в один день (AC3) — falsifier: 05:00-ревизия «прикрывала» 11:00-ревизию после активности 10:00 | fixed-in `3a4a39d`: состояние привязано к ревизии, дневное правило вынесено в отдельный инвариант + 3 теста | agent / closed |
+| **P2** | D2: `job_id = uuid4()[:8]` (32 бита) при глобальном дедупе по `(capture_mode, capture_run_id)` мог молча потерять дневную ревизию — falsifier: две записи с одним run id на разные даты дали `created: false` | fixed-in `3a4a39d`: устойчивая идентичность — полный UUID, короткий id остаётся display handle | agent / closed |
+| **P2** | spec: «переживает рестарт» противоречило process-local `SyncJobManager`, а `capture_failed` не пишет в журнал — falsifier: новый менеджер вернул `idle` с `result=None` | fixed-in `3a4a39d`: readback объявлен эфемерным, персистенция исходов — в `Non-goals` | agent / closed |
+| **P2** | M1: провайдер заявлялся в аудите, но места хранения нет (`readiness_snapshots` без колонки, запись внутри рекордера) | fixed-in `3a4a39d`: `input_provenance.capture_provider` в существующем JSON, без миграции; снято противоречие про неизменную сигнатуру | agent / closed |
+| **P2** | traceability: надёжность sync/fail-open приписана `ASR-REL-1` (reconciliation) вместо `ASR-REL-3` | fixed-in `3a4a39d`: маппинг исправлен на REL-3/REL-2/MOD-2/3, REL-1 явно не затрагивается | agent / closed |
+| **P2** | приёмка: обещаны пять состояний, исполняемо проверялись два; статическая проверка не исполняет `formatSyncJob` | fixed-in `3a4a39d`: параметризованные browser-сценарии на все пять состояний × оба провайдера | agent / closed |
 
 ## Native Review Rounds
 
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
-| 1 | TBD | manual (ревью плана владельцем) | TBD | continue / stop |
-| 2 | TBD | automatic (`@codex review` после реализации) | TBD | continue / stop |
+| 1 | `4ae3f4b` | automatic (`@codex review` при открытии PR) | 6 находок (1 P1 + 5 P2), все `fixed-in 3a4a39d`, 6/6 тредов закрыто | continue: запрошен scoped delta-раунд 2 |
+| 2 | `3a4a39d` | verification (scoped delta since `4ae3f4b`) | ожидается: проверка шести правок, решений D4/D5 и closure-метаданных | stop при чистом результате; иначе — правки и решение владельца |
 
 ## Final Verdict
 
-- Verdict: PLAN READY FOR OWNER REVIEW (код не изменён; реализация не начата)
-- Blocking findings remaining: нет на момент написания; открытые вопросы — D4 (статус синка при сбое capture) и D5 (механизм browser-приёмки)
-- Review rounds used: 0 / 2
-- Accepted risk or follow-up issue: расширения (cron, polling, backfill, автокоррекция плана, фейковый провайдер для end-to-end) — вне scope, зафиксированы в `Non-goals`
+- Verdict: PLAN REVISED — ожидает раунда 2 (код не изменён; реализация не начата)
+- Blocking findings remaining: нет — все шесть находок раунда 1 закрыты письменно; решения владельца получены: **D4 отклонён в первоначальном виде** (сохраняются `sync_state="partial"` и warning), **D5 подтверждён** (browser contract/UX acceptance)
+- Review rounds used: 1 / 2 (раунд 2 запрошен)
+- Accepted risk or follow-up issue: расширения (cron, polling, backfill, автокоррекция плана, provider E2E на фейковом провайдере) — вне scope; эфемерность терминального readback принята осознанно (решение владельца)
 - Merge owner final gate: rbctmz
-- Post-merge sync/branch/worktree/progress cleanup: план-ветка удаляется после ревью или переиспользуется под реализацию (решение владельца); запись метрик Class A — после мержа реализации
+- Post-merge cleanup (D8): plan-PR мержится **отдельно** и под реализацию **не переиспользуется** — M1–M6 идут новой веткой от обновлённого `main` со своим review budget; план-ветка и её worktree удаляются после мержа плана; запись метрик Class A — после мержа реализации
