@@ -53,6 +53,7 @@ from services.intervals_icu import (
     IntervalsICUError,
     get_client,
 )
+from services.recovery_analytics import project_recovery_capture
 from services.sync_contracts import SyncProgressCallback, SyncProgressUpdate
 from services.sync_cursor import (
     ChunkFetch,
@@ -361,7 +362,7 @@ def build_intervals_sync_status_payload(
         severity = "info"
         sync_state = "succeeded"
 
-    return {
+    payload = {
         "sync_state": sync_state,
         "severity": severity,
         "title": title,
@@ -392,6 +393,11 @@ def build_intervals_sync_status_payload(
         "wellness_halted": result.wellness_halted,
         "wellness_cursor_value": result.wellness_cursor_value,
     }
+    # Issue #562 M4: та же очищенная проекция, что и в Garmin-пути.
+    capture = project_recovery_capture(result.recovery_capture)
+    if capture is not None:
+        payload["recovery_capture"] = capture
+    return payload
 
 
 __all__ = [

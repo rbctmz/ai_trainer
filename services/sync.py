@@ -53,6 +53,7 @@ def _empty_sync_counts() -> SyncCounts:
 # Provider-neutral progress contract lives in services.sync_contracts (review P1.1
 # / §5): neither the Garmin nor the Intervals adapter owns the shared type. Re-exported
 # here so every existing ``from services.sync import SyncProgressUpdate`` keeps working.
+from services.recovery_analytics import project_recovery_capture  # noqa: E402
 from services.sync_contracts import SyncProgressCallback, SyncProgressUpdate  # noqa: E402
 
 
@@ -250,7 +251,7 @@ def build_sync_status_payload(result: GarminSyncResult, days: int | None = None)
         severity = "info"
         sync_state = "succeeded"
 
-    return {
+    payload = {
         "sync_state": sync_state,
         "severity": severity,
         "title": title,
@@ -266,6 +267,12 @@ def build_sync_status_payload(result: GarminSyncResult, days: int | None = None)
         # Additive in M1 (§5): the sole new key vs. the pre-M1 payload (gate M1-T3).
         "source": result.source,
     }
+    # Issue #562 M4: публикуется только очищенная проекция блока capture —
+    # служебный возврат обёртки (episode_refresh со str(exc)) наружу не идёт.
+    capture = project_recovery_capture(getattr(result, "recovery_capture", None))
+    if capture is not None:
+        payload["recovery_capture"] = capture
+    return payload
 
 
 def sync_garmin_data(

@@ -36,6 +36,40 @@ CAPTURE_REASON_ACTIVITY_LOOKUP_FAILED = "activity_lookup_failed"
 logger = logging.getLogger(__name__)
 
 
+# M4: публичная проекция блока — белый список полей. Возврат обёртки наружу не
+# проецируется никогда: в нём есть episode_refresh, где живёт str(exc).
+RECOVERY_CAPTURE_PUBLIC_FIELDS = (
+    "provider",
+    "capture_run_id",
+    "status",
+    "reason",
+    "eligibility_status",
+    "eligibility_reasons",
+    "local_date",
+    "observed_at_utc",
+    "observed_at_local",
+    "cutoff_at_utc",
+    "snapshot_id",
+    "revision",
+    "created",
+    "error",
+)
+
+
+def project_recovery_capture(block: Mapping[str, Any] | None) -> dict[str, Any] | None:
+    """Очищенный блок для публичного контракта (issue #562 M4).
+
+    ``job_id`` добавляется отдельно на границе ``SyncJobManager``, где известен
+    короткий display-ID; научный ``capture_run_id`` остаётся неизменным.
+    """
+    if not isinstance(block, Mapping) or not block:
+        return None
+    return {
+        field: block.get(field)
+        for field in RECOVERY_CAPTURE_PUBLIC_FIELDS
+    }
+
+
 def _fingerprint(payload: dict[str, Any]) -> str:
     frozen = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
     return hashlib.sha256(frozen.encode("utf-8")).hexdigest()

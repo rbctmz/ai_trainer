@@ -123,17 +123,42 @@ def test_intervals_direct_call_mints_its_own_full_uuid(tmp_path, monkeypatch):
     assert str(uuid.UUID(minted)) == minted, "direct call обязан сгенерировать полный UUID"
 
 
-def test_intervals_capture_block_stays_internal_until_m4(tmp_path, monkeypatch):
-    """M3 не меняет публичный payload: блок доступен только на результате сервиса."""
+def test_intervals_payload_publishes_the_capture_block_since_m4(tmp_path, monkeypatch):
+    """M3 держал блок внутренним; M4 публикует очищенную проекцию (см. ExecPlan).
+
+    `job_id` здесь отсутствует намеренно: короткий display-ID штампует
+    `SyncJobManager`, а этот тест вызывает builder напрямую, без job-контекста.
+    """
     db = Database(str(tmp_path / "intervals-payload.db"))
-    _capture_spy(monkeypatch)
+    _capture_spy(
+        monkeypatch,
+        block={
+            "provider": "intervals",
+            "capture_run_id": "run-internal",
+            "status": "saved_before_load",
+            "reason": None,
+            "eligibility_status": "eligible",
+            "eligibility_reasons": [],
+            "local_date": "2026-07-23",
+            "observed_at_utc": "2026-07-23T05:00:00Z",
+            "observed_at_local": "2026-07-23T08:00:00+03:00",
+            "cutoff_at_utc": "2026-07-23T09:00:00Z",
+            "snapshot_id": 7,
+            "revision": 1,
+            "created": True,
+            "error": None,
+        },
+    )
 
     result = sync_intervals_data(db, client=_client(), now=NOW, capture_run_id="run-internal")
     payload = build_intervals_sync_status_payload(result, days=None)
 
-    assert "recovery_capture" not in payload
     assert payload["sync_state"] == "succeeded"
     assert payload["notices"] == []
+    capture = payload["recovery_capture"]
+    assert capture["status"] == "saved_before_load"
+    assert capture["capture_run_id"] == "run-internal"
+    assert "job_id" not in capture, "display-ID добавляет только граница job'а"
 
 
 def test_intervals_capture_failure_keeps_saved_data_and_marks_partial(tmp_path, monkeypatch):

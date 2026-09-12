@@ -4,7 +4,7 @@
 
 Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **A — Full**. Базовая точка: `main` = `9ba4a37` (в main уже влиты #552 — revisioned evidence head и lifecycle, #557/#563 — freshness/provenance readiness и fail-closed intervention, #564/#565 — интервенционное evidence и guard отката `training_readiness`).
 
-Ревизия документа: v1.10 (реализация: M1–M3 закрыты, плюс hardening-слайс F1–F3; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API payload, UI и схема пока не менялись.
+Ревизия документа: v1.11 (реализация: M1–M4 закрыты, плюс hardening-слайс F1–F3; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API-контракт расширен аддитивно в M4; UI и схема не менялись.
 
 ## Purpose / Big Picture
 
@@ -20,7 +20,7 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - [x] (2026-09-12) M1. Provider-neutral capture-контракт и identity semantics — ветка `codex/issue-562-recovery-capture-parity` от обновлённого `main` (`facc2b4`), собственный review budget (D8). `capture_post_sync_recovery_state(...)` в `services/recovery_analytics.py`, правило пяти состояний — `capture_verdict` в `models/recovery_response.py`, дурабельный `capture_provider` в провенансе, общая граница дня `daily_activity_cutoff`. Исходный RED `13 failed` → GREEN `13 passed`; safety RED `2 failed` (`6dbe415`) → GREEN `14 passed`; подробности — `Artifacts and Notes`.
 - [x] (2026-09-13) M2. Garmin-путь использует общий контракт без двойной записи; `SyncJobManager` генерирует отдельный полный `capture_run_id` и передаёт его через API runner в `sync_garmin_data`, direct/demo вызов генерирует полный UUID сам. RED `4 failed` (`22fda6b`) → GREEN `34 passed` на Garmin/job/audit focused-контуре; D4 сохраняет `partial` + warning при `capture_failed`. Подробности — `Artifacts and Notes`.
 - [x] (2026-09-13) M3. Intervals parity: `sync_intervals_data` вызывает общий capture ровно один раз с `provider="intervals"` после основных записей; принимает полный `capture_run_id` из job'а, а при direct-вызове генерирует полный UUID сам; защитная ветка логирует с `exc_info` и переводит результат в `partial` стабильным кодом; `IntervalsSyncResult.recovery_capture` остаётся внутренним до M4, публичный payload не менялся. RED `5 failed` → GREEN `5 passed`; focused-набор `56 passed`; подробности — `Artifacts and Notes`.
-- [ ] M4. Additive API↔web контракт: `recovery_capture` в payload обоих провайдеров, `web/lib/types.ts`, регенерация `tests/contracts/ts_contract.json`, инвентарь.
+- [x] (2026-09-13) M4. Additive API↔web контракт: очищенная проекция `project_recovery_capture` (белый список полей) публикуется обоими payload-builder'ами; `job_id` штампуется на границе `SyncJobManager`; Intervals-раннер получил ту же job-identity; `web/lib/types.ts` описывает `RecoveryCapture` с nullable-датами и `job_id`; артефакт контракта перегенерирован (+322 строки), inventory и drift-тесты зелёные. RED `4 failed` → GREEN `5 passed`; focused `61 passed`; подробности — `Artifacts and Notes`.
 - [ ] M5. UI readback: локальное время, статус, причина в строке синка (роль UI/Design Specialist — см. Decision Log D6).
 - [ ] M6. Приёмка: синтетическая browser-приёмка обоих провайдеров, инвариант «capture-статус ⇔ дневной anchor», fail-open, идемпотентность/монотонность, широкий контур, ASR-каталог, evidence bundle.
 
@@ -105,6 +105,15 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - Decision (M4 guard, обязательный): **наружу проецируется только очищенный `recovery_capture`**. Возврат обёртки содержит `episode_refresh`, а при сбое обновления эпизодов внутри рекордера туда попадает `{"error": str(exc), …}` (`services/recovery_analytics.py:119`; аналогично repair-хелпер `:883`) — это предсуществующее поведение и в M3/F3 оно не меняется. Публичный payload обязан собираться исключительно из блока `recovery_capture` (как сейчас делает `services/sync.py`), иначе сырой текст исключения и локальные пути попадут в API.
   Rationale: проверено пробой при сбое `refresh_recovery_episodes` — блок остаётся чистым, а путь к файлу остаётся только в `episode_refresh["error"]`; без явного guard'а M4 может спроецировать весь возврат обёртки и утечь диагностикой.
   Date/Author: 2026-09-13 / agent (по итогам независимой проверки M2).
+- Decision (M4): **`job_id` проставляется на границе `SyncJobManager`, а научная идентичность не меняется**: короткий display-ID добавляется в блок `recovery_capture` в `api/sync_jobs.py::_run_job`, где он известен; `capture_run_id` остаётся полным UUID.
+  Rationale: сервисный блок формируется до появления job'а и знать короткий id не может, а дублировать идентичность внутри блока как «второй run id» нельзя (это была отдельная находка предыдущего раунда про `capture_run_id_full`). Роли разделены: `capture_run_id` — научная идентичность ревизии, `job_id` — handle конкретной синхронизации для UI и аудита.
+  Date/Author: 2026-09-13 / agent (M4).
+- Decision (M4): **в варианте `capture_failed` даты и времена nullable**: `local_date`, `observed_at_utc`, `observed_at_local` объявлены как `| null` в TypeScript, потому что при отказе записи снимка их физически нет.
+  Rationale: подставить «сегодня» или пустую строку ради удобства типа значило бы выдать вымышленное наблюдение за факт — ровно то, против чего направлен весь контур свежести (#557/#562). Потребитель обязан обрабатывать `null` явно.
+  Date/Author: 2026-09-13 / agent (M4).
+- Decision (M4): **публичная проекция — только очищенный блок по белому списку полей** (`services/recovery_analytics.py::project_recovery_capture`); оба provider-builder вызывают её, а весь возврат обёртки (с `episode_refresh`, где живёт `str(exc)`) наружу не проецируется никогда.
+  Rationale: это обязательный guard, зафиксированный после независимой проверки M2; белый список делает утечку невозможной по построению, а не по договорённости.
+  Date/Author: 2026-09-13 / agent (M4).
 - Decision (D8): **plan-PR мержится отдельно и не переиспользуется под реализацию** (подтверждено владельцем, 2026-09-12): после принятия плана PR плана закрывается своим мержем, а M1–M6 идут **новой веткой от обновлённого `main`** и с собственным review budget.
   Rationale: смешивание плана и реализации в одной ветке сделало бы head одним объектом для двух разных бюджетов ревью и смазало бы evidence bundle: правки плана и правки кода имеют разные критерии приёмки. Побочный эффект: `docs/recovery_snapshot_capture_parity_execplan.md` живёт в main и обновляется уже веткой реализации.
   Date/Author: 2026-09-12 / agent (по решению владельца).
@@ -219,6 +228,18 @@ RED (F3): `3 failed` — два теста в `tests/smoke/test_recovery_capture
 
 Асимметрия с Garmin (осознанная, см. решение M3): строка `Recovery snapshot: …` в `details` есть только у Garmin как сохранённая совместимость; у Intervals успешный путь не добавляет ничего, чтобы не менять публичный ответ до M4.
 
+### M4 — публичный контракт `recovery_capture` (2026-09-13)
+
+Новый файл `tests/smoke/test_recovery_capture_api_contract.py` (5 тестов, HTTP через `TestClient`). RED: `4 failed` — блока в payload не было, `job_id` отсутствовал, Intervals-раннер игнорировал identity, проекции не существовало. GREEN: `5 passed`.
+
+Покрыто: terminal `POST` + `GET /api/sync` для **обоих** провайдеров отдаёт блок ровно с белым списком полей; `job_id` в блоке равен top-level `job_id` job'а и **не** подменяет `capture_run_id` (научный полный UUID); Intervals-раннер получает тот же job-идентификатор (проверяется, что он не равен короткому `job_id`); вариант `capture_failed` доезжает с `null` в `local_date`/`observed_at_utc`/`observed_at_local`/`cutoff_at_utc` и стабильными кодами в `reason`/`error`; в ответе отсутствуют `episode_refresh`, путь к файлу и произвольные служебные ключи (проверяется по сырому JSON); проекция возвращает `None` для пустого/отсутствующего блока, поэтому провайдер без capture не получает вымышленный блок (characterization-тест).
+
+**Найдено при реализации:** `_run_intervals_sync` после M2 всё ещё игнорировал `capture_run_id` (`_ = capture_run_id`), поэтому API-путь Intervals не протягивал job-идентичность — это была дыра на границе API, закрыта в M4 (RED-тест падал именно на ней).
+
+**Намеренно перевёрнутый тест M3:** `test_intervals_capture_block_stays_internal_until_m4` (M3) заменён на `test_intervals_payload_publishes_the_capture_block_since_m4`: M3 держал блок внутренним, M4 его публикует; тест дополнительно фиксирует, что `job_id` в builder'е отсутствует (его добавляет только граница job'а).
+
+Проверки M4: `ruff check .` чисто; focused `61 passed`; contributor-safe — см. `Progress`/`Change log`; web `lint` без предупреждений, `build` успешен, `contract:extract -- --check` — артефакт актуален, `contract:inventory` отработал, `test_contract_extractor.py` / `test_api_call_inventory.py` / `test_web_contract_drift.py` — зелёные.
+
 ## Interfaces and Dependencies
 
 Ожидаемые к концу M1–M4 стабильные имена:
@@ -257,19 +278,19 @@ RED (F3): `3 failed` — два теста в `tests/smoke/test_recovery_capture
     export interface RecoveryCapture {
       provider: "garmin" | "intervals" | string;
       status: "saved_before_load" | "saved_too_late" | "activity_start_missing" | "ineligible" | "capture_failed" | string;
-      reason: string | null;               // машинно-читаемая причина
+      reason: string | null;               // стабильный код причины, без текста исключения
       eligibility_status: "eligible" | "ineligible" | string;
       eligibility_reasons: string[];
-      local_date: string;
-      observed_at_utc: string;
-      observed_at_local: string;           // локальное время атлета для UI
+      local_date: string | null;           // null при capture_failed: вымышленные даты не подставляются
+      observed_at_utc: string | null;
+      observed_at_local: string | null;    // локальное время атлета для UI
       cutoff_at_utc: string | null;
-      capture_run_id: string;              // ПОЛНЫЙ UUID — единственная идентичность рана
-      job_id: string;                      // короткий display handle job'а; в идентичность не входит
+      capture_run_id: string;              // ПОЛНЫЙ UUID — научная идентичность рана, не меняется
+      job_id: string;                      // display-ID job'а; проставляется на границе SyncJobManager
       snapshot_id: number | null;
       revision: number | null;
       created: boolean;                    // идемпотентность: false = повтор рана
-      error: string | null;                // только для capture_failed
+      error: string | null;                // стабильный код только для capture_failed
     }
     export interface SyncResult { /* … существующие поля … */ recovery_capture?: RecoveryCapture | null; }
 
@@ -311,3 +332,4 @@ RED (F3): `3 failed` — два теста в `tests/smoke/test_recovery_capture
 - v1.8 (2026-09-13): M2 закрыл Garmin handoff и фактическую job identity. RED `4 failed` на `22fda6b`; GREEN заменяет legacy inline recorder общим wrapper, сохраняет ровно один capture, прокидывает полный UUID от `SyncJobManager`, генерирует его для direct/demo вызовов и сохраняет D4 (`partial` + безопасный warning при `capture_failed`). Focused `34 passed`, расширенный recovery/sync `119 passed`, contributor-safe `2488 passed, 28 skipped, 26 deselected`, 0 failed; Ruff чисто; публичный API payload ещё не менялся (M4).
 - v1.9 (2026-09-13): hardening-слайс F1–F3. F1 — документация приведена к факту: контракт раннера не аддитивен, а изменён (Protocol с обязательным `capture_run_id`), решение M2 записано с обоснованием. F2 — смена содержимого строки `details` на пятисоставный статус зафиксирована как намеренная. F3 — серверное логирование с `exc_info=True` во всех трёх ветках отказа; публичный блок и warning несут только стабильные коды. RED `3 failed` → GREEN `51 passed` в focused-наборе.
 - v1.10 (2026-09-13): M3 — Intervals parity. `sync_intervals_data` вызывает общий capture с `provider="intervals"`, принимает полный run id из job'а, при direct-вызове минтит полный UUID, при отказе логирует с `exc_info` и переводит результат в `partial` стабильным кодом; блок остаётся внутренним полем до M4. RED `5 failed` → GREEN `5 passed`, focused `56 passed`. Добавлено обязательное решение-охрана для M4: наружу проецируется только очищенный `recovery_capture`, потому что `episode_refresh["error"]` содержит `str(exc)`.
+- v1.11 (2026-09-13): M4 — публичный контракт. Добавлены белый список полей и `project_recovery_capture`, блок публикуется обоими builder'ами, `job_id` штампуется в `SyncJobManager`, Intervals-раннер протягивает job-identity (дыра, найденная RED-тестом), `web/lib/types.ts` получил `RecoveryCapture` с nullable-датами и `job_id`, артефакт перегенерирован (+322). RED `4 failed` → GREEN `5 passed`, focused `61 passed`; web lint/build и contract-гейты зелёные. Записаны три решения M4: место штампа `job_id`, nullable-даты для `capture_failed`, проекция по белому списку.

@@ -127,6 +127,11 @@ class SyncJobManager:
 
         try:
             result = run_sync(on_progress, capture_run_id=capture_run_id)
+            # Issue #562 M4: короткий display-ID известен только здесь; научная
+            # идентичность capture_run_id внутри блока не меняется.
+            capture = result.get("recovery_capture")
+            if isinstance(capture, dict):
+                result["recovery_capture"] = {**capture, "job_id": job_id}
             sync_state = str(result.get("sync_state") or "succeeded")
             self._record_provider_sync_decision(
                 db=db,

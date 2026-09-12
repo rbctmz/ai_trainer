@@ -192,14 +192,14 @@ def _run_intervals_sync(db, requested_days: int | None):
     from services.intervals_icu import IntervalsICUConfigurationError
 
     def run_sync(on_progress, *, capture_run_id: str):
-        # M3 consumes the same stable identity in the Intervals service. The
-        # runner accepts it now so SyncJobManager has one provider-neutral shape.
-        _ = capture_run_id
+        # M4: тот же стабильный job-идентификатор уходит в Intervals-сервис,
+        # поэтому оба провайдера используют одну identity-семантику.
         try:
             result = intervals_sync_service.sync_intervals_data(
                 db,
                 days=requested_days,
                 on_progress=on_progress,
+                capture_run_id=capture_run_id,
             )
         except IntervalsICUConfigurationError as exc:
             raise RuntimeError(str(exc)) from exc

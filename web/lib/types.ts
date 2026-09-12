@@ -677,6 +677,36 @@ export interface DataCoverageResponse {
   daily_metrics: DailyMetricCoverage[];
 }
 
+export interface RecoveryCapture {
+  provider: "garmin" | "intervals" | string;
+  /** Full UUID: the scientific identity of this capture revision. */
+  capture_run_id: string;
+  /** Short display id of the sync job, stamped at the job-manager boundary. */
+  job_id: string;
+  status:
+    | "saved_before_load"
+    | "saved_too_late"
+    | "activity_start_missing"
+    | "ineligible"
+    | "capture_failed"
+    | string;
+  /** Stable reason code; never raw exception text. */
+  reason: string | null;
+  eligibility_status: "eligible" | "ineligible" | string;
+  eligibility_reasons: string[];
+  /** Null when the capture failed: no fabricated dates for the type's sake. */
+  local_date: string | null;
+  observed_at_utc: string | null;
+  observed_at_local: string | null;
+  cutoff_at_utc: string | null;
+  snapshot_id: number | null;
+  revision: number | null;
+  /** Idempotency flag: false means this run reused an existing revision. */
+  created: boolean;
+  /** Stable code, present only for a failed capture. */
+  error: string | null;
+}
+
 export interface SyncResult {
   sync_state?: "succeeded" | "partial" | "running" | "failed" | "idle" | string;
   title: string;
@@ -685,6 +715,8 @@ export interface SyncResult {
   mode?: "incremental" | "full" | string;
   counts?: { new: number; updated: number; skipped: number };
   notices?: string[];
+  /** Issue #562 M4: cleaned post-sync capture verdict (both providers). */
+  recovery_capture?: RecoveryCapture | null;
   [key: string]: unknown;
 }
 
