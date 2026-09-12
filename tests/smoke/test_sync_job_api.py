@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import threading
 import time
+import uuid
 
 from data.database import Database
 from services import sync as sync_service
@@ -30,9 +31,11 @@ def test_post_sync_starts_background_job_and_reuses_running_job(tmp_path, monkey
     started = threading.Event()
     release = threading.Event()
     calls: list[int | None] = []
+    capture_run_ids: list[str] = []
 
-    def fake_sync(_state, days=None, on_progress=None):
+    def fake_sync(_state, days=None, on_progress=None, capture_run_id=None):
         calls.append(days)
+        capture_run_ids.append(capture_run_id)
         if on_progress:
             on_progress(sync_service.SyncProgressUpdate(percent=17, message="activities"))
         started.set()
@@ -69,6 +72,9 @@ def test_post_sync_starts_background_job_and_reuses_running_job(tmp_path, monkey
     assert final["sync_state"] == "succeeded"
     assert final["result"]["counts"]["new"] == 1
     assert final["operational_state"]["sync_state"] == "succeeded"
+    assert len(capture_run_ids) == 1
+    assert str(uuid.UUID(capture_run_ids[0])) == capture_run_ids[0]
+    assert len(capture_run_ids[0]) > len(first["job_id"])
 
 
 def test_sync_job_exposes_partial_and_failed_states(tmp_path, monkeypatch):
