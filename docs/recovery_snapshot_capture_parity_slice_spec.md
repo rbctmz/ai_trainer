@@ -5,7 +5,7 @@
 - Issue / PR: [#562](https://github.com/rbctmz/ai_trainer/issues/562) (PR: plan-only этап — см. ветку плана)
 - Author / checker / merge owner: agent (Spec / Architecture Owner на plan-only этапе; реализация M1–M4 — Domain / API Implementer, M5 — UI / Design Specialist) / независимый checker на PR (`@codex review`) / rbctmz
 - Date: 2026-09-12
-- Candidate head SHA: актуальный head ветки плана — в PR (код не изменён: диф состоит только из этого файла и ExecPlan; правки по раунду 1 — `3a4a39d`)
+- Candidate head SHA: раунд 1 отревьюил `4ae3f4b`, раунд 2 — `20f9dcb` (неизменяемые факты; правки раунда 1 — `3a4a39d`). Код не менялся: диф состоит только из этого файла и ExecPlan
 
 ## Change Class
 
@@ -20,7 +20,7 @@
   - новый cross-module public contract или архитектурная граница — **да**: `recovery_capture` в ответе синхронизации и в `web/lib/types.ts`; новая архитектурная граница не создаётся (провайдер-нейтральный владелец capture уже существует в `services/recovery_analytics.py`).
 - Review budget used: **1 / 2 rounds** (раунд 1 на `4ae3f4b`: 6 находок — 1 P1 + 5 P2, все `fixed-in 3a4a39d`)
 - Review trigger mode: automatic (`@codex review` на PR)
-- Review acceptance head SHA: TBD — ожидается scoped delta-раунд 2 на текущем head ветки плана (диапазон since `4ae3f4b`)
+- Review acceptance head SHA: TBD — фиксируется в момент acceptance (отревьюенные раунды: `4ae3f4b`, затем `20f9dcb`)
 - Review budget exception: N/A — бюджет не превышен
 
 **Устаревшая зависимость issue.** В теле issue сказано «Related but deliberately separate from **open** #557». На дату плана #557 **закрыт** (смержен PR #563, merge-коммит `a82be7b`), и в main уже живут его семантики: metric-scoped provenance (`sleep_score_observed_at`, `total_sleep_observed_at`, `rmssd_observed_at`, `resting_hr_observed_at`, `training_readiness_observed_at`), аддитивный канал `freshness`/`intervention_*`, fail-closed гейт и athlete-local (а не серверные) anchor'ы дат. План **опирается** на эти семантики и не дублирует их: capture по-прежнему строит канонический snapshot через `services/readiness_snapshot.py`, а `freshness`/`intervention_*` — часть этого snapshot'а. Разделение из issue сохраняется: #562 отвечает за *паритет и видимость capture*, а не за свежесть входов readiness.
@@ -32,7 +32,7 @@
   - `services/recovery_analytics.py` — общий вход capture + вычисление пяти состояний;
   - `services/sync.py` — Garmin-путь через общий контракт, без двойной записи;
   - `services/intervals_sync.py` — parity-вызов и аддитивное поле результата;
-  - `api/sync_jobs.py` — прокидывание стабильного `job_id` как `capture_run_id`;
+  - `api/sync_jobs.py` — генерация **полного UUID** `capture_run_id` рядом с коротким `job_id` (display handle) и прокидывание его в раннер и сервисы;
   - `api/routers/system.py` — аддитивный блок в payload обоих провайдеров;
   - `web/lib/types.ts` (+ `tests/contracts/ts_contract.json` регенерация) — контракт;
   - `web/components/sync/SyncControl.tsx` — readback (роль UI / Design Specialist);
@@ -42,7 +42,7 @@
 ## Non-goals
 
 - Behavior deliberately unchanged: правило pre-anchor (снимок обязан существовать до cutoff), формула readiness, пороги confidence, D+1/D+2/D+3, maturity gates, обучение `k_fitness`/`k_fatigue`/`tau_fitness`/`tau_fatigue`; исторические `missing_pre_anchor` не переклассифицируются и не backfill-ятся; провайдерский writeback и автокоррекция плана отсутствуют; схема БД и миграции не меняются; нового эндпоинта не появляется.
-- Deferred work and owner: **cron/фоновое расписание**, **polling-надстройки**, **backfill исторических снимков**, **автоматическая коррекция плана** — вне scope по прямому non-goal issue и указанию владельца; расширение `web/app/recovery/` — только если понадобится уже существующий статус дневного capture, отдельным решением владельца; настоящий end-to-end на фейковом провайдере (если владелец предпочтёт его перехвату маршрутов) — отдельный слайс M6.
+- Deferred work and owner: **cron/фоновое расписание**, **polling-надстройки**, **backfill исторических снимков**, **автоматическая коррекция плана** — вне scope по прямому non-goal issue и указанию владельца; расширение `web/app/recovery/` — только если понадобится уже существующий статус дневного capture, отдельным решением владельца; настоящий provider E2E на фейковом провайдере — подтверждённо вне scope (владелец выбрал browser contract/UX acceptance); вводится только отдельным решением.
 
 ## Definition of Done
 
@@ -52,7 +52,7 @@
 
 ## Public Contracts
 
-- `POST /api/sync` / `GET /api/sync` → `SyncResult` — **changed compatibly**: аддитивный ключ `recovery_capture` (объект или `null`); существующие ключи (`sync_state`, `severity`, `title`, `summary`, `counts`, `notices`, `source`, …) сохраняют смысл. Тесты: `tests/smoke/test_sync_job_api.py` (форма ответа для обоих источников). Уточнение по покрытию: реестр `tests/contracts/registry.json:145-150` связывает `/api/sync` с `SyncJobResponse`, но drift-харнесс делает только `GET` (`test_web_contract_drift.py:194`), в demo-сценарии `result` отсутствует, а `POST /api/sync` не покрыт вовсе; лишние поля API печатаются как INFO, а не как нарушение (`tests/smoke/conformance.py:9-13`), поэтому форма терминального ответа с новым блоком проверяется явным тестом, а не гейтом дрейфа.
+- `POST /api/sync` / `GET /api/sync` → `SyncResult` — **changed compatibly**: аддитивный ключ `recovery_capture` (объект или `null`); существующие ключи (`sync_state`, `severity`, `title`, `summary`, `counts`, `notices`, `source`, …) сохраняют смысл. Тесты: `tests/smoke/test_sync_job_api.py` (форма ответа для обоих источников). Уточнение по покрытию: реестр `tests/contracts/registry.json:145-150` связывает `/api/sync` с `SyncJobResponse`, но drift-харнесс делает только `GET` (`test_web_contract_drift.py:194`), в demo-сценарии `result` отсутствует, а `POST /api/sync` не покрыт вовсе; лишние поля API печатаются как INFO, а не как нарушение (`tests/contracts/conformance.py:9-13`; импортируется в `tests/smoke/test_web_contract_drift.py:35`), поэтому форма терминального ответа с новым блоком проверяется явным тестом, а не гейтом дрейфа.
 - `web/lib/types.ts` — **changed compatibly**: новый `RecoveryCapture` и аддитивное поле в `SyncResult`; `tests/contracts/ts_contract.json` перегенерируется (`contract:extract`), гейт `--check` остаётся зелёным; инвентарь API обновляется (`contract:inventory`, `test_api_call_inventory.py`).
 - `services/sync.py::sync_garmin_data`, `services/intervals_sync.py::sync_intervals_data` — **changed compatibly**: аддитивный keyword `capture_run_id: str | None = None`; прямой вызов без него сохраняет прежнее поведение (внутренняя генерация identity).
 - `GarminSyncResult` / `IntervalsSyncResult` — **changed compatibly**: аддитивное поле `recovery_capture`.
@@ -64,8 +64,8 @@
 - Failure modes and safe result: ошибка derived capture → данные провайдера сохранены, `sync_state="partial"` и warning **сохраняются**, а `recovery_capture.status = "capture_failed"` с причиной объясняет, какая производная операция не выполнилась (решение владельца по D4: fail-open — это отсутствие отката, а не ложный `succeeded`); отсутствие provenance старта активности → `activity_start_missing` (fail-closed, без утверждения о pre-anchor); непригодный снимок → `ineligible` + причины eligibility без приватных значений.
 - Retry/idempotency key: `capture_run_id` — **полный UUID**, генерируемый на job (короткий `job_id` остаётся display handle и в идентичность не попадает: 32-битное пространство при глобальном дедупе по `(capture_mode, capture_run_id)` дало бы молчаливую потерю дневной ревизии). Повтор того же рана → `created: false`, новая ревизия не создаётся; новый job в тот же день → новая монотонная ревизия в `target_key = readiness:prospective:<local_date>`; `fingerprint = sha256({capture_run_id, capture_mode})` остаётся неизменным по смыслу.
 - Rollback procedure and proof: revert коммитов слайсов; журнал append-only, исторические строки не переписываются; доказательство — тест «после отката/повторного sync состояние читается и совпадает с ожидаемым» + отсутствие миграций в диффе.
-- [x] Does this add **new persistent state**? Нет: используется существующий журнал `readiness_snapshots`; состояние capture вычисляется.
-- [x] Does **full reset** remove every row/artifact/cursor introduced here? N/A — новых артефактов и курсоров нет.
+- [x] Does this add **new persistent state**? **Да, аддитивно**: в существующую строку журнала `readiness_snapshots` добавляется провенанса провайдера (`input_provenance.capture_provider` внутри `provenance_json`) — новых колонок, таблиц и курсоров нет, владелец состояния тот же журнал, отдельного age-out не вводится; состояние capture по-прежнему вычисляется, а не хранится.
+- [x] Does **full reset** remove every row/artifact/cursor introduced here? Новых артефактов и курсоров нет; провенанса живёт и умирает вместе со строкой снимка, поэтому reset/export обязан сохранять читаемость `provenance_json` — существующее поведение журнала, покрывается тестом «сохранённая строка несёт провайдера».
 - [x] Restart and partial-failure recovery are covered **с явной границей**: запись снимка атомарна (`BEGIN IMMEDIATE`), обновление эпизодов изолировано `try/except`; дурабельна только сама строка снимка с её провенансой. Терминальный `recovery_capture` в ответе job'а **эфемерен** (`SyncJobManager` process-local, новый процесс стартует с idle-снимком), а `capture_failed` не пишет ни строки в журнал — поэтому «переживает рестарт» здесь не заявляется; для успешных capture статус детерминированно пересчитывается из журнала и активностей, для провалов — нет (персистенция исходов вынесена в non-goals, решение владельца).
 
 ## State Boundaries and Identity
@@ -104,6 +104,7 @@
 | AC9 контракт: types.ts, `ts_contract.json`, инвентарь согласованы | `test_sync_payload_carries_recovery_capture_for_both_sources`, `contract:extract -- --check`, `test_api_call_inventory.py` | ключа нет; артефакт не содержит `RecoveryCapture` | ключ присутствует в форме ответа; артефакт свежий; инвентарь без дрейфа |
 | AC10 существующие снимки/эпизоды читаемы, история не мутируется | `test_existing_snapshots_and_episodes_remain_readable` | новая логика пишет в те же строки иначе | старые строки читаются, число строк истории не меняется, `revision` не переписывается |
 | Инвариант: статус **ревизии** ⇔ её собственное время относительно cutoff | `test_capture_status_is_per_revision`, `test_late_revision_does_not_steal_the_day_anchor` | статус выводится из наличия дневного anchor'а → при нескольких ревизиях новая помечается неверно | ревизия 05:00 = `saved_before_load`, ревизия 11:00 после активности 10:00 = `saved_too_late`, anchor дня остаётся у 05:00 |
+| Приоритет статусов при пересечении предикатов | `test_status_precedence_on_overlapping_predicates` | непригодная ревизия в день с нечитаемым стартом помечается `ineligible`, хотя `select_daily_anchor` сообщает `activity_start_missing` | `activity_start_missing` побеждает: порядок `capture_failed` → `activity_start_missing` → `ineligible` → before/too_late |
 | Дневной инвариант: anchor существует ⇔ есть ревизия `saved_before_load` | `test_day_anchor_matches_revision_set` | дневное правило и статусы расходятся | anchor = последняя eligible-ревизия с `t_r ≤ cutoff`; при отсутствии таких ревизий anchor'а нет с той же причиной |
 | Паритет провайдеров по форме | `test_provider_payload_shapes_match` | формы расходятся (у Intervals нет `details`) | обе формы несут одинаковый набор ключей `recovery_capture` |
 
@@ -137,13 +138,15 @@
    - RED: расширение статических проверок `tests/smoke/test_m3_sync_ui_contract.py` (в `web/` нет JS-раннера; `formatSyncJob` сегодня не покрыт ни одним тестом).
    - GREEN: рендер локального времени, статуса и причины в строке синка; утверждение целится в видимый вариант строки (`<p>` на `:147` против `hidden … sm:inline` на `:155`).
    - Verification: статический UI-контракт + web `lint`/`build`.
-6. Slice M6 — приёмка и evidence bundle. Каталог `tests/e2e/fixtures/` отсутствует и создаётся этим слайсом; `PRIMARY_ACTIVITY_SOURCE` и `ACCEPTANCE_*` в web-стенд не подключены (только Streamlit), поэтому сценарий строится на перехвате маршрутов.
-   - RED/GREEN: **browser contract/UX acceptance — параметризованные сценарии на все пять состояний × оба провайдера** (D5; это не provider E2E, сервисный и API-контур доказывается Python-тестами с инъекцией клиентов) — иначе UI-маппинг `activity_start_missing`/`ineligible`/`capture_failed` не проверяется ничем исполняемым и падение отображается общим «Синхронизация завершена»; тест «фикстура ↔ форма ответа», `test_existing_snapshots_and_episodes_remain_readable`, обновление `asr_catalog.md` (ASR-REL-3/REL-2/MOD-2/3).
-   - Verification: `pytest -m e2e tests/e2e -q` + широкий Python-контур + запись метрик после мержа.
+6. Slice M6 расщеплён по ролевым границам (review P2) — у каждой части свой владелец и критерий:
+   - **M6a — Domain / API Implementer (продолжает после M4):** тест «фикстура ↔ форма ответа» (pinning), паритетный payload-тест обоих источников, `test_existing_snapshots_and_episodes_remain_readable`, идемпотентность/монотонность, fail-open, инвариант «статус ревизии ⇔ время относительно cutoff», приоритет статусов.
+   - **M6b — UI / Design Specialist (продолжает после M5):** browser contract/UX acceptance — каталог `tests/e2e/fixtures/` отсутствует и создаётся здесь; `PRIMARY_ACTIVITY_SOURCE` и `ACCEPTANCE_*` в web-стенд не подключены (только Streamlit), поэтому сценарий строится на перехвате маршрутов; параметризованные сценарии на все пять состояний × оба провайдера (D5; это не provider E2E) с утверждением видимого варианта строки.
+   - **M6c — Spec / Architecture Owner:** обновление `docs/architecture/asr_catalog.md` (ASR-REL-3/REL-2/MOD-2/3) и сборка итогового evidence bundle в PR реализации.
+   - Verification: `pytest -m e2e tests/e2e -q` (M6b) + широкий Python-контур (M6a) + запись метрик после мержа (M6c).
 
 ## Evidence Bundle
 
-- Head SHA плана: актуальный head ветки плана — в PR (правки по раунду 1 — `3a4a39d`; реализация идёт отдельной веткой от обновлённого `main` — D8, там же будет её собственный evidence bundle)
+- Head SHA плана: отревьюенные раундами head'ы — `4ae3f4b` и `20f9dcb` (неизменяемо); реализация идёт отдельной веткой от обновлённого `main` — D8, там же будет её собственный evidence bundle
 - Changed invariants: capture выполняется обоими провайдерами через один контракт; идентичность рана стабильна на job; пять состояний выводимы и согласованы с дневным anchor'ом; ошибка capture не откатывает основной sync.
 - Focused and broad tests: N/A на plan-этапе — заполняется в M1–M6 на ветке реализации (D8)
 - CI checks/reruns/flakes: N/A на plan-этапе; проверки плана — `pytest tests/smoke/test_dev_workflow_v2_docs.py` (`6 passed`), `ruff check .` (чисто), диф только из двух docs-файлов; прогоны реализации — в её PR
@@ -168,7 +171,7 @@
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
 | 1 | `4ae3f4b` | automatic (`@codex review` при открытии PR) | 6 находок (1 P1 + 5 P2), все `fixed-in 3a4a39d`, 6/6 тредов закрыто | continue: запрошен scoped delta-раунд 2 |
-| 2 | текущий head ветки плана (см. PR) | verification (scoped delta since `4ae3f4b`) | ожидается: проверка шести правок, решений D4/D5 и closure-метаданных | stop при чистом результате; иначе — правки и решение владельца |
+| 2 | `20f9dcb` | verification (scoped delta since `4ae3f4b`) | 8 находок (7 P2 + 1 P3): приоритет статусов, несогласованность D2 со spec, `capture_provider` как persistent state, двойной идентификатор, незакрытый D5, отсутствие неизменяемого reviewed SHA, неверный путь `conformance.py`, устаревшая ревизия плана, нерасщеплённый M6 | правки внесены; бюджет 2/2 — дальнейший раунд только по решению владельца |
 
 ## Final Verdict
 
