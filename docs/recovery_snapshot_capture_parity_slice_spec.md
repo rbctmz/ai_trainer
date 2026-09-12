@@ -56,17 +56,17 @@
 - `web/lib/types.ts` — **changed compatibly**: новый `RecoveryCapture` и аддитивное поле в `SyncResult`; `tests/contracts/ts_contract.json` перегенерируется (`contract:extract`), гейт `--check` остаётся зелёным; инвентарь API обновляется (`contract:inventory`, `test_api_call_inventory.py`).
 - `services/sync.py::sync_garmin_data`, `services/intervals_sync.py::sync_intervals_data` — **changed compatibly**: аддитивный keyword `capture_run_id: str | None = None`; прямой вызов без него сохраняет прежнее поведение (внутренняя генерация identity).
 - `GarminSyncResult` / `IntervalsSyncResult` — **changed compatibly**: аддитивное поле `recovery_capture`.
-- `services/recovery_analytics.py` — **changed compatibly**: публичный вход `capture_post_sync_recovery_state(...)`; существующий `record_post_sync_recovery_state(...)` сохраняет сигнатуру и поведение (его продолжают использовать существующие тесты и вызывающие).
+- `services/recovery_analytics.py` — **changed compatibly**: публичный вход `capture_post_sync_recovery_state(...)`; существующий `record_post_sync_recovery_state(...)` получает аддитивный keyword `capture_provider: str | None = None` и пишет провайдера в уже существующий JSON провенансы (`input_provenance.capture_provider`), поэтому провайдер восстанавливается из журнала без новой колонки и миграции; остальное поведение и все существующие вызовы сохраняются. Тест: сохранённая строка журнала несёт провайдера.
 - DB schema, таблицы, миграции — **unchanged**; новый эндпоинт — **не добавляется**; событий/CLI/конфигурации — **unchanged**.
 
 ## Failure, Reset, Rollback, Idempotency
 
 - Failure modes and safe result: ошибка derived capture → `recovery_capture.status = "capture_failed"` с причиной, данные провайдера и статус основного sync не откатываются (см. ExecPlan D4 — вынесено на подтверждение владельцу); отсутствие provenance старта активности → `activity_start_missing` (fail-closed, без утверждения о pre-anchor); непригодный снимок → `ineligible` + причины eligibility без приватных значений.
-- Retry/idempotency key: `capture_run_id` (для API-пути — `job_id`). Повтор того же рана → `created: false`, новая ревизия не создаётся; новый job в тот же день → новая монотонная ревизия в `target_key = readiness:prospective:<local_date>`; `fingerprint = sha256({capture_run_id, capture_mode})` остаётся неизменным по смыслу.
+- Retry/idempotency key: `capture_run_id` — **полный UUID**, генерируемый на job (короткий `job_id` остаётся display handle и в идентичность не попадает: 32-битное пространство при глобальном дедупе по `(capture_mode, capture_run_id)` дало бы молчаливую потерю дневной ревизии). Повтор того же рана → `created: false`, новая ревизия не создаётся; новый job в тот же день → новая монотонная ревизия в `target_key = readiness:prospective:<local_date>`; `fingerprint = sha256({capture_run_id, capture_mode})` остаётся неизменным по смыслу.
 - Rollback procedure and proof: revert коммитов слайсов; журнал append-only, исторические строки не переписываются; доказательство — тест «после отката/повторного sync состояние читается и совпадает с ожидаемым» + отсутствие миграций в диффе.
 - [x] Does this add **new persistent state**? Нет: используется существующий журнал `readiness_snapshots`; состояние capture вычисляется.
 - [x] Does **full reset** remove every row/artifact/cursor introduced here? N/A — новых артефактов и курсоров нет.
-- [x] Restart and partial-failure recovery are covered: запись снимка атомарна (`BEGIN IMMEDIATE`), обновление эпизодов изолировано `try/except`; capture-блок в terminal response переживает рестарт процесса только как часть ответа джоба — после рестарта он пересчитывается из журнала и активностей тем же детерминированным правилом.
+- [x] Restart and partial-failure recovery are covered **с явной границей**: запись снимка атомарна (`BEGIN IMMEDIATE`), обновление эпизодов изолировано `try/except`; дурабельна только сама строка снимка с её провенансой. Терминальный `recovery_capture` в ответе job'а **эфемерен** (`SyncJobManager` process-local, новый процесс стартует с idle-снимком), а `capture_failed` не пишет ни строки в журнал — поэтому «переживает рестарт» здесь не заявляется; для успешных capture статус детерминированно пересчитывается из журнала и активностей, для провалов — нет (персистенция исходов вынесена в non-goals, решение владельца).
 
 ## State Boundaries and Identity
 
@@ -100,15 +100,16 @@
 | AC5 capture после старта → снимок аудируется, но pre-anchor недоступен, причина машинно-читаема | `test_late_capture_is_audited_but_not_pre_anchor` | статус не отличается от «до нагрузки» | `saved_too_late` + `cutoff_at_utc`, `no_eligible_pre_anchor_snapshot` у anchor'а |
 | AC6 нет provenance старта → `activity_start_missing` | `test_missing_activity_start_fails_closed` | состояние не сообщается вовсе | `activity_start_missing` в блоке и в причине anchor'а |
 | AC7 снимок не прошёл eligibility → «сохранён, но не пригоден» | `test_ineligible_snapshot_is_reported_with_safe_reasons` | причины не выводятся | `ineligible` + список причин без приватных значений |
-| AC8 terminal response виден в `SyncControl` для обоих источников | `test_m3_sync_ui_contract` (расширение) + браузерный сценарий | UI читает только `title`/`counts`/`notices` | статический контракт расширен; браузерный текст содержит статус для `garmin` и `intervals` |
+| AC8 terminal response виден в `SyncControl` для обоих источников, включая все пять состояний | `test_m3_sync_ui_contract` (расширение) + параметризованные браузерные сценарии (5 состояний × 2 источника) | UI читает только `title`/`counts`/`notices`, «плохие» состояния падают в общий текст | статический контракт расширен; браузерный текст содержит корректный статус и причину для каждого из пяти состояний на обоих источниках |
 | AC9 контракт: types.ts, `ts_contract.json`, инвентарь согласованы | `test_sync_payload_carries_recovery_capture_for_both_sources`, `contract:extract -- --check`, `test_api_call_inventory.py` | ключа нет; артефакт не содержит `RecoveryCapture` | ключ присутствует в форме ответа; артефакт свежий; инвентарь без дрейфа |
 | AC10 существующие снимки/эпизоды читаемы, история не мутируется | `test_existing_snapshots_and_episodes_remain_readable` | новая логика пишет в те же строки иначе | старые строки читаются, число строк истории не меняется, `revision` не переписывается |
-| Инвариант: статус capture ⇔ дневной anchor | `test_capture_status_matches_daily_anchor_decision` | две реализации одного правила расходятся | `saved_before_load` ⇔ anchor найден; остальные состояния ⇔ anchor отсутствует с той же причиной |
+| Инвариант: статус **ревизии** ⇔ её собственное время относительно cutoff | `test_capture_status_is_per_revision`, `test_late_revision_does_not_steal_the_day_anchor` | статус выводится из наличия дневного anchor'а → при нескольких ревизиях новая помечается неверно | ревизия 05:00 = `saved_before_load`, ревизия 11:00 после активности 10:00 = `saved_too_late`, anchor дня остаётся у 05:00 |
+| Дневной инвариант: anchor существует ⇔ есть ревизия `saved_before_load` | `test_day_anchor_matches_revision_set` | дневное правило и статусы расходятся | anchor = последняя eligible-ревизия с `t_r ≤ cutoff`; при отсутствии таких ревизий anchor'а нет с той же причиной |
 | Паритет провайдеров по форме | `test_provider_payload_shapes_match` | формы расходятся (у Intervals нет `details`) | обе формы несут одинаковый набор ключей `recovery_capture` |
 
 ## ASR / ADR Traceability
 
-- ASRs affected: **ASR-REL-1** (ни одна производная дневная запись не теряется и не переписывается — parity capture и append-only журнал), **ASR-REL-2** (провал derived analytics не превращается в потерю данных и не маскирует причину; fail-closed `activity_start_missing`/`ineligible`), **ASR-MOD-2** (server-owned проекция: Python считает состояния, React только рендерит), **ASR-MOD-3** (контракт аддитивен, схема и миграции не меняются).
+- ASRs affected: **ASR-REL-3** — «обрыв sync/maintenance не портит частичные данные» (`docs/architecture/asr_catalog.md:17`): именно этот контур отвечает за fail-open границу, cursor-after-clean-batch и независимость производной аналитики от основной синхронизации; **ASR-REL-2** — «отсутствие данных → data gap, не падение» (:16): fail-closed `activity_start_missing`/`ineligible` и честная причина вместо маскировки; **ASR-MOD-2** — server-owned проекция (Python считает состояния, React только рендерит); **ASR-MOD-3** — аддитивный контракт без схемы и миграций. **ASR-REL-1** (reconciliation плана и факта, :15) этот контур не затрагивает: ни одна reconcilation-инварианта не меняется.
 - ADRs reused: **ADR-0008** (multi-provider ingest и provider links) — переиспользуется; новый ADR не требуется, новая архитектурная граница не появляется.
 - Tactic and trade-off: единый provider-neutral владелец capture + аддитивный структурный блок вместо текстового «details»; плата — правка контракта и UI-слайс в чужой роли (D6).
 - New architecture boundary discovered during review: нет на момент написания; если checker назовёт такую границу, раунд ревью продолжается по правилам бюджета.
@@ -137,7 +138,7 @@
    - GREEN: рендер локального времени, статуса и причины в строке синка; утверждение целится в видимый вариант строки (`<p>` на `:147` против `hidden … sm:inline` на `:155`).
    - Verification: статический UI-контракт + web `lint`/`build`.
 6. Slice M6 — приёмка и evidence bundle. Каталог `tests/e2e/fixtures/` отсутствует и создаётся этим слайсом; `PRIMARY_ACTIVITY_SOURCE` и `ACCEPTANCE_*` в web-стенд не подключены (только Streamlit), поэтому сценарий строится на перехвате маршрутов.
-   - RED/GREEN: браузерные сценарии обоих провайдеров (D5), тест «фикстура ↔ форма ответа», `test_existing_snapshots_and_episodes_remain_readable`, обновление `asr_catalog.md`.
+   - RED/GREEN: **параметризованные браузерные сценарии на все пять состояний × оба провайдера** (D5) — иначе UI-маппинг `activity_start_missing`/`ineligible`/`capture_failed` не проверяется ничем исполняемым и падение отображается общим «Синхронизация завершена»; тест «фикстура ↔ форма ответа», `test_existing_snapshots_and_episodes_remain_readable`, обновление `asr_catalog.md` (ASR-REL-3/REL-2/MOD-2/3).
    - Verification: `pytest -m e2e tests/e2e -q` + широкий Python-контур + запись метрик после мержа.
 
 ## Evidence Bundle
@@ -149,7 +150,7 @@
 - Lifecycle/probe evidence: TBD (прогоны до/после по каждому слайсу; браузерные тексты для обоих провайдеров)
 - Changed contracts: аддитивный `recovery_capture` в ответе синхронизации + `RecoveryCapture` в `web/lib/types.ts` + регенерированный `tests/contracts/ts_contract.json`
 - Unresolved review-thread count: TBD
-- Residual risks and follow-ups: изменение статуса синка при сбое capture (D4) — на подтверждении владельца; подход к browser-приёмке (D5) — на подтверждении владельца; разделение ролей на UI-слайсе (D6)
+- Residual risks and follow-ups: изменение статуса синка при сбое capture (D4) — на подтверждении владельца; подход к browser-приёмке (D5) — на подтверждении владельца; разделение ролей на UI-слайсе (D6); **эфемерность терминального readback** — исход capture (включая `capture_failed`) не переживает рестарт API и не хранится в журнале, персистенция вынесена в non-goals и требует решения владельца (review P2)
 
 ## Review Findings
 

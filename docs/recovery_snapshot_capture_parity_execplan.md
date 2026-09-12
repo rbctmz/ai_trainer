@@ -38,6 +38,9 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - **Observed**: идемпотентность capture по run identity уже реализована и покрыта: `data/database.py::save_readiness_snapshot` считает `fingerprint = sha256({capture_run_id, capture_mode})`, атомарно (`BEGIN IMMEDIATE`) возвращает `{'created': False}` на повторе и ведёт монотонную `revision` в пределах `target_key = readiness:<mode>:<local_date>`; `tests/smoke/test_recovery_episode_materializer.py::test_capture_run_identity_wins_over_retry_clock` это доказывает (`first.created is True`, `retry.created is False`, одна строка, `revision` не растёт).
   **Inferred**: AC3 закрывается не новой механикой хранения, а **стабильной идентичностью рана на API-пути**: сегодня `services/sync.py` генерирует `uuid.uuid4()` внутри `sync_garmin_data`, то есть идентичность не связана с job'ом.
   **Verified by**: чтение `services/sync.py:411-424`, `data/database.py:1224-1295`, `api/sync_jobs.py:47-110`.
+- **Observed**: `SyncJobManager` — process-local: новый процесс инициализируется idle-снимком (`api/sync_jobs.py::_idle_snapshot`), то есть терминальный `result` (а с ним и `recovery_capture`) не переживает рестарт API; `capture_failed` при этом не пишет ни одной строки в журнал, поэтому восстановить его из базы нельзя.
+  **Inferred**: терминальный readback capture-статуса **эфемерен**; дурабельна только сама запись снимка (её строка и provenance). Значит «переживает рестарт» нельзя заявлять как покрытое свойство — это надо честно объявить эфемерным, а персистенцию исходов (включая провалы) вынести за scope.
+  **Verified by**: чтение `api/sync_jobs.py` (`_idle_snapshot`, `start_or_get`, `_public_snapshot_locked`) и структуры `readiness_snapshots` (поля исхода capture там нет) на `9ba4a37`.
 - **Observed**: словарь состояний уже частично существует: `models/recovery_response.py::select_daily_anchor` возвращает `reason ∈ {invalid_timezone, activity_start_missing, no_eligible_pre_anchor_snapshot}`, а `evaluate_snapshot_eligibility` — причины `missing_as_of`, `missing_score`, `low_confidence` (<0.60), `stale_snapshot`, `stale_factor`, `future_factor`; cutoff = минимальный старт активности дня, иначе локальный полдень.
   **Inferred**: новые пять состояний capture — это проекция уже существующих примитивов, а не новая научная логика; расхождение с `select_daily_anchor` было бы дефектом, поэтому инвариант «capture-статус ⇔ дневной anchor» попадает в RED-матрицу.
   **Verified by**: чтение `models/recovery_response.py:66-140` на `9ba4a37`.
@@ -50,12 +53,15 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - Decision (D1): **владение capture — общий provider-neutral вход в `services/recovery_analytics.py`**, вызываемый обоими sync-сервисами; Garmin-путь перестаёт держать собственный инлайн-блок.
   Rationale: capture обязан работать не только на API-пути. Легаси-Streamlit и demo вызывают `services/sync.py::sync_garmin_data` и `services/intervals_sync.py::sync_intervals_data` напрямую; хук в `api/routers/system.py` оставил бы эти поверхности без снимка — то есть воспроизвёл бы дефект #562 в другом месте. Отвергнутая альтернатива — вызов capture только в API-раннере (`_run_garmin_sync`/`_run_intervals_sync`): меньше файлов в диффе, но потеря поведения на не-API поверхностях.
   Date/Author: 2026-09-12 / agent (Spec / Architecture Owner, plan-only этап).
-- Decision (D2): **идентичность capture-рана приходит из sync-job'а**: `api/sync_jobs.py::SyncJobManager.start_or_get` создаёт `job_id` на job и переиспользует его при повторном запросе (`reused=True`), этот id прокидывается в оба sync-сервиса аддитивным keyword-аргументом `capture_run_id: str | None = None`; при `None` сервис генерирует id сам (обратная совместимость для прямых вызовов, demo и тестов).
-  Rationale: AC3 требует «повтор того же capture run не создаёт ревизию, отдельная синхронизация в тот же день создаёт новую монотонную ревизию». Это уже обеспечено хранением (`fingerprint` + `revision`), но только если идентичность рана стабильна. `uuid4()` внутри `sync_garmin_data` делает повтор job'а новым раном; job id делает его идемпотентным и остаётся человеко-читаемым в аудите.
-  Date/Author: 2026-09-12 / agent.
+- Decision (D2): **устойчивая идентичность capture-рана — полный UUID, а не усечённый `job_id`**: `api/sync_jobs.py::SyncJobManager.start_or_get` продолжает создавать короткий `job_id` как display/job handle, но дополнительно генерирует `capture_run_id = str(uuid.uuid4())` (полный) и передаёт его в раннер; оба sync-сервиса принимают аддитивный keyword `capture_run_id: str | None = None`, а при `None` генерируют полный UUID сами (обратная совместимость для прямых вызовов, demo и тестов).
+  Rationale: AC3 требует «повтор того же capture run не создаёт ревизию, отдельная синхронизация в тот же день создаёт новую монотонную ревизию», и это обеспечено хранением (`fingerprint = sha256({capture_run_id, capture_mode})` + монотонная `revision`), но только при стабильной и **неколлизирующей** идентичности. `job_id = str(uuid.uuid4())[:8]` (`api/sync_jobs.py:63`) — это 32-битное пространство, а дедупликация идёт по `(capture_mode, capture_run_id)` (индекс `readiness_snapshots(capture_mode, capture_run_id)`, `data/database.py:946`) глобально, без ограничения датой: коллизия двух разных job'ов молча пометила бы новую синхронизацию ретраем и потеряла бы дневную ревизию (review P2). Полный UUID (122 бита) исключает это, короткий id остаётся человеко-читаемым.
+  Контракт раннера расширяется аддитивно: `SyncRunner` перестаёт быть строго одноаргументным (`api/sync_jobs.py:29`) — вызов становится `run_sync(on_progress, capture_run_id=…)`, а `_run_garmin_sync`/`_run_intervals_sync` пробрасывают id в сервисы.
+  Date/Author: 2026-09-12 / agent (уточнено по review P2).
 - Decision (D3): **пять состояний capture вычисляются, а не хранятся**: `saved_before_load`, `saved_too_late`, `activity_start_missing`, `ineligible`, `capture_failed` — проекция уже существующих примитивов (eligibility + старты активностей дня + cutoff из `select_daily_anchor`), без новой колонки и без миграции.
-  Rationale: состояние выводимо из журнала `readiness_snapshots` и активностей в любой момент; персистенция дублировала бы выводимое состояние и потребовала бы миграции (автоматический триггер более тяжёлого класса). Инвариант: `saved_before_load` ⇔ для этого дня `select_daily_anchor` находит кандидата; остальные четыре состояния ⇔ кандидата нет, и причина совпадает с причиной anchor'а.
-  Date/Author: 2026-09-12 / agent.
+  Rationale: состояние выводимо из журнала `readiness_snapshots` и активностей в любой момент; персистенция дублировала бы выводимое состояние и потребовала бы миграции (автоматический триггер более тяжёлого класса).
+  **Состояние относится к конкретной сохранённой ревизии, а не ко дню** (review P1): для ревизии `r` с собственной eligibility `e_r` и временем наблюдения `t_r` при cutoff дня `c` — `saved_before_load` ⇔ `e_r ∧ t_r ≤ c`; `saved_too_late` ⇔ `e_r ∧ t_r > c`; `ineligible` ⇔ `¬e_r`; `activity_start_missing` ⇔ provenance старта активности дня непригодна (fail-closed, вычисляется независимо от `t_r`); `capture_failed` ⇔ capture выбросил исключение. День может нести несколько ревизий (AC3), поэтому «нашёлся anchor за день» **не** означает «новая ревизия до нагрузки»: при захвате в 05:00, активности в 10:00 и новой ревизии в 11:00 новая ревизия обязана быть `saved_too_late`, а anchor дня остаётся у 05:00.
+  Отдельный дневной инвариант (не подменяет статус ревизии): `select_daily_anchor` находит кандидата ⇔ существует ревизия со статусом `saved_before_load`, и выбранный кандидат — последняя eligible-ревизия с `t_r ≤ c` (существующее поведение сохраняется).
+  Date/Author: 2026-09-12 / agent (уточнено по review P1).
 - Decision (D4): **fail-open граница**: ошибка derived capture не откатывает данные провайдера и не превращает успешную синхронизацию в «сломанную» — она отражается как `recovery_capture.status = "capture_failed"` с машинно-читаемой причиной.
   Rationale: AC1/AC10 требуют сохранности основного sync; сегодняшнее поведение Garmin (`result.warnings.append(...)`) сохраняет данные, но из-за `build_sync_status_payload` переводит весь ответ в `sync_state="partial"`, то есть сообщает о проблеме с данными провайдера там, где её нет. План сохраняет человеко-читаемую строку в `notices` для совместимости, но статус синка отражает именно данные провайдера, а сбой capture виден в структурном блоке. **Это осознанное изменение наблюдаемого поведения — прошу владельца подтвердить его на ревью плана** (альтернатива: оставить `partial`, тогда AC5-подобная честность теряется, а пользователь видит «частичную синхронизацию» без причины).
   Date/Author: 2026-09-12 / agent.
@@ -91,7 +97,7 @@ Plan-only этап: см. `Progress` и `Surprises & Discoveries`. `Outcomes` з
 
 ## Plan of Work
 
-**M1 — provider-neutral capture и run identity.** В `services/recovery_analytics.py`: (а) новый публичный вход `capture_post_sync_recovery_state(db, *, capture_run_id, provider, observed_at_utc=None, capture_mode="prospective") -> dict`, который вызывает существующий `record_post_sync_recovery_state` и обогащает результат структурным блоком `recovery_capture` (поля — в `Interfaces and Dependencies`); (б) вычисление пяти состояний и причины; (в) `provider` попадает в аудит (`provider` не меняет `target_key` и `fingerprint`, чтобы не сломать существующие записи). RED: тесты пяти состояний на синтетических входах, инвариант «статус ⇔ anchor», провал capture → `capture_failed` без исключения наружу.
+**M1 — provider-neutral capture и run identity.** В `services/recovery_analytics.py`: (а) новый публичный вход `capture_post_sync_recovery_state(db, *, capture_run_id, provider, observed_at_utc=None, capture_mode="prospective") -> dict`, который вызывает существующий `record_post_sync_recovery_state` и обогащает результат структурным блоком `recovery_capture` (поля — в `Interfaces and Dependencies`); (б) вычисление пяти состояний и причины; (в) **`provider` становится дурабельным, а не только эфемерным**: обёртка передаёт его в существующий рекордер аддитивным keyword `capture_provider: str | None = None`, и рекордер кладёт его в уже существующий JSON провенансы (`input_provenance.capture_provider` внутри сохраняемого payload), поэтому провайдер восстанавливается из журнала без новой колонки и без миграции. `provider` **не** входит в `target_key` и `fingerprint`: идентичность capture-рана остаётся прежней, существующие записи не переинтерпретируются (review P2). RED: тесты пяти состояний на синтетических входах, инвариант «статус ⇔ anchor», провал capture → `capture_failed` без исключения наружу.
 
 **M2 — Garmin без двойной записи.** В `services/sync.py::sync_garmin_data`: инлайн-блок заменяется вызовом общего контракта; `result` получает аддитивное поле `recovery_capture` (структурный блок), человеко-читаемая строка остаётся в `details` для совместимости; `GarminSyncResult` не теряет существующих полей; `capture_run_id` приходит аргументом, при `None` генерируется внутри. RED: «ровно одна запись на ран», «повтор рана не создаёт ревизию», «ошибка capture не меняет данные и статус провайдерского sync».
 
@@ -101,7 +107,7 @@ Plan-only этап: см. `Progress` и `Surprises & Discoveries`. `Outcomes` з
 
 **M5 — UI readback (роль UI / Design Specialist, D6).** Точки монтирования: `web/app/dashboard/page.tsx:42` (компактно) и `:128` (подробно, пустое состояние) — отдельная страница не создаётся. `formatSyncJob` и рендер `SyncControl` показывают локальное время снимка, статус pre-activity и причину; строка не ломает существующие состояния (`running`/`failed`/`idle`), а `notices` остаются для `partial`. RED: расширение статических UI-контрактных проверок в `tests/smoke/test_m3_sync_ui_contract.py` (в `web/` нет JS-раннера и нет ни одного теста на вывод `formatSyncJob`, поэтому это единственная существующая форма гейта) + проверка появления новых строк для обоих источников и того, что утверждается видимый вариант строки (см. `Surprises` про `hidden sm:inline`).
 
-**M6 — приёмка.** Синтетическая browser-приёмка обоих путей (D5): каталога `tests/e2e/fixtures/` нет — фикстуры ответов создаются этим слайсом; существующий `test_main_user_journey` синк не трогает, а `PRIMARY_ACTIVITY_SOURCE`, `ACCEPTANCE_MODE`, `ACCEPTANCE_AUTO_DEMO`, `ACCEPTANCE_DISABLE_GARMIN` в web-стенд не подключены (они обслуживают Streamlit `run_acceptance.sh`), поэтому опираться на них нельзя. Далее: сквозные проверки идемпотентности/монотонности, fail-open, инварианта anchor, обновление `docs/architecture/asr_catalog.md` (ASR-REL-1/REL-2, ASR-MOD-2/3), evidence bundle в PR, запись метрик после мержа.
+**M6 — приёмка.** Синтетическая browser-приёмка обоих путей (D5): каталога `tests/e2e/fixtures/` нет — фикстуры ответов создаются этим слайсом; существующий `test_main_user_journey` синк не трогает, а `PRIMARY_ACTIVITY_SOURCE`, `ACCEPTANCE_MODE`, `ACCEPTANCE_AUTO_DEMO`, `ACCEPTANCE_DISABLE_GARMIN` в web-стенд не подключены (они обслуживают Streamlit `run_acceptance.sh`), поэтому опираться на них нельзя. Далее: сквозные проверки идемпотентности/монотонности, fail-open, инварианта anchor, обновление `docs/architecture/asr_catalog.md` (**ASR-REL-3** — обрыв/частичная синхронизация не портит данные, **ASR-REL-2** — отсутствие данных даёт data gap, **ASR-MOD-2/3** — server-owned проекция и аддитивный контракт; ASR-REL-1 про reconciliation плана этот контур не затрагивает), evidence bundle в PR, запись метрик после мержа.
 
 ## Concrete Steps
 
@@ -134,7 +140,7 @@ Plan-only этап: см. `Progress` и `Surprises & Discoveries`. `Outcomes` з
 9. Контракт: `web/lib/types.ts`, `tests/contracts/ts_contract.json` и API-инвентарь согласованы; `contract:extract -- --check` зелёный.
 10. Существующие снимки и эпизоды остаются читаемыми, исторические строки не мутируются.
 
-Браузерная приёмка (D5): два сценария (оба источника) в Playwright-стенде, где перехвачены `/api/sync/providers` и job-эндпоинты; проверяется отрендеренный текст для состояний «до нагрузки» и «слишком поздно». Плюс тест-«пришпиливание» формы фикстуры к реальному payload'у, чтобы фикстура не разошлась с продакшеном.
+Браузерная приёмка (D5): **параметризованные сценарии на все пять состояний** (`saved_before_load`, `saved_too_late`, `activity_start_missing`, `ineligible`, `capture_failed`) для обоих источников — иначе пропущенный или неверный UI-маппинг любого из трёх «плохих» состояний пройдёт все веб-гейты и пользователь увидит то самое общее «Синхронизация завершена», которое фича должна заменить (review P2). Перехватываются `/api/sync/providers` и job-эндпоинты, утверждается **видимый** вариант строки. Плюс тест-«пришпиливание» формы фикстуры к реальному payload'у, чтобы фикстура не разошлась с продакшеном. Статические проверки в `tests/smoke/test_m3_sync_ui_contract.py` остаются дополнением, а не заменой: они не исполняют `formatSyncJob`.
 
 ## Idempotence and Recovery
 
@@ -152,12 +158,19 @@ Plan-only этап: артефакты — этот файл и `docs/recovery_s
     def capture_post_sync_recovery_state(
         db: Database,
         *,
-        capture_run_id: str,
+        capture_run_id: str,                 # полный UUID (не усечённый job_id)
         provider: str,                       # "garmin" | "intervals"
         observed_at_utc: datetime | None = None,
         capture_mode: str = "prospective",
     ) -> dict[str, Any]:
         """Возвращает {**saved, "recovery_capture": {...}, "eligibility": {...}, "episode_refresh": {...}}."""
+
+    # api/sync_jobs.py — аддитивное расширение контракта раннера
+    SyncRunner = Callable[..., dict[str, Any]]      # вызов: run_sync(on_progress, capture_run_id=<полный UUID>)
+
+    # services/recovery_analytics.py — аддитивный keyword существующего рекордера
+    def record_post_sync_recovery_state(..., capture_provider: str | None = None) -> dict[str, Any]: ...
+    # записывает provider в input_provenance сохраняемого payload (schema не меняется)
 
     # services/sync.py / services/intervals_sync.py
     def sync_garmin_data(state, days=None, on_progress=None, *, capture_run_id: str | None = None) -> GarminSyncResult: ...
@@ -171,6 +184,7 @@ Plan-only этап: артефакты — этот файл и `docs/recovery_s
     # web/lib/types.ts
     export interface RecoveryCapture {
       provider: "garmin" | "intervals" | string;
+      capture_run_id_full: string;         // полный UUID; job_id остаётся display handle
       status: "saved_before_load" | "saved_too_late" | "activity_start_missing" | "ineligible" | "capture_failed" | string;
       reason: string | null;               // машинно-читаемая причина
       eligibility_status: "eligible" | "ineligible" | string;
@@ -197,11 +211,13 @@ Plan-only этап: артефакты — этот файл и `docs/recovery_s
 - **Расхождение статуса и anchor'а**: две разные реализации одного правила → инвариантный тест «статус ⇔ `select_daily_anchor`» на одной и той же фикстуре дня.
 - **Форма ответа POST не покрыта drift-харнессом** (см. `Surprises`) → явный тест формы ответа для обоих источников плюс регенерация артефакта.
 - **Совместимость `notices`**: строка может «выдавить» полезные notices (лимит 4 на сервере, 2 в UI) → структурный блок не должен вытеснять существующие строки; проверяется тестом.
+- **Расширение вызова раннера**: `_run_job` начнёт вызывать `run_sync(on_progress, capture_run_id=…)`, поэтому тестовые двойники раннера (в `tests/smoke/test_sync_job_api.py` и смежных) обязаны принимать keyword — иначе существующие тесты упадут на неожиданном аргументе. Митигация: передавать id позиционно-совместимым способом либо явно обновить двойники в том же слайсе, где меняется контракт, и покрыть это тестом реюза running-job.
 - **Изменение статуса синка при сбое capture (D4)** — единственное наблюдаемое изменение поведения в этом контуре; вынесено на подтверждение владельцу.
 
 ## Non-goals
 
 - cron/фоновое расписание, polling-надстройки, backfill исторических снимков;
+- **персистенция исходов capture** (включая `capture_failed`) и переживание рестарта API: терминальный readback остаётся эфемерным, как и весь снимок job'а; дурабельна только запись снимка с её провенансой — расширение требует нового состояния и решения владельца;
 - автоматическая коррекция плана и provider writeback;
 - ослабление правила pre-anchor и переклассификация исторических `missing_pre_anchor`;
 - изменение формулы readiness, порогов confidence, D+1/D+2/D+3, maturity gates и обучение `k_*`/`tau_*`;
@@ -215,3 +231,4 @@ Plan-only этап: артефакты — этот файл и `docs/recovery_s
 - v1 (2026-09-12): plan-only этап по issue #562. Зафиксированы: provider-neutral владение capture, run identity из sync-job, пять вычисляемых состояний с инвариантом к `select_daily_anchor`, fail-open граница, аддитивный API↔web контракт `recovery_capture`, UI readback как отдельный ролевой слайс, RED→GREEN матрица на 10 acceptance criteria, подход к browser-приёмке обоих провайдеров, non-goals. Код, API, UI и схема не менялись; решения D4 и D5 вынесены на подтверждение владельцу.
 - v1.1 (2026-09-12): уточнены факты о покрытии контракта (реестр покрывает GET-статус `/api/sync`, POST и `result` в demo-сценарии — нет; JS-тест-раннера в `web/` нет) и номера строк в ссылках на `api/sync_jobs.py` и `models/recovery_response.py`. Проверено чтением `registry.json`, `test_web_contract_drift.py`, `web/package.json`.
 - v1.2 (2026-09-12): внесены уточнения из завершившейся read-only разведки web/e2e: точки монтирования `SyncControl` и варианты рендера (видимость строки), отсутствие JS-раннера и формы UI-гейта, отсутствие `tests/e2e/fixtures/`, неподключённость `PRIMARY_ACTIVITY_SOURCE`/`ACCEPTANCE_*` к web-стенду, и конкретная цена отвергнутой альтернативы в D5 (нет override клиента в API-раннерах, нет `demo` у `POST /api/sync`). Код не менялся.
+- v1.3 (2026-09-12): правки по раунду независимого ревью плана (6 находок: 1 P1 + 5 P2). Состояние capture привязано к конкретной ревизии, а не ко дню (P1); идентичность рана — полный UUID вместо усечённого `job_id` (32-битное пространство и глобальный дедуп по `capture_run_id`); терминальный readback объявлен эфемерным, а персистенция исходов вынесена в non-goals; провайдер стал дурабельным через `input_provenance` без миграции; ASR-маппинг исправлен на REL-3/REL-2/MOD-2/3 вместо REL-1; браузерная приёмка расширена до всех пяти состояний. Код не менялся.
