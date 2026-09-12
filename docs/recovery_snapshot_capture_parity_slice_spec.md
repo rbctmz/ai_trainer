@@ -52,7 +52,7 @@
 
 ## Public Contracts
 
-- `POST /api/sync` / `GET /api/sync` → `SyncResult` — **changed compatibly**: аддитивный ключ `recovery_capture` (объект или `null`); существующие ключи (`sync_state`, `severity`, `title`, `summary`, `counts`, `notices`, `source`, …) сохраняют смысл. Тесты: `tests/smoke/test_sync_job_api.py` (форма ответа для обоих источников). Уточнение по покрытию: реестр `tests/contracts/registry.json:145-150` связывает `/api/sync` с `SyncJobResponse`, но drift-харнесс делает только `GET` (`test_web_contract_drift.py:192`) и в demo-сценарии `result` отсутствует, а `POST /api/sync` не покрыт вовсе — поэтому форма терминального ответа с новым блоком проверяется явным тестом.
+- `POST /api/sync` / `GET /api/sync` → `SyncResult` — **changed compatibly**: аддитивный ключ `recovery_capture` (объект или `null`); существующие ключи (`sync_state`, `severity`, `title`, `summary`, `counts`, `notices`, `source`, …) сохраняют смысл. Тесты: `tests/smoke/test_sync_job_api.py` (форма ответа для обоих источников). Уточнение по покрытию: реестр `tests/contracts/registry.json:145-150` связывает `/api/sync` с `SyncJobResponse`, но drift-харнесс делает только `GET` (`test_web_contract_drift.py:194`), в demo-сценарии `result` отсутствует, а `POST /api/sync` не покрыт вовсе; лишние поля API печатаются как INFO, а не как нарушение (`tests/smoke/conformance.py:9-13`), поэтому форма терминального ответа с новым блоком проверяется явным тестом, а не гейтом дрейфа.
 - `web/lib/types.ts` — **changed compatibly**: новый `RecoveryCapture` и аддитивное поле в `SyncResult`; `tests/contracts/ts_contract.json` перегенерируется (`contract:extract`), гейт `--check` остаётся зелёным; инвентарь API обновляется (`contract:inventory`, `test_api_call_inventory.py`).
 - `services/sync.py::sync_garmin_data`, `services/intervals_sync.py::sync_intervals_data` — **changed compatibly**: аддитивный keyword `capture_run_id: str | None = None`; прямой вызов без него сохраняет прежнее поведение (внутренняя генерация identity).
 - `GarminSyncResult` / `IntervalsSyncResult` — **changed compatibly**: аддитивное поле `recovery_capture`.
@@ -132,11 +132,11 @@
    - RED: `test_sync_payload_carries_recovery_capture_for_both_sources`.
    - GREEN: ключ `recovery_capture` в обоих payload'ах, типы, регенерация артефакта.
    - Verification: `contract:extract -- --check`, `contract:inventory`, `test_contract_extractor.py`, `test_api_call_inventory.py`, web `lint`/`build`.
-5. Slice M5 — UI readback (роль UI / Design Specialist, D6).
-   - RED: расширение `tests/smoke/test_m3_sync_ui_contract.py`.
-   - GREEN: рендер локального времени, статуса и причины в строке синка.
+5. Slice M5 — UI readback (роль UI / Design Specialist, D6). Точки монтирования: `web/app/dashboard/page.tsx:42` (компактно) и `:128` (подробно, пустое состояние); отдельная страница синка не создаётся.
+   - RED: расширение статических проверок `tests/smoke/test_m3_sync_ui_contract.py` (в `web/` нет JS-раннера; `formatSyncJob` сегодня не покрыт ни одним тестом).
+   - GREEN: рендер локального времени, статуса и причины в строке синка; утверждение целится в видимый вариант строки (`<p>` на `:147` против `hidden … sm:inline` на `:155`).
    - Verification: статический UI-контракт + web `lint`/`build`.
-6. Slice M6 — приёмка и evidence bundle.
+6. Slice M6 — приёмка и evidence bundle. Каталог `tests/e2e/fixtures/` отсутствует и создаётся этим слайсом; `PRIMARY_ACTIVITY_SOURCE` и `ACCEPTANCE_*` в web-стенд не подключены (только Streamlit), поэтому сценарий строится на перехвате маршрутов.
    - RED/GREEN: браузерные сценарии обоих провайдеров (D5), тест «фикстура ↔ форма ответа», `test_existing_snapshots_and_episodes_remain_readable`, обновление `asr_catalog.md`.
    - Verification: `pytest -m e2e tests/e2e -q` + широкий Python-контур + запись метрик после мержа.
 
