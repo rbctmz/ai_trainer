@@ -114,6 +114,24 @@ def test_m5_capture_failure_notice_is_not_a_machine_code() -> None:
     assert ".map(formatSyncNotice)" in control
 
 
+def test_m5_capture_failure_notice_is_not_duplicated() -> None:
+    """D4-предупреждение не дублирует структурный readback: сбой объяснён один раз."""
+    control = SYNC_CONTROL.read_text(encoding="utf-8")
+
+    assert "isDuplicateCaptureNotice" in control
+    assert "recoveryCaptureNoticeCode" in control
+    # Скрытие ограничено статусом capture_failed и совпадением кода с причиной блока.
+    assert 'capture.status !== "capture_failed"' in control
+    assert "code === reason" in control
+    # Скрытие происходит до локализации и до обрезки списка: чужие notices выживают.
+    assert (
+        ".filter((notice) => notice.length > 0 && !isDuplicateCaptureNotice(notice, capture))"
+        in control
+    )
+    # Строка передаёт в формат тот же блок capture, что и readback.
+    assert "formatSyncNotices(result.notices, result.recovery_capture)" in control
+
+
 def test_m5_existing_sync_states_survive_the_readback() -> None:
     """running/failed/partial, счётчики, notices и responsive-контур не ломаются."""
     control = SYNC_CONTROL.read_text(encoding="utf-8")

@@ -72,6 +72,10 @@ REASON_TEXTS = {
     "capture_failed": ("сбой при сохранении снимка", "причина не уточнена"),
 }
 
+# Постороннее предупреждение, не связанное с capture: чистка дубликата обязана
+# его сохранить.
+UNRELATED_NOTICE = "⚠️ Часть активностей за период недоступна: проверьте доступ к источнику"
+
 # Машинные коды и идентификаторы, которых пользователь видеть не должен.
 FORBIDDEN_IN_UI = (
     "capture_run_id",
@@ -146,9 +150,17 @@ PROVIDERS_URL = re.compile(r"/api/sync/providers")
 JOB_URL = re.compile(r"/api/sync($|\?)")
 
 
-def _install_routes(page, provider: str, status: str) -> dict:
-    """Перехват providers/POST/GET: polling обязан дойти до terminal-фикстуры."""
+def _install_routes(page, provider: str, status: str, extra_notices: tuple[str, ...] = ()) -> dict:
+    """Перехват providers/POST/GET: polling обязан дойти до terminal-фикстуры.
+
+    ``extra_notices`` дописывает предупреждения в terminal-ответ **в самом
+    перехвате** (файлы фикстур M6a не меняются): так проверяется, что чистка
+    дублирующего capture-предупреждения не съедает чужие notices.
+    """
     terminal = _fixture(provider, status)
+    if extra_notices:
+        result = terminal["result"]
+        result["notices"] = [*(result.get("notices") or []), *extra_notices]
     running = _running_payload(terminal, provider)
     calls = {"providers": 0, "post": 0, "get": 0}
 
@@ -206,7 +218,10 @@ def _sync_message(page):
 @pytest.mark.parametrize("status", STATUSES)
 def test_recovery_capture_readback_is_visible_and_honest(web_stack, provider, status) -> None:
     page = web_stack.page
-    calls = _install_routes(page, provider, status)
+    # Отказ capture: проверяем не только терминальный `partial`, но и то, что
+    # объяснение сбоя в строке ровно одно, а посторонний notice выживает.
+    extra_notices = (UNRELATED_NOTICE,) if status == "capture_failed" else ()
+    calls = _install_routes(page, provider, status, extra_notices)
     terminal = _fixture(provider, status)
     capture = terminal["result"]["recovery_capture"]
 
@@ -238,6 +253,12 @@ def test_recovery_capture_readback_is_visible_and_honest(web_stack, provider, st
         if status == "capture_failed":
             assert "частично" in text, text
             assert terminal["sync_state"] == terminal["result"]["sync_state"] == "partial"
+            # Отказ объясняет структурный readback, а не серверный warning:
+            # тот же факт не дублируется, причина видна ровно один раз.
+            assert text.count("сбой при сохранении снимка") == 1, text
+            assert "⚠️ Снимок готовности:" not in text, text
+            # Чужое предупреждение не связано с capture — оно обязано остаться.
+            assert UNRELATED_NOTICE in text, text
 
         # Время: локальное атлета, либо честный fallback при null.
         if capture["observed_at_local"]:

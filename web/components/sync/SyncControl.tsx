@@ -239,13 +239,34 @@ const RECOVERY_CAPTURE_REASON_LABELS: Record<string, string> = {
 const RECOVERY_CAPTURE_NOTICE_PREFIX = "⚠️ Recovery snapshot capture:";
 const RECOVERY_CAPTURE_NOTICE_LABEL = "⚠️ Снимок готовности:";
 
+function recoveryCaptureNoticeCode(notice: string): string {
+  const text = notice.trim();
+  if (!text.startsWith(RECOVERY_CAPTURE_NOTICE_PREFIX)) return "";
+  return text.slice(RECOVERY_CAPTURE_NOTICE_PREFIX.length).trim();
+}
+
 function formatSyncNotice(notice: string): string {
   const text = notice.trim();
-  if (!text.startsWith(RECOVERY_CAPTURE_NOTICE_PREFIX)) return text;
-  const code = text.slice(RECOVERY_CAPTURE_NOTICE_PREFIX.length).trim();
+  const code = recoveryCaptureNoticeCode(text);
+  if (code.length === 0) return text;
   const label = RECOVERY_CAPTURE_REASON_LABELS[code];
   // Неизвестный код не прячем и не выдумываем причину — оставляем текст как есть.
   return label ? `${RECOVERY_CAPTURE_NOTICE_LABEL} ${label}` : text;
+}
+
+// Отказ capture уже объяснён структурным readback-блоком («Снимок готовности») в
+// той же строке. Если серверное предупреждение несёт ровно ту же причину, что и
+// блок, оно дублирует объяснение — такое предупреждение из строки убираем и
+// оставляем один видимый источник. Любые другие notices сохраняются.
+function isDuplicateCaptureNotice(
+  notice: string,
+  capture: RecoveryCapture | null | undefined,
+): boolean {
+  if (!capture || capture.status !== "capture_failed") return false;
+  const reason = typeof capture.reason === "string" ? capture.reason.trim() : "";
+  if (reason.length === 0) return false;
+  const code = recoveryCaptureNoticeCode(notice);
+  return code.length > 0 && code === reason;
 }
 
 function formatRecoveryCaptureTime(value: RecoveryCapture["observed_at_local"]): string {
@@ -306,7 +327,9 @@ function formatSyncJob(job: SyncJobResponse, fallbackSource: SyncSource): string
       ? ` +${result.counts.new} новых, ${result.counts.updated} обновлено`
       : "";
     const notices =
-      job.sync_state === "partial" ? formatSyncNotices(result.notices) : "";
+      job.sync_state === "partial"
+        ? formatSyncNotices(result.notices, result.recovery_capture)
+        : "";
     const capture = formatRecoveryCapture(result.recovery_capture);
     return (result.title || `Синхронизация ${label} завершена`) + detail + notices + capture;
   }
@@ -316,10 +339,14 @@ function formatSyncJob(job: SyncJobResponse, fallbackSource: SyncSource): string
     : `Синхронизация ${label} завершена`;
 }
 
-function formatSyncNotices(notices: string[] | undefined): string {
+function formatSyncNotices(
+  notices: string[] | undefined,
+  capture: RecoveryCapture | null | undefined,
+): string {
   const actionable = (notices ?? [])
+    .map((notice) => notice.trim())
+    .filter((notice) => notice.length > 0 && !isDuplicateCaptureNotice(notice, capture))
     .map(formatSyncNotice)
-    .filter((notice) => notice.length > 0)
     .slice(0, 2);
   return actionable.length > 0 ? ` · ${actionable.join(" · ")}` : "";
 }
