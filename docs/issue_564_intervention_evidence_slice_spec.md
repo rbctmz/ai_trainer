@@ -4,7 +4,7 @@
 живым ExecPlan `docs/readiness_input_freshness_execplan.md` (раздел
 `Follow-up #564`) и не дублирует формат `.agent/PLANS.md`.
 
-- Issue / PR: [#564](https://github.com/rbctmz/ai_trainer/issues/564) (PR: TBD)
+- Issue / PR: [#564](https://github.com/rbctmz/ai_trainer/issues/564) (PR: [#569](https://github.com/rbctmz/ai_trainer/pulls/569), merged as `43984fa`)
 - Author / checker / merge owner: agent (Domain / API Implementer) / независимый checker на PR (`@codex review`) / rbctmz
 - Date: 2026-09-12
 - Candidate head SHA: ветка `codex/issue-564-intervention-evidence` (актуальный head — в PR; отдельные коммиты на дизайн и реализацию)
@@ -22,7 +22,7 @@
   - irreversible action — нет: откат = revert коммита; деплойное следствие (инвалидация pending-карточек) описано ниже и совпадает по классу с #557.
 - Review budget used: 0 / 2 rounds
 - Review trigger mode: automatic (`@codex review` на PR)
-- Review acceptance head SHA: TBD
+- Review acceptance head SHA: `565a6d3` (чистый нативный раунд; смержен merge-коммитом `43984fa`)
 - Review budget exception: N/A — бюджет не превышен
 
 ## Scope
@@ -44,7 +44,7 @@
 ## Definition of Done
 
 - [x] Acceptance criteria наблюдаемы (см. RED Matrix).
-- [ ] Required tests/checks названы и пройдены: focused readiness/конфликты/коуч, широкий Python-контур, `ruff`, web `lint`/`build`/`contract:extract -- --check`.
+- [x] Required tests/checks названы и пройдены: focused readiness/конфликты/коуч — `432 passed`; широкий Python-контур — CI `2472 passed, 27 skipped, 26 deselected`, локально в worktree с `node_modules` — `2494 passed, 5 skipped`; `ruff` чисто; web `lint`/`build`/`contract:extract -- --check` зелёные.
 - [x] Merge and cleanup owner назначен: rbctmz (мерж — отдельное действие владельца; после мержа — удаление ветки/worktree).
 
 ## Public Contracts
@@ -133,14 +133,14 @@
 
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
-| 1 | TBD | automatic (`@codex review`) | TBD | continue / stop |
+| 1 | `565a6d3d06` | automatic (`@codex review`) | находок нет (`Didn't find any major issues`) | stop: раунд чистый, бюджет 1/2 |
 | 2 | — | verification | — | — |
 
 ## Final Verdict
 
-- Verdict: READY (до раунда checker'а)
-- Blocking findings remaining: нет на момент написания; описательный канал доказанно байт-идентичен (паритет-проба против `origin/main`)
-- Review rounds used: 0 / 2
-- Accepted risk or follow-up issue: инвалидация pending-карточек при выкате — ожидаемое следствие, не риск
-- Merge owner final gate: rbctmz
-- Post-merge sync/branch/worktree/progress cleanup: удалить ветку и worktree после мержа; запись метрик Class A по правилу `docs/engineering_process_metrics.md`
+- Verdict: READY — раунд пройден и изменение смержено (`43984fa`)
+- Blocking findings remaining: нет; описательный канал доказанно байт-идентичен (паритет-проба против `origin/main`, 0 различий на 4 фикстурах)
+- Review rounds used: 1 / 2
+- Accepted risk or follow-up issue: follow-up не требуется; инвалидация pending-карточек при выкате — ожидаемое следствие, не риск
+- Merge owner final gate: rbctmz — acceptance выставлен, PR смержен 2026-09-12
+- Post-merge sync/branch/worktree/progress cleanup: выполнено — ветка `codex/issue-564-intervention-evidence` и worktree удалены, позиция Progress закрыта, запись Class A внесена в `docs/engineering_process_metrics.md`

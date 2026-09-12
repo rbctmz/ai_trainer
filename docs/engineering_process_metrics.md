@@ -121,7 +121,7 @@ gate; issue #507 owns the short agent-visible stop rule.
 
 - Class A architecture-changing PR: **done — PR #496**, **PR #563 / issue #557**, **PR #567 / issue #565**, **PR #569 / issue #564** (prospective rows above).
 - Class C UI/docs PR: **done — PR #497** (prospective row above; сам пилот — пост-мержевая запись метрик).
-- Routing/lead-time verdict: **routing verified across the prospective records — Class A n=4 (PR #496, PR #563, PR #567, PR #569), Class C n=1 (PR #497), total n=5** (Class A прошёл полный контур четырежды, дважды в right-sized виде; Class C — fast track; P0/P1 coverage сохранился: пойманы до merge все P1 — 1 в #496, 1 в #497 (Class C-пилот) и 2 в #563; #567 и #569 закрыты без независимых P0/P1). Замеры Class A расходятся на порядки (18m 44s … 52h 12m 01s cycle time), поэтому сокращение lead time с n=5 не доказывается; thresholds и trend остаются на Revisit Gate (5–10 prospective PR).
+- Routing/lead-time verdict: **routing verified across the prospective records — Class A n=4 (PR #496, PR #563, PR #567, PR #569), Class C n=1 (PR #497), total n=5** (Class A прошёл полный контур четырежды, дважды в right-sized виде; Class C — fast track; P0/P1 coverage сохранился: пойманы до merge все P1 — 1 в #496, 1 в #497 (Class C-пилот) и 2 в #563; #567 и #569 закрыты без независимых P0/P1). Cycle time этих четырёх Class A записей — **12m 30s … 11h 34m 43s** (PR #569 12m 30s, PR #496 20m 18s, PR #563 2h 31m 31s, PR #567 11h 34m 43s); pre-policy proxy #493 (18m 44s) и review-loop incident #505 (52h 12m 01s) в эту когорту не входят и для вывода о trend не используются. Сокращение lead time с n=5 не доказывается; thresholds и trend остаются на Revisit Gate (5–10 prospective PR).
 
 ## Revisit Gate
 
