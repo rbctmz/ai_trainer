@@ -171,7 +171,7 @@
 | Round | Reviewed head SHA | Trigger | Findings disposition | Stop / exception decision |
 | ---: | --- | --- | --- | --- |
 | 1 | `4ae3f4b` | automatic (`@codex review` при открытии PR) | 6 находок (1 P1 + 5 P2), все `fixed-in 3a4a39d`, 6/6 тредов закрыто | continue: запрошен scoped delta-раунд 2 |
-| 2 | `20f9dcb` | verification (scoped delta since `4ae3f4b`) | 8 находок (7 P2 + 1 P3): приоритет статусов, несогласованность D2 со spec, `capture_provider` как persistent state, двойной идентификатор, незакрытый D5, отсутствие неизменяемого reviewed SHA, неверный путь `conformance.py`, устаревшая ревизия плана, нерасщеплённый M6 | правки внесены; бюджет 2/2 — дальнейший раунд только по решению владельца |
+| 2 | `20f9dcb` | verification (scoped delta since `4ae3f4b`) | **9 находок (8 P2 + 1 P3)**: приоритет статусов, несогласованность D2 со spec, `capture_provider` как persistent state, двойной идентификатор, незакрытый D5, отсутствие неизменяемого reviewed SHA, неверный путь `conformance.py`, устаревшая ревизия плана, нерасщеплённый M6 | правки внесены; бюджет 2/2 — дальнейший раунд только по решению владельца |
 
 ## Final Verdict
 
