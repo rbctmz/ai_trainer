@@ -196,6 +196,98 @@ def test_conflict_evidence_carries_numbers_and_session_facts() -> None:
 
 
 # ---------------------------------------------------------------------------
+# Issue #564: аудит цитирует интервенционную серию и не дублирует лейбл
+# ---------------------------------------------------------------------------
+
+
+def _intervention_driver(
+    *,
+    key: str,
+    label: str,
+    evidence: str,
+    intervention_evidence: str | None,
+    input_score: float,
+) -> dict:
+    driver = {
+        "key": key,
+        "label": label,
+        "score": input_score,
+        "intervention_score_input": input_score,
+        "evidence": evidence,
+        "observation_status": "confirmed_today",
+        "intervention_eligible": True,
+    }
+    if intervention_evidence is not None:
+        driver["intervention_evidence"] = intervention_evidence
+    return driver
+
+
+def test_conflict_evidence_prefers_the_intervention_text() -> None:
+    """#564: текст описывает серию, по которой гейт принял решение."""
+    readiness = _readiness(38.0, "low")
+    readiness["drivers"] = [
+        _intervention_driver(
+            key="hrv",
+            label="HRV",
+            evidence="HRV 40.0 мс против базовых 42.5 (−5.9%)",
+            intervention_evidence="HRV 40.0 мс против базовых 45.7 (−12.5%)",
+            input_score=40.0,
+        )
+    ]
+
+    report = detect_readiness_conflicts(
+        readiness, [_session(1, "quality", tss=29.0, name="Качество • вело")], today=TODAY
+    )
+
+    evidence = " | ".join(report["conflicts"][0]["evidence"])
+    assert "−12.5%" in evidence, evidence
+    assert "−5.9%" not in evidence, "описательное число не должно управлять аудитом"
+
+
+def test_conflict_evidence_does_not_repeat_the_factor_label() -> None:
+    """#564: лейбл не приклеивается к тексту, который с него уже начинается."""
+    readiness = _readiness(38.0, "low")
+    readiness["drivers"] = [
+        _intervention_driver(
+            key="hrv",
+            label="HRV",
+            evidence="HRV 40.0 мс против базовых 45.7 (−12.5%)",
+            intervention_evidence=None,
+            input_score=40.0,
+        ),
+        _intervention_driver(
+            key="sleep",
+            label="Сон",
+            evidence="Сон: оценка 30/100 (источник не сохранён)",
+            intervention_evidence=None,
+            input_score=30.0,
+        ),
+    ]
+
+    report = detect_readiness_conflicts(
+        readiness, [_session(1, "quality", tss=29.0, name="Качество • вело")], today=TODAY
+    )
+
+    evidence = " | ".join(report["conflicts"][0]["evidence"])
+    assert "HRV: HRV" not in evidence, evidence
+    assert "Сон: Сон" not in evidence, evidence
+    assert "HRV 40.0 мс" in evidence, evidence
+    assert "Сон: оценка 30/100" in evidence, evidence
+
+
+def test_conflict_evidence_falls_back_to_the_descriptive_text() -> None:
+    """Legacy/синтетический payload без нового поля остаётся читаемым."""
+    readiness = _readiness(38.0, "low")
+
+    report = detect_readiness_conflicts(
+        readiness, [_session(1, "quality", tss=29.0, name="Качество • вело")], today=TODAY
+    )
+
+    evidence = " | ".join(report["conflicts"][0]["evidence"])
+    assert "−18.9%" in evidence, evidence
+
+
+# ---------------------------------------------------------------------------
 # upcoming_plan_sessions
 # ---------------------------------------------------------------------------
 

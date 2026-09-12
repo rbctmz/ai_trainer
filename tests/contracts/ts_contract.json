@@ -1,7 +1,7 @@
 {
   "meta": {
     "source": "web/lib/types.ts",
-    "source_sha256": "2fc4529a2b7d273303bc16e6441e95b1cee77b6c4a6a133892b85989aadb8e20",
+    "source_sha256": "668dc92ee27972597282209993c6426852ba2d66b2cad3076080d0512de58283",
     "registry": "tests/contracts/registry.json",
     "registry_sha256": "a8b1bf6dfe79c12d94a8e1ddab9697db93f2304b0714facfeeefebe0c6848a5e"
   },
@@ -15177,6 +15177,24 @@
             "array_length": null
           }
         },
+        "intervention_evidence": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
         "intervention_score_input": {
           "optional": true,
           "spec": {
@@ -23135,6 +23153,24 @@
           "spec": {
             "kinds": [
               "boolean"
+            ],
+            "literals": [],
+            "widened": false,
+            "items": null,
+            "fields": null,
+            "ref": null,
+            "wildcard": false,
+            "variants": null,
+            "record_values": null,
+            "array_length": null
+          }
+        },
+        "intervention_evidence": {
+          "optional": true,
+          "spec": {
+            "kinds": [
+              "null",
+              "string"
             ],
             "literals": [],
             "widened": false,

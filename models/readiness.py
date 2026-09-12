@@ -185,6 +185,10 @@ def compute_readiness_today(
     total_weight = sum(FACTOR_WEIGHTS[f["key"]] for f in factors)
     for factor in factors:
         factor["weight"] = round(FACTOR_WEIGHTS[factor["key"]] / total_weight, 3)
+        # Issue #564: у факторов без дедупликации (сон, readiness, TSB) текст
+        # интервенционного канала совпадает с описательным, но поле присутствует
+        # всегда — контракт остаётся предсказуемым для потребителей.
+        factor.setdefault("intervention_evidence", factor.get("evidence"))
 
     score = round(sum(f["score"] * f["weight"] for f in factors), 1)
     status = readiness_status_for_score(score)
@@ -262,6 +266,7 @@ def compute_readiness_today(
                 "score": f["score"],
                 "intervention_score_input": f.get("intervention_score_input"),
                 "evidence": f["evidence"],
+                "intervention_evidence": f.get("intervention_evidence"),
                 "as_of": f.get("as_of"),
                 "observation_as_of": f.get("observation_as_of"),
                 "age_days": f.get("age_days"),
@@ -502,6 +507,29 @@ def _baseline(history: pd.Series) -> float | None:
     return float(history.mean())
 
 
+def _deviation_evidence(
+    *,
+    key: str,
+    value: float,
+    baseline: float,
+    deviation: float,
+    unit: str,
+    deviation_mode: str,
+) -> str:
+    """Текст отклонения от базлайна: один формат для обоих каналов (issue #564).
+
+    Описательный и интервенционный каналы описываются одной функцией, поэтому
+    текст всегда соответствует той серии, которую он цитирует.
+    """
+    sign = "+" if deviation >= 0 else "−"
+    magnitude = abs(deviation)
+    suffix = "%" if deviation_mode == "percent" else f" {unit}"
+    return (
+        f"{FACTOR_LABELS[key]} {value:.1f} {unit} против базовых "
+        f"{baseline:.1f} ({sign}{magnitude:.1f}{suffix})"
+    )
+
+
 def _deviation_factor(
     *,
     key: str,
@@ -535,12 +563,13 @@ def _deviation_factor(
             deviation = value - baseline
         band_value = deviation if higher_is_better else deviation
         score = _band_score(deviation_bands, band_value)
-        sign = "+" if deviation >= 0 else "−"
-        magnitude = abs(deviation)
-        suffix = "%" if deviation_mode == "percent" else f" {unit}"
-        evidence = (
-            f"{FACTOR_LABELS[key]} {value:.1f} {unit} против базовых "
-            f"{baseline:.1f} ({sign}{magnitude:.1f}{suffix})"
+        evidence = _deviation_evidence(
+            key=key,
+            value=value,
+            baseline=baseline,
+            deviation=deviation,
+            unit=unit,
+            deviation_mode=deviation_mode,
         )
     else:
         deviation = None
@@ -551,6 +580,7 @@ def _deviation_factor(
     # разными датами запроса, его вклад в базлайн не удваивается. Legacy
     # `score`/`baseline`/`deviation` при этом не меняются.
     intervention_score_input = score
+    intervention_evidence = evidence
     if window.intervention_duplicates_collapsed:
         intervention_baseline = _baseline(window.intervention_history)
         if intervention_baseline is not None and intervention_baseline > 0:
@@ -563,6 +593,16 @@ def _deviation_factor(
             intervention_score_input = _band_score(
                 deviation_bands, intervention_deviation
             )
+            # Issue #564: аудит и карточка должны объяснять ту серию, по которой
+            # гейт принял решение, а не описательный базлайн.
+            intervention_evidence = _deviation_evidence(
+                key=key,
+                value=value,
+                baseline=intervention_baseline,
+                deviation=intervention_deviation,
+                unit=unit,
+                deviation_mode=deviation_mode,
+            )
 
     return {
         "key": key,
@@ -574,6 +614,7 @@ def _deviation_factor(
         "baseline": round(baseline, 1) if baseline is not None else None,
         "deviation": round(deviation, 1) if deviation is not None else None,
         "evidence": evidence,
+        "intervention_evidence": intervention_evidence,
         "source": f"{column}",
         "stale_input": window.stale,
         "as_of": as_of,

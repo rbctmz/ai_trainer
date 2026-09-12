@@ -113,13 +113,14 @@
 
 ## Evidence Bundle
 
-- Head SHA: TBD
+- Head SHA: ветка `codex/issue-564-intervention-evidence` (актуальный head — в PR)
 - Changed invariants: текст evidence интервенционного канала описывает ту же серию, что и `intervention_score_input`; описательный канал байт-идентичен.
-- Focused and broad tests: TBD
-- CI checks/reruns/flakes: TBD
-- Lifecycle/probe evidence: TBD (probe по дедуп-фикстуре до/после)
-- Changed contracts: аддитивное поле в факторах/драйверах + регенерированный `ts_contract.json`.
-- Unresolved review-thread count: TBD
+- RED: 7 падений — 4 модельных на отсутствии `intervention_evidence` (`KeyError`), 2 потребительских на цитировании описательного числа и дублировании лейбла, 1 сквозной. Characterization-тест фолбэка на legacy-payload был зелёным до изменения и остался зелёным.
+- GREEN: `test_readiness_model.py` + `test_readiness_conflicts.py` — `71 passed`; focused-контур (readiness/конфликты/снапшот/приёмка/версия evidence/loop/today/коуч/briefing/дрейф контракта/экстрактор/инвентарь/UI-контракт/purity/response) — `432 passed`; `ruff check .` чисто; web `lint` — без предупреждений, `build` — успешно, `contract:extract -- --check` — артефакт актуален.
+- Broad Python contour: см. запись `Change log` ExecPlan (contributor-safe прогон).
+- Lifecycle/probe evidence: один и тот же probe на двух деревьях (`origin/main` и ветка) на фикстуре с дубликатами. **Было:** `Готовность 57.5/100 (limited): HRV: HRV 40.0 мс против базовых 42.5 (−5.9%); Сон: Сон: оценка 30/100 …; Пульс покоя: Пульс покоя 70.0 …`. **Стало:** `Готовность 57.5/100 (limited): HRV 40.0 мс против базовых 45.7 (−12.5%); Сон: оценка 30/100 …; Пульс покоя 70.0 уд/мин …` при том же входе гейта `intervention_score_input = 40.0`. Паритет описательного канала: 4 фикстуры, `score`/`status`/`confidence`/`as_of_date`/`intervention_score` и строки `evidence`/`baseline`/`deviation` — **0 различий** с `origin/main`.
+- Changed contracts: аддитивное поле в факторах/драйверах + регенерированный `ts_contract.json` (37 добавленных строк).
+- Unresolved review-thread count: 0 на момент открытия PR (заполняется после раунда checker'а).
 - Residual risks and follow-ups: изменение fingerprint → инвалидация pending-карточек при выкате (задокументировано, класс #557).
 
 ## Review Findings
@@ -138,7 +139,7 @@
 ## Final Verdict
 
 - Verdict: READY (до раунда checker'а)
-- Blocking findings remaining: нет на момент написания
+- Blocking findings remaining: нет на момент написания; описательный канал доказанно байт-идентичен (паритет-проба против `origin/main`)
 - Review rounds used: 0 / 2
 - Accepted risk or follow-up issue: инвалидация pending-карточек при выкате — ожидаемое следствие, не риск
 - Merge owner final gate: rbctmz
