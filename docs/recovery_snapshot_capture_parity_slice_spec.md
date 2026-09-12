@@ -140,7 +140,7 @@
    - Verification: статический UI-контракт + web `lint`/`build`.
 6. Slice M6 расщеплён по ролевым границам (review P2) — у каждой части свой владелец и критерий:
    - **M6a — Domain / API Implementer (продолжает после M4):** тест «фикстура ↔ форма ответа» (pinning), паритетный payload-тест обоих источников, `test_existing_snapshots_and_episodes_remain_readable`, идемпотентность/монотонность, fail-open, инвариант «статус ревизии ⇔ время относительно cutoff», приоритет статусов.
-   - **M6b — UI / Design Specialist (продолжает после M5):** browser contract/UX acceptance — каталог `tests/e2e/fixtures/` отсутствует и создаётся здесь; `PRIMARY_ACTIVITY_SOURCE` и `ACCEPTANCE_*` в web-стенд не подключены (только Streamlit), поэтому сценарий строится на перехвате маршрутов; параметризованные сценарии на все пять состояний × оба провайдера (D5; это не provider E2E) с утверждением видимого варианта строки.
+   - **M6b — UI / Design Specialist (продолжает после M5):** browser contract/UX acceptance — **потребляет** JSON-фикстуры терминального ответа, созданные и запиненные M6a (`tests/e2e/fixtures/recovery_capture/*.json`), и сам их **не создаёт**; `PRIMARY_ACTIVITY_SOURCE` и `ACCEPTANCE_*` в web-стенд не подключены (только Streamlit), поэтому сценарий строится на перехвате маршрутов; параметризованные сценарии на все пять состояний × оба провайдера (D5; это не provider E2E) с утверждением видимого варианта строки.
    - **M6c — Spec / Architecture Owner:** обновление `docs/architecture/asr_catalog.md` (ASR-REL-3/REL-2/MOD-2/3) и сборка итогового evidence bundle в PR реализации.
    - Verification: `pytest -m e2e tests/e2e -q` (M6b) + широкий Python-контур (M6a) + запись метрик после мержа (M6c).
 
