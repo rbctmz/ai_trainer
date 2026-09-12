@@ -124,7 +124,7 @@
    - Verification: focused capture-контур, существующий тест идемпотентности остаётся зелёным.
 2. Slice M2 — Garmin без двойной записи (`services/sync.py`).
    - RED: `test_garmin_sync_captures_one_revision_per_run`, `test_capture_failure_keeps_provider_data`.
-   - GREEN: замена инлайн-блока общим контрактом; аддитивное поле результата.
+   - GREEN: замена инлайн-блока общим контрактом; аддитивное поле `GarminSyncResult.recovery_capture`; `SyncJobManager` генерирует полный `capture_run_id` и передаёт его через **изменённый** контракт раннера (`SyncRunner` — `Protocol` с обязательным keyword; вызывающие и двойники обновлены в том же слайсе, F1); человеко-читаемая строка `details` сохранена, но несёт пятисоставный `capture_status` вместо `eligibility_status` (F2).
    - Verification: `test_garmin_sync_service.py` целиком + broad-контур.
 3. Slice M3 — Intervals parity (`services/intervals_sync.py`).
    - RED: `test_intervals_sync_captures_with_the_shared_contract`, `test_provider_payload_shapes_match`.

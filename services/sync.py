@@ -424,7 +424,12 @@ def sync_garmin_data(
             result.recovery_capture = dict(capture_result.get("recovery_capture") or {}) or None
         except Exception:
             # Defensive last boundary: the provider sync stays committed and no
-            # raw exception text enters the future public response contract.
+            # raw exception text enters the future public response contract. The
+            # code is a literal on purpose: this branch is reachable even when the
+            # wrapper import itself failed, so its constants may be unavailable.
+            logger.warning(
+                "recovery capture failed: %s", "snapshot_capture_failed", exc_info=True
+            )
             result.recovery_capture = {
                 "provider": "garmin",
                 "capture_run_id": effective_capture_run_id,

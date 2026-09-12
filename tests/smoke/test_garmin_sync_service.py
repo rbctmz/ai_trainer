@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import logging
 import uuid
 
 import pytest
@@ -348,6 +349,44 @@ def test_sync_status_payload_summarizes_fresh_training_data():
         "🆕 2 новых активностей",
         "🔄 1 активность обновлена",
     ]
+
+
+def test_defensive_capture_boundary_logs_once_and_keeps_notices_clean(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, caplog
+):
+    """F3: последняя защитная граница Garmin тоже логирует, а notices несут только код."""
+    from services import recovery_analytics
+
+    db = _make_database(tmp_path)
+    state = _StubState(db)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("wrapper exploded at /private/athlete.db")
+
+    monkeypatch.setattr(recovery_analytics, "capture_post_sync_recovery_state", _boom)
+    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+    caplog.set_level(logging.WARNING, logger="services.sync")
+
+    result = sync_service.sync_garmin_data(state, days=1)
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "services.sync"
+        and record.levelno == logging.WARNING
+        and record.exc_info is not None
+    ]
+    assert len(records) == 1, [record.getMessage() for record in records]
+    assert "athlete.db" not in records[0].getMessage()
+    assert "snapshot_capture_failed" in records[0].getMessage()
+
+    assert result.recovery_capture["status"] == "capture_failed"
+    assert "athlete.db" not in str(result.recovery_capture)
+    warnings = " | ".join(result.warnings)
+    assert "snapshot_capture_failed" in warnings
+    assert "athlete.db" not in warnings
+    payload = sync_service.build_sync_status_payload(result)
+    assert payload["sync_state"] == "partial"
 
 
 def test_sync_status_payload_marks_partial_when_warnings_exist():

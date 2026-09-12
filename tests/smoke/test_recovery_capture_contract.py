@@ -7,6 +7,7 @@ never let a derived-analytics failure escape into the caller.
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
+import logging
 
 import pytest
 
@@ -242,6 +243,67 @@ def test_capture_activity_lookup_failure_fails_closed_with_safe_reason(
     assert block["reason"] == "activity_lookup_failed"
     assert block["error"] == "activity_lookup_failed"
     assert "athlete.db" not in str(block)
+
+
+def test_capture_recorder_failure_logs_one_traceback_record(tmp_path, monkeypatch, caplog):
+    """F3: сбой capture логируется серверно, публичный блок остаётся без сырого текста."""
+    from services import recovery_analytics
+
+    db = Database(str(tmp_path / "logged-failure.db"))
+    _seed_full_day(db)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("sqlite failure at /private/athlete.db")
+
+    monkeypatch.setattr(recovery_analytics, "record_post_sync_recovery_state", _boom)
+    caplog.set_level(logging.WARNING, logger="services.recovery_analytics")
+
+    result = recovery_analytics.capture_post_sync_recovery_state(
+        db, capture_run_id="run-logged", provider="garmin", observed_at_utc=MOSCOW_OBSERVED
+    )
+    block = result["recovery_capture"]
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "services.recovery_analytics" and record.levelno == logging.WARNING
+    ]
+    assert len(records) == 1, [record.getMessage() for record in records]
+    assert records[0].exc_info is not None, "traceback обязателен для диагностики"
+    message = records[0].getMessage()
+    assert "snapshot_capture_failed" in message
+    assert "athlete.db" not in message
+    assert "athlete.db" not in str(block)
+    assert block["status"] == "capture_failed"
+    assert block["reason"] == "snapshot_capture_failed"
+
+
+def test_activity_lookup_failure_logs_one_traceback_record(tmp_path, monkeypatch, caplog):
+    """F3: второй fail-closed выход тоже оставляет серверный след ровно один раз."""
+    db = Database(str(tmp_path / "logged-lookup.db"))
+    _seed_full_day(db)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("sqlite failure at /private/athlete.db")
+
+    monkeypatch.setattr(db, "get_activities_between", _boom)
+    caplog.set_level(logging.WARNING, logger="services.recovery_analytics")
+
+    result = _capture(db, run_id="run-lookup-logged", observed=MOSCOW_OBSERVED)
+    block = result["recovery_capture"]
+
+    records = [
+        record
+        for record in caplog.records
+        if record.name == "services.recovery_analytics" and record.levelno == logging.WARNING
+    ]
+    assert len(records) == 1, [record.getMessage() for record in records]
+    assert records[0].exc_info is not None
+    assert "activity_lookup_failed" in records[0].getMessage()
+    assert "athlete.db" not in records[0].getMessage()
+    assert "athlete.db" not in str(block)
+    assert block["status"] == "capture_failed"
+    assert block["reason"] == "activity_lookup_failed"
 
 
 def test_capture_provider_is_persisted_in_provenance(tmp_path):

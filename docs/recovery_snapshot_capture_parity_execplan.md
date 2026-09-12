@@ -4,7 +4,7 @@
 
 Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **A — Full**. Базовая точка: `main` = `9ba4a37` (в main уже влиты #552 — revisioned evidence head и lifecycle, #557/#563 — freshness/provenance readiness и fail-closed intervention, #564/#565 — интервенционное evidence и guard отката `training_readiness`).
 
-Ревизия документа: v1.8 (реализация: M1 и M2 закрыты; M1 укреплён fail-closed диагностикой, M2 перевёл Garmin на общий capture и протянул полный run UUID от job manager; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API payload, UI и схема пока не менялись.
+Ревизия документа: v1.9 (реализация: M1 и M2 закрыты, плюс hardening-слайс F1–F3; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API payload, UI и схема пока не менялись.
 
 ## Purpose / Big Picture
 
@@ -67,7 +67,7 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
   Date/Author: 2026-09-12 / agent (Spec / Architecture Owner, plan-only этап).
 - Decision (D2): **устойчивая идентичность capture-рана — полный UUID, а не усечённый `job_id`**: `api/sync_jobs.py::SyncJobManager.start_or_get` продолжает создавать короткий `job_id` как display/job handle, но дополнительно генерирует `capture_run_id = str(uuid.uuid4())` (полный) и передаёт его в раннер; оба sync-сервиса принимают аддитивный keyword `capture_run_id: str | None = None`, а при `None` генерируют полный UUID сами (обратная совместимость для прямых вызовов, demo и тестов).
   Rationale: AC3 требует «повтор того же capture run не создаёт ревизию, отдельная синхронизация в тот же день создаёт новую монотонную ревизию», и это обеспечено хранением (`fingerprint = sha256({capture_run_id, capture_mode})` + монотонная `revision`), но только при стабильной и **неколлизирующей** идентичности. `job_id = str(uuid.uuid4())[:8]` (`api/sync_jobs.py:63`) — это 32-битное пространство, а дедупликация идёт по `(capture_mode, capture_run_id)` (индекс `readiness_snapshots(capture_mode, capture_run_id)`, `data/database.py:946`) глобально, без ограничения датой: коллизия двух разных job'ов молча пометила бы новую синхронизацию ретраем и потеряла бы дневную ревизию (review P2). Полный UUID (122 бита) исключает это, короткий id остаётся человеко-читаемым.
-  Контракт раннера расширяется аддитивно: `SyncRunner` перестаёт быть строго одноаргументным (`api/sync_jobs.py:29`) — вызов становится `run_sync(on_progress, capture_run_id=…)`, а `_run_garmin_sync`/`_run_intervals_sync` пробрасывают id в сервисы.
+  Контракт раннера **изменён, а не расширен аддитивно** (F1): `SyncRunner` стал `Protocol` с **обязательным** keyword-аргументом `capture_run_id` (`api/sync_jobs.py:29`), вызов — `run_sync(on_progress, capture_run_id=…)`, `_run_garmin_sync`/`_run_intervals_sync` пробрасывают id в сервисы. Обязательность осознанная: опциональный keyword позволил бы молча не протянуть идентичность до сервиса и вернул бы дефект 32-битного `job_id`; вызывающие и тестовые двойники обновлены в том же слайсе M2. Публичным контрактом `SyncRunner` не является — он внутренний для `api/`.
   Date/Author: 2026-09-12 / agent (уточнено по review P2).
 - Decision (D3): **пять состояний capture вычисляются, а не хранятся**: `saved_before_load`, `saved_too_late`, `activity_start_missing`, `ineligible`, `capture_failed` — проекция уже существующих примитивов (eligibility + старты активностей дня + cutoff из `select_daily_anchor`), без новой колонки и без миграции.
   Rationale: состояние выводимо из журнала `readiness_snapshots` и активностей в любой момент; персистенция дублировала бы выводимое состояние и потребовала бы миграции (автоматический триггер более тяжёлого класса).
@@ -90,6 +90,15 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - Decision (M1): **граница дня считается по дате ревизии**: активности читаются `db.get_activities_between(local_date − 1 день, local_date)`, а не окном от «сейчас».
   Rationale: `capture_mode` допускает `backfilled`, и тогда окно от текущего момента даёт неверный вердикт; запас в один день покрывает границу тайм-зоны, не расширяя чтение на историю.
   Date/Author: 2026-09-12 / agent (M1).
+- Decision (M2): **контракт раннера — обязательный `capture_run_id`** (F1): `SyncRunner` объявлен `Protocol` с обязательным keyword; вызывающие в `api/routers/system.py` и тестовые двойники обновлены в том же слайсе.
+  Rationale: идентичность обязана рождаться один раз на job boundary и не теряться по пути; опциональный keyword позволил бы вызвать раннер без идентичности, и сервис молча сгенерировал бы собственный UUID — то есть дефект из review P2 вернулся бы. Формулировка плана «аддитивно» была неточной и исправлена (F1).
+  Date/Author: 2026-09-13 / agent (M2 hardening).
+- Decision (M2): **человеко-читаемая строка `details` намеренно сменила содержимое** (F2): было `Recovery snapshot: <eligibility_status> · rev N`, стало `Recovery snapshot: <capture_status> · rev N` — пятисоставный словарь M1 вместо булевой пригодности.
+  Rationale: строка остаётся в `details` для совместимости (план этого требовал), но `eligibility_status` не сообщал, опоздал ли снимок; пятисоставный статус описывает решение целиком. Изменение внутреннее: публичный payload в M2 не менялся, строка попадает в `notices` только при `partial`. Пинится тестом `test_sync_garmin_uses_shared_capture_once_with_explicit_run_identity`.
+  Date/Author: 2026-09-13 / agent (M2 hardening).
+- Decision (M2): **причина отказа capture остаётся серверным следом, а не публичным текстом** (F3): все три ветки отказа логируют `logger.warning(<стабильный код>, exc_info=True)`, публичный блок и warning несут только код (`snapshot_capture_failed` / `activity_lookup_failed`).
+  Rationale: до харденинга M1 сырой `str(exc)` уходил в warning синка (виден оператору), после — не сохранялся нигде, то есть диагностика была потеряна; возвращать текст в публичный контракт нельзя (утечка локальных путей и внутренних сообщений), поэтому traceback идёт в лог, а контракт остаётся стабильным.
+  Date/Author: 2026-09-13 / agent (M2 hardening).
 - Decision (D8): **plan-PR мержится отдельно и не переиспользуется под реализацию** (подтверждено владельцем, 2026-09-12): после принятия плана PR плана закрывается своим мержем, а M1–M6 идут **новой веткой от обновлённого `main`** и с собственным review budget.
   Rationale: смешивание плана и реализации в одной ветке сделало бы head одним объектом для двух разных бюджетов ревью и смазало бы evidence bundle: правки плана и правки кода имеют разные критерии приёмки. Побочный эффект: `docs/recovery_snapshot_capture_parity_execplan.md` живёт в main и обновляется уже веткой реализации.
   Date/Author: 2026-09-12 / agent (по решению владельца).
@@ -186,6 +195,16 @@ RED-checkpoint `22fda6b`: `4 failed` — `sync_garmin_data` не принима�
 
 D4 сохранён: `capture_failed` добавляет безопасный warning и итоговый status payload остаётся `sync_state="partial"`; сохранённая Garmin-активность не откатывается. Совместимость тестовых runner doubles закрыта в том же слайсе. Focused Garmin/job/audit-контур: `34 passed`; расширенный recovery/sync-контур: `119 passed`; contributor-safe: `2488 passed, 28 skipped, 26 deselected`, 0 failed; `ruff check .` чисто. Skips — существующее отсутствие `web/node_modules`, local-listening socket, `garth` и локальных диагностических данных; публичный web-контракт в M2 не менялся.
 
+### M2 hardening — F1–F3 (2026-09-13)
+
+Короткий слайс по итогам независимой проверки M2.
+
+- **F1 (только документация).** Формулировка «контракт раннера расширяется аддитивно» заменена на фактическую: `SyncRunner` — `Protocol` с обязательным keyword `capture_run_id`, вызывающие и двойники обновлены в M2; зафиксировано решение M2 с обоснованием, почему обязательность предпочтительнее опциональности (иначе идентичность может не дотянуться до сервиса, и дефект 32-битного `job_id` вернётся).
+- **F2.** Смена содержимого строки `details` (`eligibility_status` → пятисоставный `capture_status`) записана как намеренное внутреннее изменение M2 с обоснованием и ссылкой на пинящий тест.
+- **F3.** Серверное логирование: `logger.warning(<стабильный код>, exc_info=True)` добавлено в три ветки — отказ рекордера и отказ чтения границы дня в `services/recovery_analytics.py`, плюс защитная ветка в `services/sync.py` (там код-литерал осознан: ветка достижима даже при неудачном импорте обёртки). Публичный блок и warning несут только стабильные коды; сырой текст исключения остаётся в логе.
+
+RED (F3): `3 failed` — два теста в `tests/smoke/test_recovery_capture_contract.py` (записи лога нет) и один в `tests/smoke/test_garmin_sync_service.py` (`0 == 1` записей). GREEN: focused-набор M1+M2+F3 — `51 passed`; заметки: ровно одна запись на один сбой, `exc_info` присутствует, `athlete.db` отсутствует и в сообщении лога, и в публичном блоке, и в `notices`.
+
 ## Interfaces and Dependencies
 
 Ожидаемые к концу M1–M4 стабильные имена:
@@ -201,8 +220,11 @@ D4 сохранён: `capture_failed` добавляет безопасный wa
     ) -> dict[str, Any]:
         """Возвращает {**saved, "recovery_capture": {...}, "eligibility": {...}, "episode_refresh": {...}}."""
 
-    # api/sync_jobs.py — аддитивное расширение контракта раннера
-    SyncRunner = Callable[..., dict[str, Any]]      # вызов: run_sync(on_progress, capture_run_id=<полный UUID>)
+    # api/sync_jobs.py — контракт раннера изменён (F1): обязательный keyword,
+    # опциональность скрыла бы непротянутую идентичность
+    class SyncRunner(Protocol):
+        def __call__(self, on_progress: Callable[[SyncProgressUpdate], None], *,
+                     capture_run_id: str) -> dict[str, Any]: ...
 
     # services/recovery_analytics.py — аддитивный keyword существующего рекордера
     def record_post_sync_recovery_state(..., capture_provider: str | None = None) -> dict[str, Any]: ...
@@ -273,3 +295,4 @@ D4 сохранён: `capture_failed` добавляет безопасный wa
 - v1.6 (2026-09-12): M1 реализации закрыт. Правило пяти состояний вынесено в `models/recovery_response.py::capture_verdict`, общая граница дня — `daily_activity_cutoff` (используется и `select_daily_anchor`), сервис получил `capture_post_sync_recovery_state`, рекордер — аддитивный `capture_provider` с дурабельной записью в провенанс. RED `13 failed` → GREEN `13 passed`, focused-контур `180 passed`. Две находки: активности читаются по дате ревизии (иначе backfilled-захват получает неверный вердикт) и активность добавляет фактор TSB, меняя eligibility снимка.
 - v1.7 (2026-09-12): safety hardening M1. RED-checkpoint `6dbe415` доказал два fail-closed дефекта: ошибка чтения активностей маскировалась обычным статусом, а сырой `str(exc)` попадал в будущий публичный блок. GREEN возвращает стабильные коды `activity_lookup_failed`/`snapshot_capture_failed`, сохраняет идентичность уже записанной ревизии и не раскрывает внутренний текст; focused `14 passed`, Ruff чисто.
 - v1.8 (2026-09-13): M2 закрыл Garmin handoff и фактическую job identity. RED `4 failed` на `22fda6b`; GREEN заменяет legacy inline recorder общим wrapper, сохраняет ровно один capture, прокидывает полный UUID от `SyncJobManager`, генерирует его для direct/demo вызовов и сохраняет D4 (`partial` + безопасный warning при `capture_failed`). Focused `34 passed`, расширенный recovery/sync `119 passed`, contributor-safe `2488 passed, 28 skipped, 26 deselected`, 0 failed; Ruff чисто; публичный API payload ещё не менялся (M4).
+- v1.9 (2026-09-13): hardening-слайс F1–F3. F1 — документация приведена к факту: контракт раннера не аддитивен, а изменён (Protocol с обязательным `capture_run_id`), решение M2 записано с обоснованием. F2 — смена содержимого строки `details` на пятисоставный статус зафиксирована как намеренная. F3 — серверное логирование с `exc_info=True` во всех трёх ветках отказа; публичный блок и warning несут только стабильные коды. RED `3 failed` → GREEN `51 passed` в focused-наборе.

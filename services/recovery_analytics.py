@@ -4,6 +4,7 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta, timezone
 import hashlib
 import json
+import logging
 from typing import Any, Mapping, Sequence
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
@@ -29,6 +30,10 @@ from services.readiness_snapshot import build_readiness_snapshot
 CAPTURE_ACTIVITY_LOOKBACK_DAYS = 1
 CAPTURE_REASON_SNAPSHOT_FAILED = "snapshot_capture_failed"
 CAPTURE_REASON_ACTIVITY_LOOKUP_FAILED = "activity_lookup_failed"
+
+# F3: причина отказа остаётся серверным следом (traceback), а публичный блок и
+# warning несут только стабильные коды — сырой текст исключения туда не попадает.
+logger = logging.getLogger(__name__)
 
 
 def _fingerprint(payload: dict[str, Any]) -> str:
@@ -218,6 +223,9 @@ def capture_post_sync_recovery_state(
             capture_provider=provider,
         )
     except Exception:  # derived analytics stay retryable, sync stays valid
+        logger.warning(
+            "recovery capture failed: %s", CAPTURE_REASON_SNAPSHOT_FAILED, exc_info=True
+        )
         return {
             "snapshot": None,
             "created": False,
@@ -246,6 +254,11 @@ def capture_post_sync_recovery_state(
                 local_date,
             )
         except Exception:
+            logger.warning(
+                "recovery capture failed: %s",
+                CAPTURE_REASON_ACTIVITY_LOOKUP_FAILED,
+                exc_info=True,
+            )
             return {
                 **recorded,
                 "recovery_capture": _capture_block(
