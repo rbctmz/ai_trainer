@@ -70,9 +70,10 @@ class GarminSyncResult:
     success_messages: list[str] = field(default_factory=list)
     mode: str = "full"
     days: int = DEFAULT_SYNC_DAYS
-    # Which provider this result came from. Additive in M1 (§5): the ONLY new field
-    # the Garmin success-path exposes vs. pre-M1 (gate M1-T3). Defaults to 'garmin'.
+    # Which provider this result came from. Additive in M1 (§5); defaults to
+    # 'garmin'. M2 adds the internal structured capture result alongside it.
     source: str = "garmin"
+    recovery_capture: dict[str, Any] | None = None
 
     def totals(self) -> SyncCounts:
         """Aggregate new/updated/skipped counts across every synced domain."""
@@ -271,6 +272,7 @@ def sync_garmin_data(
     state: StateManager,
     days: int | None = None,
     on_progress: SyncProgressCallback | None = None,
+    capture_run_id: str | None = None,
 ) -> GarminSyncResult:
     """Synchronize Garmin activities and related health metrics into local storage.
 
@@ -406,24 +408,39 @@ def sync_garmin_data(
     clear_data_caches()
 
     # Scientific capture is derived and fail-open: a valid Garmin sync is not
-    # rolled back if the prospective journal cannot be refreshed.  Test/fake
+    # rolled back if the prospective journal cannot be refreshed. Test/fake
     # database handles that predate the journal simply skip this optional hook.
+    # API jobs pass a stable full UUID; direct/demo callers receive one here.
     if callable(getattr(database, "save_readiness_snapshot", None)):
+        effective_capture_run_id = capture_run_id or str(uuid.uuid4())
         try:
-            from services.recovery_analytics import record_post_sync_recovery_state
+            from services import recovery_analytics
 
-            recovery_capture = record_post_sync_recovery_state(
+            capture_result = recovery_analytics.capture_post_sync_recovery_state(
                 database,
-                capture_run_id=str(uuid.uuid4()),
-                observed_at_utc=datetime.now().astimezone(),
+                capture_run_id=effective_capture_run_id,
+                provider="garmin",
             )
-            snapshot = recovery_capture.get("snapshot") or {}
-            result.details.append(
-                "Recovery snapshot: "
-                f"{snapshot.get('eligibility_status', 'unknown')} · rev {snapshot.get('revision', '—')}"
-            )
-        except Exception as exc:
-            result.warnings.append(f"⚠️ Recovery snapshot capture: {exc}")
+            result.recovery_capture = dict(capture_result.get("recovery_capture") or {}) or None
+        except Exception:
+            # Defensive last boundary: the provider sync stays committed and no
+            # raw exception text enters the future public response contract.
+            result.recovery_capture = {
+                "provider": "garmin",
+                "capture_run_id": effective_capture_run_id,
+                "status": "capture_failed",
+                "reason": "snapshot_capture_failed",
+                "revision": None,
+                "created": False,
+            }
+
+        block = result.recovery_capture or {}
+        status = str(block.get("status") or "capture_failed")
+        revision = block.get("revision")
+        result.details.append(f"Recovery snapshot: {status} · rev {revision or '—'}")
+        if status == "capture_failed":
+            reason = str(block.get("reason") or "snapshot_capture_failed")
+            _append_warning(result.warnings, f"⚠️ Recovery snapshot capture: {reason}")
 
     result.details.extend(_build_sync_details(sleep_data, daily_health_data, training_status_data))
     result.success_messages = _build_success_messages(result)

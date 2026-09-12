@@ -140,7 +140,7 @@ def sync(payload: SyncRequest | None = None, days: int | None = None) -> Dict[st
     )
 
 
-def _build_run_sync(source: str, requested_days: int | None, db) -> "Callable[[Any], Dict[str, Any]]":
+def _build_run_sync(source: str, requested_days: int | None, db) -> "Callable[..., Dict[str, Any]]":
     """Pick the provider runner. Both branches flow the result payload through the
     SAME operational-state + shadow-forecast helpers (review P5), so the snapshot
     shape and side-effects are identical regardless of source."""
@@ -150,7 +150,7 @@ def _build_run_sync(source: str, requested_days: int | None, db) -> "Callable[[A
 
 
 def _run_garmin_sync(db, requested_days: int | None):
-    def run_sync(on_progress):
+    def run_sync(on_progress, *, capture_run_id: str):
         if not (Settings.GARMIN_EMAIL and Settings.GARMIN_PASSWORD):
             raise RuntimeError("GARMIN_EMAIL/GARMIN_PASSWORD не заданы в .env")
 
@@ -169,6 +169,7 @@ def _run_garmin_sync(db, requested_days: int | None):
                 state,
                 days=requested_days,
                 on_progress=on_progress,
+                capture_run_id=capture_run_id,
             )
         except Exception as exc:
             raise RuntimeError(f"Sync failed: {exc}") from exc
@@ -190,7 +191,10 @@ def _run_intervals_sync(db, requested_days: int | None):
     reachable, the provider is just not configured."""
     from services.intervals_icu import IntervalsICUConfigurationError
 
-    def run_sync(on_progress):
+    def run_sync(on_progress, *, capture_run_id: str):
+        # M3 consumes the same stable identity in the Intervals service. The
+        # runner accepts it now so SyncJobManager has one provider-neutral shape.
+        _ = capture_run_id
         try:
             result = intervals_sync_service.sync_intervals_data(
                 db,
