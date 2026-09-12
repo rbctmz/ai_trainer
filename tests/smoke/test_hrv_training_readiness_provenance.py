@@ -419,6 +419,232 @@ def test_training_status_provenance_round_trips_and_survives_a_dateless_resync(t
     assert kept.loc["2026-07-16", "training_readiness_observed_at"] == "2026-07-16"
 
 
+# ---------------------------------------------------------------------------
+# Issue #565: датированная более старая запись readiness не откатывает метрику
+# ---------------------------------------------------------------------------
+
+
+def _training_row(db: Database, day: str):
+    return db.get_training_status_history(days=36500).set_index("date").loc[day]
+
+
+def _seed_newer_readiness(db: Database, *, day: str = "2026-09-12") -> None:
+    db.sync_training_status(
+        {
+            day: {
+                "training_status": "PRODUCTIVE",
+                "vo2_max": 52.0,
+                "training_readiness": 80.0,
+                "training_readiness_observed_at": day,
+            }
+        }
+    )
+
+
+def _stale_payload(day: str = "2026-09-12") -> dict:
+    """Кэшированный readiness вчерашней даты внутри строки дня синка."""
+    return {
+        day: {
+            "training_status": "UNPRODUCTIVE",
+            "vo2_max": 55.0,
+            "training_readiness": 30,
+            "training_readiness_observed_at": "2026-09-11",
+        }
+    }
+
+
+def test_stale_dated_readiness_does_not_roll_back_the_stored_measurement(tmp_path):
+    """#565: более старая дата измерения не перезаписывает подтверждённое наблюдение."""
+    db = Database(str(tmp_path / "stale_readiness.db"))
+    _seed_newer_readiness(db)
+
+    result = db.sync_training_status(_stale_payload())
+
+    row = _training_row(db, "2026-09-12")
+    assert row["training_readiness"] == 80.0
+    assert row["training_readiness_observed_at"] == "2026-09-12"
+    assert result["stale_readiness_rejected"] == 1
+
+
+def test_rejected_stale_readiness_keeps_value_and_date_atomic(tmp_path):
+    """Значение и дата двигаются только вместе: смешанных комбинаций не возникает."""
+    db = Database(str(tmp_path / "atomic_readiness.db"))
+    _seed_newer_readiness(db)
+
+    db.sync_training_status(_stale_payload())
+
+    row = _training_row(db, "2026-09-12")
+    observed = (row["training_readiness"], row["training_readiness_observed_at"])
+    assert observed == (80.0, "2026-09-12")
+    assert observed not in {(30.0, "2026-09-12"), (80.0, "2026-09-11")}
+
+
+def test_rejected_stale_readiness_still_updates_the_composite_fields(tmp_path):
+    """Guard метрико-скоупный: остальные поля композитной строки обновляются."""
+    db = Database(str(tmp_path / "composite_fields.db"))
+    _seed_newer_readiness(db)
+
+    db.sync_training_status(_stale_payload())
+
+    row = _training_row(db, "2026-09-12")
+    assert row["training_status"] == "UNPRODUCTIVE"
+    assert row["vo2_max"] == 55.0
+    assert row["training_readiness"] == 80.0
+
+
+def test_repeated_stale_resync_reports_the_rejection(tmp_path):
+    """Повторный sync тем же устаревшим payload состояние не меняет и сообщает об отказе."""
+    db = Database(str(tmp_path / "repeated_stale.db"))
+    _seed_newer_readiness(db)
+
+    first = db.sync_training_status(_stale_payload())
+    second = db.sync_training_status(_stale_payload())
+
+    assert first["stale_readiness_rejected"] == 1
+    assert second["stale_readiness_rejected"] == 1
+    row = _training_row(db, "2026-09-12")
+    assert (row["training_readiness"], row["training_readiness_observed_at"]) == (
+        80.0,
+        "2026-09-12",
+    )
+
+
+def test_newer_observation_after_a_rejected_stale_payload_restores_the_metric(tmp_path):
+    """Отклонение не «залипает»: более новое наблюдение снова пишется."""
+    db = Database(str(tmp_path / "restore_after_reject.db"))
+    _seed_newer_readiness(db)
+    db.sync_training_status(_stale_payload())
+
+    result = db.sync_training_status(
+        {
+            "2026-09-12": {
+                "training_readiness": 85.0,
+                "training_readiness_observed_at": "2026-09-13",
+            }
+        }
+    )
+
+    row = _training_row(db, "2026-09-12")
+    assert (row["training_readiness"], row["training_readiness_observed_at"]) == (
+        85.0,
+        "2026-09-13",
+    )
+    assert result["stale_readiness_rejected"] == 0
+
+
+def test_equal_and_newer_dated_readiness_still_write(tmp_path):
+    """Characterization: равная и более новая дата пишутся как прежде."""
+    db = Database(str(tmp_path / "equal_newer.db"))
+    db.sync_training_status(
+        {
+            "2026-07-16": {
+                "training_readiness": 78.0,
+                "training_readiness_observed_at": "2026-07-16",
+            }
+        }
+    )
+
+    equal = db.sync_training_status(
+        {
+            "2026-07-16": {
+                "training_readiness": 70.0,
+                "training_readiness_observed_at": "2026-07-16",
+            }
+        }
+    )
+    newer = db.sync_training_status(
+        {
+            "2026-07-16": {
+                "training_readiness": 85.0,
+                "training_readiness_observed_at": "2026-07-17",
+            }
+        }
+    )
+
+    row = _training_row(db, "2026-07-16")
+    assert (row["training_readiness"], row["training_readiness_observed_at"]) == (
+        85.0,
+        "2026-07-17",
+    )
+    assert equal["stale_readiness_rejected"] == 0
+    assert newer["stale_readiness_rejected"] == 0
+
+
+def test_dated_readiness_writes_when_the_stored_row_has_no_measurement_date(tmp_path):
+    """Граница: у сохранённой строки нет даты измерения — сравнивать не с чем."""
+    db = Database(str(tmp_path / "no_stored_date.db"))
+    db.sync_training_status({"2026-07-16": {"training_readiness": 78.0}})
+
+    result = db.sync_training_status(
+        {
+            "2026-07-16": {
+                "training_readiness": 30.0,
+                "training_readiness_observed_at": "2026-07-15",
+            }
+        }
+    )
+
+    row = _training_row(db, "2026-07-16")
+    assert (row["training_readiness"], row["training_readiness_observed_at"]) == (
+        30.0,
+        "2026-07-15",
+    )
+    assert result["stale_readiness_rejected"] == 0
+
+
+def test_dateless_resync_semantics_are_preserved_next_to_the_guard(tmp_path):
+    """Characterization #557: provenance следует за значением для недатированной записи."""
+    db = Database(str(tmp_path / "dateless_semantics.db"))
+    db.sync_training_status(
+        {
+            "2026-07-16": {
+                "training_readiness": 78.0,
+                "training_readiness_observed_at": "2026-07-16",
+            }
+        }
+    )
+
+    db.sync_training_status({"2026-07-16": {"training_readiness": 78.0}})
+    unchanged = _training_row(db, "2026-07-16")
+    assert unchanged["training_readiness_observed_at"] == "2026-07-16"
+
+    db.sync_training_status({"2026-07-16": {"training_readiness": 70.0}})
+    changed = _training_row(db, "2026-07-16")
+    assert changed["training_readiness"] == 70.0
+    assert pd.isna(changed["training_readiness_observed_at"])
+
+
+def test_malformed_measurement_dates_keep_the_previous_semantics(tmp_path):
+    """Characterization границы: нечитаемая дата не сравнивается (см. slice-spec, Residual risks).
+
+    Guard сравнивает только разобранные даты: `date()` в SQLite даёт NULL для
+    неформатного значения, поэтому применяется семантика #557, а не отклонение.
+    Тест фиксирует эту границу явно, чтобы её изменение было видимым.
+    """
+    db = Database(str(tmp_path / "malformed_dates.db"))
+    db.sync_training_status(
+        {
+            "2026-07-16": {
+                "training_readiness": 78.0,
+                "training_readiness_observed_at": "2026-07-16",
+            }
+        }
+    )
+
+    result = db.sync_training_status(
+        {
+            "2026-07-16": {
+                "training_readiness": 30.0,
+                "training_readiness_observed_at": "2026-7-1",
+            }
+        }
+    )
+
+    row = _training_row(db, "2026-07-16")
+    assert row["training_readiness_observed_at"] == "2026-7-1"
+    assert result["stale_readiness_rejected"] == 0
+
+
 def test_legacy_training_status_table_migrates_with_null_provenance(tmp_path):
     db_path = tmp_path / "legacy_training.db"
     conn = sqlite3.connect(db_path)

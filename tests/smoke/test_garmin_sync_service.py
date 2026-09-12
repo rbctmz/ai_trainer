@@ -394,6 +394,51 @@ def test_peak_body_battery_empty_array_returns_none():
     assert sync_service._peak_body_battery([[0, None]]) is None
 
 
+class _ReadinessSyncClient(_StubGarminClient):
+    """Клиент, чей payload несёт readiness вместе с текущими status/VO2 (issue #565)."""
+
+    def get_training_status(self):
+        return {
+            "mostRecentTrainingStatus": {
+                "latestTrainingStatusData": {
+                    "dev-1": {"trainingStatusFeedbackPhrase": "PRODUCTIVE_1"}
+                }
+            }
+        }
+
+    def get_vo2_max(self):
+        return {"vo2MaxValue": 52.0, "fitnessAge": 31}
+
+    def get_training_readiness(self):
+        return {"readinessScore": 30, "calendarDate": "2026-09-11"}
+
+
+class _ReadinessSyncState(_StubState):
+    def __init__(self, database) -> None:
+        self.garmin_client = _ReadinessSyncClient()
+        self.database = database
+
+
+class _RejectingReadinessDatabase(_StubDatabase):
+    """Отдаёт результат writer'а с отклонённой устаревшей записью readiness."""
+
+    def sync_training_status(self, training_status):
+        self.training_status = training_status
+        return {"new": 0, "updated": 1, "stale_readiness_rejected": 1}
+
+
+def test_sync_warns_when_a_stale_readiness_write_is_rejected(monkeypatch: pytest.MonkeyPatch, tmp_path):
+    """#565: отклонение не теряется молча — синк-слой сообщает о нём в warnings."""
+    db = _make_database(tmp_path)
+    state = _ReadinessSyncState(_RejectingReadinessDatabase(db))
+    monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)
+
+    result = sync_service.sync_garmin_data(state, days=1)
+
+    assert any("readiness" in warning.lower() for warning in result.warnings), result.warnings
+    assert any("стар" in warning for warning in result.warnings), result.warnings
+
+
 def test_sync_service_retries_transient_sleep_errors(monkeypatch: pytest.MonkeyPatch, tmp_path):
     state = _FlakySleepState(_StubDatabase(_make_database(tmp_path)))
     monkeypatch.setattr(sync_service, "clear_data_caches", lambda: None)

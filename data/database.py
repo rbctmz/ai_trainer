@@ -149,6 +149,12 @@ class Database:
         'monthly_load_anaerobic_target_max'
     ]
 
+    # Issue #565: метрика readiness и её дата измерения не откатываются назад
+    # по дате наблюдения внутри строки дня синка.
+    _READINESS_GUARDED_COLUMNS = frozenset(
+        {'training_readiness', 'training_readiness_observed_at'}
+    )
+
     _TRAINING_STATUS_COLUMN_TYPES = {
         'vo2_max': 'REAL',
         'fitness_age': 'REAL',
@@ -6182,6 +6188,7 @@ class Database:
         
         new_count = 0
         updated_count = 0
+        stale_readiness_rejected = 0
         
         for date_str, data in status_data.items():
             clean_date = self.clean_value(date_str)
@@ -6198,15 +6205,48 @@ class Database:
                 if write_observed
                 else existing_observed.get(clean_date)
             )
-            update_clause = ', '.join(f"{column}=?" for column in self._TRAINING_STATUS_COLUMN_ORDER)
+            # Строка принадлежит дню синка, метрика — своему наблюдению: датированная
+            # более старая запись не откатывает подтверждённое измерение (issue #565).
+            # Отклонение фиксируется по факту записи (ниже), поэтому счётчик не может
+            # разойтись с решением CASE и отдельный разбор дат в Python не нужен.
+            incoming_observed = self.clean_value(data.get('training_readiness_observed_at'))
             insert_columns = ['date'] + self._TRAINING_STATUS_COLUMN_ORDER
             insert_placeholders = ', '.join('?' for _ in insert_columns)
             
             if clean_date in existing_dates:
+                assignments = []
+                parameters = []
+                for index, column in enumerate(self._TRAINING_STATUS_COLUMN_ORDER):
+                    if column in self._READINESS_GUARDED_COLUMNS:
+                        # CASE сравнивает дату измерения *текущей* строки с входящей,
+                        # поэтому более старая запись не перезаписывает более новую
+                        # даже при конкурентном писателе (окна TOCTOU нет).
+                        assignments.append(
+                            f"{column}=CASE WHEN date(?) IS NOT NULL "
+                            f"AND date(training_readiness_observed_at) IS NOT NULL "
+                            f"AND date(training_readiness_observed_at) > date(?) "
+                            f"THEN {column} ELSE ? END"
+                        )
+                        parameters.extend(
+                            [incoming_observed, incoming_observed, column_values[index]]
+                        )
+                    else:
+                        assignments.append(f"{column}=?")
+                        parameters.append(column_values[index])
                 cursor.execute(
-                    f'UPDATE training_status SET {update_clause} WHERE date=?',
-                    (*column_values, clean_date)
+                    f"UPDATE training_status SET {', '.join(assignments)} WHERE date=?",
+                    (*parameters, clean_date)
                 )
+                # Отклонение определяем по факту: если датированная входящая дата не
+                # оказалась в строке, значит победила сохранённая (более новая) — это
+                # и есть откат, о котором должен узнать синк-слой.
+                if incoming_observed:
+                    written = cursor.execute(
+                        'SELECT training_readiness_observed_at FROM training_status WHERE date=?',
+                        (clean_date,)
+                    ).fetchone()
+                    if written is not None and written[0] != column_values[observed_index]:
+                        stale_readiness_rejected += 1
                 updated_count += 1
             else:
                 cursor.execute(
@@ -6223,7 +6263,8 @@ class Database:
         
         return {
             'new': new_count,
-            'updated': updated_count
+            'updated': updated_count,
+            'stale_readiness_rejected': stale_readiness_rejected
         }
     
     # =================== МЕТОДЫ ПОЛУЧЕНИЯ НОВЫХ ДАННЫХ ===================
