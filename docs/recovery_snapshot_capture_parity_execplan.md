@@ -4,7 +4,7 @@
 
 Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **A — Full**. Базовая точка: `main` = `9ba4a37` (в main уже влиты #552 — revisioned evidence head и lifecycle, #557/#563 — freshness/provenance readiness и fail-closed intervention, #564/#565 — интервенционное evidence и guard отката `training_readiness`).
 
-Ревизия документа: v1.13 (реализация: M1–M5 и M6a закрыты, плюс hardening-слайс F1–F3; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API-контракт расширен аддитивно в M4, UI readback добавлен в M5; схема не менялась.
+Ревизия документа: v1.14 (реализация: M1–M5 и M6a закрыты, плюс hardening-слайс F1–F3; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API-контракт расширен аддитивно в M4, UI readback добавлен в M5; схема не менялась.
 
 ## Purpose / Big Picture
 
@@ -267,6 +267,8 @@ RED: `2 failed` в `tests/smoke/test_m3_sync_ui_contract.py` (readback отсу�
 
 Приёмка покрывает: оба провайдера × пять состояний с одинаковым набором публичных полей; отсутствие служебных данных в сыром JSON; идемпотентность `capture_run_id` (повтор → `created: false`, одна ревизия) и следующую ревизию у нового job'а того же дня (реальные job'ы через API, каждый со своим полным UUID); fail-open при отказе capture (`activities` остаются, статус `capture_failed`); согласованность статуса ревизии с cutoff и дневным anchor (ранняя ревизия остаётся anchor'ом); явный приоритет `capture_failed → activity_start_missing → ineligible → before/too_late`; неизменность истории (историческая строка журнала побайтово та же после новой ревизии, читатель отдаёт `[1, 2]`).
 
+**Найдено при коммите:** `.gitignore:248` (`*.json`) исключал фикстуры, поэтому первый коммит M6a ушёл без них — на чистом клоне pinning-тесты не нашли бы файлов. Добавлена негация `!tests/e2e/fixtures/recovery_capture/*.json` в стиле существующих исключений для `tests/contracts/*.json`; проверка `git ls-files tests/e2e/fixtures/recovery_capture/` → 10 файлов.
+
 **Handoff:** M6b (UI / Design Specialist) **потребляет** эти фикстуры через Playwright route interception и проверяет видимый UI; сами фикстуры не создаёт.
 
 ## Interfaces and Dependencies
@@ -364,3 +366,4 @@ RED: `2 failed` в `tests/smoke/test_m3_sync_ui_contract.py` (readback отсу�
 - v1.11 (2026-09-13): M4 — публичный контракт. Добавлены белый список полей и `project_recovery_capture`, блок публикуется обоими builder'ами, `job_id` штампуется в `SyncJobManager`, Intervals-раннер протягивает job-identity (дыра, найденная RED-тестом), `web/lib/types.ts` получил `RecoveryCapture` с nullable-датами и `job_id`, артефакт перегенерирован (+322). RED `4 failed` → GREEN `5 passed`, focused `61 passed`; web lint/build и contract-гейты зелёные. Записаны три решения M4: место штампа `job_id`, nullable-даты для `capture_failed`, проекция по белому списку.
 - v1.12 (2026-09-13): M5 — UI readback (роль UI / Design Specialist). `SyncControl` дополняет строку синхронизации вердиктом capture: пять понятных статусов, локальное время атлета `дд.мм чч:мм`, безопасная причина для проблемных состояний, честное «время не определено» при `null`. Идентификаторы, `error` и служебные поля в UI не попадают; `running`/`failed`/`partial`, счётчики, `notices` и responsive-контур сохранены. RED `2 failed` → GREEN `8 passed` статического UI-контракта; web lint/build зелёные, артефакт контракта не менялся.
 - v1.13 (2026-09-13): M6a — приёмка Domain / API и pinning фикстур. Исправлено владение фикстурами: их создаёт и пинит M6a, M6b только потребляет. Добавлены 10 JSON-фикстур терминального API и приёмочный набор (паритет полей, отсутствие служебных данных, идемпотентность рана, следующая ревизия у нового job'а, fail-open, инвариант статуса и anchor, приоритет предикатов, неизменность истории). RED был только на отсутствующей фикстурной инфраструктуре; восемь падений первого прогона — дефекты моего тест-кода, не продукта.
+- v1.14 (2026-09-13): M6a — фикстуры закоммичены. `.gitignore` (`*.json`) исключал `tests/e2e/fixtures/recovery_capture/*.json`, поэтому первый коммит M6a ушёл без них; добавлена негация и отдельный коммит с 10 фикстурами (`git ls-files` подтверждает).
