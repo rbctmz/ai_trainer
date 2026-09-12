@@ -4,7 +4,7 @@
 
 Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **A — Full**. Базовая точка: `main` = `9ba4a37` (в main уже влиты #552 — revisioned evidence head и lifecycle, #557/#563 — freshness/provenance readiness и fail-closed intervention, #564/#565 — интервенционное evidence и guard отката `training_readiness`).
 
-Ревизия документа: v1.11 (реализация: M1–M4 закрыты, плюс hardening-слайс F1–F3; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API-контракт расширен аддитивно в M4; UI и схема не менялись.
+Ревизия документа: v1.12 (реализация: M1–M5 закрыты, плюс hardening-слайс F1–F3; план отревьюен раундами `4ae3f4b`/`20f9dcb`, решения владельца D4/D5/D8 применены). Публичный API-контракт расширен аддитивно в M4, UI readback добавлен в M5; схема не менялась.
 
 ## Purpose / Big Picture
 
@@ -21,7 +21,7 @@ Issue: [#562](https://github.com/rbctmz/ai_trainer/issues/562). Change Class: **
 - [x] (2026-09-13) M2. Garmin-путь использует общий контракт без двойной записи; `SyncJobManager` генерирует отдельный полный `capture_run_id` и передаёт его через API runner в `sync_garmin_data`, direct/demo вызов генерирует полный UUID сам. RED `4 failed` (`22fda6b`) → GREEN `34 passed` на Garmin/job/audit focused-контуре; D4 сохраняет `partial` + warning при `capture_failed`. Подробности — `Artifacts and Notes`.
 - [x] (2026-09-13) M3. Intervals parity: `sync_intervals_data` вызывает общий capture ровно один раз с `provider="intervals"` после основных записей; принимает полный `capture_run_id` из job'а, а при direct-вызове генерирует полный UUID сам; защитная ветка логирует с `exc_info` и переводит результат в `partial` стабильным кодом; `IntervalsSyncResult.recovery_capture` остаётся внутренним до M4, публичный payload не менялся. RED `5 failed` → GREEN `5 passed`; focused-набор `56 passed`; подробности — `Artifacts and Notes`.
 - [x] (2026-09-13) M4. Additive API↔web контракт: очищенная проекция `project_recovery_capture` (белый список полей) публикуется обоими payload-builder'ами; `job_id` штампуется на границе `SyncJobManager`; Intervals-раннер получил ту же job-identity; `web/lib/types.ts` описывает `RecoveryCapture` с nullable-датами и `job_id`; артефакт контракта перегенерирован (+322 строки), inventory и drift-тесты зелёные. RED `4 failed` → GREEN `5 passed`; focused `61 passed`; подробности — `Artifacts and Notes`.
-- [ ] M5. UI readback: локальное время, статус, причина в строке синка (роль UI/Design Specialist — см. Decision Log D6).
+- [x] (2026-09-13) M5. UI readback: `SyncControl` показывает локальное время атлета, понятный текст одного из пяти статусов и безопасную причину для проблемных состояний; `null`-время даёт честное «время не определено», идентификаторы и `error` в UI не попадают; `running`/`failed`/`partial`, счётчики, `notices` и responsive-контур не изменены; точки монтирования dashboard не тронуты. RED `2 failed` → GREEN `8 passed` в статическом UI-контракте; web `lint`/`build` зелёные; подробности — `Artifacts and Notes`.
 - [ ] M6. Приёмка: синтетическая browser-приёмка обоих провайдеров, инвариант «capture-статус ⇔ дневной anchor», fail-open, идемпотентность/монотонность, широкий контур, ASR-каталог, evidence bundle.
 
 ## Surprises & Discoveries
@@ -240,6 +240,18 @@ RED (F3): `3 failed` — два теста в `tests/smoke/test_recovery_capture
 
 Проверки M4: `ruff check .` чисто; focused `61 passed`; contributor-safe — см. `Progress`/`Change log`; web `lint` без предупреждений, `build` успешен, `contract:extract -- --check` — артефакт актуален, `contract:inventory` отработал, `test_contract_extractor.py` / `test_api_call_inventory.py` / `test_web_contract_drift.py` — зелёные.
 
+### M5 — UI readback строки синхронизации (2026-09-13)
+
+Роль: UI / Design Specialist. Изменены только `web/components/sync/SyncControl.tsx`, статический UI-контрактный тест и этот план — API, Python-логика, TypeScript-контракт и артефакт не переопределялись (`contract:extract -- --check` подтверждает неизменность артефакта).
+
+RED: `2 failed` в `tests/smoke/test_m3_sync_ui_contract.py` (readback отсутствовал). GREEN: `8 passed` (4 существующих M3-проверки + 4 новых M5).
+
+Что добавлено: карты `RECOVERY_CAPTURE_STATUS_LABELS` (все пять состояний) и `RECOVERY_CAPTURE_REASON_LABELS` (безопасные причины), функции `formatRecoveryCaptureTime`/`formatRecoveryCaptureReason`/`formatRecoveryCapture`; terminal-ветка `formatSyncJob` дополняет строку `· Снимок готовности: <текст статуса>, <локальное время>[ · <причина>]`. Readback работает одинаково для Garmin и Intervals, потому что оба провайдера приходят одним и тем же payload'ом через один форматтер.
+
+Честность и приватность: время атлета приходит ISO-строкой со смещением и разбирается **как текст** (`дд.мм чч:мм`) — таймзона браузера в показ не вмешивается (`toLocaleString`/`new Date(` в компоненте отсутствуют, это пинит тест); пустое или нечитаемое время даёт «время не определено», неизвестный статус — «состояние снимка готовности неизвестно», неизвестная причина — «причина не уточнена»; `capture_run_id`, `job_id`, `capture.error`, `capture.snapshot_id` и `episode_refresh` в компоненте не упоминаются (проверяется тестом).
+
+Совместимость: `running`/`failed`/`idle` и processing-строка не тронуты, счётчики `result.counts` и `formatSyncNotices` сохранены, подробный вариант — прежний видимый `<p className="text-xs text-ink-faint">`, компактный — прежний responsive `<span className="hidden … sm:inline">`; новых точек монтирования и страниц нет.
+
 ## Interfaces and Dependencies
 
 Ожидаемые к концу M1–M4 стабильные имена:
@@ -333,3 +345,4 @@ RED (F3): `3 failed` — два теста в `tests/smoke/test_recovery_capture
 - v1.9 (2026-09-13): hardening-слайс F1–F3. F1 — документация приведена к факту: контракт раннера не аддитивен, а изменён (Protocol с обязательным `capture_run_id`), решение M2 записано с обоснованием. F2 — смена содержимого строки `details` на пятисоставный статус зафиксирована как намеренная. F3 — серверное логирование с `exc_info=True` во всех трёх ветках отказа; публичный блок и warning несут только стабильные коды. RED `3 failed` → GREEN `51 passed` в focused-наборе.
 - v1.10 (2026-09-13): M3 — Intervals parity. `sync_intervals_data` вызывает общий capture с `provider="intervals"`, принимает полный run id из job'а, при direct-вызове минтит полный UUID, при отказе логирует с `exc_info` и переводит результат в `partial` стабильным кодом; блок остаётся внутренним полем до M4. RED `5 failed` → GREEN `5 passed`, focused `56 passed`. Добавлено обязательное решение-охрана для M4: наружу проецируется только очищенный `recovery_capture`, потому что `episode_refresh["error"]` содержит `str(exc)`.
 - v1.11 (2026-09-13): M4 — публичный контракт. Добавлены белый список полей и `project_recovery_capture`, блок публикуется обоими builder'ами, `job_id` штампуется в `SyncJobManager`, Intervals-раннер протягивает job-identity (дыра, найденная RED-тестом), `web/lib/types.ts` получил `RecoveryCapture` с nullable-датами и `job_id`, артефакт перегенерирован (+322). RED `4 failed` → GREEN `5 passed`, focused `61 passed`; web lint/build и contract-гейты зелёные. Записаны три решения M4: место штампа `job_id`, nullable-даты для `capture_failed`, проекция по белому списку.
+- v1.12 (2026-09-13): M5 — UI readback (роль UI / Design Specialist). `SyncControl` дополняет строку синхронизации вердиктом capture: пять понятных статусов, локальное время атлета `дд.мм чч:мм`, безопасная причина для проблемных состояний, честное «время не определено» при `null`. Идентификаторы, `error` и служебные поля в UI не попадают; `running`/`failed`/`partial`, счётчики, `notices` и responsive-контур сохранены. RED `2 failed` → GREEN `8 passed` статического UI-контракта; web lint/build зелёные, артефакт контракта не менялся.
